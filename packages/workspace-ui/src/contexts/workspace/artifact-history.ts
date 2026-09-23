@@ -6,14 +6,14 @@ import { nextMsgId } from './session.utils'
 
 const updateInput = z.object({ work_id: z.string(), content: z.string(), title: z.string().optional() })
 
-/** Input alone can be a denied/interrupted call. Only a successful receipt
- * creates a revision. Never use today's work content for yesterday's preview. */
+/** Rebuild from tool input, as for initial renders. Explicit failures and running
+ * calls do not become completed previews. Never use today's work content. */
 export function artifactUpdateFromHistory(
   tool: WireSessionLoadMessage,
   result: WireSessionLoadMessage,
   getWork: (workId: string) => Work | undefined,
 ): Message | undefined {
-  if (result.status !== 'ok' || tool.toolStatus === 'error' || (!result.artifactWorkRef && !result.workUpdateSucceeded)) return
+  if (result.status === 'error' || tool.toolStatus === 'error' || tool.toolStatus === 'running') return
   try {
     const input = updateInput.parse(JSON.parse(tool.toolInput || '{}'))
     const work = result.artifactWorkRef ? undefined : getWork(input.work_id)

@@ -86,6 +86,41 @@ describe('new run resolution', () => {
     expect(resolved.modelConfig.modelId).toBe(defaults.modelConfig.modelId)
   })
 
+  test("a task's session starts on the task's host, not the focused tab's", () => {
+    // WHY: a task's path names a folder on the host that holds the task. Opening
+    // it from the sidebar while a tab on another host has focus must not run the
+    // new session on that other host with a path it does not hold.
+    const source = {
+      ...run('claude-code', 'claude-opus-5'),
+      gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath: '/repo/wt' },
+      serverId: 'host-a',
+      taskServerId: 'host-a',
+    }
+
+    const resolved = resolveNewRunConfig(run('codex', 'gpt-5.6-sol'), source, {
+      workingDirectory: '/task/project',
+      serverId: 'host-b',
+      taskServerId: 'host-b',
+    })
+
+    expect(resolved.serverId).toBe('host-b')
+    expect(resolved.taskServerId).toBe('host-b')
+    expect(resolved.workingDirectory).toBe('/task/project')
+    expect(resolved.gitContext).toBeNull()
+  })
+
+  test('a cloud task files in the workspace service while it runs elsewhere', () => {
+    // WHY: the workspace service owns records but runs nothing. Its task keeps
+    // the service as its home; the run stays on an execution host.
+    const resolved = resolveNewRunConfig(run('codex', 'gpt-5.6-sol'), run('codex', 'gpt-5.6-sol'), {
+      workingDirectory: '/repo',
+      taskServerId: 'cloud:org-1',
+    })
+
+    expect(resolved.serverId).toBe('local')
+    expect(resolved.taskServerId).toBe('cloud:org-1')
+  })
+
   test('ordinary inheritance keeps location but resets session-only choices', () => {
     const defaults = { ...run('codex', 'gpt-5.6-sol'), permissionMode: 'ask' as const }
     const source = {
@@ -124,5 +159,17 @@ describe('new run resolution', () => {
     expect(resolved.serverId).toBe('remote')
     expect(resolved.taskServerId).toBe('remote')
     expect(resolved.projectGroupPath).toBeNull()
+  })
+})
+
+describe('isolating sessions on a shared host', () => {
+  test('moving to a managed host asks for a new worktree; a personal host keeps the checkout', async () => {
+    // WHY: docs/plans/project-model.md §7 — several members share a managed host
+    // and its checkouts, so a session there works in its own worktree. On a
+    // person's own machine working in the checkout is the design.
+    const { withProjectHost } = await import('@solus/workspace-ui/contexts/workspace/run-config')
+    const base = { ...run('codex', 'gpt-5.6-sol'), serverId: 'laptop', taskServerId: 'laptop' }
+    expect(withProjectHost(base, 'team', { path: '/data/projects/web', isolate: true }).worktree).toEqual({ baseBranch: null })
+    expect(withProjectHost(base, 'desk', { path: '/home/me/web', isolate: false }).worktree).toBeNull()
   })
 })

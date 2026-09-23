@@ -8,7 +8,8 @@
     href: string;
     title?: string;
     onclick: (event: MouseEvent) => void;
-    onOpenInSolus: () => void;
+    /** Open in the Solus browser pane. Null on a client with no browser pane (the cloud console). */
+    onOpenInSolus: (() => void) | null;
     children: Snippet;
   } = $props();
 
@@ -58,7 +59,9 @@
     collisionPadding={8}
     onCloseAutoFocus={(event) => { event.preventDefault(); link.focus(); }}
   >
-    <ContextMenu.Item onSelect={onOpenInSolus}>Open in Solus</ContextMenu.Item>
+    {#if onOpenInSolus}
+      <ContextMenu.Item onSelect={onOpenInSolus}>Open in Solus</ContextMenu.Item>
+    {/if}
     <ContextMenu.Item onSelect={() => localApi.openExternal(href)}>Open in default browser</ContextMenu.Item>
     <ContextMenu.Separator />
     <ContextMenu.Item onSelect={copyLink}>Copy Link</ContextMenu.Item>

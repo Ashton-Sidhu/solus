@@ -3,15 +3,15 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import type { TaskTarget } from '@solus/contracts/types'
 import { quotedReplyDraft } from '@solus/workspace-ui/lib/quoted-reply'
-import { existingTaskId, taskBindingSessionId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
+import { ownedTaskId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 
 // Exercise the production methods without starting workspace host subscriptions.
-const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts', import.meta.url), 'utf8')
-const parsed = ts.createSourceFile('workspace.ts', source, ts.ScriptTarget.Latest, true)
-const workspace = parsed.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'WorkspaceContext')!
-const names = ['askInNewSession', 'ownedTaskId']
+const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/session-opening.ts', import.meta.url), 'utf8')
+const parsed = ts.createSourceFile('session-opening.ts', source, ts.ScriptTarget.Latest, true)
+const workspace = parsed.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'SessionOpening')!
+const names = ['askInNewSession']
 const methods = workspace.members.filter((node) => node.name && names.includes(node.name.getText(parsed)))
-if (methods.length !== names.length) throw new Error('Workspace methods missing')
+if (methods.length !== names.length) throw new Error('SessionOpening methods missing')
 const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Fixture { ${methods.map((node) => node.getText(parsed)).join('\n')} }`)
 
 interface SourceSession {
@@ -22,15 +22,17 @@ interface SourceSession {
   prompt: { text: string }
 }
 interface Fixture {
-  activeTabId: string
-  splitChatTabId: string | null
-  sessionFor(tabId: string): SourceSession
-  tasksStore: { taskForSession(sessionId: string): { id: string; parentId?: string } | null }
+  workspace: {
+    activeTabId: string
+    splitChatTabId: string | null
+    sessionFor(tabId: string): SourceSession
+    tasksStore: { taskForSession(sessionId: string): { id: string; parentId?: string } | null }
+    openSplitChat(sessionId: string): void
+  }
   forkTab(tabId: string, options: { activate: boolean; task: TaskTarget }): Promise<string>
-  openSplitChat(sessionId: string): void
   askInNewSession(tabId: string, text: string): Promise<void>
 }
-const FixtureClass: new () => Fixture = new Function('quotedReplyDraft', 'taskBindingSessionId', 'existingTaskId', 'requestInputFocus', `${code}; return Fixture`)(quotedReplyDraft, taskBindingSessionId, existingTaskId, () => {})
+const FixtureClass: new () => Fixture = new Function('quotedReplyDraft', 'ownedTaskId', 'requestInputFocus', `${code}; return Fixture`)(quotedReplyDraft, ownedTaskId, () => {})
 
 async function ask(task: TaskTarget, boundTask?: { id: string; parentId?: string }, handoffId: string | null = null) {
   const fixture = new FixtureClass()
@@ -39,17 +41,19 @@ async function ask(task: TaskTarget, boundTask?: { id: string; parentId?: string
   let requestedTask: TaskTarget | undefined
   let bindingId = ''
   let openedSessionId = ''
-  fixture.activeTabId = 'source-tab'
-  fixture.splitChatTabId = null
-  fixture.sessionFor = (tabId) => tabId === 'source-tab' ? original : forked
-  fixture.tasksStore = { taskForSession: (sessionId) => { bindingId = sessionId; return boundTask ?? null } }
+  fixture.workspace = {
+    activeTabId: 'source-tab',
+    splitChatTabId: null,
+    sessionFor: (tabId) => tabId === 'source-tab' ? original : forked,
+    tasksStore: { taskForSession: (sessionId) => { bindingId = sessionId; return boundTask ?? null } },
+    openSplitChat: (sessionId) => { openedSessionId = sessionId },
+  }
   fixture.forkTab = async (tabId, options) => {
     expect(tabId).toBe('source-tab')
     expect(options.activate).toBe(false)
     requestedTask = options.task
     return 'fork-tab'
   }
-  fixture.openSplitChat = (sessionId) => { openedSessionId = sessionId }
   await fixture.askInNewSession('source-tab', 'Selected answer')
   expect(forked.prompt.text).toBe('> Selected answer\n\n')
   expect(openedSessionId).toBe('new-session')

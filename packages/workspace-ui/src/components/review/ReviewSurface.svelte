@@ -15,9 +15,11 @@
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
+  import { addDiffComment, removeDiffComment, updateDiffComment } from "../../lib/diff-comments";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import DiffHeatMap from "../diff/DiffHeatMap.svelte";
+  import { reviewScopeKind } from "../diff/lib/review-header";
   import GuideSurface from "./GuideSurface.svelte";
   import ReviewViewTabs from "./ReviewViewTabs.svelte";
   import { GuideLoader } from "./lib/guide-loader.svelte";
@@ -51,6 +53,7 @@
     view,
     onSelectView,
     scope,
+    onSelectScope,
     target,
     guideKeyOverride,
     checkoutRepoRoot,
@@ -71,6 +74,9 @@
     /** Which change to read. Absent is the branch review, whose base this
      *  surface resolves live. */
     scope?: DiffScope;
+    /** Read a different change. The host owns the scope, so it stores the
+     *  choice where `scope` comes from. Absent chooses the branch review. */
+    onSelectScope: (scope: DiffScope | undefined) => void;
     /** Portable guide target and its host-managed checkout, when the source
      * conversation belongs to another project. */
     target?: ReviewTarget;
@@ -173,10 +179,12 @@
       ? { kind: "pr", baseSha: target.baseSha }
       : null,
   );
-  /** A session review reads the session's own changes; every other scope — the
-   *  branch, a turn, the working tree — reads the branch guide. */
+  /** A session review, or one of its turns, reads the session's own guide;
+   *  every other scope — the branch, the working tree — reads the branch guide.
+   *  A turn is a slice of the session, and the scope picker steps between the
+   *  two without the guide changing under the reader. */
   const guideScope = $derived<"branch" | "session">(
-    scope?.kind === "session" ? "session" : "branch",
+    scope?.kind === "session" || scope?.kind === "turn" ? "session" : "branch",
   );
 
   // ── The guide ─────────────────────────────────────────────────────────────
@@ -352,10 +360,10 @@
     get comments(): DiffComment[] {
       return sourceSession?.diffComments ?? [];
     },
-    add: (comment: DiffComment) => session.addDiffComment(comment, sourceTabId),
+    add: (comment: DiffComment) => addDiffComment(sourceSession, comment),
     update: (id: string, text: string) =>
-      session.updateDiffComment(id, text, sourceTabId),
-    remove: (id: string) => session.removeDiffComment(id, sourceTabId),
+      updateDiffComment(sourceSession, id, text),
+    remove: (id: string) => removeDiffComment(sourceSession, id),
   };
 
   // ── The panel ─────────────────────────────────────────────────────────────
@@ -434,15 +442,17 @@
       environment.worktreePath ??
       environment.cwd}
     worktreeBranch={targetLabel ?? sourceSession?.run.gitContext?.branch ??
-      session.globalDefaults.gitContext?.branch ??
+      environment.branch ??
       ""}
     targetBranch={targetPullRequest?.baseSha?.slice(0, 7) ?? sourceSession?.run.gitContext?.targetBranch ??
-      session.globalDefaults.gitContext?.targetBranch ??
+      environment.targetBranch ??
       "HEAD"}
-    isWorktree={!targetPullRequest && (environment.isolated || !!session.globalDefaults.gitContext?.worktreePath)}
+    isWorktree={!targetPullRequest && environment.isolated}
     reviewLabel={targetLabel}
     {onClose}
     initialScope={diffScope}
+    reviewScope={target ? null : reviewScopeKind(scope)}
+    onSelectScope={target ? undefined : onSelectScope}
     initialFilePath={filePath}
     {navigationRequestId}
     bind:view={() => view, selectView}

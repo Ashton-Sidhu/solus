@@ -1,27 +1,13 @@
 import type { ChangedFileStat } from '@solus/contracts/types'
 import { dirName } from './activity-data'
 
-/**
- * Row geometry for the rail's two virtualized sections.
- *
- * A virtual list positions rows from a number it is told, not from what the
- * DOM measures. If the two disagree the rows overlap or leave gaps, and
- * nothing in the build or the type system catches it — so the number declared
- * here is the *only* height, applied to the row through the `style` the list
- * hands back. Never set a height on the row itself as well.
- *
- * Heights follow the display for the same reason the review's type rungs do
- * (ADR-0010/0013): the rail is narrower on a laptop and spends height it
- * cannot recover.
- */
-export const CHECK_ROW_HEIGHT = { standard: 30, laptop: 28 } as const
 
 /**
  * The content width below which the rail has no column to sit in.
  *
  * Measured on the content box of the `@container` on `ActivityFeed`'s content
- * row — 768 for the reading column, 56 of gap and 330 for the rail is the
- * shell's whole budget, and below that something has to give.
+ * row. The rail takes 330 and the gap 56, so at this width the reading column
+ * still has 614 of its 896 cap; below it something has to give.
  *
  * This is the only place the rung exists. The rail used to fold under the
  * reading column at a `@max-[1000px]` of its own while its replacement
@@ -39,20 +25,30 @@ export function isRailFolded(contentWidth: number): boolean {
   return contentWidth > 0 && contentWidth <= RAIL_FOLD_MAX
 }
 
-/** A changed-file row is two lines — filename over directory — unless the file
- *  sits at the repository root and has no directory to put under it. */
+/**
+ * Row geometry for the rail's virtualized Changed files section.
+ *
+ * A virtual list positions rows from a number it is told, not from what the
+ * DOM measures. If the two disagree the rows overlap or leave gaps, and
+ * nothing in the build or the type system catches it — so the number declared
+ * here is the *only* height, applied to the row through the `style` the list
+ * hands back. Never set a height on the row itself as well.
+ *
+ * Heights follow the display for the same reason the review's type rungs do
+ * (ADR-0010/0013): the rail is narrower on a laptop and spends height it
+ * cannot recover.
+ *
+ * A changed-file row is two lines — filename over directory — unless the file
+ * sits at the repository root and has no directory to put under it. */
 export const FILE_ROW_HEIGHT = {
   standard: { nested: 44, root: 30 },
   laptop: { nested: 40, root: 28 },
 } as const
 
-/** How many rows a section shows before it becomes its own scrollport. */
+/** How many checks show before the rest wait behind "Show more". */
 export const CHECKS_VISIBLE_ROWS = 6
+/** How many files show before the section becomes its own scrollport. */
 export const FILES_VISIBLE_ROWS = 7
-
-export function checkRowHeight(isLaptopDisplay: boolean): number {
-  return isLaptopDisplay ? CHECK_ROW_HEIGHT.laptop : CHECK_ROW_HEIGHT.standard
-}
 
 export function fileRowHeight(file: ChangedFileStat, isLaptopDisplay: boolean): number {
   const scale = isLaptopDisplay ? FILE_ROW_HEIGHT.laptop : FILE_ROW_HEIGHT.standard

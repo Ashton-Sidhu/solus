@@ -13,11 +13,9 @@
     hostStatusLabel,
     routeBadges,
     serversStore,
-    sharesStore,
     type ServerItem,
   } from "../../contexts";
-  import { cloudHostSubtitle, isCloudHostRow, isManagedHost, managedHostSubtitle } from "./lib/managed-host";
-  import { cloudConnectionsLabel } from "../../contexts/connections/host-label";
+  import { isManagedHost, managedHostStateLabel } from "./lib/managed-host";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -44,8 +42,7 @@
       server.url || server.routes[0]?.url,
       status,
       ...routeBadges(server.routes),
-      managedHostSubtitle(server.uplink, sharesStore.directories.get(server.id)?.name),
-      cloudHostSubtitle(server.uplink),
+      managedHostStateLabel(server.uplink),
     ];
     if (hostSetupStore.hasProbed(server.id)) {
       const summary = hostReadinessSummary(hostSetupStore.stepsFor(server.id));
@@ -76,7 +73,7 @@
     {#each serversStore.servers as server (server.id)}
       <button
         type="button"
-        class="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors first:border-t-0 [@media(hover:hover)]:hover:bg-muted [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5"
+        class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-muted [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5"
         onclick={() => connectionsNav.open(server.id)}
       >
         <span
@@ -87,14 +84,14 @@
           {#if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink) || isCloudHostRow(server.uplink)} size={15} />
+            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink)} size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">
           <span
             class="flex min-w-0 items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary)"
           >
-            <span class="truncate">{isCloudHostRow(server.uplink) ? cloudConnectionsLabel(server.label) : server.label}</span>
+            <span class="truncate">{server.label}</span>
             {#if hostUpdatesStore.pendingCountFor(server.id)}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
           </span>
           <span
@@ -128,7 +125,7 @@
   {/snippet}
 
   {#each serversStore.nearbyHosts as host (host.server.installationId)}
-    <div class="flex items-center gap-3 border-t border-border px-4 py-3 first:border-t-0 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
+    <div class="flex items-center gap-3 px-4 py-3 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
       <span
         class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
       >
@@ -160,7 +157,7 @@
   <!-- Always present, whether or not anything was found: discovery failing
        silently is the same picture as a network with no hosts on it, and this
        is the only place that says which one the user is looking at. -->
-  <div class="border-t border-border px-4 py-3 first:border-t-0 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
+  <div class="px-4 py-3 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
     <p class="text-pretty text-[0.875em] leading-5 text-(--solus-text-tertiary)">
       {#if serversStore.nearbyHosts.length === 0}
         No nearby hosts found.

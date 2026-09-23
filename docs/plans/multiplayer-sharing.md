@@ -57,7 +57,7 @@ The dialog reads the share list from the host (`shareGet`) through `sharesStore`
 
 ## §4.2 The guest link
 
-A link is `<account origin>/app/#/h/<hostId>/s/<secret>`. The secret rides the fragment, so the account origin never sees it; only a host can turn it into anything. The web client served at `/app/` recognizes the fragment before any catalog boot (`apps/client/src/main.ts`) and lands the visitor on `GuestLanding.svelte`: one question, the name other people see, kept with a random stable `guestId` under `solus.guest` in the browser. Nothing is written to the host registry, and the fragment stays in the address bar so a reload walks the same door.
+A link is `<account origin>/#/h/<hostId>/s/<secret>`. The secret rides the fragment, so the account origin never sees it; only a host can turn it into anything. The web client the account origin serves at `/` recognizes the fragment before any catalog boot (`apps/client/src/main.ts`) and lands the visitor on `GuestLanding.svelte`: one question, the name other people see, kept with a random stable `guestId` under `solus.guest` in the browser. Nothing is written to the host registry, and the fragment stays in the address bar so a reload walks the same door.
 
 The dial is the Uplink dial with two differences (`packages/client-core/guest-link.ts`, `server-connection.ts` `guest` option): the grant comes from `POST /v1/hosts/:id/guest-grant` with no session, and its answer names the host's tunnel route because a guest has no directory; and every `/auth/ws-ticket` exchange carries `{ shareSecret }`. A fresh grant the host refuses means the link was turned off or regenerated: the transport blocks, and the shell shows "This link no longer works".
 

@@ -75,8 +75,8 @@ describe('rooms', () => {
   test('focus changes report only when they differ', async () => {
     const presence = new PresenceManager()
     presence.join('c-bob', BOB, 'Solus cloud')
-    expect(presence.setFocus('c-bob', { kind: 'work', workId: 'w1' })).toBe(true)
-    expect(presence.setFocus('c-bob', { kind: 'work', workId: 'w1' })).toBe(false)
+    expect(presence.setFocus('c-bob', { kind: 'session', sessionId: 's2' })).toBe(true)
+    expect(presence.setFocus('c-bob', { kind: 'session', sessionId: 's2' })).toBe(false)
     expect(presence.setFocus('c-bob', { kind: 'none' })).toBe(true)
     expect(presence.setFocus('c-unknown', { kind: 'none' })).toBe(false)
   })
@@ -91,7 +91,7 @@ describe('rooms', () => {
     presence.join('c-bob', BOB, 'Solus cloud')
     presence.join('c-owner', OWNER, 'Mac')
     presence.setFocus('c-bob', { kind: 'session', sessionId: 's1' })
-    presence.setFocus('c-owner', { kind: 'work', workId: 'w1' })
+    presence.setFocus('c-owner', { kind: 'session', sessionId: 's2' })
     presence.setComposing('c-bob', 's2', true)
     const [bob, owner] = (await presence.hostSnapshot()).participants
     expect(bob?.activity).toMatchObject({ title: 'Fix login', taskId: 't1', state: 'running', activeTurn: { authorUserId: 'bob' } })

@@ -27,19 +27,20 @@ test('failed reads and cursors never fall back to a different transcript read', 
   expect(loadSession).not.toHaveBeenCalled()
 })
 
-test('startup reads history before mount and restore consumes it only once', async () => {
+test.each(['codex', 'claude-code'] as const)('restore consumes pending startup history once for %s', async (provider) => {
   const { prefetchSessionHistoryPage } = await import('@solus/client-core/session-history-page')
   let finish!: (page: { messages: []; before: null }) => void
   const pending = new Promise<{ messages: []; before: null }>((resolve) => { finish = resolve })
   const loadSessionPage = mock(() => pending)
   const api = { loadSessionPage, loadSession: mock(async () => []) }
-  const prefetch = prefetchSessionHistoryPage(api, request)
+  const providerRequest = { ...request, provider }
+  const prefetch = prefetchSessionHistoryPage(api, providerRequest)
   expect(loadSessionPage).toHaveBeenCalledTimes(1)
-  const restored = requestSessionHistoryPage(api, request, ctx)
+  const restored = requestSessionHistoryPage(api, providerRequest, ctx)
   expect(loadSessionPage).toHaveBeenCalledTimes(1)
   finish({ messages: [], before: null })
   expect(await restored).toBe(await prefetch)
-  await requestSessionHistoryPage(api, request, ctx)
+  await requestSessionHistoryPage(api, providerRequest, ctx)
   expect(loadSessionPage).toHaveBeenCalledTimes(2)
 })
 

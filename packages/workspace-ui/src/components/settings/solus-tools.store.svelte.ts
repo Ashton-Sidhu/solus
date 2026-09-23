@@ -38,6 +38,13 @@ class SolusToolsStore {
     return () => { if (--watch.count === 0) { watch.stop(); this.watches.delete(serverId) } }
   }
 
+  /** True only when the host has reported that it has no TypeSafe key. Unknown
+   *  (still loading, or an older host) is not missing, so nothing locks early. */
+  isTypeSafeKeyMissing(serverId: string): boolean {
+    const typeSafe = this.states.get(serverId)?.typeSafe
+    return !!typeSafe && typeSafe.source === null
+  }
+
   async load(serverId: string): Promise<void> {
     const state = this.states.get(serverId) ?? { preferences: null, saving: false, error: '', revision: 0 }
     this.states.set(serverId, state)

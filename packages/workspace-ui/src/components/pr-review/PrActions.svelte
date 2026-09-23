@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
+  import {
+    LoaderCircle as CircleNotchIcon,
+    GitMerge as GitMergeIcon,
+  } from "@lucide/svelte";
   import type { PullRequest } from "@solus/contracts/providers";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import MergeControl from "./MergeControl.svelte";
-  import type { MergeAction } from "./lib/merge-readiness";
+  import { armedAutoMergeLabel, type MergeAction } from "./lib/merge-readiness";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
@@ -57,9 +60,12 @@
       !detail.draft &&
       !detail.headRepo.isFork,
   );
+  // The host's standing instruction to merge, said where the merge button
+  // would otherwise stand.
+  const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
   // The cluster owns its own top margin: a PR with nothing to do has none of
   // these actions, and an empty wrapper still held a gap inside the card.
-  const hasActions = $derived(!!action || showAddressComments);
+  const hasActions = $derived(!!action || !!armedLabel || showAddressComments);
 
   let running = $state(false);
 
@@ -91,6 +97,17 @@
     ? "flex min-w-0 items-center gap-1.5"
     : "mt-[13px] flex w-full flex-col gap-[7px]"}
 >
+  {#if armedLabel}
+    <div
+      class="flex min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[10px] px-3.5 font-medium text-(--solus-art-positive) shadow-[shadow:var(--elev-ring)] {row
+        ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+        : 'h-[34px] w-full'}"
+      title="{armedLabel}: the host merges this once its requirements pass"
+    >
+      <GitMergeIcon size={14} class="shrink-0" aria-hidden="true" />
+      <span class="truncate">{armedLabel}</span>
+    </div>
+  {/if}
   {#if action?.kind === "merge" && detail}
     <MergeControl
       {pullRequest}
@@ -114,6 +131,8 @@
         : 'h-[34px] w-full'}"
       title={action.kind === "mark-ready"
         ? "Mark the pull request ready for review"
+        : action.kind === "enable-auto-merge"
+          ? "Ask the host to merge this once its requirements pass"
         : action.kind === "resolve-conflicts"
           ? "Open an agent session to resolve the merge conflicts"
           : "Open a new session composer with the fix drafted"}

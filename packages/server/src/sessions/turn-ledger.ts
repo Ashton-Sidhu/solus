@@ -46,6 +46,8 @@ export type TurnRecord = z.infer<typeof turnRecordSchema>
 
 /** Who a turn is for: the prompt's author and the member whose seat runs it. */
 export interface TurnActor {
+  /** Account identity for integration tools, distinct from host-local ownership. */
+  credentialUserId?: string | null
   userId: string
   seatUserId: string
   /** How the author is shown to other people on the transcript and in the room; absent for the host's own work. */

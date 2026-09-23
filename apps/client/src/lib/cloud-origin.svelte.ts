@@ -3,14 +3,14 @@ export type CloudOriginKind = 'unknown' | 'signed-in' | 'signed-out' | 'not-clou
 class CloudOriginState {
   kind = $state<CloudOriginKind>('unknown')
 
-  /** The website's sign-in page, returning to this client afterwards. */
+  /** The account origin's sign-in page, returning to this client afterwards. */
   get signInUrl(): string {
-    return this.signInUrlReturningTo(import.meta.env.BASE_URL)
+    return `${location.origin}/sign-in?next=${encodeURIComponent('/')}`
   }
 
-  /** The same door, returning to one page of this client — an organization's tasks, say. */
-  signInUrlReturningTo(next: string): string {
-    return `${location.origin}/sign-in?next=${encodeURIComponent(next)}`
+  /** The account origin's page that mints a code to link a machine. */
+  get linkMachineUrl(): string {
+    return `${location.origin}/hosts/link`
   }
 }
 

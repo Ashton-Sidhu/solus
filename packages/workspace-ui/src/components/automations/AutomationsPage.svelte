@@ -22,6 +22,7 @@
     ListEmpty,
     ListFilterBar,
     ListFilterGroup,
+    ListProjectFilter,
     ListSortMenu,
     ListGroup,
     ListPage,
@@ -49,9 +50,11 @@
   const pane = paneActions(() => paneId);
   const shell = getClientShellContext();
   const store = session.automationsStore;
+  // Automations run on a host, so this page reads the scope's checkout: the
+  // host and folder an automation of this project runs in.
   const pageProject = $derived(
     session.projectPageScope.kind === "project"
-      ? session.projectPageScope.project
+      ? session.projectPageScope.checkout
       : null,
   );
   // The full-page catalog has no narrower owner, so the new-work default host
@@ -231,8 +234,9 @@
       !store.hasLoadedHost(selectedServerId) &&
       store.isLoadingHost(selectedServerId),
   );
-  // The zero-state owns the page, so the header hides its New button and the
-  // command bar (search/filter noise with nothing to filter) while it shows.
+  // The zero-state owns the page, so the header hides its New button while it
+  // shows. The command bar stays while there is a project to switch to: it
+  // holds the project scope, the only way out of an empty project.
   const showEmpty = $derived(!isInitialLoading && hostItems.length === 0);
   const synced = syncStamp(() => store.loading);
 
@@ -336,6 +340,11 @@
   });
 
   useScope("automations", { active: () => open });
+  // The one explicit way to scope the page to the input bar's project; the tab
+  // in focus never does it by itself (docs/plans/project-model.md §5).
+  useKeybinding("automations.current-project", () => {
+    session.scopePageToCurrentProject();
+  }, { enabled: () => open });
   useKeybinding(
     "automations.close",
     () => {
@@ -386,17 +395,11 @@
     const project = projectKey
       ? (projects.find((candidate) => candidate.key === projectKey) ?? null)
       : null;
-    session.setProjectPageScope(
-      project?.serverId
-        ? {
-            kind: "project",
-            project: {
-              serverId: project.serverId,
-              projectRoot: project.projectPath,
-            },
-          }
-        : { kind: "all" },
-    );
+    if (project?.serverId) {
+      session.scopeOpenProjectPage({ serverId: project.serverId, projectRoot: project.projectPath });
+    } else {
+      session.setProjectPageScope({ kind: "all" });
+    }
     selectedId = null;
     // The search was written against the project being left, so it goes with
     // it — the same trade Tasks, Pull requests and the Workspace make.
@@ -509,9 +512,19 @@
     compactText
     placeholder="Search automations…"
     filters={listFilters}
-    activeCount={Number(statusFilter !== "all")}
+    activeCount={Number(statusFilter !== "all") + Number(!!selectedProject)}
   >
     {#snippet filterContent()}
+      <ListProjectFilter
+        projects={projectOptions}
+        activeKey={selectedProject?.key ?? ""}
+        emptyLabel="All projects"
+        onSelect={(option) => selectProject(option.key)}
+        onSelectAll={() => selectProject(null)}
+        onSelectCurrent={() => session.scopePageToCurrentProject()}
+        onRemoveHistory={removeProjectHistory}
+        footerNote="Switching keeps filters, clears search"
+      />
       <ListFilterGroup
         label="Status"
         options={statusSegments}
@@ -541,13 +554,6 @@
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
       <ListPage
-        projects={projectOptions}
-        activeProjectKey={selectedProject?.key ?? ""}
-        emptyProjectLabel="All projects"
-        onSelectProject={(option) => selectProject(option.key)}
-        onSelectAllProjects={() => selectProject(null)}
-        onRemoveProjectHistory={removeProjectHistory}
-        projectSwitchNote="Switching keeps filters, clears search"
         page="automations"
         onRefresh={() => void store.loadAll()}
         refreshing={store.loading}
@@ -559,7 +565,7 @@
         isLeading={pane.isLeading}
         onClose={close}
         toolbarFilters
-        filters={showEmpty ? undefined : filterBar}
+        filters={showEmpty && projectOptions.length === 0 ? undefined : filterBar}
       >
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div onkeydown={onListKeydown} role="presentation">

@@ -15,6 +15,7 @@
   import { tags } from "@lezer/highlight";
   import {
     EditorView,
+    drawSelection,
     keymap,
     placeholder as placeholderExtension,
   } from "@codemirror/view";
@@ -145,6 +146,15 @@
       fontWeight: "var(--solus-font-weight-body, 400)",
     },
     "&.cm-focused": { outline: "none" },
+    // Composer lines can start at the scroll area's left edge. CodeMirror's
+    // negative cursor margin clips the caret there, so draw it inside the edge.
+    ".cm-cursor": {
+      borderLeftColor: "var(--solus-text-primary)",
+      marginLeft: "0",
+    },
+    ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+      backgroundColor: "Highlight",
+    },
     ".cm-scroller": {
       maxHeight: "var(--plain-editor-max-height, 8.75rem)",
       overflowY: "auto",
@@ -175,8 +185,6 @@
       paddingRight: untrack(() => (mic && micPlacement === "inside"))
         ? "4.25rem"
         : undefined,
-      // The caret is text, so it takes the text's colour — never the accent.
-      caretColor: "currentColor",
       wordBreak: "break-word",
       whiteSpace: "pre-wrap",
     },
@@ -212,6 +220,10 @@
   function editorExtensions(): Extension[] {
     return [
       history(),
+      // Native carets can use the empty placeholder's line box, then shrink
+      // to the glyph height on the first keystroke. Measure both through
+      // CodeMirror so typing and clearing the field keep the same caret.
+      drawSelection({ drawRangeCursor: false }),
       EditorView.lineWrapping,
       markdown({
         base: markdownLanguage,

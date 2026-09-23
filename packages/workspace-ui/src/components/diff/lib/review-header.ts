@@ -1,6 +1,48 @@
 import type { FileDiffMetadata } from '@pierre/diffs'
-import type { TurnSnapshot } from '@solus/contracts/types'
+import type { DiffScope, TurnSnapshot } from '@solus/contracts/types'
 import { diffFilePath, diffFileStats, toTreeDisplayPath } from '../../../lib/diffTreeAdapter'
+
+/**
+ * Which change a local review reads, as the band's scope picker names it. A
+ * turn is a slice of the session, so it reads as `session` here; the picker
+ * names the turn itself from the selected turn index.
+ */
+export type ReviewScopeKind = 'branch' | 'session' | 'working-tree'
+
+export const REVIEW_SCOPE_LABELS = {
+  branch: 'Branch',
+  session: 'Session',
+  'working-tree': 'Working tree',
+} satisfies { [kind in ReviewScopeKind]: string }
+
+/**
+ * The picker's reading of a review route's scope. An absent scope is the
+ * branch review. A pull-request scope is fixed by its host, so it has no
+ * picker and gives null.
+ */
+export function reviewScopeKind(scope: DiffScope | undefined): ReviewScopeKind | null {
+  if (!scope) return 'branch'
+  if (scope.kind === 'session' || scope.kind === 'turn') return 'session'
+  if (scope.kind === 'working-tree') return 'working-tree'
+  return null
+}
+
+/** The route scope for a picker choice. The branch review has no `DiffScope`
+ *  kind of its own: its base is live Git state that the surface resolves. */
+export function diffScopeForReviewScope(kind: ReviewScopeKind): DiffScope | undefined {
+  if (kind === 'branch') return undefined
+  return { kind }
+}
+
+/** The picker's trigger label: the turn when one is selected, else the scope. */
+export function reviewScopeLabel(
+  kind: ReviewScopeKind,
+  turns: TurnSnapshot[],
+  selectedTurnIndex: number | null,
+): string {
+  const turnLabel = turnScrubberLabel(turns, selectedTurnIndex, 'wide')
+  return turnLabel === 'All' ? REVIEW_SCOPE_LABELS[kind] : turnLabel
+}
 
 /**
  * What the header can say and do about the guide.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
+  import { localApi } from "@solus/client-core/local-api";
   import type { StatusCardState } from "@solus/contracts/types";
   import TranscriptChip from "./TranscriptChip.svelte";
   import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";
@@ -149,6 +150,12 @@
           {/if}
         {/each}
       </ul>
+      {#if isError && card.recovery === "connect-github" && card.recoveryUrl}
+        {@const connectUrl = card.recoveryUrl}
+        <div class="flex gap-3 px-4 pb-3 text-workspace-chrome">
+          <button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</button>
+        </div>
+      {/if}
       {#if isError && card.recovery === "worktree"}
         <div class="flex gap-3 px-4 pb-3 text-workspace-chrome">
           {#if onRetry}<button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={onRetry}>Retry setup</button>{/if}

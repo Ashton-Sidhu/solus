@@ -100,6 +100,29 @@ describe('complete GitHub Markdown documents', () => {
     expect(body.querySelectorAll('.markdown-task-checked')).toHaveLength(1)
   })
 
+  it('renders a bot task checkbox as the read-only task row and keeps table column alignment', () => {
+    // CodeRabbit's retry control: a task item inside an alert, with an HTML
+    // comment between the box and its label.
+    const body = renderDocument('> [!IMPORTANT]\n> Retry:\n> - [ ] <!-- {"checkboxId":"x"} --> 🔍 Trigger review\n\n| Check | Status |\n| :---: | ---: |\n| Title | ✅ |')
+    const task = body.querySelector('.markdown-alert li.markdown-task-item')
+    expect(task?.textContent).toContain('Trigger review')
+    expect(body.querySelector('input[type="checkbox"]')).toBeNull()
+    // The stylesheet reads `align` to centre or right-align a GitHub column.
+    expect(body.querySelector('th')?.getAttribute('align')).toBe('center')
+    expect(body.querySelector('td:last-child')?.getAttribute('align')).toBe('right')
+  })
+
+  it('sets code-host mentions apart but leaves emails, code and links as text', () => {
+    // WHY: "@juliusmarminge this should be quick" addresses a person; the
+    // mention has to read as one, while an address or a literal must not.
+    const body = renderDocument('@juliusmarminge and @org/team, see a@b.com, `@literal` and [@link](https://x.dev)')
+    const mentions = [...body.querySelectorAll('.markdown-mention')].map((node) => node.textContent)
+    expect(mentions).toEqual(['@juliusmarminge', '@org/team'])
+    expect(body.textContent).toContain('see a@b.com,')
+    // Task and guide text is not code-host text, so it keeps plain `@`.
+    expect(renderDocument('@someone', 'local').querySelector('.markdown-mention')).toBeNull()
+  })
+
   it('removes executable HTML and remote navigation protocols throughout nested content', () => {
     const body = renderDocument('<details onclick="alert(1)"><summary>More</summary>\n\n<script>alert(1)</script>\n\n[bad](javascript:alert) [file](file:///tmp/private) [task](task://id)\n\n<img src="data:image/svg+xml;base64,AAAA" onerror="alert(1)">\n\n<iframe src="https://example.com"></iframe>\n\n</details>')
     expect(body.querySelector('script, iframe, [onclick], [onerror]')).toBeNull()
@@ -114,10 +137,14 @@ describe('complete GitHub Markdown documents', () => {
     expect(body.innerHTML).not.toContain('javascript:')
   })
 
-  it('keeps standalone video cards inside alerts and ordinary links as text', () => {
+  it('plays standalone videos in place, inside alerts too, and leaves ordinary links as text', () => {
     const url = 'https://github.com/user-attachments/assets/abc'
     const body = renderDocument(`> [!NOTE]\n> ${url}\n\nSee [recording](${url}).`)
-    expect(body.querySelector('.markdown-alert .markdown-media-link-card')).not.toBeNull()
+    // WHY: a GitHub upload is published as a bare URL; the reader plays it inline,
+    // so a reader never leaves the review to watch a recording.
+    expect(body.querySelector('.markdown-alert video')?.getAttribute('src')).toBe(url)
+    // The link to the host stays beside the player for a reader who wants it.
+    expect(body.querySelector('.markdown-alert .markdown-media-link')?.getAttribute('href')).toBe(url)
     expect(body.textContent).toContain('See recording.')
   })
 })

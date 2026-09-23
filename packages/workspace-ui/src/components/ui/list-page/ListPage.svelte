@@ -2,15 +2,16 @@
   import type { Snippet } from "svelte";
   import { List as ListIcon, Plus as PlusIcon, Archive as TrayIcon } from "@lucide/svelte";
   import type { NavPage } from "../../../lib/page-nav";
-  import type { ListPageView, ListProjectOption } from "./list-page";
+  import type { ListPageView } from "./list-page";
   import PageCrumbLine from "./PageCrumbLine.svelte";
 
   /**
    * The shell every page-level list is built in ("List pages" spec, Part A).
    * Two fixed rows over one scroll region, each row with a single job:
    *
-   *   Row 1 — the breadcrumb. Answers *where am I*, holds nothing that filters.
-   *   Row 2 — search, filters, sort, view, and the page's one creating action.
+   *   Row 1 — the page title. Answers *where am I*, holds nothing that filters.
+   *   Row 2 — search, filters (the project scope among them), sort, view, and
+   *           the page's one creating action.
    *           Answers *what am I looking at*, holds nothing that navigates.
    *
    * The search field is always on screen no matter how long the list is. Keys
@@ -26,25 +27,9 @@
    * requests should never have to relearn where anything is.
    */
   interface Props {
-    /** The project the list is reading, and the projects it can be pointed at.
-     *  The switcher is the title's leading crumb — the scope is stated and
-     *  changed in the same place. */
-    projects?: ListProjectOption[];
-    /** The scoped project's host-qualified `key`. */
-    activeProjectKey?: string;
-    /** Shown when no project is scoped yet. */
-    emptyProjectLabel?: string;
-    onSelectProject?: (option: ListProjectOption) => void;
-    /** Forgets a catalog-only project from a page's switcher. */
-    onRemoveProjectHistory?: (option: ListProjectOption) => void;
-    /** Leads the switcher with an "All projects" row that clears the scope. */
-    onSelectAllProjects?: () => void;
-    allProjectsLabel?: string;
-    /** What the page does to its other controls when the scope changes. */
-    projectSwitchNote?: string;
-    /** Which page the second crumb stands on. */
+    /** Which page the title names. */
     page: NavPage;
-    /** Overrides the page's own name in the crumb — a page under two scopes
+    /** Overrides the page's own name in the title — a page under two scopes
      *  passes the scope's own name, so the crumb states which one is on screen
      *  while the switch below it does the switching. */
     title?: string;
@@ -94,16 +79,22 @@
     /** Removes the crumb line when the host surface already owns those
      *  controls. The narrowing row still clears the frame titlebar. */
     hideHeader?: boolean;
+    /** The crumb line is a chrome row — the same `--solus-chrome-row-h` band
+     *  the detail panel beside the list draws — so the two top rows sit level
+     *  across the split. */
+    chromeHead?: boolean;
+    /** The narrowing row may wrap: under 32rem of the list's own width the
+     *  search takes a line of its own and the menus sit under it.
+     *  Measured on the list, not the pane, so it holds beside an open
+     *  detail panel. */
+    wrapFilters?: boolean;
+    /** The list has scrolled past the narrowing row: the row folds away and
+     *  `condensedCrumbs` carries its filters on the crumb line instead. The
+     *  row is hidden, not unmounted, so its controls keep their state. */
+    condensed?: boolean;
+    condensedCrumbs?: Snippet;
   }
   let {
-    projects,
-    activeProjectKey,
-    emptyProjectLabel,
-    onSelectProject,
-    onRemoveProjectHistory,
-    onSelectAllProjects,
-    allProjectsLabel,
-    projectSwitchNote,
     page,
     title,
     view = "global",
@@ -129,6 +120,10 @@
     contentHeight = $bindable(0),
     split = false,
     hideHeader = false,
+    chromeHead = false,
+    wrapFilters = false,
+    condensed = false,
+    condensedCrumbs,
   }: Props = $props();
 
   // The head's own measure. A laptop display gives up the generous desktop top
@@ -149,8 +144,13 @@
       : "bg-transparent text-muted-foreground";
 </script>
 
+<!-- `listpage` is declared only where the narrowing row wraps by it: a
+     container is also the containing block for `position: fixed` children,
+     and the pages that do not wrap have no reason to pay that. -->
 <div
-  class="text-chrome-dense relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground"
+  class="text-chrome-dense relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground {wrapFilters
+    ? '@container/listpage'
+    : ''}"
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
@@ -161,7 +161,7 @@
         : 'pt-[max(42px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(2rem,var(--solus-page-top-inset,0px))]'
       : ''}"
   >
-    <!-- ── Row 1: the breadcrumb, and the controls that act on the window ── -->
+    <!-- ── Row 1: the page title, and the controls that act on the window ── -->
     {#if !hideHeader}
       <!-- The row is exactly its tallest control, stated rather than inferred:
            the loading silhouette reserves the same box, so the list under it
@@ -174,24 +174,16 @@
            overflowing a 27px box — swallowing the whole gap under it and
            putting the filter band 1px below the button. -->
       <div
-        class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! {headPad} {split
+        class={chromeHead
+          ? "workspace-titlebar mb-2 flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center pl-[max(0px,calc(var(--solus-chrome-lead-inset,0px)-18px))]"
+          : `workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! ${headPad} ${split
  ? 'pb-[11px] [.is-laptop-display_&]:pb-2'
- : 'pb-[13px] [.is-laptop-display_&]:pb-2.5'}"
+ : 'pb-[13px] [.is-laptop-display_&]:pb-2.5'}`}
       >
-        <!-- The narrow rail is navigation for the open detail: changing project
-             there would replace the queue the reader is navigating from, so it
-             gives up the project segment and keeps the rest of the line. -->
         <PageCrumbLine
-          projects={split ? undefined : projects}
-          {activeProjectKey}
-          {emptyProjectLabel}
-          {onSelectProject}
-          {onRemoveProjectHistory}
-          {onSelectAllProjects}
-          {allProjectsLabel}
-          {projectSwitchNote}
           {page}
           pageLabel={title}
+          trail={condensed ? condensedCrumbs : undefined}
           {actions}
           {onRefresh}
           {refreshing}
@@ -211,9 +203,11 @@
            and the filter bar takes a full-width second, where it splits itself
            into a search field and a scrolling chip row. -->
       <div
-        class="box-content flex shrink-0 items-center gap-2 {split || toolbarFilters
+        class="box-content shrink-0 items-center gap-2 {condensed && !hideHeader ? 'hidden' : 'flex'} {split || toolbarFilters
           ? 'h-8 pb-[14px]'
-          : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'} @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
+          : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'} {wrapFilters
+          ? '@max-[32rem]/listpage:h-auto! @max-[32rem]/listpage:flex-wrap'
+          : ''} @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
       >
         {#if onViewChange}
           <!-- The broadest narrowing there is, so it leads the row: everything

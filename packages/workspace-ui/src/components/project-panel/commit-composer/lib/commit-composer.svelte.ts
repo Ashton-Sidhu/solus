@@ -52,6 +52,19 @@ export class CommitComposerState {
     return this.visibleFiles.reduce((count, file) => count + (this.selected.has(file.path) ? 1 : 0), 0)
   }
 
+  /** The list header's checkbox: checked, clear, or mixed over the rows shown. */
+  get visibleSelection(): 'all' | 'some' | 'none' {
+    const count = this.visibleSelectedCount
+    if (count === 0) return 'none'
+    return count === this.visibleFiles.length ? 'all' : 'some'
+  }
+
+  /** A mixed or clear header selects every shown row; a checked one clears them. */
+  toggleVisible(): void {
+    if (this.visibleSelection === 'all') this.selectNone()
+    else this.selectAll()
+  }
+
   get selectedFiles(): ChangedFileStat[] {
     return orderedSelection(this.files, this.selected)
   }

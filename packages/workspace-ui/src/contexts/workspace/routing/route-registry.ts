@@ -22,8 +22,8 @@ import { serverConnections } from '@solus/client-core/server-connections'
  */
 
 export type SettingsTab =
-  | 'model-routing'
   | 'general'
+  | 'appearance'
   | 'notifications'
   | 'instructions'
   | 'source-control'
@@ -39,8 +39,8 @@ export type SettingsTab =
   | 'keybindings'
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
-  'model-routing',
   'general',
+  'appearance',
   'notifications',
   'instructions',
   'source-control',
@@ -77,7 +77,7 @@ export interface RouteParams {
    *  to resolve — routing never carries one. */
   chat: { sessionId?: string; serverId?: string }
   /** A prompt being written that has no session and no tab yet. The id is
-   *  identity only — the draft it names lives in `workspace.sessionDrafts`,
+   *  identity only — the draft it names lives in `workspace.drafts.sessionDrafts`,
    *  because a location must stay serializable. */
   draft: { draftId: string }
   tasks: Record<string, never>

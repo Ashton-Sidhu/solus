@@ -22,13 +22,11 @@
   import { reviewSessionStore } from "./review-session.store.svelte";
   import { createReviewDispositionPoster } from "./lib/review-disposition-poster";
   import {
-    defaultReviewModeView,
     deriveQueueRows,
     type ReviewModeQueueItem,
     type ReviewModeView,
   } from "./lib/review-mode-model";
   import { HOLD_MS } from "./lib/review-session-core";
-  import type { ReviewQueueItem } from "./lib/review-queue-order";
 
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
@@ -104,7 +102,7 @@
     preparing.add(number);
     prepareErrors.delete(number);
     try {
-      const result = await session.preparePrReview(number, {
+      const result = await session.prReview.preparePrReview(number, {
         ctx: postingContext ?? pullRequests.view.reviewModeContext ?? session.ctx,
         serverId: reviewServerId,
       });
@@ -116,17 +114,6 @@
       preparing.delete(number);
     }
   }
-
-  $effect(() => {
-    const entry = currentEntry;
-    if (!entry) return;
-    visited.add(entry.prNumber);
-    if (!views.has(entry.prNumber)) {
-      const item = items.find((candidate) => candidate.number === entry.prNumber);
-      views.set(entry.prNumber, defaultReviewModeView(item?.effort));
-    }
-    void prepare(entry.prNumber);
-  });
 
   function selectView(view: ReviewModeView): void {
     if (!currentEntry) return;
@@ -293,9 +280,9 @@
     const launchNumbers = [...pullRequests.view.reviewModeNumbers];
     items = launchNumbers.map((number) => {
       const item = findSummary(number);
-      if (!item) return { number, title: `Pull request #${number}`, author: "Unknown" };
-      const queueItem: ReviewModeQueueItem = { number, title: item.title, author: item.author };
-      if (item.effort) queueItem.effort = item.effort;
+      const queueItem: ReviewModeQueueItem = item
+        ? { number, title: item.title, author: item.author }
+        : { number, title: `Pull request #${number}`, author: "Unknown" };
       return queueItem;
     });
     postingContext = structuredClone(pullRequests.view.reviewModeContext ?? session.ctx);
@@ -305,9 +292,7 @@
       if (!cancelled) viewer = profile.login;
     }).catch(() => {});
 
-    void pullRequests.stacks.load(api, serverId, context)
-      .catch(() => pullRequests.stacks.graphFor(serverId, context.session.projectPath))
-      .then((stackGraph) => {
+    queueMicrotask(() => {
       if (cancelled) return;
       const basePoster = createReviewDispositionPoster({
         getContext: () => context,
@@ -316,14 +301,11 @@
           pullRequests.projects.get(api, serverId, ctx).get(number).submitReview(review),
       });
       store.start({
-        items: items.map((item) => {
-          const queueItem: ReviewQueueItem = { number: item.number };
-          if (item.effort) queueItem.effort = item.effort;
-          return queueItem;
-        }),
-        stackGraph,
-        minutesFor: (number) => findSummary(number)?.effort?.minutes
-          ?? items.find((item) => item.number === number)?.effort?.minutes,
+        numbers: items.map((item) => item.number),
+        onEnter: (number) => {
+          visited.add(number);
+          void prepare(number);
+        },
         poster: {
           async post(disposition) {
             try {
@@ -389,17 +371,12 @@
     </div>
   {:else if state && reviewApi && reviewServerId}
     <div class="flex min-h-0 flex-1">
-      <QueueRail
-        {rows}
-        remainingMinutes={store.remainingMinutes}
-        totalMinutes={store.totalMinutes}
-        onSelect={visit}
-      />
+      <QueueRail {rows} onSelect={visit} />
 
       <div class="flex min-w-0 flex-1 flex-col">
         {#if currentItem && currentEntry}
           {@const source = findSummary(currentItem.number)}
-          {@const selectedView = views.get(currentItem.number) ?? defaultReviewModeView(currentItem.effort)}
+          {@const selectedView = views.get(currentItem.number) ?? "guide"}
           <div class="flex min-h-14 shrink-0 items-center gap-3 border-b border-(--solus-container-border) px-4">
             <div class="min-w-0 flex-1">
               <h1 class="truncate text-sm font-medium text-(--solus-text-primary)">{currentItem.title}</h1>
@@ -407,18 +384,6 @@
                 <span class="tabular-nums">#{currentItem.number}</span>
                 <span aria-hidden="true">·</span>
                 <span>{currentItem.author}</span>
-                {#if currentItem.effort?.band}
-                  <span class="rounded px-1.5 py-px text-xs font-medium ring-1 ring-inset {currentItem.effort.band === 'quick'
- ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
- : currentItem.effort.band === 'involved'
- ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
- : 'text-(--solus-accent) ring-(--solus-accent-border)'}">
-                    {currentItem.effort.band}
-                  </span>
-                {/if}
-                {#if currentItem.effort?.minutes != null}
-                  <span class="tabular-nums">~{currentItem.effort.minutes} min</span>
-                {/if}
                 {#if source && source.additions + source.deletions > 0}
                   <span aria-hidden="true">·</span>
                   <span class="tabular-nums">{source.additions + source.deletions} changed lines</span>
@@ -458,16 +423,14 @@
               <div class="absolute inset-0" class:hidden={currentEntry?.prNumber !== entry.prNumber}>
                 {#if prepared.has(entry.prNumber)}
                   {@const ready = prepared.get(entry.prNumber)!}
-                  {@const item = items.find((candidate) => candidate.number === entry.prNumber)}
                   <PrReviewPane
                     pr={ready.pr}
                     api={reviewApi}
                     serverId={reviewServerId}
                     target={ready.pr}
                     targetCtx={postingContext ?? session.ctx}
-                    activeTab={views.get(entry.prNumber) ?? defaultReviewModeView(item?.effort)}
+                    activeTab={views.get(entry.prNumber) ?? "guide"}
                     onActiveTabChange={(view) => views.set(entry.prNumber, view)}
-                    guideEnabled={item?.effort?.band !== "quick"}
                     onUnresolvedCountChange={(count) => unresolvedByPr.set(entry.prNumber, count)}
                     headless
                   />

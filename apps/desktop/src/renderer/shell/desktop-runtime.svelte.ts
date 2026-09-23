@@ -8,8 +8,10 @@ import {
   connectRequestStore,
   seatsStore,
   presenceStore,
+  uplinkStore,
   parseRoute,
   runtime,
+  listenForProjectDirectory,
 } from "@solus/workspace-ui/contexts";
 import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/tab-snapshot";
 
@@ -88,7 +90,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // start() payload is applied first so persisted tabs can fall back to the last
   // known workspace path. The async runtime attach (createTab/bind/transcript)
   // and fresh start() reconciliation run later from the effect below.
-  session.hydrateStaticInfoFromCache();
+  session.lifecycle.hydrateStaticInfoFromCache();
   materializeTabs(session);
 
   // Electron-only: analytics is desktop-side.
@@ -111,7 +113,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // Reads only the persisted fields, so it won't re-run on message streaming.
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
-    if (session.hydrating) return;
+    if (session.lifecycle.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
       version: 2,
@@ -127,15 +129,15 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // user already wrote must survive a reload. Reading the whole map is cheap —
   // there are only ever as many drafts as open panes.
   $effect(() => {
-    if (session.hydrating) return;
-    savePersistedSessionDraftsDebounced(session.sessionDraftsSnapshot);
+    if (session.lifecycle.hydrating) return;
+    savePersistedSessionDraftsDebounced(session.drafts.sessionDraftsSnapshot);
   });
 
   // Unsent input drafts persist per-keystroke on a debounce. Only reads the active
   // tab's input — other tabs' drafts are patched into the persisted map individually
   // as the user visits each tab, rather than re-reading all N tabs every keystroke.
   $effect(() => {
-    if (session.hydrating) return;
+    if (session.lifecycle.hydrating) return;
     const activeId = session.activeTabId;
     const tabText = session.sessionFor(activeId)?.prompt.text ?? "";
     const activeInputText = session.activeInput.text;
@@ -174,14 +176,14 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   $effect(() => {
     void settings.activeAgent;
     untrack(
-      () => void session.refreshPluginCommands(session.tabCtx.workingDirectory),
+      () => void session.lifecycle.refreshPluginCommands(session.tabCtx.workingDirectory),
     );
   });
 
   setupAgentEvents(session);
   // Refresh the key the project panel reads: the worktree path when the tab has one.
   session.onTurnSettled = (sessionId, cwd) => {
-    const sess = session.sessions[sessionId];
+    const sess = session.sessions.byId[sessionId];
     const tabId = session.tabIdForSession(sessionId);
     const gitCwd = sess?.run.gitContext?.worktreePath ?? cwd;
     if (!gitCwd || !tabId) return;
@@ -291,6 +293,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       // this boot; this reconciles it with whatever another client last set.
       if (defaultServerId) void settings.hydrateFromHost(defaultServerId);
       const unsubHostConfig = settings.listenForHostConfigChanges();
+      const unsubProjectDirectory = listenForProjectDirectory();
       const unsubUsage = subscribeAllHosts(
         "usage.limitsChanged",
         (_serverId, { snapshots }) => agent.applyUsage(snapshots),
@@ -328,7 +331,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
             );
         },
       );
-      const unsubStackGraph = pullRequests.stacks.subscribe();
       // A browser page an agent opened has nowhere to render until a pane shows
       // it, so the request is answered app-wide rather than by a surface that
       // may not be mounted. Explicitly invoked — nothing here auto-opens.
@@ -336,8 +338,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       const unsubBrowser = browserStore.subscribe();
       const unsubChecks = pullRequests.checks.subscribe(activePrScope);
       const unsubGuideStatus = pullRequests.guides.subscribe();
-      const unsubPullRequestChanges =
-        pullRequests.projects.subscribeLifecycleChanges();
+      // `needsReview.subscribe` takes its own reference to the lifecycle
+      // subscription, which is refcounted, so the boot block does not need a
+      // second one with the same lifetime.
       const unsubNeedsReview =
         pullRequests.needsReview.subscribe(activePrScope);
       // An agent can need an account before any surface that would show its
@@ -349,15 +352,14 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       // Who else is on each host, and what they are looking at; the rooms arrive
       // as snapshots and every presence surface reads the one store.
       const unsubPresence = presenceStore.listen();
+      // The tunnel comes up after the host has answered the link; the cloud row follows it.
+      const unsubUplink = uplinkStore.listen();
       // The Atlassian sign-in finishes in a browser and lands on the host, not
       // on the tab that opened it — so the completion is heard app-wide too.
       const unsubAtlassian = atlassianStore.listenForOAuthCompletion();
       const unsubShown = window.solusNative.onWindowShown(() => {
-        const active = session.sessionFor(session.activeTabId);
-        const cwd =
-          active?.run.gitContext?.worktreePath ??
-          active?.run.workingDirectory ??
-          session.globalDefaults.workingDirectory;
+        const run = session.sessionFor(session.activeTabId)?.run ?? session.defaultRunConfig;
+        const cwd = run.gitContext?.worktreePath ?? run.workingDirectory;
         if (cwd)
           void sessionEnvironmentStore.refreshEnvironment(session, {
             sourceId: session.activeTabId,
@@ -371,17 +373,17 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubUsage();
         unsubAutomations();
         unsubAnnotations();
-        unsubStackGraph();
         browserStore.onSurfaceRequested = null;
         unsubBrowser();
         unsubChecks();
         unsubGuideStatus();
-        unsubPullRequestChanges();
         unsubNeedsReview();
         unsubConnectRequests();
         unsubSeats();
+        unsubUplink();
         unsubPresence();
         unsubHostConfig();
+        unsubProjectDirectory();
         unsubAtlassian();
         unsubShown();
       };
@@ -480,7 +482,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   $effect(() =>
     localApi.onAskSelectionInNewSession((text, sourceTabId) => {
       void session
-        .askInNewSession(sourceTabId, text)
+        .opening.askInNewSession(sourceTabId, text)
         .catch(() => toasts.error("Couldn't start a new session"));
     }),
   );

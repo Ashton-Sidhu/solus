@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    Activity as ActivityIcon,
     Check as CheckIcon,
     Clock as ClockIcon,
     FileText as FileTextIcon,
@@ -20,6 +21,8 @@
 
 {#if glyph === "running"}
   <SpinnerIcon {size} class="animate-spin motion-reduce:animate-none" />
+{:else if glyph === "background"}
+  <ActivityIcon {size} />
 {:else if glyph === "question"}
   <MessageIcon {size} />
 {:else if glyph === "plan"}

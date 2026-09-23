@@ -17,6 +17,9 @@ describe('attentionActionForStatus — status → attention entry kind', () => {
     expect(attentionActionForStatus('completed', null)).toEqual({ type: 'set', kind: 'finished' })
     expect(attentionActionForStatus('failed', null)).toEqual({ type: 'set', kind: 'failed' })
     expect(attentionActionForStatus('dead', null)).toEqual({ type: 'set', kind: 'failed' })
+    // The agent is done even though its background task still runs; the user
+    // must not wait on a task that may never end to hear the turn finished.
+    expect(attentionActionForStatus('background', null)).toEqual({ type: 'set', kind: 'finished' })
   })
 
   test('active/neutral states resolve — covers respond, next-prompt, and cancel', () => {

@@ -8,7 +8,7 @@
     FileOutput as FileOutputIcon,
     Folder as FolderIcon,
     Pen as PencilSimpleIcon,
-    Sparkles as SparkleIcon,
+    MessageCircle as ChatCircleIcon,
     Trash2 as TrashIcon,
     X as XIcon,
     Ellipsis as DotsThreeIcon,
@@ -17,13 +17,11 @@
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import WorkPublishMenu from "./WorkPublishMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
-  import PresenceStack from "../presence/PresenceStack.svelte";
-  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import Diff from "../diff/Diff.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import { getClientShellContext, getWorkspaceContext, serversStore, sharesStore } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, serversStore, sharesStore } from "../../contexts";
   import type { SessionMeta } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
@@ -91,7 +89,7 @@
     flushSave,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const shell = getClientShellContext();
 
   let chatMenuOpen = $state(false);
@@ -162,10 +160,6 @@
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
   const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId));
-  // Teammates whose focused pane shows this work, from the host's roster.
-  const people = $derived(
-    shareServerId && workId ? presenceStore.peopleFocusedOn(shareServerId, { kind: "work", workId }) : [],
-  );
   // Move to the organization's workspace service (docs/plans/cloud-service-model.md R6):
   // offered on a work that lives on a machine while a cloud host is connected.
   const cloudHost = $derived(serversStore.connectedCloudServer);
@@ -227,8 +221,10 @@
   {/if}
 {/snippet}
 
-<!-- The header's own verbs are unfilled type. The only filled surface in the
-     cluster is the way to reach Solus, so the eye finds it first. -->
+<!-- The header's own actions are all unfilled and all on one geometry — type
+     where a word is the clearest name for it, a glyph where one is not. The
+     row carries no call to action: these are the work's controls, and the
+     surface under them is what the reader came for. -->
 <div class="wha-actions">
 <!-- History: the document's previous version, persistent rather than buried in
      the overflow — it is one of the four things the header always keeps. -->
@@ -242,12 +238,50 @@
      linked, its sync state is something the reader has to be able to see, not
      something to go looking for. Renders only for docs (2a scope). -->
 {#if workId && shell.canOpenResource("workspace")}
-  <!-- Who else has this work open, before the verbs. -->
-  <PresenceStack {people} size={18} class="mr-1" />
   <WorkPublishMenu {workId} {getCurrentContent} {flushSave} />
-  <!-- A word beside Markdown and Publish. A scoped class would not reach the child,
-       so the verb's geometry is restated as utilities. -->
-  <ShareButton serverId={shareServerId} resource={shareResource} {title} appearance="word" class="inline-flex h-[1.625rem] shrink-0 items-center rounded-md px-[0.4375rem] text-workspace-chrome whitespace-nowrap text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:h-10" />
+  <!-- A glyph on the ⋯ trigger's square geometry, so the two quiet header
+       controls read as one pair. A scoped class would not reach the child, so
+       that geometry is restated as utilities. -->
+  <ShareButton serverId={shareServerId} resource={shareResource} {title} class="inline-flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:size-10" />
+{/if}
+
+<!-- How to reach Solus. The chat circle is the app's mark for a session
+     everywhere else it appears, so the button says what it opens; the tooltip
+     and the aria-label carry the name. It sits with the work's own actions,
+     ahead of ⋯ — "more actions" closes the row, it does not interrupt it. -->
+{#if onOpenChat}
+  <div class="relative wha-solus" bind:this={chatButtonEl}>
+    <button
+      type="button"
+      onclick={() => onOpenChat("resume")}
+      class="wha-solus-trigger"
+      data-testid="open-chat"
+      title="Ask Solus about this document"
+      aria-label="Ask Solus"
+    >
+      <ChatCircleIcon size={14} />
+    </button>
+    <button
+      type="button"
+      onclick={() => (chatMenuOpen = !chatMenuOpen)}
+      class="wha-solus-caret"
+      class:wha-solus-caret--open={chatMenuOpen}
+      data-testid="open-chat-menu"
+      title="Choose chat mode"
+      aria-label="Choose chat mode"
+      aria-haspopup="menu"
+      aria-expanded={chatMenuOpen}
+    >
+      <CaretDownIcon size={9} weight="bold" />
+    </button>
+    <WorkChatMenu
+      bind:open={chatMenuOpen}
+      triggerEl={chatButtonEl}
+      onResume={() => onOpenChat("resume")}
+      onNew={() => onOpenChat("new")}
+      {originalSessionMeta}
+    />
+  </div>
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
@@ -329,44 +363,6 @@
       {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
-
-<!-- How to reach Solus — the one filled surface in the header, and a pill so it
-     is the only rounded-full thing on the page. -->
-{#if onOpenChat}
-  <div class="relative wha-solus" bind:this={chatButtonEl}>
-    <button
-      type="button"
-      onclick={() => onOpenChat("resume")}
-      class="wha-solus-trigger"
-      data-testid="open-chat"
-      title="Ask Solus about this document"
-      aria-label="Ask Solus"
-    >
-      <SparkleIcon size={11} weight="fill" />
-      <span class="wha-label">Ask Solus</span>
-    </button>
-    <button
-      type="button"
-      onclick={() => (chatMenuOpen = !chatMenuOpen)}
-      class="wha-solus-caret"
-      class:wha-solus-caret--open={chatMenuOpen}
-      data-testid="open-chat-menu"
-      title="Choose chat mode"
-      aria-label="Choose chat mode"
-      aria-haspopup="menu"
-      aria-expanded={chatMenuOpen}
-    >
-      <CaretDownIcon size={9} weight="bold" />
-    </button>
-    <WorkChatMenu
-      bind:open={chatMenuOpen}
-      triggerEl={chatButtonEl}
-      onResume={() => onOpenChat("resume")}
-      onNew={() => onOpenChat("new")}
-      {originalSessionMeta}
-    />
-  </div>
-{/if}
 </div>
 
 {#if showDiff && previous}
@@ -436,66 +432,59 @@
     outline-offset: 0.0625rem;
   }
 
-  /* Reaching Solus is the surface's primary action, so it carries the only
-     filled surface in the cluster. Squared off on the shared Button's own
-     radius (`--radius-md`, the compact size's): the app's controls are rounded
-     rectangles, and a full pill here read as a different family of button from
-     every other action the user presses. It is the same geometry the pull
-     request header's Check out takes, so the app's one filled "reach Solus"
-     action is one object wherever it appears. */
+  /* Reaching Solus is one of the work's actions, not a call to action, so it
+     takes the same quiet treatment as Share and ⋯ beside it: transparent at
+     rest, a hover wash, the row's shared height and radius. Its caret makes it
+     two boxes rather than one, so the wash is painted on the group and both
+     halves stay transparent — one control, not two abutting buttons. */
   .wha-solus {
     display: inline-flex;
     flex-shrink: 0;
     align-items: stretch;
     height: 1.625rem;
-    /* Set apart from the verbs on its left and from the pane's floating chrome
-       cluster on its right, so the row's one filled surface is not shouldered
-       by either. */
-    margin-left: 0.25rem;
-    margin-right: 0.125rem;
-    border-radius: var(--radius-md);
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
     overflow: hidden;
     transition:
       background var(--duration-quick) var(--ease-premium),
-      scale var(--duration-quick) var(--ease-premium);
+      color var(--duration-quick) var(--ease-premium),
+      transform 80ms var(--ease-premium);
   }
-  /* The same press response the input bar's pills give. */
   .wha-solus:active {
-    scale: 0.96;
+    transform: scale(0.96);
   }
   .wha-solus:hover,
   .wha-solus:has(.wha-solus-caret--open) {
-    background: color-mix(in srgb, var(--solus-accent) 88%, black);
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
   }
+  /* The square half, on the same box Share and ⋯ take, so the three glyphs sit
+     on one rhythm across the row. */
   .wha-solus-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 0.3125rem;
-    padding: 0 0.4375rem 0 0.5625rem;
-    font-family: inherit;
-    font-size: var(--text-workspace-chrome);
-    font-weight: 500;
+    justify-content: center;
+    width: 1.625rem;
+    padding: 0;
     background: transparent;
     color: inherit;
     border: none;
     cursor: pointer;
-    white-space: nowrap;
   }
+  /* Narrower than the glyph it hangs off: a mode chooser attached to the
+     action, not a second action of equal weight. No divider — unfilled, a rule
+     between the two halves reads heavier than either of them. */
   .wha-solus-caret {
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    /* Wide enough that the caret has the same air on both sides of it as the
-       label has against the button's left edge. */
-    width: 1.25rem;
+    width: 0.875rem;
     padding: 0;
     background: transparent;
     color: inherit;
     border: none;
-    border-left: 0.0625rem solid color-mix(in srgb, var(--solus-text-on-accent) 28%, transparent);
     cursor: pointer;
     transition: transform var(--duration-quick) var(--ease-premium);
   }
@@ -504,7 +493,7 @@
   }
   .wha-solus-trigger:focus-visible,
   .wha-solus-caret:focus-visible {
-    outline: 0.125rem solid var(--solus-text-on-accent);
+    outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: -0.125rem;
   }
   /* Overflow (⋯) trigger — a verb like the rest, so it stays unfilled until hover. */
@@ -540,16 +529,11 @@
   .wha-actions {
     display: contents;
   }
-  @container pane (max-width: 30rem) {
-    .wha-label {
-      display: none;
-    }
-  }
   /* The row's laptop rung. The runtime owns the display boundary and stamps
      `is-laptop-display` on the document, so the cluster steps down with the
      chrome around it instead of holding a desktop height on a 13" screen. The
-     whole row moves together — a filled pill 2px taller than the verbs beside
-     it would read as a second row. Fenced to a precise pointer above the
+     whole row moves together — one control 2px taller than the ones beside it
+     would read as a second row. Fenced to a precise pointer above the
      record width so the 40px touch strip below still wins: this selector
      carries an ancestor and would otherwise outrank it. */
   @media (pointer: fine) and (min-width: 768px) {
@@ -557,17 +541,17 @@
     :global(html.is-laptop-display) .wha-solus {
       height: 1.5rem;
     }
-    :global(html.is-laptop-display) .wha-overflow {
+    :global(html.is-laptop-display) .wha-overflow,
+    :global(html.is-laptop-display) .wha-solus-trigger {
       width: 1.5rem;
+    }
+    :global(html.is-laptop-display) .wha-overflow {
       height: 1.5rem;
     }
   }
   /* Mobile: the header is the formatting strip, whose buttons are 40px touch
      targets — these have to match it or they read as a second, smaller row. */
   @media (max-width: 767px) {
-    .wha-label {
-      display: none;
-    }
     .wha-verb,
     .wha-solus {
       height: 2.5rem;
@@ -585,10 +569,10 @@
       border-radius: 0.5rem;
     }
     .wha-solus-trigger {
-      padding: 0 0.5rem 0 0.75rem;
+      width: 2.5rem;
     }
     .wha-solus-caret {
-      width: 1.75rem;
+      width: 1.25rem;
     }
   }
 

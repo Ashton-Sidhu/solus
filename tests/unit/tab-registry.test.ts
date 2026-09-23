@@ -12,13 +12,15 @@ describe('tab registry selection', () => {
   test('marks a tab as read whenever it becomes active', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { TabRegistry } = await import('@solus/workspace-ui/contexts/workspace/tab-registry.svelte')
-    const registry = new TabRegistry()
+    const { SessionRecords } = await import('@solus/workspace-ui/contexts/workspace/session-records.svelte')
+    const sessions = new SessionRecords()
+    const registry = new TabRegistry(sessions)
     registry.tabs['tab-a'] = {
       id: 'tab-a',
       sessionId: 'session-a',
       hasUnread: true,
     } as Tab
-    registry.sessions['session-a'] = {
+    sessions.byId['session-a'] = {
       id: 'session-a',
       run: {
         workingDirectory: '/repo',

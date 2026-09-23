@@ -1,6 +1,7 @@
 import {
     FileText as FileTextIcon,
     Lightbulb as LightbulbIcon,
+    MessageCircle as MessageCircleIcon,
     Search as MagnifyingGlassIcon,
     Pen as PencilSimpleIcon,
     Terminal as TerminalIcon,
@@ -12,6 +13,7 @@ import type { ActivityKind } from './activity-summary'
 /** One glyph per kind, stacked in the order the kinds first happened. */
 export const KIND_ICONS = {
   think: LightbulbIcon,
+  ask: MessageCircleIcon,
   search: MagnifyingGlassIcon,
   read: FileTextIcon,
   edit: PencilSimpleIcon,

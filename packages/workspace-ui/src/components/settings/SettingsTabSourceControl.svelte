@@ -8,8 +8,16 @@
     type SourceControlWritingPreferences,
     type TextGenerationModelSelection,
   } from "@solus/contracts/types";
-  import { getTextGenerationSettingsStore } from "../../contexts";
+  import {
+    accountStore,
+    getTextGenerationSettingsStore,
+    serversStore,
+    sharesStore,
+  } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import GitHubConnect from "../connections/GitHubConnect.svelte";
+  import CloudConnectionsPointer from "../seats/CloudConnectionsPointer.svelte";
+  import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Switch } from "../ui/switch";
@@ -32,6 +40,20 @@
   let customInstructionsElement = $state<HTMLTextAreaElement | null>(null);
   let customInstructionsDraft = $state("");
   let customInstructionsSource = $state<string | null>(null);
+
+  // A member admitted through an organization keeps their GitHub connection in
+  // Solus cloud, not on the runner; the row points there.
+  $effect(() => {
+    void accountStore.state;
+    const targetServerId = serverId;
+    untrack(() => void sharesStore.identityFor(targetServerId, true).catch(() => {}));
+  });
+  const cloudConnectionsUrl = $derived(
+    cloudConnectionsPointerUrl({
+      identity: sharesStore.identities.get(serverId),
+      directoryUrl: serversStore.servers.find((server) => server.id === serverId)?.uplink?.directoryUrl,
+    }),
+  );
 
   const settingsStore = getTextGenerationSettingsStore();
   const snapshot = $derived(settingsStore.snapshotFor(serverId));
@@ -139,6 +161,19 @@
   }
 </script>
 
+{#if cloudConnectionsUrl}
+  <SettingsSection label="Source control providers">
+    <CloudConnectionsPointer
+      url={cloudConnectionsUrl}
+      label="Your GitHub connection lives in Solus cloud"
+      description="Solus uses your own account for pull requests and project boards."
+      testId="source-control-row-cloud"
+    />
+  </SettingsSection>
+{:else}
+  <GitHubConnect {serverId} />
+{/if}
+
 <SettingsSection label="Text generation">
   <SettingsRow
     label="Source control writing style"
@@ -149,7 +184,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
         <DropdownMenu.Trigger disabled={!snapshot}>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs shadow-xs" aria-label="Source control writing style">
+            <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Source control writing style">
               <span class="truncate">{styleOptions[style.mode].label}</span>
               <CaretDownIcon size={11} class="opacity-60" />
             </Button>
@@ -228,7 +263,7 @@
           <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
             <DropdownMenu.Trigger disabled={modelOptions.length === 0}>
               {#snippet child({ props })}
-                <Button {...props} variant="outline" size="sm" class="max-w-64 min-w-32 justify-between text-xs shadow-xs" aria-label="Source-control writer model">
+                <Button {...props} variant="outline" size="sm" class="max-w-64 min-w-32 justify-between text-xs font-normal shadow-xs" aria-label="Source-control writer model">
                   <span class="truncate">{modelLabel(snapshot.sourceControlWriterModel)}</span>
                   <CaretDownIcon size={11} class="opacity-60" />
                 </Button>

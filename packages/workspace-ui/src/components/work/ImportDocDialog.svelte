@@ -3,7 +3,7 @@
   import { portal } from "../portal";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import type { DocProviderId } from "@solus/contracts/docs";
   import { importDocCopy } from "./lib/import-doc";
@@ -26,7 +26,7 @@
 
   const copy = $derived(importDocCopy(provider));
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const shell = getClientShellContext();
 
   let url = $state("");
@@ -46,7 +46,7 @@
       // The active session's directory is the imported work's origin.
       const work = await session.worksStore.importFromUrl(
         trimmed,
-        session.sessionFor(session.activeTabId)?.run.workingDirectory,
+        session.activeSession?.run.workingDirectory,
       );
       toasts.success(`Imported “${work.title}”`);
       url = "";

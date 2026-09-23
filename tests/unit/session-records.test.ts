@@ -1,149 +1,71 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
-import { encodePathAsFolder, SOLUS_WORKTREE_ENCODED_MARKER } from '@solus/contracts/types'
-import { resetTestDatabase } from './helpers/test-db'
+import { afterEach, describe, expect, test } from 'bun:test'
+import type { Session, Tab } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
-// docs/plans/cloud-service-model.md: the collaboration plane's record of a
-// session is what every client lists by; a runner reports it, the picker reads
-// it, and it never leaves the organization it was written for.
-
-type RecordsModule = typeof import('@solus/server/sessions/session-records')
-type IndexerModule = typeof import('@solus/server/db/session-indexer')
-type DbModule = typeof import('@solus/server/db')
-
-let dataDir: string
-let records: RecordsModule
-let indexer: IndexerModule
-let db: DbModule
-const previousDataDir = process.env.SOLUS_DATA_DIR
-
-beforeAll(async () => {
-  dataDir = mkdtempSync(join(tmpdir(), 'solus-session-records-'))
-  process.env.SOLUS_DATA_DIR = dataDir
-  records = await import('@solus/server/sessions/session-records')
-  indexer = await import('@solus/server/db/session-indexer')
-  db = await import('@solus/server/db')
+afterEach(() => {
+  if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
+  else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
-afterEach(async () => {
-  await resetTestDatabase()
-  for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
-})
+async function owners() {
+  ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+  const { SessionRecords } = await import('@solus/workspace-ui/contexts/workspace/session-records.svelte')
+  const { TabRegistry } = await import('@solus/workspace-ui/contexts/workspace/tab-registry.svelte')
+  const sessions = new SessionRecords()
+  return { sessions, registry: new TabRegistry(sessions) }
+}
 
-afterAll(() => {
-  db.closeDb()
-  rmSync(dataDir, { recursive: true, force: true })
-  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
-  else process.env.SOLUS_DATA_DIR = previousDataDir
-})
+function session(id: string): Session {
+  return { id, run: { workingDirectory: '/repo' } as Session['run'] } as Session
+}
 
-const PROJECT = '/Users/test/solus'
-const ENCODED = encodePathAsFolder(PROJECT)
+function tab(id: string, sessionId: string): Tab {
+  return { id, sessionId, hasUnread: false } as Tab
+}
 
-describe('session records', () => {
-  test('a field left out of a report keeps the stored value; a field given as null clears it', async () => {
-    // WHY: the indexer's sweep and the control plane's status report each know
-    // part of a session. A report that erased what the other wrote would make
-    // the picker flicker between two half-truths.
-    await records.upsertSessionRecord('local', {
-      sessionId: 's1', provider: 'claude-code', projectPath: ENCODED, title: 'First prompt', model: 'opus', lastActivityAt: 10, size: 5,
-    })
-    await records.upsertSessionRecord('local', { sessionId: 's1', provider: 'claude-code', projectPath: ENCODED, status: 'running', lastActivityAt: 20 })
-    expect(await records.getSessionRecord('local', 's1')).toMatchObject({
-      title: 'First prompt', model: 'opus', status: 'running', size: 5, createdAt: 10, lastActivityAt: 20,
-    })
-    await records.upsertSessionRecord('local', { sessionId: 's1', provider: 'claude-code', projectPath: ENCODED, model: null, lastActivityAt: 15 })
-    const record = await records.getSessionRecord('local', 's1')
-    expect(record?.model).toBeNull()
-    // Activity never runs backwards.
-    expect(record?.lastActivityAt).toBe(20)
+describe('session records own sessions; tabs only name them', () => {
+  test('two tabs on one session resolve the same record', async () => {
+    // WHY: a split chat is two views of one conversation. What is typed or
+    // streamed in one must be what the other shows, so both resolve one object.
+    const { sessions, registry } = await owners()
+    sessions.byId['s1'] = session('s1')
+    registry.tabs['a'] = tab('a', 's1')
+    registry.tabs['b'] = tab('b', 's1')
+
+    expect(registry.sessionFor('a')).toBe(sessions.byId['s1'])
+    expect(registry.sessionFor('b')).toBe(sessions.byId['s1'])
   })
 
-  test('a record belongs to one organization; another organization lists nothing and cannot overwrite it', async () => {
-    await records.upsertSessionRecord('org-a', { sessionId: 'shared-id', provider: 'codex', projectPath: ENCODED, title: 'Ours', lastActivityAt: 1 })
-    await records.upsertSessionRecord('org-b', { sessionId: 'shared-id', provider: 'codex', projectPath: ENCODED, title: 'Theirs', lastActivityAt: 2 })
-    expect((await records.listSessionRecords('org-a')).map((record) => record.title)).toEqual(['Ours'])
-    expect(await records.listSessionRecords('org-b')).toEqual([])
-    expect(await records.getSessionRecord('org-b', 'shared-id')).toBeNull()
-    expect(await records.listSessionRecords('local')).toEqual([])
+  test('removing every tab leaves the session record', async () => {
+    // WHY: a conversation closed while it still runs keeps receiving events;
+    // tab lifetime must not decide whether the session exists.
+    const { sessions, registry } = await owners()
+    sessions.byId['s1'] = session('s1')
+    registry.tabs['a'] = tab('a', 's1')
+    registry.tabOrder.push('a')
+
+    delete registry.tabs['a']
+    registry.pruneTabOrder()
+
+    expect(registry.sessionFor('a')).toBeUndefined()
+    expect(sessions.byId['s1']?.id).toBe('s1')
   })
 
-  test('the list keeps the picker\'s filters: provider, project, worktrees beneath it, and a limit', async () => {
-    const worktree = `${ENCODED}${SOLUS_WORKTREE_ENCODED_MARKER}feature`
-    await records.upsertSessionRecord('local', { sessionId: 'main-old', provider: 'codex', projectPath: ENCODED, lastActivityAt: 1 })
-    await records.upsertSessionRecord('local', { sessionId: 'main-new', provider: 'codex', projectPath: ENCODED, lastActivityAt: 3 })
-    await records.upsertSessionRecord('local', { sessionId: 'worktree', provider: 'codex', projectPath: worktree, lastActivityAt: 2 })
-    await records.upsertSessionRecord('local', { sessionId: 'claude', provider: 'claude-code', projectPath: ENCODED, lastActivityAt: 4 })
-    await records.upsertSessionRecord('local', { sessionId: 'elsewhere', provider: 'codex', projectPath: encodePathAsFolder('/Users/test/other'), lastActivityAt: 5 })
+  test('re-keying keeps the same object and refuses to evict another session', async () => {
+    // WHY: adopting a host-assigned id must not replace the live object every
+    // surface holds, and must never overwrite a session already known by that id.
+    const { sessions } = await owners()
+    const local = session('local')
+    sessions.byId['local'] = local
+    sessions.byId['taken'] = session('taken')
 
-    const ids = (list: Awaited<ReturnType<typeof records.listSessionRecords>>) => list.map((record) => record.sessionId)
-    expect(ids(await records.listSessionRecords('local', { provider: 'codex', projectPath: PROJECT, includeWorktrees: true })))
-      .toEqual(['main-new', 'worktree', 'main-old'])
-    expect(ids(await records.listSessionRecords('local', { provider: 'codex', projectPath: PROJECT })))
-      .toEqual(['main-new', 'main-old'])
-    expect(ids(await records.listSessionRecords('local', { provider: 'codex', projectPath: PROJECT, includeWorktrees: true, limit: 1 })))
-      .toEqual(['main-new'])
-    expect(ids(await records.listSessionRecords('local', { provider: 'claude-code', projectPaths: [ENCODED, worktree] }))).toEqual(['claude'])
-    expect(ids(await records.listSessionRecords('local'))).toEqual(['elsewhere', 'claude', 'main-new', 'worktree', 'main-old'])
+    expect(sessions.rekey('local', 'taken')).toBe(false)
+    expect(sessions.byId['local']).toBe(local)
+
+    expect(sessions.rekey('local', 'host-id')).toBe(true)
+    expect(sessions.byId['host-id']).toBe(local)
+    expect(local.id).toBe('host-id')
+    expect(sessions.byId['local']).toBeUndefined()
   })
-
-  test('the picker reads records and fills in what the transcript index holds; a record alone still lists', async () => {
-    // WHY: the record is what the collaboration plane knows; the working
-    // directory, slug, and branch are the runner's. A session another runner
-    // holds must still show up in the list with what the record carries.
-    await records.upsertSessionRecord('local', {
-      sessionId: 'indexed', provider: 'codex', projectPath: ENCODED, title: 'From the record', lastActivityAt: 2, size: 9,
-    })
-    await records.upsertSessionRecord('local', {
-      sessionId: 'remote', provider: 'codex', projectPath: ENCODED, title: 'Ran elsewhere', model: 'gpt', runnerHostId: 'studio', lastActivityAt: 1,
-    })
-    db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, cwd, project_path, slug, first_message, last_timestamp, size, branch)
-      VALUES (?, 'codex', ?, ?, 'indexed-slug', 'From the index', 2, 9, 'feature/x')
-    `).run('indexed', PROJECT, ENCODED)
-
-    const listed = await indexer.listIndexedCodexSessions(PROJECT)
-    expect(listed.map((session) => session.sessionId)).toEqual(['indexed', 'remote'])
-    expect(listed[0]).toMatchObject({ cwd: PROJECT, slug: 'indexed-slug', firstMessage: 'From the index', branch: 'feature/x' })
-    expect(listed[1]).toMatchObject({ cwd: '', firstMessage: 'Ran elsewhere', model: 'gpt', serverId: 'studio', projectPath: ENCODED })
-  })
-
-  test('a session start reports the record running; a restart marks what this host left running as interrupted', async () => {
-    indexer.persistIndexedSessionStart('live', 'claude-code', PROJECT, ENCODED, 'opus', 'high', 'Do the thing', 'main')
-    // The start's record write is not awaited by the caller; give it its turn.
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(await records.getSessionRecord('local', 'live')).toMatchObject({ status: 'running', title: 'Do the thing', model: 'opus', reasoningEffort: 'high' })
-    await records.upsertSessionRecord('local', { sessionId: 'theirs', provider: 'codex', projectPath: ENCODED, status: 'running', runnerHostId: 'studio', lastActivityAt: 1 })
-
-    expect(await records.markOwnRunningSessionRecordsInterrupted('local')).toBe(1)
-    expect((await records.getSessionRecord('local', 'live'))?.status).toBe('interrupted')
-    // Another runner's record is that runner's to settle.
-    expect((await records.getSessionRecord('local', 'theirs'))?.status).toBe('running')
-    await records.setSessionRecordStatus('local', 'live', records.sessionRecordStatusOf('completed'))
-    expect((await records.getSessionRecord('local', 'live'))?.status).toBe('idle')
-  })
-
-  test('a name set on the session lands on its record', async () => {
-    await records.upsertSessionRecord('local', { sessionId: 'named', provider: 'claude-code', projectPath: ENCODED, lastActivityAt: 1 })
-    db.getDb().prepare("INSERT INTO sessions(session_id, provider, project_path, last_timestamp) VALUES ('named', 'claude', ?, 1)").run(ENCODED)
-    await indexer.setSessionCustomTitle('named', 'Renamed')
-    expect((await records.getSessionRecord('local', 'named'))?.customTitle).toBe('Renamed')
-    expect((await indexer.listIndexedSessions([ENCODED]))[0]?.customTitle).toBe('Renamed')
-  })
-})
-
-test('writes to one record apply in call order, so a fast settle is not undone by its start report', async () => {
-  const { upsertSessionRecord, setSessionRecordStatus, getSessionRecord } = await import('@solus/server/sessions/session-records')
-  const sessionId = 'ordered-1'
-  await upsertSessionRecord('local', { sessionId, provider: 'claude-code', projectPath: 'p', lastActivityAt: 1 })
-  // The start report (a read-merge-write) is asked for first, the settle second; the settle must win.
-  const start = upsertSessionRecord('local', { sessionId, provider: 'claude-code', projectPath: 'p', status: 'running', lastActivityAt: 2 })
-  const settle = setSessionRecordStatus('local', sessionId, 'idle')
-  await Promise.all([start, settle])
-  expect((await getSessionRecord('local', sessionId))?.status).toBe('idle')
 })

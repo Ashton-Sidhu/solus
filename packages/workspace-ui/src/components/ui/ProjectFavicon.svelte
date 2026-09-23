@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Folder as FolderIcon } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { isWorkspaceDir } from "../../lib/paths";
   import { projectFaviconResolver } from "../../lib/project-favicon";
   import WorkspaceMark from "./WorkspaceMark.svelte";
@@ -16,15 +16,17 @@
     class?: string;
   } = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
+  // Only the workspace knows its own workspace directory; a client without one
+  // (the cloud console) treats every root as a project.
   const isWorkspace = $derived(
-    isWorkspaceDir(projectRoot, session.staticInfo?.workspacePath),
+    isWorkspaceDir(projectRoot, session.workspace?.staticInfo?.workspacePath),
   );
   const hasRoot = $derived(projectRoot.startsWith("/"));
   const resolvedServerId = $derived.by(() => {
     const contextualServerId =
       serverId ??
-      session.sessionFor(session.activeTabId)?.run.serverId ??
+      session.activeSession?.run.serverId ??
       serverConnections.defaultServerId();
     return contextualServerId
       ? serverConnections.resolveId(contextualServerId)

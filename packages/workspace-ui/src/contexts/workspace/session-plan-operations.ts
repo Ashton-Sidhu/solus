@@ -14,7 +14,7 @@ import { SessionUnavailableError } from './session-errors'
  * active tab for the preview-resume path, which just created/selected it.
  */
 function resolvePlanTabId(ctx: WorkspaceContext, plan: Plan): string {
-  return findOpenTabForSession(plan.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder) ?? ctx.activeTabId
+  return findOpenTabForSession(plan.sessionId, ctx.tabs, ctx.sessions.byId, ctx.tabOrder) ?? ctx.activeTabId
 }
 
 export function clearPlanWaiting(ctx: WorkspaceContext, sessionId: string): void {
@@ -56,7 +56,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   )
   const sessionId = plan?.sessionId ?? descriptor?.sessionId ?? referencedSessionId
   const planToolUseId = plan?.planToolUseId ?? referencedPlanToolUseId
-  const cwd = plan?.cwd ?? descriptor?.cwd ?? ctx.activeSession?.run.workingDirectory ?? ctx.globalDefaults.workingDirectory
+  const cwd = plan?.cwd ?? descriptor?.cwd ?? (ctx.activeSession?.run ?? ctx.defaultRunConfig).workingDirectory
   const projectPath = plan?.projectPath ?? descriptor?.projectPath ?? encodePathAsFolder(cwd)
   if (!sessionId || !planToolUseId || !cwd) return
 
@@ -138,12 +138,12 @@ export async function approvePlanWithModel(
     // session, not because the reader stopped it — the approval note and the
     // session boundary below already tell that story. Writing a stop notice here
     // put "Stopped by you" across every accepted plan.
-    ctx.interruptTabSession(tabId, { notice: false })
+    ctx.controls.interruptTabSession(tabId, { notice: false })
   }
 
   const providerChanged = !!opts.provider && opts.provider !== session.run.provider
   if (providerChanged) {
-    await ctx.switchActiveAgent(opts.provider!, tabId)
+    await ctx.config.switchActiveAgent(opts.provider!, tabId)
     // switchActiveAgent owns handoff errors and leaves the original provider in
     // place. Do not accidentally submit the approved work to that provider.
     if (session.run.provider !== opts.provider) {
@@ -218,7 +218,7 @@ export async function approvePlanWithModel(
     ...(opts.planRefs ?? []).filter((r) => r.planId !== planId),
   ]
   prompt.workRefs = opts.workRefs ? [...opts.workRefs] : []
-  ctx.sendMessage(message)
+  ctx.dispatch.sendMessage(message)
   track('plan_approved', { mode })
   requestConversationScrollToBottom(tabId)
 }
@@ -246,7 +246,7 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
     // Only a run that was actually cancelled was stopped. Revising a plan whose
     // run has already exited cancels nothing, so it must not claim otherwise.
     const cancelled = await ctx.apiFor(tabId).stopSession(ctx.ctxFor(tabId).session.sessionId)
-    ctx.interruptTabSession(tabId, { notice: cancelled })
+    ctx.controls.interruptTabSession(tabId, { notice: cancelled })
   }
 
   ctx.planStore.setStatus(planId, 'rejected')
@@ -259,7 +259,7 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
     const parts: string[] = []
     if (comment) parts.push(comment)
     if (inlineComments.length > 0) parts.push(`Inline comments:\n${formatInlineComments(inlineComments)}`)
-    ctx.sendMessage(`Please revise the plan with these comments:\n\n${parts.join('\n\n')}`, undefined, tabId)
+    ctx.dispatch.sendMessage(`Please revise the plan with these comments:\n\n${parts.join('\n\n')}`, undefined, tabId)
   }
 
   requestConversationScrollToBottom(tabId)
@@ -268,7 +268,7 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
 // ─── Plan navigation ───
 
 async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: string, projectPath: string, provider?: AgentId, title?: string, serverId?: string): Promise<string | null> {
-  const existing = findOpenTabForSession(sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, provider, serverId)
+  const existing = findOpenTabForSession(sessionId, ctx.tabs, ctx.sessions.byId, ctx.tabOrder, provider, serverId)
   if (existing) {
     ctx.selectTab(existing)
     return existing
@@ -285,7 +285,7 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
     size: 0,
   }
   try {
-    return await ctx.resumeSession(meta)
+    return await ctx.opening.resumeSession(meta)
   } catch (error) {
     if (!(error instanceof SessionUnavailableError)) throw error
     ctx.notifySessionUnavailable(provider)
@@ -341,7 +341,7 @@ async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Pro
 
 export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
   const planId = planKey(d.sessionId, d.planToolUseId)
-  const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider, d.serverId)
+  const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions.byId, ctx.tabOrder, d.provider, d.serverId)
   if (existing) {
     ctx.router.close('folio')
     ctx.selectTab(existing)

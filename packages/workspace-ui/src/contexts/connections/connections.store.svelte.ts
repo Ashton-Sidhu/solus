@@ -52,9 +52,14 @@ export class ConnectionsStore {
   providerPrompt = $state<DeviceCodePrompt | null>(null)
 
   private providerCancelling = false
-  private providerServerId: string | null = null
+  private providerServerId = $state<string | null>(null)
   private deviceCodeUnsubscribe: (() => void) | null = null
   private deviceCodeSubscribers = 0
+
+  /** The GitHub status last read, only when it was read from this host. */
+  providerStatusFor(serverId: string | null): AuthStatus | null {
+    return serverId && this.providerServerId === serverId ? this.providerStatus : null
+  }
 
   async refreshServerMetadata(serverId: string): Promise<void> {
     if (this.metadataServerId !== serverId) {

@@ -2,7 +2,7 @@
   import { Check as CheckIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
-    getWorkspaceContext,
+    getSessionRecords,
   } from "../../contexts";
   import CopyButton from "../ui/CopyButton.svelte";
   import SubagentReport from "./SubagentReport.svelte";
@@ -35,10 +35,10 @@
   }
   let { sessionId, messageId }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const sessions = getSessionRecords();
   const environments = getSessionEnvironmentStore();
 
-  const currentSession = $derived(session.sessions[sessionId]);
+  const currentSession = $derived(sessions.byId[sessionId]);
   const message = $derived(
     currentSession?.messages.find((m) => m.id === messageId),
   );

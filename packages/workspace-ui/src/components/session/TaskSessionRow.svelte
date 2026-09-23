@@ -113,8 +113,10 @@
 
   // Which machine the session runs on. Unlike the task row this is never
   // omitted: a subtask list mixes hosts freely, so "here" has to be stated
-  // rather than inferred from the absence of a mark.
+  // rather than inferred from the absence of a mark. Only a remote host is
+  // named; a local one is the laptop icon alone.
   const host = $derived(serversStore.hostFor(session.serverId));
+  const hostLabel = $derived(host?.label ?? "Local");
   const isRemote = $derived(!!host && !host.local);
   // A host Solus no longer has a saved entry for names no operating system;
   // the icon falls back to a globe in that case.
@@ -247,25 +249,32 @@
         {/if}
         <!-- Which machine the session runs on. Unlike the task row this is
              never omitted: a subtask list mixes hosts freely, so "here" has to
-             be stated rather than inferred from the absence of a mark. -->
-        <span class="flex shrink-0 items-center">
+             be stated rather than inferred from the absence of a mark. A local
+             session states it with the laptop alone; only a remote one needs
+             the name, to say which of the other machines it is. -->
+        <span
+          class="flex min-w-0 max-w-[55%] items-center gap-1"
+          title={hostLabel}
+        >
           {#if session.runnerOffline}
             <!-- The cloud record of a session whose runner is not connected:
                  it opens read-only until that machine is back. -->
-            <CloudOffIcon size={11} class="text-(--solus-text-quaternary)" aria-label="Runner offline" data-testid="session-runner-offline" />
+            <CloudOffIcon size={11} class="shrink-0 text-(--solus-text-quaternary)" aria-label="Runner offline" data-testid="session-runner-offline" />
           {:else if isRemote}
             <HostOperatingSystemIcon
               os={remoteOs}
               managed={hostIsManaged(host)}
               size={11}
-              aria-label={host?.label}
+              class="shrink-0"
             />
           {:else}
             <LaptopIcon
               size={11}
-              class="@max-[15rem]:hidden"
-              aria-label="Local"
+              class="shrink-0"
             />
+          {/if}
+          {#if isRemote || session.runnerOffline}
+            <span class="min-w-0 truncate">{hostLabel}</span>
           {/if}
         </span>
         <!-- Who is in this session right now, at full ink: it is the one live

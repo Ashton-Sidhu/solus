@@ -32,7 +32,6 @@ export interface PresenceParticipant {
 /** What a client is looking at, reported by the client and relayed as a hint. */
 export const presenceFocusSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
-  z.object({ kind: z.literal('work'), workId: z.string().min(1) }),
   z.object({ kind: z.literal('none') }),
 ])
 export type PresenceFocus = z.infer<typeof presenceFocusSchema>

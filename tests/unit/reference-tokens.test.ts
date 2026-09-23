@@ -36,17 +36,21 @@ const tokens: ReferenceToken[] = [
 ];
 
 describe("reference token markdown", () => {
-  test("every input reference except a skill uses the message chip shell", () => {
+  test("every input reference uses the one chip shell and names its kind", () => {
     // WHY: references must not change visual language between the composer and
-    // transcript; only the skill chip represents an action rather than an object.
-    for (const token of tokens.filter((token) => token.kind !== "slash")) {
-      expect(referenceTokenClassName(token)).toContain(
-        "solus-token--link-chip",
-      );
+    // transcript. One base class carries the whole geometry; the kind class
+    // carries only the hue and face, so a chip of any kind sits at the same
+    // height as its neighbours.
+    for (const token of tokens) {
+      const className = referenceTokenClassName(token);
+      expect(className.split(" ")[0]).toBe("solus-token");
+      expect(className).toMatch(/\bsolus-token--(?!mono\b)[\w-]+/);
     }
-    expect(referenceTokenClassName(tokens[4])).not.toContain(
-      "solus-token--link-chip",
-    );
+    // A path and a command are mono; a title never is.
+    expect(referenceTokenClassName(tokens[4])).toContain("solus-token--mono");
+    for (const token of tokens.filter((token) => token.kind !== "slash")) {
+      expect(referenceTokenClassName(token)).not.toContain("solus-token--mono");
+    }
   });
 
   test("every rich href reference uses the same chip shell as the prompt editor", () => {
@@ -74,7 +78,7 @@ describe("reference token markdown", () => {
       } as never);
 
       expect(rendered?.[1]).toMatchObject({
-        class: expect.stringContaining("solus-token--link-chip"),
+        class: expect.stringMatching(/^solus-token solus-token--[\w-]+/),
       });
     }
   });

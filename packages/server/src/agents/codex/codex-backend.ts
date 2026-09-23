@@ -161,7 +161,6 @@ const STATIC_CODEX_METADATA: AgentMetadata = {
   capabilities: {
     planMode: true,
     permissions: true,
-    fileRewind: false,
     terminalResume: false,
     transport: 'codex-app-server',
   },

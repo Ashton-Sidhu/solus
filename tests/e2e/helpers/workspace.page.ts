@@ -62,9 +62,14 @@ export class WorkspacePage {
     return this.dialog.getByTestId('workspace-new')
   }
 
-  /** The rail's project scope control — every ledger count is relative to it. */
-  projectSwitcher(): Locator {
-    return this.dialog.getByTestId('project-switcher')
+  filtersMenu(): Locator {
+    return this.dialog.getByRole('button', { name: /^Filters/ })
+  }
+
+  /** The Filters menu's project scope group — every ledger count is relative
+   *  to it. The menu is portalled, so it is found on the page. */
+  projectFilter(): Locator {
+    return this.page.getByTestId('project-filter')
   }
 
   statusMenu(): Locator {

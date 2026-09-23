@@ -3,6 +3,7 @@ import type {
   GitActionPhase,
   GitActionProgressEvent,
   GitActionResult,
+  IpcContext,
 } from '@solus/contracts/types'
 import type { WorkspaceContext, SessionEnvironmentStore } from '../contexts'
 import { toolsStore } from '../contexts/app/tools.store.svelte'
@@ -108,6 +109,7 @@ export class GitActions {
       if (options.commitMessage) request.commitMessage = options.commitMessage
       const result = await api.gitRunAction($state.snapshot(target.ctx), request)
       this.lastResult = result
+      this.refreshPushedPullRequest(api, target.ctx, target.gitContext.branch, result)
       const pullRequest = result.pullRequest
       if (pullRequest.status !== 'skipped') {
         this.prUrl = pullRequest.url
@@ -142,7 +144,7 @@ export class GitActions {
         cwd: target.cwd,
         level: 'details',
       }).catch(() => null)
-      this.prUrl = this.environmentStore.statusFor(target.cwd)?.prUrl || this.prUrl
+      this.prUrl = this.environmentStore.statusFor(this.session.serverIdFor(this.sourceId), target.cwd)?.prUrl || this.prUrl
       this.running = false
       this.activeAction = null
       this.activePhase = null
@@ -155,6 +157,16 @@ export class GitActions {
       }
       requestInputFocus()
     }
+  }
+
+  /** A push moves the branch's pull request: read its mergeability again. */
+  private refreshPushedPullRequest(api: HostApi, ctx: IpcContext, branch: string | null, result: GitActionResult): void {
+    if (result.push.status !== 'pushed') return
+    void this.pullRequests
+      .get(api, this.session.serverIdFor(this.sourceId), ctx)
+      .prForBranch(branch)
+      ?.refreshDetail()
+      .catch(() => {})
   }
 
   async discard(): Promise<void> {

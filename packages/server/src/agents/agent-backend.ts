@@ -107,6 +107,5 @@ export interface AgentBackend extends EventEmitter {
   readUsageLimits?(seat?: TurnSeat): Promise<AgentUsageLimits | null>
 
   shutdown?(): void
-  rewindFiles?(sessionId: string, checkpointId: string, projectPath: string): Promise<void>
   readonly permissions: PermissionResponder
 }

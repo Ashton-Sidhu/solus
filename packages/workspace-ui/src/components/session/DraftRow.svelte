@@ -20,7 +20,7 @@
 -->
 <div
   class="group/draft relative -mx-2 flex h-[3.875rem] cursor-pointer items-center rounded-lg pr-2 pl-[0.625rem] transition-[background,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]"
-  role="option"
+  role="treeitem"
   tabindex="0"
   aria-selected="false"
   aria-label="{row.title} — unsent draft"

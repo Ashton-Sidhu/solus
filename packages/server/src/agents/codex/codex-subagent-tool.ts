@@ -24,7 +24,7 @@ const codexSubagentFields = {
     .string()
     .optional()
     .describe(
-      "Codex model id. Defaults to 'gpt-5.6-terra' — right for most delegated tasks; pick 'gpt-5.6-sol' for genuinely hard debugging or design work.",
+      "Codex model id. Defaults to 'gpt-6-sol' — right for most delegated tasks; pick 'gpt-6-astra' for genuinely hard debugging or design work.",
     ),
   reasoning_effort: z
     .enum(['none', 'low', 'medium', 'high', 'xhigh'])
@@ -45,7 +45,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
     requiresApproval: false,
     execute: async (args, context) => {
       const parentToolUseId = context.parentToolUseId()
-      const model = args.model ?? 'gpt-5.6-terra'
+      const model = args.model ?? 'gpt-6-sol'
       const run = dispatcher.runAgent({
         provider: 'codex',
         prompt: args.prompt,

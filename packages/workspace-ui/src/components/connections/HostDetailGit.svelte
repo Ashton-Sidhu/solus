@@ -94,7 +94,7 @@
   </SettingsRow>
 
   {#if setup.stepError?.step === "credential-helper" || setup.stepError?.step === "gh-cli" || setup.stepError?.step === "gh-auth"}
-    <div class="border-t border-border px-4 py-3">
+    <div class="px-4 py-3">
       <p
         class="cursor-text select-text text-pretty text-xs text-(--solus-status-error)"
       >

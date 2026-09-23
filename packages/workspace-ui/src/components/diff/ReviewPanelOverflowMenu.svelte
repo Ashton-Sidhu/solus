@@ -5,7 +5,7 @@
     GitCompareArrows as CompareIcon,
     Highlighter as HighlighterIcon,
     PenLine as RewriteIcon,
-    PanelLeft as SidebarSimpleIcon,
+    PanelRight as FileTreeIcon,
     RotateCw as ArrowClockwiseIcon,
     Rows3 as StackedIcon,
     Shrink as ArrowsInLineVerticalIcon,
@@ -189,7 +189,7 @@
 
     {#if view === "diff" && hasFiles}
       <DropdownMenu.Item onSelect={onToggleTree}>
-        <SidebarSimpleIcon size={14} />
+        <FileTreeIcon size={14} />
         <span class="whitespace-nowrap">{treeCollapsed ? "Show file tree" : "Hide file tree"}</span>
         <DropdownMenu.Shortcut>{comboHint("diff-panel.toggle-tree")}</DropdownMenu.Shortcut>
       </DropdownMenu.Item>

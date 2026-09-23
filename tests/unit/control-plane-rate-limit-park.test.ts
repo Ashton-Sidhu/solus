@@ -30,6 +30,7 @@ beforeAll(async () => {
 })
 
 afterEach(() => {
+  mock.restore()
   setSystemTime()
   metricsDb.closeMetricsDb()
   db.closeDb()
@@ -211,6 +212,32 @@ function statusOf(plane: Parked['plane'], clientId: string): string | null {
 }
 
 describe.serial('ControlPlane rate-limit park teardown', () => {
+  test('user input uses the receiving host policy for both providers', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const { runInputFromContext } = await import('@solus/server/agents/run-input')
+    const snapshot = settings.getHostConfig()
+    const config = spyOn(settings, 'getHostConfig')
+    for (const seeded of [false, true]) {
+      config.mockReturnValue({
+        ...snapshot, seeded, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+      })
+      for (const provider of ['claude-code', 'codex'] as const) {
+        const context = ctx()
+        context.session.provider = provider
+        context.settings = {
+          ...snapshot.config, isDark: false, reviewWarmingEnabled: false,
+          rateLimitBehavior: 'continue',
+        }
+        context.statusBar = {
+          workingDirectory: dataDir, activeAgent: provider, permissionMode: 'ask',
+          model: 'test-model', reasoningEffort: 'medium', defaultReasoningEffort: 'medium',
+          reasoningLevels: ['medium'], supportsFastMode: false, fastMode: false, contextWindows: [],
+        }
+        expect(runInputFromContext(context).rateLimitBehavior).toBe('queue')
+      }
+    }
+  })
+
   test('the current host queue setting overrides a user run submitted with ask', async () => {
     const settings = await import('@solus/server/server/settings')
     const snapshot = settings.getHostConfig()
@@ -235,11 +262,11 @@ describe.serial('ControlPlane rate-limit park teardown', () => {
     }
   })
 
-  test('the host ask setting does not override unattended queue policies', async () => {
+  test('an unseeded host uses ask for user runs and preserves unattended queue policies', async () => {
     const settings = await import('@solus/server/server/settings')
     const snapshot = settings.getHostConfig()
     const config = spyOn(settings, 'getHostConfig').mockReturnValue({
-      ...snapshot, seeded: true, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
+      ...snapshot, seeded: false, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
     })
     try {
       for (const source of ['typed', 'agent', 'automation'] as const) {
@@ -256,6 +283,11 @@ describe.serial('ControlPlane rate-limit park teardown', () => {
   })
 
   test('a windowless terminal limit preserves the queue deadline with both usage windows present', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const snapshot = settings.getHostConfig()
+    spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+    })
     const { backend, plane, events } = await park(60_000, 'queue')
     try {
       const queued = events.find((event) => event.type === 'prompt_queued')
@@ -281,6 +313,11 @@ describe.serial('ControlPlane rate-limit park teardown', () => {
   })
 
   test('usage-store reset drives the queue timer, countdown and reconnect snapshot', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const snapshot = settings.getHostConfig()
+    spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+    })
     setSystemTime(new Date('2026-09-16T03:00:00Z'))
     const { backend, plane, events, releaseDelay, settleRelease } = await park(3_600_000, 'queue')
     try {
@@ -408,6 +445,11 @@ describe.serial('ControlPlane rate-limit park teardown', () => {
   })
 
   test('cancelling the last prompt a limit holds settles the session', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const snapshot = settings.getHostConfig()
+    spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+    })
     // WHY: the queue strategy parks the prompt, and removing it is the user
     // saying the limit no longer holds anything. Nothing else would say so: the
     // session kept the `rate_limited` status, and the card its countdown, until

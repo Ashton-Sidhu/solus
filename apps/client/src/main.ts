@@ -5,14 +5,13 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
-import { workspaceHostId } from '@solus/contracts/uplink'
-import { parsePageRouteFragment, type PageRoute } from './lib/page-routes'
 import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
 import { clearActiveServerId, getActiveServerId, loadServers, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
-import { adoptCloudOriginIfPresent, uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { adoptCloudOriginIfPresent } from '@solus/client-core/uplink-account'
+import { startupAccountRead } from '@solus/client-core/cloud-account'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation, probeServer } from './lib/connect'
@@ -27,9 +26,6 @@ import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { z } from 'zod'
-
-/** Where this bundle is mounted: `/` when a host serves it, `/app/` on the account origin. */
-const BASE = import.meta.env.BASE_URL
 
 const serviceWorkerMessageSchema = z.object({
   type: z.string().optional(),
@@ -164,7 +160,7 @@ async function connectToServer(
   webPushState.init()
   installServiceWorkerMessageBridge()
   transport.start()
-  const startupTranscript = prefetchStartupTranscript()
+  void prefetchStartupTranscript()
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
   touchLastConnected(server.id)
@@ -179,7 +175,8 @@ async function connectToServer(
   try {
     // Pairing and reconnect plumbing live in the small entry chunk; the
     // multi-megabyte shared workspace graph loads lazily behind it.
-    const [{ default: App }] = await Promise.all([loadWorkspaceApp(), startupTranscript])
+    // Saved tabs provide the loading state while history arrives in the background.
+    const { default: App } = await loadWorkspaceApp()
     if (generation !== connectionGeneration || activeTransport !== transport) {
       transport.destroy()
       return
@@ -215,7 +212,7 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
 installWindowSolusApi(createNoHostSolusApi())
 
 async function pairFromLocation(pairToken: string): Promise<void> {
-  history.replaceState({}, '', BASE)
+  history.replaceState({}, '', '/')
   try {
     void loadWorkspaceApp().catch(() => {})
     const { server } = await pairServer({
@@ -247,16 +244,16 @@ async function servingOriginEntry(): Promise<SavedServer | null> {
 }
 
 async function adoptCloudDirectory(): Promise<void> {
-  // Only the account origin mounts this bundle under a sub-path; a host serves it at
-  // `/`, and asking a host for `/v1/hosts` would just cost a round trip through its
-  // SPA fallback before the first dial.
-  if (BASE === '/') {
-    cloudOrigin.kind = 'not-cloud'
-    return
-  }
-  cloudOrigin.kind = await adoptCloudOriginIfPresent(location.origin)
-  if (cloudOrigin.kind !== 'signed-in') return
-  const directory = await uplinkAccountSource()?.listDirectory()
+  // The same bundle is served at `/` by a host and by the account origin; only the
+  // probe tells them apart. A host answers `/v1/hosts` with its SPA fallback, which
+  // the probe reads as `not-cloud`.
+  const { kind, directory } = await adoptCloudOriginIfPresent(location.origin)
+  cloudOrigin.kind = kind
+  // Whether cloud onboarding is due is known before the workspace mounts, so the
+  // draft composer never paints under it. Bounded: a slow answer falls back to the
+  // App's opaque cover rather than holding the boot.
+  const accountRead = startupAccountRead()
+  if (accountRead) await Promise.race([accountRead, new Promise((resolve) => setTimeout(resolve, 2_000))])
   if (!directory) return
   saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
 }
@@ -264,11 +261,15 @@ async function adoptCloudDirectory(): Promise<void> {
 async function bootFromCatalog(): Promise<void> {
   // The workspace loads on any success — overlap the import with the probe.
   void loadWorkspaceApp().catch(() => {})
-  await adoptCloudDirectory().catch((error) => {
-    console.warn("[solus:boot] cloud directory unavailable", error)
-  })
+  // Two probes of the serving origin, independent of each other: one asks whether
+  // it is the account origin, the other whether it is a host.
+  const [, origin] = await Promise.all([
+    adoptCloudDirectory().catch((error) => {
+      console.warn("[solus:boot] cloud directory unavailable", error)
+    }),
+    servingOriginEntry(),
+  ])
   const servers = loadServers()
-  const origin = await servingOriginEntry()
   const activeServer = resolveActiveSavedServer(servers)
   const candidates: SavedServer[] = []
   if (activeServer) candidates.push(activeServer)
@@ -394,103 +395,20 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   }
 }
 
-// ── Organization pages ────────────────────────────────────────────────────────
-// `#/w/<orgId>/…` on the account origin (docs/plans/cloud-service-model.md): the
-// signed-in account's directory names the organization's workspace service, a
-// grant opens it, and the page shell mounts one of its lists or records against
-// that host alone. The hash stays in the address bar so a reload walks the same door.
-
-let pageAppImport: Promise<typeof import('./PageApp.svelte')> | null = null
-
-function loadPageApp(): Promise<typeof import('./PageApp.svelte')> {
-  if (!pageAppImport) {
-    pageAppImport = import('./PageApp.svelte').catch((error) => {
-      pageAppImport = null
-      throw error
-    })
-  }
-  return pageAppImport
-}
-
-async function bootPage(route: PageRoute): Promise<void> {
-  void loadPageApp().catch(() => {})
-  cloudOrigin.kind = await adoptCloudOriginIfPresent(location.origin)
-  if (cloudOrigin.kind === 'signed-out') {
-    // The account is the only way in: sign in, then come back to this page.
-    location.assign(cloudOrigin.signInUrlReturningTo(`${BASE}${location.hash}`))
-    return
-  }
-  if (cloudOrigin.kind !== 'signed-in') {
-    toasts.error('This page needs the Solus cloud account origin')
-    void bootFromCatalog()
-    return
-  }
-  const directory = await uplinkAccountSource()?.listDirectory()
-  if (!directory) {
-    toasts.error('Solus cloud did not answer')
-    void bootFromCatalog()
-    return
-  }
-  const merged = mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now())
-  saveServers(merged)
-  const server = merged.find((saved) => saved.id === workspaceHostId(route.organizationId))
-  if (!server) {
-    toasts.error('You are not a member of this organization, or it has no workspace yet')
-    void bootFromCatalog()
-    return
-  }
-  await connectPage(server, route)
-}
-
-async function connectPage(server: SavedServer, route: PageRoute): Promise<void> {
-  const generation = ++connectionGeneration
-  toasts.dismiss()
-  const target = savedServerTarget(server)
-  const { transport, api } = createSolusConnection(target, {
-    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
-    onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      serverConnections.updateStatus(server.id, status, attempt)
-      setConnectionState({ status, attempt, target })
-    },
-  })
-  installWindowSolusApi(api)
-  serverConnections.registerPrimary(server.id, api, transport, target)
-  activeTransport = transport
-  transport.start()
-  try {
-    const { default: PageApp } = await loadPageApp()
-    if (generation !== connectionGeneration || activeTransport !== transport) {
-      transport.destroy()
-      return
-    }
-    solusApp = mount(PageApp, {
-      target: root,
-      props: { serverId: server.id, organizationId: route.organizationId, organizationName: server.label, workspaceUrl: BASE },
-    })
-  } catch (error) {
-    if (generation !== connectionGeneration) return
-    if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
-    else toasts.error(error instanceof Error ? error.message : 'The page failed to load')
-  }
-}
-
-const bootPairToken = pairTokenFromLocation(location.href, BASE)
-// Only the account origin serves guest links: a host has no `/v1` to mint a grant at.
-const bootGuestLink = BASE === '/' ? null : parseCloudShareLink(location.pathname, location.hash)
-// Likewise an organization's pages: only the account origin has the directory that names its workspace.
-const bootPageRoute = BASE === '/' ? null : parsePageRouteFragment(location.hash)
+const bootPairToken = pairTokenFromLocation(location.href)
+// Only the account origin mints guest links; on a host the same path is a link
+// nobody minted, and the grant request below says so.
+const bootGuestLink = parseCloudShareLink(location.pathname, location.hash)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
 } else if (bootGuestLink) {
   void bootGuest(bootGuestLink)
-} else if (BASE !== '/' && /^\/(w|s|t)\//.test(location.pathname)) {
+} else if (/^\/(w|s|t)\//.test(location.pathname)) {
   void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
     guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')
     mount(GuestLanding, { target: root, props: { onContinue: () => {} } })
   })
-} else if (bootPageRoute) {
-  void bootPage(bootPageRoute)
 } else {
   void bootFromCatalog()
 }

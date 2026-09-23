@@ -73,7 +73,6 @@ export const RPC_INVOKE_METHODS = [
   'cancelQueuedPrompt',
   'editQueuedPrompt',
   'writePlanFile',
-  'rewindFiles',
 
   // Files / media
   'saveFileDialog',
@@ -120,6 +119,10 @@ export const RPC_INVOKE_METHODS = [
   'sharedSessionPrompt',
   'sessionRecordList',
   'sessionRecordUpsert',
+  'workspaceProjectList',
+  'workspaceProjectAdd',
+  'workspaceProjectRemove',
+  'workspaceProjectUpdate',
   'loadSession',
   'loadSessionPage',
   'loadSessionToolInputs',
@@ -279,6 +282,7 @@ export const RPC_INVOKE_METHODS = [
   'createWork',
   'saveWork',
   'loadWork',
+  'loadWorkUpdatedAt',
   'listWorks',
   'deleteWork',
   'duplicateWork',
@@ -338,11 +342,11 @@ export const RPC_INVOKE_METHODS = [
   'providerDisconnect',
   'githubExportCredential',
   'providerViewer',
+  'providerRepositories',
 
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
   'prNeedsReview',
-  'prGetEfforts',
   'prGuideMetadata',
   'prOpenReview',
   'prGetDiff',
@@ -371,6 +375,9 @@ export const RPC_INVOKE_METHODS = [
   'prUnresolveThread',
   'prGenerateGuides',
   'prMerge',
+  'prEnableAutoMerge',
+  'prDisableAutoMerge',
+  'prRevert',
   'prPrepareConflictResolution',
   'prInvalidate',
 
@@ -382,6 +389,7 @@ export const RPC_INVOKE_METHODS = [
   'requestReviewGuide',
   'reviewGuideStatus',
   'sessionGuideStatuses',
+  'prGuideStatuses',
   'cancelGenerateGuide',
   'readGuide',
   'readReviewState',
@@ -439,11 +447,6 @@ export const RPC_INVOKE_METHODS = [
   'automationListRuns',
   'automationReadRun',
 
-  // PR stack detection + manual pins
-  'stackGet',
-  'stackDetect',
-  'stackAddManualEdge',
-  'stackRemoveManualEdge',
 
   // PR checks cache + renderer activity hint
   'prChecks',
@@ -453,6 +456,8 @@ export const RPC_INVOKE_METHODS = [
   'usageLimits',
 
   // Browser (viewing and driving a running UI at a chosen viewport)
+  'browserRuntimeStatus',
+  'browserRuntimeInstall',
   'browserListTargets',
   'browserListPages',
   'browserOpen',

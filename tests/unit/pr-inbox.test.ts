@@ -2,13 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import type { PrFilter, PrListPage, PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { IpcContext } from '@solus/contracts/types'
-import type { StackGraph } from '@solus/contracts/stack-types'
 import { asHostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import {
   flattenQualifiedProjects,
   qualifiedPrKey,
-  qualifiedStackParentOf,
   type QualifiedProject,
 } from '@solus/workspace-ui/components/prs/lib/pr-cross-project'
 
@@ -350,35 +348,3 @@ describe('qualified PR identity', () => {
   })
 })
 
-describe('qualifiedStackParentOf', () => {
-  function graph(edges: StackGraph['edges']): StackGraph {
-    return { edges, headShas: {}, detectedAt: '2026-01-01T00:00:00.000Z' }
-  }
-
-  function fakeStacksStore(graphs: Map<string, StackGraph>) {
-    return {
-      parentOf: (prNumber: number, serverId: string, repoRoot: string) =>
-        graphs.get(`${serverId}\0${repoRoot}`)?.edges.find((edge) => edge.child === prNumber)?.parent ?? null,
-    } as import('@solus/workspace-ui/contexts/prs/stacks.store.svelte').StacksStore
-  }
-
-  test('a stack edge in one repo never attaches to the same PR number in another', () => {
-    const graphs = new Map<string, StackGraph>([
-      ['host-a\0/repos/a', graph([{ parent: 10, child: 20, source: 'ancestry' }])],
-    ])
-    const stacks = fakeStacksStore(graphs)
-
-    const prTwentyRepoA = pr(20)
-    const prTwentyRepoB = pr(20)
-    const { byPr } = flattenQualifiedProjects([
-      { serverId: 'host-a', projectRoot: '/repos/a', label: 'A', api: asHostApi({}), ctx: ctxFor('/repos/a'), items: [prTwentyRepoA] },
-      { serverId: 'host-b', projectRoot: '/repos/b', label: 'B', api: asHostApi({}), ctx: ctxFor('/repos/b'), items: [prTwentyRepoB] },
-    ])
-    const stackParentOf = qualifiedStackParentOf(stacks, byPr)
-
-    expect(stackParentOf(prTwentyRepoA)).toBe(10)
-    // Repo B has no graph at all — its identically-numbered PR must not
-    // inherit repo A's edge.
-    expect(stackParentOf(prTwentyRepoB)).toBeNull()
-  })
-})

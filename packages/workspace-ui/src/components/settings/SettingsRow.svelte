@@ -1,9 +1,10 @@
 <script lang="ts">
-  /** One setting inside a `SettingsSection` card: label + description on the
-   *  left, control on the right, with an optional full-width `body` below.
-   *  Drawn the way the cloud site draws a settings row: sixteen pixels in from
-   *  the card's edge, as tall as a table row (`--row-py`), and nothing drawn
-   *  between one row and the next. */
+  /** One setting inside a `SettingsSection` card: a medium-weight title and a
+   *  quiet one-line description on the left, the control at the trailing edge,
+   *  with an optional full-width `body` below. Sixteen pixels in from the
+   *  card's edge and twelve above and below; the card draws the hairline
+   *  between rows. Under thirty rem of pane the control drops beneath the
+   *  copy rather than squeezing it. */
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -43,36 +44,41 @@
 {#if visible}
   <div
     data-testid={testId}
-    class="px-4 py-(--row-py) {comingSoon ? 'opacity-55' : ''}"
+    class="px-4 py-3 {comingSoon ? 'opacity-55' : ''}"
   >
-    <div class="flex items-center gap-6 [.is-laptop-display_&]:gap-5">
-      <div class="min-w-0 flex-1">
-        <div
-          class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-primary) [.is-laptop-display_&]:gap-1.5"
-        >
-          <span>{label}{@render labelExtra?.()}</span>
+    <div
+      class="flex flex-col gap-3 @min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8"
+    >
+      <div class="min-w-0 flex-1 space-y-1">
+        <div class="flex min-h-5 items-center gap-1.5">
+          <h3 class="text-sm font-medium tracking-[-0.005em] text-foreground">
+            {label}{@render labelExtra?.()}
+          </h3>
           {#if comingSoon}
             <span
-              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[0.875em] leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground"
+              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[11px] leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground"
             >
               Coming soon
             </span>
           {/if}
         </div>
         {#if description}
-          <div
-            class="mt-0.5 text-pretty text-[0.875em] text-muted-foreground"
-          >
+          <p class="max-w-xl text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">
             {description}
-          </div>
+          </p>
         {/if}
       </div>
       {#if control}
-        <div class="shrink-0" inert={comingSoon}>{@render control()}</div>
+        <div
+          class="flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
+          inert={comingSoon}
+        >
+          {@render control()}
+        </div>
       {/if}
     </div>
     {#if body && bodyVisible}
-      <div class="mt-3 [.is-laptop-display_&]:mt-2.5">{@render body()}</div>
+      <div class="mt-3">{@render body()}</div>
     {/if}
   </div>
 {/if}

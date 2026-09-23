@@ -3,6 +3,7 @@ import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 const RPC_METHODS = new Set<string>(RPC_INVOKE_METHODS)
 
 export const NATIVE_ONLY_SOLUS_METHODS = [
+  'isVisible',
   'getPlatform',
   'getPathForFile',
   'readAttachmentBytes',
@@ -38,10 +39,10 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'onUpdateStatusChange',
 ] as const
 
-// Most RPC methods belong to the selected host. External links are the lone
-// exception: they must open on the client device, using its native shell when
-// one exists instead of asking a remote host to open them.
-const CLIENT_LOCAL_RPC_METHODS = new Set<string>(['openExternal'])
+// Most RPC methods belong to the selected host. These describe or act on the
+// client device instead: use its native shell when one exists instead of asking
+// a remote host about its window or to open a link there.
+const CLIENT_LOCAL_RPC_METHODS = new Set<string>(['isVisible', 'openExternal'])
 
 export type NativeOnlySolusMethod = (typeof NATIVE_ONLY_SOLUS_METHODS)[number]
 

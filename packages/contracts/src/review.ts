@@ -301,6 +301,14 @@ export interface PrGuideMetadataRequest {
   headSha: string
 }
 
+/** One listed pull request whose saved guide a list asks about. */
+export interface PrGuideStatusRequest {
+  target: Extract<ReviewTarget, { kind: 'pr' }>
+  /** The head branch the list already holds. Older releases saved guides under
+   * it, so the host can find them without asking the code host. */
+  headRef: string
+}
+
 export interface PrGuideMetadata {
   number: number
   headSha: string

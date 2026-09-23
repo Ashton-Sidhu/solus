@@ -249,7 +249,7 @@ export class Task implements TaskRecord {
       if (this.#known ? this.isUpstream : await this.#looksUpstream()) {
         const cwd = this.#upstreamCwd
         this.hydrate(await this.#api.tasksGetUpstream(cwd, this.id))
-        const details = upstreamTaskDetails(this, this.#store.tasksForProject(cwd))
+        const details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
         this.#details = details
         return details
       }
@@ -268,8 +268,11 @@ export class Task implements TaskRecord {
    *  ULIDs), so a deep link hydrates instead of reading as a missing task. */
   async #looksUpstream(): Promise<boolean> {
     if (!this.projectKey) return false
+    // Only the host that holds the project can say which provider it uses.
+    const serverId = this.serverId ?? this.#store.providerHostFor(this.projectKey)
+    if (!serverId) return false
     const status = this.#store.providerStatus(this.projectKey)
-      ?? await this.#store.loadProviderStatus(this.projectKey)
+      ?? await this.#store.loadProviderStatus(this.projectKey, { serverId })
     if (status.provider === 'github') return /^\d+$/.test(this.id)
     if (status.provider === 'jira') return /^[A-Z][A-Z0-9_]+-\d+$/i.test(this.id)
     return false
@@ -340,7 +343,7 @@ export class Task implements TaskRecord {
     if (this.isUpstream) {
       const cwd = this.#upstreamCwd
       this.hydrate(await this.#api.tasksCommentUpstream(cwd, this.id, body))
-      this.#details = upstreamTaskDetails(this, this.#store.tasksForProject(cwd))
+      this.#details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
       return this
     }
     this.applyDetails(await this.#api.tasksComment(this.id, body, opts))

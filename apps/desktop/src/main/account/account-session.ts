@@ -243,6 +243,7 @@ function signedInState(stored: StoredAccount, isStale: boolean): AccountState {
   return {
     kind: 'signed-in',
     profile: stored.profile,
+    consoleUrl: stored.cloudOrigin,
     signedInAt: stored.signedInAt,
     lastVerifiedAt: stored.lastVerifiedAt,
     isStale,

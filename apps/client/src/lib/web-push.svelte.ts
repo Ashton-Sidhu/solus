@@ -16,7 +16,7 @@ import {
   type PushHostRef,
 } from './web-push-core'
 
-/** Where this bundle is mounted: `/` on a host, `/app/` on the account origin. */
+/** Where this bundle is mounted; `/` on a host and on the account origin alike. */
 const BASE = import.meta.env.BASE_URL
 
 class WebPushState {

@@ -25,20 +25,18 @@ import { z } from 'zod'
  */
 export type ListPageView = 'global' | 'inbox'
 
-/** One project in the header's scope switcher. */
+/** One project in a page's project selector (docs/plans/project-model.md §5). */
 export interface ListProjectOption {
-  /** Unique across hosts (`serverId` + `projectKey`) — row identity and the
-   *  value `onSelect`/`onRemoveHistory` are keyed by. */
+  /** The project key the page scope takes: a repository key, or a local-only
+   *  folder's key. Row identity. */
   key: string
-  /** Repo root — the path the favicon is looked up under. Not unique alone:
-   *  two hosts can share it, which is exactly why `key` exists. */
+  /** The checkout path the favicon is looked up under. */
   projectKey: string
-  /** The host this project lives on. */
+  /** The host the favicon is read on. */
   serverId: string
   label: string
-  /** False for a catalog project this page cannot yet select — its host is
-   *  disconnected, or it lives on a different host than the one this page is
-   *  scoped to. The option stays visible but the switcher will not act on it. */
+  /** False when no connected host holds a checkout and the organization has
+   *  no cloud record of it. The option stays visible but inert. */
   available: boolean
   /** True for a catalog-only entry (no live session/task on it right now) —
    *  the switcher offers "Remove from history" for these. */
@@ -323,10 +321,8 @@ export function compactRelativeTime(at: number | string | undefined, now: number
 export function syncLabel(
   syncedAt: number | null | undefined,
   now: number,
-  refreshing: boolean,
   fromCache = false,
 ): string {
-  if (refreshing) return 'syncing…'
   if (!syncedAt) return 'Refresh'
   const age = compactRelativeTime(syncedAt, now)
   if (fromCache) return age === 'now' ? 'offline copy' : `offline copy from ${age} ago`

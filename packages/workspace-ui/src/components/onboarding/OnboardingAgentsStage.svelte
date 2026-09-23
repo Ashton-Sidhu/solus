@@ -10,9 +10,14 @@
   import OnboardingAgentRow from "./OnboardingAgentRow.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
+  import { serversStore } from "../../contexts";
+  import { hostIsManaged } from "../servers/lib/managed-host";
   import type { SetupAgent } from "@solus/contracts/types";
 
   const setup = $derived(store.setup);
+  /** The cloud flow names the machine it chose, since it is not this device. */
+  const host = $derived(store.flow === "cloud" ? serversStore.hostFor(store.serverId) : null);
+  const onCloudHost = $derived(hostIsManaged(host));
   const rows = $derived(
     codingProviderRows({
       readiness: setup.readiness,
@@ -56,12 +61,22 @@
   >
     {title}
   </h1>
+  {#if host}
+    <p
+      class="onboarding-title mt-3 max-w-[40ch] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
+      style="animation-delay: 0.06s"
+    >
+      {onCloudHost
+        ? "On the cloud host, you sign in with your own account. Other members cannot use your sign-in."
+        : `On ${host.label}.`}
+    </p>
+  {/if}
 
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">
     {#if probing}
       {#each [0, 1] as index (index)}
         <div
-          class="flex h-[4.5rem] items-center gap-4 rounded-2xl bg-[var(--wash-1)] px-4"
+          class="flex h-[4.5rem] items-center gap-4 rounded-2xl bg-[var(--solus-tx-card-bg)] px-4 shadow-[shadow:var(--solus-tx-card-shadow)]"
         >
           <span class="size-10 shrink-0 rounded-full bg-[var(--wash-2)]"></span>
           <span class="flex flex-col gap-2">
@@ -74,6 +89,7 @@
       <OnboardingRow
         name="Could not check this host"
         detail={setup.readinessError}
+        tint="var(--solus-status-error)"
         state="available"
         actionLabel="Retry"
         onaction={() => void setup.refreshReadiness()}

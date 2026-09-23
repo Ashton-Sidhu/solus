@@ -1,6 +1,7 @@
 import type { AgentId, GitCheckout, IpcContext, ModelConfig, ReasoningEffort, RunConfig, Session, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, modelLabelFor, worktreeProjectRoot } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
@@ -74,6 +75,8 @@ export interface SessionConfigControllerDeps {
   openSessionDraft(cwd?: string, freshTask?: boolean, gitContext?: GitCheckout | null): void
   /** The draft a source id names, when it names one rather than a tab. */
   draftFor(sourceId: string): SessionDraft | undefined
+  /** Where work happens when no run is in play — `WorkspaceContext.defaultRunConfig`. */
+  defaultRunConfig(): RunConfig
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
   apiFor(tabId?: string): HostApi
@@ -83,7 +86,8 @@ export interface SessionConfigControllerDeps {
   apiForRun(run: RunConfig | undefined): HostApi
   refreshPluginCommands(dir: string, tabId?: string): void
   rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
-  refreshGitRefs(projectRoot: string, ctx: IpcContext): void
+  /** `run` names the host whose checkout the refs describe. */
+  refreshGitRefs(run: RunConfig | undefined, projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
   /** Bring an already-open tab to the front — the "matching tab" half of
    *  activating a checkout. */
@@ -91,10 +95,10 @@ export interface SessionConfigControllerDeps {
 }
 
 export class SessionConfigController {
+  /** What a new session runs with. Where it runs is not here: that is
+   *  `WorkspaceContext.defaultRunConfig`, derived from `settings.lastProject`. */
   globalDefaults: {
     permissionMode: 'ask' | 'auto' | 'plan'
-    workingDirectory: string
-    gitContext: GitCheckout | null
     modelConfig: ModelConfig
   }
   tabGroupMode = $state<TabGroupMode>('flat')
@@ -110,8 +114,6 @@ export class SessionConfigController {
       set permissionMode(mode: 'ask' | 'auto' | 'plan') {
         deps.settings.update({ defaultPermissionMode: mode })
       },
-      workingDirectory: '~',
-      gitContext: null as GitCheckout | null,
       modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false } as ModelConfig,
     })
     this.globalDefaults = defaults
@@ -155,12 +157,6 @@ export class SessionConfigController {
       apply: (next) => { session.run = next },
       startNewTask: () => { session.task = { kind: 'new' } },
     }
-  }
-
-  /** Single write path for the global Git start target: environment resolution
-   * applies a resolved target, and tab creation clears a consumed one. */
-  applyGlobalStartTarget(target: { gitContext: GitCheckout | null }): void {
-    this.globalDefaults.gitContext = target.gitContext
   }
 
   toggleTabGroupMode(): void {
@@ -218,7 +214,7 @@ export class SessionConfigController {
     this.deps.settings.update({ activeAgent: agentId })
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     this.deps.setPluginCommands({ global: [], project: [] })
-    this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
+    this.deps.refreshPluginCommands(this.deps.defaultRunConfig().workingDirectory)
   }
 
   /** Keep the next-session defaults aligned with the session brought to the
@@ -267,14 +263,19 @@ export class SessionConfigController {
 
     if (!session && this.switchDraftAgent(tabId, agentId, via)) return
 
-    const newModelConfig = this.defaultModelConfigFor(agentId)
+    // A session already holding a provider thread is handed over, not started, so
+    // an Auto default never applies to it — Auto only routes a first prompt.
+    const resumesProviderThread = !!(session?.agentSessionId || session?.handoffId)
+    const newModelConfig = resumesProviderThread
+      ? this.pinnedModelConfigFor(agentId)
+      : this.defaultModelConfigFor(agentId)
     if (!session?.agentSessionId && !session?.handoffId) {
       track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
       if (!session) {
-        this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
+        this.deps.refreshPluginCommands(this.deps.defaultRunConfig().workingDirectory)
         return
       }
       session.run.provider = agentId
@@ -408,7 +409,6 @@ export class SessionConfigController {
     // The checkout already knows its canonical repository root, so retain that
     // identity instead of promoting an arbitrary worktree path to a project.
     const projectRoot = contextRun?.gitContext?.repoRoot
-      ?? this.globalDefaults.gitContext?.repoRoot
       ?? (isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath)
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
     const api = this.deps.apiForRun(contextRun)
@@ -426,7 +426,7 @@ export class SessionConfigController {
     // Git context carries the selected worktree.
     if (!owner) {
       this.deps.openSessionDraft(projectRoot, false, restored)
-      this.deps.refreshGitRefs(projectRoot, repoCtx)
+      this.deps.refreshGitRefs(contextRun, projectRoot, repoCtx)
       return
     }
     if (owner.session) api.resetSession(this.deps.ctx(owner.id))
@@ -437,7 +437,7 @@ export class SessionConfigController {
       this.deps.refreshPluginCommands(projectRoot, owner.id)
       if (!restored) this.deps.refreshGitState({ sourceId: owner.id })
     }
-    this.deps.refreshGitRefs(projectRoot, repoCtx)
+    this.deps.refreshGitRefs(contextRun, projectRoot, repoCtx)
   }
 
   async switchToBranch(branch: string, sourceId?: string): Promise<boolean> {
@@ -450,8 +450,8 @@ export class SessionConfigController {
       }
       // With no pre-flight owner the branch still checks out on disk against the
       // conversation on screen — its run names the repo and the host to do it on.
-      const contextRun = owner?.run ?? this.deps.registry.activeSession?.run
-      const baseDir = contextRun?.gitContext?.repoRoot ?? contextRun?.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
+      const contextRun = owner?.run ?? this.deps.registry.activeSession?.run ?? this.deps.defaultRunConfig()
+      const baseDir = contextRun.gitContext?.repoRoot ?? contextRun.workingDirectory
       if (!baseDir || baseDir === '~') {
         toasts.error("Couldn't switch branch", { description: "No active Git repository" })
         return false
@@ -487,12 +487,10 @@ export class SessionConfigController {
           }
         }
       } else {
-        this.globalDefaults.workingDirectory = projectRoot
-        this.globalDefaults.gitContext = result.gitContext
         this.deps.refreshPluginCommands(projectRoot)
-        this.deps.openSessionDraft(projectRoot)
+        this.deps.openSessionDraft(projectRoot, false, result.gitContext)
       }
-      this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
+      this.deps.refreshGitRefs(contextRun, projectRoot, this.deps.ctxForDirectory(projectRoot))
       return true
     } catch (error) {
       toasts.error("Couldn't switch branch", {
@@ -595,9 +593,20 @@ export class SessionConfigController {
     }
   }
 
-  /** The model a new session starts on: the user's per-agent choice from Settings
-   *  when it still belongs to this agent, otherwise the agent's built-in default. */
+  /** The model a new session starts on. Auto is a choice to let the first prompt
+   *  pick, so it is returned as the sentinel and resolved on the host; anything
+   *  else is a concrete model. */
   defaultModelConfigFor(agentId: AgentId): ModelConfig {
+    if (this.deps.settings.defaultModels[agentId] === AUTO_MODEL_ID) {
+      return { modelId: AUTO_MODEL_ID, reasoningEffort: 'medium', contextWindow: null, fastMode: false }
+    }
+    return this.pinnedModelConfigFor(agentId)
+  }
+
+  /** The user's per-agent choice from Settings when it still names a model this
+   *  agent runs, otherwise the agent's built-in default. Never Auto: a
+   *  conversation that already carries a provider thread cannot route a model. */
+  private pinnedModelConfigFor(agentId: AgentId): ModelConfig {
     const profiles = MODEL_PROFILES[agentId]
     if (!profiles) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
     const chosenId = this.deps.settings.defaultModels[agentId]

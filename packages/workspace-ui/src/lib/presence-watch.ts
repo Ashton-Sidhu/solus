@@ -21,6 +21,8 @@ export class PresenceWatch {
   private watches = new Map<string, Watch>()
   readonly timings = new SvelteMap<string, UpstreamCheckTiming>()
 
+  constructor(private readonly intervalMs = UPSTREAM_POLL_MS) {}
+
   watch(key: string, refresh: () => void | Promise<void>): () => void {
     const existing = this.watches.get(key)
     if (existing) {
@@ -33,15 +35,15 @@ export class PresenceWatch {
       key,
       timer: setInterval(() => {
         const timing = this.timings.get(key)
-        if (timing) this.timings.set(key, { ...timing, nextCheckAt: Date.now() + UPSTREAM_POLL_MS })
+        if (timing) this.timings.set(key, { ...timing, nextCheckAt: Date.now() + this.intervalMs })
         this.refresh(watch)
-      }, UPSTREAM_POLL_MS),
+      }, this.intervalMs),
       watchers: 1,
       refresh,
       pending: null,
     }
     this.watches.set(key, watch)
-    this.timings.set(key, { lastCheckedAt: null, nextCheckAt: Date.now() + UPSTREAM_POLL_MS, checking: true })
+    this.timings.set(key, { lastCheckedAt: null, nextCheckAt: Date.now() + this.intervalMs, checking: true })
     if (this.watches.size === 1) {
       globalThis.window?.addEventListener('focus', this.refreshMounted)
       globalThis.document?.addEventListener('visibilitychange', this.handleVisibility)

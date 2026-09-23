@@ -1,4 +1,4 @@
-import { AGENT_BIN, type AgentMetadata } from '@solus/contracts/types'
+import { AGENT_BIN, type AgentId, type AgentMetadata } from '@solus/contracts/types'
 import { ROUTING_PROVIDERS, type ModelRouting, type RoutingCategory, type RoutingProvider } from '@solus/contracts/model-routing'
 import { choice, getTypeSafe } from '../typesafe'
 import { findOnPath, warmCliPath } from '../cli-env'
@@ -39,20 +39,21 @@ export async function installedRoutingProviders(metadata: AgentMetadata[]): Prom
 }
 
 export function selectModelRoute(category: RoutingCategory, config: ModelRouting, agents: AgentMetadata[]): ModelRoute {
+  // The configured model names its own provider: whichever installed provider
+  // offers it runs the turn.
   const select = (key: RoutingCategory): ModelRoute | undefined => {
-    const route = config[key]
-    const order = [route.preferredProvider, ...ROUTING_PROVIDERS.filter(provider => provider !== route.preferredProvider)]
-    for (const provider of order) {
+    for (const provider of ROUTING_PROVIDERS) {
       const agent = agents.find(agent => agent.id === provider && agent.available !== false)
-      if (agent?.models.some(model => model.id === route[provider])) {
-        return { provider, modelId: route[provider], category, usedFallback: key !== category }
+      if (agent?.models.some(model => model.id === config[key])) {
+        return { provider, modelId: config[key], category, usedFallback: key !== category }
       }
     }
   }
   const selected = select(category) ?? select('general')
   if (selected) return selected
-  // A removed model must not strand Auto. Use an available provider's default.
-  for (const provider of [config.general.preferredProvider, ...ROUTING_PROVIDERS]) {
+  // A model no installed provider offers must not strand Auto. Use an
+  // available provider's own default.
+  for (const provider of ROUTING_PROVIDERS) {
     const agent = agents.find(agent => agent.id === provider && agent.available !== false)
     const modelId = agent?.models.find(model => model.id === agent.defaultModel)?.id ?? agent?.models[0]?.id
     if (modelId) return { provider, modelId, category, usedFallback: true }
@@ -60,13 +61,19 @@ export function selectModelRoute(category: RoutingCategory, config: ModelRouting
   throw new Error('Auto needs an available Claude or Codex provider. Connect one in Settings.')
 }
 
+export interface RouteModelPromptOptions {
+  /** The usage store's answer: has this provider run out of quota? */
+  spent?: (provider: AgentId) => boolean
+  classify?: typeof classifyModelPrompt
+  timeoutMs?: number
+}
+
 export async function routeModelPrompt(
   prompt: string,
   config: ModelRouting,
   agents: AgentMetadata[],
   signal: AbortSignal,
-  classify = classifyModelPrompt,
-  timeoutMs = MODEL_ROUTING_TIMEOUT_MS,
+  { spent = () => false, classify = classifyModelPrompt, timeoutMs = MODEL_ROUTING_TIMEOUT_MS }: RouteModelPromptOptions = {},
 ): Promise<ModelRoute> {
   signal.throwIfAborted()
   selectModelRoute('general', config, agents)
@@ -93,7 +100,13 @@ export async function routeModelPrompt(
     controller.abort()
   }
   signal.throwIfAborted()
-  const route = selectModelRoute(category, config, agents)
+  let route = selectModelRoute(category, config, agents)
+  // Out of quota reads the same as not installed for this turn: choose again
+  // without that provider. Nothing else with quota left keeps the first choice.
+  if (spent(route.provider)) {
+    const withQuota = agents.filter(agent => agent.id !== route.provider && !spent(agent.id))
+    if (withQuota.length > 0) route = selectModelRoute(category, config, withQuota)
+  }
   return { ...route, usedFallback: usedFallback || route.usedFallback }
 }
 

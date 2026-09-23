@@ -5,10 +5,11 @@ import {
   type SidebarSessionChild,
 } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'completeTask' | 'runningTaskCountIn' | 'renameTask' | 'restoreTask'> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'completeTask' | 'renameTask' | 'restoreTask'> & {
   doneTaskIds: Set<string>
   dismissedRowKeys: Set<string>
   openTaskIds: Set<string>
+  completedHereTaskIds: Set<string>
   closedTabIds: string[]
   unloadedCompletedTaskIds: Set<string>
   closeTabs: (tabIds: string[]) => void
@@ -28,6 +29,7 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   store.doneTaskIds = new Set<string>()
   store.dismissedRowKeys = new Set<string>()
   store.openTaskIds = new Set<string>()
+  store.completedHereTaskIds = new Set<string>()
   store.closedTabIds = []
   store.unloadedCompletedTaskIds = new Set<string>()
   store.catalogTasks = []
@@ -39,12 +41,12 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   // pane already showing a draft or a page needs nothing.
   store.session = {
     showsConversation: false,
-    tasksStore: { loaded: true },
+    tasksStore: { loaded: true, tasks: [] },
     clearSidebarTaskOccurrences: () => {},
-    openSessionDraft: (options: { freshTask?: boolean; via?: string; reveal?: boolean } = {}) => {
+    drafts: { openSessionDraft: (options: { freshTask?: boolean; via?: string; reveal?: boolean } = {}) => {
       store.openedDraftCount += 1
       store.openedDraftOptions.push(options)
-    },
+    } },
   }
   store.closeTabs = (tabIds: string[]) => {
     store.closedTabIds.push(...tabIds)
@@ -59,10 +61,12 @@ describe('session sidebar dismissal', () => {
     const store = sidebarStoreForDismissal()
     const task = {
       id: 'loose-tab',
+      listKey: 'loose-tab',
       key: 'loose-tab',
       title: 'Background work',
       projectKey: '/repo',
       projectLabel: 'repo',
+      groupKey: '/repo',
       branchName: null,
       serverId: null,
       prNumber: null,
@@ -70,7 +74,6 @@ describe('session sidebar dismissal', () => {
       attention: 'running',
       unread: false,
       createdAt: 0,
-      activityAt: 0,
       runStartedAt: 1,
       tabIds: ['loose-tab'],
     } satisfies SidebarTask
@@ -151,9 +154,9 @@ describe('session sidebar dismissal', () => {
       showsConversation: true,
       closeTab: () => {},
       selectTab: () => {},
-      openSessionDraft: (options: { freshTask?: boolean; via?: string } = {}) => {
+      drafts: { openSessionDraft: (options: { freshTask?: boolean; via?: string } = {}) => {
         store.openedDraftOptions.push(options)
-      },
+      } },
     }
 
     SessionSidebarStore.prototype.closeTabs.call(store, ['root-tab'])
@@ -211,6 +214,10 @@ describe('session sidebar dismissal', () => {
     expect(statuses).toEqual(['done'])
     expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
     expect([...store.dismissedRowKeys]).toEqual([])
+    // WHY: the task is done at once but its tabs close only when the host
+    // answers. Recorded here, it is not kept on a collapsed Completed shelf as
+    // the row on screen, which flashed it there before it vanished.
+    expect([...store.completedHereTaskIds]).toEqual(['root'])
   })
 
   test('a failed completion leaves the conversation and task row open', async () => {
@@ -225,6 +232,8 @@ describe('session sidebar dismissal', () => {
       .rejects.toThrow('Host disconnected')
     expect(store.closedTabIds).toEqual([])
     expect([...store.dismissedRowKeys]).toEqual([])
+    // A refused completion leaves the task where it was, reveal included.
+    expect([...store.completedHereTaskIds]).toEqual([])
   })
 
   test('reopening a shelved task puts its row back in the column', async () => {
@@ -239,6 +248,7 @@ describe('session sidebar dismissal', () => {
       clearSidebarTaskOccurrences: () => {},
       tasksStore: {
         loaded: true,
+        tasks: [{ id: 'root' }],
         byParent: new Map(),
         peek: (id: string) => (id === 'root' ? { id: 'root', status: 'done', sessions: [] } : null),
         get: (id: string) => ({
@@ -269,6 +279,7 @@ describe('session sidebar dismissal', () => {
       clearSidebarTaskOccurrences: () => {},
       tasksStore: {
         loaded: true,
+        tasks: [{ id: 'root' }],
         byParent: new Map(),
         peek: () => ({ id: 'root', status: 'dropped', sessions: [] }),
         get: (id: string) => ({
@@ -386,37 +397,6 @@ describe('session sidebar boot location', () => {
     store.settleBootLocation()
 
     expect(store.openedDraftCount).toBe(0)
-  })
-})
-
-describe('session sidebar project dismissal', () => {
-  const taskIn = (projectKey: string, id: string, status = 'idle'): SidebarTask =>
-    ({ id, taskId: id, projectKey, status, tabIds: [`${id}-tab`] }) as SidebarTask
-
-  test('closing a project closes its tasks and leaves other projects open', () => {
-    // WHY: the heading exists only while it has rows, so closing it has to take
-    // exactly the rows under it — a project close that reached a neighbouring
-    // project would unload conversations the user never pointed at.
-    const store = sidebarStoreForDismissal()
-    store.catalogTasks = [taskIn('/repo', 'one'), taskIn('/other', 'two'), taskIn('/repo', 'three')]
-
-    store.closeProject('/repo')
-
-    expect(store.closedTabIds).toEqual(['one-tab', 'three-tab'])
-    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['one', 'three'])
-  })
-
-  test('the running count only counts runs inside the project', () => {
-    // WHY: it is what decides whether the close asks first, so counting another
-    // project's run would make a quiet project prompt for nothing.
-    const store = sidebarStoreForDismissal()
-    store.catalogTasks = [
-      taskIn('/repo', 'one', 'running'),
-      taskIn('/repo', 'two'),
-      taskIn('/other', 'three', 'running'),
-    ]
-
-    expect(store.runningTaskCountIn('/repo')).toBe(1)
   })
 })
 

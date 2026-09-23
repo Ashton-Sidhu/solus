@@ -3,8 +3,17 @@
  * If it isn't exported here, it's an internal organ — import it only from within its folder.
  */
 
-/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/stacksStore/router. */
+/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/router. */
 export { getWorkspaceContext, setWorkspaceContext } from './workspace/workspace.context.svelte'
+
+/** Every session this client holds, by id — with or without a tab showing it. */
+export { getSessionRecords } from './workspace/session-records.svelte'
+export type { SessionRecords } from './workspace/session-records.svelte'
+
+/** What a record surface reads: stores, an RPC context, and the way to another
+ *  resource — the workspace or the cloud console's `ConsoleWorkspace`
+ *  (docs/plans/cloud-console-native-pages.md §4). */
+export { getSurfaceContext, setSurfaceContext, type SurfaceContext } from './app/surface-context.svelte'
 
 /** Where the workspace is. `routing/` internals stay private organs — surfaces
  *  reach the live location through `getWorkspaceContext().router`. */
@@ -28,11 +37,13 @@ export { getSessionEnvironmentStore, environmentBranchKey } from './git/session-
 export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
-export { TasksStore } from './tasks/tasks.store.svelte'
+export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
 export { inboxStore } from './tasks/inbox.store.svelte'
 
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
+export { workspaceProjectsStore } from './projects/workspace-projects.store.svelte'
+export { listenForProjectDirectory } from './projects/project-directory'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
 export { getPullRequestsContext } from './prs/pull-requests.context.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
@@ -45,6 +56,7 @@ export {
   projectRefKey,
 } from './projects/project-catalog'
 export type {
+  LogicalProject,
   ProjectCatalogEntry,
   ProjectOptionSource,
   ProjectPickerOption,

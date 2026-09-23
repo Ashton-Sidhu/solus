@@ -3,7 +3,6 @@
   import { onDestroy, tick } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { readSessionMeta } from "@solus/client-core/session-meta";
   import { getWorkspaceContext, runtime, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
@@ -15,7 +14,6 @@
     MetricsTurnSortField,
     SavedMetricsQuery,
   } from "@solus/contracts/observability-types";
-  import { findOpenTabForSession } from "../../lib/sessionUtils";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import { PageCrumbLine } from "../ui/list-page";
@@ -314,21 +312,8 @@
    *  indexed record: a span stores the session id, not its agent backend, and
    *  loading a Claude transcript through Codex returns an empty conversation. */
   async function openSession(sessionId: string): Promise<void> {
-    const openTab = findOpenTabForSession(
-      sessionId,
-      workspace.tabs,
-      workspace.sessions,
-      workspace.tabOrder,
-      undefined,
-      serverId,
-    );
-    if (openTab) {
-      workspace.selectTab(openTab);
-      return;
-    }
-    const meta = await readSessionMeta(serverId, sessionId);
-    if (meta) await workspace.resumeSession(meta);
-    else toasts.error("That session is no longer on this host");
+    const tabId = await workspace.revealSession(sessionId, serverId);
+    if (!tabId) toasts.error("That session is no longer on this host");
   }
 
   // ── The schema sheet ──

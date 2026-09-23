@@ -9,7 +9,7 @@
   /** The pane's only chrome: a floating icon cluster over the top-right of the
    *  content. Every surface below the top rail is content now, so pane-level
    *  controls (open-in-split, maximize, close) live here instead of in a
-   *  per-surface header bar. Mirrors PageShell's corner chrome, and the room it
+   *  per-surface header bar. The room it
    *  occupies is published as `--solus-pane-chrome-inset` by the pane columns so
    *  an in-content top strip can reserve space for it.
    *

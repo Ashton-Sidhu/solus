@@ -36,6 +36,8 @@ export interface MoveTabToHostOptions {
    * are minted there and worktree mode stays the user's choice.
    */
   intent: 'dispatch' | 'open-project'
+  /** The host isolates each new session in its own worktree (a managed host). */
+  isolate: boolean
 }
 
 export type MoveTabToHostResult =
@@ -59,7 +61,7 @@ export type MoveTabToHostResult =
  * exist on the target. Staying put keeps whatever the run already had.
  */
 export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
-  const { workspace, tabId, serverId, isLocalHost, path, repoKey, intent } = opts
+  const { workspace, tabId, serverId, isLocalHost, path, repoKey, intent, isolate } = opts
   const session = workspace.sessionFor(tabId)
   if (!session) return { ok: false, reason: 'no-session' }
 
@@ -84,8 +86,8 @@ export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
   serverConnections.retain(serverId)
   if (!isLocalHost) serverConnections.ensure(serverId)
   session.run = intent === 'dispatch'
-    ? withHost(session.run, serverId, { path })
-    : withProjectHost(session.run, serverId, { path })
+    ? withHost(session.run, serverId, { path, isolate })
+    : withProjectHost(session.run, serverId, { path, isolate })
   if (intent === 'open-project') session.task = { kind: 'new' }
   const selectedDispatchBranch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch
   if (selectedDispatchBranch && path) {
@@ -217,8 +219,10 @@ export function withLocalStart(
 ): RunConfig {
   let next = withPendingHost(run, null)
   if (run.serverId !== localServerId) {
+    // This machine is never a shared host; `worktree` below is the choice.
     next = withProjectHost(next, localServerId, {
       path: run.projectGroupPath ?? fallbackPath,
+      isolate: false,
     })
     next.projectGroupPath = null
   }
@@ -251,12 +255,16 @@ export function withRemoteDispatch(
  *   there", so the project host is that target host, before Send moves either id.
  * - **dispatch** — the agent runs elsewhere but the project (and its tasks) stay
  *   home, so the project host is `taskServerId`, and the chip keeps listing the
- *   local checkout being dispatched.
+ *   local checkout being dispatched. A dispatch with no checkout at home (`~`:
+ *   a repository the target host clones) has no home to list, so it lists the
+ *   target host.
  * - **no pending choice** — the run already sits on its project host, named by
  *   `taskServerId` (a remote-owned project) or, failing that, `serverId`.
  */
 export function projectHostId(run: RunConfig): string {
-  if (run.pendingHostDispatch?.intent === 'open-project') return run.pendingHostDispatch.serverId
+  const pending = run.pendingHostDispatch
+  if (pending?.intent === 'open-project') return pending.serverId
+  if (pending?.intent === 'dispatch' && (!run.workingDirectory || run.workingDirectory === '~')) return pending.serverId
   return run.taskServerId ?? run.serverId
 }
 

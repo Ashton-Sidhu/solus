@@ -16,6 +16,28 @@ async function expectMessageInputFocused(page: import('@playwright/test').Page) 
 }
 
 test.describe('Input focus behavior', () => {
+  test('caret height stays stable when typing and clearing a draft', async ({ page }) => {
+    const app = new AppPage(page)
+    await app.waitForAppReady()
+
+    const input = page.locator(MESSAGE_INPUT)
+    const editor = input.locator('.cm-content')
+    await editor.click()
+    await expect(input.locator('.cm-placeholder')).toBeVisible()
+    const cursor = input.locator('.cm-cursor-primary')
+    await expect(cursor).toBeAttached()
+    const height = await cursor.evaluate((element) => element.getBoundingClientRect().height)
+    expect(height).toBeGreaterThan(0)
+
+    await page.keyboard.type('a')
+    await expect(input.locator('.cm-placeholder')).toHaveCount(0)
+    await expect.poll(() => cursor.evaluate((element) => element.getBoundingClientRect().height)).toBe(height)
+
+    await page.keyboard.press('Backspace')
+    await expect(input.locator('.cm-placeholder')).toBeVisible()
+    await expect.poll(() => cursor.evaluate((element) => element.getBoundingClientRect().height)).toBe(height)
+  })
+
   test('message input is reachable by accessible name', async ({ page }) => {
     // WHY: the primary composer must be discoverable to screen readers by
     // role and name, independent of the visual placeholder layer.

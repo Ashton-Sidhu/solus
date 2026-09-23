@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronLeft as CaretLeftIcon } from "@lucide/svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 
   interface Props {
@@ -11,7 +11,7 @@
 </script>
 
 <div
-  class="diff-tree-column relative flex h-full w-full flex-col border-r border-(--solus-container-border)"
+  class="diff-tree-column relative flex h-full w-full flex-col border-l border-(--solus-container-border)"
 >
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -20,13 +20,13 @@
     type="button"
     onclick={onToggleTree}
     aria-label="Hide file tree"
-    class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
+    class="tree-collapse-btn absolute top-[0.875rem] right-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
   >
     <span
       class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
       aria-hidden="true"
     ></span>
-    <CaretLeftIcon size={12} weight="bold" />
+    <CaretRightIcon size={12} weight="bold" />
   </button>
       {/snippet}
     </TooltipUI.Trigger>

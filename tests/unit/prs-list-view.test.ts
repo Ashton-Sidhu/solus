@@ -3,9 +3,7 @@ import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import {
   OPEN_PR_STATUS_KEYS,
-  emptyListView,
   prFetchScope,
-  prInboxGroups,
   prRow,
   prStatusGlyph,
   prStatusOf,
@@ -16,6 +14,13 @@ import {
   checksChip,
   chipSkin,
 } from '@solus/workspace-ui/components/ui/list-page/list-page'
+import {
+  PR_ADDITIONS_TONE,
+  PR_CHECKS_TONE,
+  PR_DELETIONS_TONE,
+  PR_STATUS_TONE,
+  PR_VERDICT_TONE,
+} from '@solus/workspace-ui/components/prs/lib/pr-row-styles'
 
 const NOW = Date.parse('2026-08-04T13:00:00Z')
 const AUTHOR_AVATAR = 'https://avatars.githubusercontent.com/u/1?v=4'
@@ -35,40 +40,8 @@ const context: PrRowContext = {
   isMine: () => true,
 }
 
-describe('PR list sort', () => {
-  test('opens on created order', () => {
-    // WHY: activity on an old PR must not move it above a newly opened PR
-    // before the user explicitly chooses Updated.
-    expect(emptyListView().sortMode).toBe('created')
-  })
-})
-
 describe('PR status filter', () => {
   const merged: PullRequest = { ...pullRequest, number: 7, state: 'merged' }
-  const inbox = (statuses: string[]) =>
-    prInboxGroups(
-      [pullRequest, merged],
-      context,
-      NOW,
-      { review() {}, open() {}, openExternal() {} },
-      new Set(statuses),
-    )
-
-  test('leaves landed work out of the inbox until its status is picked', () => {
-    // WHY: the inbox is the queue of things to decide. A merged PR is settled,
-    // so it must not push live work down the list — but it stays one click
-    // away, because "what did I land" is a real question this page answers.
-    expect(inbox(OPEN_PR_STATUS_KEYS).some((group) => group.key === 'done')).toBe(false)
-    expect(inbox([...OPEN_PR_STATUS_KEYS, 'merged']).find((g) => g.key === 'done')?.rows).toHaveLength(1)
-  })
-
-  test('keeps the viewer\'s healthy open pull requests in the inbox', () => {
-    // WHY: the inbox is the cross-project personal view. Limiting authored PRs
-    // to failures would hide healthy work the viewer still owns.
-    const groups = inbox(OPEN_PR_STATUS_KEYS)
-    expect(groups.find((group) => group.key === 'waiting')?.rows).toHaveLength(1)
-    expect(groups.find((group) => group.key === 'waiting')?.label).toBe('Your pull requests')
-  })
 
   test('asking for a landed pull request widens the fetch, not just the view', () => {
     // WHY: the host pages open and closed separately, so a status the page
@@ -149,11 +122,43 @@ describe('PR row slots', () => {
     // same one the PR detail header uses, so a row and its review agree.
     const glyphs = (['open', 'draft', 'merged', 'closed'] as const).map(prStatusGlyph)
     expect(new Set(glyphs.map((glyph) => glyph.icon)).size).toBe(4)
-    expect(new Set(glyphs.map((glyph) => glyph.color)).size).toBe(4)
+    expect(new Set(glyphs.map((glyph) => glyph.toneClass)).size).toBe(4)
+  })
+
+  test('says nothing about size when the listing carried no line counts', () => {
+    // WHY: 0 / 0 is what a listing without line counts reports, not an empty
+    // change; printing "+0 −0" on every row states a size nobody measured.
+    expect(prRow({ ...pullRequest, additions: 0, deletions: 0 }, context, NOW).churn).toBeUndefined()
+    expect(prRow({ ...pullRequest, additions: 3, deletions: 0 }, context, NOW).churn).toEqual({ additions: 3, deletions: 0 })
+  })
+
+  test('marks a verdict only when a reviewer gave one', () => {
+    // WHY: "review required" is how every open PR starts; marking it would put
+    // the same word on most rows and hide the rows that actually changed.
+    const verdictOf = (reviewStatus: PullRequest['reviewStatus']) =>
+      prRow({ ...pullRequest, reviewStatus }, context, NOW).verdict
+    expect(verdictOf('approved')).toBe('approved')
+    expect(verdictOf('changes-requested')).toBe('changes-requested')
+    expect(verdictOf('review-required')).toBeNull()
+    expect(verdictOf(undefined)).toBeNull()
+  })
+
+  test('every row tone names its dark-mode colour too', () => {
+    // WHY: the tones are full-strength hues, not mixes of the theme's text
+    // colour, so a tone without its own dark value would glare or vanish on a
+    // dark background.
+    const tones = [
+      ...Object.values(PR_STATUS_TONE),
+      ...Object.values(PR_VERDICT_TONE),
+      ...Object.entries(PR_CHECKS_TONE).filter(([state]) => state !== 'none').map(([, tone]) => tone),
+      PR_ADDITIONS_TONE,
+      PR_DELETIONS_TONE,
+    ]
+    for (const tone of tones) expect(tone).toMatch(/(^| )dark:text-/)
   })
 
   test('says where the row lives and who labelled it what', () => {
-    // WHY: the inbox spans repositories, and a label is how a team tags size
+    // WHY: the list spans repositories, and a label is how a team tags size
     // or trust — both are read off the row, not found by opening it. Labels
     // are capped so one over-tagged PR cannot push the check glyph off the line.
     const row = prRow(
@@ -231,25 +236,6 @@ describe('PR row slots', () => {
     })
   })
 
-  test('the inbox row carries the state and the check outcome as chips', () => {
-    // WHY: the inbox row has no checks slot of its own, and its groups are
-    // about you rather than about lifecycle — so without chips a reader could
-    // not tell a green PR from a broken one without opening it.
-    const groups = prInboxGroups(
-      [pullRequest],
-      checksContext('passing'),
-      NOW,
-      { review() {}, open() {}, openExternal() {} },
-      new Set(OPEN_PR_STATUS_KEYS),
-    )
-    const row = groups.find((group) => group.key === 'waiting')?.rows[0]
-    expect(row?.chips?.map((chip) => [chip.label, chip.tint, chip.emphasis, !!chip.icon])).toEqual([
-      ['Open', 'success', undefined, true],
-      ['Checks passing', 'success', 'strong', true],
-    ])
-    expect(row?.context).toBe('Your PR · feature/42')
-  })
-
   test('passing and failing checks keep vivid semantic colours', () => {
     // WHY: mixing the small CI glyphs into the foreground makes green and red
     // look dark and ambiguous, especially in the compact list surfaces.
@@ -277,33 +263,22 @@ describe('PR row slots', () => {
 })
 
 describe('PR list author avatars', () => {
-  test('uses the GitHub author avatar in global and inbox rows', () => {
-    // WHY: both PR page views represent the same author, so neither should
-    // regress to generated initials when GitHub already supplied their image.
+  test('uses the GitHub author avatar on the row', () => {
+    // WHY: the list represents the author GitHub already supplied an image
+    // for, so it must not regress to generated initials.
     expect(prRow(pullRequest, context, NOW).people[0]).toMatchObject({
       id: 'octocat',
       avatarUrl: AUTHOR_AVATAR,
     })
+  })
 
-    const blockedContext: PrRowContext = {
-      checks: () => ({
-        state: 'failing',
-        headSha: pullRequest.headSha,
-        required: [],
-        optional: [],
-        inFlight: false,
-      }),
-      isMine: () => true,
-    }
-    expect(
-      prInboxGroups(
-        [pullRequest],
-        blockedContext,
-        NOW,
-        { review() {}, open() {}, openExternal() {} },
-        new Set(OPEN_PR_STATUS_KEYS),
-      )[0]?.rows[0]?.actor,
-    ).toMatchObject({ id: 'octocat', avatarUrl: AUTHOR_AVATAR })
+  test('across every project the row names its project, with the repository behind it', () => {
+    // WHY: the every-project list mixes repositories; the project's own name is
+    // how the reader knows where a row lives.
+    const row = prRow(pullRequest, context, NOW, null, 'key', 'Solus')
+    expect(row.project).toBe('Solus')
+    expect(row.repo).toBe('acme/repo')
+    expect(prRow(pullRequest, context, NOW).project).toBeNull()
   })
 
   test('draws requested reviewers with their GitHub avatar too', () => {

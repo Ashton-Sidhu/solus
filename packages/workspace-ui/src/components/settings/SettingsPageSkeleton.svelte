@@ -58,16 +58,16 @@
     </header>
 
     <div class="flex-1 overflow-hidden px-[clamp(2rem,3cqi,3rem)]">
-      <div class="mx-auto w-full max-w-[clamp(45rem,66cqi,72rem)] pt-8 pb-16">
-        <div class="flex flex-col gap-7">
+      <div class="mx-auto w-full max-w-4xl pt-6 pb-12">
+        <div class="flex flex-col gap-8">
           {#each ROW_WIDTHS as width, i (i)}
-            <div class="flex flex-col gap-3">
-              <Skeleton class="h-2.5 w-24 rounded-[0.1875rem] opacity-45" />
+            <div class="flex flex-col gap-2.5">
+              <Skeleton class="ml-4 h-2.5 w-24 rounded-[0.1875rem] opacity-45" />
               <div
-                class="flex flex-col gap-px overflow-hidden rounded-lg border border-border"
+                class="flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40 [&>*+*]:border-t [&>*+*]:border-border/50"
               >
                 {#each [0, 1] as row (row)}
-                  <div class="flex items-center justify-between gap-4 px-4 py-3.5">
+                  <div class="flex items-center justify-between gap-4 px-4 py-3">
                     <div class="flex min-w-0 flex-1 flex-col gap-2">
                       <Skeleton
                         class="h-2.5 rounded-[0.1875rem] opacity-70"

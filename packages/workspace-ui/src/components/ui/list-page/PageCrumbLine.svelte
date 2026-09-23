@@ -9,18 +9,17 @@
   import { navPageSpec, type NavPage } from "../../../lib/page-nav";
   import { frameChrome } from "../../layout/frame-chrome.store.svelte";
   import PaneSwapButton from "../PaneSwapButton.svelte";
-  import { syncLabel, type ListProjectOption } from "./list-page";
-  import ListProjectSwitcher from "./ListProjectSwitcher.svelte";
+  import { syncLabel } from "./list-page";
 
   /**
-   * Row one of every page head: `<project> / <page>`, then the controls that act
-   * on the window rather than on the list.
+   * Row one of every page head: the page title, then the controls that act on
+   * the window rather than on the list.
    *
-   * The project segment is a menu; the page segment is a plain title. Moving
-   * between pages is the session sidebar's job, and its shortcuts', so the crumb
-   * states where you are rather than offering a second way to leave. The line
-   * answers *where am I* and holds nothing that filters — narrowing lives on the
-   * row under it, so a control that does neither belongs in neither row.
+   * The title is plain text. Moving between pages is the session sidebar's job,
+   * and its shortcuts', so the line states where you are rather than offering a
+   * second way to leave. It answers *where am I* and holds nothing that filters
+   * — the project scope and every other narrowing live on the row under it, so
+   * a control that does neither belongs in neither row.
    *
    * The utility controls land by meaning rather than in a strip: refresh is
    * fused with the timestamp it describes, and the window pair (open in split,
@@ -28,18 +27,7 @@
    * primary action.
    */
   interface Props {
-    /** The projects the page can be pointed at. Omitted by a page with no
-     *  project scope (Insights reads a host-local database), which then has no
-     *  leading crumb at all. */
-    projects?: ListProjectOption[];
-    activeProjectKey?: string;
-    emptyProjectLabel?: string;
-    onSelectProject?: (option: ListProjectOption) => void;
-    onRemoveProjectHistory?: (option: ListProjectOption) => void;
-    onSelectAllProjects?: () => void;
-    allProjectsLabel?: string;
-    projectSwitchNote?: string;
-    /** Which page the second crumb stands on, and where it takes its name from. */
+    /** Which page the title names. */
     page: NavPage;
     /** Overrides the page's own name in the crumb. A page under two scopes
      *  passes the scope's own name ("Inbox"), so the crumb states which one is
@@ -48,6 +36,9 @@
     /** A third, plain segment after the page — a position inside the page that
      *  is not itself a destination (Insights' current question). */
     trailingCrumb?: string;
+    /** Live crumbs after the page — a scrolled list's filters, folded up into
+     *  the line so they stay one click away. Rendered after a separator. */
+    trail?: Snippet;
     /** Page-specific chips at the far end of the line: provider identity, a
      *  bulk-selection count. Rendered before the sync chip. */
     actions?: Snippet;
@@ -63,17 +54,10 @@
     onClose?: () => void;
   }
   let {
-    projects,
-    activeProjectKey,
-    emptyProjectLabel,
-    onSelectProject,
-    onRemoveProjectHistory,
-    onSelectAllProjects,
-    allProjectsLabel,
-    projectSwitchNote,
     page,
     pageLabel,
     trailingCrumb,
+    trail,
     actions,
     onRefresh,
     refreshing = false,
@@ -92,9 +76,7 @@
     const timer = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(timer);
   });
-  const syncText = $derived(
-    syncLabel(syncedAt, now, refreshing, syncFromCache),
-  );
+  const syncText = $derived(syncLabel(syncedAt, now, syncFromCache));
 
   const hasWindowActions = $derived(!!onMoveAcross || !!onClose);
   const pageTitle = $derived(pageLabel ?? navPageSpec(page).label);
@@ -125,40 +107,14 @@
   {/if}
 
   <!-- ── The record rung (`@max-[30rem]/pane`) ──
-       A phone has no room for `<project> / <page>` in front of the page's own
-       controls: the project ate the line, the page name truncated to a stub,
-       and the ✕ at the far end was squeezed to 35px — below the touch floor,
-       on the one shell where every target is a thumb. So the crumb unfolds. The
-       page name takes the whole line at the title rung, the project becomes a
-       chip at the far end, and the ✕ stands down because a phone renders one
-       pane and the drawer is already the way out. `order` places each part, so
-       this is the same line reflowing rather than a second header. -->
+       The page name takes the whole line at the title rung, and the ✕ stands
+       down because a phone renders one pane and the drawer is already the way
+       out. -->
   <nav
     class="flex min-w-0 shrink items-center gap-0.5 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:gap-2"
     aria-label="Location"
   >
-    {#if projects}
-      <span class="contents @max-[30rem]/pane:order-8 @max-[30rem]/pane:block">
-        <ListProjectSwitcher
-          variant="crumb"
-          {projects}
-          activeKey={activeProjectKey}
-          emptyLabel={emptyProjectLabel}
-          onSelect={onSelectProject}
-          onRemoveHistory={onRemoveProjectHistory}
-          onSelectAll={onSelectAllProjects}
-          allLabel={allProjectsLabel}
-          footerNote={projectSwitchNote}
-        />
-      </span>
-      <span
-        class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30 @max-[30rem]/pane:hidden"
-        aria-hidden="true">/</span
-      >
-    {/if}
-    <!-- On a record the page name is no longer the second half of a crumb — the
-         project has moved to a chip at the far end, so this is the page's own
-         title and takes the title rung. -->
+    <!-- On a record the page name takes the title rung. -->
     <h1
       class="min-w-0 shrink truncate px-2.5 text-[length:calc(var(--text-workspace-chrome)+2px)] font-semibold tracking-[-0.013em] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:px-1.5 @max-[30rem]/pane:text-[18px] @max-[30rem]/pane:tracking-[-0.014em]"
       title={pageTitle}
@@ -175,11 +131,17 @@
         title={trailingCrumb}>{trailingCrumb}</span
       >
     {/if}
+    {#if trail}
+      <span
+        class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30"
+        aria-hidden="true">/</span
+      >
+      {@render trail()}
+    {/if}
   </nav>
 
   <!-- On a record the location line is itself elastic, so this would be a
-       second claim on the same slack and the project chip would drift off the
-       right edge. -->
+       second claim on the same slack. -->
   <span class="min-w-2 flex-1 @max-[30rem]/pane:hidden" aria-hidden="true"></span>
 
   {#if actions}{@render actions()}{/if}
@@ -201,9 +163,12 @@
           ? 'animate-spin [animation-duration:0.9s] motion-reduce:animate-none'
           : ''}"
       />
-      <span class="text-chrome-shelf whitespace-nowrap @max-[34rem]:hidden"
-        >{syncText}</span
-      >
+      <!-- While syncing, the spinning icon is the whole message. -->
+      {#if !refreshing}
+        <span class="text-chrome-shelf whitespace-nowrap @max-[34rem]:hidden"
+          >{syncText}</span
+        >
+      {/if}
     </button>
   {/if}
 
@@ -216,8 +181,7 @@
 
   <!-- Moving a page between the leading pane and its companion needs a
        companion. The phone shell renders exactly one pane, so at the record
-       rung this control has nowhere to send the page — and the ~40px it costs
-       is what the project crumb needs to say a name instead of one letter. -->
+       rung this control has nowhere to send the page. -->
   {#if onMoveAcross}
     <span class="contents @max-[30rem]/pane:hidden">
       <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={14} />
@@ -227,8 +191,7 @@
   <!-- Closing a page needs somewhere to land. The phone shell renders one pane
        and reaches every destination through the drawer at the head of this
        line, so at the record rung the ✕ is a second way out that costs the page
-       title its width — and it was the control that got squeezed below the
-       touch floor when the project name grew. The drawer is the way out. -->
+       title its width. The drawer is the way out. -->
   {#if onClose}
     <span class="contents @max-[30rem]/pane:hidden">
       <button

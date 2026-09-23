@@ -367,6 +367,45 @@ describe.serial('session emitter', () => {
     expect(spans.find((span) => span.kind === 'tool_call')?.status).toBe('error')
   })
 
+  test('a provider that exits cleanly without reporting anything did not complete the turn', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'silent', prompt: 'sync the docs', promptSource: 'automation', startedAt: 4_200 })
+    emitter.completeSetup('silent', {
+      provider: 'claude-code', model: 'claude-opus-5-5', projectRoot: '/repo', origin: 'automation', isResume: false,
+    }, 4_205)
+    // Exit code 0 settles the session as completed, but the model never ran:
+    // counting this as an `ok` turn with no tokens drags every median down.
+    emitter.recordTerminal('silent', 'ok', 4_210)
+    expect(emitter.finishTurn('silent', 'completed', 4_210)).toBe('failed')
+    expect(rows().find((span) => span.kind === 'turn')?.status).toBe('error')
+  })
+
+  test('records one model id per model and the context window its variant ran at', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    const runTurn = (sessionId: string, provider: string, reported: string, contextWindow: number | null, startedAt: number) => {
+      emitter.beginTurn({ sessionId, prompt: 'go', promptSource: 'typed', startedAt, provider })
+      // The provider can report before setup closes; the report still wins.
+      emitter.onEvent(sessionId, { type: 'session_init', sessionId: `${sessionId}-thread`, model: reported, skills: [] }, startedAt + 1)
+      emitter.completeSetup(sessionId, {
+        provider, model: 'requested', contextWindow, projectRoot: '/repo', origin: 'typed', isResume: false,
+      }, startedAt + 2)
+      emitter.recordTerminal(sessionId, 'ok', startedAt + 3)
+      emitter.finishTurn(sessionId, 'completed', startedAt + 3)
+    }
+    runTurn('long', 'claude-code', 'claude-opus-5[1m]', 1_000_000, 4_300)
+    // Asked for 1M, but Claude ran the bare id: the report is the truth.
+    runTurn('standard', 'claude-code', 'claude-opus-5', 1_000_000, 4_310)
+    runTurn('codex', 'codex', 'gpt-6-astra', 1_050_000, 4_320)
+
+    const turns = rows().filter((span) => span.kind === 'turn')
+    const facts = turns.map((turn) => [turn.session_id, turn.model, (JSON.parse(turn.attrs) as { contextWindow?: number }).contextWindow])
+    expect(facts).toEqual([
+      ['long', 'claude-opus-5', 1_000_000],
+      ['standard', 'claude-opus-5', 200_000],
+      ['codex', 'gpt-6-astra', 1_050_000],
+    ])
+  })
+
   test('records queue wait and granted and denied permission waits', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'permissions', prompt: 'apply', promptSource: 'queued', startedAt: 5_000 })

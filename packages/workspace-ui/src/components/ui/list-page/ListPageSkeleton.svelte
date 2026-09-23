@@ -3,7 +3,7 @@
   import ListSkeleton from "./ListSkeleton.svelte";
 
   /**
-   * The loading silhouette of `ListPage` itself — the crumb line, the narrowing
+   * The loading silhouette of `ListPage` itself — the title line, the narrowing
    * row, and the rows beneath them.
    *
    * Most list pages are reached by a lazy import, and moving one between panes
@@ -19,7 +19,6 @@
   interface Props {
     /** Names what is loading, for assistive technology. */
     label: string;
-    hasProjectSwitcher?: boolean;
     hasViewSwitcher?: boolean;
     hasRefresh?: boolean;
     hasPrimaryAction?: boolean;
@@ -36,7 +35,6 @@
 
   let {
     label,
-    hasProjectSwitcher = true,
     hasViewSwitcher = true,
     hasRefresh = true,
     hasPrimaryAction = false,
@@ -64,10 +62,6 @@
     <div
       class="box-content flex h-[31px] shrink-0 items-center gap-2 pt-[42px] pb-[13px] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
     >
-      {#if hasProjectSwitcher}
-        <Skeleton class="h-[15px] w-32 rounded opacity-60" />
-        <Skeleton class="h-[15px] w-1.5 rounded opacity-25" />
-      {/if}
       <Skeleton class="h-[15px] w-20 rounded opacity-60" />
       <span class="flex-1"></span>
       {#if hasRefresh}

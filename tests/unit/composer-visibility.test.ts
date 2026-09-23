@@ -18,7 +18,7 @@ test('only the active mounted composer consumes drafts and focus requests', asyn
     import assert from 'node:assert/strict';
     import { untrack, flushSync } from 'svelte';
     let shown = $state('first');
-    const session = $state({ unifiedPickerOpen: false, pendingInput: null,
+    const session = $state({ ui: { unifiedPickerOpen: false }, pendingInput: null,
       update(patch) { Object.assign(this, patch); } });
     const getWorkspaceContext = () => session;
     const runtime = { shouldSuppressFocus: true };

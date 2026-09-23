@@ -11,10 +11,9 @@ import Icon from "@iconify/svelte";
     LoaderCircle as SpinnerGapIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext, connectionsStore, serversStore } from "../../contexts";
+  import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { connectionSectionDescription } from "../seats/lib/connection-copy";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
@@ -28,7 +27,6 @@ import Icon from "@iconify/svelte";
 
   const session = getWorkspaceContext();
   const connections = connectionsStore;
-  const sectionDescription = $derived(connectionSectionDescription("github", serversStore.isCloudHost(serverId)));
 
   ensureIconCollections();
 
@@ -118,12 +116,10 @@ import Icon from "@iconify/svelte";
   }
 </script>
 
-<SettingsSection label="GitHub" description={sectionDescription}>
-  {#snippet icon()}
-    <Icon icon={PROVIDER_LOGOS.github} width={13} height={13} />
-  {/snippet}
-
-  <SettingsRow label="GitHub account" description={accountDescription}>
+<!-- Named for the group, as on the Source Control page it sits on; the row
+     carries the GitHub mark. -->
+<SettingsSection label="Source control providers">
+  <SettingsRow label="GitHub" description={accountDescription}>
     {#snippet labelExtra()}
       <ProviderConnectedCheck connected={isConnected} provider="GitHub" />
     {/snippet}

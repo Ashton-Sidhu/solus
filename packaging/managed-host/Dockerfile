@@ -7,7 +7,7 @@
 #
 # Stage 1 runs natively on the build machine and produces the same standalone
 # server tarball a personal host installs (scripts/package-server.ts), for
-# linux-x64. Stage 2 is the runtime: Node, git, the pinned agent CLIs, the pinned
+# linux-x64. Stage 2 is the runtime: Node, git, the latest agent CLIs, the pinned
 # `cloudflared` and `litestream`, and that tarball under /opt/solus. The image is
 # replaceable; everything that must survive a restart lives on the volume at /data.
 
@@ -24,6 +24,16 @@ RUN bun install --frozen-lockfile --ignore-scripts
 # The two Vite builds one after the other: side by side (`bun run build`) they
 # exceed the memory of a typical Docker VM.
 RUN bun run build:desktop && bun run build:client
+# The OAuth clients scripts/package-server.ts bakes into the bundle. `.env` is
+# ignored by the build context, so they arrive only as build args; empty means the
+# workspace service answers "not configured" for GitHub, Google, and Atlassian.
+# The Google client must be the web one registered to the service callback, not
+# the desktop one (packaging/workspace-service/README.md).
+ARG SOLUS_GITHUB_CLIENT_ID
+ARG SOLUS_GOOGLE_CLIENT_ID
+ARG SOLUS_GOOGLE_CLIENT_SECRET
+ARG SOLUS_ATLASSIAN_CLIENT_ID
+ARG SOLUS_ATLASSIAN_CLIENT_SECRET
 RUN bun run package:server --platform linux --arch x64
 
 FROM node:24.18.0-bookworm-slim
@@ -33,14 +43,17 @@ ARG CLOUDFLARED_VERSION=2026.5.2
 ARG CLOUDFLARED_SHA256=5286698547f03df745adb2355f04c12dde52ef425491e81f433642d695521886
 ARG LITESTREAM_VERSION=0.5.17
 ARG LITESTREAM_SHA256=cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
-ARG CLAUDE_CODE_VERSION=2.1.258
-ARG CODEX_VERSION=0.148.0
+# scripts/managed-image.ts passes the exact latest versions, so a new release
+# changes the arg and invalidates the cached install layer below.
+ARG CLAUDE_CODE_VERSION=latest
+ARG CODEX_VERSION=latest
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client procps ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
-# The agents, pinned. The image does not run `solus update`; a new agent version is a new image.
+# The agents, at the latest release when the image is built. The image does not
+# run `solus update`; a new agent version is a new image.
 RUN npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
   && npm cache clean --force
 
@@ -63,6 +76,13 @@ COPY --from=build /src/release/solus-server-linux-x64.tar.gz /tmp/solus-server.t
 RUN tar -xzf /tmp/solus-server.tar.gz -C /opt/solus \
   && rm /tmp/solus-server.tar.gz \
   && ln -sf /usr/local/bin/node /opt/solus/bin/node
+
+# Use the browser revision required by the packaged driver. A shared image path
+# lets the non-root server find it even though installation runs as root.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/solus/browsers
+RUN node /opt/solus/libexec/server/node_modules/playwright-core/cli.js install --with-deps chromium \
+  && chmod -R a+rX /opt/solus/browsers \
+  && rm -rf /var/lib/apt/lists/*
 
 # The one user the server and every agent run as (§5). Its home is on the volume,
 # so nothing is created here; the entrypoint lays the volume out and drops to it.

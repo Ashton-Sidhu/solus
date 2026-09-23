@@ -41,6 +41,8 @@ async function main(): Promise<void> {
     copyPreviewBrowserDriver(staging)
     writeLaunchers(staging)
     writeNativeNote(staging)
+    mkdirSync(join(staging, 'docs'), { recursive: true })
+    cpSync(join(repoRoot, 'docs', 'linux-browser.md'), join(staging, 'docs', 'linux-browser.md'))
     writeFileSync(join(staging, 'server-release.json'), JSON.stringify({
       version: JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version,
       protocol: SERVER_UPDATE_PROTOCOL,
@@ -183,8 +185,8 @@ function copyClient(staging: string): void {
  *
  * The browser binaries are deliberately *not* here: they are ~170 MB per
  * platform, they are downloaded for the host that will run them, and they live
- * outside the install directory so a redeploy does not discard them. A machine
- * without them logs `preview_playwright_absent` and every other feature works.
+ * outside the install directory so a redeploy does not discard them. Without
+ * the matching browser binary, opening a browser page fails at launch.
  */
 function copyPreviewBrowserDriver(staging: string): void {
   const source = join(repoRoot, 'node_modules', 'playwright-core')
@@ -249,12 +251,15 @@ function writeNativeNote(staging: string): void {
     'Features that depend on them degrade through existing capability checks.',
     '',
     'playwright-core IS shipped, at libexec/server/node_modules/playwright-core,',
-    'because the preview host is a feature of this server. Its browser binaries are',
-    'not: install them once per machine with',
+    'because the browser host is a feature of this server. Its browser binaries are',
+    'not. See docs/linux-browser.md for Linux setup. Using your actual install path,',
+    'run as the same OS user that runs the Solus service:',
     '',
-    '  node /opt/solus/libexec/server/node_modules/playwright-core/cli.js install --with-deps chromium',
+    '  /opt/solus/bin/node /opt/solus/libexec/server/node_modules/playwright-core/cli.js install --with-deps chromium',
     '',
-    'They land outside the install directory, so a redeploy keeps them.',
+    'Linux system dependencies require root or sudo. The browser cache belongs to',
+    'the service user. Repeat after updates to install the matching browser revision.',
+    'Managed cloud images already include the browser and its system dependencies.',
     '',
   ].join('\n'))
 }

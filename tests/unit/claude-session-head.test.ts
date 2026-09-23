@@ -56,3 +56,12 @@ describe('Claude session transcript parsing', () => {
     })
   })
 })
+
+test('history still excludes asynchronous launch acknowledgements', () => {
+  for (const toolUseResult of [{ isAsync: true }, { status: 'async_launched' }]) {
+    expect(parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: 1, toolUseResult,
+      message: { content: [{ type: 'tool_result', tool_use_id: 'background', content: 'Launched' }] },
+    }))).toBeNull()
+  }
+})

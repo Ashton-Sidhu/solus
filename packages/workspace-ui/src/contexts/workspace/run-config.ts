@@ -1,6 +1,7 @@
 import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, RunConfig, WorktreeEntry } from '@solus/contracts/types'
 import { MODEL_PROFILES, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import type { ProjectLocation } from '../app/settings.context.svelte'
 
 /**
  * The rules that operate on a `RunConfig` — where a session starts and what it
@@ -51,6 +52,9 @@ export interface NewRunTarget {
   workingDirectory?: string
   gitContext?: GitCheckout | null
   serverId?: string
+  /** The host that owns the session's task, when it is not `serverId`: a task
+   *  in the cloud workspace service runs on an execution host. */
+  taskServerId?: string
 }
 
 /**
@@ -83,6 +87,7 @@ export function resolveNewRunConfig(
     run.taskServerId = target.serverId
     run.projectGroupPath = null
   }
+  if (target.taskServerId) run.taskServerId = target.taskServerId
 
   if (target.workingDirectory !== undefined) {
     run.workingDirectory = target.workingDirectory
@@ -182,6 +187,22 @@ export function projectRootOf(run: RunConfig | null | undefined): string | null 
 }
 
 /**
+ * Where a new session starts when nothing on screen names a project: the
+ * project the last session started in, unless its host is known to be down;
+ * else the workspace directory of the default host. "Known to be down", not
+ * "not yet up": at boot every host is still connecting, and the draft seeded
+ * then must already name the right project. A session opened *from* something
+ * takes that source's project first — `resolveNewRunConfig` owns that step.
+ */
+export function defaultStartProject(
+  lastProject: ProjectLocation | null,
+  isDown: (serverId: string) => boolean,
+  workspace: ProjectLocation,
+): ProjectLocation {
+  return lastProject && !isDown(lastProject.serverId) ? lastProject : workspace
+}
+
+/**
  * Point a run at a directory and whatever checkout was resolved for it.
  *
  * The three ways a person changes where work happens — picking a project,
@@ -275,7 +296,7 @@ export function startsWorktree(run: RunConfig | undefined | null): boolean {
 export function withHost(
   run: RunConfig,
   serverId: string,
-  opts: { path?: string },
+  opts: { path?: string; isolate: boolean },
 ): RunConfig {
   const movingHosts = run.serverId !== serverId
   const next: RunConfig = {
@@ -285,8 +306,10 @@ export function withHost(
   if (opts.path) next.workingDirectory = opts.path
   if (!movingHosts) return next
   // The old host's base branch named a branch over there, so a worktree survives
-  // the move as a request with its answer dropped.
-  return { ...next, gitContext: null, worktree: run.worktree ? { baseBranch: null } : null }
+  // the move as a request with its answer dropped. A host several people share
+  // (a managed host) isolates every new session in its own worktree
+  // (docs/plans/project-model.md §7).
+  return { ...next, gitContext: null, worktree: run.worktree || opts.isolate ? { baseBranch: null } : null }
 }
 
 /**
@@ -299,7 +322,7 @@ export function withHost(
 export function withProjectHost(
   run: RunConfig,
   serverId: string,
-  opts: { path?: string },
+  opts: { path?: string; isolate: boolean },
 ): RunConfig {
   return { ...withHost(run, serverId, opts), taskServerId: serverId }
 }

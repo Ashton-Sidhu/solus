@@ -19,11 +19,14 @@ export function reviewerStateLabel(state: PrReviewer['state']): string {
   }
 }
 
-/** Only a blocking verdict earns colour. The label already states approval,
- *  so successful and pending reviews stay neutral instead of making the rail
- *  alternate between green and red. */
+/** The verdict icon's colour. The rail shows the verdict as an icon with no
+ *  word beside it, so the two verdicts that decide the merge carry their
+ *  colour — approval green, a change request red — and a comment, a dismissal
+ *  or a pending request stays neutral. */
 export function reviewerStateColor(state: PrReviewer['state']): string {
   switch (state) {
+    case 'APPROVED':
+      return 'var(--solus-art-positive)'
     case 'CHANGES_REQUESTED':
       return 'var(--solus-art-negative)'
     default:

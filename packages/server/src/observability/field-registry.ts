@@ -114,7 +114,7 @@ export const BASE_FIELDS: RegisteredField[] = [
   ]),
   ...withGroup('dimension', [
     column('provider', 'provider', 'string', "Agent backend: 'claude' or 'codex'"),
-    column('model', 'model', 'string', 'Executed model (rerouting latched), e.g. claude-fable-5'),
+    column('model', 'model', 'string', "Executed model as the provider reported it (rerouting latched), e.g. claude-fable-5; one id per model whatever its context window, which a turn records in context_window"),
     column('project_root', 'project_root', 'string', 'Absolute project directory the work ran in'),
     column('origin', 'origin', 'string', "Prompt source: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),
     column('service', 'service', 'string', "Owning subsystem, e.g. 'solus.sessions' or 'solus.text-generation'"),
@@ -123,7 +123,7 @@ export const BASE_FIELDS: RegisteredField[] = [
     column('started_at', 'started_at', 'number', 'Start time, epoch milliseconds'),
     column('ended_at', 'ended_at', 'number', 'End time, epoch milliseconds; null while open'),
     column('duration_ms', 'duration_ms', 'duration', 'Observed duration in milliseconds'),
-    column('status', 'status', 'string', "'ok', 'error', 'interrupted', or 'unknown'"),
+    column('status', 'status', 'string', "'ok', 'error', 'interrupted', or 'unknown'; a turn whose provider exited without reporting anything is 'error'"),
   ]),
 ]
 
@@ -220,7 +220,8 @@ export const KIND_REGISTRY = {
         attr('hostname', 'hostname', 'string', 'Hostname of the machine that executed the turn'),
         attr('host_os', 'hostOs', 'string', "Operating system of the execution host: 'macos', 'windows', or 'linux'"),
         attr('prompt_source', 'promptSource', 'string', "How the turn was dispatched: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),
-        attr('requested_model', 'requestedModel', 'string', "Model the user selected: 'auto' when Solus routed the prompt, else the explicit model id; null for the provider default. `model` is what ran"),
+        attr('requested_model', 'requestedModel', 'string', "Model Solus asked the provider for: 'auto' when Solus routed the prompt, else the model id; null for the provider default. `model` is what ran, so the two differ when the provider ran something else"),
+        attr('context_window', 'contextWindow', 'number', "Context window in tokens the turn ran with, e.g. 1000000 for Claude's long-context variant"),
         attr('reasoning_effort', 'reasoningEffort', 'string', 'Requested reasoning effort for the turn'),
         attr('is_resume', 'isResume', 'boolean', 'True when the provider continued an existing session'),
         attr('has_thinking', 'hasThinking', 'boolean', 'True when the turn contained extended thinking'),

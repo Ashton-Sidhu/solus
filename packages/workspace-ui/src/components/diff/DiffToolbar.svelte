@@ -13,6 +13,7 @@
     Layers as StackIcon,
     MessageCircle as ChatCircleTextIcon,
     PanelLeft as SidebarSimpleIcon,
+    PanelRight as FileTreeIcon,
     ChevronLeft as CaretLeftIcon,
     ChevronRight as CaretRightIcon,
     ChevronDown as CaretDownIcon,
@@ -513,7 +514,7 @@
             ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
             : 'text-(--solus-text-tertiary)'}"
         >
-          <SidebarSimpleIcon size={14} weight="bold" />
+          <FileTreeIcon size={14} weight="bold" />
         </Button>
       </span>
           {/snippet}

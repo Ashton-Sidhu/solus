@@ -11,7 +11,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as TooltipUI from "../ui/tooltip";
-  import { getPlanStore, getWorkspaceContext } from "../../contexts";
+  import { getPlanStore, getSurfaceContext } from "../../contexts";
   import type { DocDestination, DocProviderId, DocProviderStatus } from "@solus/contracts/docs";
   import DocDestinationIcon from "./DocDestinationIcon.svelte";
   import DocProviderLogo from "./DocProviderLogo.svelte";
@@ -37,7 +37,7 @@
     triggerVariant = "header",
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const store = session.worksStore;
   const planStore = getPlanStore();
   // A publish renders each embedded diagram on an off-screen canvas mounted
@@ -54,6 +54,9 @@
   let destinationsLoading = $state(false);
   let providerStatusesLoading = $state(false);
   let providerStatuses = $state<DocProviderStatus[]>([]);
+  // A provider row is a route to Settings; a client without Settings (the
+  // cloud console) shows the row but cannot walk it.
+  const canConnect = (status: DocProviderStatus) => status.connectable && !!session.workspace;
 
   const work = $derived(workId ? store.works[workId] : undefined);
   const plan = $derived(planId ? planStore.get(planId) : undefined);
@@ -225,7 +228,7 @@
    */
   function openProviderSettings() {
     open = false;
-    session.showSettings("providers");
+    session.workspace?.showSettings("providers");
   }
 
   async function unlink() {
@@ -385,12 +388,12 @@
                     <DropdownMenu.Item
                       {...tooltipProps}
                       class="text-workspace-chrome aria-disabled:opacity-50"
-                      data-testid={status.connectable
+                      data-testid={canConnect(status)
                         ? `connect-${status.provider}`
                         : `unavailable-${status.provider}`}
-                      aria-disabled={!status.connectable}
-                      closeOnSelect={status.connectable}
-                      onSelect={status.connectable ? openProviderSettings : () => {}}
+                      aria-disabled={!canConnect(status)}
+                      closeOnSelect={canConnect(status)}
+                      onSelect={canConnect(status) ? openProviderSettings : () => {}}
                     >
                       <DocProviderLogo provider={status.provider} size={16} />
                       <span class="min-w-0 flex-1 truncate text-left">
@@ -400,7 +403,7 @@
                   {/snippet}
                 </TooltipUI.Trigger>
                 <TooltipUI.Content
-                  value={status.connectable
+                  value={canConnect(status)
                     ? `${status.reason} Connect in Settings…`
                     : status.reason}
                 />

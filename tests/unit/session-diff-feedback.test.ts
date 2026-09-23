@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  addDiffComment,
   submitDiffFeedback,
   submitDiffFeedbackToNewSession,
 } from '@solus/workspace-ui/contexts/workspace/session-diff-feedback'
@@ -56,20 +55,6 @@ function workspace(sessions: Record<string, ReturnType<typeof session>>, extra: 
 }
 
 describe('diff feedback tab targeting', () => {
-  test('stores a file-pane comment against the requested tab’s session, not the active one', () => {
-    const activeComment = comment('active.ts')
-    const sourceComment = comment('source.ts')
-    const sessions = {
-      active: session({ diffComments: [activeComment] }),
-      source: session({ diffGeneralComment: 'note' }),
-    }
-
-    addDiffComment(workspace(sessions), sourceComment, 'source')
-
-    expect(sessions.active.diffComments).toEqual([activeComment])
-    expect(sessions.source.diffComments).toEqual([sourceComment])
-  })
-
   test('sends a fresh-session review to the newly created tab', async () => {
     const sourceComment = comment('source.ts')
     const sends: Array<{ prompt: string; tabId?: string }> = []

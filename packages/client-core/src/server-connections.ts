@@ -2,6 +2,7 @@
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
+  awaitsManagedCompute,
   installationIdDecision,
   isCloudServer,
   loadServers,
@@ -63,6 +64,17 @@ interface CacheEntry<T> {
   expiresAt: number
 }
 
+/**
+ * A managed host is dialed only once the directory calls it ready. Before that its
+ * tunnel name may not resolve yet, and a resolver keeps a "no such name" answer for
+ * as long as the zone allows (30 minutes for solus.sh): a dial during provisioning
+ * left a ready host unreachable from that network. The directory refresh that
+ * reports `ready` dials it (`startCatalogSupervisors`); a user retry dials at once.
+ */
+function awaitsManagedHost(serverId: string): boolean {
+  return awaitsManagedCompute(loadServers().find((server) => server.id === serverId)?.uplink)
+}
+
 export class ServerConnections {
   private readonly connections = new Map<string, ManagedConnection>()
   private readonly targets = new Map<string, SolusServerTarget>()
@@ -73,6 +85,8 @@ export class ServerConnections {
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
   private readonly retainedServerIds = new Set<string>()
+  /** Connections made but not dialed: a managed host the directory does not call ready yet. */
+  private readonly undialedServerIds = new Set<string>()
   private primaryServerId: string | null = null
 
   constructor() {
@@ -80,6 +94,7 @@ export class ServerConnections {
     // not mean N window listeners each re-deciding what a wake meant.
     onWakeSignal((signal) => {
       for (const connection of this.connections.values()) {
+        if (this.undialedServerIds.has(connection.serverId)) continue
         connection.supervisor.handleWakeSignal(signal)
       }
     })
@@ -136,7 +151,11 @@ export class ServerConnections {
    *  live supervisor are left exactly as they are. */
   startCatalogSupervisors(): void {
     for (const serverId of this.catalogServerIds()) {
-      this.ensure(serverId)
+      const connection = this.ensure(serverId)
+      if (this.undialedServerIds.has(serverId) && !awaitsManagedHost(serverId)) {
+        this.undialedServerIds.delete(serverId)
+        connection.supervisor.start()
+      }
     }
   }
 
@@ -151,7 +170,9 @@ export class ServerConnections {
 
   /** User retry: reset the host's ladder and dial now. */
   dialNow(serverId: string): void {
-    this.connections.get(this.resolveId(serverId))?.supervisor.dialNow()
+    const resolved = this.resolveId(serverId)
+    this.undialedServerIds.delete(resolved)
+    this.connections.get(resolved)?.supervisor.dialNow()
   }
 
   /** Move the new-work default to another catalog host, in place. Hosts are
@@ -257,7 +278,8 @@ export class ServerConnections {
     queueMicrotask(() => {
       if (this.connections.get(serverId) !== connection) return
       this.emitConnectionCreated(connection)
-      connection.supervisor.start()
+      if (awaitsManagedHost(serverId)) this.undialedServerIds.add(serverId)
+      else connection.supervisor.start()
     })
     return connection
   }
@@ -401,6 +423,7 @@ export class ServerConnections {
     const connection = this.connections.get(serverId)
     if (!connection) return
     this.connections.delete(serverId)
+    this.undialedServerIds.delete(serverId)
     connection.supervisor.destroy()
     connection.transport.destroy()
   }

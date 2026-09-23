@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SvelteMap } from "svelte/reactivity";
+  import { onDestroy, untrack } from "svelte";
   import type { PrReviewTarget, RepoRef } from "@solus/contracts/providers";
   import type { IpcContext } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
@@ -15,9 +15,7 @@
    * The panel mounts the moment a row is clicked, before the pull request's
    * worktree has been fetched and checked out — `pr` is null until then and the
    * review surface fills in around it, so the click gets a real panel instead of
-   * a placeholder that is later swapped. Targets resolved during this visit are
-   * kept, so stepping back and forth with J / K costs nothing after the first
-   * pass.
+   * a placeholder that is later swapped.
    */
   let {
     number,
@@ -49,31 +47,38 @@
 
   const session = getWorkspaceContext();
 
-  const resolved = new SvelteMap<number, PrReviewTarget>();
-  const pr = $derived(resolved.get(number) ?? null);
+  let pr = $state<PrReviewTarget | null>(null);
+  // A J / K step mounts a new panel, so an answer that lands after this one
+  // is gone must not close the panel that replaced it.
+  let destroyed = false;
+  onDestroy(() => (destroyed = true));
 
-  // Resolving is the slow half of opening a review. Guard on the number the
-  // request was made for so a fast J / K walk cannot land an old checkout on the
-  // pull request now showing.
-  $effect(() => {
-    const requested = number;
-    if (resolved.has(requested)) return;
-    void session
-      .preparePrReview(requested, { ctx, serverId })
-      .then(({ pr: target }) => resolved.set(requested, target))
-      .catch((error) => {
-        // A missing GitHub connection is not a failed open: the surface shows
-        // the connect action itself.
-        if (prSurfaceError(error).kind === "github-auth") return;
-        toasts.error(`Couldn't open PR #${requested}`, {
-          description: error instanceof Error ? error.message : String(error),
-        });
-        onClose();
+  // Resolving is the slow half of opening a review. The page mounts one panel
+  // per pull request, so this asks once, when the panel mounts, with the
+  // values it mounted with.
+  untrack(() => session.prReview.preparePrReview(number, { ctx, serverId }))
+    .then(({ pr: target }) => (pr = target))
+    .catch((error) => {
+      // A missing GitHub connection is not a failed open: the surface shows
+      // the connect action itself.
+      if (destroyed || prSurfaceError(error).kind === "github-auth") return;
+      toasts.error(`Couldn't open PR #${number}`, {
+        description: error instanceof Error ? error.message : String(error),
       });
-  });
+      onClose();
+    });
+
+  // The review and its Activity tab load again whenever `target` changes, so it
+  // must change only when one of these values does. Every detail read gives
+  // `baseRepo` a new object; an inline `target` built from it changed on each
+  // read, and each change started another read — a loop without end.
+  const host = $derived(baseRepo?.host);
+  const remoteOwner = $derived(baseRepo?.owner);
+  const repo = $derived(baseRepo?.repo);
+  const target = $derived({ number, title, host, remoteOwner, repo });
 
   async function refreshTarget(): Promise<void> {
-    resolved.set(number, await api.prOpenReview(ctx, number));
+    pr = await api.prOpenReview(ctx, number);
   }
 
   // The review's chat is whichever open tab is rooted in this PR's worktree —
@@ -89,13 +94,7 @@
   {pr}
   {api}
   {serverId}
-  target={{
-    number,
-    title,
-    host: baseRepo?.host,
-    remoteOwner: baseRepo?.owner,
-    repo: baseRepo?.repo,
-  }}
+  {target}
   targetCtx={ctx}
   {chatTabId}
   {fullScreen}

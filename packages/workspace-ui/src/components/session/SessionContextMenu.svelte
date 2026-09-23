@@ -18,6 +18,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import { selectSessionRename } from "./lib/session-context-menu";
+  import { askInsights } from "../insights/lib/ask-insights";
 
   interface Props {
     x: number;
@@ -89,19 +90,19 @@
   const isSplit = $derived(!!tabId && tabId === splitTabId);
   const canSplit = $derived(showSplit && (!!tabId || !!onOpenInSplit));
   const isContinuingWorktree = $derived(
-    !!tabId && session.isContinuingInWorktree(tabId),
+    !!tabId && session.ui.isContinuingInWorktree(tabId),
   );
 
   async function fork() {
     const targetTabId = tabId;
     onClose();
-    if (targetTabId) await session.forkTab(targetTabId);
+    if (targetTabId) await session.opening.forkTab(targetTabId);
   }
 
   async function continueWorktree() {
     const targetTabId = tabId;
     onClose();
-    if (targetTabId) await session.continueInWorktree(targetTabId);
+    if (targetTabId) await session.opening.continueInWorktree(targetTabId);
   }
 
   async function copySessionId() {
@@ -150,7 +151,7 @@
     const progress = toasts.progress("Regenerating session title…");
     try {
       if (regenerateClosedSession) await regenerateClosedSession();
-      else if (targetTabId) await session.regenerateTabTitle(targetTabId);
+      else if (targetTabId) await session.metadata.regenerateTabTitle(targetTabId);
       else {
         progress.dismiss();
         return;
@@ -173,7 +174,7 @@
   function openInInsights() {
     const targetSessionId = insightsSessionId;
     onClose();
-    if (targetSessionId) session.openInsightsForSession(targetSessionId);
+    if (targetSessionId) void askInsights({ kind: "session", sessionId: targetSessionId }, () => session.openInsights());
   }
 
   function closeSplit() {

@@ -28,12 +28,12 @@ describe('agent event host routing', () => {
 
     const workspace = {
       sessions: {
-        'remote-session': { run: { serverId: 'remote' } },
+        byId: { 'remote-session': { run: { serverId: 'remote' } } },
       },
-      handleNormalizedEvent: (sessionId: string, event: WireNormalizedEvent) => {
+      eventReducer: { apply: (sessionId: string, event: WireNormalizedEvent) => {
         normalizedEvents.push({ sessionId, event })
       },
-      handleError: (_sessionId: string, _error: EnrichedError) => {},
+      handleError: (_sessionId: string, _error: EnrichedError) => {} },
       applySessionTitleChanged: (_serverId: string) => {},
     } as unknown as WorkspaceContext
 

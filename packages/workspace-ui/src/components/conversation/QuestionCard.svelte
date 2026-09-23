@@ -189,7 +189,7 @@
         answers[questionKey(q)] = answerFor(q);
       }
     }
-    session.respondQuestion(tabId, request.questionId, answers);
+    session.controls.respondQuestion(tabId, request.questionId, answers);
   }
 
   /** Hand the decision back rather than abandoning the card: every answer goes
@@ -200,7 +200,7 @@
     const answers: Record<string, string> = {};
     if (isMcpRequest) answers.__action = "accept";
     for (const q of request.questions) answers[questionKey(q)] = "";
-    session.respondQuestion(tabId, request.questionId, answers);
+    session.controls.respondQuestion(tabId, request.questionId, answers);
   }
 
   function handleKeydown(e: KeyboardEvent) {

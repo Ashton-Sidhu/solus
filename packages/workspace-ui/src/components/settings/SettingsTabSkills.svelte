@@ -84,8 +84,8 @@
     const activeServerId = (activeTabId ? workspace.runFor(activeTabId)?.serverId : undefined)
       ?? serverConnections.defaultServerId();
     if (activeServerId !== targetServerId) return;
-    const cwd = workspace.activeSession?.run.workingDirectory ?? workspace.globalDefaults.workingDirectory;
-    void workspace.refreshPluginCommands(cwd, activeTabId || undefined);
+    const cwd = (workspace.activeSession?.run ?? workspace.defaultRunConfig).workingDirectory;
+    void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined);
   }
 
   async function install(skill: RemoteSkill) {
@@ -106,7 +106,7 @@
 {#snippet showMore(window: ListWindow, total: number)}
   {#if window.remaining(total) > 0}
     <button type="button"
-      class="flex w-full cursor-pointer items-center justify-center gap-1.5 border-t border-border px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [@media(pointer:coarse)]:min-h-11"
+      class="flex w-full cursor-pointer items-center justify-center gap-1.5 px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [@media(pointer:coarse)]:min-h-11"
       onclick={() => window.showMore()}>
       Show {Math.min(ListWindow.PAGE, window.remaining(total))} more
       <span class="text-[0.875em] opacity-70">· {window.remaining(total)} remaining</span>
@@ -126,7 +126,7 @@
       {#snippet action()}
         <Button variant="ghost" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={closeAdd}>Done</Button>
       {/snippet}
-      <div class="flex items-center border-b border-border">
+      <div class="flex items-center">
         <SearchField bind:ref={searchEl} bind:value={query} placeholder="Search skills.sh…"
           class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [.is-laptop-display_&]:min-h-10 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [&_input]:text-workspace-chrome"
           onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closeAdd(); } }} />
@@ -184,7 +184,7 @@
         <p class="p-4 text-workspace-chrome text-muted-foreground">Update Solus on {hostLabel} to manage installed skills.</p>
       {:else}
         {#if inventory.skills.length > 0}
-          <div class="flex items-center border-b border-border">
+          <div class="flex items-center">
             <SearchField bind:ref={filterEl} bind:value={filter} placeholder="Filter installed skills…"
               class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [.is-laptop-display_&]:min-h-10 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [&_input]:text-workspace-chrome" />
           </div>

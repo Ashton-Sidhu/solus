@@ -23,6 +23,10 @@
   import OnboardingProvidersStage from "./OnboardingProvidersStage.svelte";
   import OnboardingShortcutsStage from "./OnboardingShortcutsStage.svelte";
   import OnboardingStartStage from "./OnboardingStartStage.svelte";
+  import OnboardingComputeStage from "./OnboardingComputeStage.svelte";
+  import OnboardingAccountGithubStage from "./OnboardingAccountGithubStage.svelte";
+  import OnboardingProjectStage from "./OnboardingProjectStage.svelte";
+  import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import type { OnboardingMode } from "./lib/onboarding-model";
 
   const settings = getSettingsContext();
@@ -47,16 +51,34 @@
    * home itself uses, which is why this works identically on desktop and web.
    */
   function finish(mode: OnboardingMode) {
+    if (store.flow === "cloud") {
+      void finishCloud(mode === "project");
+      return;
+    }
     store.chooseMode(mode);
     settings.update({ onboardingCompleted: true });
     // The boot-time start() probed agent binaries before onboarding had a
     // chance to install or repair anything, and a stale "Not installed" would
     // otherwise survive into the agent picker until the next launch.
-    void workspace.refreshAgentAvailability().catch(() => {});
+    void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
     if (mode === "project") {
       window.dispatchEvent(new CustomEvent("solus:open-directory-picker"));
       return;
     }
+    requestInputFocus();
+  }
+
+  /**
+   * Ends the cloud flow for the account, on every device, and opens the work
+   * it chose: the repository, else the person's workspace on the chosen machine.
+   */
+  async function finishCloud(withProject: boolean) {
+    // Reopened from a "Get started" row: skipping only closes it again; the
+    // person is already in the workspace and a new session would be noise.
+    const wasReopened = cloud.reopenedAt !== null;
+    void cloud.complete();
+    void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
+    if (!wasReopened || withProject) await cloud.land(workspace, withProject);
     requestInputFocus();
   }
 
@@ -167,6 +189,15 @@
       <OnboardingHostStage />
     {:else if stage === "start"}
       <OnboardingStartStage onchoose={finish} />
+    {:else if stage === "compute"}
+      <OnboardingComputeStage />
+    {:else if stage === "github"}
+      <OnboardingAccountGithubStage onskip={() => void finishCloud(false)} />
+    {:else if stage === "project"}
+      <OnboardingProjectStage
+        onstart={() => void finishCloud(true)}
+        onskip={() => void finishCloud(false)}
+      />
     {/if}
   </div>
 </div>

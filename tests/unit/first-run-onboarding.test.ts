@@ -52,6 +52,35 @@ describe('first-run onboarding stages', () => {
   })
 })
 
+describe('cloud onboarding stages', () => {
+  test('a cloud account asks for a machine, its agents, GitHub, then a project', () => {
+    expect(nextStage('intro', 'pointer', 'cloud')).toBe('shortcuts')
+    expect(nextStage('shortcuts', 'pointer', 'cloud')).toBe('compute')
+    expect(nextStage('compute', 'pointer', 'cloud')).toBe('agents')
+    expect(nextStage('agents', 'pointer', 'cloud')).toBe('github')
+    expect(nextStage('github', 'pointer', 'cloud')).toBe('project')
+    expect(nextStage('project', 'pointer', 'cloud')).toBeNull()
+    expect(nextStage('intro', 'touch', 'cloud')).toBe('getting-around')
+    expect(nextStage('getting-around', 'touch', 'cloud')).toBe('compute')
+  })
+
+  test('with no machine chosen there are no agents to ask about, in either direction', () => {
+    // The workspace service runs no agents; asking it is what failed before.
+    for (const surface of SURFACES) {
+      expect(nextStage('compute', surface, 'cloud', true)).toBe('github')
+      expect(previousStage('github', surface, 'cloud', true)).toBe('compute')
+    }
+  })
+
+  test('the host flow never shows a cloud stage', () => {
+    for (const surface of SURFACES) {
+      for (const stage of ['compute', 'github', 'project'] as const) {
+        expect(stagesFor(surface, 'host')).not.toContain(stage)
+      }
+    }
+  })
+})
+
 describe('choosing a surface', () => {
   test('only a device with no precise pointer gets the touch flow', () => {
     // Not desktop-versus-web. A browser on a laptop has the same keyboard and

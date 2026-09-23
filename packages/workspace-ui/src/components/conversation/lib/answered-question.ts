@@ -1,4 +1,5 @@
 import type { QuestionItem, QuestionOption } from '@solus/contracts/types'
+import { optionLabelParts } from './interrupt'
 
 /**
  * An answer on the wire is one string — `formatAnswer` joins chosen labels with
@@ -41,4 +42,43 @@ export function resolveAnswer(question: Pick<QuestionItem, 'options'>, answer: s
   }
 
   return { chosen: [], remark: trimmed, deferred: false }
+}
+
+export interface AnsweredRecord {
+  question: Pick<QuestionItem, 'question'>
+  resolved: ResolvedAnswer | null
+}
+
+export interface AnsweredSummary {
+  /** The sentence on the row: the question itself, or how many there were. */
+  label: string
+  /** What the user picked, after the arrow. Empty when nothing was recorded. */
+  target: string
+}
+
+/**
+ * An answered question is history, so the transcript folds it to one row like
+ * any other completed step. The row must say which decision this was and how it
+ * went without being opened: the question and the pick when there is one
+ * question, a count and every pick when there are several.
+ */
+export function summarizeAnswered(records: AnsweredRecord[]): AnsweredSummary {
+  const label =
+    records.length === 0
+      ? 'Agent question'
+      : records.length === 1
+        ? records[0].question.question
+        : `${records.length} questions`
+
+  const target = records
+    .map(({ resolved }) => {
+      if (!resolved) return ''
+      if (resolved.deferred) return 'left to the agent'
+      if (resolved.chosen.length) return resolved.chosen.map((option) => optionLabelParts(option.label).text).join(', ')
+      return resolved.remark
+    })
+    .filter(Boolean)
+    .join(' · ')
+
+  return { label, target }
 }

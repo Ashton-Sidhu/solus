@@ -26,7 +26,7 @@ beforeAll(async () => {
 // and the ledger names both the author and the seat.
 
 function backend() {
-  const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown' | 'getEnrichedError'>
+  const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown' | 'getEnrichedError' | 'cancelSession'>
   const started: AgentRunRequest[] = []
   emitter.id = 'claude-code'
   emitter.metadata = { id: 'claude-code', label: 'Claude', models: [], defaultModel: '' }
@@ -58,6 +58,7 @@ function backend() {
   }
   emitter.getPendingHandles = () => []
   emitter.shutdown = () => {}
+  emitter.cancelSession = () => false
   return { value: emitter, started }
 }
 
@@ -109,5 +110,19 @@ describe('seats at dispatch', () => {
     const [turn] = ledger.forSession('s-guest')
     expect(turn).toMatchObject({ prompt_id: 'p-guest', user_id: 'guest:g1', seat_user_id: 'bob', provider: 'claude-code' })
     expect(turn?.state).not.toBe('running')
+  })
+
+  test('a prompt id seen in another session is not a duplicate, even once the ledger holds it', async () => {
+    // WHY: a client prompt id is unique only to the client that made it; older
+    // clients counted `msg-1`, `msg-2`… from zero on each reload. Matching the id
+    // alone against past turns dropped a new session's first prompt as a replay.
+    const { plane, ledger, started } = harness()
+    const owner = { clientId: 'c1', actor: { userId: 'host-owner', seatUserId: 'host-owner' } }
+    expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
+    expect(ledger.forSession('s-first')[0]?.prompt_id).toBe('msg-1')
+
+    expect(await plane.submitPrompt(ctx('s-second'), { prompt: 'second', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
+    expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toEqual({ disposition: 'duplicate' })
+    expect(started).toHaveLength(2)
   })
 })

@@ -29,6 +29,7 @@ export interface ShareDialogTarget {
 
 /** Who this client is to one host, as the host told it. */
 export interface HostIdentity {
+  accountConnectionsUrl?: string
   principal: ConnectionsServerInfo['principal']
   userId: string | null
   organizationId: string | null
@@ -122,12 +123,13 @@ class SharesStore {
    * and the host never learns which organization it is shared with, so the
    * directory row the account merged into the registry fills that in.
    */
-  async identityFor(serverId: string): Promise<HostIdentity> {
+  async identityFor(serverId: string, refresh = false): Promise<HostIdentity> {
     const cached = this.identities.get(serverId)
-    if (cached) return cached
+    if (cached && !refresh) return cached
     const info = await serverConnections.apiFor(serverId).connectionsGetServerInfo()
     const identity: HostIdentity = {
       principal: info.principal,
+      accountConnectionsUrl: info.accountConnectionsUrl,
       userId: info.userId ?? null,
       organizationId: organizationIdFor(info.organizationId, this.savedUplinkFor(serverId)),
     }

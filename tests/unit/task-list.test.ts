@@ -12,7 +12,6 @@ import {
   formatElapsed,
   formatWakeIn,
   filterSidebarTasks,
-  groupTasks,
   hasDisclosure,
   maxTaskAttention,
   hasGlyph,
@@ -43,6 +42,7 @@ import { worktreeDisplayName } from '@solus/workspace-ui/lib/git-context'
 describe('sidebar task search', () => {
   const task = (title: string, projectLabel: string): SidebarTask => ({
     id: title,
+    listKey: title,
     key: title,
     title,
     projectKey: projectLabel,
@@ -54,7 +54,6 @@ describe('sidebar task search', () => {
     attention: null,
     unread: false,
     createdAt: 0,
-    activityAt: 0,
     runStartedAt: 0,
     lifecycle: 'active',
     completedAt: 0,
@@ -208,16 +207,18 @@ function task(
 ): SidebarTask {
   return {
     id: key,
+    listKey: key,
     key,
     title: key,
     projectKey: '/repos/solus',
     projectLabel: 'solus',
+    // A row's project is its path here unless a test names a repository.
+    groupKey: overrides.projectKey ?? '/repos/solus',
     branchName: key,
     status,
     attention: null,
     unread: false,
     createdAt: 0,
-    activityAt: 0,
     runStartedAt: 0,
     lifecycle: 'active',
     tabIds: [key],
@@ -341,6 +342,8 @@ describe('reconcileSidebarTasks', () => {
   })
 })
 
+const noActivity = () => 0
+
 describe('sortTasks', () => {
   it('puts a question above a running task from another project', () => {
     // The whole point of flat mode: the sort is on state, not on project. If
@@ -349,10 +352,9 @@ describe('sortTasks', () => {
       task('running-elsewhere', 'running', {
         projectKey: '/repos/model-routing',
         projectLabel: 'model-routing',
-        activityAt: 900,
       }),
-      task('asking', 'question', { activityAt: 100 }),
-    ])
+      task('asking', 'question'),
+    ], (row) => (row.key === 'running-elsewhere' ? 900 : 100))
     expect(sorted.map((t) => t.key)).toEqual(['asking', 'running-elsewhere'])
   })
 
@@ -365,15 +367,16 @@ describe('sortTasks', () => {
       task('c', 'plan'),
       task('b', 'error'),
       task('a', 'question'),
-    ])
+    ], noActivity)
     expect(sorted.map((t) => t.key)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g'])
   })
 
   it('breaks ties on most recent activity', () => {
-    const sorted = sortTasks([
-      task('older', 'idle', { activityAt: 10 }),
-      task('newer', 'idle', { activityAt: 20 }),
-    ])
+    const activity = new Map([['older', 10], ['newer', 20]])
+    const sorted = sortTasks(
+      [task('older', 'idle'), task('newer', 'idle')],
+      (row) => activity.get(row.key) ?? 0,
+    )
     expect(sorted.map((t) => t.key)).toEqual(['newer', 'older'])
   })
 
@@ -381,28 +384,8 @@ describe('sortTasks', () => {
     // The sidebar renders the array it was given, in the order tasks arrived —
     // a picker asking for a ranking must not be able to shuffle the column.
     const tasks = [task('a', 'idle'), task('b', 'question')]
-    sortTasks(tasks)
+    sortTasks(tasks, noActivity)
     expect(tasks.map((t) => t.key)).toEqual(['a', 'b'])
-  })
-})
-
-describe('groupTasks', () => {
-  it('names groups in a fixed order, so a project that starts working stays put', () => {
-    const groups = groupTasks([
-      task('quiet', 'idle'),
-      task('loud', 'question', {
-        projectKey: '/repos/model-routing',
-        projectLabel: 'model-routing',
-      }),
-    ])
-    expect(groups.map((g) => g.projectLabel)).toEqual(['model-routing', 'solus'])
-  })
-
-  it('keeps each group in the order its tasks arrived', () => {
-    // Status is carried by the glyph, never by the row's position: a task that
-    // fails must report it where the user last saw the task.
-    const [group] = groupTasks([task('idle', 'idle'), task('err', 'error')])
-    expect(group.tasks.map((t) => t.key)).toEqual(['idle', 'err'])
   })
 })
 
@@ -415,7 +398,7 @@ describe('buildProjectSummaries', () => {
         projectKey: '/repos/model-routing',
         projectLabel: 'model-routing',
       }),
-    ])
+    ], noActivity)
     expect(solus).toMatchObject({ label: 'solus', count: 2, waiting: 1, failed: 0 })
     expect(routing).toMatchObject({ label: 'model-routing', count: 1, waiting: 0, failed: 1 })
   })
@@ -423,7 +406,7 @@ describe('buildProjectSummaries', () => {
   it('leads each project with its most urgent task, so picking one lands on the decision', () => {
     // The picker exists to move you somewhere useful. Landing on whatever task
     // happens to be first in tab order would make it a navigation dead end.
-    const [summary] = buildProjectSummaries([task('idle', 'idle'), task('asks', 'question')])
+    const [summary] = buildProjectSummaries([task('idle', 'idle'), task('asks', 'question')], noActivity)
     expect(summary.leadTaskKey).toBe('asks')
   })
 })
@@ -681,6 +664,15 @@ describe('taskStatusFor', () => {
     expect(taskStatusFor('error')).toBe('error')
     expect(taskStatusFor('queued')).toBe('limit')
     expect(taskStatusFor('running')).toBe('running')
+  })
+
+  it('tells a background task apart from a running agent, without asking for the user', () => {
+    // A turn that ended with a log tail still running used to read as running
+    // forever. It has its own glyph, but it wants nothing from the user.
+    expect(taskStatusFor('background')).toBe('background')
+    expect(taskStatusFor('background', true)).toBe('background')
+    expect(hasGlyph('background')).toBe(true)
+    expect(shouldEmphasizeTitle('background', false, false)).toBe(false)
   })
 
   it('lets the agent overrule a stale tick', () => {

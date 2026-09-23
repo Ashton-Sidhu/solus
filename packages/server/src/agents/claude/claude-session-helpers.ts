@@ -78,6 +78,7 @@ const claudeImageBlockSchema = z.object({
 const claudeToolResultBlockSchema = z.object({
   type: z.literal('tool_result'),
   tool_use_id: z.string().optional(),
+  is_error: z.boolean().optional(),
   content: z.union([
     z.string(),
     z.array(z.object({ text: z.string().optional() })),
@@ -118,7 +119,7 @@ const claudeTranscriptLineSchema = z.object({
   toolUseResult: z.object({
     isAsync: z.boolean().optional(),
     status: z.string().optional(),
-  }).optional(),
+  }).optional().catch(undefined),
 })
 
 export interface SessionHeadMeta {
@@ -227,6 +228,7 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
           role: 'tool_result',
           content: claudeToolResultText(result.content),
           toolResultForId: result.tool_use_id,
+          toolResultIsError: result.is_error,
           parentToolUseId,
           timestamp: new Date(obj.timestamp).getTime(),
         }

@@ -98,6 +98,53 @@ describe('lazily created connections', () => {
     }
   })
 
+  test('dials a managed host only once the directory calls it ready', async () => {
+    // WHY: a dial during provisioning looked up a tunnel name that did not resolve
+    // yet; the network's resolver kept that "no such name" answer, and the ready host
+    // stayed unreachable (Offline) from that network for up to 30 minutes (2026-09-23).
+    startedTransports.length = 0
+    let managedState = 'provisioning'
+    const previousLocalStorage = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (key: string) => key === 'solus.servers'
+          ? JSON.stringify([{
+              id: 'cloud',
+              label: 'Cloud · Acme',
+              url: 'https://h-cloud.solus.test',
+              sessionToken: '',
+              installationId: 'managed:h_cloud',
+              lastConnected: 1,
+              uplink: { hostId: 'h_cloud', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState },
+            }])
+          : null,
+      },
+    })
+    const connections = new ServerConnections()
+    try {
+      connections.startCatalogSupervisors()
+      await Promise.resolve()
+      expect(startedTransports).toEqual([])
+
+      managedState = 'ready'
+      connections.startCatalogSupervisors()
+      await Promise.resolve()
+      expect(startedTransports).toEqual(['cloud'])
+    } finally {
+      if (previousLocalStorage === undefined) {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+      } else {
+        Object.defineProperty(globalThis, 'localStorage', {
+          configurable: true,
+          writable: true,
+          value: previousLocalStorage,
+        })
+      }
+    }
+  })
+
   test('defers listeners and the socket out of the caller\'s frame', async () => {
     // `ensure()` is reached from derived renderer state, where writing Svelte
     // state throws. Nothing reactive may fire before the caller's frame ends.

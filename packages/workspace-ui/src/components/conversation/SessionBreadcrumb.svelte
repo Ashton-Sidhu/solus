@@ -119,7 +119,7 @@
       ? (homeGitDetails(
           draft.run.workingDirectory ?? "~",
           draft.run.gitContext ?? null,
-          session.globalDefaults.gitContext,
+          null,
         ).projectRoot ??
           draft.run.workingDirectory ??
           "~")
@@ -350,7 +350,7 @@
     menu = null;
     if (draft) {
       draft.run = withCheckout(draft.run, nextProjectKey, null);
-      void session.environment.refresh(nextProjectKey);
+      void session.environment.refresh(draft.run.serverId, nextProjectKey);
     } else {
       const lead = sidebarStore.allTasks.find(
         (item) => item.key === leadTaskKey,
@@ -362,13 +362,13 @@
 
   async function newSession() {
     menu = null;
-    session.openSessionDraft({ via: "click", sourceId: tabId });
+    session.drafts.openSessionDraft({ via: "click", sourceId: tabId });
     requestInputFocus();
   }
 
   function newTask() {
     menu = null;
-    session.openSessionDraft({
+    session.drafts.openSessionDraft({
       freshTask: true,
       via: "click",
       sourceId: tabId,
@@ -717,7 +717,7 @@
                 variant="band"
                 class="font-medium"
                 onCommit={(next) => {
-                  void session.renameTab(tabId, next);
+                  void session.metadata.renameTab(tabId, next);
                   renamingTabId = null;
                   requestInputFocus();
                 }}
@@ -918,7 +918,6 @@
         serverId={session.serverIdFor(tabId)}
         resource={{ kind: "session", id: bandSession.id }}
         title={sessionTitle(bandSession)}
-        appearance="glyph"
         class="{BAND_ACTION} @max-[36rem]:hidden"
       />
     {/if}
@@ -933,17 +932,12 @@
     {#if showNewSessionAction}
       <button
         type="button"
-        class="flex h-[1.6875rem] shrink-0 cursor-pointer items-center gap-1 rounded pr-2 pl-1.5 transition-[background] duration-150 hover:bg-accent @max-[36rem]:size-[1.6875rem] @max-[36rem]:justify-center @max-[36rem]:gap-0 @max-[36rem]:p-0"
-        style="box-shadow:0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent)"
+        class={BAND_ACTION}
         title="New session in this task"
         aria-label="New session in this task"
         onclick={newSession}
       >
-        <PlusIcon size={12} class="text-muted-foreground" />
-        <span
-          class="text-workspace-chrome font-medium whitespace-nowrap @max-[36rem]:hidden"
-          >New Task</span
-        >
+        <PlusIcon size={14} />
       </button>
     {/if}
 
@@ -1002,7 +996,7 @@
       rowActions={{
         onStop:
           menuChild.tabId && menuChild.attention === "running"
-            ? () => session.interruptTabSession(menuChild.tabId!)
+            ? () => session.controls.interruptTabSession(menuChild.tabId!)
             : undefined,
       }}
       onClose={() => (contextMenu = null)}
@@ -1024,14 +1018,14 @@
         task={menuTask}
         {hasLinkedSession}
         isRunning={menuSidebarTask.status === "running"}
-        onStart={() => void session.openTaskSession(menuTask)}
+        onStart={() => void session.opening.openTaskSession(menuTask)}
         onResume={hasLinkedSession
-          ? () => void session.openTaskLinkedSession(menuTask)
+          ? () => void session.opening.openTaskLinkedSession(menuTask)
           : undefined}
         onStop={menuSidebarTask.status === "running"
           ? () => {
               for (const taskTabId of menuSidebarTask.tabIds) {
-                session.interruptTabSession(taskTabId);
+                session.controls.interruptTabSession(taskTabId);
               }
             }
           : undefined}

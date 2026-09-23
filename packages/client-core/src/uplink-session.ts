@@ -2,7 +2,9 @@ import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
   hostGrantResponseSchema,
+  managedHostStartResponseSchema,
   organizationDirectorySchema,
+  type ManagedHostLifecycle,
   type DirectoryHost,
   type HostGrantResponse,
   type OrganizationDirectory,
@@ -30,6 +32,9 @@ export interface UplinkAccountSource {
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
+  /** Ask an organization's managed host to run (docs/plans/project-model.md §6);
+   *  the lifecycle it is in afterwards, or null when the call was refused. */
+  startManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
 }
 
 /**
@@ -75,7 +80,18 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
       const parsed = organizationDirectorySchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
     },
+    async startManagedHost(hostId) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
+      if (!response?.ok) return null
+      const parsed = managedHostStartResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data.lifecycle : null
+    },
   }
+}
+
+export interface CloudOriginProbe {
+  kind: 'signed-in' | 'signed-out' | 'not-cloud'
+  directory: UplinkDirectory | null
 }
 
 /**
@@ -83,20 +99,27 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
  * directory answers JSON with 200 or 401 there. A Solus *host* serving this client
  * answers 200 too — its SPA fallback returns `index.html` for any route — so the
  * status alone proves nothing: only a JSON answer counts as the account origin.
+ * Return the validated directory too so startup can use this same response.
  */
-export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch = fetch): Promise<'signed-in' | 'signed-out' | 'not-cloud'> {
+export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch = fetch): Promise<CloudOriginProbe> {
   try {
     const response = await fetchImpl(`${origin}/v1/hosts`, {
       credentials: 'same-origin',
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(5_000),
     })
-    if (!response.headers.get('content-type')?.includes('application/json')) return 'not-cloud'
-    if (response.status === 200) return 'signed-in'
-    if (response.status === 401) return 'signed-out'
-    return 'not-cloud'
+    if (!response.headers.get('content-type')?.includes('application/json')) return { kind: 'not-cloud', directory: null }
+    if (response.status === 200) {
+      const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
+      return {
+        kind: 'signed-in',
+        directory: parsed.success ? { directoryUrl: origin, hosts: parsed.data.hosts } : null,
+      }
+    }
+    if (response.status === 401) return { kind: 'signed-out', directory: null }
+    return { kind: 'not-cloud', directory: null }
   } catch {
-    return 'not-cloud'
+    return { kind: 'not-cloud', directory: null }
   }
 }
 
@@ -108,6 +131,7 @@ function uplinkOf(host: DirectoryHost, directoryUrl: string): SavedServerUplink 
   if (host.ownerUserId) uplink.ownerUserId = host.ownerUserId
   if (host.kind) uplink.kind = host.kind
   if (host.managedState) uplink.managedState = host.managedState
+  if (host.isActiveWorkspace) uplink.isActiveWorkspace = true
   return uplink
 }
 
@@ -187,6 +211,9 @@ export function mergeDirectoryIntoSaved(
       const direct = savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
       merged.push({
         ...server,
+        // A managed host's name is the one members give it on the account site, so a
+        // rename there reaches every client. A name typed here still wins (`hasUserLabel`).
+        label: listed.kind === 'managed' ? listed.label : server.label,
         os: server.os ?? listed.os,
         routes: [...direct, ...listed.routes],
         uplink: uplinkOf(listed, directoryUrl),

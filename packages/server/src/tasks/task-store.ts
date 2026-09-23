@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDatabase, type Db } from '../db/database'
 import { createLogger } from '../logger'
-import { ulid } from './ulid'
+import { ulid } from '@solus/contracts/ulid'
 import { appendTaskEvent } from './task-events'
 import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
 import type {

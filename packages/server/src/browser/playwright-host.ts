@@ -475,6 +475,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   }
 
   async startScreencast(options: BrowserScreencastOptions, onFrame: BrowserFrameListener): Promise<void> {
+    // Chromium refuses to start a second active screencast. Resizing a remote
+    // pane replaces its frame caps, so end the previous stream first.
+    await this.stopScreencast()
     this.screencastFrame = onFrame
     await this.send('Page.startScreencast', {
       format: 'jpeg',

@@ -22,7 +22,10 @@ describe('the plane map', () => {
     expect(rpcPlaneOf('prList')).toBe('collaboration')
     expect(rpcPlaneOf('prompt')).toBe('execution')
     expect(rpcPlaneOf('gitRunAction')).toBe('execution')
-    expect(rpcPlaneOf('prGetDiff')).toBe('execution')
+    // A pull request's diff comes from its code host, never a checkout, so a
+    // client whose only connection is the workspace service can still read it.
+    expect(rpcPlaneOf('prGetDiff')).toBe('collaboration')
+    expect(rpcPlaneOf('prInterdiff')).toBe('execution')
     // A credential is connected where it is kept (cloud-service-model.md §5): the
     // workspace service relays the CLI login and stores the result in the vault.
     expect(rpcPlaneOf('seatConnectStart')).toBe('collaboration')

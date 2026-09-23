@@ -17,6 +17,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import SolusTips from "../layout/SolusTips.svelte";
+  import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import InputBar from "../input/InputBar.svelte";
   import InputBarHeader from "../input/InputBarHeader.svelte";
@@ -61,7 +62,7 @@
   // the session's object by then, so those last writes land where they should —
   // holding the draft here only keeps it reachable until this surface unmounts.
   let sent = $state<SessionDraft | null>(null);
-  const draft = $derived(session.sessionDrafts.get(params.draftId) ?? sent);
+  const draft = $derived(session.drafts.sessionDrafts.get(params.draftId) ?? sent);
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
@@ -76,16 +77,16 @@
     if (
       !surfaceVisible ||
       !draft ||
-      session.unifiedPickerOpen ||
+      session.ui.unifiedPickerOpen ||
       runtime.shouldSuppressFocus
     )
       return;
     const focusFrame = requestAnimationFrame(() => {
       if (
         surfaceVisible &&
-        !session.unifiedPickerOpen &&
+        !session.ui.unifiedPickerOpen &&
         params.draftId === draftId &&
-        session.sessionDrafts.has(draftId)
+        session.drafts.sessionDrafts.has(draftId)
       ) {
         composerInput?.focus();
       }
@@ -99,7 +100,7 @@
     homeGitDetails(
       draft?.run.workingDirectory ?? "~",
       draft?.run.gitContext ?? null,
-      session.globalDefaults.gitContext,
+      null,
     ),
   );
   const projectRoot = $derived(
@@ -191,7 +192,7 @@
     // must name it and the pool must not take it: an unnamed chat route is the
     // pool's, which renders the active tab — the same conversation twice, and a
     // pane with no session of its own for its close button to let go of.
-    const tabId = session.startSessionDraft(params.draftId, {
+    const tabId = session.drafts.startSessionDraft(params.draftId, {
       via: "click",
       activate: !isAside,
     });
@@ -202,7 +203,7 @@
       { target: paneId },
     );
     if (isAside) requestInputFocus({ tabId });
-    return session.sendMessage(text, undefined, tabId);
+    return session.dispatch.sendMessage(text, undefined, tabId);
   }
 
   /**
@@ -213,13 +214,13 @@
   function dispatchInBackground(text: string): boolean {
     if (!draft) return false;
     sent = draft;
-    return session.startDraftInBackground(draft.id, text, paneId);
+    return session.drafts.startDraftInBackground(draft.id, text, paneId);
   }
 
   /** Nothing has started, so there is no tab to close — the draft is dropped and
    *  the pane it was filling goes with it. */
   function discard() {
-    session.discardSessionDraft(params.draftId);
+    session.drafts.discardSessionDraft(params.draftId);
     requestInputFocus();
   }
 
@@ -322,6 +323,10 @@
           </div>
         </div>
       {/if}
+      {#if !isAside}
+        <!-- Cloud only; renders nothing when setup is complete. -->
+        <GetStartedList />
+      {/if}
       </div>
     {/if}
 
@@ -393,6 +398,12 @@
         </InputBar>
       </div>
     </div>
+
+    <!-- What cloud onboarding asked and was skipped. Cloud only; renders nothing
+         when setup is complete. -->
+    {#if !isAside && !isPhone}
+      <GetStartedList class="max-w-(--solus-reading-max)" />
+    {/if}
 
     <!-- Full-page draft only: the narrow split composer has its own chrome, so
          tips there would crowd it. Pinned near the bottom, out of the centered

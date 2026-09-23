@@ -187,7 +187,7 @@ test('revealing a conversation clears unread across its tabs without selecting i
       tabOrder = $state(['first', 'duplicate', 'second']);
       activeTabId = $state('first');
       router = $state({ leadingPane: { base: { name: 'chat' }, overlay: null }, asidePanes: [], chatSessionIn(id) { return id; } });
-      publishSessionViewed() {}
+      metadata = { publishSessionViewed() {} };
       ${methods.map(node => node.getText(ast)).join('\n')}
     }
     const workspace = new Workspace();

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
   import {
+    Activity as ActivityIcon,
     MessageSquare as ChatTeardropIcon,
     Clock as ClockIcon,
     FileText as FileTextIcon,
@@ -21,13 +22,16 @@
   let { status, label, size = 13.5 }: Props = $props();
 
   // Reserved colour, one meaning each: terracotta wants you, red has stopped,
-  // amber is the provider's problem and not yours.
+  // amber is the provider's problem and not yours, and the running tone is
+  // work that goes on without you.
   const color = $derived(
     status === "error"
       ? "var(--destructive)"
       : status === "limit"
         ? "var(--chart-2)"
-        : "var(--primary)",
+        : status === "background"
+          ? "var(--solus-status-running-icon)"
+          : "var(--primary)",
   );
 
   // A speech bubble for a question — the agent asking you something, which no
@@ -43,7 +47,9 @@
         ? FileTextIcon
         : status === "error"
           ? XCircleIcon
-          : ClockIcon,
+          : status === "background"
+            ? ActivityIcon
+            : ClockIcon,
   );
 </script>
 

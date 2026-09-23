@@ -134,6 +134,20 @@ describe('turn collapse', () => {
     ).toBe(true)
   })
 
+  test('a running sub-agent keeps the live row once prose follows its card', () => {
+    const prompt = msg({ role: 'user', content: 'study both codebases' })
+    const agent = { ...tool('Agent', '{"description":"Study Solus diff panel"}', false), subMessages: [] }
+
+    // The card at the tail reports its own agents, so a row under it would
+    // report the run twice.
+    expect(needsLiveRow(turnsFor([prompt, agent], true)[0])).toBe(false)
+
+    // WHY: the parent keeps writing while the agent works. Once the card scrolls
+    // away, a tail with no row makes the session look finished.
+    const narration = msg({ role: 'assistant', content: 'One report is in.' })
+    expect(needsLiveRow(turnsFor([prompt, agent, narration], true)[0])).toBe(true)
+  })
+
   test('a turn that only answered has no row to collapse into', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'what does tw.ts do?' }),

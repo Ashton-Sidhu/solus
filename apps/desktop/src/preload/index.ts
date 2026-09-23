@@ -83,6 +83,7 @@ const nativeApi: NativeSolusAPI = {
   onAccountStateChange: subscribeAccountStateChange,
   uplinkListDirectoryHosts: () => ipcRenderer.invoke('solus:uplink-directory'),
   uplinkAcquireHostGrant: (hostId: string) => ipcRenderer.invoke('solus:uplink-grant', hostId),
+  uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
   uplinkOrganizationDirectory: (organizationId: string) => ipcRenderer.invoke('solus:uplink-organization-directory', organizationId),
   updateStatus: () => ipcRenderer.invoke('solus:update-status'),

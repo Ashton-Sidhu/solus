@@ -7,7 +7,7 @@ import { toasts } from '@solus/workspace-ui/lib/toasts'
 export function createWebAttachments(session: WorkspaceContext) {
   async function attach(sourceId: string | undefined, files?: File[]) {
     const targetId = sourceId ?? session.focusedSourceId ?? session.activeTabId;
-    const draft = targetId ? session.sessionDrafts.get(targetId) : undefined;
+    const draft = targetId ? session.drafts.sessionDrafts.get(targetId) : undefined;
     const serverId = (targetId ? session.runFor(targetId)?.serverId : undefined)
       ?? serverConnections.defaultServerId();
     if (!serverId) return;

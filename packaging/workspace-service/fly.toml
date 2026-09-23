@@ -7,7 +7,10 @@ primary_region = "iad"
 [build]
   # Built and pushed by packaging/managed-host (bun scripts/managed-image.ts); the
   # same tarball a personal host installs, so one release serves every role.
-  image = "registry.fly.io/solus-managed@sha256:696c5334c487562a012774311e48dc5dcf976575a7a96142b9d18b48116d7b0d"
+  # The digest is the one Fly's registry reports for the machine after the deploy
+  # (`fly machine list --json`), not the one `docker push` prints: Fly stores its
+  # own manifest for a pushed image. Tag: solus-managed:0.32.2-20260923-2.
+  image = "registry.fly.io/solus-managed@sha256:85eb3472cf9dd4aa5a26c0eafe1d3f6328f858105bf46a062dde17a0fef1b892"
 
 [env]
   # The image bakes SOLUS_MANAGED=1 for a managed host; a workspace service is nobody's machine.
@@ -23,6 +26,7 @@ primary_region = "iad"
 #   DATABASE_URL          postgres://… — one Postgres for every organization
 #   SOLUS_CLOUD_ISSUER    the control plane's issuer, e.g. https://app.solus.sh
 #   SOLUS_CLOUD_JWKS_URL  its key set, e.g. https://app.solus.sh/api/auth/jwks
+#   SOLUS_INTEGRATION_SERVICE_KEY  equals the account Worker's INTEGRATION_SERVICE_KEY
 
 [http_service]
   internal_port = 3000

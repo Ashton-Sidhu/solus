@@ -8,7 +8,6 @@
   import PaneChrome from "../ui/PaneChrome.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
-  import StackDiffBanner from "./StackDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
@@ -56,21 +55,14 @@
   });
 
   function close() {
-    session.closePrDiff();
+    session.prReview.closePrDiff();
     requestInputFocus();
   }
 </script>
 
 {#if review && pr}
   <div class="flex h-full min-h-0 flex-col">
-    {#if !review.commitScope && review.ownDeltaBase}
-      <StackDiffBanner
-        parent={review.ownDeltaBase.parent}
-        fileCount={review.ownDeltaFileCount}
-        showingFull={review.showingFullDiff}
-        onToggle={() => (review.showingFullDiff = !review.showingFullDiff)}
-      />
-    {:else if review.hasReviewCheckpointNotice && review.interdiff}
+    {#if review.hasReviewCheckpointNotice && review.interdiff}
       <SinceReviewBar
         result={review.interdiff}
         showingSince={review.isSinceReviewMode}

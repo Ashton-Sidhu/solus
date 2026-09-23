@@ -1,10 +1,14 @@
+import { cloudAccount } from '@solus/client-core/cloud-account'
+import { serverConnections } from '@solus/client-core/server-connections'
 import { runtime, serversStore } from '../../contexts'
 import { hostSetupStore, type HostSetupSession } from '../servers/host-setup.store.svelte'
+import { cloudOnboardingStore } from './cloud-onboarding.store.svelte'
 import {
   nextStage,
   previousStage,
   stagesFor,
   surfaceFor,
+  type OnboardingFlow,
   type OnboardingMode,
   type OnboardingStage,
   type OnboardingSurface,
@@ -38,6 +42,8 @@ class OnboardingStore {
    * list out from under the stage the user is standing on.
    */
   surface = $state<OnboardingSurface>('pointer')
+  /** Fixed for the run, like `surface`: a cloud account or one host. */
+  flow = $state<OnboardingFlow>('host')
 
   introPhase = $state<IntroPhase>('mark')
   introTyped = $state('')
@@ -47,8 +53,15 @@ class OnboardingStore {
   private timers: ReturnType<typeof setTimeout>[] = []
   private greetingTimer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * The one host every stage asks about. The host flow asks the host this
+   * client works against; the cloud flow asks the machine the person chose,
+   * never the workspace service, which runs no agents. Empty when the cloud
+   * flow has no machine, and then the `agents` stage is not shown.
+   */
   get serverId(): string {
-    return serversStore.activeServerId
+    if (this.flow === 'cloud') return cloudOnboardingStore.chosenServerId ?? ''
+    return serverConnections.defaultServerId() ?? serversStore.activeServerId
   }
 
   /** The install-and-sign-in engine for the bound host, shared with Settings. */
@@ -56,12 +69,25 @@ class OnboardingStore {
     return hostSetupStore.sessionFor(this.serverId)
   }
 
+  /** The cloud flow passes over `agents` when there is no machine to ask. */
+  private get skipsAgents(): boolean {
+    return this.flow === 'cloud' && !cloudOnboardingStore.chosenServerId
+  }
+
   start(): void {
     this.stage = 'intro'
     this.mode = 'project'
     this.surface = surfaceFor(runtime)
+    this.flow = cloudAccount() ? 'cloud' : 'host'
+    // Reopened from a "Get started" item: straight to the stage it names, no greeting.
+    const reopenedAt = this.flow === 'cloud' ? cloudOnboardingStore.reopenedAt : null
+    if (reopenedAt) {
+      this.stage = reopenedAt
+      return
+    }
     this.runIntro()
-    void this.setup.refreshReadiness()
+    // The cloud flow has no machine yet; `agents` probes the one chosen.
+    if (this.flow === 'host') void this.setup.refreshReadiness()
   }
 
   stop(): void {
@@ -102,7 +128,7 @@ class OnboardingStore {
   endIntro(): void {
     if (this.stage !== 'intro' || this.introLeaving) return
     this.introLeaving = true
-    this.stage = stagesFor(this.surface)[0]
+    this.stage = stagesFor(this.surface, this.flow)[0]
     this.after(LEAVE_MS, () => {
       this.introLeaving = false
     })
@@ -118,14 +144,14 @@ class OnboardingStore {
 
   /** Moves on, or reports that the flow is over so the caller can finish it. */
   advance(): boolean {
-    const next = nextStage(this.stage, this.surface)
+    const next = nextStage(this.stage, this.surface, this.flow, this.skipsAgents)
     if (!next) return false
     this.go(next)
     return true
   }
 
   back(): void {
-    const previous = previousStage(this.stage, this.surface)
+    const previous = previousStage(this.stage, this.surface, this.flow, this.skipsAgents)
     if (previous) this.go(previous)
   }
 

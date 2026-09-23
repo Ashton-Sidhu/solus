@@ -140,6 +140,17 @@ describe('merging the directory into saved hosts', () => {
     expect(reloaded[1].uplink?.managedState).toBeUndefined()
   })
 
+  test('a managed host takes the name members give it on the account site; a personal host keeps its saved one', () => {
+    // WHY: a managed host's row reads its own name, and members rename it on Solus Cloud;
+    // a rename there must reach every client, not stay frozen at first sight.
+    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', organizationId: 'org-1', label: 'Cloud host' })
+    const first = mergeDirectoryIntoSaved([], [managed], DIRECTORY, 10)
+    const renamed = mergeDirectoryIntoSaved(first, [{ ...managed, label: 'Build box' }], DIRECTORY, 11)
+    expect(renamed[0].label).toBe('Build box')
+    const personal = mergeDirectoryIntoSaved([paired({ label: 'Studio' })], [listed({ label: 'enrolled-name' })], DIRECTORY, 10)
+    expect(personal[0].label).toBe('Studio')
+  })
+
   test('a cloud row is the organization\'s workspace: named by the directory id, labelled by the organization, tunnel only, never paired', () => {
     // WHY: docs/plans/cloud-service-model.md — the workspace service is a host of
     // kind `cloud`. It is not a machine: no LAN route can reach it and no pairing
@@ -168,6 +179,20 @@ describe('merging the directory into saved hosts', () => {
     // Gone from the directory (the account left the organization): the row goes with it, pairing or not.
     expect(mergeDirectoryIntoSaved([stale], [], DIRECTORY, 12)).toEqual([])
     expect(mergeDirectoryIntoSaved([cloud!, paired()], [], DIRECTORY, 12).map((server) => server.id)).toEqual(['inst-1'])
+  })
+
+  test('the directory\'s mark of the organization the account works in follows every read, and is never kept from a stale save', () => {
+    // WHY: docs/plans/cloud-service-model.md §15 — the cloud-only boards read the
+    // marked workspace alone; the account website moves the mark, so a row must
+    // carry exactly what the last directory read said.
+    const workspace = (organizationId: string, isActiveWorkspace?: boolean) => listed({
+      hostId: `workspace:${organizationId}`, installationId: `workspace:${organizationId}`, label: organizationId, kind: 'cloud', organizationId,
+      os: undefined, routes: [{ kind: 'tunnel', url: 'https://ws.example.test' }], ...(isActiveWorkspace ? { isActiveWorkspace } : {}),
+    })
+    const first = mergeDirectoryIntoSaved([], [workspace('org-a'), workspace('org-b', true)], DIRECTORY, 10)
+    expect(first.map((server) => [server.id, server.uplink?.isActiveWorkspace ?? false])).toEqual([['workspace:org-a', false], ['workspace:org-b', true]])
+    const switched = mergeDirectoryIntoSaved(first, [workspace('org-a', true), workspace('org-b')], DIRECTORY, 11)
+    expect(switched.map((server) => [server.id, server.uplink?.isActiveWorkspace ?? false])).toEqual([['workspace:org-a', true], ['workspace:org-b', false]])
   })
 
   test('hosts from another directory origin are left alone', () => {

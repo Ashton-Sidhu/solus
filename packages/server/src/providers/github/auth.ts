@@ -1,3 +1,4 @@
+import { usesAccountIntegration } from '../../vault/provider-credentials'
 import { createLogger } from '../../logger'
 import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
 import { currentCredentialUserId } from '../../vault/credential-scope'
@@ -169,6 +170,7 @@ export class GitHubAuth implements ProviderAuth {
   private readonly connecting = new Map<string, AbortController>()
 
   async connect(onUserCode: (c: DeviceCodePrompt) => void): Promise<AuthStatus> {
+    if (usesAccountIntegration()) throw new Error('Connect GitHub on your account website.')
     if (!GITHUB_CLIENT_ID) throw new Error('GitHub client ID not configured')
     // The scope set at dispatch carries through every await below, so the token
     // lands in the caller's own store; the key only serializes their attempts.

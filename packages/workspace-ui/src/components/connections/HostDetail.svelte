@@ -11,8 +11,6 @@
   import HostDetailProviders from "./HostDetailProviders.svelte";
   import HostDetailEnvironment from "./HostDetailEnvironment.svelte";
   import HostDetailAccess from "./HostDetailAccess.svelte";
-  import HostDetailCloud from "./HostDetailCloud.svelte";
-  import { isCloudHostRow } from "../servers/lib/managed-host";
 
   interface Props {
     host: ServerItem;
@@ -20,16 +18,12 @@
 
   let { host }: Props = $props();
 
-  // The workspace service has none of a machine's tabs, and would refuse the
-  // readiness probe below with PLANE_DISABLED.
-  const isCloud = $derived(isCloudHostRow(host.uplink));
   const setup = $derived(hostSetupStore.sessionFor(host.id));
   const isActive = $derived(serversStore.activeServer?.id === host.id);
 
   // Setup events belong to the host, so the page holds its subscription open
   // for as long as it is showing that host — and hands it back on the way out.
   $effect(() => {
-    if (isCloud) return;
     const session = hostSetupStore.sessionFor(host.id);
     session.retain();
     void session.refreshReadiness();
@@ -42,9 +36,6 @@
   );
 </script>
 
-{#if isCloud}
-  <HostDetailCloud {host} />
-{:else}
 <div class="flex flex-col gap-6 [.is-laptop-display_&]:gap-5">
   <div class="min-w-0">
     <h2
@@ -84,7 +75,7 @@
       <HostDetailProviders {setup} />
     </Tabs.Content>
     <Tabs.Content value="environment" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
-      <HostDetailEnvironment {setup} />
+      <HostDetailEnvironment {setup} serverId={host.id} />
     </Tabs.Content>
     {#if isActive}
       <Tabs.Content value="access" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
@@ -93,4 +84,3 @@
     {/if}
   </Tabs.Root>
 </div>
-{/if}

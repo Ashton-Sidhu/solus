@@ -3,10 +3,13 @@ import { readFileSync } from 'node:fs'
 
 // Run the production resume sequence with deferred host responses. This checks
 // display timing without constructing every workspace store or a provider.
-const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/session-opening.ts', import.meta.url), 'utf8')
 const start = source.indexOf('    const worktreePath =', source.indexOf('  async resumeSession('))
-const end = source.indexOf('\n  // ─── Tab configuration', start)
-const body = source.slice(start, end).trim().replace(/}\s*$/, '')
+// The body ends at the method's closing brace: the last one before the next
+// member of SessionOpening.
+const nextMember = source.slice(start).search(/\n  (?:\/\*\*|(?:private |async )*\w+\()/)
+const end = source.lastIndexOf('\n  }', nextMember === -1 ? source.length : start + nextMember)
+const body = source.slice(start, end).trim()
 const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(`async function resume() { ${body} }`)
 
 test('messages display while git identity and task binding are still pending', async () => {
@@ -25,7 +28,7 @@ test('messages display while git identity and task binding are still pending', a
       async registerEnvironment() { registered = true },
       async refreshEnvironment() { return null },
     },
-    recomputeChangedFiles() {}, refreshPluginCommands() {},
+    lifecycle: { recomputeChangedFiles() {}, refreshPluginCommands() {} },
     planStore: { hydrateAnnotations() {} },
   }
   const transcript = { messages: [{ content: 'ready' }], progress: null, truncated: false, before: null, planIds: [] }
@@ -37,7 +40,7 @@ test('messages display while git identity and task binding are still pending', a
     const loadSessionTranscript = async () => transcript;
     const sessionGuideIdentity = () => null, requestConversationScrollToBottom = () => {}, track = () => {};
     ${compiled}
-    return resume.call(context);
+    return resume.call({ workspace: context });
   `)
   await execute(context, transcript)
   expect(first.messages).toEqual(transcript.messages)

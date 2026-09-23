@@ -1,7 +1,7 @@
 <script lang="ts">
   import { docProviderLabel } from './lib/work-publish'
   import { RefreshCw as RefreshIcon, TriangleAlert as WarningIcon } from '@lucide/svelte'
-  import { getWorkspaceContext } from '../../contexts'
+  import { getSurfaceContext } from '../../contexts'
   import { Button } from '../ui/button'
 
   let { workId, showResolved, onToggleResolved }: {
@@ -9,7 +9,7 @@
     showResolved: boolean
     onToggleResolved: () => void
   } = $props()
-  const workspace = getWorkspaceContext()
+  const workspace = getSurfaceContext()
   const store = workspace.worksStore.externalComments
   const provider = $derived(workspace.worksStore.get(workId)?.mirroredDoc?.provider ?? 'gdrive')
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))

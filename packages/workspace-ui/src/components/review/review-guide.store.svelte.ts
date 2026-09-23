@@ -17,13 +17,24 @@ interface TrackedGuide {
   ctx: IpcContext
   identity: ReviewGuideIdentity
   scope: ReviewScope | ReviewTarget
+  /** Set when a PR list last probed this guide, so a reconnect re-probes it
+   * in that list's batch rather than one code-host check per row. */
+  headRef?: string
 }
 
-export function prGuideTarget(pr: Pick<PrReviewTarget, 'host' | 'owner' | 'repo' | 'number' | 'headSha' | 'baseSha'>): Extract<ReviewTarget, { kind: 'pr' }> {
+type PrTarget = Extract<ReviewTarget, { kind: 'pr' }>
+
+export interface ListedPrGuide {
+  repoRoot: string
+  target: PrTarget
+  headRef: string
+}
+
+export function prGuideTarget(pr: Pick<PrReviewTarget, 'host' | 'owner' | 'repo' | 'number' | 'headSha' | 'baseSha'>): PrTarget {
   return { kind: 'pr', host: pr.host, owner: pr.owner, repo: pr.repo, number: pr.number, headSha: pr.headSha, baseSha: pr.baseSha }
 }
 
-export function prGuideIdentity(repoRoot: string, target: Extract<ReviewTarget, { kind: 'pr' }>): ReviewGuideIdentity {
+export function prGuideIdentity(repoRoot: string, target: PrTarget): ReviewGuideIdentity {
   return { repoRoot, target, key: reviewGuideKeyForTarget(target, '', null), headSha: target.headSha }
 }
 
@@ -158,14 +169,20 @@ export class ReviewGuideStore {
         return
       }
       this.disconnectedServers.delete(host)
-      // Session guides re-probe as one batch: a reconnect with many restored
-      // tabs must not repeat the boot fan-out.
+      // Session guides and listed PR guides re-probe as batches: a reconnect
+      // with many restored tabs or listed rows must not repeat the boot fan-out.
       const sessionProbes: { api: HostApi; ctx: IpcContext; identity: ReviewGuideIdentity }[] = []
+      const listedProbes = new Map<IpcContext, { api: HostApi; guides: ListedPrGuide[] }>()
       for (const tracked of this.trackedGuides.get(host)?.values() ?? []) {
         if (tracked.scope === 'session') sessionProbes.push(tracked)
-        else void this.load(tracked.api, host, tracked.ctx, tracked.identity, tracked.scope)
+        else if (tracked.headRef !== undefined && tracked.identity.target?.kind === 'pr') {
+          const group = listedProbes.get(tracked.ctx) ?? { api: tracked.api, guides: [] }
+          group.guides.push({ repoRoot: tracked.identity.repoRoot, target: tracked.identity.target, headRef: tracked.headRef })
+          listedProbes.set(tracked.ctx, group)
+        } else void this.load(tracked.api, host, tracked.ctx, tracked.identity, tracked.scope)
       }
       if (sessionProbes.length) void this.loadSessions(sessionProbes[0].api, host, sessionProbes)
+      for (const [ctx, { api, guides }] of listedProbes) void this.loadPrs(api, host, ctx, guides)
     })
     this.eventsFor(serverId).subscribe('review.guideStatusChanged', (event) => {
       const previous = this.statusesByServer.get(serverId)?.get(statusKey(event))
@@ -197,13 +214,13 @@ export class ReviewGuideStore {
     return identity ? this.loadErrors.get(`${serverId}::${statusKey(identity)}`) ?? null : null
   }
 
-  private track(api: HostApi, serverId: string, ctx: IpcContext, identity: ReviewGuideIdentity, scope: ReviewScope | ReviewTarget): void {
+  private track(api: HostApi, serverId: string, ctx: IpcContext, identity: ReviewGuideIdentity, scope: ReviewScope | ReviewTarget, headRef?: string): void {
     let tracked = this.trackedGuides.get(serverId)
     if (!tracked) {
       tracked = new Map()
       this.trackedGuides.set(serverId, tracked)
     }
-    tracked.set(statusKey(identity), { api, ctx, identity, scope })
+    tracked.set(statusKey(identity), { api, ctx, identity, scope, headRef })
   }
 
   load(
@@ -232,6 +249,25 @@ export class ReviewGuideStore {
     )).then(() => undefined)
   }
 
+  /** Probe the saved guides of many listed pull requests with one request.
+   * The host reads only its own storage; `PrGuidesStore.statusFor` marks a
+   * guide outdated when its head is not the head the list holds. */
+  loadPrs(
+    api: SolusApi,
+    serverId: string,
+    ctx: IpcContext,
+    guides: ListedPrGuide[],
+  ): Promise<void> {
+    const fresh = guides
+      .map((guide) => ({ ...guide, identity: prGuideIdentity(guide.repoRoot, guide.target) }))
+      .filter((guide) => !this.isPending(serverId, guide.identity))
+    if (!fresh.length) return Promise.resolve()
+    const batch = api.prGuideStatuses(ctx, fresh.map(({ target, headRef }) => ({ target, headRef })))
+    return Promise.all(fresh.map((guide, index) =>
+      this.settle(api, serverId, ctx, guide.identity, guide.target, () => batch.then((events) => events[index] ?? null), guide.headRef),
+    )).then(() => undefined)
+  }
+
   private isPending(serverId: string, identity: ReviewGuideIdentity): boolean {
     return this.pendingLoads.get(`${serverId}::${statusKey(identity)}`)?.version === loadVersion(identity)
   }
@@ -243,9 +279,10 @@ export class ReviewGuideStore {
     identity: ReviewGuideIdentity,
     scope: ReviewScope | ReviewTarget,
     fetch: () => Promise<ReviewGuideStatusEvent | null>,
+    headRef?: string,
   ): Promise<void> {
     this.bind(serverId)
-    this.track(api, serverId, ctx, identity, scope)
+    this.track(api, serverId, ctx, identity, scope, headRef)
     const key = statusKey(identity)
     const requestKey = `${serverId}::${key}`
     const targetVersion = loadVersion(identity)

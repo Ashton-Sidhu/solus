@@ -54,10 +54,10 @@ function lifecycleFor(activeAgent: AgentId, runs: RunConfig[]) {
     config: {
       followActiveSessionAgent: (agentId: AgentId) => { settings.activeAgent = agentId },
       defaultModelConfigFor: () => ({ ...CODEX_DEFAULT }),
-      globalDefaults: { workingDirectory: '/repo' },
     },
     planStore: { hydrateAnnotations() {} },
     agent: { hydrate() {} },
+    defaultRunConfig: () => ({ workingDirectory: '/repo' }),
     unstartedRuns: () => runs,
     refreshGitState: async () => ({ ok: true }),
     ctxFor: () => ({ session: { sessionId: 'tab-1' } }),

@@ -5,7 +5,7 @@
     ChevronDown as CaretDownIcon,
     PanelRight as PanelRightIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import ArtifactView from "./ArtifactView.svelte";
 
   /**
@@ -35,7 +35,7 @@
 
   let { workId, title, via, open, enabled, onToggle }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const html = $derived(session.worksStore.get(workId)?.content || null);
 
   // The work body is fetched the first time the card is opened on a visible

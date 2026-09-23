@@ -6,17 +6,6 @@ export function seatLabel(provider: SeatProvider): string {
   return provider === 'claude-code' ? 'Claude' : 'Codex'
 }
 
-/**
- * The section's name and the line under it. On the organization's workspace service
- * the logins live in Solus cloud and every runner reads them; on a host they are
- * that host's own seats.
- */
-export function seatSectionCopy(isCloudHost: boolean): { label: string; description?: string } {
-  return isCloudHost
-    ? { label: 'Your logins in Solus cloud', description: 'Runners use these logins for your own turns only.' }
-    : { label: 'Your seats' }
-}
-
 /** One line under the provider's name: where the seat stands. */
 export function seatDescription(status: SeatStatus | undefined, error: string | undefined): string {
   if (error && (!status || status.state === 'none')) return error

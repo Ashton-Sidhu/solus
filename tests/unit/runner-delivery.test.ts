@@ -11,9 +11,11 @@ import { resetTestDatabase } from './helpers/test-db'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 // docs/plans/cloud-service-model.md §16: on a runner linked to an organization the
-// agent's task and work writes are cloud-owned — recorded, delivered in order,
-// never applied locally — and its session records are mirrored. Delivery never
-// blocks the tool, survives a restart, backs off, and mints a fresh grant on 401.
+// agent's work writes are cloud-owned — recorded, delivered in order, never
+// applied locally — and its session records are mirrored. Task writes are
+// cloud-owned only on a cloud instance, a managed host (project-model.md §4), so
+// this runner is managed until the last test. Delivery never blocks the tool,
+// survives a restart, backs off, and mints a fresh grant on 401.
 
 let delivery: typeof import('@solus/server/server/uplink/runner-delivery')
 let outbox: typeof import('@solus/server/outbox/outbox-store')
@@ -25,9 +27,11 @@ let taskStore: typeof import('@solus/server/tasks/task-store')
 let works: typeof import('@solus/server/folio/works')
 let records: typeof import('@solus/server/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
+let managedMode: typeof import('@solus/server/server/managed-mode')
 type AgentToolContext = import('@solus/server/agents/tools/agent-tool').AgentToolContext
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
+const previousManaged = process.env.SOLUS_MANAGED
 let dataDir: string
 
 beforeAll(async () => {
@@ -43,6 +47,9 @@ beforeAll(async () => {
   works = await import('@solus/server/folio/works')
   records = await import('@solus/server/sessions/session-records')
   dbModule = await import('@solus/server/db')
+  managedMode = await import('@solus/server/server/managed-mode')
+  process.env.SOLUS_MANAGED = '1'
+  managedMode.resetManagedModeForTests()
 })
 
 afterAll(async () => {
@@ -51,6 +58,9 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
+  if (previousManaged === undefined) delete process.env.SOLUS_MANAGED
+  else process.env.SOLUS_MANAGED = previousManaged
+  managedMode.resetManagedModeForTests()
 })
 
 const HOST_ID = 'runner-host-1'
@@ -312,6 +322,30 @@ describe('runner delivery', () => {
     } finally {
       await runner.stop()
       await cloud.stop()
+    }
+  })
+
+  test('a linked personal machine keeps its agent tasks local; its works still go to the cloud', async () => {
+    delete process.env.SOLUS_MANAGED
+    managedMode.resetManagedModeForTests()
+    const cloud = new FakeCloud()
+    await cloud.start()
+    const runner = startDelivery(cloud)
+    try {
+      while (ownership.cloudOwnedOrganization() === null) await tick()
+      const created = await taskTools.createTaskAgentTool.execute({ title: 'Personal task' }, toolContext())
+      expect(created.ok).toBe(true)
+      expect((await taskStore.listTasks('local')).tasks.map((row) => row.title)).toContain('Personal task')
+      const delivered = cloud.next('outbox')
+      const work = await workTools.createWorkAgentTool.execute({ title: 'Shared doc', doc_type: 'doc', content: '# Doc' }, toolContext())
+      expect(work.ok).toBe(true)
+      await delivered
+      expect(cloud.outboxBatches.flatMap((batch) => batch.body.ops).map((entry) => entry.op.domain)).toEqual(['works'])
+    } finally {
+      await runner.stop()
+      await cloud.stop()
+      process.env.SOLUS_MANAGED = '1'
+      managedMode.resetManagedModeForTests()
     }
   })
 })

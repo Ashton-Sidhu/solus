@@ -71,14 +71,18 @@ class SeatsStore {
     return this.busy === seatKey(serverId, provider)
   }
 
-  /** Whether this host shows seats to this client at all: everyone but a guest. */
+  /**
+   * Whether this host shows seats to this client at all: only an organization
+   * member has a seat of their own. The owner's seat is the host login, which
+   * Connections → host → AI providers already manages.
+   */
   async ensure(serverId: string): Promise<void> {
     if (this.hasSeats.has(serverId)) return
     const inFlight = this.loads.get(serverId)
     if (inFlight) return inFlight
     const load = (async () => {
       const identity = await sharesStore.identityFor(serverId).catch(() => null)
-      const eligible = identity !== null && identity.principal !== 'guest' && identity.principal !== 'system'
+      const eligible = identity?.principal === 'org-member'
       this.hasSeats.set(serverId, eligible)
       if (eligible) await this.load(serverId)
     })().finally(() => { this.loads.delete(serverId) })

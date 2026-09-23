@@ -144,7 +144,7 @@ export class PullRequest {
   }
 
   /**
-   * The per-file add/delete counts, and so the review effort derived from them.
+   * The per-file add/delete counts.
    *
    * `atHeadSha` is the revision the caller believes it is asking about. Naming
    * one that differs from the revision the remembered counts were read at forces

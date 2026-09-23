@@ -11,6 +11,7 @@ import { reconcileQueuedPromptsForSession, RESTORED_TRANSCRIPT_LIMIT } from './s
 import { progressFromMessages } from './session.utils'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
+import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -18,10 +19,6 @@ import { serverConnections } from '@solus/client-core/server-connections'
 /** Raw messages added per automatic backfill round. Matches the initial restore
  *  window, so filling an empty viewport costs the same read that opened it. */
 const HISTORY_PAGE_LIMIT = RESTORED_TRANSCRIPT_LIMIT
-
-export function startDirectoryForServer(result: StartInfo): string {
-  return result.workspacePath || result.projectPath || '~'
-}
 
 export interface StaticInfo {
   version: string
@@ -34,10 +31,13 @@ export interface StaticInfo {
 
 export interface WorkspaceLifecycleStoreDeps {
   registry: TabRegistry
+  sessions: SessionRecords
   settings: SettingsContext
   config: SessionConfigController
   planStore: PlanStore
   agent?: AgentContext
+  /** Where work happens when no run is in play — `WorkspaceContext.defaultRunConfig`. */
+  defaultRunConfig(): RunConfig
   /** The runs of everything that has begun nothing — unstarted tabs and every
    *  open draft. What the agent demotion retargets, on the same reading as the
    *  start-directory follow: nothing has happened in them yet to disturb. */
@@ -102,7 +102,6 @@ export class WorkspaceLifecycleStore {
   // connection attempt remains retryable after the transport reconnects.
   private staticInfoInitialized = false
   private staticInfoInitialization: Promise<void> | null = null
-  private appliedStartDirectory: string | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
   /** The provider and directory a session's commands were last read for, so a
@@ -122,19 +121,14 @@ export class WorkspaceLifecycleStore {
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
 
   /**
-   * Apply a start() payload to staticInfo + agent metadata + the workingDirectory
-   * default. The active-agent availability demotion is FRESH-only: a stale cache
-   * could wrongly demote an agent whose availability has since recovered, so the
-   * optimistic path never touches the active agent.
+   * Apply a start() payload to staticInfo + agent metadata. The workspace path
+   * it carries can move the default run's directory. The active-agent
+   * availability demotion is FRESH-only: a stale cache could wrongly demote an
+   * agent whose availability has since recovered, so the optimistic path never
+   * touches the active agent.
    */
   private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
-    const startDirectory = startDirectoryForServer(result)
-    const currentDirectory = this.deps.config.globalDefaults.workingDirectory
-    // "Nothing has begun yet", which is what makes the default still free to
-    // move — not "no tabs". The workspace seeds a composer before this payload
-    // lands, and a composer is exactly a tab that has begun nothing.
-    const canReconcileCachedDefault = this.unstartedTabIds().length === this.deps.registry.tabOrder.length
-      && currentDirectory === this.appliedStartDirectory
+    const previousDefault = this.deps.defaultRunConfig().workingDirectory
     this.staticInfo = {
       version: result.version || 'unknown',
       email: result.auth?.email || null,
@@ -143,11 +137,7 @@ export class WorkspaceLifecycleStore {
       homePath: result.homePath || '~',
       workspacePath: result.workspacePath || '~',
     }
-    if (currentDirectory === '~' || canReconcileCachedDefault) {
-      this.deps.config.globalDefaults.workingDirectory = startDirectory
-      this.followDefaultDirectory(currentDirectory, startDirectory)
-    }
-    this.appliedStartDirectory = startDirectory
+    this.followDefaultDirectory(previousDefault, this.deps.defaultRunConfig().workingDirectory)
     this.deps.agent?.hydrate(result.agents ?? [])
     if (opts.fresh) this.followAvailableAgent(result.agents ?? [])
   }
@@ -191,11 +181,11 @@ export class WorkspaceLifecycleStore {
   }
 
   /**
-   * The seeded composer is built from the cached start payload, so when the
-   * fresh one names a different directory it would otherwise sit on a project
-   * the app is no longer pointed at — most visibly on a first run, where the
-   * cache says `~`. It is showing the default rather than a choice anyone made,
-   * so it follows the default.
+   * The seeded composer is built before the fresh start payload lands, so when
+   * that payload moves the default directory it would otherwise sit on a
+   * project the app is no longer pointed at — most visibly on a first run,
+   * where there is no cache and the default is `~`. It is showing the default
+   * rather than a choice anyone made, so it follows the default.
    */
   private followDefaultDirectory(from: string, to: string): void {
     if (from === to) return
@@ -244,7 +234,7 @@ export class WorkspaceLifecycleStore {
         await this.deps.refreshGitState()
       }
       const commandDirectory = this.deps.registry.activeSession?.run.workingDirectory
-        ?? this.deps.config.globalDefaults.workingDirectory
+        ?? this.deps.defaultRunConfig().workingDirectory
       void this.refreshPluginCommands(commandDirectory).catch((error) => {
         if (!(error instanceof TransportDisconnectedError)) {
           console.error('getPluginCommands failed', error)
@@ -332,7 +322,7 @@ export class WorkspaceLifecycleStore {
     }
 
     if (this.deps.registry.activeSession) return
-    if (this.deps.config.globalDefaults.workingDirectory !== workingDirectory) return
+    if (this.deps.defaultRunConfig().workingDirectory !== workingDirectory) return
     this.pluginCommands = result
   }
 
@@ -349,7 +339,7 @@ export class WorkspaceLifecycleStore {
    * the full scan; the backend publishes authoritative net paths at turn completion.
    */
   addChangedFilesFromMessage(sessionId: string, message: Message): void {
-    const session = this.deps.registry.sessions[sessionId]
+    const session = this.deps.sessions.byId[sessionId]
     if (!session) return
     for (const path of extractChangedFilePathsFromMessage(message)) {
       if (!session.sessionChangedFiles.includes(path)) session.sessionChangedFiles.push(path)
@@ -489,7 +479,7 @@ export class WorkspaceLifecycleStore {
    *  one conversation are looking at the same turns and must not fetch or cache
    *  them twice. */
   async refreshTurnSnapshots(sessionId: string): Promise<void> {
-    const session = this.deps.registry.sessions[sessionId]
+    const session = this.deps.sessions.byId[sessionId]
     if (!session?.agentSessionId) return
     const tabId = this.deps.registry.tabIdsBySession.get(sessionId)?.[0]
     if (!tabId) return

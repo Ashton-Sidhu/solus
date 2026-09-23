@@ -1,14 +1,14 @@
 import { z } from 'zod'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
-import { resolveRepoRoot } from '../git/git-helpers'
+import { resolveRepoRoot, resolveRepositoryKey } from '../git/git-helpers'
 import { createTask, listTasks } from './task-store'
 import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
 import { formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
-import { cloudOwnedOrganization } from '../outbox/cloud-ownership'
-import { ulid } from './ulid'
+import { tasksAreCloudOwned } from '../outbox/cloud-ownership'
+import { ulid } from '@solus/contracts/ulid'
 import { getHostConfig } from '../server/settings'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import type { TaskCommentOpPayload, TaskCreateOpPayload, TaskLinkOpPayload, TaskLinkSessionOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
@@ -168,11 +168,12 @@ async function executeTaskTool(
   const cwd = deps.ctx.cwd
   const projectKey = await resolveRepoRoot(cwd) ?? cwd
   // An agent runs on the machine that holds its session; the tasks it reads
-  // and writes are that machine's own (docs/plans/cloud-service-model.md) —
-  // unless the machine is a runner linked to an organization, whose writes are
-  // cloud-owned (§16): recorded for the workspace service, never applied here.
+  // and writes are that machine's own (docs/plans/project-model.md §4) —
+  // unless the machine is a cloud instance, whose writes are cloud-owned
+  // (cloud-service-model.md §16): recorded for the workspace service, never
+  // applied here.
   const organizationId = LOCAL_ORGANIZATION_ID
-  const cloudOwned = cloudOwnedOrganization() !== null
+  const cloudOwned = tasksAreCloudOwned()
   try {
     if (name === 'list_tasks') {
       const input = listTasksInputSchema.parse(args)
@@ -259,7 +260,9 @@ async function executeTaskTool(
       }
       const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
       const isInbox = parsed.inbox === true
-      if (cloudOwned) return recordCloudOwnedTask({ title, projectKey: isInbox ? null : projectKey, body: parsed.body ?? '', kind: parsed.kind ?? 'task', parentId: requestedParentId || null, priority: parsed.priority ?? null, labels, dueDate: parsed.due_date?.trim() || null, status: parsed.status ?? (isInbox ? 'inbox' : 'todo'), originSessionId: deps.ctx.sessionId ?? null, createdAt: 0 }, deps)
+      // A cloud task belongs to the repository, not to this machine's path
+      // (docs/plans/project-model.md §4); a folder with no remote keeps its path.
+      if (cloudOwned) return recordCloudOwnedTask({ title, projectKey: isInbox ? null : (await resolveRepositoryKey(projectKey)) ?? projectKey, body: parsed.body ?? '', kind: parsed.kind ?? 'task', parentId: requestedParentId || null, priority: parsed.priority ?? null, labels, dueDate: parsed.due_date?.trim() || null, status: parsed.status ?? (isInbox ? 'inbox' : 'todo'), originSessionId: deps.ctx.sessionId ?? null, createdAt: 0 }, deps)
       const input: TaskCreateInput = {
         title,
         projectKey: isInbox ? null : projectKey,

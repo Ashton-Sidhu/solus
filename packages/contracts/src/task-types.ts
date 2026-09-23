@@ -414,6 +414,14 @@ export interface PrepareSessionTaskRequest {
   existingTaskId?: string | null
   /** Mint the new task as a direct child of this one. */
   parentTaskId?: string | null
+  /**
+   * The id to mint the new task under: a ULID the client minted when it made
+   * the session, so the row it already shows keeps its identity when the task
+   * arrives (docs/plans/sidebar-motion.md, step 1). Invalid with
+   * `existingTaskId`. The host rejects a malformed id and an id that already
+   * names a task. Absent, the host mints the id itself.
+   */
+  taskId?: string | null
   projectKey?: string | null
   /** The first prompt, whose first non-empty line deterministically names the task. */
   prompt?: string

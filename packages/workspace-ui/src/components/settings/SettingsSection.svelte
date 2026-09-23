@@ -1,7 +1,8 @@
 <script lang="ts">
-  /** A settings group: uppercase micro-label above a rounded card of rows.
-   *  Renders nothing when `visible` is false, so a group whose rows are all
-   *  filtered out by search disappears instead of leaving an empty card. */
+  /** A settings group: a quiet sentence-case heading over a card of rows, a
+   *  hairline between one row and the next. Renders nothing when `visible` is
+   *  false, so a group whose rows are all filtered out by search disappears
+   *  instead of leaving an empty card. */
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -13,38 +14,46 @@
     icon?: Snippet;
     /** Sits opposite the label — the group's own verb ("Add host", "Scan again"). */
     action?: Snippet;
+    /** No card: the children draw their own surfaces, as the theme tiles do. */
+    plain?: boolean;
     children: Snippet;
   }
 
-  let { label, description, visible = true, icon, action, children }: Props = $props();
+  let { label, description, visible = true, icon, action, plain = false, children }: Props = $props();
 </script>
 
 {#if visible}
-  <section class="flex flex-col gap-2 [.is-laptop-display_&]:gap-1.5">
+  <section class="flex flex-col gap-2.5">
     {#if label || icon || action}
-      <div class="flex min-h-6 items-center justify-between gap-3 px-0.5 [.is-laptop-display_&]:min-h-5">
-        <div class="flex min-w-0 items-center gap-1.5">
+      <!-- The heading starts on the rows' text column, sixteen pixels in, so
+           it reads as the group's name rather than a label floating above. -->
+      <div class="flex min-h-7 items-start justify-between gap-4 px-4">
+        <h2
+          class="flex min-h-7 min-w-0 items-center gap-2 text-sm font-normal tracking-[-0.005em] text-foreground/70"
+        >
           {#if icon}
-            <span class="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+            <span class="flex size-3.5 shrink-0 items-center justify-center">
               {@render icon()}
             </span>
           {/if}
-          <h2
-            class="truncate text-[0.875em] font-medium uppercase text-muted-foreground"
-          >
-            {label}
-          </h2>
-        </div>
-        {@render action?.()}
+          <span class="truncate">{label}</span>
+        </h2>
+        {#if action}
+          <div class="flex min-h-7 shrink-0 items-center justify-end">{@render action?.()}</div>
+        {/if}
       </div>
     {/if}
     {#if description}
-      <p class="px-0.5 text-pretty text-[0.875em] text-muted-foreground">{description}</p>
+      <p class="max-w-xl px-4 text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">{description}</p>
     {/if}
-    <!-- The cloud site's panel: a ring in the strong hairline, no border and
-         no drop shadow, so adjacent cards never double a line. -->
-    <div class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_var(--hairline-strong)]">
+    {#if plain}
       {@render children()}
-    </div>
+    {:else}
+      <div
+        class="overflow-hidden rounded-xl border border-border/60 bg-card/40 text-foreground shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50"
+      >
+        {@render children()}
+      </div>
+    {/if}
   </section>
 {/if}

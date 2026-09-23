@@ -26,20 +26,25 @@
     <Skeleton class="h-2.5 w-16 rounded opacity-45" />
     <Skeleton class="h-2.5 w-16 rounded opacity-45" />
   </header>
-  <div class="relative flex h-52 w-full items-end gap-0.5 pr-3 pb-5 pl-11 sm:h-44 sm:[@media(min-height:1000px)]:h-52">
-    {#each BAR_HEIGHTS as height, index (index)}
-      <span
-        class="min-w-0 flex-1 rounded-t-[1px] bg-(--solus-surface-secondary) opacity-70 {index >= 48
-          ? '@max-[70rem]/pane:hidden'
-          : index >= 16
-            ? '@max-[30rem]/pane:hidden'
-            : ''}"
-        style="height:{height}%"
-      ></span>
-    {/each}
-    <!-- One shimmer covers the plot. Animating every one of the responsive
-         bars would multiply paint work while an expensive query is running. -->
-    <Skeleton class="pointer-events-none absolute inset-x-3 top-10 bottom-8 bg-transparent" />
+  <div class="flex h-52 w-full pr-3 pb-5 pl-11 sm:h-44 sm:[@media(min-height:1000px)]:h-52">
+    <div class="relative flex min-w-0 flex-1">
+      <!-- One shimmer fills the plot. Animating every one of the responsive
+           bars would multiply paint work while an expensive query is running.
+           Each column paints the card colour over its gaps and the space above
+           its bar, so the shimmer shows through the bars alone. -->
+      <Skeleton class="absolute inset-0 rounded-none opacity-70" />
+      {#each BAR_HEIGHTS as height, index (index)}
+        <span
+          class="relative min-w-0 flex-1 border-x border-card {index >= 48
+            ? '@max-[70rem]/pane:hidden'
+            : index >= 16
+              ? '@max-[30rem]/pane:hidden'
+              : ''}"
+        >
+          <span class="block bg-card" style="height:{100 - height}%"></span>
+        </span>
+      {/each}
+    </div>
   </div>
 </section>
 

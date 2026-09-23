@@ -33,16 +33,17 @@
   import {
     atlassianStore,
     getClientShellContext,
-    getWorkspaceContext,
+    getSurfaceContext,
     getProjectConfigStore,
     getSessionSidebarStore,
     runtime,
     projectsStore,
-    mergeProjectOptions,
-    projectRefKey,
     serversStore,
     inboxStore,
+    workspaceProjectsStore,
   } from "../../contexts";
+  import { isRepositoryKey } from "@solus/contracts/repository-key";
+  import { Button } from "../ui/button";
   import { toasts } from "../../lib/toasts";
   import {
     TasksSelectionStore,
@@ -62,7 +63,6 @@
     sortTasks,
     type TaskSort,
   } from "./lib/tasks-api";
-  import { taskCreationContextFor } from "./lib/task-creation-context";
   import {
     OPEN_TASK_STATUS_KEYS,
     TASK_STATUS_GROUPS,
@@ -75,6 +75,7 @@
     InboxRow,
     ListEmpty,
     ListFilterBar,
+    ListProjectFilter,
     ListGroup,
     ListPage,
     ListRailRow,
@@ -112,92 +113,50 @@
 
   let { paneId }: InlinePageProps = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
+  // The board is mounted by the workspace and by the cloud console alike
+  // (docs/plans/cloud-console-native-pages.md §9). Starting a session from a
+  // row, the sidebar's live projects, and the page's close need a workspace.
+  const workspace = session.workspace;
   const shell = getClientShellContext();
   /** A task whose home is the workspace service says so on its row and card. */
   const homeFor = (taskId: string) => serversStore.cloudHomeLabel(session.tasksStore.get(taskId).serverId);
   const pane = paneActions(() => paneId);
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
-  const sessionSidebar = getSessionSidebarStore();
+  const sessionSidebar = workspace ? getSessionSidebarStore() : null;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const open = $derived(session.router.at("tasks"));
+  // A console page is open for as long as it is mounted.
+  const open = $derived(workspace?.router.at("tasks") ?? true);
 
   // ── Project scope ──
-  // The page receives a host-qualified scope before navigation replaces the
-  // draft or chat that supplied it. From then on the page owns the scope.
+  // The page owns its scope (docs/plans/project-model.md §5): a project — a
+  // repository, or a local-only folder — and one checkout of it for the facts
+  // only a host holds. The tab in focus never sets it.
+  const pageKey = $derived(
+    session.projectPageScope.kind === "project" ? session.projectPageScope.key : null,
+  );
   const pageProject = $derived(
-    session.projectPageScope.kind === "project"
-      ? session.projectPageScope.project
-      : null,
+    session.projectPageScope.kind === "project" ? session.projectPageScope.checkout : null,
   );
-  // A host with no project to open — the organization's workspace service — is
-  // its own scope: every task the host holds, whichever checkout filed it.
-  const pageHost = $derived(
-    session.projectPageScope.kind === "host"
-      ? session.projectPageScope.serverId
-      : null,
-  );
+  // With no page scope the inbox shows; a task made from it files where the
+  // input bar's project would.
   const taskContext = $derived(
-    pageProject
-      ? taskCreationContextFor(pageProject.projectRoot, null)
+    pageKey
+      ? session.taskContextForProject(pageKey, pageProject)
       : session.taskCreationContext,
   );
-  const cwd = $derived(taskContext?.projectKey ?? null);
-  // The switcher shows the deduplicated union of the sidebar's live projects
-  // (the selected host only) and every project the catalog has ever recorded,
-  // across every host — a project closed today still shows up here. The inbox
-  // fans out across the same list.
-  const sidebarServerId = $derived(serverConnections.defaultServerId());
-  const projectOptions = $derived<ListProjectOption[]>(
-    mergeProjectOptions(
-      [
-        // With no default host there is nothing to attribute a sidebar project
-        // to; the catalog still carries its own host per entry.
-        sidebarServerId
-          ? sessionSidebar.projectSummaries
-              .filter((project) => project.projectKey !== "~")
-              .map((project) => ({
-                serverId: sidebarServerId,
-                projectRoot: project.projectKey,
-                label: project.label,
-              }))
-          : [],
-        projectsStore.entries,
-      ],
-      (serverId) => serversStore.statusFor(serverId) !== "offline",
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ).map((option) => ({
-      key: option.key,
-      projectKey: option.projectRoot,
-      serverId: option.serverId,
-      label: option.label,
-      available: option.available,
-      historyOnly: !sessionSidebar.projectSummaries.some(
-        (project) => project.projectKey === option.projectRoot,
-      ),
-    })),
-  );
-  // The pin is a bare path (TasksStore looks tasks up by path only), so when a
-  // path is unique across the catalog this recovers the exact option; when two
-  // hosts share the path it falls back to the current session's host, which is
-  // the same project TasksStore would have resolved either way.
-  const activeProjectOptionKey = $derived(
-    pageProject
-      ? projectRefKey(pageProject)
-      : cwd
-        ? (projectOptions.find((option) => option.projectKey === cwd)?.key ??
-          (sidebarServerId
-            ? projectRefKey({ serverId: sidebarServerId, projectRoot: cwd })
-            : ""))
-      : "",
-  );
-  const projectTasks = $derived(
-    pageHost
-      ? store.tasks.filter((task) => task.serverId === pageHost)
-      : store.tasksForProject(cwd),
-  );
+  // Host-side facts — the project's configuration, its task provider, its
+  // provider tickets — are read through one checkout on one host.
+  const hostCheckout = $derived(pageProject);
+  const cwd = $derived(hostCheckout?.projectRoot ?? null);
+  // One row per project, never one per host.
+  const projectOptions = $derived<ListProjectOption[]>(session.projectScopeOptions);
+  const activeProjectOptionKey = $derived(pageKey ?? "");
+  // A project's tasks: its cloud tasks and the host tasks of every checkout of
+  // it, on any host.
+  const projectTasks = $derived(store.tasksInProject(pageKey));
   const inboxTasksSource = $derived([
     ...store.tasks.filter(
       (task) => task.providerId === "local" && task.status === "inbox",
@@ -215,7 +174,11 @@
     new Map(inboxTasksSource.map((task) => [inboxTaskKey(task), task])),
   );
   const projectLabels = $derived(
-    new Map(projectOptions.map((option) => [option.projectKey, option.label])),
+    new Map(
+      session.logicalProjects.flatMap((project) =>
+        project.checkouts.map((checkout) => [checkout.projectRoot, project.label] as const),
+      ),
+    ),
   );
   // Narrowing the cross-project inbox to a few repos is a filter, not a move:
   // the page is still the cross-project one, so this lives on the narrowing row
@@ -256,11 +219,9 @@
       ),
     ),
   );
-  const projectServerId = $derived(
-    pageProject?.serverId ??
-      store.hostForProject(cwd) ??
-      serverConnections.defaultServerId(),
-  );
+  // The host of the checkout host-side facts are read through; never the
+  // default host, which a bare path would have fallen back to.
+  const projectServerId = $derived(hostCheckout?.serverId ?? null);
   const projectHost = $derived(
     projectServerId
       ? {
@@ -270,9 +231,54 @@
       : null,
   );
 
+  // Machines that hold a checkout of the scoped project but are not connected:
+  // their host-only tasks are missing from the list, and the page says so
+  // rather than read as empty (docs/plans/project-model.md §4).
+  const offlineCheckoutHosts = $derived(
+    pageKey
+      ? [
+          ...new Set(
+            projectsStore
+              .checkoutsOf(pageKey)
+              .filter((checkout) => serversStore.statusFor(checkout.serverId) !== "online")
+              .map((checkout) => serversStore.hostFor(checkout.serverId)?.label ?? checkout.serverId),
+          ),
+        ]
+      : [],
+  );
+
+  // A repository becomes one of the organization's projects when a member adds
+  // it (docs/plans/project-model.md §2); its new tasks then live in the cloud.
+  const cloudServerId = $derived(serversStore.activeCloudServerId);
+  const canAddToCloud = $derived(
+    !!workspace &&
+      !!pageKey &&
+      isRepositoryKey(pageKey) &&
+      !!cloudServerId &&
+      serversStore.statusFor(cloudServerId) === "online" &&
+      !workspaceProjectsStore.projectFor(cloudServerId, pageKey),
+  );
+  let addingToCloud = $state(false);
+  async function addProjectToCloud() {
+    if (!pageKey || !cloudServerId || addingToCloud) return;
+    addingToCloud = true;
+    try {
+      await workspaceProjectsStore.add(cloudServerId, pageKey);
+      toasts.success("Added to Solus Cloud", {
+        description: "Every member now sees this project and its pull requests.",
+      });
+    } catch (error) {
+      toasts.error("Couldn't add the project to Solus Cloud", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      addingToCloud = false;
+    }
+  }
+
   let configReady = $state(false);
   let taskLoadEpoch = 0;
-  const canCreate = $derived(!!cwd);
+  const canCreate = $derived(!!taskContext);
   const allowEpics = true;
 
   // ── List-view multi-select ── owned by a context store so the selection isn't
@@ -386,7 +392,7 @@
   $effect(() => {
     if (!open || view !== "global" || !cwd) return;
     if (!upstreamTruncated && !upstreamQuery) return;
-    store.searchUpstream(cwd, query);
+    if (projectServerId) store.searchUpstream(projectServerId, cwd, query);
   });
   const displayError = $derived(
     (store.error ?? upstreamError ??
@@ -420,8 +426,14 @@
     void inboxStore.load();
   });
 
-  function sessionsFor(taskId: string): number {
-    return store.get(taskId).sessions.length;
+  // Running, not linked: a link outlives the agent that worked on it.
+  function runningSessionsFor(taskId: string): number {
+    const task = store.get(taskId);
+    return task.sessions.filter((link) =>
+      store.isAttemptRunning(link, task.serverId, (sessionId, serverId) =>
+        session.sessionForAgentSession(sessionId, serverId),
+      ),
+    ).length;
   }
 
   function isOverdue(task: Task): boolean {
@@ -446,7 +458,7 @@
   const visibleTasks = $derived.by(() => {
     let rows = searched;
     if (!boardLayout) rows = rows.filter((task) => statuses.has(task.status));
-    if (runningOnly) rows = rows.filter((task) => sessionsFor(task.id) > 0);
+    if (runningOnly) rows = rows.filter((task) => runningSessionsFor(task.id) > 0);
     if (overdueOnly) rows = rows.filter(isOverdue);
     if (assignedOnly) rows = rows.filter((task) => !!task.assignee);
     return sortTasks(rows, sort);
@@ -459,11 +471,11 @@
     !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
   );
 
-  const groups = $derived(taskGroups(visibleTasks, sessionsFor, now, homeFor));
+  const groups = $derived(taskGroups(visibleTasks, runningSessionsFor, now, homeFor));
   const inboxGroups = $derived.by(() => {
     const ticketGroups = taskInboxGroups(
       scopedInboxTasks,
-      sessionsFor,
+      runningSessionsFor,
       now,
       {
         open: onOpen,
@@ -555,7 +567,7 @@
       key: "running",
       label: "Agent running",
       icon: PulseIcon,
-      count: searched.filter((task) => sessionsFor(task.id) > 0).length,
+      count: searched.filter((task) => runningSessionsFor(task.id) > 0).length,
       active: runningOnly,
       toggle: () => (runningOnly = !runningOnly),
     },
@@ -673,8 +685,9 @@
 
   // ── Data loading ──
   $effect(() => {
-    if (open && pageHost) {
-      // No project config to read: the host's own list is the whole scope.
+    if (open && pageKey && !hostCheckout) {
+      // A cloud project no known host holds: no host has its configuration,
+      // and its cloud tasks are the whole list.
       configReady = true;
       void store.load();
       return;
@@ -700,12 +713,10 @@
       configReady = true;
       await Promise.all([
         store.load(),
-        store.loadUpstream(currentCwd),
+        store.loadUpstream(currentCwd, { serverId: currentHost.serverId }),
         // Names the provider on the header control, and is what tells a Jira
         // project it is bound to a site the host is no longer connected to.
-        store.loadProviderStatus(currentCwd, {
-          serverId: currentServerId ?? undefined,
-        }),
+        store.loadProviderStatus(currentCwd, { serverId: currentHost.serverId }),
       ]);
     })();
   });
@@ -721,6 +732,11 @@
   });
 
   useScope("tasks", { active: () => open });
+  // The one explicit way to scope the page to the input bar's project; the tab
+  // in focus never does it by itself (docs/plans/project-model.md §5).
+  useKeybinding("tasks.current-project", () => {
+    session.scopePageToCurrentProject();
+  }, { enabled: () => open });
   useKeybinding(
     "tasks.close",
     () => {
@@ -741,7 +757,7 @@
     enabled: () => open && canCreate,
   });
   function close() {
-    session.router.close("tasks");
+    workspace?.router.close("tasks");
     requestInputFocus();
   }
 
@@ -766,13 +782,9 @@
 
   function selectProject(option: ListProjectOption) {
     if (!option.available) return;
-    // Picking a project out of the inbox's crumb is how you leave the inbox for
-    // that project's tasks — the crumb stays a path you can walk back up.
+    // A picked project is that project's task list, never a narrowed inbox.
     setView("global");
-    session.setProjectPageScope({
-      kind: "project",
-      project: { serverId: option.serverId, projectRoot: option.projectKey },
-    });
+    session.scopePageToProject(option.key);
     clearFilters();
     selection.clear();
     selectedKey = null;
@@ -785,15 +797,11 @@
   let observedPageScopeKey = "";
   $effect(() => {
     if (!open) return;
-    const nextKey = pageProject
-      ? projectRefKey(pageProject)
-      : pageHost
-        ? `host:${pageHost}`
-        : "all";
+    const nextKey = pageKey ?? "all";
     if (observedPageScopeKey === nextKey) return;
     observedPageScopeKey = nextKey;
-    view = pageProject || pageHost ? "global" : "inbox";
-    if (!pageProject && !pageHost) layout = "list";
+    view = pageKey ? "global" : "inbox";
+    if (!pageKey) layout = "list";
     clearFilters();
     selection.clear();
     selectedKey = null;
@@ -804,10 +812,7 @@
   });
 
   function removeProjectHistory(option: ListProjectOption) {
-    projectsStore.remove({
-      serverId: option.serverId,
-      projectRoot: option.projectKey,
-    });
+    projectsStore.removeProject(option.key);
   }
 
   // Re-read native tasks and explicitly poll the active scope. The inbox fans
@@ -819,16 +824,15 @@
       void inboxStore.load();
       return;
     }
-    if (pageHost) {
+    if (!cwd || !projectServerId) {
       void store.load();
       return;
     }
-    if (!cwd) return;
     const currentCwd = cwd;
     configReady = true;
     void Promise.all([
       store.load(),
-      store.loadUpstream(currentCwd),
+      store.loadUpstream(currentCwd, { serverId: projectServerId }),
     ]);
   }
 
@@ -897,7 +901,7 @@
     configReady = true;
     await Promise.all([
       store.load(),
-      store.loadUpstream(currentCwd),
+      store.loadUpstream(currentCwd, { serverId: currentHost.serverId }),
     ]);
   }
 
@@ -916,13 +920,14 @@
 
   async function startInboxTaskAt(task: Task, location: InboxRowLocation) {
     pendingInboxHome = null;
+    if (!workspace) return;
     try {
       const promoted = await store
         .get(task.id)
         .hydrate(task, location.serverId)
         .placeIn(location)
         .promote();
-      await session.openTaskSession(promoted);
+      await workspace.opening.openTaskSession(promoted);
       void inboxStore.load();
     } catch (error) {
       toastTaskError("start task", error);
@@ -930,8 +935,9 @@
   }
 
   function onStart(task: Task) {
+    if (!workspace) return;
     if (task.providerId === "local") {
-      void session.openTaskSession(task);
+      void workspace.opening.openTaskSession(task);
       return;
     }
     const entry = inboxTicketByTask.get(task);
@@ -947,7 +953,7 @@
   }
 
   function onResume(task: Task) {
-    void session.openTaskLinkedSession(task);
+    void workspace?.opening.openTaskLinkedSession(task);
   }
 
   function openTaskRoute(task: Task) {
@@ -1048,6 +1054,7 @@
       .map((id) => taskById(id))
       .filter((task): task is Task => !!task);
     selection.clear();
+    if (!sessionSidebar) return;
     for (const task of tasks) await sessionSidebar.markTaskUnread(task.id);
   }
 
@@ -1092,10 +1099,10 @@
     if (!composing) return;
     const inline = !!composing.parentId || !!composing.status;
     try {
-      const created = await store.create({
-        ...input,
-        projectKey: composing.context.projectKey,
-      });
+      const created = await store.create(
+        { ...input, projectKey: composing.context.projectKey },
+        composing.context.serverId,
+      );
       createdForNavigation = inline ? null : created.id;
     } catch (err) {
       toastTaskError("create task", err);
@@ -1119,6 +1126,11 @@
       detectedRepo={providerStatus?.detectedRepo ?? null}
       onSelect={(choice) => void switchTaskProvider(choice)}
     />
+  {/if}
+  {#if canAddToCloud}
+    <Button variant="ghost" size="sm" disabled={addingToCloud} onclick={() => void addProjectToCloud()}>
+      Add to Solus Cloud
+    </Button>
   {/if}
 {/snippet}
 
@@ -1172,9 +1184,22 @@
         : "Search tasks, labels, assignees…"
       : "Search your inbox…"}
     filters={view === "global" ? filters : []}
-    activeCount={Number(!boardLayout && statusKeys.length !== statusOptions.length) + Number(view === "inbox" && inboxProjectKeys.length > 0) + Number(view === "inbox" && inboxStore.involvement !== "all")}
+    activeCount={Number(!boardLayout && statusKeys.length !== statusOptions.length) + Number(view === "inbox" && inboxProjectKeys.length > 0) + Number(view === "inbox" && inboxStore.involvement !== "all") + Number(view === "global" && !splitList && !!activeProjectOptionKey)}
   >
     {#snippet filterContent()}
+      <!-- The project list reads one project; "All projects" is the
+           cross-project inbox. The split rail leaves this out: changing project
+           there would replace the queue the reader is navigating from. -->
+      {#if view === "global" && !splitList}
+        <ListProjectFilter
+          projects={projectOptions}
+          activeKey={activeProjectOptionKey}
+          onSelect={selectProject}
+          onSelectAll={() => setView("inbox")}
+          onSelectCurrent={() => session.scopePageToCurrentProject()}
+          onRemoveHistory={workspace ? removeProjectHistory : undefined}
+        />
+      {/if}
       {#if view === "inbox"}
         <!-- Wanting "just these two repos" narrows the inbox without moving the
              page, so it is a filter and sits with the others. -->
@@ -1241,18 +1266,9 @@
         ? 'w-(--task-list-width)'
         : 'w-full'}"
     >
-    <!-- The switcher scopes the project list. The inbox is cross-project, so it
-         reads "All projects" there rather than losing the crumb: a first crumb
-         that vanished would strand the reader with no path back up. -->
     <ListPage
       split={splitList}
       hideHeader={splitList}
-      projects={projectOptions}
-      activeProjectKey={view === "global" ? activeProjectOptionKey : ""}
-      emptyProjectLabel={view === "global" && !pageHost ? "No project" : "All projects"}
-      onSelectProject={selectProject}
-      onSelectAllProjects={() => setView("inbox")}
-      onRemoveProjectHistory={removeProjectHistory}
       page="tasks"
       title={view === "inbox" ? "Inbox" : undefined}
       actions={providerControl}
@@ -1270,7 +1286,7 @@
         : undefined}
       onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
       isLeading={pane.isLeading}
-      onClose={close}
+      onClose={workspace ? close : undefined}
       toolbarFilters
       filters={filterBar}
       contentOwnsScroll
@@ -1285,7 +1301,15 @@
         onkeydown={onBodyKeydown}
         role="presentation"
       >
-        {#if view === "global" && !cwd && !pageHost}
+        {#if view === "global" && offlineCheckoutHosts.length > 0}
+          <p class="px-4 pt-2 text-workspace-chrome text-muted-foreground" role="status">
+            {offlineCheckoutHosts.join(", ")}
+            {offlineCheckoutHosts.length === 1 ? "is" : "are"} offline. Tasks kept only on
+            {offlineCheckoutHosts.length === 1 ? "that machine" : "those machines"} appear when
+            {offlineCheckoutHosts.length === 1 ? "it reconnects" : "they reconnect"}.
+          </p>
+        {/if}
+        {#if view === "global" && !pageKey}
           <PageEmpty
             icon={ListChecksIcon}
             title="Open a project to see its tasks."
@@ -1319,7 +1343,7 @@
           </PageEmpty>
         {:else if view === "global" && projectTasks.length === 0}
           <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
-            {#if pageHost}
+            {#if !hostCheckout}
               A task made in the workspace, or by an agent on a machine linked to
               this organization, appears here for everyone.
             {:else}
@@ -1355,7 +1379,7 @@
               onOpen(task);
             }}
             {onSetStatus}
-            {sessionsFor}
+            {runningSessionsFor}
             {now}
             onContextMenu={openTaskContextMenu}
             onAddInColumn={canCreate
@@ -1565,10 +1589,7 @@
         <TaskPage
           params={{
             taskId: openTask.id,
-            serverId:
-              store.get(openTask.id).serverId ??
-              store.hostForProject(openTask.projectKey) ??
-              undefined,
+            serverId: store.get(openTask.id).serverId ?? undefined,
           }}
           {paneId}
           embedded
@@ -1632,12 +1653,14 @@
               onclick={() => void bulkComplete()}
               ><CheckIcon size={14} class="shrink-0" />Complete</button
             >
-            <button
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
-              onclick={() => void bulkMarkUnread()}
-              ><DotOutlineIcon size={14} weight="fill" class="shrink-0" />Unread</button
-            >
+            {#if sessionSidebar}
+              <button
+                type="button"
+                class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
+                onclick={() => void bulkMarkUnread()}
+                ><DotOutlineIcon size={14} weight="fill" class="shrink-0" />Unread</button
+              >
+            {/if}
             <span
               class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
               aria-hidden="true"
@@ -1732,19 +1755,19 @@
 
     {#if taskContextMenu}
       {@const menuTask = taskContextMenu.task}
-      {@const linkedSessionCount = sessionsFor(menuTask.id)}
+      {@const linkedSessionCount = store.get(menuTask.id).sessions.length}
       <TaskContextMenu
         x={taskContextMenu.x}
         y={taskContextMenu.y}
         task={menuTask}
         hasLinkedSession={linkedSessionCount > 0}
         isRunning={false}
-        onStart={() => onStart(menuTask)}
-        onResume={linkedSessionCount > 0 ? () => onResume(menuTask) : undefined}
+        onStart={workspace ? () => onStart(menuTask) : undefined}
+        onResume={workspace && linkedSessionCount > 0 ? () => onResume(menuTask) : undefined}
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
         onSetStatus={(status) => void onSetStatus(menuTask, status)}
-        onMarkUnread={() => void sessionSidebar.markTaskUnread(menuTask.id)}
+        onMarkUnread={sessionSidebar ? () => void sessionSidebar.markTaskUnread(menuTask.id) : undefined}
         onDelete={menuTask.providerId === "local"
           ? () => onDelete(menuTask)
           : undefined}

@@ -99,3 +99,26 @@ describe('shared host project state', () => {
     store.flush()
   })
 })
+
+describe('checkout repository keys', () => {
+  test("a host's listing names each checkout's repository without reordering what was touched", async () => {
+    // WHY: the pages group checkouts by repository (project-model.md §1), and
+    // must still know the repository when the host is offline. A listing is
+    // not a visit: it must not move a project the person touched down the list.
+    const store = new ProjectsStore(empty(), async () => [])
+    store.record({ serverId: 'laptop', projectRoot: '/Users/me/web' }, 'web')
+    const touchedAt = store.entries[0]!.lastSeenAt
+
+    await store.loadProjectsFor('laptop', {
+      listProjects: async () => [
+        { key: 'k1', path: '/Users/me/web', folderName: 'web', addedAt: '', repositoryKey: 'github.com/acme/web' },
+        { key: 'k2', path: '/Users/me/scratch', folderName: 'scratch', addedAt: '', repositoryKey: null },
+      ],
+    })
+
+    const web = store.entries.find((entry) => entry.projectRoot === '/Users/me/web')
+    expect(web).toMatchObject({ repositoryKey: 'github.com/acme/web', lastSeenAt: touchedAt })
+    expect(store.entries.find((entry) => entry.projectRoot === '/Users/me/scratch')?.repositoryKey).toBeNull()
+    store.flush()
+  })
+})

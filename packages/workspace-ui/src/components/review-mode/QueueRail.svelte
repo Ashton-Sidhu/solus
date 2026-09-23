@@ -4,13 +4,9 @@
 
   let {
     rows,
-    remainingMinutes,
-    totalMinutes,
     onSelect,
   }: {
     rows: ReviewModeQueueRow[];
-    remainingMinutes: number | null;
-    totalMinutes: number | null;
     onSelect: (index: number) => void;
   } = $props();
 </script>
@@ -18,9 +14,6 @@
 <aside class="text-xs flex min-h-0 w-64 shrink-0 flex-col border-r border-(--solus-container-border)">
   <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2 text-(--solus-text-tertiary)">
     <span class="font-medium uppercase">Queue</span>
-    {#if remainingMinutes !== null && totalMinutes !== null}
-      <span class="tabular-nums">{remainingMinutes}m left · {totalMinutes}m total</span>
-    {/if}
   </div>
 
   <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -55,20 +48,6 @@
           <span class="block truncate font-medium text-(--solus-text-primary)">{row.title}</span>
           <span class="mt-1 flex min-w-0 items-center gap-1.5 text-(--solus-text-tertiary)">
             <span class="shrink-0 tabular-nums">#{row.number}</span>
-            {#if row.band}
-              <span
-                class="shrink-0 rounded px-1.5 py-px font-medium ring-1 ring-inset {row.band === 'quick'
- ? 'text-(--solus-art-positive) ring-[color:color-mix(in_srgb,var(--solus-art-positive)_28%,transparent)]'
- : row.band === 'involved'
- ? 'text-(--solus-art-negative) ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)]'
- : 'text-(--solus-accent) ring-(--solus-accent-border)'}"
-              >
-                {row.band}
-              </span>
-            {/if}
-            {#if row.minutes !== null}
-              <span class="shrink-0 tabular-nums">~{row.minutes} min</span>
-            {/if}
             {#if row.unresolvedThreads !== null && row.unresolvedThreads > 0}
               <span
                 class="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg) px-1 font-medium text-(--solus-status-error) tabular-nums"

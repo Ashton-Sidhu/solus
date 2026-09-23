@@ -160,7 +160,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-32 justify-between gap-2 text-xs shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-32 justify-between gap-2 text-xs font-normal shadow-xs">
               <span class="flex min-w-0 items-center gap-1.5">
                 <AppLogo id={theme.defaultEditor} kind="editor" size={13} />
                 <span class="max-w-28 truncate">{selectedEditorApp?.name ?? "None"}</span>
@@ -192,7 +192,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Fallback terminal" class="min-w-32 justify-between gap-2 text-xs shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Fallback terminal" class="min-w-32 justify-between gap-2 text-xs font-normal shadow-xs">
               <span class="flex min-w-0 items-center gap-1.5">
                 <AppLogo id={selectedTerminal} kind="terminal" size={13} />
                 <span class="max-w-28 truncate">{selectedTerminalApp?.name ?? "Default"}</span>

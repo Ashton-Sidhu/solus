@@ -1,5 +1,10 @@
 # Rate-limit decisions
 
+Settings → General → Rate limit behavior applies to the selected host. All
+clients connected to that host share the choice; other hosts keep their own
+choice. Existing host settings are kept. A new host defaults to Ask and does not
+import a client’s saved rate-limit preference.
+
 The host owns the state of a rate-limited run. User-started runs read the current
 host rate-limit setting when the limit arrives, including retries started before
 that setting changed. Agent and automation runs keep their explicit retry policy.

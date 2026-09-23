@@ -12,6 +12,12 @@
 
 import type { IpcContext } from '@solus/contracts/types'
 import { emptyListView, type PrListView } from '../../components/prs/lib/prs-list-view'
+import { readPrListPreferences } from '../../components/prs/lib/pr-list-memory'
+
+/** A fresh list view, carrying the sort and filters this device last chose. */
+function restoredListView(): PrListView {
+  return { ...emptyListView(), ...readPrListPreferences() }
+}
 
 /** Chat is NOT a content tab — it is the primary conversation, toggled by
  *  `maximized`. */
@@ -29,16 +35,17 @@ export class PrView {
    * just came back from. One record, not one per project: switching project
    * resets it, so keying it by project only ever described the one on screen.
    */
-  listView = $state<PrListView>(emptyListView())
+  listView = $state<PrListView>(restoredListView())
 
   /** The visible rows in list order, so the review chrome's stepper cannot
    *  drift from the list behind it. */
   listOrder = $state<number[]>([])
 
   /** Forget how the list was left. Only a change of project earns this —
-   *  opening the page must not throw away the position a review returned to. */
+   *  opening the page must not throw away the position a review returned to.
+   *  The sort and filters this device chose are not forgotten with it. */
   resetListView(): void {
-    this.listView = emptyListView()
+    this.listView = restoredListView()
     this.listOrder = []
   }
 

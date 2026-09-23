@@ -9,16 +9,7 @@ import { applyMirrorItem } from '../mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from './principal'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
-import { acquireLock, credentialExpiresAt, isOrganizationMember, readCredential, releaseLock, vaultConfigured, writeBack } from '../vault/vault'
 import {
-  type RunnerCredentialError,
-  type RunnerCredentialLeaseRequest,
-  type RunnerCredentialLeaseResponse,
-  type RunnerCredentialLockRequest,
-  type RunnerCredentialLockResponse,
-  type RunnerCredentialUnlockRequest,
-  type RunnerCredentialWritebackRequest,
-  type RunnerCredentialWritebackResponse,
   type RunnerMirrorRequest,
   type RunnerMirrorResponse,
   type RunnerOutboxRequest,
@@ -142,56 +133,4 @@ export async function applyRunnerMirror(runner: RunnerPrincipal, request: Runner
     lastSeq = seq
   }
   return { lastSeq }
-}
-
-// ── The credential vault (§5) ────────────────────────────────────────────────
-
-/** A credential route's answer: the body, or the refusal and the status it rides on. */
-export type RunnerCredentialOutcome<T> =
-  | { kind: 'ok'; body: T }
-  | { kind: 'refused'; status: 403 | 404 | 409 | 503; error: RunnerCredentialError }
-
-/**
- * Whether this runner may touch this person's credential: the vault must have a
- * key, and the person must have been admitted to the runner's organization.
- */
-async function admitCredentialRequest(runner: RunnerPrincipal, userId: string): Promise<Extract<RunnerCredentialOutcome<never>, { kind: 'refused' }> | null> {
-  if (!vaultConfigured()) return { kind: 'refused', status: 503, error: 'vault_not_configured' }
-  if (!await isOrganizationMember(runner.organizationId, userId)) {
-    log.info('runner_credential_refused', { hostId: runner.hostId, organizationId: runner.organizationId, userId, reason: 'not_a_member' })
-    return { kind: 'refused', status: 403, error: 'not_a_member' }
-  }
-  return null
-}
-
-export async function leaseRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialLeaseRequest): Promise<RunnerCredentialOutcome<RunnerCredentialLeaseResponse>> {
-  const refused = await admitCredentialRequest(runner, request.userId)
-  if (refused) return refused
-  const credential = await readCredential(request.userId, request.provider)
-  if (!credential) return { kind: 'refused', status: 404, error: 'no_credential' }
-  log.info('runner_credential_leased', { hostId: runner.hostId, organizationId: runner.organizationId, userId: request.userId, provider: request.provider, version: credential.version })
-  return { kind: 'ok', body: credential }
-}
-
-export async function lockRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialLockRequest): Promise<RunnerCredentialOutcome<RunnerCredentialLockResponse>> {
-  const refused = await admitCredentialRequest(runner, request.userId)
-  if (refused) return refused
-  const lock = await acquireLock(request.userId, request.provider, runner.hostId, request.ttlMs ?? 90_000)
-  return { kind: 'ok', body: lock }
-}
-
-export async function unlockRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialUnlockRequest): Promise<RunnerCredentialOutcome<{ released: boolean }>> {
-  const refused = await admitCredentialRequest(runner, request.userId)
-  if (refused) return refused
-  return { kind: 'ok', body: { released: await releaseLock(request.userId, request.provider, runner.hostId) } }
-}
-
-export async function writebackRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialWritebackRequest): Promise<RunnerCredentialOutcome<RunnerCredentialWritebackResponse>> {
-  const refused = await admitCredentialRequest(runner, request.userId)
-  if (refused) return refused
-  const expiresAt = request.expiresAt === undefined ? credentialExpiresAt(request.provider, request.material) : request.expiresAt
-  const outcome = await writeBack(request.userId, request.provider, request.baseVersion, request.material, expiresAt)
-  if (outcome.kind === 'ok') return { kind: 'ok', body: { version: outcome.version } }
-  if (outcome.kind === 'no_credential') return { kind: 'refused', status: 404, error: 'no_credential' }
-  return { kind: 'refused', status: 409, error: 'version_conflict' }
 }

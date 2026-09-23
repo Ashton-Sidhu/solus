@@ -138,6 +138,7 @@ export const KEYBINDINGS = {
   'workspace.next':               { combo: { code: 'ArrowDown' }, repeatable: true,        scope: 'workspace',          label: 'Next',                     group: 'Navigate' },
   'workspace.prev':               { combo: { code: 'ArrowUp' }, repeatable: true,          scope: 'workspace',          label: 'Previous',                 group: 'Navigate' },
   'workspace.toggle-pin':         { combo: { alt: true, code: 'KeyP' },                    scope: 'workspace',          label: 'Pin / unpin',              group: 'Workspace' },
+  'workspace.current-project':    { combo: { alt: true, code: 'KeyC' },                    scope: 'workspace',          label: 'Current project',          group: 'Workspace' },
   // The peek is a pointer affordance, so the keyboard gets its own: the same
   // card, pinned, on the focused row. No hover state is ever required to reach
   // information.
@@ -177,6 +178,7 @@ export const KEYBINDINGS = {
   // ── Automations ────────────────────────────────────────────────────────────
   'automations.close':            { combo: { code: 'Escape' },                             scope: 'automations',        label: 'Close',                    group: 'Automations' },
   'automations.new':              { combo: { alt: true, code: 'KeyN' },                    scope: 'automations',        label: 'New automation',           group: 'Automations' },
+  'automations.current-project':  { combo: { alt: true, code: 'KeyC' },                    scope: 'automations',        label: 'Current project',          group: 'Automations' },
 
   // ── Insights ───────────────────────────────────────────────────────────────
   'insights.close':               { combo: { code: 'Escape' },                             scope: 'insights',           label: 'Close',                    group: 'Insights' },
@@ -187,9 +189,11 @@ export const KEYBINDINGS = {
 
   // ── Tasks ───────────────────────────────────────────────────────────────────
   'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Tasks' },
+  'tasks.current-project':        { combo: { alt: true, code: 'KeyC' },                    scope: 'tasks',              label: 'Current project',          group: 'Tasks' },
 
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
+  'prs.current-project':          { combo: { alt: true, code: 'KeyC' },                    scope: 'prs',                label: 'Current project',          group: 'Pull Requests' },
 
   // ── PR review ──────────────────────────────────────────────────────────────
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },

@@ -52,12 +52,12 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     });
   });
 
-  let prevFocusable = untrack(() => options.active() && !session.unifiedPickerOpen);
+  let prevFocusable = untrack(() => options.active() && !session.ui.unifiedPickerOpen);
   $effect(() => {
     if (!options.isPrimary()) return;
     void options.session()?.run.workingDirectory;
     void options.session()?.readOnlyReason;
-    const isFocusable = options.active() && !session.unifiedPickerOpen;
+    const isFocusable = options.active() && !session.ui.unifiedPickerOpen;
     const justBecameFocusable = isFocusable && !prevFocusable;
     prevFocusable = isFocusable;
 
@@ -66,7 +66,7 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     if (justBecameFocusable) {
       // rAF ensures focus lands after display:none → visible transitions
       requestAnimationFrame(() => {
-        if (options.active() && !session.unifiedPickerOpen && !options.isReadOnly()) {
+        if (options.active() && !session.ui.unifiedPickerOpen && !options.isReadOnly()) {
           options.editor()?.focus();
         }
       });
@@ -131,9 +131,9 @@ export function useComposerFocus(options: ComposerFocusOptions) {
           : requestedTabId !== options.tabId()
       )
         return;
-      if (!options.active() || session.unifiedPickerOpen || options.isReadOnly()) return;
+      if (!options.active() || session.ui.unifiedPickerOpen || options.isReadOnly()) return;
       requestAnimationFrame(() => {
-        if (options.active() && !session.unifiedPickerOpen && !options.isReadOnly()) {
+        if (options.active() && !session.ui.unifiedPickerOpen && !options.isReadOnly()) {
           options.editor()?.focus();
         }
       });

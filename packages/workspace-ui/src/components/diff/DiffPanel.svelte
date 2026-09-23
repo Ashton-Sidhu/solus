@@ -8,6 +8,7 @@
   import {
     toChangedFileSummaries,
     type GuideHeaderActions,
+    type ReviewScopeKind,
   } from "./lib/review-header";
   import { isStackedPane } from "../../lib/pane-width";
   import DiffEmptyState from "./DiffEmptyState.svelte";
@@ -34,6 +35,14 @@
     runtime,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import {
+    addDiffComment,
+    removeDiffComment,
+    restoreDiffComment,
+    setDiffCommentDraft,
+    updateDiffComment,
+    updateDiffCommentDraftValue,
+  } from "../../lib/diff-comments";
   import {
     InlineCommentDraft,
     setInlineCommentDraft,
@@ -88,6 +97,8 @@
     isWorktree = false,
     onClose,
     initialScope = { kind: "session" },
+    reviewScope = null,
+    onSelectScope,
     initialFilePath,
     navigationRequestId,
     embedded = false,
@@ -130,6 +141,10 @@
     isWorktree?: boolean;
     onClose: () => void;
     initialScope?: DiffScope;
+    /** The review band's scope picker. The host owns the scope, so a choice
+     *  (a turn too) goes back to it and returns here as a new `initialScope`. */
+    reviewScope?: ReviewScopeKind | null;
+    onSelectScope?: (scope: DiffScope | undefined) => void;
     initialFilePath?: string;
     navigationRequestId?: number;
     /** Hosted as a content tab inside another surface (PR review). Hides the
@@ -280,7 +295,7 @@
   });
 
   const turns = $derived(
-    session.turnSnapshots[session.tabs[tabId]?.sessionId ?? ""] ?? [],
+    session.lifecycle.turnSnapshots[session.tabs[tabId]?.sessionId ?? ""] ?? [],
   );
   let selectedScope = $state<DiffScope>({ kind: "session" });
   const selectedTurnIndex = $derived(
@@ -304,7 +319,9 @@
   const stacked = $derived(isStackedPane(panelWidth));
   let commentsPopoverOpen = $state(false);
   let commentsAnchorEl: HTMLButtonElement | null = $state(null);
-  let treeCollapsed = $state(false);
+  // The tree starts closed: the stream is the review, the tree is a jump list
+  // the user opens when the change is wide enough to need one.
+  let treeCollapsed = $state(true);
   let mobileTreeOpen = $state(false);
   let treeInstance: FileTree | null = $state(null);
   let streamRef: DiffStream | null = $state(null);
@@ -346,21 +363,13 @@
   let tokenHighlightState = $state<boolean>(
     localStorage.getItem("solus-diff-token-highlight") !== "off",
   );
-  const TREE_AUTO_OPEN_WIDTH = 640;
-  let prevAboveTreeThreshold: boolean | null = null;
+  // A pane too narrow for two columns closes the tree; widening never reopens
+  // it, because the user chooses when the tree is worth its width.
+  const TREE_AUTO_CLOSE_WIDTH = 640;
   $effect(() => {
-    if (stacked) {
+    if (stacked || (panelWidth > 0 && panelWidth < TREE_AUTO_CLOSE_WIDTH)) {
       treeCollapsed = true;
-      return;
     }
-    const w = panelWidth;
-    if (w === 0) return;
-    const isAbove = w >= TREE_AUTO_OPEN_WIDTH;
-    if (prevAboveTreeThreshold === isAbove) return;
-    prevAboveTreeThreshold = isAbove;
-    untrack(() => {
-      treeCollapsed = !isAbove;
-    });
   });
 
   function restoreDraftIfAny() {
@@ -393,7 +402,11 @@
     prevInitialScopeKey = key;
     selectedScope = initialScope;
     draft.clear();
-    void startLoad();
+    const showsFirstFile = hasPendingScopeChoice;
+    hasPendingScopeChoice = false;
+    void startLoad().then(() => {
+      if (showsFirstFile) void scrollToFirstFile();
+    });
   });
 
   let prevPatchOverride = untrack(() => patchOverride);
@@ -409,7 +422,7 @@
   onMount(() => {
     mounted = true;
     selectedScope = initialScope;
-    if (sess) void session.refreshTurnSnapshots(sess.id);
+    if (sess) void session.lifecycle.refreshTurnSnapshots(sess.id);
     void startLoad();
     restoreDraftIfAny();
     return () => {
@@ -464,7 +477,7 @@
     selectedScope = initialScope;
     draft.clear();
     diffState.dispose();
-    if (sess) void session.refreshTurnSnapshots(sess.id);
+    if (sess) void session.lifecycle.refreshTurnSnapshots(sess.id);
     void startLoad();
   }
 
@@ -530,10 +543,29 @@
   const reviewChangedFiles = $derived(toChangedFileSummaries(treeFiles));
 
   async function handleTurnSelect(index: number | null) {
-    selectedScope =
+    const next: DiffScope =
       index === null ? { kind: "session" } : { kind: "turn", index };
+    // Where the host owns the scope, a turn goes through it too, so the guide
+    // and the map read the same turn as the diff.
+    if (onSelectScope) {
+      selectHostScope(next);
+      return;
+    }
+    selectedScope = next;
     draft.clear();
     await startLoad();
+    await scrollToFirstFile();
+  }
+
+  // A scope the reader chose here opens at its first file once the host hands
+  // it back. A scope the host changes on its own (a file jump) does not.
+  let hasPendingScopeChoice = false;
+  function selectHostScope(next: DiffScope | undefined) {
+    hasPendingScopeChoice = true;
+    onSelectScope?.(next);
+  }
+
+  async function scrollToFirstFile() {
     await tick();
     const first = orderedFiles[0] ? diffFilePath(orderedFiles[0]) : undefined;
     if (first) {
@@ -689,10 +721,10 @@
 
   function persistDraft() {
     if (!draft.filePath || !draft.range) {
-      session.setDiffCommentDraft(null);
+      setDiffCommentDraft(sess, null);
       return;
     }
-    session.setDiffCommentDraft({
+    setDiffCommentDraft(sess, {
       filePath: draft.filePath,
       startLine: draft.range.startLine,
       endLine: draft.range.endLine,
@@ -704,7 +736,7 @@
 
   function resetCommentForm() {
     draft.clear();
-    session.setDiffCommentDraft(null);
+    setDiffCommentDraft(sess, null);
     streamRef?.clearSelectedLines();
   }
 
@@ -737,9 +769,9 @@
       return;
     }
     if (draft.editingCommentId) {
-      session.updateDiffComment(draft.editingCommentId, comment);
+      updateDiffComment(sess, draft.editingCommentId, comment);
       draft.clear();
-      session.setDiffCommentDraft(null);
+      setDiffCommentDraft(sess, null);
       return;
     }
     if (!draft.range || !draft.filePath) return;
@@ -759,13 +791,13 @@
     };
 
     draft.clear();
-    session.setDiffCommentDraft(null);
-    session.addDiffComment(newComment);
+    setDiffCommentDraft(sess, null);
+    addDiffComment(sess, newComment);
   }
 
   function handleCancelComment() {
     draft.clear();
-    session.setDiffCommentDraft(null);
+    setDiffCommentDraft(sess, null);
   }
 
   function handleEditComment(c: DiffComment) {
@@ -793,8 +825,8 @@
     const index = list.findIndex((c) => c.id === id);
     if (index === -1) return;
     const comment = list[index];
-    session.removeDiffComment(id);
-    toasts.undo("Comment deleted", () => session.restoreDiffComment(comment, index));
+    removeDiffComment(sess, id);
+    toasts.undo("Comment deleted", () => restoreDiffComment(sess, comment, index));
   }
 
   function navigateToComment(c: DiffComment) {
@@ -1121,9 +1153,10 @@
       deletions={headerStats?.deletions ?? 0}
       changedFiles={reviewChangedFiles}
       baseLabel={targetBranch}
+      {reviewScope}
+      onSelectScope={onSelectScope ? selectHostScope : undefined}
       turns={patchOverride === null ? turns : []}
       {selectedTurnIndex}
-      onStepTurn={cycleTurn}
       diffStyle={effectiveDiffStyle}
       onSetStyle={setDiffStyle}
       tokenHighlight={tokenHighlightState}
@@ -1281,7 +1314,7 @@
           onDraftCancel={handleCancelComment}
           onDraftValueChange={(v) => {
             draft.value = v;
-            session.updateDiffCommentDraftValue(v);
+            updateDiffCommentDraftValue(sess, v);
           }}
           {canOpenInEditor}
           onOpenInEditor={openFileInEditor}

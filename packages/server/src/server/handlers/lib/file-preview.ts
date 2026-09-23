@@ -4,6 +4,7 @@ import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '@solus/c
 import { mimeTypeForExtension } from '../../attachment-utils'
 import { isInsideRoot } from '../../../paths'
 import { expandHome } from './host-path'
+import { resolveProjectPathBySuffix } from './path-suffix-match'
 
 /** Unlike `expandHome`, a bare relative path resolves against the *request's*
  *  cwd rather than the server process's. Only the `~` rule is shared. */
@@ -46,6 +47,22 @@ async function readFilePrefix(path: string, size: number, cap = 8000): Promise<B
   }
 }
 
+/** The canonical file to read. The literal path wins; only a path that names
+ *  nothing is completed against the project index. */
+async function canonicalTarget(
+  resolved: string,
+  root: string | undefined,
+  requestedPath: string,
+): Promise<string> {
+  try {
+    return await realpath(resolved)
+  } catch (missing) {
+    const completed = root ? await resolveProjectPathBySuffix(root, requestedPath) : null
+    if (!completed) throw missing
+    return realpath(completed)
+  }
+}
+
 export async function readFilePreview(
   ctx: IpcContext,
   request: FilePreviewRequest,
@@ -63,7 +80,7 @@ export async function readFilePreview(
         root = undefined
       }
     }
-    target = await realpath(resolved)
+    target = await canonicalTarget(resolved, root, request.path)
 
     const fileStat = await stat(target)
     if (!fileStat.isFile()) {

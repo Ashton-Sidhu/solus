@@ -5,6 +5,7 @@
   import type { DocCommentThread } from '@solus/contracts/work-comments'
   import CommentThreadCard from '../comments/CommentThreadCard.svelte'
   import ExternalCommentCard from '../work/ExternalCommentCard.svelte'
+  import SettingsSelect from '../settings/SettingsSelect.svelte'
   import type { MeasuredAnchor } from '../comments/lib/anchors'
   import { layoutThreads, type ThreadAnchor } from '../comments/lib/rail-layout'
   import { openThreads, railThreads, resolvedThreads, type RailThread } from '../comments/lib/thread'
@@ -256,27 +257,17 @@
     <!-- Only when the document has threads of both kinds: with one kind there
          is nothing to switch between, and the count says what you are reading. -->
     {#if page.length > 0}
-      <div class="plan-comments-rail__views" role="group" aria-label="Which comments">
-        <button
-          type="button"
-          class="plan-comments-rail__view"
-          class:plan-comments-rail__view--on={activeView === 'inline'}
-          aria-pressed={activeView === 'inline'}
-          title={`Comments on a passage of this document (${inline.length})`}
-          onclick={() => (view = 'inline')}
-        >
-          Inline
-        </button>
-        <button
-          type="button"
-          class="plan-comments-rail__view"
-          class:plan-comments-rail__view--on={activeView === 'page'}
-          aria-pressed={activeView === 'page'}
-          title={`Comments on the document rather than a passage (${page.length})`}
-          onclick={() => (view = 'page')}
-        >
-          Page
-        </button>
+      <div class="ml-auto shrink-0">
+        <SettingsSelect
+          options={[
+            { value: 'inline', label: `Inline (${inline.length})` },
+            { value: 'page', label: `Page (${page.length})` },
+          ]}
+          value={activeView}
+          onSelect={(next) => (view = next)}
+          ariaLabel="Which comments"
+          compact
+        />
       </div>
     {/if}
     {#if onClose}
@@ -439,44 +430,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Which kind of thread the margin is showing. The same micro voice as the
-     count beside it, so the header stays one line of chrome rather than
-     becoming a toolbar over the page. */
-  .plan-comments-rail__views {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-  .plan-comments-rail__view {
-    flex-shrink: 0;
-    white-space: nowrap;
-    padding: 0.0625rem 0.3125rem;
-    border: none;
-    border-radius: 0.25rem;
-    background: transparent;
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: inherit;
-    color: var(--solus-text-tertiary);
-    font-variant-numeric: tabular-nums;
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-comments-rail__view:hover {
-    color: var(--solus-text-primary);
-  }
-  .plan-comments-rail__view--on {
-    background: color-mix(in srgb, var(--solus-art-2) 14%, transparent);
-    color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));
-  }
-  .plan-comments-rail__view:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.125rem;
-  }
   /* The drawer's way out: the same weight as the view toggle beside it, and
      a thumb-sized target on touch, where it is the only way to close. */
   .plan-comments-rail__close {
@@ -634,8 +587,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .plan-comments-rail__canvas--settled .plan-comments-rail__slot,
-    .plan-comments-rail__edge,
-    .plan-comments-rail__view {
+    .plan-comments-rail__edge {
       transition: none !important;
     }
   }

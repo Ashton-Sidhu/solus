@@ -5,9 +5,9 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { PullRequest } from '@solus/contracts/providers'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { reviewGuideTargetId, type PrGuideMetadata, type PrGuideStatus, type ReviewGuideStatusEvent } from '@solus/contracts/review'
-import { detached } from './project-prs.svelte'
+import { detached, type ProjectPrs } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
-import { prGuideIdentity, prGuideTarget, reviewGuideStore, type ReviewGuideIdentity, type ReviewGuideStore } from '../../components/review/review-guide.store.svelte'
+import { prGuideIdentity, prGuideTarget, reviewGuideStore, type ListedPrGuide, type ReviewGuideIdentity, type ReviewGuideStore } from '../../components/review/review-guide.store.svelte'
 
 export interface GuideBatchOutcome {
   total: number
@@ -15,12 +15,22 @@ export interface GuideBatchOutcome {
 }
 
 export class PrGuidesStore {
+  /** Revisions `loadMetadata` has asked the host about, by host and target. */
+  private readonly probedRevisions = new Set<string>()
+
   constructor(private readonly prs: PrsStore, private readonly guides: ReviewGuideStore = reviewGuideStore) {}
 
+  private listedGuide(serverId: string, ctx: IpcContext, number: number): ListedPrGuide | null {
+    const repoRoot = projectScopeOf(ctx.session)
+    const pr = this.prs.at(serverId, repoRoot)?.prFor(number)
+    return pr
+      ? { repoRoot, target: prGuideTarget({ ...pr.baseRepo, number, headSha: pr.headSha, baseSha: pr.baseSha }), headRef: pr.headRef }
+      : null
+  }
+
   private identityFor(serverId: string, ctx: IpcContext, number: number): ReviewGuideIdentity | null {
-    const root = projectScopeOf(ctx.session)
-    const pr = this.prs.at(serverId, root)?.prFor(number)
-    return pr ? prGuideIdentity(root, prGuideTarget({ ...pr.baseRepo, number, headSha: pr.headSha, baseSha: pr.baseSha })) : null
+    const guide = this.listedGuide(serverId, ctx, number)
+    return guide ? prGuideIdentity(guide.repoRoot, guide.target) : null
   }
 
   statusFor(serverId: string, ctx: IpcContext, number: number): PrGuideStatus | undefined {
@@ -51,9 +61,34 @@ export class PrGuidesStore {
     return { number, headSha: event.headSha, generatedAt: event.generatedAt, current: this.statusFor(serverId, ctx, number) === 'ready' }
   }
 
-  async loadMetadata(api: HostApi, serverId: string, ctx: IpcContext, pr: Pick<PullRequest, 'number' | 'headSha'>): Promise<void> {
-    const identity = this.identityFor(serverId, ctx, pr.number)
-    if (identity?.target) await this.guides.load(api, serverId, detached(ctx), identity, identity.target)
+  /**
+   * Ask the host about these pull requests' saved guides in one request, once
+   * per revision.
+   *
+   * Once is enough: a guide that starts, finishes, or fails after this arrives
+   * as `review.guideStatusChanged`, and a reconnect re-probes every guide the
+   * shared store tracks. A push is a new revision, so it is asked about again.
+   * A probe that failed is forgotten, so the next load retries it.
+   */
+  async loadMetadata(api: HostApi, serverId: string, ctx: IpcContext, prs: readonly Pick<PullRequest, 'number'>[]): Promise<void> {
+    const revisionKey = ({ target }: ListedPrGuide) =>
+      `${serverId}::${reviewGuideTargetId(target)}@${target.headSha}:${target.baseSha}`
+    const fresh = prs
+      .map((pr) => this.listedGuide(serverId, ctx, pr.number))
+      .filter((guide): guide is ListedPrGuide => !!guide && !this.probedRevisions.has(revisionKey(guide)))
+    if (!fresh.length) return
+    for (const guide of fresh) this.probedRevisions.add(revisionKey(guide))
+    await this.guides.loadPrs(api, serverId, detached(ctx), fresh)
+    for (const guide of fresh) {
+      if (this.guides.loadErrorFor(serverId, prGuideIdentity(guide.repoRoot, guide.target))) {
+        this.probedRevisions.delete(revisionKey(guide))
+      }
+    }
+  }
+
+  /** Probe the guides for the rows a list read just landed. */
+  loadListed(project: ProjectPrs): Promise<void> {
+    return this.loadMetadata(project.hostApi, project.serverId, project.hostContext, project.items)
   }
 
   async request(

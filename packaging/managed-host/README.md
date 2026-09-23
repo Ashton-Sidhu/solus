@@ -12,7 +12,8 @@ The image is replaceable; the volume is authoritative.
 |---|---|---|
 | Solus server and web client (`scripts/package-server.ts` tarball, linux-x64) | `/opt/solus` | the repository at build time |
 | Node | `/usr/local/bin/node` (`/opt/solus/bin/node` links to it) | `Dockerfile` base image `node:24.18.0-bookworm-slim` |
-| `@anthropic-ai/claude-code`, `@openai/codex` | global npm | `Dockerfile` args `CLAUDE_CODE_VERSION`, `CODEX_VERSION` |
+| Chromium and Linux browser dependencies | `/opt/solus/browsers` and Debian libraries | packaged `playwright-core` revision |
+| `@anthropic-ai/claude-code`, `@openai/codex` | global npm | latest release at build time; `scripts/managed-image.ts` resolves it into `Dockerfile` args `CLAUDE_CODE_VERSION`, `CODEX_VERSION` |
 | `cloudflared` | `/opt/solus/bin/cloudflared` (`SOLUS_CLOUDFLARED`) | `Dockerfile` arg, same release and checksum as `apps/cli/src/lib/cloudflared.ts` |
 | `litestream` | `/usr/local/bin/litestream` | `Dockerfile` arg with the release checksum |
 | `git`, `ripgrep`, `procps`, `openssh-client`, `ca-certificates` | Debian | base image |
@@ -29,6 +30,7 @@ SOLUS_MANAGED=1
 SOLUS_TUNNEL_PORT=34118
 SOLUS_PROJECTS_ROOT=/data/projects
 SOLUS_CLOUDFLARED=/opt/solus/bin/cloudflared
+PLAYWRIGHT_BROWSERS_PATH=/opt/solus/browsers
 ```
 
 Environment the control plane sets per machine (§2, §6):
@@ -93,6 +95,17 @@ docker push registry.fly.io/solus-managed:<version>
 
 The control plane names the image tag when it creates or updates a machine (§7).
 Tag every push with the release version; never move a tag.
+
+## Browser
+
+The image installs Chromium with the packaged Playwright driver. The server runs
+it headlessly as `solus` and streams browser frames to desktop, web, and mobile
+clients. No display server is required. Browser binaries live in the image;
+profile data lives under `/data/state/browser-profiles` on the persistent volume.
+Existing machines need the rebuilt image to receive this dependency.
+
+A separately installed Linux server needs the setup in
+[Linux browser setup](../../docs/linux-browser.md).
 
 ## Local run
 

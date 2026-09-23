@@ -324,10 +324,13 @@
     {skipMotion}
   />
 {:else if item.kind === "artifact" && item.message.artifact}
-  {@const revisions = artifactRevisions?.().get(`work:${item.message.workRef?.workId}`)}
+  {@const artifact = item.message.artifact}
+  {@const revisions = item.message.workRef ? artifactRevisions?.().get(`work:${item.message.workRef.workId}`) : undefined}
   {@const revision = revisions?.find((entry) => entry.messageId === item.message.id)}
   {#if revisions && revision}
     <ConversationArtifact {revisions} {revision} />
+  {:else if revisions && (artifact.pending || artifact.streaming)}
+    <ConversationArtifact {revisions} update={artifact} />
   {:else}
   <ArtifactView
     artifact={item.message.artifact}

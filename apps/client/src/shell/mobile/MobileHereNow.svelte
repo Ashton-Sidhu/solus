@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext, getSessionSidebarStore, presenceStore, serversStore } from "@solus/workspace-ui/contexts";
+  import { getSessionRecords, getWorkspaceContext, getSessionSidebarStore, presenceStore, serversStore } from "@solus/workspace-ui/contexts";
   import PresenceAvatar from "@solus/workspace-ui/components/presence/PresenceAvatar.svelte";
   import {
     canJumpTo,
@@ -23,6 +23,7 @@
   let { onNavigate }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sessions = getSessionRecords();
   const sidebar = getSessionSidebarStore();
 
   const people = $derived(presenceStore.roster());
@@ -30,9 +31,8 @@
   const hostLabel = (serverId: string) => serversStore.hostFor(serverId)?.label;
 
   const names: RosterNames = {
-    get mountedSessions() { return Object.values(session.sessions); },
+    get mountedSessions() { return Object.values(sessions.byId); },
     get sidebarSessions() { return sidebar.catalogTasks.flatMap((task) => sidebar.sessionsFor(task)); },
-    workTitle: (workId) => session.worksStore.get(workId)?.title,
   };
 
   function isFollowed(person: RosterPerson): boolean {
@@ -45,8 +45,7 @@
     if (!focus || focus.kind === "none") return;
     if (focus.kind === "session") {
       session.openRoute({ name: "chat", params: { sessionId: focus.sessionId, serverId: presence.serverId } }, { via: "click" });
-    } else {
-      session.openRoute({ name: "work", params: { workId: focus.workId, serverId: presence.serverId } }, { via: "click" });
+
     }
     onNavigate();
   }

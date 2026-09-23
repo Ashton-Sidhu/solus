@@ -23,7 +23,6 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
       yield { type: 'result', subtype: 'success', result: 'done' }
     })(), {
       supportedCommands: async () => [],
-      rewindFiles: async () => {},
     })
   },
 }))
@@ -80,16 +79,14 @@ describe('installed Claude executable', () => {
     expect(queries).toHaveLength(1)
   })
 
-  test('usage and rewind also require the installed CLI', async () => {
+  test('usage also requires the installed CLI', async () => {
     const agent = new ClaudeAgent()
     await expect(agent.readUsageReport()).rejects.toThrow('Claude Code was not found')
-    await expect(agent.rewindFiles('session', 'checkpoint', directory)).rejects.toThrow('Claude Code was not found')
     expect(queries).toHaveLength(0)
     const executable = installClaude()
     await agent.readUsageReport()
-    await agent.rewindFiles('session', 'checkpoint', directory)
-    expect(queries).toHaveLength(2)
-    expect(queries.map((options) => options.pathToClaudeCodeExecutable)).toEqual([executable, executable])
+    expect(queries).toHaveLength(1)
+    expect(queries[0].pathToClaudeCodeExecutable).toBe(executable)
   })
 
   test('cancellation during PATH discovery does not start a CLI process', async () => {

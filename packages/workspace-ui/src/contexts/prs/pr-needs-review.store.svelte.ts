@@ -2,8 +2,14 @@
 //
 // Its own store because it is its own question: not "what is in this project"
 // but "what is being asked of me", answered by a different RPC on its own
-// rhythm — a slow poll, plus whenever the window regains focus or the host says
-// a project changed.
+// rhythm — a slow poll, plus a refresh when this client edits a pull request
+// and when the user crosses into another project.
+//
+// Deliberately not on window focus. The count changes when someone else asks
+// for a review, which bears no relation to when this window is looked at, so
+// the listener re-asked once per app switch and learned nothing the poll would
+// not have. The poll is the whole freshness story; there is no floor to keep
+// because there is nothing firing often enough to need one.
 
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
@@ -48,12 +54,6 @@ export class PrNeedsReviewStore {
     return this.itemsFor(serverId, ctx).length
   }
 
-  /** Total estimated review time, where every row has been measured. */
-  minutesFor(serverId: string, ctx: IpcContext): number | undefined {
-    const known = this.itemsFor(serverId, ctx).flatMap((pr) => (pr.effort ? [pr.effort.minutes] : []))
-    return known.length > 0 ? known.reduce((sum, minutes) => sum + minutes, 0) : undefined
-  }
-
   async refresh(api: HostApi, serverId: string, ctx: IpcContext): Promise<void> {
     if (!projectScopeOf(ctx.session)) return
     const key = projectPrsKey(serverId, ctx)
@@ -83,10 +83,8 @@ export class PrNeedsReviewStore {
     if (index >= 0) items.splice(index, 1)
   }
 
-  /**
-   * Keep the count current: on a slow poll, when the window comes back, and
-   * whenever the host says a project's pull requests changed.
-   */
+  /** Keep the count current: on a slow poll, and when this client edits a pull
+   *  request in the project being shown. */
   subscribe(watching: () => WatchedScope): () => void {
     const releaseProjects = this.prs.subscribeLifecycleChanges()
     const refresh = () => {
@@ -99,13 +97,11 @@ export class PrNeedsReviewStore {
       if (serverId === scope.serverId && projectRoot === projectScopeOf(scope.ctx.session)) refresh()
     })
     const interval = window.setInterval(refresh, POLL_MS)
-    window.addEventListener('focus', refresh)
     refresh()
     return () => {
       unsubscribe()
       releaseProjects()
       window.clearInterval(interval)
-      window.removeEventListener('focus', refresh)
     }
   }
 }

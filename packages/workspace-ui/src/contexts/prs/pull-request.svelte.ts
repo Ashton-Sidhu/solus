@@ -22,8 +22,9 @@ import type {
   DraftReview,
   PrCommit,
   PrConversationItem,
-  PrLifecycleAction,
   PrLabel,
+  PrRevertResult,
+  PrStateAction,
   PrReviewer,
   PrReviewerCandidate,
   PullRequestOverview,
@@ -111,11 +112,12 @@ export class PullRequest implements Contracts.PullRequest {
   requiredApprovingReviewCount = $state<number | null>(null)
   capabilities = $state<Contracts.PullRequest['capabilities']>(UNDESCRIBED_CAPABILITIES)
   viewerPermissions = $state<Contracts.PullRequest['viewerPermissions']>(UNDESCRIBED_PERMISSIONS)
-  effort = $state<Contracts.PullRequest['effort']>()
   requestedReviewers = $state<Contracts.PrRequestedReviewer[]>()
   assignees = $state<string[]>()
   reviewAttention = $state<Contracts.PullRequest['reviewAttention']>()
   needsMyReview = $state<boolean>()
+  autoMergeEnabled = $state<boolean>()
+  autoMergeMethod = $state<Contracts.PrMergeMethod>()
 
   /**
    * False between a number entering the index and the first response about it.
@@ -184,11 +186,12 @@ export class PullRequest implements Contracts.PullRequest {
     this.requiredApprovingReviewCount = requiredApprovingReviewCount
     this.capabilities = source.capabilities
     this.viewerPermissions = source.viewerPermissions
-    this.effort = source.effort
     this.requestedReviewers = source.requestedReviewers
     this.assignees = source.assignees
     this.reviewAttention = source.reviewAttention
     this.needsMyReview = source.needsMyReview
+    this.autoMergeEnabled = source.autoMergeEnabled
+    this.autoMergeMethod = source.autoMergeMethod
     this.#described = true
   }
 
@@ -371,13 +374,49 @@ export class PullRequest implements Contracts.PullRequest {
     return this.store.applyPullRequest(detail)
   }
 
+  /**
+   * Show a write's outcome at once, on this pull request's own fields, and take
+   * it back if the host refuses — unless something else has written those
+   * fields since, in which case the newer value wins.
+   *
+   * Field by field, not a copied object: the fields are `$state` accessors, so
+   * a spread of this instance holds none of them.
+   */
+  async #writeOptimistically(
+    show: () => void,
+    stillShown: () => boolean,
+    restore: () => void,
+    write: () => Promise<Contracts.PullRequest>,
+  ): Promise<PullRequest> {
+    show()
+    try {
+      return this.store.applyPullRequest(await write())
+    } catch (error) {
+      if (stillShown()) restore()
+      throw error
+    }
+  }
+
   /** Close, reopen, mark ready, or return to draft. */
   async updateLifecycle(
-    action: Exclude<PrLifecycleAction, 'merge'>,
+    action: PrStateAction,
     expectedHeadSha: string,
   ): Promise<PullRequest> {
-    const detail = await this.api.prUpdateLifecycle(detached(this.ctx), this.number, action, expectedHeadSha)
-    return this.store.applyPullRequest(detail)
+    const before = { state: this.state, draft: this.draft }
+    const state = action === 'close' ? 'closed' : action === 'reopen' ? 'open' : this.state
+    const draft = action === 'ready' ? false : action === 'draft' ? true : this.draft
+    return this.#writeOptimistically(
+      () => {
+        this.state = state
+        this.draft = draft
+      },
+      () => this.state === state && this.draft === draft,
+      () => {
+        this.state = before.state
+        this.draft = before.draft
+      },
+      () => this.api.prUpdateLifecycle(detached(this.ctx), this.number, action, expectedHeadSha),
+    )
   }
 
   /**
@@ -393,6 +432,44 @@ export class PullRequest implements Contracts.PullRequest {
     const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
     if (result.detail) this.store.applyPullRequest(result.detail)
     return result
+  }
+
+  /** Ask the host to merge with `method` once its requirements pass. The head
+   *  this client last saw is the concurrency token, as for `merge`. */
+  async enableAutoMerge(method: MergeMethod): Promise<PullRequest> {
+    const expectedHeadSha = this.headSha
+    if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
+    return this.#setAutoMerge(method, () =>
+      this.api.prEnableAutoMerge(detached(this.ctx), this.number, method, expectedHeadSha))
+  }
+
+  async disableAutoMerge(): Promise<PullRequest> {
+    return this.#setAutoMerge(undefined, () => this.api.prDisableAutoMerge(detached(this.ctx), this.number))
+  }
+
+  #setAutoMerge(
+    method: MergeMethod | undefined,
+    write: () => Promise<Contracts.PullRequest>,
+  ): Promise<PullRequest> {
+    const before = { enabled: this.autoMergeEnabled, method: this.autoMergeMethod }
+    const enabled = method !== undefined
+    return this.#writeOptimistically(
+      () => {
+        this.autoMergeEnabled = enabled
+        this.autoMergeMethod = method
+      },
+      () => this.autoMergeEnabled === enabled && this.autoMergeMethod === method,
+      () => {
+        this.autoMergeEnabled = before.enabled
+        this.autoMergeMethod = before.method
+      },
+      write,
+    )
+  }
+
+  /** Open a pull request that reverses this merged one. */
+  revert(): Promise<PrRevertResult> {
+    return this.api.prRevert(detached(this.ctx), this.number)
   }
 
   /**

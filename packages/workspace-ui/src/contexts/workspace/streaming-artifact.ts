@@ -8,6 +8,7 @@
  */
 
 const HTML_ARGUMENT = /"html"\s*:\s*"/
+const CONTENT_ARGUMENT = /"content"\s*:\s*"/
 
 const ESCAPES = {
   n: '\n',
@@ -30,8 +31,8 @@ function unescape(char: string): string {
  *  A truncated escape at the tail is dropped rather than guessed: the next
  *  chunk brings it, and half an escape on screen is worse than one frame of
  *  missing character. */
-export function partialArtifactHtml(toolInput: string): string | null {
-  const start = HTML_ARGUMENT.exec(toolInput)
+export function partialArtifactHtml(toolInput: string, field: 'html' | 'content' = 'html'): string | null {
+  const start = (field === 'html' ? HTML_ARGUMENT : CONTENT_ARGUMENT).exec(toolInput)
   if (!start) return null
 
   let html = ''

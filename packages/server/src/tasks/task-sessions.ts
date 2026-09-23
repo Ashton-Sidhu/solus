@@ -19,6 +19,7 @@ import {
   writeTask,
 } from './task-store'
 import { worktreeProjectRoot } from '@solus/contracts/types'
+import { isUlid } from '@solus/contracts/ulid'
 import type {
   SessionExecutionHost,
   Task,
@@ -351,10 +352,32 @@ interface PrepareSessionTaskInput {
   existingTaskId?: string | null
   /** Mint the session-born task as a direct child of this task. */
   parentTaskId?: string | null
+  /** Mint the task under this client-minted ULID instead of a fresh one. */
+  taskId?: string | null
   sessionId?: string
   projectKey?: string | null
   prompt?: string
   originSessionId?: string | null
+}
+
+/**
+ * The id a new session-born task is written under. A client mints it when it
+ * makes the session so the row it already shows keeps its identity, and one
+ * id names one task: an id that already names a task is refused, never bound,
+ * because two sessions arriving with one id is a client bug, not a retry.
+ */
+async function clientMintedTaskId(
+  db: Db,
+  organizationId: string,
+  taskId: string | null,
+): Promise<string | undefined> {
+  if (!taskId) return undefined
+  if (!isUlid(taskId)) throw new Error(`Task id ${taskId} is not a ULID.`)
+  const existing = await db.get(sql`
+    SELECT id FROM ${tasks} WHERE id = ${taskId} AND organization_id = ${organizationId}
+  `)
+  if (existing) throw new Error(`Task ${taskId} already exists.`)
+  return taskId
 }
 
 /** First-dispatch boundary: mint a session-born task or bind an explicit
@@ -367,8 +390,12 @@ export async function prepareSessionTask(organizationId: string, input: PrepareS
     const now = Date.now()
     const existingTaskId = normalizedOptional(input.existingTaskId)
     const parentTaskId = normalizedOptional(input.parentTaskId)
+    const mintedTaskId = normalizedOptional(input.taskId)
     if (existingTaskId && parentTaskId) {
       throw new Error('A session cannot bind an existing task and create a subtask at the same time.')
+    }
+    if (existingTaskId && mintedTaskId) {
+      throw new Error('A session cannot bind an existing task and name a new one at the same time.')
     }
     // A session can execute inside a managed worktree, but its task still
     // belongs to the base project shown by the sidebar and project filters.
@@ -395,6 +422,7 @@ export async function prepareSessionTask(organizationId: string, input: PrepareS
       task = taskFromRow(updated)
     } else {
       task = await writeTask(db, organizationId, {
+        id: await clientMintedTaskId(db, organizationId, mintedTaskId),
         title: promptTitle(input.prompt),
         projectKey,
         parentId: parentTaskId,

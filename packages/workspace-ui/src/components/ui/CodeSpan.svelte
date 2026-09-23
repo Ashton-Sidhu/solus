@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tokenClassName } from "../editor/tokenStyle";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { basename, leadingDirs, parentDir } from "./lib/code-span-path";
 
@@ -11,7 +11,9 @@
   }
   let { raw = "", text }: Props = $props();
 
-  const session = getWorkspaceContext();
+  // A file path opens a preview on the person's session; a client with no
+  // session (the cloud console) shows the path as code.
+  const workspace = getSurfaceContext().workspace;
 
   // No entity decoding here: marked ≥13 hands codespan token text through
   // literally, so `&amp;` in a code span is content the author typed and
@@ -26,7 +28,7 @@
 
   const fileMatch = $derived(copyText.match(FILE_PATH_RE));
   const isSha = $derived(SHA_RE.test(copyText));
-  const isFilePath = $derived(!!fileMatch);
+  const isFilePath = $derived(!!fileMatch && !!workspace);
   const filePath = $derived(isFilePath ? (fileMatch![1] ? copyText.replace(/:(\d+)$/, '') : copyText) : '');
   const fileLine = $derived(fileMatch?.[1] ? Number(fileMatch[1]) : undefined);
 
@@ -34,7 +36,7 @@
     requestFilePreview({
       path: filePath,
       line: fileLine,
-      tabId: session.focusedChatTabId ?? session.activeTabId,
+      tabId: workspace!.focusedChatTabId ?? workspace!.activeTabId,
     });
   }
 

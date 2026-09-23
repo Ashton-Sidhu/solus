@@ -30,7 +30,7 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         provider: restoredSession?.run.provider ?? null,
         handoffFrom: restoredSession?.handoffFrom ? { ...restoredSession.handoffFrom } : undefined,
         workingDirectory:
-          restoredSession?.run.workingDirectory ?? session.globalDefaults.workingDirectory,
+          restoredSession?.run.workingDirectory ?? session.defaultRunConfig.workingDirectory,
         projectGroupPath: restoredSession?.run.projectGroupPath ?? null,
         additionalDirs: restoredSession ? [...restoredSession.additionalDirs] : [],
         gitContext: restoredSession?.run.gitContext ? { ...restoredSession.run.gitContext } : null,
@@ -39,9 +39,9 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         taskServerId: restoredSession?.run.taskServerId ?? LOCAL_SERVER_ID,
         modelConfig: restoredSession
           ? { ...restoredSession.run.modelConfig }
-          : { ...session.globalDefaults.modelConfig },
+          : { ...session.config.globalDefaults.modelConfig },
         permissionMode:
-          restoredSession?.run.permissionMode ?? session.globalDefaults.permissionMode,
+          restoredSession?.run.permissionMode ?? session.config.globalDefaults.permissionMode,
         hasUnread: tab.hasUnread ?? false,
         pendingTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingTaskId : null,
         pendingParentTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingParentTaskId : null,

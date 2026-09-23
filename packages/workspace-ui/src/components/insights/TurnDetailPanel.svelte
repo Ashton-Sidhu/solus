@@ -11,6 +11,7 @@
   import { turnAttributes } from "./lib/turn-attributes";
   import { turnTranscript } from "./lib/turn-transcript";
   import { insightsStore } from "./insights.store.svelte";
+  import { askInsights } from "./lib/ask-insights";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import SessionContextChart from "./SessionContextChart.svelte";
   import SessionSummary from "./SessionSummary.svelte";
@@ -181,7 +182,7 @@
 
   function queryThisSession(): void {
     if (!sessionId) return;
-    workspace.openInsightsForSession(sessionId);
+    void askInsights({ kind: "session", sessionId }, () => workspace.openInsights());
   }
 </script>
 

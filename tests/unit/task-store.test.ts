@@ -13,7 +13,7 @@ type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
 type TaskModule = typeof import('@solus/server/tasks/task')
 type TaskSessionsModule = typeof import('@solus/server/tasks/task-sessions')
 type TaskLinksModule = typeof import('@solus/server/tasks/task-links')
-type UlidModule = typeof import('@solus/server/tasks/ulid')
+type UlidModule = typeof import('@solus/contracts/ulid')
 
 let dataDir: string
 let db: DbModule
@@ -34,7 +34,7 @@ beforeAll(async () => {
   tasks = await import('@solus/server/tasks/task')
   taskSessions = await import('@solus/server/tasks/task-sessions')
   taskLinks = await import('@solus/server/tasks/task-links')
-  ids = await import('@solus/server/tasks/ulid')
+  ids = await import('@solus/contracts/ulid')
   ;({ migrationsFolder } = await import('@solus/server/db/migration-files'))
   testHandlerCtx = (await import('./helpers/handler-ctx')).TEST_HANDLER_CTX
 })
@@ -233,6 +233,47 @@ describe('native task CRUD', () => {
     } finally {
       unsubscribe()
     }
+  })
+
+  test('mints a session-born task under the id its client already shows', async () => {
+    // WHY: the sidebar draws the new session's row before this call returns.
+    // Minting under a fresh id made the task arrive as a second row, which the
+    // list faded in over the first one just as it settled.
+    const clientId = ids.ulid()
+    const task = await taskSessions.prepareSessionTask('local', {
+      taskId: clientId,
+      projectKey: '/workspace/solus',
+      prompt: 'Keep one row',
+    })
+    expect(task?.id).toBe(clientId)
+
+    const parentId = task!.id
+    const subtaskId = ids.ulid()
+    const subtask = await taskSessions.prepareSessionTask('local', {
+      taskId: subtaskId,
+      parentTaskId: parentId,
+      projectKey: '/workspace/solus',
+      prompt: 'Fork it',
+    })
+    expect(subtask).toMatchObject({ id: subtaskId, parentId })
+  })
+
+  test('refuses a client-minted id that is malformed, taken, or beside a bound task', async () => {
+    // WHY: one id names one task. Two sessions arriving with one id is a client
+    // bug, so the second must fail loudly instead of joining the first task.
+    await expect(taskSessions.prepareSessionTask('local', { taskId: 'not-a-ulid', prompt: 'x' }))
+      .rejects.toThrow('not a ULID')
+
+    const taken = ids.ulid()
+    await taskSessions.prepareSessionTask('local', { taskId: taken, prompt: 'first' })
+    await expect(taskSessions.prepareSessionTask('local', { taskId: taken, prompt: 'second' }))
+      .rejects.toThrow('already exists')
+
+    const existing = await taskStore.createTask('local', { title: 'Bound' })
+    await expect(taskSessions.prepareSessionTask('local', {
+      existingTaskId: existing.id,
+      taskId: ids.ulid(),
+    })).rejects.toThrow('cannot bind an existing task and name a new one')
   })
 
   test('files a worktree session under its base project', async () => {

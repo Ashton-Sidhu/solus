@@ -11,7 +11,7 @@
   import Typography from "@tiptap/extension-typography";
   import TaskList from "@tiptap/extension-task-list";
   import TaskItem from "@tiptap/extension-task-item";
-  import Image from "@tiptap/extension-image";
+  import { DocumentImage as Image } from "./lib/document-image";
   import {
     Table,
     TableRow,

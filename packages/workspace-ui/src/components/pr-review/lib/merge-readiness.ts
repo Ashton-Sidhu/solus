@@ -1,5 +1,5 @@
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
-import type { PullRequest } from '@solus/contracts/providers'
+import type { PrLifecycleAction, PullRequest } from '@solus/contracts/providers'
 import type { MergeMethod } from '@solus/contracts/types'
 import { isFailing } from '../../prs/lib/checks'
 import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from './merge-method'
@@ -32,6 +32,7 @@ export type MergeReadinessKey =
  */
 export type MergeAction =
   | { kind: 'merge'; label: string; method: MergeMethod }
+  | { kind: 'enable-auto-merge'; label: string; method: MergeMethod }
   | { kind: 'mark-ready'; label: string }
   | { kind: 'resolve-conflicts'; label: string }
   | { kind: 'fix-checks'; label: string }
@@ -65,6 +66,9 @@ interface Blocker {
   note: string
   blocked: boolean
   action: MergeAction | null
+  /** Clears on its own — CI finishing, a reviewer approving — so the host's
+   *  auto-merge can wait on it in the reader's place. */
+  awaitsRequirements?: boolean
 }
 
 // `unstable` is GitHub's yellow button: mergeable, with a non-required status
@@ -128,6 +132,74 @@ function mergeAction(detail: PullRequest): MergeAction | null {
   return { kind: 'merge', label, method }
 }
 
+/** Whether the host can arm its auto-merge here and this viewer may do it. */
+function viewerMayAutoMerge(detail: PullRequest): boolean {
+  return (
+    detail.capabilities.actions.includes('enable-auto-merge') &&
+    detail.viewerPermissions.actions.includes('enable-auto-merge') &&
+    detail.capabilities.mergeMethods.length > 0
+  )
+}
+
+/** "Auto-merge (squash)": the move and the method it will land with. */
+export function autoMergeLabel(method: MergeMethod): string {
+  const label = MERGE_METHOD_OPTIONS.find((option) => option.value === method)?.label ?? 'Merge commit'
+  return `Auto-merge (${label.toLowerCase()})`
+}
+
+/**
+ * The armed state, said where the merge button would stand: "Auto-merge on
+ * (squash)". Null unless the host holds a standing instruction to merge an open
+ * pull request.
+ */
+export function armedAutoMergeLabel(detail: PullRequest): string | null {
+  if (detail.state !== 'open' || detail.autoMergeEnabled !== true) return null
+  if (!detail.autoMergeMethod) return 'Auto-merge on'
+  return autoMergeLabel(detail.autoMergeMethod).replace('Auto-merge', 'Auto-merge on')
+}
+
+function autoMergeAction(detail: PullRequest): MergeAction | null {
+  if (!viewerMayAutoMerge(detail)) return null
+  const method = defaultMergeMethod(detail.capabilities.mergeMethods)
+  return { kind: 'enable-auto-merge', label: autoMergeLabel(method), method }
+}
+
+/** Which host actions the pull request menu offers beside the card's move. */
+export interface PrMenuHostActions {
+  enableAutoMerge: boolean
+  disableAutoMerge: boolean
+  /** Merge at once, for a reader whose card offers to wait instead. */
+  mergeNow: boolean
+  revert: boolean
+  /** The method an armed or offered auto-merge names, which "Enable
+   *  auto-merge" and "Merge now" use too, so the menu never lands a pull
+   *  request differently from what the card says. */
+  method: MergeMethod
+}
+
+export function prMenuHostActions(detail: PullRequest, primary: MergeAction | null): PrMenuHostActions {
+  const may = (action: PrLifecycleAction) =>
+    detail.capabilities.actions.includes(action) && detail.viewerPermissions.actions.includes(action)
+  const open = detail.state === 'open'
+  const armed = armedAutoMergeLabel(detail) !== null
+  const landable = open && !detail.draft && !hasMergeConflicts(detail)
+  const waiting = primary?.kind === 'enable-auto-merge' || armed
+  const methods = detail.capabilities.mergeMethods
+  const method =
+    primary?.kind === 'enable-auto-merge'
+      ? primary.method
+      : detail.autoMergeMethod && methods.includes(detail.autoMergeMethod)
+        ? detail.autoMergeMethod
+        : defaultMergeMethod(methods)
+  return {
+    enableAutoMerge: landable && !armed && primary?.kind !== 'enable-auto-merge' && viewerMayAutoMerge(detail),
+    disableAutoMerge: open && armed && may('disable-auto-merge'),
+    mergeNow: landable && waiting && viewerMayMerge(detail),
+    revert: detail.state === 'merged' && may('revert'),
+    method,
+  }
+}
+
 function agentAction(
   detail: PullRequest,
   action: Exclude<MergeAction, { kind: 'merge' | 'mark-ready' }>,
@@ -139,8 +211,8 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
-function waiting(headline: string, note: string): Blocker {
-  return { key: 'open', headline, note, blocked: false, action: null }
+function waiting(headline: string, note: string, awaitsRequirements = false): Blocker {
+  return { key: 'open', headline, note, blocked: false, action: null, awaitsRequirements }
 }
 
 /** The branch's own state: a conflict, red checks, or a head behind its base. */
@@ -190,16 +262,16 @@ function waitingBlockers(
     blockers.push(waiting('Checks unavailable', 'Refresh the checks to continue'))
   } else if (checks && (!checksCurrent || checks.state === 'pending')) {
     blockers.push(
-      waiting('Checks in progress', checksCurrent ? 'Wait for checks to finish' : 'Checks are refreshing'),
+      waiting('Checks in progress', checksCurrent ? 'Wait for checks to finish' : 'Checks are refreshing', true),
     )
   }
   if (unresolvedCount) {
-    blockers.push(waiting('Review in progress', plural(unresolvedCount, 'unresolved thread')))
+    blockers.push(waiting('Review in progress', plural(unresolvedCount, 'unresolved thread'), true))
   }
   const remainingApprovals = (detail.requiredApprovingReviewCount ?? 0) - approvedReviewCount
   if (remainingApprovals > 0) {
     blockers.push(
-      waiting('Review in progress', `${plural(remainingApprovals, 'approving review')} required`),
+      waiting('Review in progress', `${plural(remainingApprovals, 'approving review')} required`, true),
     )
   }
   return blockers
@@ -221,7 +293,7 @@ function blockersOf(input: MergeReadinessInput): Blocker[] {
     blockers.push(
       mergeStatusPending(detail)
         ? waiting('Merge status pending', 'GitHub is calculating merge readiness')
-        : waiting('Review in progress', 'Merge requirements are still pending'),
+        : waiting('Review in progress', 'Merge requirements are still pending', true),
     )
   }
   return blockers
@@ -254,6 +326,10 @@ export function mergeReadiness(input: MergeReadinessInput): MergeReadiness {
     }
   }
   const [first, second] = blockers
+  // An armed auto-merge is the host's standing move: the card offers no merge
+  // of its own beside it. A branch blocker still gets its fix, because the
+  // host will wait forever on a conflict or a red check.
+  const armed = armedAutoMergeLabel(detail) !== null
   if (!first) {
     // A red optional check does not hold the merge, but it is the one thing a
     // green card would otherwise hide — so it takes the note over the date.
@@ -266,7 +342,7 @@ export function mergeReadiness(input: MergeReadinessInput): MergeReadiness {
       headline: 'Ready to merge',
       note: optionalFailing > 0 ? `${plural(optionalFailing, 'optional check')} failing` : opened,
       blocked: false,
-      action: mergeAction(detail),
+      action: armed ? null : mergeAction(detail),
     }
   }
   // The headline names the first blocker, so the note spends its one line on
@@ -276,7 +352,11 @@ export function mergeReadiness(input: MergeReadinessInput): MergeReadiness {
     headline: first.headline,
     note: (second ?? first).note,
     blocked: first.blocked,
-    action: first.action,
+    // Nothing on the branch to fix, only something to wait for: the host can
+    // do the waiting, so the move is to ask it to merge when it is done.
+    action: first.awaitsRequirements
+      ? armed ? null : autoMergeAction(detail)
+      : first.action,
   }
 }
 

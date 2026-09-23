@@ -1,4 +1,4 @@
-import { MODEL_PROFILES } from "@solus/contracts/types";
+import { MODEL_PROFILES, isLegacyModel } from "@solus/contracts/types";
 import type { AgentId, AgentMetadata, ReasoningEffort } from "@solus/contracts/types";
 
 /**
@@ -82,6 +82,32 @@ export function modelOptionsFor(
   return profiles
     ? Object.entries(profiles).map(([id, profile]) => ({ id, label: profile.label }))
     : [];
+}
+
+interface ModelOption {
+  id: string;
+  label: string;
+}
+
+/** The disclosure row's `data-picker-value`. Namespaced so it can never collide
+ *  with a model id the keyboard navigation is looking up. */
+export const LEGACY_SECTION_VALUE = "solus:legacy-models";
+
+/**
+ * The model column in two parts: the generation we expect people to pick, and
+ * the superseded ones the picker keeps behind a disclosure. Order within each
+ * part is the provider's own — resorting would bury the newest model.
+ */
+export function splitLegacyModels(
+  provider: AgentId,
+  models: readonly ModelOption[],
+): { current: ModelOption[]; legacy: ModelOption[] } {
+  const current: ModelOption[] = [];
+  const legacy: ModelOption[] = [];
+  for (const model of models) {
+    (isLegacyModel(provider, model.id) ? legacy : current).push(model);
+  }
+  return { current, legacy };
 }
 
 export function defaultModelIdFor(

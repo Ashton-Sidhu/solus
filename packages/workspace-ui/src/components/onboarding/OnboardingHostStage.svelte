@@ -15,7 +15,6 @@
    * work here at all: its sign-in returns to the *host's* loopback address, and
    * a phone driving a remote host has no route to it.
    */
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { HardDrive as DesktopTowerIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import {
@@ -32,10 +31,10 @@
   import type { SetupAgent } from "@solus/contracts/types";
 
   const session = getWorkspaceContext();
-  const serverId = serverConnections.defaultServerId();
+  const serverId = store.serverId;
 
   const setup = $derived(store.setup);
-  const hostName = $derived(serversStore.activeServer?.label ?? "your machine");
+  const hostName = $derived(serversStore.hostFor(serverId)?.label ?? "your machine");
 
   /**
    * Nothing has been heard from the host yet, so there is nothing to report.
@@ -117,7 +116,7 @@
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">
     {#if probing}
       <div
-        class="flex h-[4.5rem] items-center gap-4 rounded-2xl bg-[var(--wash-1)] px-4"
+        class="flex h-[4.5rem] items-center gap-4 rounded-2xl bg-[var(--solus-tx-card-bg)] px-4 shadow-[shadow:var(--solus-tx-card-shadow)]"
       >
         <span class="size-10 shrink-0 rounded-full bg-[var(--wash-2)]"></span>
         <span class="flex flex-col gap-2">

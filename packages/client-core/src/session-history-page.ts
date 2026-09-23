@@ -36,8 +36,8 @@ export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHist
   return result
 }
 
-/** The critical boot read has settled before mount. Read it synchronously for
- * the first render; normal hydration still consumes the request once. */
+/** Use history in the first render if it arrived before mount. Otherwise normal
+ * hydration consumes the pending request without delaying the workspace. */
 export function readPrefetchedSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): SessionHistoryPage | undefined {
   const entry = prefetchedHistory.get(api)
   return entry?.key === historyKey(request) && entry.expiresAt > Date.now() ? entry.page : undefined

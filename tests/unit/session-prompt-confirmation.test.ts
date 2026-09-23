@@ -7,7 +7,8 @@ function fixture(messages: Message[] = []) {
     status: 'running', messages, outboundPrompts: [], currentTurnStartedAt: 1,
   } as unknown as Session
   const reducer = new SessionEventReducer({
-    registry: { sessions: { session } },
+    registry: {},
+    sessions: { byId: { session } },
     settings: { rateLimitBehavior: 'ask' },
     log: () => {},
   } as unknown as SessionEventReducerDeps)

@@ -249,11 +249,11 @@ describe('ClaudeTurnNormalizer', () => {
     expect((result as { isAsyncLaunch?: boolean }).isAsyncLaunch).toBeUndefined()
   })
 
-  test('synthesizes checkpoints and exposes permission denials in the summary', async () => {
+  test('ignores replayed prompt UUIDs and exposes permission denials in the summary', async () => {
     const { events, normalizer } = await normalizeClaudeFixture('claude-checkpoint-denials.jsonl')
 
-    expect(events[0]).toEqual({ type: 'checkpoint', checkpointId: 'checkpoint-1' })
-    expect(events[1]).toEqual({
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({
       type: 'task_complete',
       result: 'done',
       costUsd: 0,

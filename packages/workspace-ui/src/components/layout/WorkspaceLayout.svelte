@@ -28,7 +28,7 @@
 
   $effect(() => {
     const handler = () => {
-      session.unifiedPickerOpen = !session.unifiedPickerOpen;
+      session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
     };
     window.addEventListener("solus:toggle-session-picker", handler);
     return () =>

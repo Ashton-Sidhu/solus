@@ -22,7 +22,7 @@
 
 {#if variant === "tree"}
   <div class="flex flex-col gap-1.5 px-2.5 pt-2.5" aria-hidden="true">
-    <Skeleton class="mb-1.5 ml-[2.125rem] h-5 rounded" />
+    <Skeleton class="mb-1.5 mr-[2.125rem] h-5 rounded" />
     {#each TREE_ROWS as row, i (i)}
       <div
         class="flex items-center gap-2 py-[0.1875rem]"

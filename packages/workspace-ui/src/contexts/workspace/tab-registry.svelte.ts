@@ -3,16 +3,23 @@ import { hostKey } from '@solus/client-core/host-key'
 import type { Prompt, Session, Tab } from '@solus/contracts/types'
 import { branchKeyFor } from '../../lib/sessionUtils'
 import { makePrompt } from './session.factories'
+import type { SessionRecords } from './session-records.svelte'
 
+/**
+ * The mounted tab strip: which tabs exist, their order, and which is active.
+ * A tab names its session by id; the session itself belongs to
+ * `SessionRecords`, so a session outlives every tab that shows it.
+ */
 export class TabRegistry {
   tabs = $state<Record<string, Tab>>({})
-  sessions = $state<Record<string, Session>>({})
   tabOrder = $state<string[]>([])
   activeTabId = $state('')
   /** The prompt with nowhere to go: no tab is selected, so there is no session
    *  to address. Handed to the first session that gets created. */
   activeInput = $state<Prompt>(makePrompt())
   lastActiveTabByBranch = new SvelteMap<string, string>()
+
+  constructor(private readonly sessions: SessionRecords) {}
 
   /**
    * The resolver: which tabs are listening to which session.
@@ -75,7 +82,7 @@ export class TabRegistry {
 
   sessionFor(tabId: string): Session | undefined {
     const tab = this.tabs[tabId]
-    return tab ? this.sessions[tab.sessionId] : undefined
+    return tab ? this.sessions.byId[tab.sessionId] : undefined
   }
 
   resolveTab(tabId: string): { sess: Session; tab: Tab } | null {

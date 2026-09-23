@@ -79,6 +79,7 @@ export function statusColor(status: TaskStatus): string | null {
     case 'plan':
       return 'var(--solus-status-running)'
     case 'running':
+    case 'background':
       return 'var(--solus-status-running-icon)'
     // Rate limiting is a provider delay rather than a request from the user,
     // so it uses the sidebar's amber instead of the permission terracotta.
@@ -107,6 +108,7 @@ const STATUS_TEXT = new Map<TaskStatus, string>([
   ['error', 'Failed'],
   ['limit', 'Rate limited'],
   ['running', 'Running'],
+  ['background', 'Background task'],
 ])
 
 export function statusNote(status: TaskStatus): StatusNote | null {

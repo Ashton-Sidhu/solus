@@ -182,7 +182,6 @@ export interface ClaudeRunOptions {
   maxTurns?: number
   maxBudgetUsd?: number
   canUseTool?: CanUseTool
-  enableFileCheckpointing?: boolean
   persistSession?: boolean
   abortController?: AbortController
   /** Fires once when the SDK first reports a session id for this run. */
@@ -245,7 +244,6 @@ export class ClaudeAgent {
       canUseTool: opts.canUseTool ?? autoAllow,
       permissionMode: sdkPermissionMode,
       fastMode: opts.fastMode ?? false,
-      enableFileCheckpointing: opts.enableFileCheckpointing ?? false,
       persistSession: opts.persistSession ?? true,
       extraArgs: { 'replay-user-messages': null },
       env: claudeEnv(opts.seat),
@@ -481,23 +479,5 @@ export class ClaudeAgent {
       return windows
     }
     return null
-  }
-
-  async rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
-    const rewindQuery = query({
-      prompt: '',
-      options: {
-        enableFileCheckpointing: true,
-        resume: sessionId,
-        cwd: resolveHomePath(projectPath),
-        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
-        extraArgs: { 'replay-user-messages': null },
-        permissionMode: 'acceptEdits',
-      },
-    })
-    for await (const _ of rewindQuery) {
-      await rewindQuery.rewindFiles(checkpointId)
-      break
-    }
   }
 }

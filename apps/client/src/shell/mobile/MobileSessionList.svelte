@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { slide } from "svelte/transition";
   import { SHEET_ROW_META, SHEET_SECTION_LABEL } from "./lib/sheet-styles";
-  import { cubicOut } from "svelte/easing";
   import {
     Plus as PlusIcon,
     LibraryBig as BooksIcon,
@@ -41,6 +39,9 @@
   import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
   import type { SidebarTask } from "@solus/workspace-ui/components/session/lib/task-list";
   import MobileTaskRow from "./MobileTaskRow.svelte";
+  import { sidebarListMotion } from "@solus/workspace-ui/components/session/lib/sidebar-list-motion.svelte";
+  import { sidebarListOrderKey } from "@solus/workspace-ui/components/session/lib/sidebar-list-items";
+  import { buildMobileListItems } from "./lib/mobile-list-items";
   import MobileHereNow from "./MobileHereNow.svelte";
   import { swipeActions } from "@solus/workspace-ui/lib/swipe-actions";
   import MobileStateGlyph from "./MobileStateGlyph.svelte";
@@ -102,7 +103,20 @@
   // invisible. Finding something opens the shelf holding it.
   let completedExpanded = $state(false);
   const isCompletedExpanded = $derived(completedExpanded || searching);
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /** The whole drawer list as one, so every change in it animates as a change
+   *  of order. Rules shared with the desktop sidebar (`sidebar-list-items`). */
+  const listItems = $derived(
+    buildMobileListItems({
+      drafts: store.draftRows,
+      pinned: store.pinnedSessions,
+      showsLead: !searching,
+      active: session.tasksStore.loaded ? activeTasks : [],
+      snoozed: session.tasksStore.loaded ? snoozedTasks : [],
+      completed: session.tasksStore.loaded ? completedTasks : [],
+      isCompletedOpen: isCompletedExpanded,
+      shelfRevealTaskId: store.shelfRevealTaskId,
+    }),
+  );
 
   useKeybinding(
     "global.focus-sidebar-task-search",
@@ -169,7 +183,7 @@
 
   async function finishTask(task: SidebarTask) {
     try {
-      if (task.taskId) await session.tasksStore.get(task.taskId).setStatus("done");
+      if (task.taskId) await store.markTaskDone(task.taskId);
       store.closeTask(task);
     } catch (error) {
       toasts.error(
@@ -201,14 +215,14 @@
   /** Same two actions the desktop drafts section has: go back to the composer,
    *  or discard with the words held in a toast until it is dismissed. */
   function openDraft(draftId: string) {
-    session.openDraft(draftId);
+    session.drafts.openDraft(draftId);
     requestInputFocus();
     onSessionSelect();
   }
 
   function discardDraft(row: (typeof store.draftRows)[number], e: Event) {
     e.stopPropagation();
-    const discarded = session.discardSessionDraft(row.draftId);
+    const discarded = session.drafts.discardSessionDraft(row.draftId);
     if (!discarded) return;
     toasts.show({
       message: `Discarded “${row.title}”`,
@@ -216,7 +230,7 @@
         {
           label: "Undo",
           onAction: () =>
-            session.restoreSessionDrafts({
+            session.drafts.restoreSessionDrafts({
               order: [row.draftId],
               drafts: { [row.draftId]: discarded },
             }),
@@ -225,8 +239,8 @@
     });
   }
 
-  function newSession() {
-    session.openSessionDraft({ via: "click" });
+  function newTask() {
+    session.drafts.openSessionDraft({ freshTask: true, via: "click" });
     requestInputFocus();
     onSessionSelect();
   }
@@ -290,6 +304,7 @@
       <MobileTaskRow
         {task}
         {now}
+        activityAt={store.activityAtFor(task)}
         active={task.tabIds.includes(session.onScreenTabId)}
         sessionCount={sessions.length}
         reviewStatus={leadTabId ? store.childForTab(leadTabId).reviewGuideStatus : null}
@@ -344,7 +359,7 @@
         type="button"
         class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-(--wash-3) text-(--muted-foreground) transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
         onclick={() => {
-          session.unifiedPickerOpen = true;
+          session.ui.unifiedPickerOpen = true;
           onSessionSelect();
         }}
         aria-label="Open a task from the board"
@@ -353,11 +368,11 @@
       </button>
       <button
         type="button"
-        class="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--primary) px-3 font-semibold text-(--primary-foreground) transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
-        onclick={newSession}
+        class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-(--primary) text-(--primary-foreground) transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
+        onclick={newTask}
         aria-label="New task"
       >
-        <PlusIcon size={14} />New
+        <PlusIcon size={15} aria-hidden="true" />
       </button>
     </div>
 
@@ -396,70 +411,104 @@
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2.5 pb-3 [-webkit-overflow-scrolling:touch]">
-    <!-- Prompts written but never sent, above the sessions they are on their way
-         to becoming. Empty drafts earn no row, so the section is absent until
-         something is written. -->
-    {#if store.draftRows.length > 0 && !searching}
-      <div class="{SHEET_SECTION_LABEL} px-2 pt-2.5 pb-1.5">Drafts</div>
-      {#each store.draftRows as row (row.draftId)}
-        <div
-          class="flex h-[3.875rem] items-center gap-[0.6875rem] rounded-2xl px-3 active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
-          role="button"
-          tabindex="0"
-          onclick={() => openDraft(row.draftId)}
-          onkeydown={(e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            openDraft(row.draftId);
-          }}
-        >
-          <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) text-(--muted-foreground)">
-            <NotePencilIcon size={15} />
-          </span>
-          <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate font-medium text-(--solus-text-primary)">{row.title}</span>
-            <span class="mt-[0.1875rem] truncate {SHEET_ROW_META}">{row.projectLabel}</span>
-          </span>
-          {#if row.hasAttachments}
-            <span class="shrink-0 text-(--muted-foreground)" aria-label="Has attachments"><PaperclipIcon size={14} /></span>
-          {/if}
+    <!-- One list, as the desktop sidebar is: drafts and
+         pins lead, then who else is here, then the tasks and their shelves.
+         A task that changes shelf, and a draft or pin that arrives or leaves,
+         animate as a change of order (docs/plans/sidebar-motion.md, step 3).
+         Drafts, pins, and presence step aside while searching. -->
+    <div
+      class="relative flex flex-col"
+      {@attach sidebarListMotion(
+        () => sidebarListOrderKey(listItems),
+        () => settings.sidebarMotionMs,
+      )}
+    >
+      {#each listItems as item (item.key)}
+        {#if item.kind === "label"}
+          <div class="{SHEET_SECTION_LABEL} px-2 {item.label === 'Drafts' ? 'pt-2.5' : 'pt-3.5'} pb-1.5">
+            {item.label}
+          </div>
+        {:else if item.kind === "draft"}
+          <div
+            class="flex h-[3.875rem] items-center gap-[0.6875rem] rounded-2xl px-3 active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
+            role="button"
+            tabindex="0"
+            onclick={() => openDraft(item.draft.draftId)}
+            onkeydown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              openDraft(item.draft.draftId);
+            }}
+          >
+            <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) text-(--muted-foreground)">
+              <NotePencilIcon size={15} />
+            </span>
+            <span class="flex min-w-0 flex-1 flex-col">
+              <span class="truncate font-medium text-(--solus-text-primary)">{item.draft.title}</span>
+              <span class="mt-[0.1875rem] truncate {SHEET_ROW_META}">{item.draft.projectLabel}</span>
+            </span>
+            {#if item.draft.hasAttachments}
+              <span class="shrink-0 text-(--muted-foreground)" aria-label="Has attachments"><PaperclipIcon size={14} /></span>
+            {/if}
+            <button
+              type="button"
+              class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) active:bg-(--wash-3) [-webkit-tap-highlight-color:transparent]"
+              aria-label="Discard draft"
+              onclick={(e) => discardDraft(item.draft, e)}
+            >
+              <XIcon size={14} />
+            </button>
+          </div>
+        {:else if item.kind === "pin"}
+          {@const openTabId = store.openTabIdForPinned(item.pin)}
+          {@const isActive = !!openTabId && openTabId === session.onScreenTabId}
           <button
             type="button"
-            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) active:bg-(--wash-3) [-webkit-tap-highlight-color:transparent]"
-            aria-label="Discard draft"
-            onclick={(e) => discardDraft(row, e)}
+            class="flex h-[3.875rem] w-full cursor-pointer items-center gap-[0.6875rem] rounded-2xl border-0 px-3 text-left [-webkit-tap-highlight-color:transparent] {isActive
+              ? 'bg-(--wash-2)'
+              : 'bg-transparent active:bg-(--wash-1)'}"
+            onclick={() => nav(() => store.openPinnedSession(item.pin))}
           >
-            <XIcon size={14} />
+            <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) {isActive ? 'text-(--solus-accent)' : 'text-(--muted-foreground)'}">
+              <PushPinIcon size={15} />
+            </span>
+            <span class="min-w-0 flex-1 truncate font-medium {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{item.pin.title}</span>
           </button>
-        </div>
+        {:else if item.kind === "here-now"}
+          <!-- Who else is on the hosts this phone is connected to, with the way
+               to go where they are. Between the pins and the tasks. -->
+          <div class="pb-1.5">
+            <MobileHereNow onNavigate={onSessionSelect} />
+          </div>
+        {:else if item.kind === "header" && item.section === "snoozed"}
+          <div class="flex items-center gap-2 px-2 pt-4 pb-1.5">
+            <span class={SHEET_SECTION_LABEL}>Snoozed</span>
+            <span class="h-px flex-1 bg-(--hairline)"></span>
+            <span class="font-mono {SHEET_ROW_META} opacity-70">{item.count}</span>
+          </div>
+        {:else if item.kind === "header"}
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2 pt-4 pb-1.5 text-left [-webkit-tap-highlight-color:transparent]"
+            aria-expanded={item.isOpen}
+            onclick={() => (completedExpanded = !completedExpanded)}
+          >
+            <span class={SHEET_SECTION_LABEL}>Completed</span>
+            <span class="h-px flex-1 bg-(--hairline)"></span>
+            <span class="font-mono {SHEET_ROW_META} opacity-70">{item.count}</span>
+            <CaretRightIcon
+              size={14}
+              class="shrink-0 text-(--muted-foreground) transition-transform duration-150 {item.isOpen ? 'rotate-90' : ''}"
+            />
+          </button>
+        {:else}
+          <!-- A task and the runs listed under it move as one entry. -->
+          <div>
+            {@render taskRow(item.task, item.section)}
+          </div>
+        {/if}
       {/each}
-    {/if}
-
-    {#if store.pinnedSessions.length > 0 && !searching}
-      <div class="{SHEET_SECTION_LABEL} px-2 pt-3.5 pb-1.5">Pinned</div>
-      {#each store.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
-        {@const openTabId = store.openTabIdForPinned(pin)}
-        {@const isActive = !!openTabId && openTabId === session.onScreenTabId}
-        <button
-          type="button"
-          class="flex h-[3.875rem] w-full cursor-pointer items-center gap-[0.6875rem] rounded-2xl border-0 px-3 text-left [-webkit-tap-highlight-color:transparent] {isActive
-            ? 'bg-(--wash-2)'
-            : 'bg-transparent active:bg-(--wash-1)'}"
-          onclick={() => nav(() => store.openPinnedSession(pin))}
-        >
-          <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) {isActive ? 'text-(--solus-accent)' : 'text-(--muted-foreground)'}">
-            <PushPinIcon size={15} />
-          </span>
-          <span class="min-w-0 flex-1 truncate font-medium {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
-        </button>
-      {/each}
-    {/if}
-
-    <!-- Who else is on the hosts this phone is connected to, with the way to
-         go where they are. Between the pins and the tasks, as on the sidebar. -->
-    {#if !searching}
-      <MobileHereNow onNavigate={onSessionSelect} />
-    {/if}
+    </div>
 
     {#if !session.tasksStore.loaded}
       <!-- Placeholders sit on the same rhythm as the rows they stand in for, so
@@ -475,48 +524,7 @@
           </div>
         {/each}
       </div>
-    {:else if hasSessions}
-      <div class="pt-1.5">
-        {#each activeTasks as task (task.id)}
-          {@render taskRow(task, "active")}
-        {/each}
-      </div>
-
-      {#if snoozedTasks.length > 0}
-        <div class="flex items-center gap-2 px-2 pt-4 pb-1.5">
-          <span class={SHEET_SECTION_LABEL}>Snoozed</span>
-          <span class="h-px flex-1 bg-(--hairline)"></span>
-          <span class="font-mono {SHEET_ROW_META} opacity-70">{snoozedTasks.length}</span>
-        </div>
-        {#each snoozedTasks as task (task.id)}
-          {@render taskRow(task, "snoozed")}
-        {/each}
-      {/if}
-
-      {#if completedTasks.length > 0}
-        <button
-          type="button"
-          class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2 pt-4 pb-1.5 text-left [-webkit-tap-highlight-color:transparent]"
-          aria-expanded={isCompletedExpanded}
-          onclick={() => (completedExpanded = !completedExpanded)}
-        >
-          <span class={SHEET_SECTION_LABEL}>Completed</span>
-          <span class="h-px flex-1 bg-(--hairline)"></span>
-          <span class="font-mono {SHEET_ROW_META} opacity-70">{completedTasks.length}</span>
-          <CaretRightIcon
-            size={14}
-            class="shrink-0 text-(--muted-foreground) transition-transform duration-150 {isCompletedExpanded ? 'rotate-90' : ''}"
-          />
-        </button>
-        {#if isCompletedExpanded}
-          <div transition:slide={{ duration: reduceMotion ? 0 : 120, easing: cubicOut }}>
-            {#each completedTasks as task (task.id)}
-              {@render taskRow(task, "completed")}
-            {/each}
-          </div>
-        {/if}
-      {/if}
-    {:else}
+    {:else if !hasSessions}
       <!-- At the top of the pane, with the move that fixes it — not 600px of
            void with a button centred in it. -->
       <div class="mt-3 rounded-2xl bg-(--card) p-4 shadow-[shadow:var(--elev-ring)]">
@@ -531,7 +539,7 @@
         <button
           type="button"
           class="mt-3 h-11 w-full cursor-pointer rounded-lg border-0 bg-(--primary) font-semibold text-(--primary-foreground) [-webkit-tap-highlight-color:transparent]"
-          onclick={searching ? () => (taskQuery = "") : newSession}
+          onclick={searching ? () => (taskQuery = "") : newTask}
         >
           {searching ? "Clear search" : "New task"}
         </button>

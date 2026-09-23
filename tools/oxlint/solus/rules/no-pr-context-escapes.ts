@@ -43,7 +43,6 @@ const prFactRpcs = new Set([
   'prNeedsReview',
   'prGetOverview',
   'prGetDetail',
-  'prGetEfforts',
   'prChangedFiles',
   'prListCommits',
   'prListComments',

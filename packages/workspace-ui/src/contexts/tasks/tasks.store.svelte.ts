@@ -1,7 +1,13 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostKey, splitHostKey } from '@solus/client-core/host-key'
+import type { SessionStatus } from '@solus/contracts/types'
+import { attemptServerId } from '../../lib/sessionUtils'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { projectsStore } from '../projects/projects.store.svelte'
+import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type {
+  PrepareSessionTaskRequest,
   PrepareSessionTaskResult,
   Task as TaskRecord,
   TaskAssigneeCandidate,
@@ -19,6 +25,12 @@ import { Task } from './task.svelte'
 const INVALIDATION_DEBOUNCE_MS = 100
 const UPSTREAM_SEARCH_DEBOUNCE_MS = 350
 const TASK_DELETE_CONCURRENCY = 8
+
+/** The statuses in which an agent is working on a task. A session that waits
+ *  for an answer, a plan review, or a rate limit is not running. */
+export function isAgentRunningStatus(status: SessionStatus | undefined): boolean {
+  return status === 'running' || status === 'connecting'
+}
 
 /** The one spelling of a link target's identity, shared by the reverse-lookup
  *  cache and every card that reads it. */
@@ -88,16 +100,47 @@ export class TasksStore {
    *  never persisted. */
   upstreamTasksByProject = new SvelteMap<string, Task[]>()
 
-  byProject: Map<string, Task[]> = $derived.by(() => {
+  /**
+   * Tasks by the project they belong to (docs/plans/project-model.md §4): a
+   * cloud task names its repository; a host task names a path, which its host's
+   * checkout resolves to a repository. So one project lists its cloud tasks and
+   * the host tasks of every checkout of it, on any host.
+   */
+  byRepository: Map<string, Task[]> = $derived.by(() => {
     const grouped = new Map<string, Task[]>()
     for (const task of this.tasks) {
-      if (!task.projectKey) continue
-      const tasks = grouped.get(task.projectKey)
+      const projectKey = this.projectKeyOf(task)
+      if (!projectKey) continue
+      const tasks = grouped.get(projectKey)
       if (tasks) tasks.push(task)
-      else grouped.set(task.projectKey, [task])
+      else grouped.set(projectKey, [task])
     }
     return grouped
   })
+
+  /** The project a task belongs to, or null for an inbox task. */
+  projectKeyOf(task: { id: string; projectKey?: string | null }): string | null {
+    if (!task.projectKey) return null
+    return this.projectKeyAt(this.byId.get(task.id)?.serverId, task.projectKey)
+  }
+
+  /** A task's project key as filed on a host: a repository key stands as it
+   *  is; a path is resolved through that host's checkout. */
+  private projectKeyAt(serverId: string | null | undefined, projectKey: string): string {
+    if (isRepositoryKey(projectKey) || !serverId) return projectKey
+    return projectsStore.projectKeyFor(serverId, projectKey)
+  }
+
+  /** One project's tasks across hosts, and the provider tickets its checkouts
+   *  read, each ticket once. */
+  tasksInProject(projectKey: string | null | undefined): Task[] {
+    if (!projectKey) return []
+    const upstream = new Map<string, Task>()
+    for (const checkout of projectsStore.checkoutsOf(projectKey)) {
+      for (const task of this.upstreamTasksByProject.get(checkout.projectRoot) ?? []) upstream.set(task.id, task)
+    }
+    return [...(this.byRepository.get(projectKey) ?? []), ...upstream.values()]
+  }
 
   byParent: Map<string, Task[]> = $derived.by(() => {
     const grouped = new Map<string, Task[]>()
@@ -142,6 +185,14 @@ export class TasksStore {
    * index is shared between them rather than private to either.
    */
   taskIdBySessionId = new SvelteMap<string, string>()
+  /**
+   * The sessions each host reports as running, keyed by `hostKey`. A task link
+   * only says a session exists; this says whether its agent works now. It
+   * holds only what `session.statusChanged` has said since this client
+   * connected, so a host's entries go when its connection drops rather than
+   * stay "running" for a turn that ended while nobody was listening.
+   */
+  private runningSessionKeys = new SvelteSet<string>()
   /**
    * Which tasks link each target, keyed by `linkTargetKey` — what a
    * conversation card reads to say "Linked to T-184" beside the document it
@@ -190,8 +241,11 @@ export class TasksStore {
     // wait through the whole retry ladder, so including it in a federated read
     // would keep healthy hosts out of the sidebar. Read it only after this edge,
     // then merge its rows into the snapshot already on screen.
-    serverConnections.onPhaseChange((_serverId, phase) => {
-      if (phase !== 'connected') return
+    serverConnections.onPhaseChange((serverId, phase) => {
+      if (phase !== 'connected') {
+        this.forgetRunningSessions(serverId)
+        return
+      }
       this.hostGeneration++
       void this.load()
     })
@@ -216,6 +270,40 @@ export class TasksStore {
         void this.refreshLinkedTasks(serverId)
       }, INVALIDATION_DEBOUNCE_MS)
     })
+    serverConnections.eventsFor(serverId).subscribe('session.statusChanged', (event) => {
+      // A handoff re-keys a link from the provider id to the stable Solus id,
+      // so both names answer for the one session.
+      for (const sessionId of [event.sessionId, event.agentSessionId]) {
+        if (!sessionId) continue
+        const key = hostKey(serverId, sessionId)
+        if (isAgentRunningStatus(event.status)) this.runningSessionKeys.add(key)
+        else this.runningSessionKeys.delete(key)
+      }
+    })
+  }
+
+  /** Whether the host reported this session running, as far as this client heard. */
+  isSessionRunning(serverId: string | null | undefined, sessionId: string): boolean {
+    return !!serverId && this.runningSessionKeys.has(hostKey(serverId, sessionId))
+  }
+
+  /** Whether an agent works on one task attempt now. An open tab knows its own
+   *  session's status, including a turn that began before this client
+   *  connected; the host's feed answers for a session with no tab. */
+  isAttemptRunning(
+    link: Pick<TaskSessionLink, 'sessionId' | 'executionServerId'>,
+    taskServerId: string | null,
+    openSessionFor: (sessionId: string, serverId: string | undefined) => { status: SessionStatus } | undefined,
+  ): boolean {
+    const serverId = attemptServerId({ link, taskServerId })
+    const open = openSessionFor(link.sessionId, serverId ?? undefined)
+    return open ? isAgentRunningStatus(open.status) : this.isSessionRunning(serverId, link.sessionId)
+  }
+
+  private forgetRunningSessions(serverId: string): void {
+    for (const key of [...this.runningSessionKeys]) {
+      if (splitHostKey(key).serverId === serverId) this.runningSessionKeys.delete(key)
+    }
   }
 
   // --- Reverse links ------------------------------------------------------
@@ -356,40 +444,18 @@ export class TasksStore {
     this.hostByProjectKey.set(projectKey, serverId)
   }
 
-  /**
-   * Which host a project's tasks live on, inferred from the tasks already filed
-   * against it. A project this store has never seen a task for returns null, and
-   * the caller falls back to the primary host — correct for the single-host case
-   * and for a project whose first task is being created right here.
-   *
-   * This spares every task surface from threading a host id it would only be
-   * re-deriving from the same place.
-   */
-  hostForProject(projectKey: string | null | undefined): string | null {
-    if (!projectKey) return null
-    const providerHost = this.hostByProjectKey.get(projectKey)
-    if (providerHost) return providerHost
-    for (const task of this.tasks) {
-      if (task.projectKey !== projectKey) continue
-      const serverId = this.byId.get(task.id)?.serverId
-      if (serverId) return serverId
-    }
-    return null
-  }
-
-  tasksForProject(projectKey: string | null | undefined): Task[] {
-    if (!projectKey) return []
-    return [
-      ...(this.byProject.get(projectKey) ?? []),
-      ...(this.upstreamTasksByProject.get(projectKey) ?? []),
-    ]
+  /** The tasks of the project a checkout belongs to — every host's and the
+   *  cloud's, not only those filed under this path. */
+  tasksForCheckout(serverId: string | null | undefined, path: string | null | undefined): Task[] {
+    if (!path) return []
+    return this.tasksInProject(this.projectKeyAt(serverId, path))
   }
 
   /** Every label in use across a project's tasks — or across the inbox for a
    *  task with no project — in name order. What a label picker offers beside
    *  the labels the record already carries. */
-  knownLabels(projectKey: string | null | undefined): string[] {
-    const tasks = projectKey ? this.tasksForProject(projectKey) : this.inbox
+  knownLabels(serverId: string | null | undefined, projectKey: string | null | undefined): string[] {
+    const tasks = projectKey ? this.tasksForCheckout(serverId, projectKey) : this.inbox
     return Array.from(new Set(tasks.flatMap((task) => task.labels))).sort((a, b) =>
       a.localeCompare(b),
     )
@@ -412,9 +478,9 @@ export class TasksStore {
   /** Load provider identities only when the assignee menu opens. */
   loadAssigneeCandidates(
     cwd: string,
-    opts?: { force?: boolean; serverId?: string },
+    opts: { force?: boolean; serverId: string },
   ): Promise<TaskAssigneeCandidate[]> {
-    if (!opts?.force && this.assigneeCandidatesByCwd.has(cwd)) {
+    if (!opts.force && this.assigneeCandidatesByCwd.has(cwd)) {
       return Promise.resolve(this.assigneeCandidatesByCwd.get(cwd) ?? [])
     }
     const pending = this.assigneeCandidateLoadsByCwd.get(cwd)
@@ -423,9 +489,7 @@ export class TasksStore {
     this.assigneeCandidatesErrorByCwd.delete(cwd)
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(cwd) ?? serverConnections.defaultServerId()
-        if (!serverId) throw new Error('Primary Solus connection has not been registered')
-        const candidates = await serverConnections.apiFor(serverId).tasksListAssigneeCandidates(cwd)
+        const candidates = await serverConnections.apiFor(opts.serverId).tasksListAssigneeCandidates(cwd)
         this.assigneeCandidatesByCwd.set(cwd, candidates)
         return candidates
       } catch (error) {
@@ -461,15 +525,13 @@ export class TasksStore {
    *  other machine, so a remote project's status must be read from its own. */
   loadProviderStatus(
     cwd: string,
-    opts?: { checkAccess?: boolean; serverId?: string },
+    opts: { checkAccess?: boolean; serverId: string },
   ): Promise<TaskProviderStatus> {
     const pending = this.providerStatusLoadsByCwd.get(cwd)
     if (pending) return pending
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(cwd) ?? serverConnections.defaultServerId()
-        if (!serverId) throw new Error('Primary Solus connection has not been registered')
-        const status = await serverConnections.apiFor(serverId).tasksProviderStatus(cwd, opts)
+        const status = await serverConnections.apiFor(opts.serverId).tasksProviderStatus(cwd, { checkAccess: opts.checkAccess })
         this.providerStatusByCwd.set(cwd, status)
         return status
       } catch (err) {
@@ -624,12 +686,12 @@ export class TasksStore {
    * failing the local list. */
   async loadUpstream(
     projectKey: string,
-    opts?: { serverId?: string; query?: string },
+    opts: { serverId: string; query?: string },
   ): Promise<void> {
     // An absent `query` keeps whatever search is active, so an ordinary refresh
     // does not throw the user back to the unfiltered list. An empty one clears
     // it — that is how the page says "the search box is empty now".
-    const query = opts?.query === undefined
+    const query = opts.query === undefined
       ? this.upstreamQueryByProject.get(projectKey) ?? ''
       : opts.query.trim()
     const pending = this.upstreamLoadsByProject.get(projectKey)
@@ -646,11 +708,9 @@ export class TasksStore {
     this.upstreamErrorByProject.delete(projectKey)
     const load = (async () => {
       try {
-        const serverId = opts?.serverId ?? this.hostForProject(projectKey) ?? serverConnections.defaultServerId()
-        if (!serverId) throw new Error('Primary Solus connection has not been registered')
-        const upstream = await serverConnections.apiFor(serverId)
+        const upstream = await serverConnections.apiFor(opts.serverId)
           .tasksListUpstream(projectKey, { query })
-        this.hostByProjectKey.set(projectKey, serverId)
+        this.hostByProjectKey.set(projectKey, opts.serverId)
         this.replaceUpstreamRows(projectKey, upstream.tasks)
         if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
         else this.upstreamFromCacheByProject.delete(projectKey)
@@ -694,14 +754,14 @@ export class TasksStore {
    * Debounced, because this is a keystroke handler and the far end is a network
    * search.
    */
-  searchUpstream(projectKey: string, query: string): void {
+  searchUpstream(serverId: string, projectKey: string, query: string): void {
     const trimmed = query.trim()
     const timer = this.upstreamSearchTimers.get(projectKey)
     if (timer) clearTimeout(timer)
     if (trimmed === (this.upstreamQueryByProject.get(projectKey) ?? '')) return
     this.upstreamSearchTimers.set(projectKey, setTimeout(() => {
       this.upstreamSearchTimers.delete(projectKey)
-      void this.loadUpstream(projectKey, { query: trimmed })
+      void this.loadUpstream(projectKey, { serverId, query: trimmed })
     }, UPSTREAM_SEARCH_DEBOUNCE_MS))
   }
 
@@ -796,12 +856,11 @@ export class TasksStore {
   }
 
   /** `serverId` is the host the task belongs to — the one that owns the project
-   *  it was created from. Omitted, it lands on the default host. */
-  async create(input: TaskCreateInput, serverId?: string): Promise<Task> {
-    const host = serverId ?? this.hostForProject(input.projectKey) ?? serverConnections.defaultServerId()
-    if (!host) throw new Error('Primary Solus connection has not been registered')
-    const created = await serverConnections.apiFor(host).tasksCreate(input)
-    return this.get(created.id).hydrate(created, host)
+   *  it was created from. Required: a project path alone does not name a host,
+   *  and guessing one filed a remote project's first task on the default host. */
+  async create(input: TaskCreateInput, serverId: string): Promise<Task> {
+    const created = await serverConnections.apiFor(serverId).tasksCreate(input)
+    return this.get(created.id).hydrate(created, serverId)
   }
 
   /**
@@ -818,7 +877,7 @@ export class TasksStore {
    */
   async prepareForSession(
     serverId: string,
-    input: { existingTaskId?: string | null; parentTaskId?: string | null; projectKey?: string | null; prompt?: string; includeSnapshot?: boolean },
+    input: PrepareSessionTaskRequest,
   ): Promise<PrepareSessionTaskResult> {
     const result = await serverConnections.apiFor(serverId).tasksPrepareForSession(input)
     if (result.task) this.get(result.task.id).hydrate(result.task, serverId)

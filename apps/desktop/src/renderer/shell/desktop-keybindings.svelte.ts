@@ -64,7 +64,7 @@ export function installDesktopKeybindings(
   useKeybinding("global.open-host-project", () => {
     const pageServerId =
       session.projectPageScope.kind === "project"
-        ? session.projectPageScope.project.serverId
+        ? session.projectPageScope.checkout?.serverId
         : serversStore.activeServerId;
     if (session.hasProjectPageOpen) {
       window.dispatchEvent(
@@ -95,13 +95,13 @@ export function installDesktopKeybindings(
     startOpenProject({ sourceId: session.focusedSourceId ?? undefined });
   });
   useKeybinding("global.new-task", () => {
-    session.openSessionDraft({ freshTask: true, via: "keybinding" });
+    session.drafts.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
-    session.openSessionDraft({ withoutTask: true, via: "keybinding" });
+    session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session", () => {
-    session.openSessionDraft({ via: "keybinding" });
+    session.drafts.openSessionDraft({ via: "keybinding" });
   });
   // Files a task in the active session's project. The tasks page binds this id
   // too — it knows which project its header is pinned to — so this handler
@@ -109,8 +109,8 @@ export function installDesktopKeybindings(
   useKeybinding(
     "global.create-task",
     () => {
-      const taskCwd = session.tasksProjectCwd;
-      if (taskCwd) session.openTaskComposer(taskCwd, true);
+      const context = session.taskCreationContext;
+      if (context) session.openTaskComposer(context.serverId, context.projectKey, true);
     },
     {
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
@@ -120,7 +120,7 @@ export function installDesktopKeybindings(
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
       tabIds,
-      session.tabGroupMode,
+      session.config.tabGroupMode,
       (id) => session.resolveTab(id),
       planStore.plans,
     ).flatMap((s) => s.tabIds);
@@ -209,13 +209,13 @@ export function installDesktopKeybindings(
   // shortcut open the same surface. Both are kept: the muscle memory for either
   // one lands somewhere correct.
   useKeybinding("global.task-picker", () => {
-    session.unifiedPickerOpen = !session.unifiedPickerOpen;
+    session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
   });
   useKeybinding("global.close-tab", () => {
     if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
-    session.toggleTabGroupMode("keybinding");
+    session.config.toggleTabGroupMode();
   });
   useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
   useKeybinding(
@@ -387,9 +387,7 @@ export function installDesktopKeybindings(
   // The git sub-pages only exist while a session sits in a repository, matching
   // the condition that builds those commands.
   const hasGitContext = $derived(
-    !!(
-      session.activeSession?.run.gitContext ?? session.globalDefaults.gitContext
-    ),
+    !!sessionEnvironmentStore.environmentFor(session.activeSession?.run).checkout,
   );
 
   useKeybinding(
@@ -405,7 +403,7 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.new-session-worktree",
-    () => void session.createWorktreeTab(),
+    () => void session.opening.createWorktreeTab(),
     {
       enabled: () => hasGitContext,
     },

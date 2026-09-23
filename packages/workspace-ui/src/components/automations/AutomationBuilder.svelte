@@ -540,7 +540,7 @@
     const automationCwd = current?.action.cwd ?? cwd;
     // Resume the spawned run as a session so the user can inspect what it did,
     // under the exact directory used by that run (drafts may hold unsaved edits).
-    void session.resumeSession({
+    void session.opening.resumeSession({
       provider: current?.action.agentProvider ?? agentProvider,
       serverId: selectedServerId,
       sessionId: run.agentSessionId,

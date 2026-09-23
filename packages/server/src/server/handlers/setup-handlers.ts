@@ -6,6 +6,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { z } from 'zod'
 import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
 import { providerLoginConnected, type LoginProbe } from '../../seats/seat-login'
+import { seatUserFor, type SeatStore } from '../../seats/seat-manager'
+import type { SeatProvider } from '@solus/contracts/seats'
+import { GithubConnectionRequiredError } from '../../providers/github/connection-required'
+import { usesAccountIntegration } from '../../vault/provider-credentials'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
@@ -106,6 +110,11 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   assertNewWorkAllowed?: () => void
   onActiveStepsChanged?: (count: number) => void
   onProviderInstalled?: (agent: SetupAgent) => Promise<void>
+  /**
+   * The caller's own provider seat answers "signed in" (provider-seats.md): a member
+   * of a managed host signs in to their seat, never to the host login.
+   */
+  seats?: Pick<SeatStore, 'status'>
 }
 
 export interface AgentAuthProbeDeps {
@@ -290,6 +299,14 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     await recordProject(path)
     return resolveProjectKey(path)
   })
+  /** The auth probes for the caller: their seat when the host has seats, else the host login. */
+  const agentDepsFor = (ctx: HandlerCtx): AgentAuthProbeDeps => {
+    const seats = deps.seats
+    if (!seats) return deps
+    const seatUserId = seatUserFor(ctx.principal)
+    const connected = async (provider: SeatProvider) => (await seats.status(seatUserId, provider)).state === 'connected'
+    return { ...deps, hasClaudeAuth: () => connected('claude-code'), hasCodexAuth: () => connected('codex') }
+  }
   const activeSteps = new Set<SetupStreamStep>()
   /** The one path `clean: true` is allowed to delete: what this host's last clone left behind. */
   let lastFailedCloneDestination: string | null = null
@@ -347,10 +364,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     })
   })
 
-  server.register('setupCheckAgentAuth', (args): Promise<SetupAgentAuthCheckResult> => {
+  server.register('setupCheckAgentAuth', (args, ctx): Promise<SetupAgentAuthCheckResult> => {
     const [request] = args
     const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
-    return checkAgentAuth(setupAgent, deps)
+    return checkAgentAuth(setupAgent, agentDepsFor(ctx))
   })
 
   // Signing an agent in is the seat connect (`seatConnectStart` and friends): the
@@ -377,7 +394,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('setupHostReadiness', (_args, ctx): Promise<HostReadiness> => {
-    return probeHostReadiness(hasCommand, deps, projectsRootOf(ctx))
+    return probeHostReadiness(hasCommand, agentDepsFor(ctx), projectsRootOf(ctx))
   })
 
   server.register('setupInstallGit', (_args, ctx) => {
@@ -560,15 +577,20 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       const parent = dirname(targetPath)
       await mkdir(parent, { recursive: true })
       let auth: CloneAuth | null = null
+      // A GitHub clone over HTTPS that had no token to offer: on a host that
+      // clones with the account's connection, that is the likely cause.
+      let githubAttemptWithoutToken = false
 
       for (const [index, attemptUrl] of cloneUrls.entries()) {
         const isHttps = attemptUrl.startsWith('https://')
         const attemptParts = parseCloneUrlParts(attemptUrl)
+        const isGithubHttps = isHttps && attemptParts?.host.toLowerCase() === 'github.com'
         const token = credential ?? (
-          isHttps && attemptParts?.host.toLowerCase() === 'github.com'
+          isGithubHttps
             ? await safeLoadGithubToken(loadStoredGithubToken)
             : null
         )
+        if (isGithubHttps && !token) githubAttemptWithoutToken = true
         const askpass = token ? await createGitAskpassHelper() : null
         try {
           auth = await attemptClone({
@@ -593,6 +615,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
             if (!targetExistedBeforeClone && existsSync(targetPath)) {
               lastFailedCloneDestination = targetPath
             }
+            if (githubAttemptWithoutToken && usesAccountIntegration()) throw new GithubConnectionRequiredError()
             throw err
           }
 

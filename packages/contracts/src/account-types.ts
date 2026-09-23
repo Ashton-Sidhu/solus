@@ -26,6 +26,8 @@ export type AccountState =
   | {
       kind: 'signed-in'
       profile: AccountProfile
+      /** The account website this session belongs to, where the account and its teams are managed. */
+      consoleUrl: string
       signedInAt: number
       /** When the website last confirmed the session; older than `signedInAt` never. */
       lastVerifiedAt: number

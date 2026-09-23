@@ -48,9 +48,9 @@ describe('whose seat a prompt runs on', () => {
     expect(seatUserFor(GUEST_OF_BOB)).toBe('bob')
     // The ledger still names the guest as the author; the room and the transcript
     // get the name the principal carries.
-    expect(turnActorFor(GUEST_OF_BOB)).toEqual({ userId: 'guest:g1', seatUserId: 'bob', displayName: GUEST_OF_BOB.kind === 'guest' ? GUEST_OF_BOB.displayName : '' })
-    expect(turnActorFor(BOB)).toEqual({ userId: 'bob', seatUserId: 'bob', displayName: BOB.kind === 'org-member' ? BOB.displayName : '' })
-    expect(turnActorFor(OWNER)).toEqual({ userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID, displayName: 'Host owner' })
+    expect(turnActorFor(GUEST_OF_BOB)).toEqual({ credentialUserId: 'bob', userId: 'guest:g1', seatUserId: 'bob', displayName: GUEST_OF_BOB.kind === 'guest' ? GUEST_OF_BOB.displayName : '' })
+    expect(turnActorFor(BOB)).toEqual({ credentialUserId: 'bob', userId: 'bob', seatUserId: 'bob', displayName: BOB.kind === 'org-member' ? BOB.displayName : '' })
+    expect(turnActorFor(OWNER)).toEqual({ credentialUserId: null, userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID, displayName: 'Host owner' })
   })
 })
 

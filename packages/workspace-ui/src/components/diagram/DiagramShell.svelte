@@ -22,7 +22,7 @@
   import { downloadPayload } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
   import type { PlanComment, SessionMeta } from "@solus/contracts/types";
-  import { getClientShellContext, getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, getSettingsContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { toasts } from "../../lib/toasts";
@@ -220,7 +220,7 @@
 
   const theme = getSettingsContext();
   const keybindings = getKeybindingsContext();
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const shell = getClientShellContext();
   setMarkdownImageContext({
     cwd: () => undefined,
@@ -419,10 +419,10 @@
   // DocumentModal): the threads resolve rather than vanish, so the record of a
   // round of feedback stays on the diagram for everyone who can open it.
   async function sendCommentsToAgent() {
-    if (!workId || comments.length === 0) return;
+    if (!workId || comments.length === 0 || !session.workspace) return;
     const body = formatInlineComments($state.snapshot(comments));
     const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
-    const sent = await session.sendMessageToNewWorkSession(workId, msg);
+    const sent = await session.workspace.sendMessageToNewWorkSession(workId, msg);
     if (!sent) return;
     await session.worksStore.resolveOpenAnnotationComments(workId);
     applyTransientState();
@@ -637,6 +637,10 @@
   let isSaving = $state(false);
   let hasPendingSave = $state(false);
   let saveFailed = $state(false);
+  // Why the last save failed. The header's retry affordance says *that* a save
+  // failed; without the host's reason the reader cannot tell a stale cloud copy
+  // from a read-only mirror from a dropped connection.
+  let saveError = $state<string | null>(null);
   let lastSavedAt = $state<number | null>(null);
   let savedStatusNow = $state(Date.now());
   const showSaving = $derived(hasPendingSave || isSaving);
@@ -1140,14 +1144,18 @@
       await onSave(contentToSave);
       if (revision !== saveRevision) return;
       saveFailed = false;
+      saveError = null;
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
       if (!hasPendingSave) onDirtyChange?.(false);
-    } catch {
+    } catch (error) {
       // Keep the dirty flag on failure — clearing it would let the host treat
       // unsaved edits as clean (and an agent refresh clobber them). The header
       // shows a retry affordance and any further edit re-arms the save.
-      if (revision === saveRevision) saveFailed = true;
+      if (revision === saveRevision) {
+        saveFailed = true;
+        saveError = error instanceof Error ? error.message : String(error);
+      }
     } finally {
       if (revision === saveRevision) isSaving = false;
     }
@@ -2510,7 +2518,9 @@
           type="button"
           class="diagram-shell__save-retry"
           onclick={retrySave}
-          title="The last save failed — click to retry"
+          title={saveError
+            ? `${saveError} Click to retry.`
+            : "The last save failed — click to retry"}
         >
           Save failed — retry
         </button>
@@ -2979,7 +2989,7 @@
           onEdit={editComment}
           onDelete={deleteComment}
           onScrollTo={scrollToComment}
-          onSendToAgent={sendCommentsToAgent}
+          onSendToAgent={session.workspace ? sendCommentsToAgent : null}
           onClose={() => {
             commentsOpen = false;
             shellEl?.focus();

@@ -18,6 +18,7 @@
     ChevronDown as CaretDownIcon,
     GitPullRequest as GitPullRequestIcon,
     Bell as BellIcon,
+    Palette as PaletteIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -31,8 +32,8 @@
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
-  import SettingsTabModelRouting from "./SettingsTabModelRouting.svelte";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
+  import SettingsTabAppearance from "./SettingsTabAppearance.svelte";
   import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
   import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
@@ -44,6 +45,7 @@
   import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
   import SettingsTabTelemetry from "./SettingsTabTelemetry.svelte";
   import SettingsTabProjects from "./SettingsTabProjects.svelte";
+  import SettingsCloudProjects from "./SettingsCloudProjects.svelte";
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -66,19 +68,21 @@
     hiddenFromNav?: boolean;
   }
 
+  // Group order is first-appearance order: Workspace, then Capabilities,
+  // Input, Advanced. Within a group the list order is the nav order.
   const ALL_TABS: TabMeta[] = [
-    {
-      id: "model-routing",
-      label: "Model routing",
-      description: "Choose models and provider priority for Auto sessions.",
-      icon: SparkleIcon,
-      group: "Capabilities",
-    },
     {
       id: "general",
       label: "General",
-      description: "Appearance, agent defaults, and how sessions use your disk.",
+      description: "Agent defaults, sessions, and how projects use your disk.",
       icon: SlidersHorizontalIcon,
+      group: "Workspace",
+    },
+    {
+      id: "appearance",
+      label: "Appearance",
+      description: "Theme, typefaces, and text sizes on this device.",
+      icon: PaletteIcon,
       group: "Workspace",
     },
     {
@@ -205,7 +209,6 @@
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
   );
   const hostFramedTab = $derived(
-    session.settingsTab === "model-routing" ||
     session.settingsTab === "general" ||
       session.settingsTab === "projects" ||
       session.settingsTab === "source-control" ||
@@ -217,9 +220,11 @@
   let selectedSettingsServerId = $state(
     serverConnections.defaultServerId() ?? "",
   );
+  // Machines only: the workspace service is a connection this client holds,
+  // not a host with settings of its own (docs/plans/cloud-service-model.md §15).
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
-    return serverConnections.connectedServerIds().map((serverId) => ({
+    return serverConnections.connectedServerIds().filter((serverId) => !serversStore.isCloudHost(serverId)).map((serverId) => ({
       serverId,
       label:
         serversStore.hostFor(serverId)?.label ??
@@ -320,11 +325,18 @@
   {#if runtime.isMobileViewport && hostFramedTab}
     {@render hostFrame()}
   {/if}
-  {#if session.settingsTab === "projects" && selectedSettingsHost && selectedSettingsApi}
-    <SettingsTabProjects
-      serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
-    />
+  {#if session.settingsTab === "projects"}
+    <!-- The organization's projects are the account's, whichever host is
+         selected; the host's own folders follow them. -->
+    <div class="flex flex-col gap-8">
+      <SettingsCloudProjects />
+      {#if selectedSettingsHost && selectedSettingsApi}
+        <SettingsTabProjects
+          serverId={selectedSettingsHost.serverId}
+          api={selectedSettingsApi}
+        />
+      {/if}
+    </div>
   {:else if session.settingsTab === "source-control" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabSourceControl
       serverId={selectedSettingsHost.serverId}
@@ -337,8 +349,8 @@
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
-  {:else if session.settingsTab === "model-routing" && selectedSettingsHost}
-    <SettingsTabModelRouting {searchQuery} serverId={selectedSettingsHost.serverId} />
+  {:else if session.settingsTab === "appearance"}
+    <SettingsTabAppearance {searchQuery} />
   {:else if session.settingsTab === "notifications"}
     <SettingsTabNotifications {searchQuery} />
   {:else if session.settingsTab === "instructions"}
@@ -444,10 +456,10 @@
     {@render tabChips('px-4 pt-1 pb-3')}
 
     <div
-      class="flex-1 overflow-y-auto px-4 pt-1 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch]"
+      class="flex-1 overflow-y-auto px-4 pt-1 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] [overscroll-behavior-y:contain] [-webkit-overflow-scrolling:touch] [&_button]:font-normal"
       role="tabpanel"
     >
-      <div class="flex flex-col gap-5">
+      <div class="flex flex-col gap-8">
         {@render tabContent()}
       </div>
     </div>
@@ -565,7 +577,7 @@
            below it, and not above the sections, where a duplicate of it pushed
            the first setting a screenful down. -->
       <header
-        class="workspace-titlebar h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0 [.is-laptop-display_&]:px-7"
+        class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0 [.is-laptop-display_&]:px-7"
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">
@@ -632,14 +644,18 @@
       </div>
 
       <div
-        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [.is-laptop-display_&]:px-7"
+        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [.is-laptop-display_&]:px-7 [&_button]:font-normal"
         role="tabpanel"
         style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
       >
-        <!-- Fluid reading column: grows with the *pane* between 45rem and 72rem.
-             `w-full` keeps it from overflowing narrow panes — max-width only caps. -->
-        <div class="mx-auto w-full max-w-[clamp(45rem,66cqi,72rem)] pt-8 pb-16 [.is-laptop-display_&]:max-w-[60rem] [.is-laptop-display_&]:pt-6 [.is-laptop-display_&]:pb-12">
-          <div class="flex flex-col gap-7 [.is-laptop-display_&]:gap-5">
+        <!-- Reading column: a fixed 56rem measure, the width a settings row
+             stays legible at. A control sits at the trailing edge of its row,
+             so a column that grew with the pane put a 1200px gap between a
+             description and the switch it describes on a wide display. A wide
+             pane shows margin instead. `w-full` keeps it from overflowing
+             panes narrower than that. -->
+        <div class="mx-auto w-full max-w-4xl py-6">
+          <div class="flex flex-col gap-8">
             {@render tabContent()}
           </div>
         </div>

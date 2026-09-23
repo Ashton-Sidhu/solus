@@ -16,6 +16,7 @@ test('explicit fence identity connects revisions without merging separate visual
   expect(revisions.get('fence:chart')?.map((entry) => entry.messageId)).toEqual(['first', 'last'])
   expect(revisions.get('fence:alternative')).toHaveLength(1)
   expect(revisions.get('fence:chart')?.[0].html).toBe('<p>One</p>')
+  expect(revisions.get('fence:chart')?.every((entry) => entry.identity === 'fence:chart')).toBe(true)
 })
 
 test('an incomplete or source fence cannot collapse the last completed render', () => {

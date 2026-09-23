@@ -7,7 +7,7 @@
   import { highlightRuns } from "../../lib/searchHighlight";
   import { peekBody, peekBox, peekOutline } from "./lib/workspace-peek";
   import { parseDiagram, summarizeDiagram } from "@solus/contracts/diagram-types";
-  import { getWorkspaceContext, getPlanStore } from "../../contexts";
+  import { getSurfaceContext, getPlanStore } from "../../contexts";
   import { portal } from "../portal";
   import { BottomSheet } from "../ui/bottom-sheet";
 
@@ -62,7 +62,7 @@
     onClose,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const planStore = getPlanStore();
 
   const KIND_LABELS = { plan: "Plan", doc: "Doc", diagram: "Diagram" } as const;
@@ -86,7 +86,9 @@
       if (work) loadedContent = { id: target.id, content: work.content };
       return;
     }
-    await session.loadPlanContent(target.source.descriptor);
+    // A plan is a session artifact; only the workspace reads one.
+    if (!session.workspace) return;
+    await session.workspace.loadPlanContent(target.source.descriptor);
     loadedContent = {
       id: target.id,
       content: planStore.get(target.id)?.content ?? "",

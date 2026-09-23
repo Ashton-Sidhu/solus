@@ -23,6 +23,12 @@ export const CODEX_TOKEN_PRICING = {
   'gpt-6-astra': {
     standard: { input: 10, cachedInput: 1, cacheWrite: 10, output: 50 },
   },
+  'gpt-6-sol': {
+    standard: { input: 2, cachedInput: 0.2, cacheWrite: 2, output: 10 },
+  },
+  'gpt-6-luna': {
+    standard: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.1, output: 0.5 },
+  },
   'gpt-5.6-sol': {
     standard: { input: 5, cachedInput: 0.5, cacheWrite: 6.25, output: 30 },
     longContext: { thresholdTokens: 272_000, input: 10, cachedInput: 1, cacheWrite: 12.5, output: 45 },

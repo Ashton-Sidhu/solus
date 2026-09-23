@@ -16,16 +16,17 @@
   } from "@lucide/svelte";
   import type { PlanDescriptor, Work } from "@solus/contracts/types";
   import {
-    getWorkspaceContext,
+    getClientShellContext,
+    getSurfaceContext,
     getPlanStore,
     runtime,
     projectsStore,
-    mergeProjectOptions,
-    projectRefKey,
     serversStore,
     type ProjectRef,
   } from "../../contexts";
+  import type { ProjectPageScope } from "../../contexts/projects/project-catalog";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
+  import { toasts } from "../../lib/toasts";
   import { projectDirLabel } from "../../lib/paths";
   import { liveSessionTitle } from "../../lib/sessionUtils";
   import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
@@ -35,7 +36,7 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
-    ListProjectSwitcher,
+    ListProjectFilter,
     ListFilterMenu,
     ListFilterGroup,
     ListSortMenu,
@@ -76,14 +77,21 @@
     sortItems,
   } from "./lib/workspace-items";
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
+  // The ledger is mounted by the workspace and by the cloud console alike
+  // (docs/plans/cloud-console-native-pages.md §9). Plans, the sessions a row
+  // leads back to, the split opens, the catalog's history, and the page's
+  // close need a workspace.
+  const workspace = session.workspace;
+  const shell = getClientShellContext();
   const planStore = getPlanStore();
 
   const PINNED_PREVIEW = 6;
   const RENDER_PAGE = 80;
   const PINNED_COLLAPSED_KEY = "solus.workspace.pinned-collapsed";
 
-  const open = $derived(session.router.at("folio"));
+  // A console page is open for as long as it is mounted.
+  const open = $derived(workspace?.router.at("folio") ?? true);
 
   // ── Data ──
   const descriptorsKey = planStore.descriptorCacheKey(undefined, true);
@@ -97,46 +105,41 @@
       (w) => session.worksStore.pendingWorkDelete?.id !== w.id,
     ),
   );
-  // ── Project scope. The workspace captures the visible surface before this
-  //    page replaces it, then this page owns the shared page scope. ──
+  // ── Project scope. The page owns the shared page scope; the tab in focus
+  //    never sets it (docs/plans/project-model.md §5). ──
+  // The Workspace opens on All projects, whatever scope Tasks, Pull requests,
+  // or Automations last left in the shared value. A scope chosen while the
+  // page is open — from its Filters menu, ⌥C, or the shell's project picker —
+  // applies here and to the other pages, as before.
+  const sharedScopeKey = $derived(
+    session.projectPageScope.kind === "project" ? session.projectPageScope.key : "all",
+  );
+  let scopeKeyAtOpen = $state<string | null>(null);
+  let hasChosenScope = $state(false);
+  const pageScope = $derived<ProjectPageScope>(
+    hasChosenScope || sharedScopeKey !== scopeKeyAtOpen
+      ? session.projectPageScope
+      : { kind: "all" },
+  );
+  const pageKey = $derived(pageScope.kind === "project" ? pageScope.key : null);
   const projectScope = $derived<ProjectRef | null>(
-    session.projectPageScope.kind === "project"
-      ? session.projectPageScope.project
-      : null,
+    pageScope.kind === "project" ? pageScope.checkout : null,
   );
-  // The project catalog is the page's durable project source. Open tabs are not:
-  // closing or focusing a session must not alter this page while it is open.
-  const projectOptions = $derived(
-    mergeProjectOptions(
-      [projectsStore.entries],
-      (serverId) => serversStore.statusFor(serverId) !== "offline",
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ).map<ListProjectOption>((option) => ({
-      key: option.key,
-      projectKey: option.projectRoot,
-      serverId: option.serverId,
-      label: option.label,
-      available: option.available,
-      historyOnly: true,
-    })),
-  );
+  // One row per project, never one per host.
+  const projectOptions = $derived<ListProjectOption[]>(session.projectScopeOptions);
   const scopedProject = $derived.by(() => {
-    if (!projectScope) return null;
-    const catalogMatch = projectOptions.find(
-      (option) => option.key === projectRefKey(projectScope),
-    );
+    if (!pageKey) return null;
     return {
-      key: projectScope.projectRoot,
-      label:
-        catalogMatch?.label ??
-        projectDirLabel(projectScope.projectRoot, session.staticInfo?.workspacePath),
+      key: pageKey,
+      label: session.logicalProjects.find((project) => project.key === pageKey)?.label ?? pageKey,
     };
   });
+  // A project's works and plans are the ones filed under any of its checkouts.
   const catalogProjects = $derived(
-    projectOptions.map((option) => ({
-      key: option.projectKey,
-      label: option.label,
-      roots: [option.projectKey],
+    session.logicalProjects.map((project) => ({
+      key: project.key,
+      label: project.label,
+      roots: project.checkouts.map((checkout) => checkout.projectRoot),
     })),
   );
   const workspaceProjects = $derived(
@@ -163,38 +166,29 @@
       ? allItems.filter((item) => item.projectKey === scopedProject.key)
       : allItems,
   );
-  // The switcher and page scope keep the same host-qualified identity. Artifact
-  // rows still carry a path because that is what persisted plans and works own.
-  const activeProjectOptionKey = $derived(
-    projectScope ? projectRefKey(projectScope) : null,
-  );
+  // The switcher and the page scope share the project key. Artifact rows still
+  // carry a path because that is what persisted plans and works own.
+  const activeProjectOptionKey = $derived(pageKey);
   /** A row names its project only when the ledger spans more than one. */
   const showProject = $derived(!scopedProject && workspaceProjects.length > 1);
   const scopeLabel = $derived(scopedProject?.label ?? "all projects");
 
   function selectProject(option: ListProjectOption | null) {
-    session.setProjectPageScope(
-      option
-        ? {
-            kind: "project",
-            project: { serverId: option.serverId, projectRoot: option.projectKey },
-          }
-        : { kind: "all" },
-    );
+    hasChosenScope = true;
+    if (option) session.scopePageToProject(option.key);
+    else session.setProjectPageScope({ kind: "all" });
     // Switching keeps the facets — they partition any project — and clears the
     // search, which was written against the project being left.
     filter.text = "";
     resetLedgerSelection();
   }
 
-  function removeProjectHistory(option: { serverId: string; projectKey: string }) {
-    projectsStore.remove({
-      serverId: option.serverId,
-      projectRoot: option.projectKey,
-    });
+  function removeProjectHistory(option: { key: string }) {
+    projectsStore.removeProject(option.key);
   }
 
   function refreshRecentProjects() {
+    if (!workspace) return;
     for (const host of serversStore.servers) {
       void projectsStore.loadRecentProjects(host.id);
     }
@@ -269,7 +263,9 @@
     // The shell captured the visible project before this route replaced it.
     // Changes to hidden tabs and sessions after this point cannot retarget it.
     untrack(() => {
-      if (projectScope) {
+      scopeKeyAtOpen = sharedScopeKey;
+      hasChosenScope = false;
+      if (projectScope && workspace) {
         projectsStore.record(
           projectScope,
           projectDirLabel(projectScope.projectRoot, session.staticInfo?.workspacePath),
@@ -290,7 +286,7 @@
   let observedProjectScopeKey = "";
   $effect(() => {
     if (!open) return;
-    const nextKey = projectScope ? projectRefKey(projectScope) : "all";
+    const nextKey = pageKey ?? "all";
     if (!observedProjectScopeKey) {
       observedProjectScopeKey = nextKey;
       return;
@@ -306,7 +302,7 @@
   $effect(() =>
     serverConnections.onPhaseChange((serverId, phase) => {
       if (phase !== "connected" || !open) return;
-      void refreshCatalogFromRecents(serverId);
+      if (workspace) void projectsStore.loadRecentProjects(serverId);
       const ipcCtx = session.ctx;
       void planStore.refreshAllDescriptors(ipcCtx).catch(() => {});
       void session.worksStore.loadAll();
@@ -496,7 +492,7 @@
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
-      liveSessionTitle(item.sessionId, originServerId(item), session) ??
+      (workspace && liveSessionTitle(item.sessionId, originServerId(item), workspace)) ??
       sessionLabels.get(item.sessionId)
     );
   }
@@ -559,6 +555,11 @@
 
   // ── Keyboard ──
   useScope("workspace", { active: () => open });
+  // The one explicit way to scope the page to the input bar's project; the tab
+  // in focus never does it by itself (docs/plans/project-model.md §5).
+  useKeybinding("workspace.current-project", () => {
+    if (session.scopePageToCurrentProject()) hasChosenScope = true;
+  }, { enabled: () => open });
 
   // Escape closes the peek before it closes the page — dismissing what is on
   // top is what Escape means here.
@@ -619,28 +620,30 @@
 
   // ── Actions ──
   function close() {
-    session.router.close("folio");
+    workspace?.router.close("folio");
   }
 
   async function openItem(item: WorkspaceItem) {
     if (item.source.kind === "plan")
-      await session.openPlanFromDescriptor(item.source.descriptor);
-    else await session.openWorkModal(item.id);
+      await workspace?.openPlanFromDescriptor(item.source.descriptor);
+    else if (workspace) await workspace.openWorkModal(item.id);
+    else session.openWork(item.id);
   }
 
   async function openItemInSplit(item: WorkspaceItem) {
-    if (item.source.kind !== "work") return;
-    await session.openWorkModal(item.id, undefined, { secondary: true });
+    if (item.source.kind !== "work" || !workspace) return;
+    await workspace.openWorkModal(item.id, undefined, { secondary: true });
   }
 
   async function resumeItem(item: WorkspaceItem) {
+    if (!workspace) return;
     if (item.source.kind === "plan") {
-      await session.resumeSessionFromDescriptor(item.source.descriptor);
+      await workspace.resumeSessionFromDescriptor(item.source.descriptor);
       return;
     }
     const work = item.source.work;
     if (work.sessionIds?.length || work.sessionId) {
-      await session.openChatForWork(item.id, "resume");
+      await workspace.openChatForWork(item.id, "resume");
     }
   }
 
@@ -648,16 +651,16 @@
    *  in the background hands back the tab without stealing the pane, so the
    *  Workspace stays put and the conversation opens as its companion. */
   async function openSessionInSplit(item: WorkspaceItem) {
-    if (!item.sessionId) return;
+    if (!item.sessionId || !workspace) return;
     const descriptor = item.source.kind === "plan" ? item.source.descriptor : null;
     const work = item.source.kind === "work" ? item.source.work : null;
     if (descriptor?.sessionAvailable === false) {
-      session.notifySessionUnavailable(descriptor.provider);
+      workspace.notifySessionUnavailable(descriptor.provider);
       return;
     }
     let tabId: string;
     try {
-      tabId = await session.resumeSession(
+      tabId = await workspace.opening.resumeSession(
         {
           serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
           provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
@@ -673,11 +676,11 @@
       );
     } catch (error) {
       if (!(error instanceof SessionUnavailableError)) throw error;
-      session.notifySessionUnavailable(descriptor?.provider);
+      workspace.notifySessionUnavailable(descriptor?.provider);
       return;
     }
-    const resumed = tabId ? session.sessionFor(tabId) : undefined;
-    if (resumed) session.openSplitChat(resumed.id);
+    const resumed = tabId ? workspace.sessionFor(tabId) : undefined;
+    if (resumed) workspace.openSplitChat(resumed.id);
   }
 
   function togglePin(item: WorkspaceItem) {
@@ -750,10 +753,12 @@
     importDocOpen = true;
   }
 
-  /** A provider the user could sign in to is a route, not a dead end. */
+  /** A provider the user could sign in to is a route, not a dead end: the
+   *  workspace's provider settings, or the console's connections page. */
   function openProviderSettings() {
     newMenuOpen = false;
-    session.showSettings("providers");
+    if (workspace) workspace.showSettings("providers");
+    else shell.openResource({ kind: "connections" });
   }
 
   async function onImportFile(e: Event) {
@@ -771,7 +776,20 @@
 
 {#snippet filterControls()}
   <ListSortMenu bind:value={sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
-  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly)}>
+  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly) + Number(!!activeProjectOptionKey)}>
+    <ListProjectFilter
+      projects={projectOptions}
+      activeKey={activeProjectOptionKey ?? ""}
+      emptyLabel="All projects"
+      onSelect={(option) => selectProject(option)}
+      onSelectAll={() => selectProject(null)}
+      onSelectCurrent={() => {
+        if (session.scopePageToCurrentProject()) hasChosenScope = true;
+      }}
+      onRemoveHistory={workspace ? removeProjectHistory : undefined}
+      footerNote="Switching keeps facets, clears search"
+    />
+    <DropdownMenu.Separator />
     <ListFilterGroup label="Type" icon={BooksIcon} options={TYPE_OPTIONS} selected={[filter.type]} onChange={(next) => (filter.type = next[0])} />
     <ListFilterGroup label="Time" options={TIME_OPTIONS} selected={[filter.time]} onChange={(next) => (filter.time = next[0])} />
     <ListFilterGroup label="Status" options={STATUS_OPTIONS} selected={[filter.status]} onChange={(next) => (filter.status = next[0])} />
@@ -801,8 +819,8 @@
     onTogglePin={() => togglePin(item)}
     onDelete={item.source.kind === "work" ? () => deleteItem(item) : undefined}
     sessionLabel={originLabel(item)}
-    onOpenSession={item.sessionId ? () => resumeItem(item) : undefined}
-    onOpenSessionSplit={item.sessionId ? () => openSessionInSplit(item) : undefined}
+    onOpenSession={workspace && item.sessionId ? () => resumeItem(item) : undefined}
+    onOpenSessionSplit={workspace && item.sessionId ? () => openSessionInSplit(item) : undefined}
     onPeek={(row) => peek.enter(item, row)}
     onPeekLeave={() => peek.leave()}
     onContextMenu={(event) => openItemContextMenu(event, item)}
@@ -1016,24 +1034,12 @@
             )}
           </div>
 
-          <div class="flex shrink-0 flex-col gap-2.5 border-b border-[var(--hairline)] px-4 pt-0.5 pb-2.5 text-workspace-chrome">
-            <ListProjectSwitcher
-              variant="chip"
-              projects={projectOptions}
-              activeKey={activeProjectOptionKey ?? undefined}
-              emptyLabel="All projects"
-              onSelect={(option) => selectProject(option)}
-              onRemoveHistory={removeProjectHistory}
-              onSelectAll={() => selectProject(null)}
-              footerNote="Switching keeps facets, clears search"
-            />
-            <div class="flex min-w-0 items-center gap-2">
-              <WorkspaceSearchField {filter} totalCount={items.length} {scopeLabel} matches={searching ? filtered.length : null} bind:ref={searchEl} />
-              {@render filterControls()}
-            </div>
+          <div class="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--hairline)] px-4 pt-0.5 pb-2.5 text-workspace-chrome">
+            <WorkspaceSearchField {filter} totalCount={items.length} {scopeLabel} matches={searching ? filtered.length : null} bind:ref={searchEl} />
+            {@render filterControls()}
           </div>
         {:else}
-          <!-- ── Row 1: `<project> / Workspace`, and the controls that act on the
+          <!-- ── Row 1: the page title, and the controls that act on the
                window. It keeps one fixed top measure when the session sidebar
                opens or closes. ── -->
           <div
@@ -1041,17 +1047,10 @@
           >
             <PageCrumbLine
               page="folio"
-              projects={projectOptions}
-              activeProjectKey={activeProjectOptionKey ?? ""}
-              emptyProjectLabel="All projects"
-              onSelectProject={(option) => selectProject(option)}
-              onSelectAllProjects={() => selectProject(null)}
-              onRemoveProjectHistory={removeProjectHistory}
-              projectSwitchNote="Switching keeps facets, clears search"
               onRefresh={load}
               refreshing={anyLoading}
               syncedAt={synced.at}
-              onClose={close}
+              onClose={workspace ? close : undefined}
             />
           </div>
 
@@ -1239,14 +1238,14 @@
         y={itemContextMenu.y}
         item={menuItem}
         onOpen={() => void openItem(menuItem)}
-        onOpenSplit={menuItem.source.kind === "work"
+        onOpenSplit={workspace && menuItem.source.kind === "work"
           ? () => void openItemInSplit(menuItem)
           : undefined}
         onTogglePin={() => togglePin(menuItem)}
-        onOpenSession={menuItem.sessionId
+        onOpenSession={workspace && menuItem.sessionId
           ? () => void resumeItem(menuItem)
           : undefined}
-        onOpenSessionSplit={menuItem.sessionId
+        onOpenSessionSplit={workspace && menuItem.sessionId
           ? () => void openSessionInSplit(menuItem)
           : undefined}
         onMoveToCloud={canMoveToCloud(menuItem)

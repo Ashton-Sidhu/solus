@@ -5,10 +5,10 @@ import * as folioSchema from '../../folio/schema'
 import * as mirrorSchema from '../../mirror/schema'
 import * as outboxSchema from '../../outbox/schema'
 import * as plansSchema from '../../plans/schema'
+import * as projectsSchema from '../../projects/schema'
 import * as sessionsSchema from '../../sessions/schema'
 import * as sharingSchema from '../../sharing/schema'
 import * as tasksSchema from '../../tasks/schema'
-import * as vaultSchema from '../../vault/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
 export const task_counters = tasksSchema.taskCounters.sqlite
@@ -32,6 +32,4 @@ export const runner_cursors = outboxSchema.runnerCursors.sqlite
 export const session_transcripts = mirrorSchema.sessionTranscripts.sqlite
 export const insight_spans = mirrorSchema.insightSpans.sqlite
 export const insight_log_events = mirrorSchema.insightLogEvents.sqlite
-export const credential_vault = vaultSchema.credentialVault.sqlite
-export const credential_locks = vaultSchema.credentialLocks.sqlite
-export const organization_members = vaultSchema.organizationMembers.sqlite
+export const workspace_projects = projectsSchema.workspaceProjects.sqlite

@@ -1,23 +1,29 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import {
     ArrowUp as ArrowUpIcon,
+    ChevronDown as CaretDownIcon,
     Pen as PencilSimpleIcon,
     Tag as TagIcon,
   } from "@lucide/svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import {
+    FILTER_CHIP,
+    FILTER_CHIP_OFF,
+    FILTER_CHIP_ON,
+  } from "../ui/list-page/filter-styles";
   import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentPostingBar } from "../ui/comment-posting-bar";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
-  import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
+  import { projectScopeOf, type ChangedFileStat, type IpcContext, type MergeMethod } from "@solus/contracts/types";
   import type {
     ReviewThread,
     ReviewComment,
-    PullRequest,
     PrCommit,
     PrConversationItem,
-    PrLifecycleAction,
     PrLabel,
+    PrStateAction,
     PrReviewer,
     PrReviewerCandidate,
     ProviderViewer,
@@ -240,15 +246,23 @@
     { value: "commits", label: "Commits" },
   ];
 
-  function setFilter(next: ActivityFilter) {
-    filter = next;
-    unresolvedOnly = false;
-    requestInputFocus();
-  }
+  const filterLabel = $derived(
+    unresolvedOnly
+      ? "Unresolved"
+      : (filterChips.find((chip) => chip.value === filter)?.label ?? "All"),
+  );
 
-  function toggleUnresolved() {
-    unresolvedOnly = !unresolvedOnly;
-    if (unresolvedOnly) filter = "all";
+  // One menu holds both: "unresolved" is the menu's value for `unresolvedOnly`.
+  function selectFilter(value: string) {
+    if (value === "unresolved") {
+      unresolvedOnly = true;
+      filter = "all";
+    } else {
+      const chip = filterChips.find((chip) => chip.value === value);
+      if (!chip) return;
+      filter = chip.value;
+      unresolvedOnly = false;
+    }
     requestInputFocus();
   }
 
@@ -557,45 +571,45 @@
     }
   }
 
-  async function updateLifecycle(
-    action: Exclude<PrLifecycleAction, "merge">,
-  ): Promise<void> {
+  // The store shows each host write at once on the pull request every surface
+  // reads, and takes it back if the host refuses.
+  async function updateLifecycle(action: PrStateAction): Promise<void> {
     if (!detail) return;
-    const previous = detail;
-    const optimistic: PullRequest = { ...previous };
-    if (action === "close") optimistic.state = "closed";
-    if (action === "reopen") optimistic.state = "open";
-    if (action === "ready") optimistic.draft = false;
-    if (action === "draft") optimistic.draft = true;
-    // The optimistic value goes to the store, which every surface reads — so
-    // the whole workspace shows the pending state, not just this tab.
-    pullRequests.projects
-      .at(serverId, projectScopeOf(feedCtx().session))
-      ?.applyPullRequest(optimistic);
-    try {
-      // `updateLifecycle` applies the confirmed detail to the store itself.
-      await pullRequest(pr.number).updateLifecycle(action, previous.headSha);
-    } catch (error) {
-      // A newer provider event wins over this rollback. The lifecycle this
-      // action wrote is its mutation token: the store holds one pull request
-      // rather than a succession of copies, so if either field has moved since,
-      // something else wrote it and this rollback is not its business.
-      const current = pullRequests.projects.at(serverId, projectScopeOf(feedCtx().session))?.prFor(
-        pr.number,
-      );
-      if (current?.state === optimistic.state && current.draft === optimistic.draft) {
-        pullRequests.projects
-          .at(serverId, projectScopeOf(feedCtx().session))
-          ?.applyPullRequest(previous);
-      }
-      throw error;
-    }
+    await pullRequest(pr.number).updateLifecycle(action, detail.headSha);
   }
 
-  $effect(() => {
-    void pr.number;
-    untrack(() => load());
-  });
+  async function enableAutoMerge(method: MergeMethod): Promise<void> {
+    await pullRequest(pr.number).enableAutoMerge(method);
+  }
+
+  async function disableAutoMerge(): Promise<void> {
+    await pullRequest(pr.number).disableAutoMerge();
+  }
+
+  async function mergeNow(method: MergeMethod): Promise<void> {
+    const result = await pullRequest(pr.number).merge(method);
+    if (!result.merged) throw new Error(result.message ?? "The code host refused the merge.");
+  }
+
+  async function revertPullRequest(): Promise<void> {
+    const revert = await pullRequest(pr.number).revert();
+    const ctx = feedCtx();
+    toasts.success("Revert pull request opened", {
+      description: `#${revert.number}`,
+      action: {
+        label: "Open",
+        onAction: () =>
+          void session.prReview.openPullRequest(
+            { number: revert.number, url: revert.url },
+            { ctx, serverId },
+          ),
+      },
+    });
+  }
+
+  // One feed shows one pull request: the pane mounts a new feed for another
+  // number, so this loads once, and nothing reactive can start it again.
+  load();
 
   // Reply / resolve state lives in each PrThreadCard; the feed only supplies
   // the RPCs bound to this PR.
@@ -729,8 +743,9 @@
   // where the other agent moves open a composer for the user to send.
   async function runMergeAction(action: MergeAction): Promise<void> {
     if (action.kind === "mark-ready") await updateLifecycle("ready");
+    else if (action.kind === "enable-auto-merge") await enableAutoMerge(action.method);
     else if (action.kind === "resolve-conflicts")
-      await session.startConflictResolverSession(
+      await session.prReview.startConflictResolverSession(
         { number: pr.number, title: prTitle },
         { ctx: feedCtx() },
       );
@@ -757,7 +772,7 @@
       <!-- The one failure said once for the whole tab: nothing below can
            load until the host has a credential, and the fix is one action. -->
       <div
-        class="mx-auto w-full max-w-[1216px] px-[52px] pt-6 [.is-laptop-display_&]:px-8"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-6 [.is-laptop-display_&]:px-8"
       >
         <GithubConnectionRequired {serverId} />
       </div>
@@ -767,7 +782,7 @@
            status pill and the tabs line up with the title and the right rail
            instead of floating out at the pane's edges on wide windows. -->
       <div
-        class="mx-auto w-full max-w-[1216px] px-[52px] pt-[38px] [.is-laptop-display_&]:px-8 [.is-laptop-display_&]:pt-6"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px] [.is-laptop-display_&]:px-8 [.is-laptop-display_&]:pt-6"
       >
         {@render masthead()}
       </div>
@@ -776,7 +791,7 @@
          title and a sparse timeline stretching toward a distant rail. The row
          is the size container the rail queries, so the rail folds under the
          main column on narrow panes instead of disappearing.
-         768 + 56 + 330 is the shell's whole budget, so the reading column keeps
+         896 + 56 + 330 (+ 104 of gutter) is the shell's whole budget, so the reading column keeps
          a book measure at every width rather than growing until the rail is a
          long way from the text it annotates.
          No bottom padding on the row: the composer is sticky to the foot of
@@ -784,17 +799,18 @@
          dead space at the end of the scroll. The rail pads its own column. -->
     <div
       bind:this={contentRowEl}
-      class="@container mx-auto flex w-full max-w-[1216px] flex-wrap items-start gap-14 px-[52px] {masthead
+      class="@container mx-auto flex w-full max-w-[1386px] flex-wrap items-start gap-14 px-[52px] {masthead
         ? 'pt-3.5'
         : 'pt-[38px]'} [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-8 {masthead
         ? ''
         : '[.is-laptop-display_&]:pt-6'}"
     >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
-      <!-- The column declares the review's type once, at the chrome rung
-           (ADR-0013); the title, the captions and the timestamps step off it. -->
+      <!-- The column declares the review's type once, at the dense chrome
+           rung (12px on a precise pointer, 14px on touch) so the meta and the
+           timeline sit a step under the 14px prose; the title steps up off it. -->
       <main
-        class="flex min-w-0 max-w-[768px] flex-[1_1_520px] flex-col text-workspace-chrome"
+        class="flex min-w-0 max-w-[896px] flex-[1_1_520px] flex-col text-chrome-dense"
       >
         <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
              mono eyebrow, the title at full measure, one line of plain-text
@@ -1018,50 +1034,50 @@
             Activity
           </h2>
           <span class="flex-1"></span>
-          <!-- Quiet focus chips: filter the timeline without leaving the tab.
-               A couple of events don't need filtering, so the chips only appear
-               once the timeline is long enough for them to earn their spot; the
-               unresolved toggle is a real signal and always shows. The
-               mutually-exclusive set shares a recessed track (the page's
-               segmented form) so the selected chip lifts onto the canvas; the
-               unresolved toggle stands outside it as its own state. -->
-          <div
-            class="flex items-center gap-1.5"
-            role="group"
-            aria-label="Filter activity"
-          >
-            {#if timeline.length > 3}
-              <div class="flex h-7 items-center gap-0.5 rounded-lg bg-muted p-0.5">
-                {#each filterChips as chip (chip.value)}
-                  <Button
+          <!-- One quiet focus control: the list pages' filter chip and radio
+               menu, tinted while it narrows the timeline so a partial list says
+               so on its face. A couple of events don't need filtering, so it
+               appears once the timeline is long enough — or as soon as a thread
+               is unresolved, which is a real signal at any length. The
+               unresolved option stays while it is selected, so resolving the
+               last thread never strands the filter without its own row. -->
+          {#if timeline.length > 3 || unresolvedCount > 0 || unresolvedOnly}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <button
+                    {...props}
                     type="button"
-                    variant="ghost"
-                    aria-pressed={!unresolvedOnly && filter === chip.value}
-                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-xs transition-colors {!unresolvedOnly &&
- filter === chip.value
- ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
- : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
-                    onclick={() => setFilter(chip.value)}
+                    class="{FILTER_CHIP} {unresolvedOnly || filter !== 'all'
+                      ? FILTER_CHIP_ON
+                      : `${FILTER_CHIP_OFF} hover:bg-[var(--wash-2)] hover:text-foreground`}"
+                    aria-label="Filter activity: {filterLabel}"
                   >
-                    {chip.label}
-                  </Button>
-                {/each}
-              </div>
-            {/if}
-            {#if unresolvedCount > 0}
-              <Button
-                type="button"
-                variant="ghost"
-                aria-pressed={unresolvedOnly}
-                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-xs font-medium tabular-nums transition-colors {unresolvedOnly
- ? 'bg-secondary text-secondary-foreground'
- : 'bg-muted text-muted-foreground hover:text-foreground'}"
-                onclick={toggleUnresolved}
-              >
-                {unresolvedCount} unresolved
-              </Button>
-            {/if}
-          </div>
+                    <span>{filterLabel}</span>
+                    <CaretDownIcon size={12} class="shrink-0 opacity-70" aria-hidden="true" />
+                  </button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-44">
+                <DropdownMenu.RadioGroup
+                  value={unresolvedOnly ? "unresolved" : filter}
+                  onValueChange={selectFilter}
+                >
+                  {#each filterChips as chip (chip.value)}
+                    <DropdownMenu.RadioItem value={chip.value}>
+                      {chip.label}
+                    </DropdownMenu.RadioItem>
+                  {/each}
+                  {#if unresolvedCount > 0 || unresolvedOnly}
+                    <DropdownMenu.RadioItem value="unresolved">
+                      <span class="min-w-0 flex-1 truncate">Unresolved</span>
+                      <span class="mr-1 tabular-nums text-muted-foreground">{unresolvedCount}</span>
+                    </DropdownMenu.RadioItem>
+                  {/if}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+          {/if}
         </div>
 
         <ActivityTimeline
@@ -1193,13 +1209,6 @@
     onFixCheck={onFixChecks ? fixCheck : undefined}
     {unresolvedCount}
     onFileJump={(path) => jumpToFile(path)}
-    {guideStatus}
-    {onOpenGuide}
-    onGenerateGuide={onGenerateGuide &&
-    detail?.state === "open" &&
-    !detail.draft
-      ? onGenerateGuide
-      : undefined}
     onRetry={refresh}
     actions={prActions}
     menu={prOverflowMenu}
@@ -1220,7 +1229,7 @@
   />
 {/snippet}
 
-{#snippet prOverflowMenu()}
+{#snippet prOverflowMenu(action: MergeAction | null)}
   <PrOverflowMenu
     pr={{ host: pr.host }}
     {detail}
@@ -1233,5 +1242,17 @@
     onOpenRemote={openPr}
     onRefresh={refresh}
     onLifecycleAction={updateLifecycle}
+    primaryAction={action}
+    onEnableAutoMerge={enableAutoMerge}
+    onDisableAutoMerge={disableAutoMerge}
+    onMergeNow={mergeNow}
+    onRevert={revertPullRequest}
+    {guideStatus}
+    {onOpenGuide}
+    onGenerateGuide={onGenerateGuide &&
+    detail?.state === "open" &&
+    !detail.draft
+      ? onGenerateGuide
+      : undefined}
   />
 {/snippet}

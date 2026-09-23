@@ -29,7 +29,7 @@
 		{align}
 		{collisionPadding}
 		class={cn(
-			"data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 text-popover-foreground menu-surface min-w-32 p-1.5 ring-0 duration-100 z-[10002] w-(--bits-dropdown-menu-anchor-width) overflow-y-auto outline-none data-closed:overflow-hidden",
+			"data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 text-popover-foreground menu-surface min-w-32 p-1.5 ring-0 duration-100 z-[10002] w-(--bits-dropdown-menu-anchor-width) max-h-(--bits-dropdown-menu-content-available-height) overflow-y-auto outline-none data-closed:overflow-hidden",
 			className
 		)}
 		{...restProps}

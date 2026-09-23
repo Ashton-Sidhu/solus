@@ -38,7 +38,6 @@ export const devFixtures: DemoFixtures = {
       capabilities: {
         planMode: true,
         permissions: true,
-        fileRewind: true,
         terminalResume: true,
         transport: 'sdk',
       },

@@ -149,6 +149,43 @@ describe('renderer task hydration', () => {
     expect(store.get('referrer').sessions.map((attempt) => attempt.sessionId)).toEqual(['shared-session'])
   })
 
+  test('files a new task on the host it names, not the host that already holds the path', async () => {
+    // WHY: two hosts can hold the same project path. The default host already
+    // listing `/workspace/app` says nothing about the project the user chose on
+    // host B; inferring the host from the path filed a remote project's first
+    // task on the wrong machine.
+    installStateRune()
+    const createdOn: string[] = []
+    const hostA = {
+      tasksSidebarSnapshot: async () => ({ tasks: [{ ...task(), projectKey: '/workspace/app' }], sessionsByTask: {} }),
+      tasksCreate: async () => {
+        createdOn.push('host-a')
+        return { ...task(), id: 'created-a', projectKey: '/workspace/app' }
+      },
+    }
+    const hostB = {
+      tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+      tasksCreate: async () => {
+        createdOn.push('host-b')
+        return { ...task(), id: 'created-b', projectKey: '/workspace/app' }
+      },
+    }
+    taskServerConnections.registerPrimary('host-a', hostA)
+    taskServerConnections.registerHost('host-b', hostB)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, writable: true, value: { solus: hostA },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    const created = await store.create({ title: 'On B', projectKey: '/workspace/app' }, 'host-b')
+
+    expect(createdOn).toEqual(['host-b'])
+    expect(store.get(created.id).serverId).toBe('host-b')
+  })
+
   test('serves one task object per id, so a detail read reaches every holder', async () => {
     // WHY: what a task knows used to be spread across a map per fact, keyed by
     // id. A surface holding one of those maps could render a task the rest of
@@ -181,6 +218,48 @@ describe('renderer task hydration', () => {
 
     expect(heldBeforeTheRead.details?.comments).toHaveLength(1)
     expect(heldBeforeTheRead.title).toBe('Read from the host')
+  })
+
+  test('an attempt is running only while its host says so, not because it is linked', async () => {
+    // WHY: the task board used to call every task with a linked session
+    // "Agent running", so a task whose agent stopped hours ago still showed a
+    // live tint. A link says a session exists; only the host knows if it works.
+    installStateRune()
+    const api = { tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }) }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: api } })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const link = { sessionId: 'session-1', executionServerId: null }
+    const noTab = () => undefined
+
+    expect(store.isAttemptRunning(link, 'local', noTab)).toBe(false)
+
+    taskServerConnections.emit('local', 'session.statusChanged', {
+      sessionId: 'session-1', agentSessionId: null, status: 'running', at: 1,
+    })
+    expect(store.isAttemptRunning(link, 'local', noTab)).toBe(true)
+    // The same session id on another host is another session.
+    expect(store.isAttemptRunning(link, 'other-host', noTab)).toBe(false)
+
+    taskServerConnections.emit('local', 'session.statusChanged', {
+      sessionId: 'session-1', agentSessionId: null, status: 'awaiting_input', at: 2,
+    })
+    expect(store.isAttemptRunning(link, 'local', noTab)).toBe(false)
+
+    // A turn that ends while the client is away never reaches it, so a
+    // dropped host must not leave its sessions running forever.
+    taskServerConnections.emit('local', 'session.statusChanged', {
+      sessionId: 'session-1', agentSessionId: null, status: 'running', at: 3,
+    })
+    phaseChangeListener?.('local', 'reconnecting')
+    expect(store.isAttemptRunning(link, 'local', noTab)).toBe(false)
+
+    // An open tab knows its own status, even for a turn that began before
+    // this client connected and so was never announced to it.
+    expect(store.isAttemptRunning(link, 'local', () => ({ status: 'running' }))).toBe(true)
   })
 
   test('lists the task itself, so an optimistic write redraws its row', async () => {
@@ -892,8 +971,8 @@ describe('renderer task hydration', () => {
 
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
-    const firstSync = store.loadUpstream(projectKey)
-    const duplicateSync = store.loadUpstream(projectKey)
+    const firstSync = store.loadUpstream(projectKey, { serverId: 'task-host' })
+    const duplicateSync = store.loadUpstream(projectKey, { serverId: 'task-host' })
 
     expect(store.upstreamLoadingByProject.get(projectKey)).toBe(true)
     expect(upstreamCalls).toBe(1)
@@ -922,7 +1001,7 @@ describe('renderer task hydration', () => {
 
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
-    await store.loadUpstream(projectKey)
+    await store.loadUpstream(projectKey, { serverId: 'task-host' })
 
     expect(store.upstreamRefreshedAtByProject.get(projectKey)).toBe(fetchedAt)
     expect(store.upstreamFromCacheByProject.has(projectKey)).toBe(false)
@@ -1136,7 +1215,7 @@ describe('renderer task hydration', () => {
 
     expect(store.upstreamTasksByProject.get('/workspace/solus')).toEqual([task])
     expect(store.tasks).toHaveLength(0)
-    expect(store.hostForProject('/workspace/solus')).toBe('workshop')
+    expect(store.providerHostFor('/workspace/solus')).toBe('workshop')
 
     await task.update({ status: 'in_progress' })
 
@@ -1188,7 +1267,7 @@ describe('renderer task hydration', () => {
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.load()
-    await store.loadUpstream(projectKey)
+    await store.loadUpstream(projectKey, { serverId: 'local' })
     await store.get(issue.id, projectKey).loadDetails()
     await store.get(issue.id).comment('Posted from Solus')
 
@@ -1237,7 +1316,10 @@ describe('renderer task hydration', () => {
 
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
-    const details = await store.get(issue.id, projectKey).loadDetails()
+    // A task route names the host it was opened on; a path alone names none.
+    const opened = store.get(issue.id, projectKey)
+    opened.serverId = 'local'
+    const details = await opened.loadDetails()
 
     expect(details.task.id).toBe('87')
     expect(store.get('87', projectKey)?.providerId).toBe('github')
@@ -1273,8 +1355,8 @@ describe('upstream provider search', () => {
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
 
-    await store.loadUpstream('/workspace/solus', { query: 'payment' })
-    await store.loadUpstream('/workspace/solus')
+    await store.loadUpstream('/workspace/solus', { serverId: 'local', query: 'payment' })
+    await store.loadUpstream('/workspace/solus', { serverId: 'local' })
 
     expect(queries).toEqual(['payment', 'payment'])
     expect(store.upstreamQueryByProject.get('/workspace/solus')).toBe('payment')
@@ -1288,8 +1370,8 @@ describe('upstream provider search', () => {
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
 
-    await store.loadUpstream('/workspace/solus', { query: 'payment' })
-    await store.loadUpstream('/workspace/solus', { query: '' })
+    await store.loadUpstream('/workspace/solus', { serverId: 'local', query: 'payment' })
+    await store.loadUpstream('/workspace/solus', { serverId: 'local', query: '' })
 
     expect(queries).toEqual(['payment', ''])
     expect(store.upstreamQueryByProject.has('/workspace/solus')).toBe(false)
@@ -1305,8 +1387,8 @@ describe('upstream provider search', () => {
     const store = new TasksStore()
 
     await Promise.all([
-      store.loadUpstream('/workspace/solus', { query: 'pay' }),
-      store.loadUpstream('/workspace/solus', { query: 'payment' }),
+      store.loadUpstream('/workspace/solus', { serverId: 'local', query: 'pay' }),
+      store.loadUpstream('/workspace/solus', { serverId: 'local', query: 'payment' }),
     ])
 
     expect(queries).toEqual(['pay', 'payment'])

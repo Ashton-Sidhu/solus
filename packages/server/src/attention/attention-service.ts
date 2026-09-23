@@ -58,7 +58,10 @@ export function attentionActionForStatus(
       if (pending === 'question') return { type: 'set', kind: 'question' }
       if (pending === 'permission') return { type: 'set', kind: 'needs_approval' }
       return { type: 'ignore' }
+    // A turn that ends with background work still running is finished for the
+    // user: the agent is not doing anything they need to wait for.
     case 'completed':
+    case 'background':
       return { type: 'set', kind: 'finished' }
     case 'failed':
     case 'dead':

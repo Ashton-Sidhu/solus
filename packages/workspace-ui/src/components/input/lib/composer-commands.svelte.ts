@@ -98,7 +98,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         if (targetTabId) {
           session.clearTabToDraft(targetTabId, "keybinding");
         } else {
-          session.openSessionDraft({ via: "keybinding" });
+          session.drafts.openSessionDraft({ via: "keybinding" });
         }
       },
       addSystemMessage: (message) => {
@@ -158,7 +158,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   ): boolean {
     const { prompt, sessionId, targetTabId, onDispatch, onDispatchInBackground, onSent, refocusComposer, editor: composerEl } = getOptions();
     const { attachments } = prompt;
-    const sess = sessionId ? session.sessions[sessionId] : undefined;
+    const sess = sessionId ? session.sessions.byId[sessionId] : undefined;
     const pendingPlan = pendingPlanForPrompt(sess, session.planStore.plans);
     const pendingQuestion = pendingQuestionForPrompt(sess);
     const fallbackText = attachments.some(
@@ -181,7 +181,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     } else if (pendingQuestion && text && targetTabId) {
       // Match the question card's free-text answer. Responding releases the held
       // provider turn; queuing this as a normal prompt would leave it blocked.
-      session.respondQuestion(
+      session.controls.respondQuestion(
         targetTabId,
         pendingQuestion.questionId,
         answersForQuestionNote(pendingQuestion, text),
@@ -192,7 +192,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         options.delivery ?? "steer",
       );
     } else {
-      accepted = session.sendMessage(
+      accepted = session.dispatch.sendMessage(
         text || fallbackText,
         undefined,
         targetTabId,
@@ -226,7 +226,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   function stopRun() {
     const { sessionId, targetTabId } = getOptions();
     if (!targetTabId) return;
-    session.interruptTabSession(targetTabId);
+    session.controls.interruptTabSession(targetTabId);
     void session
       .apiFor(targetTabId)
       .stopSession(session.ctxFor(targetTabId).session.sessionId);

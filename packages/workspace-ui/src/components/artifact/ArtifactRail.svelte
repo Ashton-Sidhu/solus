@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
@@ -19,7 +19,7 @@
 
   let { workId, title, linkContext }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
 </script>
 
 <div class="artifact-rail" data-testid="artifact-rail">

@@ -205,7 +205,6 @@ export class PresenceManager {
 function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
-  if (a.kind === 'work' && b.kind === 'work') return a.workId === b.workId
   return true
 }
 

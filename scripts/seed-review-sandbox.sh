@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Seed a disposable GitHub repo for exercising the 5-minute PR review features:
-# checks/CI chips, effort bands, stacks + restack, interdiff, Review Mode,
+# checks/CI chips, stacks + restack, interdiff, Review Mode,
 # auto-merge, move detection, noise collapse.
 #
 # Usage:
@@ -74,7 +74,7 @@ export function computeReport(rows: number[][]): string {
 }
 EOF
 
-# Deliberately unreferenced so a later rename is rename-ONLY (WS4 rename band).
+# Deliberately unreferenced so a later rename is rename-ONLY.
 cat > src/utils.ts <<'EOF'
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
@@ -179,19 +179,19 @@ pr() { # pr <branch> <base-branch> <pr-base> <title> <body>
 
 echo "==> opening PRs"
 
-mutate_deps-bump() { # lockfile-only → quick band
+mutate_deps-bump() { # lockfile-only
   sed -i.bak 's/"1\.0\.\([0-9]*\)"/"1.1.\1"/g' package-lock.json && rm package-lock.json.bak
 }
 pr deps-bump main main "chore: bump dependencies (lockfile only)" \
-  "Lockfile-only churn. Expect: effort quick · ~1 min, collapsed rendering."
+  "Lockfile-only churn. Expect: collapsed rendering."
 
-mutate_rename-utils() { # rename-only → quick band
+mutate_rename-utils() { # rename-only
   git mv src/utils.ts src/helpers.ts
 }
 pr rename-utils main main "refactor: rename utils.ts to helpers.ts" \
-  "Pure rename, no content change. Expect: quick band, rename signal."
+  "Pure rename, no content change."
 
-mutate_feature-batch() { # ~10 files → standard band
+mutate_feature-batch() { # ~10 files
   for i in $(seq 1 8); do
     printf 'export const feature%s = () => %s * 2 // doubled\n' "$i" "$i" > "src/features/f$i.ts"
   done
@@ -206,9 +206,9 @@ if (combine([1, 2, 3]) !== 6) throw new Error('combine broken')
 TS
 }
 pr feature-batch main main "feat: overhaul feature modules" \
-  "~10 files with a test. Expect: standard band, guide-first in Review Mode."
+  "~10 files with a test. Expect: guide-first in Review Mode."
 
-mutate_big-auth() { # 40 files + auth path → involved band
+mutate_big-auth() { # 40 files + auth path
   for i in $(seq 1 40); do
     printf 'export const mod%s = %s + 1 // reworked\nexport const mod%sName = "m%s"\n' "$i" "$i" "$i" "$i" > "src/modules/m$i.ts"
   done
@@ -220,7 +220,7 @@ export function logout(user: string): boolean {
 TS
 }
 pr big-auth main main "feat: rework all modules + auth logout" \
-  "40 files, touches auth/. Expect: involved band with a risk signal."
+  "40 files, touches auth/."
 
 mutate_stack-a() { # stack parent
   cat > src/stack/base.ts <<'TS'

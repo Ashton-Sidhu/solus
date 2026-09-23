@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle, type UplinkLinkDeps } from '@solus/server/server/uplink/link'
-import type { EnrollHostResponse } from '@solus/contracts/uplink'
+import type { EnrollHostResponse, UplinkStatus } from '@solus/contracts/uplink'
 import { uplinkStatusDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
 // docs/plans/personal-uplink.md H2/H4: desired state is written before anything
@@ -275,6 +275,22 @@ describe('the host side of the link', () => {
     const status = instance.status()
     if (status.linked) expect(status.state.observed).toBe('online')
     expect(plane.calls.map((call) => call.method)).toEqual(['POST'])
+  })
+
+  test('the tunnel coming up after the link was answered is announced, so no client waits for a reload', async () => {
+    const plane = fakeControlPlane()
+    const announced: UplinkStatus[] = []
+    const { instance } = manager(plane, fakeConnector(), 34118, { onStatusChanged: (status) => announced.push(status) })
+
+    const answered = await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    if (answered.linked) expect(answered.state.observed).toBe('offline')
+    instance.handleConnectorObservation({ observed: 'online' })
+    const last = announced.at(-1)
+    expect(last?.linked).toBe(true)
+    if (last?.linked) expect(last.state).toEqual({ observed: 'online' })
+
+    await instance.unlink()
+    expect(announced.at(-1)).toEqual({ linked: false })
   })
 })
 

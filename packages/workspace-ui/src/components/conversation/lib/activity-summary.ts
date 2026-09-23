@@ -1,14 +1,17 @@
 import { z } from 'zod'
 
 import type { Message, TurnStartKind } from '@solus/contracts/types'
+import { isQuestionTool } from '@solus/contracts/question-history'
 import { prettyToolName } from '../../../contexts/workspace/session.utils'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import type { GroupedItem } from './turns'
+import { parseSubagentInput } from './subagent'
 
-/** The four things an activity block can report having done. Thinking is a kind
+/** The things an activity block can report having done. Thinking is a kind
  *  too: it always arrives with the tools, so it folds into the same sentence
- *  rather than earning a row of its own. */
-export type ActivityKind = 'think' | 'search' | 'read' | 'edit' | 'run' | 'other'
+ *  rather than earning a row of its own. So is asking: the answered question
+ *  folds away with the turn, and the row is what still says it was asked. */
+export type ActivityKind = 'think' | 'ask' | 'search' | 'read' | 'edit' | 'run' | 'other'
 
 const KIND_FOR_TOOL = {
   Read: 'read',
@@ -26,6 +29,7 @@ const KIND_FOR_TOOL = {
 /** Past tense, because a finished block reads as a caption. */
 const VERB_FOR_KIND = {
   think: 'thought',
+  ask: 'asked you',
   search: 'searched',
   read: 'read',
   edit: 'edited',
@@ -36,6 +40,7 @@ const VERB_FOR_KIND = {
 /** Present participle, because a running block reads as a sentence in progress. */
 const PARTICIPLE_FOR_KIND = {
   think: 'Thinking',
+  ask: 'Asking',
   search: 'Searching',
   read: 'Reading',
   edit: 'Editing',
@@ -121,6 +126,9 @@ export function parseToolInput(value: string): ParsedToolInput | null {
 
 export function activityKind(toolName: string | undefined): ActivityKind {
   if (!toolName) return 'other'
+  // Every provider spells the question tool differently, so it is matched
+  // rather than listed beside the fixed tool names above.
+  if (isQuestionTool(toolName)) return 'ask'
   return KIND_FOR_TOOL[toolName] ?? 'other'
 }
 
@@ -178,26 +186,40 @@ export interface BackgroundWait {
 }
 
 /**
- * Commands this turn launched into the background and has not heard back from.
- * A run_in_background tool answers its call at launch, so the row goes idle
- * while the work continues — this, not "planning the next step", is what the
- * session is doing. Null when nothing is in flight.
+ * Sub-agents and commands this turn is still waiting on. A backgrounded call
+ * answers at launch, so the row goes idle while the work continues — this, not
+ * "planning the next step", is what the session is doing. Null when nothing is
+ * in flight.
  *
  * Scans the whole turn rather than one group: the launching call can sit many
- * groups behind the row that owns the spinner.
+ * groups behind the row that owns the spinner, and its own card can be far
+ * above the fold.
  */
 export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | null {
+  const subagents: Message[] = []
   const commands: Message[] = []
   for (const item of items) {
+    if (item.kind === 'subagent-group') {
+      // toolStatus tracks the agent, not its tool call.
+      for (const message of item.messages) {
+        if (message.toolStatus === 'running') subagents.push(message)
+      }
+      continue
+    }
     if (item.kind !== 'tool-group') continue
     for (const message of item.messages) {
-      // A backgrounded sub-agent is named by `waitingOnLabel` instead; it is an
-      // agent we are waiting on, not a command we are running.
-      if (message.subagentType) continue
       if (!message.backgroundTaskId) continue
       if (message.backgroundTaskSettledAt !== undefined) continue
       commands.push(message)
     }
+  }
+  // The agents are the larger wait, and the turn resumes when they report.
+  if (subagents.length > 1) {
+    return { label: `Waiting on ${subagents.length} subagents…`, target: '' }
+  }
+  if (subagents.length === 1) {
+    const parsed = parseSubagentInput(subagents[0].toolInput)
+    return { label: 'Waiting on a subagent…', target: (parsed.description || parsed.prompt || '').trim() }
   }
   if (commands.length === 0) return null
   if (commands.length > 1) {
@@ -376,7 +398,8 @@ export function activityKinds(tools: Message[]): ActivityKind[] {
   const kinds: ActivityKind[] = []
   if (tools.some((tool) => tool.thinkingMs)) kinds.push('think')
   for (const tool of tools) {
-    const kind = activityKind(tool.toolName)
+    // Codex can answer without a tool row; its receipt has no name to match.
+    const kind = tool.questionAnswer ? 'ask' : activityKind(tool.toolName)
     if (!kinds.includes(kind)) kinds.push(kind)
   }
   return kinds

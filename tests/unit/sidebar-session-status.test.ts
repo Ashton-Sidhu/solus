@@ -24,6 +24,20 @@ describe('sidebar session status feed', () => {
     })
   })
 
+  test('a session with no tab still reports a background task after its turn ends', () => {
+    // WHY: sidebar rows without a mounted tab read only this feed. A turn left
+    // with a log tail running must not read as running, or as simply finished.
+    const feed = new SidebarSessionStatusFeed()
+    const event = { sessionId: 'solus-session', agentSessionId: 'provider-session' }
+
+    feed.apply('studio', { ...event, status: 'running', at: 1_000 })
+    feed.apply('studio', { ...event, status: 'background', at: 2_000 })
+    expect(feed.stateFor('studio', 'provider-session')?.attention).toBe('background')
+
+    feed.apply('studio', { ...event, status: 'completed', at: 3_000 })
+    expect(feed.stateFor('studio', 'provider-session')).toBeNull()
+  })
+
   test('keeps the same timer start across one busy turn and clears it on settlement', () => {
     // WHY: status changes within a turn must not reset the elapsed timer, and a
     // completed session must stop presenting itself as active.

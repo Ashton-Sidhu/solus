@@ -9,19 +9,14 @@
   import { menuRowVariants } from "../menu/menu-row";
   import { cn } from "../../../lib/tw";
   import ProjectFavicon from "../ProjectFavicon.svelte";
-  import { abbreviateHome, projectDirLabel } from "../../../lib/paths";
-  import {
-    projectRefKey,
-    type ProjectRef,
-  } from "../../../contexts/projects/project-catalog";
+  import { abbreviateHome } from "../../../lib/paths";
+  import { openAddProjectPicker } from "./add-project";
   import type { ListProjectOption } from "./list-page";
 
   /**
-   * The scope control every page-level surface uses. It is the leading crumb of
-   * the page title — `<project> / <page>` — so the scope is stated where the
-   * page names itself and changed in that same place. Quiet until hovered: it
-   * is a label first and a button second. Tasks, Pull requests, Automations and
-   * the Workspace all share it, so a person scopes the same way on every page.
+   * The unified picker's scope control: a quiet crumb before its search field.
+   * Quiet until hovered: it is a label first and a button second. The list
+   * pages scope from their Filters menu instead (`ListProjectFilter`).
    *
    * The menu is anchored against its trigger, so its width and its side are the
    * window's business rather than the pane's. A fixed 308px hung from the right
@@ -31,38 +26,25 @@
    */
   interface Props {
     projects: ListProjectOption[];
-    /** `crumb` is the page title's leading crumb; `chip` is the standalone
-     *  control for surfaces that have no title band to lead. */
-    variant?: "crumb" | "chip";
     /** The scoped project's `key` (host-qualified); `""` when there is none. */
     activeKey?: string;
     /** Stands in when nothing is scoped yet. */
     emptyLabel?: string;
     onSelect?: (option: ListProjectOption) => void;
-    /** Forgets a catalog-only project. Files and sessions are untouched. */
-    onRemoveHistory?: (option: ListProjectOption) => void;
-    /** When set, an "All projects" row leads the menu and clears the scope —
-     *  every page but Tasks uses this; Tasks always needs one project. */
+    /** When set, an "All projects" row leads the menu and clears the scope. */
     onSelectAll?: () => void;
-    allLabel?: string;
     /** What the page does to the rest of its controls when the scope changes. */
     footerNote?: string;
-    /** Lets a shared crumb line keep adjacent menus mutually exclusive. */
     menuOpen?: boolean;
-    onOpenMenu?: () => void;
   }
   let {
     projects,
-    variant = "chip",
     activeKey,
     emptyLabel = "No project",
     onSelect,
-    onRemoveHistory,
     onSelectAll,
-    allLabel = "All projects",
     footerNote = "Switching clears search and filters",
     menuOpen = $bindable(false),
-    onOpenMenu,
   }: Props = $props();
 
   let query = $state("");
@@ -81,9 +63,7 @@
   );
 
   function toggle() {
-    const opening = !menuOpen;
-    if (opening) onOpenMenu?.();
-    menuOpen = opening;
+    menuOpen = !menuOpen;
     query = "";
     if (menuOpen) void Promise.resolve().then(() => queryEl?.focus());
   }
@@ -116,31 +96,10 @@
     onSelectAll?.();
   }
 
-  // A project only reaches this menu once something happened in it, which
-  // leaves no way to scope a page to a folder that is on disk but has never
-  // been opened. The app shell owns the one directory picker on both desktop
-  // and web, so the row asks it to browse with the "add a project" intent
-  // rather than mounting a second picker on every list page.
   function addProject() {
     menuOpen = false;
     query = "";
-    window.dispatchEvent(
-      new CustomEvent("solus:open-directory-picker", {
-        detail: {
-          intent: "add-project",
-          onProjectAdded: (project: ProjectRef) => {
-            onSelect?.({
-              key: projectRefKey(project),
-              projectKey: project.projectRoot,
-              serverId: project.serverId,
-              label: projectDirLabel(project.projectRoot, null),
-              available: true,
-              historyOnly: true,
-            });
-          },
-        },
-      }),
-    );
+    openAddProjectPicker(onSelect);
   }
 </script>
 
@@ -148,9 +107,7 @@
      negative margin on the button is inside the box that `max-w-full` measures,
      so it silently clipped the label by its own width at every row size. -->
 <div
-  class="relative min-w-0 text-workspace-chrome {variant === 'crumb'
-    ? '-ml-2.5 shrink @max-[30rem]/pane:ml-0 @max-[30rem]/pane:max-w-[9.5rem] @max-[30rem]/pane:shrink-0'
-    : 'shrink-0'}"
+  class="relative -ml-2.5 min-w-0 shrink text-workspace-chrome @max-[30rem]/pane:ml-0 @max-[30rem]/pane:max-w-[9.5rem] @max-[30rem]/pane:shrink-0"
 >
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
@@ -162,10 +119,7 @@
 
   <button
     type="button"
-    class="relative z-40 flex max-w-full cursor-pointer items-center overflow-hidden border-0 transition-colors duration-150 hover:bg-[var(--wash-2)] {variant ===
- 'crumb'
- ? 'h-[31px] gap-2 rounded-[9px] px-2.5 pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:h-8! @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:rounded-full @max-[30rem]/pane:px-3 @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)]'
- : 'h-[26px] gap-2 rounded-md px-[7px] @max-[30rem]/pane:h-8 @max-[30rem]/pane:rounded-full'} {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
+    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:h-8! @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:rounded-full @max-[30rem]/pane:px-3 @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)] {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
     title="Switch project"
     aria-label="Switch project"
     aria-haspopup="menu"
@@ -178,36 +132,24 @@
         <ProjectFavicon
           projectRoot={active.projectKey}
           serverId={active.serverId}
-          class="shrink-0 {variant === 'crumb'
-            ? 'size-4 [.is-laptop-display_&]:size-3.5'
-            : 'size-3.5'}"
+          class="size-4 shrink-0 [.is-laptop-display_&]:size-3.5"
         />
       {/key}
     {/if}
-    <!-- Keep the project scope muted so the heavier page title is the focus,
-         including when the scope moves to a separate chip on narrow panes. -->
     <span
-      class="truncate font-normal text-muted-foreground {variant === 'crumb'
-        ? 'text-[length:calc(var(--text-workspace-chrome)+2px)] tracking-[-0.013em] @max-[30rem]/pane:text-sm'
-        : 'max-w-[180px]'}"
+      class="truncate text-[length:calc(var(--text-workspace-chrome)+2px)] font-normal tracking-[-0.013em] text-muted-foreground @max-[30rem]/pane:text-sm"
     >
-      {active?.label ?? (allActive ? allLabel : emptyLabel)}
+      {active?.label ?? (allActive ? "All projects" : emptyLabel)}
     </span>
     <CaretDownIcon
-      size={variant === "crumb" ? 12 : 14}
-      class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 {variant ===
-      'crumb'
-        ? '[.is-laptop-display_&]:size-[11px]'
-        : ''} {menuOpen ? 'rotate-180' : ''}"
+      size={12}
+      class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 [.is-laptop-display_&]:size-[11px] {menuOpen ? 'rotate-180' : ''}"
     />
   </button>
 
   {#if menuOpen}
     <div
-      class="menu-surface absolute top-full z-40 mt-[5px] w-[min(19.25rem,calc(100vw-2rem))] p-[5px] text-workspace-chrome {variant ===
-      'crumb'
-        ? 'left-0'
-        : 'right-0 max-[30rem]:right-auto max-[30rem]:left-0'}"
+      class="menu-surface absolute top-full left-0 z-40 mt-[5px] w-[min(19.25rem,calc(100vw-2rem))] p-[5px] text-workspace-chrome"
       role="menu"
       tabindex="-1"
     >
@@ -241,7 +183,7 @@
  ? 'font-medium'
  : ''}"
           >
-            {allLabel}
+            All projects
           </span>
           <span class="flex w-3 shrink-0 justify-end">
             {#if allActive}
@@ -287,13 +229,7 @@
               {project.label}
             </span>
           </button>
-          <ProjectRowAction
-            selected={isActive}
-            label={project.label}
-            onRemove={project.historyOnly && onRemoveHistory
-              ? () => onRemoveHistory?.(project)
-              : undefined}
-          />
+          <ProjectRowAction selected={isActive} label={project.label} />
         </div>
       {/each}
 

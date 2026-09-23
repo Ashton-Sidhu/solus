@@ -124,7 +124,7 @@
     { enabled: () => isPreview },
   );
   useKeybinding("plan-modal.new-tab", () => {
-    session.openSessionDraft({ via: "click" });
+    session.drafts.openSessionDraft({ via: "click" });
   });
 
   function handleSave(md: string) {

@@ -7,12 +7,14 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import type { HostSetupSession } from "../servers/host-setup.store.svelte";
+  import HostBrowserRuntime from './HostBrowserRuntime.svelte';
 
   interface Props {
     setup: HostSetupSession;
+    serverId: string;
   }
 
-  let { setup }: Props = $props();
+  let { setup, serverId }: Props = $props();
 
   const readiness = $derived(setup.readiness);
   const git = $derived(readiness?.git);
@@ -67,6 +69,8 @@
     label="Home folder"
     description={readiness?.home ?? "Not reported by this host"}
   />
+
+  <HostBrowserRuntime {serverId} />
 
   <SettingsRow
     label="SSH keys"

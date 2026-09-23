@@ -40,6 +40,9 @@ class Backend extends EventEmitter implements AgentBackend {
   }
   requests: AgentRunRequest[] = []
   handle?: RunHandle
+  /** Appended to the model the provider reports running, as Claude reports its
+   *  long-context variant. */
+  runtimeModelSuffix = ''
   startRun(request: AgentRunRequest): RunHandle {
     this.requests.push(request)
     let resolve!: () => void
@@ -53,7 +56,7 @@ class Backend extends EventEmitter implements AgentBackend {
     this.handle = handle
     queueMicrotask(() => {
       handle.agentSessionId = 'routed-thread'
-      this.emit('normalized', 'routed-thread', { type: 'session_init', sessionId: 'routed-thread', model: request.model, skills: [] })
+      this.emit('normalized', 'routed-thread', { type: 'session_init', sessionId: 'routed-thread', model: `${request.model}${this.runtimeModelSuffix}`, skills: [] })
     })
     return handle
   }
@@ -155,6 +158,39 @@ describe('Auto session dispatch', () => {
       plane.shutdown()
       installed.mockRestore()
       route.mockRestore()
+    }
+  })
+})
+
+describe('turn model dimensions', () => {
+  test('records the model resolved for this provider and the window its variant ran at', async () => {
+    const backend = new Backend()
+    backend.runtimeModelSuffix = '[1m]'
+    const plane = new module.ControlPlane(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    try {
+      // The session was handed off from Codex: its stored preference still
+      // names the Codex model, while the turn runs the Claude model resolved
+      // for it. A turn that says "asked for a Codex model, ran Opus" would
+      // make a requested-versus-ran comparison report a reroute that never
+      // happened.
+      const run = await plane.runTurn({
+        sessionId: 'handed-off',
+        input: { ...input(), provider: 'claude-code', model: 'claude-sonnet-5', preferredModel: 'gpt-6-astra', contextWindow: 1_000_000 },
+        target: { kind: 'new-session' },
+        tools: [],
+        options: { prompt: 'Help me', skipTaskCreation: true },
+      })
+      await run.agentSessionId
+      backend.finish()
+      await run.done
+      const { getMetricsDb } = await import('@solus/server/observability/metrics-db')
+      const turn = getMetricsDb().prepare('SELECT model, requested_model, context_window FROM turns WHERE session_id = ?').get('handed-off')
+      // One model is one `model` value, so a median by model compares models,
+      // not context-window variants of one model.
+      expect(turn).toEqual({ model: 'claude-sonnet-5', requested_model: 'claude-sonnet-5', context_window: 1_000_000 })
+    } finally {
+      plane.shutdown()
     }
   })
 })

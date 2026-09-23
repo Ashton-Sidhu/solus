@@ -147,7 +147,7 @@
   </button>
 {:else}
 <div
-  class="overflow-hidden rounded-2xl border border-border bg-card [.is-laptop-display_&]:rounded-xl"
+  class="overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
 >
   <div
     class="flex items-center gap-2 border-b border-border px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"

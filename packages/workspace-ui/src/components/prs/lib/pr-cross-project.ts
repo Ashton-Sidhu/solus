@@ -1,18 +1,15 @@
 /**
- * Cross-project PR identity for the "All projects" scope — not the "My
- * inbox" view (`prInboxGroups`/`PrInboxActions` in `prs-list-view.ts`,
- * `prInboxFacts` in `pr-utils.ts`), which this does not touch or duplicate.
- * Both the global list and the inbox stay `prGroups`/`prInboxGroups`
- * unchanged; this file only supplies what they need to stay collision-safe
- * once rows can come from more than one repository: every item, action, and
- * stack lookup keyed by `(serverId, projectRoot, number)` rather than a bare
- * number, since two repos can hand out the same PR number.
+ * Cross-project PR identity for the "All projects" scope. The list is the same
+ * `prGroups` list either way; this file only supplies what it needs to stay
+ * collision-safe once rows can come from more than one repository: every item,
+ * action, and lookup keyed by `(serverId, projectRoot, number)` rather than a
+ * bare number, since two repos can hand out the same PR number.
  */
 import type { PullRequest } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
-import type { StacksStore } from '../../../contexts/prs/stacks.store.svelte'
+import { isRepositoryKey } from '@solus/contracts/repository-key'
 
 export interface QualifiedProject {
   serverId: string
@@ -47,8 +44,7 @@ export interface PrTarget {
 
 /** The union index `flattenQualifiedProjects` builds — one flat item list
  *  plus lookups from a row key, and from the `pr` object itself (what
- *  `prGroups`/`prInboxGroups` hand back to `keyFor`), to the project a PR
- *  belongs to. */
+ *  `prGroups` hands back to `keyFor`), to the project a PR belongs to. */
 export interface QualifiedProjectIndex {
   items: PullRequest[]
   byKey: Map<string, QualifiedPr>
@@ -78,19 +74,6 @@ export function flattenQualifiedProjects(projects: QualifiedProject[]): Qualifie
   return { items, byKey, byPr }
 }
 
-/** Which PR a row is stacked on, read from that PR's own project's graph —
- *  never another project's, so a stack can never cross a repository. */
-export function qualifiedStackParentOf(
-  stacks: StacksStore,
-  byPr: Map<PullRequest, QualifiedPr>,
-): (pr: PullRequest) => number | null {
-  return (pr) => {
-    const qualified = byPr.get(pr)
-    if (!qualified) return null
-    return stacks.parentOf(pr.number, qualified.serverId, qualified.projectRoot)
-  }
-}
-
 export function qualifiedKeyOf(byPr: Map<PullRequest, QualifiedPr>): (pr: PullRequest) => string {
   return (pr) => {
     const qualified = byPr.get(pr)
@@ -98,4 +81,47 @@ export function qualifiedKeyOf(byPr: Map<PullRequest, QualifiedPr>): (pr: PullRe
       ? qualifiedPrKey(qualified.serverId, qualified.projectRoot, pr.number)
       : String(pr.number)
   }
+}
+
+/** How the page reaches a project: through a checkout whose host is online,
+ *  or through the organization's workspace service. */
+export interface PrProjectReach {
+  /** The workspace service, when it is online to read through. */
+  cloudServerId: string | null
+  isOnlineCheckout: (serverId: string) => boolean
+  apiFor: (serverId: string) => HostApi
+  ctxFor: (projectRoot: string) => IpcContext
+}
+
+/**
+ * The projects the every-project list reads, one per project. Only projects
+ * reachable right now: a saved host that has never dialed keeps its request
+ * queued in the transport with nothing to age it out, and one of those inside
+ * the bounded worker pool blocks every project behind it. A project whose
+ * checkouts are all off is read once per repository through the workspace
+ * service, and one with neither is left out until a host connects.
+ */
+export function prProjectTargets(
+  options: readonly { key: string; projectKey: string; serverId: string; label: string }[],
+  reach: PrProjectReach,
+): { serverId: string; projectRoot: string; label: string; api: HostApi; ctx: IpcContext }[] {
+  return options.flatMap((option) => {
+    if (reach.isOnlineCheckout(option.serverId)) {
+      return [{
+        serverId: option.serverId,
+        projectRoot: option.projectKey,
+        label: option.label,
+        api: reach.apiFor(option.serverId),
+        ctx: reach.ctxFor(option.projectKey),
+      }]
+    }
+    if (!reach.cloudServerId || !isRepositoryKey(option.key)) return []
+    return [{
+      serverId: reach.cloudServerId,
+      projectRoot: option.key,
+      label: option.label,
+      api: reach.apiFor(reach.cloudServerId),
+      ctx: reach.ctxFor(option.key),
+    }]
+  })
 }

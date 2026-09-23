@@ -3,6 +3,7 @@ import type { Message, QuestionAnswer } from '@solus/contracts/types'
 import { isQuestionTool, parseQuestionInput } from '@solus/contracts/question-history'
 import { recordQuestionAnswer } from '@solus/workspace-ui/contexts/workspace/question-history'
 import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
+import { activityKinds } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
 import { projectSessionHistory, projectSessionEvent } from '@solus/server/server/result-projection'
 import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
 
@@ -19,7 +20,7 @@ const final: Message = { id: 'final', role: 'assistant', content: 'Done.', times
 
 describe('answered question history', () => {
   for (const providerTool of ['AskUserQuestion', 'functions.request_user_input']) {
-    test(`${providerTool} keeps its answer outside work folds without a duplicate tool row`, () => {
+    test(`${providerTool} folds with the turn it was asked in, without a duplicate tool row`, () => {
       const question = tool('q1', providerTool)
       const messages = [user, tool('before', 'Read'), question, tool('after', 'Bash'), final]
       recordQuestionAnswer(messages, answer, 4)
@@ -28,7 +29,12 @@ describe('answered question history', () => {
       expect(messages[2]).toBe(question)
       for (const running of [true, false]) {
         const [turn] = buildTurns(groupMessages(messages), { running })
-        expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['question'])
+        // WHY: an answered question is history like every other step of the
+        // turn, so it folds with them — but the decision must not vanish with
+        // the fold, so the summary row still reports that the turn asked.
+        expect(turn.body.map((item) => item.kind)).toContain('question')
+        expect(turn.visibleWhenCollapsed).toHaveLength(0)
+        expect(activityKinds(turn.tools)).toContain('ask')
         expect(turn.body.filter((item) => item.kind === 'tool-group').flatMap((item) => item.messages.map((m) => m.id))).toEqual(['before', 'after'])
       }
       expect(question.questionAnswer?.answers.scope).toContain('release branch')
@@ -41,6 +47,9 @@ describe('answered question history', () => {
     recordQuestionAnswer(messages, answer, 4)
     expect(messages).toHaveLength(2)
     expect(messages[1].questionAnswer).toEqual(answer)
+    // WHY: the receipt has no tool name to classify, so the summary row would
+    // report a decision the reader made as "used tools" — or not at all.
+    expect(activityKinds(buildTurns(groupMessages(messages), { running: false })[0].tools)).toEqual(['ask'])
     expect(projectSessionEvent({ type: 'question_answered', answer, timestamp: 4 })).toEqual({ type: 'question_answered', answer, timestamp: 4 })
   })
 

@@ -143,6 +143,25 @@ describe('CommitComposerState', () => {
     ])
   })
 
+  // The header checkbox is the only bulk control, so a partial selection must
+  // resolve toward "everything shown" — the default a commit starts from.
+  test('the header checkbox reads mixed and completes a partial selection', async () => {
+    const api = { diffStats: async () => files } as any
+    const state = new CommitComposerState()
+    await state.load(api, {} as any)
+
+    expect(state.visibleSelection).toBe('all')
+    state.toggle('b.txt')
+    expect(state.visibleSelection).toBe('some')
+
+    state.toggleVisible()
+    expect(state.selectedPaths).toEqual(['a.txt', 'b.txt', 'c.txt'])
+
+    state.toggleVisible()
+    expect(state.visibleSelection).toBe('none')
+    expect(state.selectedPaths).toEqual([])
+  })
+
   test('surfaces a load failure instead of leaving a stale file list', async () => {
     const api = { diffStats: async () => { throw new Error('diffStats unavailable') } } as any
     const state = new CommitComposerState()

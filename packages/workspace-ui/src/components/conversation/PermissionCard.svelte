@@ -82,7 +82,7 @@
   function handleOption(optionId: string) {
     if (responded) return
     responded = true
-    session.respondPermission(tabId, permission.questionId, optionId)
+    session.controls.respondPermission(tabId, permission.questionId, optionId)
   }
 
   function classFor(option: PermissionOption): string {

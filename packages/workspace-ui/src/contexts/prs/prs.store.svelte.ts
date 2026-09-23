@@ -20,6 +20,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { ProjectPrs, projectPrsKey, type PrList } from './project-prs.svelte'
 import { afterStartupTranscriptPaint } from '../workspace/startup-transcript'
 import { linkedPrIdentity, latestPrObservation, type LinkedPr, type PrLink } from './linked-pr'
+import { readPrListSnapshot, writePrListSnapshot } from '../../components/prs/lib/pr-list-memory'
 
 export interface PrInterest {
   /** Linked records must be recovered even when absent from the list page. */
@@ -254,6 +255,46 @@ export class PrsStore {
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker))
+  }
+
+  /**
+   * Read the list a page is showing: one project, or every project through
+   * `listAll` when `targets` is given.
+   *
+   * An unsearched read first paints the list remembered from the last visit
+   * under `memoryKey` into any project that has nothing yet, and remembers its
+   * own answer when it lands. A search is neither painted from memory nor
+   * remembered — the next visit starts from the unsearched list.
+   */
+  async readPage(
+    scopes: ProjectPrs[],
+    filter: PrFilter,
+    opts: { memoryKey: string; force?: boolean; targets?: PrProject[] },
+  ): Promise<void> {
+    if (scopes.length === 0) return
+    const state = filter.state ?? 'open'
+    if (!filter.query) {
+      const remembered = readPrListSnapshot(opts.memoryKey, state)
+      for (const scope of scopes) {
+        const entry = remembered?.projects.find(
+          (project) => project.serverId === scope.serverId && project.projectRoot === scope.projectScope,
+        )
+        if (entry) scope.showCached(entry.items)
+      }
+    }
+    if (opts.targets) await this.listAll(opts.targets, filter, opts.force ? { force: true } : {})
+    else await scopes[0].list(opts.force ? { filter, force: true } : { filter })
+    const answered = scopes.filter((scope) => scope.loaded && !scope.error && !scope.filter.query)
+    if (filter.query || answered.length === 0) return
+    writePrListSnapshot(opts.memoryKey, {
+      state,
+      savedAt: Date.now(),
+      projects: answered.map((scope) => ({
+        serverId: scope.serverId,
+        projectRoot: scope.projectScope,
+        items: scope.items,
+      })),
+    })
   }
 
   /** A lifecycle change anywhere reaches the project holding that pull request.

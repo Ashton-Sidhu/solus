@@ -160,7 +160,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Review companion agent" class="min-w-24 justify-between text-xs shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion agent" class="min-w-24 justify-between text-xs font-normal shadow-xs">
               <span class="truncate">{reviewAgentLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -186,7 +186,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger disabled={reviewModels.length === 0}>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Review companion model" class="min-w-24 justify-between text-xs shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion model" class="min-w-24 justify-between text-xs font-normal shadow-xs">
               <span class="truncate">{reviewModelLabel || "Default"}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>
@@ -212,7 +212,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger disabled={reviewReasoningLevels.length === 0}>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Review companion reasoning" class="min-w-24 justify-between text-xs shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion reasoning" class="min-w-24 justify-between text-xs font-normal shadow-xs">
               <span class="truncate">{reviewReasoningLabel || "Default"}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
             </Button>

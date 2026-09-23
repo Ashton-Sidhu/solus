@@ -6,6 +6,7 @@ export type MobileStateTone = 'running' | 'failure' | 'warning' | 'success' | 'u
 
 export type MobileStateGlyph =
   | 'running'
+  | 'background'
   | 'question'
   | 'plan'
   | 'failure'
@@ -66,6 +67,8 @@ export function mobileTaskState(
   switch (row.status) {
     case 'running':
       return { glyph: 'running', label: 'running', tone: 'running' }
+    case 'background':
+      return { glyph: 'background', label: 'background task running', tone: 'running' }
     case 'error':
       return { glyph: 'failure', label: 'failed', tone: 'failure' }
     case 'question':

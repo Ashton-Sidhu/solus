@@ -1,13 +1,22 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { asHostApi } from '@solus/client-core/host-api'
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
+import { asHostApi, type HostApi } from '@solus/client-core/host-api'
+import { serverConnections } from '@solus/client-core/server-connections'
 import { gitCheckoutFromState, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 afterEach(() => {
+  mock.restore()
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
+
+/** The workspace's surface for its one source. Git reads go to the host's own
+ *  connection, so that connection serves the same fake. */
+function servedBy(api: HostApi): () => HostApi {
+  spyOn(serverConnections, 'apiFor').mockReturnValue(api)
+  return () => api
+}
 
 function gitState(branch: string): GitState {
   return {
@@ -29,6 +38,33 @@ function gitState(branch: string): GitState {
 }
 
 describe('Git environment registration', () => {
+  test("a new worktree starts from the organization's default branch for the project", async () => {
+    // WHY: docs/plans/project-model.md §7 — a member sets the branch every new
+    // worktree of a cloud project starts from; the host's detected default
+    // applies only when nobody set one.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    const api = asHostApi({
+      gitIdentity: async () => gitState('main'),
+      gitRefreshState: async () => gitState('main'),
+    })
+    const run = { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: { baseBranch: null } } as RunConfig
+    const workspace = {
+      activeTabId: 'draft',
+      tabOrder: [],
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
+      runFor: () => run,
+      sessionFor: () => undefined,
+      ctxFor: () => ({ session: { sessionId: '' } }) as IpcContext,
+      apiFor: servedBy(api),
+      serverIdFor: () => 'host-a',
+      projectDefaultBranchFor: () => 'develop',
+    }
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    await new SessionEnvironmentStore().refreshEnvironment(workspace, { force: true })
+
+    expect(run.worktree).toEqual({ baseBranch: 'develop' })
+  })
+
   test('reports only checkout identity changes and restores state after reconnect', async () => {
     // WHY: status refreshes are frequent and describe mutable files, but the
     // server's session-to-checkout registration changes far less often.
@@ -66,12 +102,11 @@ describe('Git environment registration', () => {
     const workspace = {
       activeTabId: 'tab-one',
       tabOrder: ['tab-one'],
-      globalDefaults: { workingDirectory: '/repo', gitContext: null },
-      config: { applyGlobalStartTarget: () => {} },
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
       runFor: () => run,
       sessionFor: () => session,
       ctxFor: () => ctx,
-      apiFor: () => api,
+      apiFor: servedBy(api),
       serverIdFor: () => 'host-a',
     }
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
@@ -116,12 +151,11 @@ describe('Git environment registration', () => {
     const workspace = {
       activeTabId: 'tab-one',
       tabOrder: ['tab-one'],
-      globalDefaults: { workingDirectory: '/repo', gitContext: null },
-      config: { applyGlobalStartTarget: () => {} },
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
       runFor: () => run,
       sessionFor: () => session,
       ctxFor: () => ctx,
-      apiFor: () => api,
+      apiFor: servedBy(api),
       serverIdFor: () => 'host-a',
     }
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
@@ -157,12 +191,11 @@ describe('Git environment registration', () => {
     const workspace = {
       activeTabId: 'tab-one',
       tabOrder: ['tab-one'],
-      globalDefaults: { workingDirectory: '/repo', gitContext: null },
-      config: { applyGlobalStartTarget: () => {} },
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
       runFor: () => run,
       sessionFor: () => session,
       ctxFor: () => ({ session: { sessionId: 'session-one', workingDirectory: '/repo' } }) as IpcContext,
-      apiFor: () => api,
+      apiFor: servedBy(api),
       serverIdFor: () => 'host-a',
     }
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
@@ -202,12 +235,11 @@ describe('Git environment full refresh', () => {
     const workspace = {
       activeTabId: 'tab-one',
       tabOrder: ['tab-one'],
-      globalDefaults: { workingDirectory: '/repo', gitContext: null },
-      config: { applyGlobalStartTarget: () => {} },
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
       runFor: () => run,
       sessionFor: () => ({ sessionId: 'session-one' }) as Session,
       ctxFor: () => ({ session: { sessionId: 'session-one', workingDirectory: '/repo' } }) as IpcContext,
-      apiFor: () => api,
+      apiFor: servedBy(api),
       serverIdFor: () => 'host-a',
     }
     return { workspace, refs, statusOptions, separateRefsReads: () => separateRefsReads }
@@ -226,9 +258,9 @@ describe('Git environment full refresh', () => {
     expect(result.ok).toBe(true)
     expect(fixture.statusOptions).toEqual([undefined, { includeDetails: true, bypassCache: true, includeRefs: true }])
     expect(fixture.separateRefsReads()).toBe(0)
-    expect(store.refsFor('/repo')).toEqual(fixture.refs)
+    expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
     // Refs are project state, not checkout state: they must not land in status.
-    expect(store.statusFor('/repo')).not.toHaveProperty('refs')
+    expect(store.statusFor('host-a', '/repo')).not.toHaveProperty('refs')
   })
 
   test('falls back to separate refs reads on a host that answers without them', async () => {
@@ -242,6 +274,6 @@ describe('Git environment full refresh', () => {
 
     expect(result.ok).toBe(true)
     expect(fixture.separateRefsReads()).toBe(2)
-    expect(store.refsFor('/repo')).toEqual(fixture.refs)
+    expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
   })
 })

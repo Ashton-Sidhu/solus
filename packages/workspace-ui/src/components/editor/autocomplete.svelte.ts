@@ -224,7 +224,7 @@ export class UnifiedAutocompleteController {
 
   #openFileItems = $derived.by((): MenuItem[] => {
     const touched = autocompleteSessionChangedFiles(
-      this.deps.session.sessions,
+      this.deps.session.sessions.byId,
       this.deps.sessionId?.(),
     );
     return touched.slice(0, 8).map((path) => this.#fileItem(path, false));

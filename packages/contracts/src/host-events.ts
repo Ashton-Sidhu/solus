@@ -4,7 +4,6 @@ import type { ConnectionConnectNeeded } from './connections'
 import type { AttentionEntry } from './attention-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
 import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent } from './review'
-import type { StackGraph } from './stack-types'
 import type { PullRequest } from './providers'
 import type {
   AgentUsageLimits,
@@ -28,6 +27,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot } from './presence'
+import type { UplinkStatus } from './uplink'
 import { z } from 'zod'
 
 /**
@@ -57,6 +57,7 @@ export interface HostEventMap {
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
   'tasks.invalidated': Record<string, never>
+  'workspaceProjects.changed': Record<string, never>
   /** This host's outbox gained, lost, or failed an op. Connected clients react
    *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
   'outbox.changed': Record<string, never>
@@ -64,7 +65,6 @@ export interface HostEventMap {
   'pr.lifecycleChanged': { projectRoot: string; detail: PullRequest }
   'annotations.changed': AnnotationsChanged
   'attention.snapshotChanged': { entries: AttentionEntry[] }
-  'stack.graphChanged': { repoRoot: string; graph: StackGraph }
   'pr.checksChanged': PrChecksSnapshot
   'pr.guideStatusChanged': PrGuideStatusEvent
   'usage.limitsChanged': { snapshots: AgentUsageLimits[] }
@@ -106,6 +106,10 @@ export interface HostEventMap {
   /** Who is connected to this host and what each of them has focused. Delivered to
    *  every admitted client but a guest, who is never told about the host. */
   'host.presenceChanged': HostPresenceSnapshot
+  /** This host's cloud link changed: linked, unlinked, or the tunnel came up or
+   *  went down. The whole status, as `uplinkStatus` answers it: linking returns
+   *  before the connector registers, so the row that just linked hears "online" here. */
+  'host.uplinkStatusChanged': UplinkStatus
 }
 
 export type HostEventName = keyof HostEventMap
@@ -142,12 +146,12 @@ export const HOST_EVENT_DEFINITIONS = {
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
+  'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
   'pr.lifecycleChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull request changed on the host: lifecycle state or labels. Carries the whole pull request.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
-  'stack.graphChanged': { owner: 'stacks', category: 'snapshot', recovery: 'reload', description: 'A repository PR stack graph changed.' },
   'pr.checksChanged': { owner: 'prs', category: 'snapshot', recovery: 'reload', description: 'Cached pull-request checks changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
@@ -164,6 +168,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
+  'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's cloud link or its tunnel changed state." },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

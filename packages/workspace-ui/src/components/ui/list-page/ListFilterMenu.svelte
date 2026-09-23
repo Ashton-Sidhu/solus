@@ -15,9 +15,7 @@
         <button
           {...props}
           type="button"
-          class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10 {activeCount > 0
-            ? 'bg-[color-mix(in_oklch,var(--primary)_13%,var(--card))] text-[color:color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-            : 'bg-card text-foreground'}"
+          class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10 bg-card text-foreground data-[state=open]:bg-[var(--wash-1)]"
           aria-label={activeCount > 0
             ? `Filters (${activeCount} active)`
             : "Filters"}
@@ -26,9 +24,8 @@
           <ListFilterIcon size={16} class="shrink-0 text-muted-foreground" />
           <span class="@max-[40rem]/pane:hidden">Filters</span>
           {#if activeCount > 0}
-            <!-- The count stands in for the label once the label is gone, so a
-                 narrowed list still says so on its face. -->
-            <span class="text-xs tabular-nums @min-[40rem]/pane:hidden">{activeCount}</span>
+            <!-- The count is the only sign of a narrowed list, so it shows at every width. -->
+            <span class="text-xs text-muted-foreground tabular-nums">{activeCount}</span>
           {/if}
           <span
             class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"

@@ -1,3 +1,4 @@
+import { usesAccountIntegration } from '../../vault/provider-credentials'
 import { homedir } from 'node:os'
 import { runAsync } from '../../git/exec'
 import { createLogger } from '../../logger'
@@ -12,7 +13,7 @@ import { loadToken } from './token-store'
 
 const log = createLogger('main', 'github-credentials')
 
-export type GithubCredentialSource = 'delegated' | 'host' | 'gh-cli'
+export type GithubCredentialSource = 'account' | 'delegated' | 'host' | 'gh-cli'
 
 export interface GithubCredential {
   source: GithubCredentialSource
@@ -98,6 +99,11 @@ function ghCliGithubToken(host: string): Promise<string | null> {
  * from this host by any means.
  */
 export async function githubCredentialChain(host: string, cwd?: string): Promise<GithubCredential[]> {
+  if (usesAccountIntegration()) {
+    if (host !== 'github.com') return []
+    const token = (await loadToken())?.accessToken
+    return token ? [{ source: 'account', token }] : []
+  }
   const chain: GithubCredential[] = []
   const delegated = cwd ? await delegatedCheckoutToken(cwd) : null
   if (delegated) chain.push({ source: 'delegated', token: delegated })

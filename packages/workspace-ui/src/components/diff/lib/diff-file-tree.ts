@@ -28,7 +28,8 @@ const DIFF_TREE_CSS = `
   [data-item-focused='true'] [data-item-section='decoration'] { opacity: 1; }
   [data-file-tree-search-container] {
     padding-top: 0.375rem;
-    padding-left: calc(var(--trees-padding-inline) + 2.125rem);
+    /* Room for the column's collapse button in the top-right corner. */
+    padding-right: calc(var(--trees-padding-inline) + 2.125rem);
     margin-bottom: 0.625rem;
   }
   [data-file-tree-search-input] { min-width: 0; }

@@ -5,16 +5,19 @@
 </script>
 
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
 
   let { text = "" }: { text?: string } = $props();
 
-  const session = getWorkspaceContext();
+  // A file token previews on the person's session; a client with none (the
+  // cloud console) shows the token alone.
+  const session = getSurfaceContext().workspace;
 
   const segments = $derived(tokenizeMarkdownText(text));
 
   function handleFileClick(path: string) {
+    if (!session) return;
     requestFilePreview({
       path,
       tabId: session.focusedChatTabId ?? session.activeTabId,

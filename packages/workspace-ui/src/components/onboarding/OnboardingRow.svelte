@@ -7,6 +7,7 @@
    */
   import { Check as CheckIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import { cn } from "../../lib/utils";
 
   interface Props {
     name: string;
@@ -55,8 +56,10 @@
   this={onpick ? "button" : "div"}
   type={onpick ? "button" : undefined}
   onclick={onpick}
-  class="text-xs onboarding-enter relative flex w-full flex-col overflow-hidden rounded-2xl bg-[var(--wash-1)] text-left transition-colors duration-150 hover:bg-[var(--wash-2)]"
-  class:cursor-pointer={!!onpick}
+  class={cn(
+    "text-xs onboarding-enter relative flex w-full flex-col overflow-hidden rounded-2xl bg-[var(--solus-tx-card-bg)] text-left shadow-[shadow:var(--solus-tx-card-shadow)] transition-shadow duration-150",
+    onpick && "cursor-pointer hover:shadow-[shadow:var(--solus-tx-card-shadow-hover)]",
+  )}
   style="animation-delay: {delay}s"
 >
   <div class="flex min-h-[4.5rem] items-center gap-3 py-3 pl-4 pr-4 sm:gap-4 sm:pr-5">
@@ -107,7 +110,7 @@
   </div>
 
   {#if expansion && expanded}
-    <div class="border-t border-(--hairline) px-4 pb-4 pt-3.5">
+    <div class="border-t border-(--hairline) px-4 pb-4 pt-1">
       {@render expansion()}
     </div>
   {/if}

@@ -13,11 +13,6 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     const items = page === 1 ? store.prList() : []
     return { items, page, hasMore: false }
   })
-  backend.register('prGetEfforts', (args) => {
-    const requests = arg<Array<{ number: number; headSha: string }>>(args, 1)
-    const byNumber = new Map(store.prList().map((item) => [item.number, item]))
-    return requests.map((request) => ({ ...request, effort: byNumber.get(request.number)?.effort }))
-  })
   backend.register('prGetOverview', () => store.prOverview())
   backend.register('prGetDetail', () => store.prOverview().pullRequest)
   backend.register('prUpdate', (args) => {
@@ -159,6 +154,8 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('reviewGuideStatus', guideStatus)
   backend.register('sessionGuideStatuses', (args) =>
     arg<SessionCtx[]>(args, 0).map((session) => store.reviewGuideStatus({ session }, 'session')))
+  backend.register('prGuideStatuses', (args) =>
+    arg<unknown[]>(args, 1).map(() => store.reviewGuideStatus(arg<IpcContext>(args, 0), 'branch')))
   backend.register('requestReviewGuide', guideStatus)
   backend.register('generateGuide', (args) => ({
     key: guideStatus(args).key,

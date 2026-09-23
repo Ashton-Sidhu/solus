@@ -4,6 +4,7 @@ import type { PickerScope } from '../../components/session/unified-picker/lib/pi
 import type { PickerSearchMode, PickerSort } from '../../components/session/unified-picker/lib/picker-search'
 import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ProjectPageScope } from '../projects/project-catalog'
+import { loadProjectPageScope, saveProjectPageScope } from '../projects/page-scope-preference'
 
 /**
  * Shell state that is not a location: which transient dialogs are open and
@@ -39,8 +40,16 @@ export class WorkspaceUiStore {
    *  Lives here so every surface's context menu can open the one dialog. */
   sessionRename = $state<{ tabId: string } | null>(null)
   /** The scope owned by Tasks, Pull requests, Workspace, or Automations. Only
-   * one page can be open, so one host-qualified value covers the page group. */
-  projectPageScope = $state<ProjectPageScope>({ kind: 'all' })
+   * one page can be open, so one value covers the page group; it survives a
+   * reload on this device. */
+  private pageScope = $state<ProjectPageScope>(loadProjectPageScope())
+
+  get projectPageScope(): ProjectPageScope { return this.pageScope }
+
+  set projectPageScope(scope: ProjectPageScope) {
+    this.pageScope = scope
+    saveProjectPageScope(scope)
+  }
   /** Transient, live-only — which tabs are mid "continue in worktree" setup. */
   readonly continuingWorktreeTabIds = new SvelteSet<string>()
 

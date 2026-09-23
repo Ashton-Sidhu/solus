@@ -374,25 +374,97 @@ describe('review guide metadata is scoped to one pull request', () => {
     const api = asHostApi({
       prList: async (): Promise<PrListPage> => ({ items: [target, pr(8)], page: 1, hasMore: false }),
       prChecks: async () => ({ repo: { host: 'github.com', owner: 'acme', repo: 'a' }, checks: [] }),
-      reviewGuideStatus: async (_ctx, options) => {
-        if (options?.target?.kind !== 'pr') throw new Error('Expected a PR target')
-        const request = options.target
+      prGuideStatuses: async (_ctx, batch) => batch.map(({ target: request }) => {
         requests.push({ number: request.number, headSha: request.headSha ?? '' })
         return {
-          repoRoot: '/repos/a', key: 'pr-guide', scope: 'pr', target: request,
-          status: 'ready', headSha: request.headSha ?? '', baseSha: request.baseSha,
+          repoRoot: '/repos/a', key: 'pr-guide', scope: 'pr' as const, target: request,
+          status: 'ready' as const, headSha: request.headSha ?? '', baseSha: request.baseSha,
           generatedAt: '2026-01-01T00:00:00Z', updatedAt: 1,
         }
-      },
+      }),
     })
 
     await store.get(api, 'host-a', ctx).list()
     expect(requests).toEqual([])
 
-    await guides.loadMetadata(api, 'host-a', ctx, target)
+    await guides.loadMetadata(api, 'host-a', ctx, [target])
     expect(requests).toEqual([{ number: 7, headSha: 'sha-7' }])
     expect(guides.metadataFor('host-a', ctx, 7)?.current).toBe(true)
     expect(guides.metadataFor('host-a', ctx, 8)).toBeUndefined()
+  })
+
+  test('a listed guide is probed once per revision, again after a push, and again after a failure', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const store = new PrsStore()
+    const guides = new PrGuidesStore(store, new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {}))
+    const ctx = ctxFor('/repos/a')
+    let head = 'sha-7'
+    let failNext = false
+    const probes: string[] = []
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => ({ items: [{ ...pr(7), headSha: head }], page: 1, hasMore: false }),
+      ...NO_CHECKS,
+      prGuideStatuses: async (_ctx, batch) => {
+        probes.push(...batch.map(({ target }) => target.headSha ?? ''))
+        if (failNext) {
+          failNext = false
+          throw new Error('host unreachable')
+        }
+        return batch.map(() => null)
+      },
+    })
+    const project = store.get(api, 'host-a', ctx)
+
+    // Reopening the page, or a refresh with nothing pushed, asks nothing new:
+    // a guide's later changes arrive as events, not as answers to a poll.
+    await project.list()
+    await guides.loadListed(project)
+    await project.list({ force: true })
+    await guides.loadListed(project)
+    expect(probes).toEqual(['sha-7'])
+
+    head = 'sha-7b'
+    failNext = true
+    await project.list({ force: true })
+    await guides.loadListed(project)
+    await guides.loadListed(project)
+    expect(probes).toEqual(['sha-7', 'sha-7b', 'sha-7b'])
+  })
+
+  test('a listed page asks about every row in one request that names each head branch', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const store = new PrsStore()
+    const guides = new PrGuidesStore(store, new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {}))
+    const batches: { number: number; headRef: string }[][] = []
+    let singleProbes = 0
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => ({
+        items: [7, 8, 9, 10, 11].map((number) => pr(number, { headRef: `feature/${number}` })),
+        page: 1,
+        hasMore: false,
+      }),
+      ...NO_CHECKS,
+      // Each single probe costs the host a code-host round trip per row; a
+      // page of rows must never become a page of those.
+      reviewGuideStatus: async () => { singleProbes++; return null },
+      prGuideStatuses: async (_ctx, batch) => {
+        batches.push(batch.map(({ target, headRef }) => ({ number: target.number, headRef })))
+        return batch.map(() => null)
+      },
+    })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+
+    await project.list()
+    await guides.loadListed(project)
+
+    expect(singleProbes).toBe(0)
+    expect(batches).toEqual([[7, 8, 9, 10, 11].map((number) => ({ number, headRef: `feature/${number}` }))])
   })
 
   test('only an explicit PR guide shares its state with PR surfaces', async () => {

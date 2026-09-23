@@ -2,7 +2,7 @@
   import { ChevronDown as CaretDownIcon, History as ClockCounterClockwiseIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import type { PrInterdiffResult } from "@solus/contracts/types";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { Button } from "../ui/button";
+  import SettingsSelect from "../settings/SettingsSelect.svelte";
   import { reviewCommentPreview, reviewedAtLabel, unmatchedReviewComments } from "./lib/since-review";
 
   let {
@@ -39,25 +39,17 @@
           Compared with {reviewedAtLabel(result.checkpoint?.reviewedAt ?? "")}
         </p>
       </div>
-      <div class="flex shrink-0 rounded-lg bg-secondary p-1" role="group" aria-label="Diff range">
-        <Button
-          variant="ghost"
-          size="sm"
-          class={`h-10 rounded-lg px-3 ${showingSince ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-          aria-pressed={showingSince}
-          onclick={() => onModeChange(true)}
-        >
-          Since review
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class={`h-10 rounded-lg px-3 ${!showingSince ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-          aria-pressed={!showingSince}
-          onclick={() => onModeChange(false)}
-        >
-          Full diff
-        </Button>
+      <div class="shrink-0">
+        <SettingsSelect
+          options={[
+            { value: "since", label: "Since review" },
+            { value: "full", label: "Full diff" },
+          ]}
+          value={showingSince ? "since" : "full"}
+          onSelect={(range) => onModeChange(range === "since")}
+          ariaLabel="Diff range"
+          compact
+        />
       </div>
     {/if}
   </div>

@@ -23,7 +23,7 @@ const fixtureCode = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Vi
 interface VisibilityFixture {
   shell: Pick<ClientShellContext, 'visible' | 'hasCompanionPanes'>
   tabs: Record<string, { sessionId: string }>
-  sessions: Record<string, { agentSessionId: string; run: { serverId: string } }>
+  sessions: { byId: Record<string, { agentSessionId: string; run: { serverId: string } }> }
   tabOrder: string[]
   activeTabId: string
   router: {
@@ -43,10 +43,10 @@ function fixture(hasCompanionPanes = false): VisibilityFixture {
   const view = new Visibility()
   view.shell = { visible: true, hasCompanionPanes }
   view.tabs = { primary: { sessionId: 'first' }, companion: { sessionId: 'second' } }
-  view.sessions = {
+  view.sessions = { byId: {
     first: { agentSessionId: 'provider-first', run: { serverId: 'host-a' } },
     second: { agentSessionId: 'provider-second', run: { serverId: 'host-b' } },
-  }
+  } }
   view.tabOrder = ['primary', 'companion']
   view.activeTabId = 'primary'
   view.router = {

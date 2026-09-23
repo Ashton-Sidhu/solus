@@ -50,15 +50,18 @@ function unstartedSession(workingDirectory: string) {
 }
 
 function lifecycleFor(options: {
-  workingDirectory: string
+  /** The project the last session started in, which outranks the workspace. */
+  lastProject?: string
   tabSessions?: Record<string, ReturnType<typeof unstartedSession>>
   draftRuns?: RunConfig[]
 }) {
   const tabSessions = options.tabSessions ?? {}
   const draftRuns = options.draftRuns ?? []
   const gitRefreshedTabIds: string[] = []
-  const globalDefaults = { workingDirectory: options.workingDirectory }
-  const store = new WorkspaceLifecycleStore({
+  // The workspace's own rule, reduced to its two inputs: the last project, else
+  // the workspace path the start payload carries, else `~` before it lands.
+  const defaultRunConfig = () => run(options.lastProject ?? store.staticInfo?.workspacePath ?? '~')
+  const store: InstanceType<typeof WorkspaceLifecycleStore> = new WorkspaceLifecycleStore({
     registry: {
       tabOrder: Object.keys(tabSessions),
       sessionFor: (tabId: string) => tabSessions[tabId] as unknown as Session | undefined,
@@ -67,10 +70,10 @@ function lifecycleFor(options: {
     config: {
       followActiveSessionAgent: () => {},
       defaultModelConfigFor: () => ({ modelId: '', reasoningEffort: 'medium', contextWindow: null, fastMode: false }),
-      globalDefaults,
     },
     planStore: { hydrateAnnotations() {} },
     agent: { hydrate() {} },
+    defaultRunConfig,
     unstartedRuns: () => [...Object.values(tabSessions).map((session) => session.run), ...draftRuns],
     refreshGitState: async (opts?: { sourceId?: string }) => {
       if (opts?.sourceId) gitRefreshedTabIds.push(opts.sourceId)
@@ -87,17 +90,17 @@ function lifecycleFor(options: {
         { fresh: true },
       )
   }
-  return { applyStartInfo, globalDefaults, gitRefreshedTabIds }
+  return { applyStartInfo, defaultRunConfig, gitRefreshedTabIds }
 }
 
 describe('the start directory a first run reconciles onto', () => {
   test('carries a draft off `~` onto the workspace', () => {
     const draftRun = run('~')
-    const { applyStartInfo, globalDefaults } = lifecycleFor({ workingDirectory: '~', draftRuns: [draftRun] })
+    const { applyStartInfo, defaultRunConfig } = lifecycleFor({ draftRuns: [draftRun] })
 
     applyStartInfo()
 
-    expect(globalDefaults.workingDirectory).toBe(WORKSPACE)
+    expect(defaultRunConfig().workingDirectory).toBe(WORKSPACE)
     // Without this the draft still reads `~`, so the pane drops the project from
     // its heading and the first prompt runs in the home directory.
     expect(draftRun.workingDirectory).toBe(WORKSPACE)
@@ -106,7 +109,7 @@ describe('the start directory a first run reconciles onto', () => {
 
   test('leaves a draft the user already pointed somewhere alone', () => {
     const draftRun = run('/repo')
-    const { applyStartInfo } = lifecycleFor({ workingDirectory: '~', draftRuns: [draftRun] })
+    const { applyStartInfo } = lifecycleFor({ draftRuns: [draftRun] })
 
     applyStartInfo()
 
@@ -115,10 +118,21 @@ describe('the start directory a first run reconciles onto', () => {
     expect(draftRun.workingDirectory).toBe('/repo')
   })
 
+  test('moves nothing when the last project, not the workspace, is the default', () => {
+    // The seeded draft already opened on the last project. The start payload
+    // names the workspace, but the workspace is not the default, so the draft
+    // must not be dragged there.
+    const draftRun = run('/repo')
+    const { applyStartInfo } = lifecycleFor({ lastProject: '/repo', draftRuns: [draftRun] })
+
+    applyStartInfo()
+
+    expect(draftRun.workingDirectory).toBe('/repo')
+  })
+
   test('still carries an unstarted tab and refreshes git against that tab', () => {
     const tab = unstartedSession('~')
     const { applyStartInfo, gitRefreshedTabIds } = lifecycleFor({
-      workingDirectory: '~',
       tabSessions: { 'tab-1': tab },
     })
 
@@ -132,7 +146,6 @@ describe('the start directory a first run reconciles onto', () => {
 
   test('refreshes git only for the tabs that actually moved', () => {
     const { applyStartInfo, gitRefreshedTabIds } = lifecycleFor({
-      workingDirectory: '~',
       tabSessions: { 'tab-moving': unstartedSession('~'), 'tab-settled': unstartedSession(WORKSPACE) },
     })
 

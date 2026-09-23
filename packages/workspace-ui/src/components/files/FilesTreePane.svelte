@@ -15,7 +15,7 @@
 </script>
 
 {#await import("./FilesPane.svelte")}
-  <FilesRouteSkeleton variant="tree" />
+  <FilesRouteSkeleton variant={params.path ? "editor" : "tree"} />
 {:then filesModule}
   {@const FilesPane = filesModule.default}
   <FilesPane

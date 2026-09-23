@@ -88,3 +88,20 @@ test('key saves use the selected host and key status follows other clients', asy
   expect(store.states.get('key-host')?.typeSafe?.source).toBe('environment')
   stop()
 })
+
+// Auto and model routing lock on this answer, so a host that has not answered
+// yet, or is too old to report a key, must not lock them.
+test('a key is missing only when the host says it has none', async () => {
+  let answer!: (value: HostConfigSnapshot) => void
+  connections.registerHost('lock-host', { configGet: () => new Promise<HostConfigSnapshot>(resolve => { answer = resolve }) })
+  const stop = store.watch('lock-host')
+  expect(store.isTypeSafeKeyMissing('lock-host')).toBe(false)
+  answer(snapshot({}))
+  await Promise.resolve()
+  expect(store.isTypeSafeKeyMissing('lock-host')).toBe(false)
+  connections.emit('lock-host', 'config.changed', { ...snapshot({}), typeSafe: { source: null } })
+  expect(store.isTypeSafeKeyMissing('lock-host')).toBe(true)
+  connections.emit('lock-host', 'config.changed', { ...snapshot({}), typeSafe: { source: 'environment' } })
+  expect(store.isTypeSafeKeyMissing('lock-host')).toBe(false)
+  stop()
+})

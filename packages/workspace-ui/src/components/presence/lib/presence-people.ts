@@ -80,7 +80,7 @@ export function peopleFrom(participants: readonly AnyParticipant[], options: Peo
   return [...byUser.values()]
 }
 
-/** The people whose focused pane shows one session or work. */
+/** The people whose focused pane shows one session. */
 export function peopleFocusedOn(people: readonly PresencePerson[], focus: PresenceFocus): PresencePerson[] {
   return people.filter((person) => person.focus && sameFocus(person.focus, focus))
 }
@@ -107,7 +107,6 @@ export function activityWords(activity: SessionActivity | undefined): string | n
 export function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
-  if (a.kind === 'work' && b.kind === 'work') return a.workId === b.workId
   return true
 }
 

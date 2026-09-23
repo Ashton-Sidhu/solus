@@ -37,6 +37,13 @@ export class UsageLimitsStore {
     return this.byAgent.get(agentId)
   }
 
+  /** No quota left in a reported window. Auto asks before it sends a turn to a
+   *  provider that cannot answer it. */
+  isSpent(agentId: AgentId): boolean {
+    const limits = this.byAgent.get(agentId)
+    return [limits?.fiveHour, limits?.weekly].some(window => (window?.usedPercent ?? 0) >= 100)
+  }
+
   /** A full read from the provider. Newer than anything held, so it replaces. */
   apply(limits: AgentUsageLimits): void {
     this.byAgent.set(limits.provider, limits)

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import { recordedRuns } from '../src/oracle'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -46,7 +45,7 @@ async function runnerHoldsGrant(runner: LabHost, timeoutMs: number): Promise<boo
 
 /** The renderer's prompt context for the session in the Lab's working directory; the provider thread id resumes it. */
 function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: sessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, latestCheckpointId: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: sessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   // SAFETY: the host reads only the fields named here (run-input.ts), as the seats scenario relies on too.
@@ -148,7 +147,7 @@ async function memberStep(proof: Proof, alice: LabClient, sessionId: string): Pr
 }
 
 async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl, vaultKey: randomBytes(32).toString('base64') })
+  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   let runner: LabHost | null = null
@@ -169,13 +168,16 @@ async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, data
       ctx.check('offline guest prompt is not accepted', error instanceof Error && error.message.includes('offline'))
     }
     runner = await restartStep(proof, runner.dataDir, started.alice, started.sessionId)
-    await started.alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-sharer' })
+    const sharer = new LabClient({ persona: personaForHost('alice', 'managed'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'managed' })
+    proof.clients.push(sharer)
+    ctx.check(`${engine}: sharer reaches execution host`, (await sharer.connect()).ok)
+    await sharer.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-sharer' })
     ctx.check(`${engine}: guest sees runner return`, await until(() => guest.rpc('sharedSessionAvailable', started.sessionId), (online) => online, 15_000))
     const sent = await guest.rpc('sharedSessionPrompt', { sessionId: started.sessionId, text: 'P4 guest prompt' })
     ctx.check(`${engine}: runner acknowledges guest prompt`, sent.accepted)
     const run = await until(async () => recordedRuns({ ...ctx, host: runner! }).find((item) => item.prompt.includes('P4 guest prompt')), (item) => !!item, 15_000)
     ctx.check(`${engine}: guest runs on sharer seat`, run?.seat?.userId === 'user-alice')
-    ctx.check(`${engine}: guest uses the vault token`, run?.seat?.envToken === 'lab-token-sharer')
+    ctx.check(`${engine}: guest uses the host-local sharer token`, run?.seat?.envToken === 'lab-token-sharer')
     const transcript = await until(() => transcriptOn(guest, started.sessionId), (rows) => rows.some((row) => row.content.includes('P4 guest prompt')), 15_000)
     ctx.check(`${engine}: guest prompt reaches cloud transcript`, transcript.some((row) => row.content.includes('P4 guest prompt')))
     await started.alice.rpc('shareSetLink', { resource, role: 'viewer' })

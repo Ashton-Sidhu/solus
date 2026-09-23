@@ -45,7 +45,6 @@ export const RPC_PLANES = {
   cancelQueuedPrompt: 'execution',
   editQueuedPrompt: 'execution',
   writePlanFile: 'execution',
-  rewindFiles: 'execution',
 
   // Files / media
   saveFileDialog: 'execution',
@@ -92,6 +91,10 @@ export const RPC_PLANES = {
   sharedSessionPrompt: 'collaboration',
   sessionRecordList: 'collaboration',
   sessionRecordUpsert: 'collaboration',
+  workspaceProjectList: 'collaboration',
+  workspaceProjectAdd: 'collaboration',
+  workspaceProjectRemove: 'collaboration',
+  workspaceProjectUpdate: 'collaboration',
   loadSession: 'collaboration',
   loadSessionPage: 'collaboration',
   loadSessionToolInputs: 'collaboration',
@@ -190,14 +193,14 @@ export const RPC_PLANES = {
   shareSetLink: 'collaboration',
   shareTransfer: 'collaboration',
 
-  // Provider seats: status is a record, connecting is a login on the machine
-  seatList: 'collaboration',
-  seatConnectStart: 'collaboration',
-  seatConnectSubmitCode: 'collaboration',
-  seatConnectCancel: 'collaboration',
-  seatConnectToken: 'collaboration',
-  seatDisconnect: 'collaboration',
-  seatRemove: 'collaboration',
+  // Provider seats belong only to the execution host
+  seatList: 'execution',
+  seatConnectStart: 'execution',
+  seatConnectSubmitCode: 'execution',
+  seatConnectCancel: 'execution',
+  seatConnectToken: 'execution',
+  seatDisconnect: 'execution',
+  seatRemove: 'execution',
 
   // Presence
   presenceSnapshot: 'collaboration',
@@ -245,6 +248,7 @@ export const RPC_PLANES = {
   createWork: 'collaboration',
   saveWork: 'collaboration',
   loadWork: 'collaboration',
+  loadWorkUpdatedAt: 'collaboration',
   listWorks: 'collaboration',
   deleteWork: 'collaboration',
   duplicateWork: 'collaboration',
@@ -306,15 +310,17 @@ export const RPC_PLANES = {
   providerDisconnect: 'collaboration',
   githubExportCredential: 'execution',
   providerViewer: 'collaboration',
+  providerRepositories: 'collaboration',
 
   // PR records
   prList: 'collaboration',
   prNeedsReview: 'collaboration',
-  prGetEfforts: 'collaboration',
   prGuideMetadata: 'collaboration',
-  prOpenReview: 'execution',
-  prGetDiff: 'execution',
-  prGetDiffFileContents: 'execution',
+  // Reading a pull request asks its code host alone, so the workspace service
+  // serves it with no checkout behind it (docs/plans/project-model.md §5).
+  prOpenReview: 'collaboration',
+  prGetDiff: 'collaboration',
+  prGetDiffFileContents: 'collaboration',
   prPrepareCheckout: 'execution',
   prGetDetail: 'collaboration',
   prUpdate: 'collaboration',
@@ -339,6 +345,9 @@ export const RPC_PLANES = {
   prUnresolveThread: 'collaboration',
   prGenerateGuides: 'execution',
   prMerge: 'collaboration',
+  prEnableAutoMerge: 'collaboration',
+  prDisableAutoMerge: 'collaboration',
+  prRevert: 'collaboration',
   prPrepareConflictResolution: 'execution',
   prInvalidate: 'collaboration',
 
@@ -350,6 +359,7 @@ export const RPC_PLANES = {
   requestReviewGuide: 'execution',
   reviewGuideStatus: 'execution',
   sessionGuideStatuses: 'execution',
+  prGuideStatuses: 'execution',
   cancelGenerateGuide: 'execution',
   readGuide: 'execution',
   readReviewState: 'execution',
@@ -407,11 +417,7 @@ export const RPC_PLANES = {
   automationListRuns: 'collaboration',
   automationReadRun: 'collaboration',
 
-  // PR stacks and checks
-  stackGet: 'collaboration',
-  stackDetect: 'collaboration',
-  stackAddManualEdge: 'collaboration',
-  stackRemoveManualEdge: 'collaboration',
+  // PR checks
   prChecks: 'collaboration',
   prChecksActivity: 'collaboration',
 
@@ -420,6 +426,8 @@ export const RPC_PLANES = {
 
   // Browser
   browserListTargets: 'execution',
+  browserRuntimeStatus: 'execution',
+  browserRuntimeInstall: 'execution',
   browserListPages: 'execution',
   browserOpen: 'execution',
   browserClose: 'execution',

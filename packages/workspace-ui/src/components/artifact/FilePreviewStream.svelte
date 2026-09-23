@@ -17,8 +17,16 @@
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
   } from "../../lib/diff-worker-pool";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSessionRecords, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
+  import {
+    addDiffComment,
+    removeDiffComment,
+    restoreDiffComment,
+    setDiffCommentDraft,
+    updateDiffComment,
+    updateDiffCommentDraftValue,
+  } from "../../lib/diff-comments";
   import {
     useKeybinding,
     useScope,
@@ -295,12 +303,13 @@
     | { kind: "draft"; lineSpan: number };
 
   const workspace = getWorkspaceContext();
+  const sessions = getSessionRecords();
   const targetSessionId = $derived(ctx.session.sessionId);
   // Review feedback belongs to the conversation; the tab is only how the
   // tab-scoped comment helpers below address it.
   const targetTabId = $derived(workspace.tabIdForSession(targetSessionId) ?? "");
   const targetTab = $derived(workspace.tabs[targetTabId]);
-  const targetSession = $derived(workspace.sessions[targetSessionId]);
+  const targetSession = $derived(sessions.byId[targetSessionId]);
   const commentPath = $derived(displayPath || filePath);
   const comments = $derived<DiffComment[]>(targetSession?.diffComments ?? []);
   const fileComments = $derived(
@@ -434,20 +443,17 @@
 
   function persistDraft() {
     if (!draft.filePath || !draft.range) {
-      workspace.setDiffCommentDraft(null, targetTabId);
+      setDiffCommentDraft(targetSession, null);
       return;
     }
-    workspace.setDiffCommentDraft(
-      {
-        filePath: draft.filePath,
-        startLine: draft.range.startLine,
-        endLine: draft.range.endLine,
-        side: "new",
-        editingCommentId: draft.editingCommentId,
-        value: draft.value,
-      },
-      targetTabId,
-    );
+    setDiffCommentDraft(targetSession, {
+      filePath: draft.filePath,
+      startLine: draft.range.startLine,
+      endLine: draft.range.endLine,
+      side: "new",
+      editingCommentId: draft.editingCommentId,
+      value: draft.value,
+    });
   }
 
   function openDraftForRange(range: SelectedLineRange) {
@@ -466,35 +472,28 @@
 
   function resetDraft() {
     draft.clear();
-    workspace.setDiffCommentDraft(null, targetTabId);
+    setDiffCommentDraft(targetSession, null);
     fileInstance?.setSelectedLines(null);
   }
 
   function saveComment(commentText: string) {
     if (!draft.range || !draft.filePath) return;
     if (draft.editingCommentId) {
-      workspace.updateDiffComment(
-        draft.editingCommentId,
-        commentText,
-        targetTabId,
-      );
+      updateDiffComment(targetSession, draft.editingCommentId, commentText);
       resetDraft();
       editor?.focus();
       return;
     }
-    workspace.addDiffComment(
-      {
-        id: uuid(),
-        filePath: draft.filePath,
-        startLine: draft.range.startLine,
-        endLine: draft.range.endLine,
-        side: "new",
-        selectedCode: selectedTextForFileRange(latestContents, draft.range),
-        comment: commentText,
-        createdAt: Date.now(),
-      },
-      targetTabId,
-    );
+    addDiffComment(targetSession, {
+      id: uuid(),
+      filePath: draft.filePath,
+      startLine: draft.range.startLine,
+      endLine: draft.range.endLine,
+      side: "new",
+      selectedCode: selectedTextForFileRange(latestContents, draft.range),
+      comment: commentText,
+      createdAt: Date.now(),
+    });
     resetDraft();
     editor?.focus();
   }
@@ -520,9 +519,9 @@
     const comment = comments[index];
     if (!comment) return;
     if (draft.editingCommentId === commentId) resetDraft();
-    workspace.removeDiffComment(commentId, targetTabId);
+    removeDiffComment(targetSession, commentId);
     toasts.undo("Comment removed", () => {
-      workspace.restoreDiffComment(comment, index, targetTabId);
+      restoreDiffComment(targetSession, comment, index);
     });
   }
 
@@ -533,7 +532,7 @@
 
   function updateDraftValue(value: string) {
     draft.value = value;
-    workspace.updateDiffCommentDraftValue(value, targetTabId);
+    updateDiffCommentDraftValue(targetSession, value);
   }
 
   function applyRemappedAnnotations(

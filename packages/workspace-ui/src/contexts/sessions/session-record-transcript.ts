@@ -2,14 +2,14 @@ import { requestSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/cli
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import { materializeSessionTranscript } from '../workspace/session-transcript'
-import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
+import type { SurfaceContext } from '../app/surface-context.svelte'
 
 /**
  * The transcript the cloud mirrors for a session whose runner is away
  * (docs/plans/cloud-service-model.md, P2): one bounded page, read from the
  * cloud host by name rather than from a tab's run, so no tab has to exist.
  */
-export async function loadSessionRecordTranscript(workspace: WorkspaceContext, serverId: string, meta: SessionMeta): Promise<Message[]> {
+export async function loadSessionRecordTranscript(workspace: SurfaceContext, serverId: string, meta: SessionMeta): Promise<Message[]> {
   const ctx = workspace.ctxForDirectory(meta.cwd)
   const page = await requestSessionHistoryPage(serverConnections.apiFor(serverId), {
     sessionId: meta.sessionId,

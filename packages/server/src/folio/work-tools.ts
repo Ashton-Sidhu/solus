@@ -472,6 +472,7 @@ function workAgentTool(
       }),
       onWorkUpdated: (work) => context.emit({
         type: 'work_updated',
+        toolId: context.parentToolUseId(),
         workId: work.workId,
         title: work.title,
         docType: work.docType,

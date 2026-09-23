@@ -1,7 +1,7 @@
 import { hostname } from 'node:os'
 import { basename } from 'node:path'
 import { ROOT_CONTEXT, context, createContextKey, trace, type Context, type Span } from '@opentelemetry/api'
-import type { NormalizedEvent, PromptSource, UsageData } from '@solus/contracts/types'
+import { runtimeModelVariant, type NormalizedEvent, type PromptSource, type UsageData } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { codexTokenCostUsd } from './model-pricing'
@@ -138,9 +138,14 @@ export function dispatchStepSync<T>(name: string, attrs: SpanAttributes, run: ()
 
 export interface TurnDimensions {
   provider: string
+  /** The selectable model id Solus asked the provider to run. The provider's
+   *  own report of what ran replaces it once one arrives. */
   model: string
-  /** What the user selected: `auto`, an explicit model id, or unset for the
-   *  provider default. `model` is what ran; this is how it was chosen. */
+  /** The context window the run was dispatched with. */
+  contextWindow?: number | null
+  /** What Solus asked the provider for: `auto` when Solus routed the prompt,
+   *  else the model id, or unset for the provider default. `model` is what
+   *  ran; this is how it was chosen. */
   requestedModel?: string
   projectRoot: string
   origin: PromptSource
@@ -312,14 +317,16 @@ export class SessionEmitter {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)
       if (!state) return
-      state.dimensions = { ...dimensions, model: state.observedModel ?? dimensions.model }
+      state.dimensions = { ...dimensions }
       state.spanDimensions = {
         sessionId: state.sessionId,
-        provider: state.dimensions.provider,
-        model: state.dimensions.model,
-        projectRoot: state.dimensions.projectRoot,
-        origin: state.dimensions.origin,
+        provider: dimensions.provider,
+        model: dimensions.model,
+        projectRoot: dimensions.projectRoot,
+        origin: dimensions.origin,
       }
+      if (dimensions.contextWindow) state.rootAttrs.contextWindow = dimensions.contextWindow
+      if (state.observedModel) this.observeModel(state, state.observedModel)
       state.setupEndedAt = Math.max(state.startedAt, endedAt)
       state.rootAttrs.reasoningEffort = dimensions.reasoningEffort ?? ''
       state.rootAttrs.isResume = dimensions.isResume
@@ -743,8 +750,11 @@ export class SessionEmitter {
       const active = this.turns.get(sessionId)
       const state = traceId && active?.traceId !== traceId ? this.settlingTurns.get(traceId) : active
       if (!state) return
-      const status = state.terminalStatus
+      const reported = state.terminalStatus
         ?? (fallback === 'completed' ? 'ok' : fallback === 'interrupted' ? 'interrupted' : 'error')
+      // A provider that exits cleanly without one event did no work: the model
+      // never ran, so the turn did not complete, whatever the exit code says.
+      const status = reported === 'ok' && state.firstProviderEventAt === undefined ? 'error' : reported
       const finalAt = Math.max(state.startedAt, state.terminalAt ?? endedAt)
       outcome = terminalOutcome(status)
       this.finish(state, status, finalAt)
@@ -833,10 +843,15 @@ export class SessionEmitter {
     this.lastSettledAt.set(state.sessionId, endedAt)
   }
 
-  private observeModel(state: TurnState, model: string): void {
-    state.observedModel = model
-    state.spanDimensions.model = model
-    if (state.dimensions) state.dimensions.model = model
+  /** Records what the provider reported running. The `model` dimension is the
+   *  selectable id, so one model groups as one value whatever window it ran
+   *  at; the window the variant names is a fact of its own. */
+  private observeModel(state: TurnState, runtimeModelId: string): void {
+    state.observedModel = runtimeModelId
+    const variant = runtimeModelVariant(state.spanDimensions.provider, runtimeModelId)
+    state.spanDimensions.model = variant.modelId
+    if (state.dimensions) state.dimensions.model = variant.modelId
+    if (variant.contextWindow) state.rootAttrs.contextWindow = variant.contextWindow
   }
 
   private startTool(state: TurnState, event: Extract<NormalizedEvent, { type: 'tool_call' }>, startedAt: number): void {

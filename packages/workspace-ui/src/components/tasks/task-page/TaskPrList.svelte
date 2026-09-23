@@ -13,7 +13,8 @@
     onOpen: (link: TaskLink) => void;
     onOpenExternal: (url: string) => void;
     onUnlink: (link: TaskLink) => void;
-    onAdd: () => void;
+    /** Null on a client that cannot reach a machine's index (the cloud console). */
+    onAdd: (() => void) | null;
     /** True on the phone rung, where a row has no width for a title, a state
      *  pill and three controls side by side. The state moves under the title
      *  with the reference, and the row keeps only the way out and the way in. */
@@ -35,14 +36,16 @@
       {rows.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
-    <button
-      type="button"
-      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
-      onclick={onAdd}
-    >
-      <PlusIcon size={11} weight="bold" aria-hidden="true" />
-      Link PR
-    </button>
+    {#if onAdd}
+      <button
+        type="button"
+        class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+        onclick={onAdd}
+      >
+        <PlusIcon size={11} weight="bold" aria-hidden="true" />
+        Link PR
+      </button>
+    {/if}
   </div>
 
   <div

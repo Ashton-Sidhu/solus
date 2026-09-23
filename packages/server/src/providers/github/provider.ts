@@ -10,7 +10,6 @@ import type {
   PrDiffRequest,
   PrDiffSlice,
   PrCommit,
-  PrLifecycleAction,
   PrReviewer,
   PrReviewerCandidate,
   Provider,
@@ -22,7 +21,15 @@ import type {
   ReviewProvider,
   ReviewThread,
 } from '../types'
-import type { PrConversationItem, PrLabel, PrRequestedReviewer, ProviderViewer } from '@solus/contracts/providers'
+import type {
+  PrConversationItem,
+  PrLabel,
+  PrRequestedReviewer,
+  PrRevertResult,
+  PrStateAction,
+  ProviderRepository,
+  ProviderViewer,
+} from '@solus/contracts/providers'
 import { createLogger } from '../../logger'
 import { canonicalRepoRef } from './canonical-repo'
 import {
@@ -32,9 +39,16 @@ import {
 } from './checks'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import {
+  AUTO_MERGE_REFUSAL_HINT,
+  disableGithubAutoMerge,
+  enableGithubAutoMerge,
+  githubAutoMergeMethod,
   githubPullRequestAccessFor,
+  githubWriteRefusal,
   listGithubReviewerCandidates,
+  revertGithubPullRequest,
   updateGithubPullRequestLifecycle,
+  type PrAutoMergeUpdate,
   type PullRequestAccess,
 } from './pull-request-actions'
 import { z } from 'zod'
@@ -433,6 +447,32 @@ export function needsReviewSearchTerms(repo: RepoRef, viewer: string): NeedsRevi
   }
 }
 
+/**
+ * The search a pull request list asks for when the reader types. The repository
+ * and `is:pr` are fixed, the list's state becomes a qualifier (closed includes
+ * merged, as the listing has it), and the reader's text — qualifiers such as
+ * `label:bug` or `author:@me` included — is passed to GitHub as written.
+ */
+export function pullRequestSearchTerms(repo: RepoRef, state: PrFilter['state'], query: string): string {
+  const stateQualifier = state === 'closed' ? ' is:closed' : state === 'all' ? '' : ' is:open'
+  return `repo:${repo.owner}/${repo.repo} is:pr${stateQualifier} ${query.trim()}`
+}
+
+/** The full rows for the pull requests a search found, by node id. REST search
+ *  answers with issue-shaped hits, which carry no branches or head. */
+const PR_SEARCH_ROWS_QUERY = `
+  query PrSearchRows($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on PullRequest { ...NeedsReviewFields }
+    }
+  }
+  ${NEEDS_REVIEW_FIELDS}
+`
+
+interface PrSearchRowsResponse {
+  nodes: Array<GqlNeedsReviewPullRequest | null>
+}
+
 function toNeedsReviewPullRequest(
   pr: GqlNeedsReviewPullRequest,
   repo: RepoRef,
@@ -498,7 +538,16 @@ interface ReviewStatusResponse {
     id: string
     reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
     reviews: { totalCount: number }
+    additions: number
+    deletions: number
   } | null>
+}
+
+/** What a listed row needs beyond the REST listing, which omits line counts. */
+interface ListedRowFacts {
+  reviewStatus: PullRequestReviewStatus
+  additions: number
+  deletions: number
 }
 
 interface ListReviewStatusResponse {
@@ -514,6 +563,8 @@ const REVIEW_STATUS_QUERY = `
         id
         reviewDecision
         reviews(first: 1) { totalCount }
+        additions
+        deletions
       }
     }
   }
@@ -536,42 +587,49 @@ const LIST_REVIEW_STATUS_QUERY = `
           id
           reviewDecision
           reviews(first: 1) { totalCount }
+          additions
+          deletions
         }
       }
     }
   }
 `
 
-function reviewStatusMap(nodes: ReviewStatusResponse['nodes']): Map<string, PullRequestReviewStatus> {
+function listedRowFactsMap(nodes: ReviewStatusResponse['nodes']): Map<string, ListedRowFacts> {
   return new Map(
     nodes.flatMap((node) => node
-      ? [[node.id, reviewStatusOf(node.reviewDecision, node.reviews.totalCount)] as const]
+      ? [[node.id, {
+          reviewStatus: reviewStatusOf(node.reviewDecision, node.reviews.totalCount),
+          additions: node.additions,
+          deletions: node.deletions,
+        }] as const]
       : []),
   )
 }
 
-async function reviewStatuses(
+async function listedRowFacts(
   client: GitHubClient,
   nodeIds: string[],
-): Promise<Map<string, PullRequestReviewStatus>> {
+): Promise<Map<string, ListedRowFacts>> {
   if (nodeIds.length === 0) return new Map()
   const response = await client.graphql<ReviewStatusResponse>(REVIEW_STATUS_QUERY, { ids: nodeIds })
-  return reviewStatusMap(response.nodes)
+  return listedRowFactsMap(response.nodes)
 }
 
 /**
- * Read the first page's review state without waiting for REST to return its node
- * ids. GitHub can answer the same updated-order window through GraphQL, so the
- * two host requests run together. The caller still joins by node id and fills
- * any gap through `reviewStatuses`; an update between the two snapshots can
- * never attach one pull request's status to another row.
+ * Read the first page's review state and line counts without waiting for REST
+ * to return its node ids. GitHub can answer the same updated-order window
+ * through GraphQL, so the two host requests run together. The caller still
+ * joins by node id and fills any gap through `listedRowFacts`; an update
+ * between the two snapshots can never attach one pull request's facts to
+ * another row.
  */
-async function firstPageReviewStatuses(
+async function firstPageRowFacts(
   client: GitHubClient,
   repo: RepoRef,
   filter: PrFilter | undefined,
   perPage: number,
-): Promise<Map<string, PullRequestReviewStatus>> {
+): Promise<Map<string, ListedRowFacts>> {
   const state = filter?.state ?? 'open'
   const states = state === 'open'
     ? ['OPEN']
@@ -584,7 +642,7 @@ async function firstPageReviewStatuses(
     first: perPage,
     states,
   })
-  return reviewStatusMap(response.repository?.pullRequests.nodes ?? [])
+  return listedRowFactsMap(response.repository?.pullRequests.nodes ?? [])
 }
 
 const githubApiErrorSchema = z.object({
@@ -666,6 +724,8 @@ interface RestPull {
   changed_files?: number
   mergeable?: boolean | null
   mergeable_state?: string | null
+  /** Null while auto-merge is off; GitHub names the method it will use. */
+  auto_merge?: { merge_method?: string | null } | null
   base: { ref: string; sha: string; repo?: { full_name?: string } | null }
   head: { ref: string; sha: string; repo?: { full_name?: string; name?: string; owner?: { login?: string } } | null }
 }
@@ -754,8 +814,19 @@ function toPullRequest(
     mergeStateStatus: pr.mergeable_state ?? null,
     requiredApprovingReviewCount,
     ...(reviewStatus ? { reviewStatus } : {}),
+    ...autoMergeOf(pr),
     ...access,
   }
+}
+
+/** Left off entirely where GitHub did not answer: unknown is not "off". */
+function autoMergeOf(pr: RestPull): Pick<PullRequest, 'autoMergeEnabled' | 'autoMergeMethod'> {
+  const autoMerge: Pick<PullRequest, 'autoMergeEnabled' | 'autoMergeMethod'> = {}
+  if (pr.auto_merge === undefined) return autoMerge
+  autoMerge.autoMergeEnabled = pr.auto_merge !== null
+  const autoMergeMethod = githubAutoMergeMethod(pr.auto_merge?.merge_method)
+  if (autoMergeMethod) autoMerge.autoMergeMethod = autoMergeMethod
+  return autoMerge
 }
 
 async function loadRequiredApprovalCount(
@@ -944,6 +1015,26 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient('get_github_viewer', GITHUB_HOST, viewerProfile)
   }
 
+  /** Every repository the token can read — owned, collaborated on, and through
+   *  organization membership — newest push first. Paginated to the end: a
+   *  picker that stops at the first page hides the repository being looked for. */
+  async listRepositories(): Promise<ProviderRepository[]> {
+    return this.withClient('list_github_repositories', GITHUB_HOST, async (client) => {
+      const repositories = await client.rest.paginate(client.rest.repos.listForAuthenticatedUser, {
+        per_page: 100,
+        sort: 'pushed',
+        direction: 'desc',
+      })
+      return repositories.map((repository) => ({
+        host: GITHUB_HOST,
+        owner: repository.owner.login,
+        repo: repository.name,
+        isPrivate: repository.private,
+        pushedAt: repository.pushed_at ?? null,
+      }))
+    })
+  }
+
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]> {
     const data: PullRequest[] = []
     for (let page = 1; ; page++) {
@@ -960,11 +1051,13 @@ export class GitHubProvider implements ReviewProvider {
     page = 1,
     perPage = DEFAULT_PR_LIST_PAGE_SIZE,
   ): Promise<import('@solus/contracts/providers').PrListPage> {
+    const query = filter?.query?.trim()
+    if (query) return this.searchPullRequestsPage(repo, filter?.state, query, page, perPage)
     return this.withClient('list_pull_requests', repo.host, async (client) => {
-      const parallelStatuses = page === 1 && !filter?.head
-        ? firstPageReviewStatuses(client, repo, filter, perPage)
+      const parallelFacts = page === 1 && !filter?.head
+        ? firstPageRowFacts(client, repo, filter, perPage)
         : undefined
-      const [{ data }, firstStatuses] = await Promise.all([
+      const [{ data }, firstFacts] = await Promise.all([
         client.rest.pulls.list({
           owner: repo.owner,
           repo: repo.repo,
@@ -975,25 +1068,62 @@ export class GitHubProvider implements ReviewProvider {
           per_page: perPage,
           page,
         }),
-        parallelStatuses ?? Promise.resolve(new Map<string, PullRequestReviewStatus>()),
+        parallelFacts ?? Promise.resolve(new Map<string, ListedRowFacts>()),
       ])
       const wanted = filter?.author
         ? data.filter((pr) => (pr.user?.login ?? '').toLowerCase() === filter.author?.toLowerCase())
         : data
       const nodeIds = wanted.flatMap((pr) => pr.node_id ? [pr.node_id] : [])
-      const missingNodeIds = nodeIds.filter((nodeId) => !firstStatuses.has(nodeId))
-      const statuses = missingNodeIds.length > 0
-        ? new Map([...firstStatuses, ...await reviewStatuses(client, missingNodeIds)])
-        : firstStatuses
+      const missingNodeIds = nodeIds.filter((nodeId) => !firstFacts.has(nodeId))
+      const facts = missingNodeIds.length > 0
+        ? new Map([...firstFacts, ...await listedRowFacts(client, missingNodeIds)])
+        : firstFacts
       const items = await Promise.all(
-        wanted.map(async (pr) => toPullRequest(
-          pr,
-          repo,
-          await accessFor(client, repo, pr.user?.login ?? ''),
-          pr.node_id ? statuses.get(pr.node_id) : undefined,
-        )),
+        wanted.map(async (pr) => {
+          const row = pr.node_id ? facts.get(pr.node_id) : undefined
+          const item = toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''), row?.reviewStatus)
+          return row ? { ...item, additions: row.additions, deletions: row.deletions } : item
+        }),
       )
       return { items, page, hasMore: data.length === perPage }
+    })
+  }
+
+  /**
+   * One page of the pull requests GitHub's search finds for the reader's text,
+   * in the same shape as the listing. Search answers with issue-shaped hits, so
+   * the rows are read back by node id in one GraphQL request and returned in
+   * the order search ranked them.
+   */
+  private async searchPullRequestsPage(
+    repo: RepoRef,
+    state: PrFilter['state'],
+    query: string,
+    page: number,
+    perPage: number,
+  ): Promise<import('@solus/contracts/providers').PrListPage> {
+    return this.withClient('search_pull_requests', repo.host, async (client) => {
+      // A renamed repository is still reachable by its old name everywhere except
+      // search, where the stale qualifier silently matches nothing.
+      const canonical = await canonicalRepoRef(client, repo)
+      const { data } = await client.rest.search.issuesAndPullRequests({
+        q: pullRequestSearchTerms(canonical, state, query),
+        per_page: perPage,
+        page,
+      })
+      const nodeIds = data.items.flatMap((item) => item.pull_request && item.node_id ? [item.node_id] : [])
+      const response = nodeIds.length > 0
+        ? await client.graphql<PrSearchRowsResponse>(PR_SEARCH_ROWS_QUERY, { ids: nodeIds })
+        : { nodes: [] }
+      const found = response.nodes.flatMap((node) => node?.number ? [node] : [])
+      const items = await Promise.all(found.map(async (node) =>
+        toNeedsReviewPullRequest(node, repo, await accessFor(client, repo, node.author?.login ?? '')),
+      ))
+      return {
+        items,
+        page,
+        hasMore: data.items.length === perPage && page * perPage < data.total_count,
+      }
     })
   }
 
@@ -1331,7 +1461,7 @@ export class GitHubProvider implements ReviewProvider {
   async updatePullRequestLifecycle(
     repo: RepoRef,
     number: number,
-    action: Exclude<PrLifecycleAction, 'merge'>,
+    action: PrStateAction,
     expectedHeadSha: string,
   ): Promise<PullRequest> {
     return this.withClient('update_pull_request_lifecycle', repo.host, async (client) => {
@@ -1403,6 +1533,64 @@ export class GitHubProvider implements ReviewProvider {
       // host message so the individual PR action can explain the refusal.
       return { merged: false, message: githubApiErrorMessage(err, 'GitHub could not merge the pull request') }
     }
+  }
+
+  async enablePullRequestAutoMerge(
+    repo: RepoRef,
+    number: number,
+    method: MergeMethod,
+    expectedHeadSha: string,
+  ): Promise<PullRequest> {
+    try {
+      return await this.writeAutoMerge('enable_pull_request_auto_merge', repo, number, (client, nodeId) =>
+        enableGithubAutoMerge(client, nodeId, method, expectedHeadSha))
+    } catch (err) {
+      throw githubWriteRefusal(err, 'GitHub could not turn on auto-merge', AUTO_MERGE_REFUSAL_HINT)
+    }
+  }
+
+  async disablePullRequestAutoMerge(repo: RepoRef, number: number): Promise<PullRequest> {
+    try {
+      return await this.writeAutoMerge('disable_pull_request_auto_merge', repo, number, disableGithubAutoMerge)
+    } catch (err) {
+      throw githubWriteRefusal(
+        err,
+        'GitHub could not turn off auto-merge',
+        'Check that you have write access, and that the merge has not already happened.',
+      )
+    }
+  }
+
+  async revertPullRequest(repo: RepoRef, number: number): Promise<PrRevertResult> {
+    try {
+      return await this.withClient('revert_pull_request', repo.host, async (client) => {
+        const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
+        if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+        return revertGithubPullRequest(client, raw.node_id)
+      })
+    } catch (err) {
+      throw githubWriteRefusal(
+        err,
+        'GitHub could not open a revert pull request',
+        'Check that you have write access and that this pull request was merged on the host.',
+      )
+    }
+  }
+
+  /** One auto-merge write: read the pull request for its node ID, run the
+   *  mutation, and answer the pull request as the mutation left it. */
+  private writeAutoMerge(
+    operation: string,
+    repo: RepoRef,
+    number: number,
+    write: (client: GitHubClient, nodeId: string) => Promise<PrAutoMergeUpdate>,
+  ): Promise<PullRequest> {
+    return this.withClient(operation, repo.host, async (client) => {
+      const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
+      if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+      const current = toPullRequest(raw, repo, await accessFor(client, repo, raw.user?.login ?? ''))
+      return { ...current, ...(await write(client, raw.node_id)) }
+    })
   }
 
   async listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]> {

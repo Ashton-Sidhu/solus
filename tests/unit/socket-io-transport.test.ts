@@ -11,6 +11,8 @@ import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import { PresenceManager } from '@solus/server/presence/presence-manager'
 import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
+import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
+import { readWav } from '@solus/server/transcription/wav'
 
 interface Harness {
   server: SolusServer
@@ -30,6 +32,65 @@ afterEach(() => {
 })
 
 describe('Socket.IO transport', () => {
+  test('cloud dictation sends compact WAV over the admitted socket and survives reconnect', async () => {
+    const harness = await createHarness(true)
+    let calls = 0
+    let grants = 0
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received = new Promise<void>((resolve) => { started = resolve })
+    // More than the former 1 MB socket limit, with a partial base64 chunk.
+    const samples = new Float32Array(600_001)
+    samples[0] = -1
+    samples[12_288] = 0.5
+    samples[samples.length - 1] = 0.25
+    harness.server.register('transcribeAudio', async ([audio]) => {
+      calls++
+      expect(typeof audio).toBe('string')
+      if (typeof audio !== 'string') throw new Error('expected base64 WAV')
+      expect(audio.length).toBe(Math.ceil((44 + samples.length * 2) / 3) * 4)
+      const decoded = readWav(Buffer.from(audio, 'base64'))
+      expect(decoded.length).toBe(samples.length)
+      expect(decoded[0]).toBe(-1)
+      expect(decoded[12_288]).toBeCloseTo(0.5, 4)
+      expect(decoded[decoded.length - 1]).toBeCloseTo(0.25, 4)
+      started()
+      await gate
+      return { error: null, transcript: 'Cloud dictation works.' }
+    })
+    const client = createClient(harness.url, {
+      acquireGrant: async () => `grant:${++grants}`,
+    })
+    client.start()
+    await waitForStatus(client, 'connected')
+    // SAFETY: buildSolusApi installs the declared RPC methods.
+    const api = client.buildSolusApi() as SolusAPI
+    const result = api.transcribeAudio(samples)
+    try {
+      // Also fails promptly if dictation returns the old cloud refusal.
+      await Promise.race([received, result.then(() => { throw new Error('transcription ended before upload') })])
+      closeClientEngine(client)
+      await waitForStatus(client, 'reconnecting')
+      await waitForStatus(client, 'connected')
+    } finally {
+      release()
+    }
+    expect(await result).toEqual({ error: null, transcript: 'Cloud dictation works.' })
+    expect(calls).toBe(1)
+    expect(grants).toBe(2)
+  })
+
+  test('cloud dictation rejects recordings over the duration limit before upload', async () => {
+    const client = createClient('http://localhost:1', { acquireGrant: async () => 'grant:1' })
+    // SAFETY: buildSolusApi installs the declared RPC methods.
+    const api = client.buildSolusApi() as SolusAPI
+    const samples = new Float32Array(MAX_VOICE_SAMPLES + 1)
+    expect(await api.transcribeAudio(samples)).toEqual({
+      error: 'Voice recordings can be up to 60 minutes long.', transcript: null,
+    })
+  })
+
   test('closing a listener removes every connected person once, including clients with two sockets', async () => {
     const presence = new PresenceManager()
     const disconnected: string[] = []

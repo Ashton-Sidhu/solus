@@ -46,7 +46,7 @@
     {#each ONBOARDING_GESTURES as gesture, index (gesture.glyph)}
       {@const Glyph = GLYPHS[gesture.glyph]}
       <div
-        class="onboarding-enter flex min-h-[4.5rem] items-center gap-3.5 rounded-2xl bg-[var(--wash-1)] px-4 py-3"
+        class="onboarding-enter flex min-h-[4.5rem] items-center gap-3.5 rounded-2xl bg-[var(--solus-tx-card-bg)] px-4 py-3 shadow-[shadow:var(--solus-tx-card-shadow)]"
         style="animation-delay: {index * 0.05}s"
       >
         <span

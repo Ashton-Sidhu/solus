@@ -50,6 +50,13 @@ describe('mobileTaskState', () => {
       label: 'failed',
       tone: 'failure',
     })
+    // The phone shows the same state as desktop and web: the turn is over, but
+    // a background task still runs, so it is not the running spinner.
+    expect(mobileTaskState(row({ status: 'background' }))).toEqual({
+      glyph: 'background',
+      label: 'background task running',
+      tone: 'running',
+    })
   })
 
   it('keeps unread behind any state that wants a person', () => {

@@ -37,14 +37,13 @@ function listItem(): PullRequest {
   return pullRequestFixture(33, { title: 'Keep host selection stable', author: 'sidhu' })
 }
 
-function installWindow(prGetEfforts: () => Promise<unknown>): void {
+function installWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     writable: true,
     value: {
       solus: {
         prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
-        prGetEfforts,
         prChecks: async () => { throw new Error('not relevant') },
         prGuideMetadata: async () => { throw new Error('not relevant') },
       },
@@ -59,41 +58,7 @@ function installStateRune(): void {
   )
 }
 
-describe('PR list effort metadata', () => {
-  test('batches visible rows that ask during the same render turn', async () => {
-    // WHY: each row owns its intersection observer, but the provider endpoint
-    // accepts a page of PRs. A frame of visible rows must cost one RPC, not N.
-    installStateRune()
-    const batches: number[][] = []
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: {
-        solus: {
-          prList: async () => ({
-            items: [listItem(), pullRequestFixture(34)],
-            page: 1,
-            hasMore: false,
-          }),
-          prGetEfforts: async (_ctx: IpcContext, requests: Array<{ number: number }>) => {
-            batches.push(requests.map(({ number }) => number))
-            return []
-          },
-        },
-      },
-    })
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    const project = store.get(api(), serverId, ctx)
-    await project.list()
-
-    const first = project.loadEfforts([33])
-    const second = project.loadEfforts([34])
-    await Promise.all([first, second])
-
-    expect(batches).toEqual([[33, 34]])
-  })
-
+describe('PR list cache', () => {
   test('keeps exact head-branch lookups in separate cache entries', async () => {
     // WHY: task discovery asks once per unique session branch. Reusing the
     // first branch response for every later branch would attach the wrong PR.
@@ -118,63 +83,6 @@ describe('PR list effort metadata', () => {
     await store.get(api(), serverId, ctx).query({ state: 'all', head: 'fix/two' })
 
     expect(heads).toEqual(['fix/one', 'fix/two'])
-  })
-
-  test('keeps diff totals when a later list refresh recreates the same PR head', async () => {
-    // WHY: GitHub list responses omit diff totals. Once the visible-row fetch
-    // enriches a head, refreshing the list must not replace those facts with 0/0.
-    installStateRune()
-    let effortCalls = 0
-    installWindow(async () => {
-      effortCalls++
-      return [{
-        number: 33,
-        headSha: 'head-33',
-        additions: 71_029,
-        deletions: 22_450,
-        effort: { band: 'involved', minutes: 60, signals: ['large'] },
-      }]
-    })
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-
-    await store.get(api(), serverId, ctx).list()
-    await store.get(api(), serverId, ctx).loadEfforts([33])
-    await store.get(api(), serverId, ctx).list({ force: true })
-    await store.get(api(), serverId, ctx).loadEfforts([33])
-
-    expect(store.get(api(), serverId, ctx).prFor(33)?.additions).toBe(71_029)
-    expect(store.get(api(), serverId, ctx).prFor(33)?.deletions).toBe(22_450)
-    expect(effortCalls).toBe(1)
-  })
-
-  test('does not cache an unavailable enrichment as successfully loaded', async () => {
-    // WHY: a transient host failure must remain retryable instead of pinning a
-    // real PR to the list endpoint's placeholder 0/0 for the store lifetime.
-    installStateRune()
-    let effortCalls = 0
-    installWindow(async () => {
-      effortCalls++
-      return effortCalls === 1
-        ? [{ number: 33, headSha: 'head-33' }]
-        : [{
-            number: 33,
-            headSha: 'head-33',
-            additions: 12,
-            deletions: 4,
-            effort: { band: 'quick', minutes: 4, signals: ['tiny'] },
-          }]
-    })
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-
-    await store.get(api(), serverId, ctx).list()
-    await store.get(api(), serverId, ctx).loadEfforts([33])
-    await store.get(api(), serverId, ctx).loadEfforts([33])
-
-    expect(store.get(api(), serverId, ctx).prFor(33)?.additions).toBe(12)
-    expect(store.get(api(), serverId, ctx).prFor(33)?.deletions).toBe(4)
-    expect(effortCalls).toBe(2)
   })
 
   test('evicts old project entries instead of retaining every PR payload forever', async () => {
@@ -220,7 +128,6 @@ describe('PR list effort metadata', () => {
       value: {
         solus: {
           prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
-          prGetEfforts: async () => [],
           prUpdate: async () => ({
             ...listItem(),
             title: 'Edited title',
@@ -375,7 +282,7 @@ describe('PR mutation results', () => {
     // mounted. Applying the delta must not wait for a provider reload, and a
     // later cache hit must not restore the old draft value.
     installStateRune()
-    installWindow(async () => [])
+    installWindow()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
     await store.get(api(), serverId, ctx).list()
@@ -426,7 +333,7 @@ describe('PR mutation results', () => {
     // WHY: an in-UI lifecycle action already returns canonical provider state.
     // Reloading commits, comments, files, and threads adds latency and visual churn.
     installStateRune()
-    installWindow(async () => [])
+    installWindow()
     let detailLoads = 0
     const detail = {
       ...listItem(),
@@ -487,5 +394,83 @@ describe('PR mutation results', () => {
     store.at(serverId, ctx.session.projectPath)?.applyPullRequest(mergedDetail)
     expect(store.get(api(), serverId, ctx).prFor(33)?.state).toBe('merged')
     expect((await store.get(api(), serverId, ctx).get(33).loadDetail()).state).toBe('merged')
+  })
+
+  test('shows a host write at once and takes back only that write when the host refuses', async () => {
+    // WHY: every surface reads the one pull request, so an armed auto-merge or a
+    // close must show everywhere at once — and a refusal must restore exactly
+    // those fields, never blank the rest of the pull request.
+    installStateRune()
+    installWindow()
+    const refusals: Array<(error: Error) => void> = []
+    const refused = () => new Promise<PullRequest>((_resolve, reject) => refusals.push(reject))
+    Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {
+      prEnableAutoMerge: refused,
+      prUpdateLifecycle: refused,
+    })
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.get(api(), serverId, ctx).list()
+    const pullRequest = store.get(api(), serverId, ctx).get(33)
+
+    const arming = pullRequest.enableAutoMerge('squash')
+    expect(pullRequest.autoMergeEnabled).toBe(true)
+    expect(pullRequest.autoMergeMethod).toBe('squash')
+    refusals[0](new Error('Auto-merge is not allowed'))
+    await expect(arming).rejects.toThrow('Auto-merge is not allowed')
+    expect(pullRequest.autoMergeEnabled).toBeUndefined()
+    expect(pullRequest.autoMergeMethod).toBeUndefined()
+
+    const closing = pullRequest.updateLifecycle('close', pullRequest.headSha)
+    expect(store.get(api(), serverId, ctx).prFor(33)?.state).toBe('closed')
+    refusals[1](new Error('Not allowed'))
+    await expect(closing).rejects.toThrow('Not allowed')
+    expect(pullRequest.state).toBe('open')
+    expect(pullRequest.title).toBe('Keep host selection stable')
+  })
+})
+
+describe('needs-review refresh cadence', () => {
+  test('the count follows the poll, not the window; a return to the window asks nothing', async () => {
+    installStateRune()
+    let reads = 0
+    serverConnectionsMock.registerPrimary('local', {
+      prNeedsReview: async () => { reads += 1; return [] },
+    })
+    const listeners: string[] = []
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        setInterval: () => 1,
+        clearInterval: () => {},
+        addEventListener: (type: string) => { listeners.push(type) },
+        removeEventListener: () => {},
+      },
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: { visibilityState: 'visible' },
+    })
+
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrNeedsReviewStore } = await import('@solus/workspace-ui/contexts/prs/pr-needs-review.store.svelte')
+    const needsReview = new PrNeedsReviewStore(new PrsStore())
+    const unsubscribe = needsReview.subscribe(() => ({ api: api(), serverId, ctx }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reads).toBe(1)
+
+    // Whether this window is looked at bears no relation to whether someone
+    // else asked for a review, so the store must not listen for it at all.
+    expect(listeners).not.toContain('focus')
+
+    // Editing a pull request here does change what is being asked of us.
+    serverConnectionsMock.emit(serverId, 'prs.invalidated', { projectRoot: '/repo' })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reads).toBe(2)
+    unsubscribe()
   })
 })

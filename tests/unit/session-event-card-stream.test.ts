@@ -32,9 +32,9 @@ async function createReducer(
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
   const settings: Pick<SettingsCtx, 'rateLimitBehavior'> = { rateLimitBehavior: 'ask' }
   const reducer = new SessionEventReducer({
+    sessions: { byId: { 'session-1': session } },
     registry: {
       tabs: { 'tab-1': tab },
-      sessions: { 'session-1': session },
       sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
       tabIdsBySession: new Map([['session-1', ['tab-1']]]),
     },

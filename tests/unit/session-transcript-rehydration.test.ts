@@ -3,6 +3,7 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 import type { IpcContext } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { parseJsonlLine } from '@solus/server/agents/claude/claude-session-helpers'
 import { projectSessionHistory } from '@solus/server/server/result-projection'
 import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -455,4 +456,32 @@ test('first-render transcript conversion does not wait for automation metadata',
   })
   expect(transcript.messages[0].content).toBe('show this immediately')
   expect(loadAll).not.toHaveBeenCalled()
+})
+
+test('Claude MCP array receipts restore both versions and keep failed revisions out', () => {
+  const history: SessionLoadMessage[] = []
+  for (const [toolId, name, input, receipt, failed] of [
+    ['create', 'render_artifact', { html: '<p>One</p>' }, 'Rendered "One" in the conversation and saved it as an artifact (id: work).', false],
+    ['update', 'update_work', { work_id: 'work', content: '<p>Two</p>' }, 'Updated "Two" (artifact, id: work).', false],
+    ['failed', 'update_work', { work_id: 'work', content: '<p>Failed</p>' }, 'Save failed', true],
+  ] as const) {
+    const result = [{ type: 'text', text: receipt }]
+    for (const row of [
+      { type: 'assistant', timestamp: 1, message: { content: [{ type: 'tool_use', id: toolId, name: `mcp__solus__${name}`, input }] } },
+      { type: 'user', timestamp: 2, toolUseResult: result, message: { content: [{ type: 'tool_result', tool_use_id: toolId, content: result, is_error: failed }] } },
+    ]) {
+      const parsed = parseJsonlLine(JSON.stringify(row))
+      expect(parsed).not.toBeNull()
+      if (parsed) history.push(parsed)
+    }
+  }
+  connections.registerPrimary('transcript-host', {})
+  const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
+  const transcript = materializeSessionTranscript(ctx, {
+    sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+    ctx: { session: { sessionId: 'tab' } } as IpcContext,
+  }, deferSessionToolInputs(projectSessionHistory(history)))
+  expect(transcript.messages.filter(m => m.artifact).map(m => [m.artifact?.html, m.workRef?.workId])).toEqual([
+    ['<p>One</p>', 'work'], ['<p>Two</p>', 'work'],
+  ])
 })

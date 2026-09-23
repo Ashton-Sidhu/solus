@@ -35,24 +35,31 @@ fly secrets set --app solus-workspace \
   DATABASE_URL='postgres://…' \
   SOLUS_CLOUD_ISSUER='https://app.solus.sh' \
   SOLUS_CLOUD_JWKS_URL='https://app.solus.sh/api/auth/jwks' \
-  SOLUS_VAULT_KEY="$(openssl rand -base64 32)"
+  SOLUS_INTEGRATION_SERVICE_KEY='<shared account-backend executor key>'
 ```
 
-`SOLUS_VAULT_KEY` (32 bytes, base64) encrypts the credential vault: the provider
-logins members connect once here and runners lease for their turns, and the
-GitHub, Google, and Atlassian connections each member makes here
-(docs/plans/cloud-service-model.md §22). Without it the service still starts, and
-every seat call answers `VAULT_NOT_CONFIGURED`. Rotating it invalidates every
-stored credential; members connect again.
+GitHub, Google and Atlassian connect at the **account origin**, normally
+`https://app.solus.sh/connections`. The account Worker owns OAuth client secrets,
+callbacks, encrypted storage and refresh. Do not register integration callbacks on
+this workspace service or put OAuth client secrets into its image.
 
-The OAuth clients those connections use are build-time environment of the image
-(`SOLUS_GITHUB_CLIENT_ID`, `SOLUS_GOOGLE_CLIENT_ID` and `SOLUS_GOOGLE_CLIENT_SECRET`,
-`SOLUS_ATLASSIAN_CLIENT_ID` and `SOLUS_ATLASSIAN_CLIENT_SECRET`), not secrets set
-here. The Atlassian app the image is built with must register
-`<service origin>/oauth/atlassian/callback` as its one callback URL — for the
-deployment above, `https://solus-workspace.fly.dev/oauth/atlassian/callback` —
-and the Google client must list `<service origin>/oauth/google/callback`. A
-host's sign-ins use the loopback callbacks instead and are unaffected.
+`SOLUS_INTEGRATION_SERVICE_KEY` must equal the account Worker's
+`INTEGRATION_SERVICE_KEY`. It identifies the service when it asks the account
+backend for a user's integration access token. Each request also requires the
+user's current signed workspace grant; the service key alone cannot select a user.
+Personal and managed execution hosts use their existing host token plus that
+user's host grant. The desktop's local server uses its main-process account session.
+
+Claude and Codex logins remain on each execution host. The service cannot run a
+login or store a seat. Migration `0010_account_integrations` removes the old cloud
+credential tables. Before this release is deployed, tell members to connect their
+integrations on the account website and verify their agent login on each host.
+No old cloud credential is copied to another host. Existing local provider files
+are not deleted by this migration. Remove the obsolete `SOLUS_VAULT_KEY` after
+cutover; it is not read by this release.
+
+Account setup and the exact callback URLs are in the sibling repository's
+`docs/account-integrations.md`.
 
 The service refuses to start without all three (`workspace_mode_applied` in the
 log names the engine it opened). Migrations run at open on the first machine to
@@ -66,11 +73,19 @@ describes; the tag in `fly.toml` must name that push):
 
 ```
 fly apps create solus-workspace
-fly postgres create --name solus-workspace-db   # or any Postgres; only DATABASE_URL matters
-fly secrets set --app solus-workspace DATABASE_URL=… SOLUS_CLOUD_ISSUER=… SOLUS_CLOUD_JWKS_URL=…
+fly secrets set --app solus-workspace DATABASE_URL=… SOLUS_CLOUD_ISSUER=… SOLUS_CLOUD_JWKS_URL=… SOLUS_INTEGRATION_SERVICE_KEY=…
 fly deploy --config packaging/workspace-service/fly.toml --ha=false
 fly scale count 1 --app solus-workspace
 ```
+
+`DATABASE_URL` is the one Postgres 17 the account website shares (its Worker reaches
+it through Hyperdrive; the two keep separate migration tables). It must have a
+**public TLS hostname**: Hyperdrive dials it from Cloudflare's edge, so a database
+that only answers on a private network — Fly Managed Postgres, whose only address
+is `direct.<id>.flympg.net` — cannot serve it. The deployed choice is PlanetScale
+for Postgres (PS-5, AWS `us-east-1`, next to Fly `iad`), on the direct port 5432
+with `sslmode=require`; do not use its PgBouncer port 6432, since Hyperdrive is
+already the pooler and `postgres-js` prepared statements misbehave behind it.
 
 `fly deploy` replaces the single machine; this briefly interrupts connections.
 The health check on `/health` (which answers `requireAuth: true` here) gates it. A new release is a new image
@@ -128,3 +143,11 @@ relay. A stopped runner remains readable through mirrored history but accepts no
 prompt. The relay does not retry an uncertain receipt or retain prompts across
 service restarts. Prompts are text-only. Local ownership/access tables are still
 used by the signed-out host; they are not a public guest-sharing backend.
+
+### Cloud work changes
+
+Clients check the saved version of open cloud works through the normal RPC
+connection. No LISTEN connection or Yjs storage is required. Migration 0010 now removes the
+obsolete credential vault; it is unrelated to work editing.
+Update the service and client bundle together; there is no live-work API
+compatibility layer. Keep the single-instance session relay rule above.

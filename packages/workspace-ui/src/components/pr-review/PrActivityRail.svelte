@@ -8,6 +8,7 @@
     CircleX as XCircleIcon,
     Clock as ClockIcon,
     File as FileIcon,
+    MessageCircle as MessageCircleIcon,
     GitMerge as GitMergeIcon,
     Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
@@ -18,7 +19,6 @@
   import Icon from "@iconify/svelte";
   import { untrack, type Snippet } from "svelte";
   import type { ChangedFileStat } from "@solus/contracts/types";
-  import type { ReviewGuideStatus } from "@solus/contracts/review";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
   import type {
     PullRequest,
@@ -32,9 +32,8 @@
   import { Button } from "../ui/button";
   import VirtualList from "../ui/list-page/VirtualList.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import PrGuideActions from "./PrGuideActions.svelte";
   import { checkDuration, orderedChecks } from "../prs/lib/checks";
-  import { checkVerdict } from "./lib/check-verdict";
+  import { checkVerdict, checksSummary } from "./lib/check-verdict";
   import {
     reviewerRowAction,
     reviewerStateColor,
@@ -50,7 +49,6 @@
   import {
     CHECKS_VISIBLE_ROWS,
     FILES_VISIBLE_ROWS,
-    checkRowHeight,
     fileRowHeight,
     listViewportHeight,
   } from "./lib/rail-rows";
@@ -62,16 +60,14 @@
   // lazy — unknown names still resolve through Iconify's API fallback.
   ensureIconCollections();
 
-  // The activity tab's reference rail. The status card leads it: what state
-  // the pull request is in, the move that changes it, and the review guide as
-  // the card's own footer row — one object, because "can this land" and "how
-  // do I read it" are the two questions you bring to the same card. Under it
-  // sit reviewers, checks, and the changed files as collapsible sections,
-  // ruled apart and labelled.
+  // The activity tab's reference rail. The status leads it: what state
+  // the pull request is in and the move that changes it; the review guide is
+  // in its ⋯ menu. Under it sit reviewers, checks, and the changed files as
+  // collapsible sections.
   //
   // The rail has two homes. Beside the conversation it is a pinned column.
   // Once the reading column is too narrow to keep one, the same rail is drawn
-  // inline under the title instead: the card becomes a row and the sections
+  // inline under the title instead: the status becomes a row and the sections
   // start folded, so the pull request's state stays in the first screen
   // without pushing the description out of it.
   let {
@@ -96,9 +92,6 @@
     onFixCheck,
     unresolvedCount,
     onFileJump,
-    guideStatus,
-    onGenerateGuide,
-    onOpenGuide,
     onRetry,
     actions,
     menu,
@@ -126,13 +119,6 @@
     onFixCheck?: (check: CheckItem) => void;
     unresolvedCount: number;
     onFileJump?: (path: string) => void;
-    /** Background guide-generation lifecycle for this PR (guides are opt-in).
-     *  Undefined means no guide has ever been asked for. */
-    guideStatus?: ReviewGuideStatus;
-    /** Absent while the PR cannot carry a guide (draft, closed, merged), which
-     *  is what hides the row rather than showing a dead action. */
-    onGenerateGuide?: () => void;
-    onOpenGuide?: () => void;
     /** Re-reads everything the rail shows. Offered beside any section that
      *  failed to load. */
     onRetry?: () => void;
@@ -140,10 +126,11 @@
      *  lives with the readiness status it acts on, Linear-style, not in the
      *  header. It is handed the move the shared readiness model chose. */
     actions?: Snippet<[PrActionsLayout, MergeAction | null]>;
-    /** The ⋯ menu of rarely-used PR actions. It rides in the status card,
+    /** The ⋯ menu of rarely-used PR actions. It rides beside the status,
      *  where it is always present, rather than under a cluster that a draft
-     *  or a closed PR leaves empty. */
-    menu?: Snippet;
+     *  or a closed PR leaves empty. It is handed the same move as `actions`,
+     *  so it offers what the card does not. */
+    menu?: Snippet<[MergeAction | null]>;
     /** A column beside the conversation, or a block inside it. */
     variant?: "column" | "inline";
   } = $props();
@@ -158,21 +145,32 @@
   // this sitting, not a preference worth persisting. Read once on mount: a
   // rail that moves homes is a different instance, not the same one resized.
   const startsOpen = untrack(() => variant === "column");
+  // Checks start folded on both homes: the section head carries a one-line
+  // summary ("1 of 5 failing"), which is the answer most readings need.
   let sectionOpen = $state({
     reviewers: startsOpen,
-    checks: startsOpen,
+    checks: false,
     files: startsOpen,
   });
   type SectionKey = keyof typeof sectionOpen;
 
-  // Failing checks lead, so the rows above the fold always show what's broken
-  // rather than whichever the host happened to list first.
+  // Failing checks lead, so the rows above "Show more" always show what's
+  // broken rather than whichever the host happened to list first.
   const allChecks = $derived(orderedChecks(checks));
+  const checksHeadline = $derived(checksSummary(allChecks));
+  let showAllChecks = $state(false);
+  const visibleChecks = $derived(
+    showAllChecks ? allChecks : allChecks.slice(0, CHECKS_VISIBLE_ROWS),
+  );
+  const hiddenCheckCount = $derived(allChecks.length - visibleChecks.length);
   const approvedReviewers = $derived(
     reviewers.reduce(
       (count, reviewer) => count + (reviewer.state === "APPROVED" ? 1 : 0),
       0,
     ),
+  );
+  const reviewersEmpty = $derived(
+    !reviewersLoading && !reviewersLoadFailed && reviewers.length === 0,
   );
   function handleReviewerMenuOpenChange(open: boolean): void {
     reviewerMenuOpen = open;
@@ -202,17 +200,10 @@
       : null,
   );
   const tone = $derived(readiness ? readinessTone(readiness.key) : "neutral");
-  // Both lists are virtualized, so each needs a row height and a scrollport
+  // The file list is virtualized, so it needs a row height and a scrollport
   // height in pixels. The heights follow the *display*, not the pane, because
   // the rail's own width does (ADR-0010) — a container query here would resize
   // rows on every drag frame of the pane divider.
-  const checkRowSize = $derived(checkRowHeight(runtime.isLaptopDisplay));
-  const checksViewportHeight = $derived(
-    listViewportHeight(
-      allChecks.map(() => checkRowSize),
-      CHECKS_VISIBLE_ROWS,
-    ),
-  );
   const fileRowSizes = $derived(
     changedFiles.map((file) => fileRowHeight(file, runtime.isLaptopDisplay)),
   );
@@ -228,44 +219,47 @@
   }
 </script>
 
-<!-- Section label: a letterspaced caption one step under the rows it heads,
-     the fold control it names, and its own count on the right. The whole
-     label is the target — a lone chevron is a 9px hit area on a control you
-     use often. The rail reads at the chrome rung; captions and sub-lines take
-     `text-xs`, and nothing here is smaller than that.
+<!-- Section head: the whole row is the fold control — label on the left,
+     the section's one-line answer on the right, the chevron at the far edge —
+     so a folded section still says what is in it. Sentence case at the chrome
+     rung, not a letterspaced caps caption: the rail reads as quiet sections.
 
      A raw button, not the ghost primitive. `aria-expanded` on a disclosure
      means "this section is unfolded", and the ghost variant reads that
      attribute as a *menu trigger* and paints `aria-expanded:bg-muted`, so
      every open heading wore a permanent pressed chip. A section heading is a
      semantic-only control: no fill at rest, the hover wash only. -->
-{#snippet sectionHead(label: string, key: SectionKey, trailing?: Snippet)}
-  <div class="flex items-center gap-2 {sectionOpen[key] ? 'mb-1.5' : ''}">
-    <h3 class="min-w-0">
+{#snippet sectionHead(label: string, key: SectionKey, trailing?: Snippet, foldable = true)}
+  {#if foldable}
+    <h3>
       <button
         type="button"
         aria-expanded={sectionOpen[key]}
-        class="-ml-1.5 flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        class="group/head -mx-2 mb-1 flex min-h-9 w-[calc(100%+1rem)] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-left transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none"
         onclick={() => (sectionOpen[key] = !sectionOpen[key])}
       >
+        <span class="shrink-0 font-medium text-foreground">{label}</span>
         <CaretRightIcon
-          size={10}
-          class="shrink-0 opacity-60 transition-transform duration-150 {sectionOpen[
-            key
-          ]
+          size={12}
+          class="shrink-0 text-muted-foreground opacity-50 transition-[transform,opacity] duration-200 ease-(--ease-premium) group-hover/head:opacity-90 motion-reduce:transition-none {sectionOpen[key]
             ? 'rotate-90'
             : ''}"
           aria-hidden="true"
         />
-        {label}
+        <span class="ml-auto flex min-w-0 items-center justify-end text-xs">
+          {#if trailing}{@render trailing()}{/if}
+        </span>
       </button>
     </h3>
-    {#if trailing}
-      <span class="ml-auto shrink-0 text-xs">
-        {@render trailing()}
+  {:else}
+    <!-- Nothing to unfold: the same row, as a plain label and its answer. -->
+    <h3 class="flex min-h-9 items-center gap-1.5">
+      <span class="shrink-0 font-medium text-foreground">{label}</span>
+      <span class="ml-auto flex min-w-0 items-center justify-end text-xs">
+        {#if trailing}{@render trailing()}{/if}
       </span>
-    {/if}
-  </div>
+    </h3>
+  {/if}
 {/snippet}
 
 <!-- A section that could not be read says so where its rows would be, and
@@ -287,16 +281,18 @@
 {/snippet}
 
 <!-- The readiness glyph: the same host palette as the list's status dots, and
-     coloured only when the colour says something the headline does not. -->
+     coloured only when the colour says something the headline does not. A
+     bare glyph beside the headline, not a filled disc: the card reports a
+     state, it is not a call to action. -->
 {#snippet readinessGlyph()}
   <span
-    class="grid size-7 shrink-0 place-items-center rounded-full {tone === 'positive'
-      ? 'bg-[color-mix(in_oklch,var(--solus-art-positive)_14%,transparent)] text-(--solus-art-positive)'
+    class="grid h-[1lh] shrink-0 place-items-center {tone === 'positive'
+      ? 'text-(--solus-art-positive)'
       : tone === 'negative'
-        ? 'bg-[color-mix(in_oklch,var(--solus-art-negative)_14%,transparent)] text-(--solus-art-negative)'
+        ? 'text-(--solus-art-negative)'
         : tone === 'review'
-          ? 'bg-[color-mix(in_oklch,var(--review)_14%,transparent)] text-[color-mix(in_oklch,var(--review)_70%,var(--foreground))]'
-          : 'bg-[var(--wash-3)] text-muted-foreground'}"
+          ? 'text-[color-mix(in_oklch,var(--review)_70%,var(--foreground))]'
+          : 'text-muted-foreground'}"
     aria-hidden="true"
   >
     {#if readiness?.key === "ready"}
@@ -337,15 +333,8 @@
   </div>
 {/snippet}
 
-<!-- Review guide: the card's footer row. It is one fact and one action, and
-     it belongs with the state of the pull request rather than floating loose
-     under the card as a second, unrelated object. -->
-{#snippet guideRow()}
-  <PrGuideActions {guideStatus} {onOpenGuide} {onGenerateGuide} />
-{/snippet}
-
 <!-- Fixed widths rather than a percentage clamp: the rail's contents are mono
-     paths, verdict words, and a status card whose line breaks were chosen
+     paths, verdict words, and a status block whose line breaks were chosen
      against one measure, and a rail that resizes with the pane re-breaks all
      of them on every drag frame. The laptop step is a display decision
      (ADR-0010), not a container one. Inline, it is the reading column's own
@@ -366,14 +355,14 @@
       ? "flex flex-col"
       : "sticky top-[38px] -mx-[11px] flex flex-col px-[11px] [.is-laptop-display_&]:top-6 max-h-[calc(100vh-102px)] overflow-y-auto overscroll-contain"}
   >
-    <!-- The status card: the rail's one bordered object, because it is the
-         one thing you act on. Everything under it is reference material. -->
-    <section
-      class="shrink-0 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
-    >
+    <!-- The status: what state the pull request is in and the move that
+         changes it, set straight on the canvas with no card around it — it
+         reports a state, it is not a call to action. A hairline under it
+         closes it off from the reference sections below. -->
+    <section class="shrink-0 border-b border-[var(--hairline)] pb-4">
       {#if !detail || !readiness}
-        <div class="flex items-center gap-3 p-3.5">
-          <Skeleton class="size-7 shrink-0 rounded-full bg-muted" />
+        <div class="flex items-center gap-2.5">
+          <Skeleton class="size-4 shrink-0 rounded-full bg-muted" />
           <div class="flex min-w-0 flex-1 flex-col gap-1.5">
             <Skeleton class="h-3.5 w-32 rounded bg-muted" />
             <Skeleton class="h-3 w-20 rounded bg-muted" />
@@ -382,30 +371,29 @@
       {:else if inline}
         <!-- One line: state on the left, the move that changes it on the
              right. The actions may shrink; the text column may truncate. -->
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-3 p-3.5">
-          <div class="flex min-w-0 flex-[1_1_14rem] items-center gap-3">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div class="flex min-w-0 flex-[1_1_14rem] items-start gap-2.5">
             {@render readinessGlyph()}
             {@render readinessText()}
           </div>
           <div class="flex min-w-0 items-center gap-2">
             {#if actions}{@render actions("row", readiness.action)}{/if}
-            {#if menu}<span class="shrink-0">{@render menu()}</span>{/if}
+            {#if menu}<span class="shrink-0">{@render menu(readiness.action)}</span>{/if}
           </div>
         </div>
       {:else}
-        <div class="p-3.5">
-          <div class="flex items-center gap-3">
+        <div>
+          <div class="flex items-start gap-2.5">
             {@render readinessGlyph()}
             {@render readinessText()}
             <!-- The ⋯ rides with the headline, where it is always present,
                  rather than under a cluster that a draft or a closed PR
                  empties. -->
-            {#if menu}<span class="-mr-1 shrink-0">{@render menu()}</span>{/if}
+            {#if menu}<span class="-mr-1 shrink-0">{@render menu(readiness.action)}</span>{/if}
           </div>
           {#if actions}{@render actions("card", readiness.action)}{/if}
         </div>
       {/if}
-      {@render guideRow()}
     </section>
 
     <!-- Reviewers. One row per person: their avatar, login, and the verdict as
@@ -419,31 +407,41 @@
          the facts list under the title (PrReviewerFacts), so a folded section
          here would be the same people twice. -->
     {#if !inline}
-    <section class="mt-5 border-t border-[var(--hairline)] pt-3.5">
+    <section class="mt-6">
       {#snippet reviewerCount()}
         <span class="tabular-nums text-muted-foreground">
           {approvedReviewers} of {reviewers.length} approved
         </span>
       {/snippet}
+      <!-- No one requested and no way to request anyone: the head says so on
+           its own line, with nothing under it to unfold. -->
+      {#snippet noReviewers()}
+        <span class="text-muted-foreground">None requested</span>
+      {/snippet}
       {@render sectionHead(
         "Reviewers",
         "reviewers",
-        reviewersLoading || reviewers.length === 0 ? undefined : reviewerCount,
+        reviewersLoading
+          ? undefined
+          : reviewersEmpty
+            ? noReviewers
+            : reviewerCount,
+        !(reviewersEmpty && !onRequestReviewer),
       )}
       <!-- Folded with `hidden`, not unmounted: the rows carry hover and menu
            state, and a fold is a reading choice, not a reason to rebuild them. -->
-      <div class:hidden={!sectionOpen.reviewers}>
+      <div class="-mx-2" class:hidden={!sectionOpen.reviewers}>
       {#if reviewersLoading}
-        <div class="-mx-2 flex h-8 items-center gap-2.5 px-2">
+        <div class="flex h-8 items-center gap-2.5 px-2">
           <Skeleton class="size-5 shrink-0 rounded-full bg-muted" />
           <Skeleton class="h-3 w-24 rounded bg-muted" />
         </div>
       {:else if reviewersLoadFailed}
-        <div class="-mx-2">{@render loadFailure("Couldn’t load reviewers.")}</div>
+        {@render loadFailure("Couldn’t load reviewers.")}
       {:else if reviewers.length === 0 && !onRequestReviewer}
-        <p class="text-muted-foreground">No one requested yet</p>
+        <!-- The head already says "None requested". -->
       {:else}
-        <ul class="-mx-2 flex flex-col" role="list">
+        <ul class="flex flex-col" role="list">
           {#each reviewers as reviewer (reviewer.login)}
             {@const action = reviewerAction(reviewer)}
             {@const busy = reviewerMutation === reviewer.login}
@@ -461,13 +459,27 @@
               <span
                 class="grid shrink-0 items-center justify-items-end pointer-coarse:gap-1.5"
               >
+                <!-- The verdict as an icon in its own colour; the word stays
+                     on the title and in the accessibility tree. -->
                 <span
-                  class="col-start-1 row-start-1 text-xs whitespace-nowrap {action
+                  class="col-start-1 row-start-1 grid size-6 place-items-center {action
                     ? 'pointer-fine:group-hover/reviewer:invisible pointer-fine:group-focus-within/reviewer:invisible'
                     : ''}"
                   style={`color:${reviewerStateColor(reviewer.state)}`}
+                  title={reviewerStateLabel(reviewer.state)}
                 >
-                  {reviewerStateLabel(reviewer.state)}
+                  {#if reviewer.state === "APPROVED"}
+                    <CheckCircleIcon size={14} aria-hidden="true" />
+                  {:else if reviewer.state === "CHANGES_REQUESTED"}
+                    <CircleAlertIcon size={14} aria-hidden="true" />
+                  {:else if reviewer.state === "COMMENTED"}
+                    <MessageCircleIcon size={14} aria-hidden="true" />
+                  {:else if reviewer.state === "DISMISSED"}
+                    <MinusCircleIcon size={14} aria-hidden="true" />
+                  {:else}
+                    <ClockIcon size={14} aria-hidden="true" />
+                  {/if}
+                  <span class="sr-only">{reviewerStateLabel(reviewer.state)}</span>
                 </span>
                 {#if action}
                   <!-- Precise pointers reveal it in the verdict's own cell;
@@ -518,7 +530,7 @@
               >
                 <span class="min-w-0 flex-1 truncate text-left text-muted-foreground">
                   {reviewers.length === 0
-                    ? "No one requested yet"
+                    ? "Request a reviewer"
                     : "Request another reviewer"}
                 </span>
                 {#if reviewerCandidatesLoading}
@@ -550,45 +562,43 @@
     {/if}
 
     {#if allChecks.length > 0}
-      <section class="mt-5 border-t border-[var(--hairline)] pt-3.5">
+      <section class="mt-6">
         {#snippet checksCount()}
-          <!-- A plain total mirrors the rows below without repeating their
-               verdicts or adding another status colour to the heading. -->
-          <span class="tabular-nums text-muted-foreground">
-            {allChecks.length}
+          <!-- The folded section's whole answer: the rows' own status glyph,
+               then the words. -->
+          <span class="flex items-center gap-1.5 tabular-nums text-muted-foreground">
+            {#if checksHeadline.icon === "failed"}
+              <XCircleIcon size={13} class="shrink-0 text-(--solus-art-negative)" aria-hidden="true" />
+            {:else if checksHeadline.icon === "running"}
+              <CircleNotchIcon
+                size={12}
+                class="shrink-0 animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            {:else}
+              <CheckCircleIcon size={13} class="shrink-0 text-(--solus-art-positive)" aria-hidden="true" />
+            {/if}
+            {checksHeadline.text}
           </span>
         {/snippet}
         {@render sectionHead("Checks", "checks", checksCount)}
 
-        <!-- Every check is in the list while the section is open — hiding the
-             green ones behind a second toggle would make the passing state the
-             only one you cannot inspect. Past six rows the section becomes its
-             own scrollport rather than growing without bound.
-
-             Folded with `hidden`, not unmounted: the list keeps its scroll
-             offset, and the height it is given is computed rather than
-             measured, so a hidden section still renders correctly when it comes
-             back. -->
+        <!-- Failing checks lead, then the first six rows; the rest wait
+             behind "Show more" instead of a scrollport inside the rail's own
+             scroll. Folded with `hidden`, not unmounted, so a fold keeps the
+             "Show more" choice. -->
         <div
           class="-mx-2"
           class:hidden={!sectionOpen.checks}
           role="group"
           aria-label="Checks"
         >
-          <VirtualList
-            items={allChecks}
-            height={checksViewportHeight}
-            itemSize={checkRowSize}
-            keyOf={(item) => item.id}
-          >
-            {#snippet children(item, _index, style)}
+          <ul class="flex flex-col" role="list">
+            {#each visibleChecks as item (item.id)}
               {@const duration = checkDuration(item)}
               {@const verdict = checkVerdict(item)}
-              <!-- The row takes its height from the list's own `style`, never
-                   from a class of its own — see lib/rail-rows. -->
-              <div
-                {style}
-                class="group/check flex items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-[var(--wash-2)]"
+              <li
+                class="group/check flex h-[30px] items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-[var(--wash-2)] pointer-fine:[.is-laptop-display_&]:h-7"
               >
                 <button
                   type="button"
@@ -653,14 +663,25 @@
                     Fix
                   </Button>
                 {/if}
-              </div>
-            {/snippet}
-          </VirtualList>
+              </li>
+            {/each}
+          </ul>
+          {#if allChecks.length > CHECKS_VISIBLE_ROWS}
+            <Button
+              type="button"
+              variant="ghost"
+              aria-expanded={showAllChecks}
+              class="mt-0.5 h-7 w-full cursor-pointer justify-start rounded-lg border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground aria-expanded:bg-transparent"
+              onclick={() => (showAllChecks = !showAllChecks)}
+            >
+              {showAllChecks ? "Show less" : `Show ${hiddenCheckCount} more`}
+            </Button>
+          {/if}
         </div>
       </section>
     {/if}
 
-    <section class="mt-5 border-t border-[var(--hairline)] pt-3.5">
+    <section class="mt-6">
       {#snippet fileCount()}
         {#if filesLoading}
           <Skeleton class="h-3 w-8 rounded bg-muted" />

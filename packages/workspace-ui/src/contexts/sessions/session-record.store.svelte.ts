@@ -1,7 +1,7 @@
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
+import type { SurfaceContext } from '../app/surface-context.svelte'
 import { loadSessionRecordTranscript } from './session-record-transcript'
 
 /** One cloud page. Coalesce mirror batches, keep unchanged rows, and ignore reads
@@ -18,7 +18,7 @@ export class SessionRecordStore {
   private timer: ReturnType<typeof setTimeout> | null = null
   private readonly unsubscribe: () => void
   private readonly stopStatus: () => void
-  constructor(private readonly workspace: WorkspaceContext, private readonly serverId: string, private readonly sessionId: string) {
+  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string) {
     this.unsubscribe = serverConnections.eventsFor(serverId).subscribe('session.transcriptChanged', (event) => {
       if (event.sessionId !== sessionId || this.timer) return
       this.timer = setTimeout(() => { this.timer = null; void this.load() }, 200)

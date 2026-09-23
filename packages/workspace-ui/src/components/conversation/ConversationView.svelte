@@ -295,7 +295,7 @@
     holdAutomaticScroll();
     try {
       expandingHistory = true;
-      await session.expandHistory(tabId);
+      await session.lifecycle.expandHistory(tabId);
       await tick();
     } catch (error) {
       historyError = error instanceof Error ? error.message : "Could not load earlier messages.";
@@ -331,7 +331,7 @@
     if (sess?.historyTruncated) {
       expandingHistory = true;
       try {
-        await session.expandHistory(tabId, { full: true });
+        await session.lifecycle.expandHistory(tabId, { full: true });
       } finally {
         expandingHistory = false;
       }
@@ -490,7 +490,7 @@
     if (sess?.historyTruncated) {
       expandingHistory = true;
       try {
-        await session.expandHistory(tabId, { full: true });
+        await session.lifecycle.expandHistory(tabId, { full: true });
       } finally {
         expandingHistory = false;
       }
@@ -540,12 +540,12 @@
   });
 
   function handleRetry() {
-    session.retryLastMessage(tabId);
+    session.dispatch.retryLastMessage(tabId);
   }
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
   const latestTurnSnapshot = $derived(
-    sess ? session.turnSnapshots[sess.id]?.at(-1) : undefined,
+    sess ? session.lifecycle.turnSnapshots[sess.id]?.at(-1) : undefined,
   );
   const latestTurnScope = $derived(
     latestTurnSnapshot
@@ -609,7 +609,7 @@
   useKeybinding(
     "conversation.interrupt",
     () => {
-      session.interruptTabSession(tabId);
+      session.controls.interruptTabSession(tabId);
       session
         .apiFor(tabId)
         .stopSession(session.ctxFor(tabId).session.sessionId);
@@ -618,7 +618,9 @@
     {
       enabled: () =>
         tabId === session.focusedChatTabId &&
-        (sess?.status === "running" || sess?.status === "connecting"),
+        (sess?.status === "running" ||
+          sess?.status === "connecting" ||
+          sess?.status === "background"),
     },
   );
 
@@ -693,7 +695,7 @@
       session.ctx,
     );
     if (meta) {
-      await session.resumeSession(meta);
+      await session.opening.resumeSession(meta);
     }
   }
 </script>
@@ -834,7 +836,7 @@
           {/snippet}
 
           {#if sess.statusCard}
-            <StatusCard card={sess.statusCard} onRetry={() => session.recoverWorktreeSetup(tabId, false)} onWorkLocally={() => session.recoverWorktreeSetup(tabId, true)} />
+            <StatusCard card={sess.statusCard} onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)} onWorkLocally={() => session.controls.recoverWorktreeSetup(tabId, true)} />
           {/if}
 
           {#if sess.permissionQueue.length > 0}

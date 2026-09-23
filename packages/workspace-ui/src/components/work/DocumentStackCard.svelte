@@ -1,6 +1,6 @@
 <script lang="ts">
   import { LoaderCircle as SpinnerIcon } from "@lucide/svelte";
-  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { relativeTime } from "../../lib/relative-time";
   import {
     MAX_SHEETS,
@@ -21,7 +21,7 @@
   }
   let { entries, linkContext, skipMotion = false }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const shell = getClientShellContext();
 
   // Selection lives for the life of the card, not as a preference: the reader

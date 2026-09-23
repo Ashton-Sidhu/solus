@@ -40,7 +40,7 @@ export interface FollowTarget {
 }
 
 /** The workspace surface presence reads: the focused pane and the hosts behind it. */
-type PresenceWorkspace = Pick<WorkspaceContext, 'router' | 'focusedChatTabId' | 'sessionFor' | 'serverIdFor' | 'worksStore' | 'openRoute'>
+type PresenceWorkspace = Pick<WorkspaceContext, 'router' | 'focusedChatTabId' | 'sessionFor' | 'serverIdFor' | 'openRoute'>
 
 function sessionKey(serverId: string, sessionId: string): string {
   return `${serverId}|${sessionId}`
@@ -53,9 +53,6 @@ function workspaceFocus(workspace: Omit<PresenceWorkspace, 'openRoute'>): FocusR
     const tabId = workspace.focusedChatTabId
     const current = tabId ? workspace.sessionFor(tabId) : undefined
     if (tabId && current?.id) return { serverId: workspace.serverIdFor(tabId), focus: { kind: 'session', sessionId: current.id } }
-  } else if (ref?.name === 'work') {
-    const serverId = ref.params.serverId ?? workspace.worksStore.hostFor(ref.params.workId) ?? null
-    if (serverId) return { serverId, focus: { kind: 'work', workId: ref.params.workId } }
   }
   return { serverId: null, focus: PRESENCE_NO_FOCUS }
 }
@@ -206,7 +203,7 @@ class PresenceStore {
     return this.sessions.get(sessionKey(serverId, sessionId))
   }
 
-  /** The people whose focused pane shows one session or work, from the host room. */
+  /** The people whose focused pane shows one session, from the host room. */
   peopleFocusedOn(serverId: string, focus: PresenceFocus): PresencePerson[] {
     return this.hostPeople(serverId).filter((person) => person.focus && sameFocus(person.focus, focus))
   }
@@ -310,8 +307,7 @@ class PresenceStore {
         // The click that started the follow is the one these navigations answer to.
         if (step.focus.kind === 'session') {
           workspace.openRoute({ name: 'chat', params: { sessionId: step.focus.sessionId, serverId: target.serverId } }, { via: 'click' })
-        } else if (step.focus.kind === 'work') {
-          workspace.openRoute({ name: 'work', params: { workId: step.focus.workId, serverId: target.serverId } }, { via: 'click' })
+
         }
         return
       case 'stop':

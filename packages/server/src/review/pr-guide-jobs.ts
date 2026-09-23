@@ -17,7 +17,7 @@ export interface PrGuideJobDependencies {
   current: (target: PrGuideTarget) => Promise<ResolvedPrGuideTarget>
   prepare: (ctx: IpcContext, target: ResolvedPrGuideTarget) => Promise<{ ctx: IpcContext; target: ResolvedPrGuideTarget }>
   author: (request: PrGuideJobRequest, ctx: IpcContext, target: ResolvedPrGuideTarget, signal: AbortSignal, progress: (step: ReviewProgressStep) => void) => Promise<GeneratedGuide | null>
-  read: (ctx: IpcContext, target: PrGuideTarget) => Promise<ReviewGuide | null>
+  read: (ctx: IpcContext, target: PrGuideTarget, headRef?: string) => Promise<ReviewGuide | null>
   write: (guide: ReviewGuide, target: PrGuideTarget, canCommit: () => boolean) => Promise<boolean>
 }
 
@@ -108,6 +108,30 @@ export class PrGuideJobs {
       }
     } catch (error) {
       return active() ?? { ...base, status: 'failed', error: `Could not check the current PR revision: ${errorMessage(error)}` }
+    }
+  }
+
+  /**
+   * What a PR list needs to mark a row: the running job, or the saved guide at
+   * the revision it was written for. Reads host storage only. The list compares
+   * the saved head with the head it listed; the review pane's `status` does the
+   * full revision check against the code host.
+   */
+  async savedStatus(ctx: IpcContext, target: PrGuideTarget, headRef: string): Promise<ReviewGuideStatusEvent | null> {
+    const key = prGuideKey(target)
+    const running = () => {
+      const latest = this.jobs.get(key)
+      return latest && ['queued', 'generating'].includes(latest.event.status) ? latest.event : null
+    }
+    if (running()) return running()
+    const guide = await this.dependencies.read(ctx, target, headRef)
+    if (running()) return running()
+    const job = this.jobs.get(key)
+    if (job && job.event.headSha === target.headSha) return { ...job.event, generatedAt: guide?.generatedAt }
+    if (!guide) return null
+    return {
+      ...cachedStatus(ctx, target, guide), headSha: guide.headSha, baseSha: guide.baseSha,
+      changeFingerprint: guide.changeFingerprint,
     }
   }
 

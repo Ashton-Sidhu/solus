@@ -50,6 +50,7 @@ export class DesktopDialogs {
   hasMountedAddServer = $state(false);
   hasMountedOpenProject = $state(false);
   hasMountedHostOnboarding = $state(false);
+  hasMountedShareDialog = $state(false);
   /** Offered as the prefill when a remote host has no commit identity of its own. */
   localGitIdentity = $state<{ name: string; email: string } | null>(null);
   // When set, the palette opens drilled straight into this sub-page (e.g. the

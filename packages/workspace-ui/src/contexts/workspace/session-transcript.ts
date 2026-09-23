@@ -8,6 +8,7 @@ import { artifactUpdateFromHistory } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 
 // ─── Transcript loader ───
@@ -44,7 +45,7 @@ function isAutomationSaveTool(name: string | undefined): boolean {
  * then skipped, leaving just the tool row.
  */
 function resolveSavedAutomation(
-  ctx: WorkspaceContext,
+  ctx: SurfaceContext,
   input: { automation_id?: string; name?: string },
   claimed: Set<string>,
 ): { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean } | undefined {
@@ -71,7 +72,7 @@ function agentConversationResultFor(
  * earlier in the same transcript pass. Returns '' if nothing matches (the card
  * still renders its title, just without a load target).
  */
-function resolveCreatedWork(ctx: WorkspaceContext, title: string, sessionId: string, claimed: Set<string>): string {
+function resolveCreatedWork(ctx: SurfaceContext, title: string, sessionId: string, claimed: Set<string>): string {
   const works = Object.values(ctx.worksStore.works)
   const bySessionAndTitle = works.find(
     (w) => w.title === title && !claimed.has(w.id) && (w.sessionIds?.includes(sessionId) || w.sessionId === sessionId),
@@ -129,7 +130,7 @@ const artifactInputSchema = z.object({
 
 const imageInputSchema = z.object({ path: z.string().optional() })
 
-export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
+export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
   const api = ctx.apiForSession(args.ctx.session.sessionId)
   const loaded = await (args.history ?? (args.limit
     ? requestSessionHistoryPage(api, {
@@ -149,7 +150,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
  * conversation uses it before secondary stores have loaded. Their cards are
  * reconciled by the normal asynchronous hydration path. */
 export function materializeSessionTranscript(
-  ctx: WorkspaceContext,
+  ctx: SurfaceContext,
   args: SessionTranscriptLoadArgs,
   loaded: SessionHistoryPage | WireSessionLoadMessage[],
 ): SessionTranscriptLoadResult {

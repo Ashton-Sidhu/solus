@@ -53,11 +53,11 @@ describe('people from participants', () => {
   test('the sidebar finds who is on one session from the host roster', () => {
     const people = peopleFrom([
       participant('c1', 'bob', { focus: { kind: 'session', sessionId: 's1' } }),
-      participant('c2', 'cara', { focus: { kind: 'work', workId: 'w1' } }),
+      participant('c2', 'cara', { focus: { kind: 'session', sessionId: 's2' } }),
     ], nobody)
     expect(peopleFocusedOn(people, { kind: 'session', sessionId: 's1' }).map((person) => person.userId)).toEqual(['bob'])
-    expect(peopleFocusedOn(people, { kind: 'work', workId: 'w1' }).map((person) => person.userId)).toEqual(['cara'])
-    expect(peopleFocusedOn(people, { kind: 'session', sessionId: 's2' })).toEqual([])
+    expect(peopleFocusedOn(people, { kind: 'session', sessionId: 's2' }).map((person) => person.userId)).toEqual(['cara'])
+    expect(peopleFocusedOn(people, { kind: 'session', sessionId: 's3' })).toEqual([])
   })
 })
 
@@ -84,7 +84,7 @@ describe('words', () => {
     const names = { sessionLabel: (id: string) => (id === 's1' ? 'Fix login' : null), workLabel: () => 'Roadmap' }
     expect(focusLabel({ kind: 'session', sessionId: 's1' }, names)).toBe('In Fix login')
     expect(focusLabel({ kind: 'session', sessionId: 's9' }, names)).toBe('In a session')
-    expect(focusLabel({ kind: 'work', workId: 'w1' }, names)).toBe('In Roadmap')
+    expect(focusLabel({ kind: 'session', sessionId: 's2' }, names)).toBe('In a session')
     expect(focusLabel({ kind: 'none' }, names)).toBe('Not in a session')
     expect(focusLabel(undefined, names)).toBe('Not in a session')
   })
@@ -185,18 +185,18 @@ describe('arrivals', () => {
 describe('follow mode', () => {
   const bob = (focus: Parameters<typeof followStep>[0]['mine']['focus'] | undefined) => peopleFrom([participant('c1', 'bob', focus ? { focus } : {})], nobody)[0]!
   const s1 = { kind: 'session', sessionId: 's1' } as const
-  const w1 = { kind: 'work', workId: 'w1' } as const
+  const s2 = { kind: 'session', sessionId: 's2' } as const
 
   test('opens where the person is once per move, waits while they have nothing open', () => {
     expect(followStep({ person: bob({ kind: 'none' }), lastOpened: null, mine: { serverId: 'h1', focus: { kind: 'none' } }, serverId: 'h1' })).toEqual({ kind: 'wait' })
     expect(followStep({ person: bob(s1), lastOpened: null, mine: { serverId: null, focus: { kind: 'none' } }, serverId: 'h1' })).toEqual({ kind: 'open', focus: s1 })
     expect(followStep({ person: bob(s1), lastOpened: s1, mine: { serverId: 'h1', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'hold' })
-    expect(followStep({ person: bob(w1), lastOpened: s1, mine: { serverId: 'h1', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'open', focus: w1 })
+    expect(followStep({ person: bob(s2), lastOpened: s1, mine: { serverId: 'h1', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'open', focus: s2 })
   })
 
   test('ends when the reader opens something of their own, or the person leaves', () => {
     // The tether is not a lock: the reader's own navigation wins.
-    expect(followStep({ person: bob(s1), lastOpened: s1, mine: { serverId: 'h1', focus: w1 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'navigated' })
+    expect(followStep({ person: bob(s1), lastOpened: s1, mine: { serverId: 'h1', focus: s2 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'navigated' })
     // The same session id on another host is somewhere else.
     expect(followStep({ person: bob(s1), lastOpened: s1, mine: { serverId: 'h2', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'navigated' })
     expect(followStep({ person: null, lastOpened: s1, mine: { serverId: 'h1', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'left' })
@@ -210,8 +210,8 @@ describe('roster names', () => {
     expect(sessionLabelIn(names, 'h1', 's1')).toBe('Fix login')
     expect(sessionLabelIn(names, 'h1', 's2')).toBe('Roadmap sync')
     expect(sessionLabelIn(names, 'h2', 's1')).toBeNull()
-    const [cara] = hostPeopleAcrossHosts(['h1'], () => peopleFrom([participant('c1', 'cara', { focus: { kind: 'work', workId: 'w1' } })], nobody))
-    expect(whereIs(cara!, names)).toBe('In Roadmap')
+    const [cara] = hostPeopleAcrossHosts(['h1'], () => peopleFrom([participant('c1', 'cara', { focus: { kind: 'session', sessionId: 's2' } })], nobody))
+    expect(whereIs(cara!, names)).toBe('In Roadmap sync')
   })
 })
 

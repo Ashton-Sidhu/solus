@@ -11,22 +11,18 @@
   } from "@lucide/svelte";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
   import * as TooltipUI from "../../ui/tooltip";
-  import { getWorkspaceContext, presenceStore, serversStore } from "../../../contexts";
+  import { getSurfaceContext, isAgentRunningStatus, presenceStore, serversStore } from "../../../contexts";
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { activeTurnAuthorOf } from "../../presence/lib/presence-people";
-  import {
-    attemptServerId,
-    getAttentionState,
-    openSessionFor,
-    sessionTitle,
-  } from "../../../lib/sessionUtils";
+  import { attemptServerId, sessionTitle } from "../../../lib/sessionUtils";
   import { taskSessionRow, type TaskSessionHost } from "./lib/task-page";
 
   interface Props {
     sessions: TaskSessionLink[];
     taskTitle: string;
     onOpen: (sessionId: string) => void;
-    onOpenSplit: (sessionId: string) => void;
+    /** Open beside the conversation. Null on a client with no companion pane. */
+    onOpenSplit: ((sessionId: string) => void) | null;
     onStop: (sessionId: string) => void;
     onUnlink: (sessionId: string) => void;
     /** Start a session on this task. Null where the task's host runs none (the workspace service). */
@@ -49,11 +45,12 @@
     stacked = false,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const now = Date.now();
 
-  // Only "is it running right now" is read from the live session — that is the
-  // one live fact the row acts on (Stop). Everything else comes off the link,
+  // Only "is it running right now" is read live — from the open session, or
+  // from the host's status feed for a session with no tab — as that is the one
+  // live fact the row acts on (Stop). Everything else comes off the link,
   // except who is in the session: that is the host's roster, so a row can name
   // a teammate in an attempt this client never opened.
   const rows = $derived(
@@ -62,10 +59,10 @@
         ? session.tasksStore.get(link.taskId).serverId
         : null;
       const linkServerId = attemptServerId({ link, taskServerId });
-      const open = openSessionFor(link.sessionId, linkServerId, session);
+      const open = session.sessionForAgentSession(link.sessionId, linkServerId ?? undefined);
       const serverId = attemptServerId({
         link,
-        liveServerId: open?.session.run.serverId,
+        liveServerId: open?.run.serverId,
         taskServerId,
       });
       const host = serversStore.hostFor(serverId);
@@ -75,9 +72,11 @@
       return {
         ...taskSessionRow(
           link,
-          open ? sessionTitle(open.session) : null,
-          open?.session.run.provider ?? null,
-          !!open && getAttentionState(open.session, open.tab) === "running",
+          open ? sessionTitle(open) : null,
+          open?.run.provider ?? null,
+          open
+            ? isAgentRunningStatus(open.status)
+            : session.tasksStore.isSessionRunning(serverId, link.sessionId),
           now,
           taskTitle,
           host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
@@ -362,25 +361,28 @@
                 <TooltipUI.Content value="Stop session" />
               </TooltipUI.Root>
             {/if}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onOpenSplit(row.sessionId);
-                    }}
-                    aria-label="Open in split"
-                  >
-                    <ArrowSquareOutIcon size={13} />
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value="Open in split" />
-            </TooltipUI.Root>
+            {#if onOpenSplit}
+              {@const openSplit = onOpenSplit}
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props })}
+                    <button
+                      {...props}
+                      type="button"
+                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        openSplit(row.sessionId);
+                      }}
+                      aria-label="Open in split"
+                    >
+                      <ArrowSquareOutIcon size={13} />
+                    </button>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value="Open in split" />
+              </TooltipUI.Root>
+            {/if}
             <TooltipUI.Root>
               <TooltipUI.Trigger>
                 {#snippet child({ props })}

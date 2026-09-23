@@ -78,7 +78,7 @@ export const DIFFS_THEME_CSS = `
      caret away from the glyph it sits on, one column at a time — a full
      character out by roughly column 50. index.css resets code and pre in the
      light DOM, but that reset stops at the shadow boundary while the app's
-     -0.0115em body tracking inherits straight through it. */
+     body tracking (--solus-font-tracking) inherits straight through it. */
   :host,
   pre,
   code,

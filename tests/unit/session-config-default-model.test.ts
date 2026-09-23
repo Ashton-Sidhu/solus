@@ -72,6 +72,7 @@ async function makeController(
     setPluginCommands: () => {},
     openSessionDraft: worktreeHarness?.openSessionDraft ?? (() => {}),
     draftFor: (sourceId: string) => (draft && sourceId === draft.id ? draft : undefined),
+    defaultRunConfig: () => ({ workingDirectory: '/repo', gitContext: null }) as any,
     ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     apiFor: () => ({ switchSessionAgent: async () => switchResult }) as any,
@@ -152,7 +153,7 @@ describe('default model preference', () => {
   test('falls back to the agent default when no model is chosen', async () => {
     const controller = await makeController(makeSettings({}))
 
-    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')
   })
 
   test('ignores a stored model that belongs to another agent', async () => {
@@ -178,6 +179,17 @@ describe('default model preference', () => {
 
     await controller.switchActiveAgent('claude-code')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-sonnet-5')
+  })
+
+  test('starts new sessions on Auto when that is the choice in settings', async () => {
+    // WHY: Auto names no model of its own, so the profile lookup rejects it. It
+    // has to survive to the host as the sentinel or the first prompt never gets
+    // routed and the agent's built-in default silently wins instead.
+    const controller = await makeController(makeSettings({ 'claude-code': 'auto' }))
+
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('auto')
+    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('medium')
+    expect(controller.globalDefaults.modelConfig.fastMode).toBe(false)
   })
 
   test('records the source and target models on a handoff divider', async () => {
@@ -229,6 +241,43 @@ describe('default model preference', () => {
     // choice instead of freezing the handoff default.
     expect(session.messages.at(-1)?.agentChangedToModel).toBe('Gpt 5.5')
   })
+
+  test('hands a resumed session a concrete model even when the default is Auto', async () => {
+    // WHY: Auto only routes a first prompt. A handoff carries the provider
+    // thread of a conversation already underway, so passing the sentinel on
+    // would make the next send fail with "Auto can only select a model for a
+    // new session."
+    const settings = makeSettings({ codex: 'auto' })
+    const session = {
+      id: 'stable-session',
+      agentSessionId: 'claude-session',
+      status: 'idle',
+      messages: [],
+      run: {
+        provider: 'claude-code',
+        modelConfig: {
+          modelId: 'claude-opus-5',
+          reasoningEffort: 'high',
+          contextWindow: 200_000,
+          fastMode: false,
+        },
+        workingDirectory: '/repo',
+      },
+    } as Session
+    const controller = await makeController(settings, session, {
+      fromProvider: 'claude-code',
+      fromSessionId: 'claude-session',
+      handoffId: 'stable-session',
+      taskSessionMove: {
+        sourceSessionId: 'claude-session',
+        targetSessionId: 'stable-session',
+      },
+    })
+
+    await controller.switchActiveAgent('codex')
+
+    expect(session.run.modelConfig.modelId).toBe('gpt-6-astra')
+  })
 })
 
 describe('settings written against a draft composer', () => {
@@ -242,7 +291,7 @@ describe('settings written against a draft composer', () => {
     controller.updateModelConfig({ modelId: 'claude-haiku-4-5-20251001' }, draft.id)
 
     expect(draft.run.modelConfig.modelId).toBe('claude-haiku-4-5-20251001')
-    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')
   })
 
   test('carry the model’s own effort and window across the change', async () => {
@@ -305,7 +354,7 @@ describe('settings written against a draft composer', () => {
     await controller.switchActiveAgent('codex', draft.id)
 
     expect(settings.activeAgent).toBe('claude-code')
-    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')
   })
 
   test('hand the draft a new run rather than editing the one it holds', async () => {

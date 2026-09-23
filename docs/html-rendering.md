@@ -2,13 +2,34 @@
 
 ## Inline revisions
 
+Artifact updates use the same preview lifecycle as new renders. Once an
+`update_work` input identifies an artifact, a pending card appears at that call.
+Desktop previews stream from its `content` argument; touch clients keep the
+skeleton until completion, as for new renders. Completion reconciles the card
+by tool-call ID. Failed calls remove their pending card and retain the prior
+version. History reconstructs previews from tool inputs, excluding explicit
+failures and running calls. Work identity comes from receipts or the known work,
+not title matching. Claude MCP array-shaped result metadata must not discard
+receipts during history parsing.
+
 A successful `update_work` for an artifact adds a new inline preview in the
 conversation that made the update. Each preview retains its own HTML and title.
-Earlier versions collapse when a completed revision arrives. They can be expanded
-again, and View latest or the version selector can show another revision in place.
-These controls do not navigate away or move focus to the prompt. Failed or partial
+An artifact with one version shows no version header. From the second version,
+each card names the artifact and its position (`v2 of 3 · Latest`). A pending or
+streaming update card joins the same chain and reads `v4 · Updating…` until it
+completes. Earlier versions collapse when a completed revision arrives. They can
+be expanded again, and View latest or the previous/next version buttons show
+another revision in place. These controls do not navigate away or move focus to
+the prompt.
+
+A cloud-owned host cannot read the row it updates, so its `work_updated` event
+reports `doc` and an empty title. An update never changes a work's type: the
+client keeps the saved type and title, and accepts the event as an artifact
+revision when the saved work or the call's own update card is an artifact. Failed or partial
 updates do not replace the last completed preview. Repeated update events with the
-same or an older save timestamp do not add another preview.
+same or an older save timestamp do not add another preview. A stale completion
+removes only its own pending card. Preview completion does not recreate the saved
+work record: the works store owns its metadata and authoritative save timestamp.
 
 Version numbers describe the revisions in the loaded conversation, not the global
 work history. The label says Latest in conversation: a work can also be edited from

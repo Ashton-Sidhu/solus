@@ -8,6 +8,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import {
+    getSessionRecords,
     getWorkspaceContext,
     getStatusBarContext,
     getSettingsContext,
@@ -166,10 +167,11 @@
   const agent = getAgentContext();
   const voiceModel = getVoiceModelStore();
   const session = getWorkspaceContext();
+  const sessions = getSessionRecords();
   const statusBar = getStatusBarContext();
   const router = session.router;
 
-  const sess = $derived(sessionId ? session.sessions[sessionId] : undefined);
+  const sess = $derived(sessionId ? sessions.byId[sessionId] : undefined);
   // Where the target session is showing, if it is showing anywhere: a draft has
   // no tab at all, so this is `undefined` and every tab-addressed action below
   // stays put rather than firing at the tab that happens to be active.
@@ -378,7 +380,12 @@
   // do", and with an empty composer during a turn that is stopping it — the
   // instant anything is typed the button is a Send (or a Steer) again, so
   // nothing is taken away.
-  const stopsRun = $derived(isTouch && !hasKeyboard && isBusy && !hasContent);
+  const stopsRun = $derived(
+    isTouch &&
+      !hasKeyboard &&
+      (isBusy || sess?.status === "background") &&
+      !hasContent,
+  );
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {
@@ -527,7 +534,7 @@
     const idx = enabledAgents.findIndex((candidate) => candidate.id === current);
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
     if (sessionId) {
-      void session.switchActiveAgent(next.id, targetTabId, "keybinding");
+      void session.config.switchActiveAgent(next.id, targetTabId, "keybinding");
     } else {
       const modelId = defaultModelIdFor(next.id, agent.metadata);
       onRun?.({
@@ -795,7 +802,7 @@
        from its previous position as the card changes height. -->
   <div
     data-composer-prompt
-    class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {isCollapsed
+    class="[--plain-editor-font-size:var(--solus-prompt-font-size)] [font-family:var(--solus-prompt-font-family)] [--plain-editor-line-height:1.625] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {isCollapsed
       ? spacious
         ? attachments.length > 0
           ? '[--plain-editor-padding:0.5rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0]'

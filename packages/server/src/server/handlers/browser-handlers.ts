@@ -1,4 +1,5 @@
 import type { HandlerCtx, SolusServer } from '../server'
+import { BrowserRuntimeInstaller } from '../../browser/browser-runtime'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { initBrowserRegistry, type BrowserRegistry } from '../../browser/browser-registry'
 import type { BrowserFrameChannel } from '../../browser/browser-frame-channel'
@@ -33,6 +34,9 @@ export function registerBrowserHandlers(
   server: SolusServer,
   deps: { events: HostEventPublisher; frames: BrowserFrameChannel },
 ): BrowserRegistry {
+  const runtimeInstaller = new BrowserRuntimeInstaller()
+  server.register('browserRuntimeStatus', () => runtimeInstaller.status())
+  server.register('browserRuntimeInstall', async () => runtimeInstaller.install())
   const registry = initBrowserRegistry({
     pageChanged: (page) => deps.events.broadcast('browser.pageChanged', { page }),
     pageClosed: (browserPageId) => deps.events.broadcast('browser.pageClosed', { browserPageId }),

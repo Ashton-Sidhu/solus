@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   ALL_MODELS_LABEL,
+  LEGACY_MODELS_LABEL,
   contextFact,
   filterModelGroups,
   groupModels,
@@ -14,7 +15,7 @@ import {
  */
 
 const CLAUDE = [
-  { id: 'claude-opus-5', label: 'Opus 5' },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
@@ -22,33 +23,58 @@ const CLAUDE = [
 
 describe('groupModels', () => {
   it('lifts the current model to the top under its own label', () => {
-    const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5')
+    const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5-5')
     expect(groups[0]?.label).toBe('In this session')
-    expect(groups[0]?.models.map((model) => model.id)).toEqual(['claude-opus-5'])
+    expect(groups[0]?.models.map((model) => model.id)).toEqual(['claude-opus-5-5'])
   })
 
   it('never lists the current model twice', () => {
-    const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5')
+    const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5-5')
     const ids = groups.flatMap((group) => group.models.map((model) => model.id))
-    expect(ids.filter((id) => id === 'claude-opus-5')).toHaveLength(1)
+    expect(ids.filter((id) => id === 'claude-opus-5-5')).toHaveLength(1)
     expect(new Set(ids).size).toBe(CLAUDE.length)
   })
 
-  it('leaves the rest as one list in the provider order, not a card per family', () => {
-    // Two headings at most, whichever agent is active. Grouping Claude by
-    // family gave it four cards where Codex has one.
+  it('leaves the current generation as one list in the provider order, not a card per family', () => {
+    // One heading for the generation on offer, whichever agent is active.
+    // Grouping Claude by family gave it four cards where Codex has one.
     const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5')
-    expect(groups.map((group) => group.label)).toEqual(['In this session', ALL_MODELS_LABEL])
-    expect(groups[1]?.models.map((model) => model.label)).toEqual([
-      'Opus 5',
-      'Opus 4.8',
-      'Haiku 4.5',
+    expect(groups.map((group) => group.label)).toEqual([
+      'In this session',
+      ALL_MODELS_LABEL,
+      LEGACY_MODELS_LABEL,
     ])
+    expect(groups[1]?.models.map((model) => model.label)).toEqual(['Opus 5.5', 'Haiku 4.5'])
+  })
+
+  it('takes the superseded generation off the main list into its own section', () => {
+    const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5')
+    const legacy = groups.find((group) => group.isLegacy)
+    expect(legacy?.label).toBe(LEGACY_MODELS_LABEL)
+    expect(legacy?.models.map((model) => model.id)).toEqual(['claude-opus-4-8'])
+    // Only the legacy section is marked, so only it renders behind a disclosure.
+    expect(groups.filter((group) => group.isLegacy)).toHaveLength(1)
+  })
+
+  it('keeps the session’s own model visible even when it is a legacy one', () => {
+    // The disclosure starts closed, so a session running a superseded model
+    // would otherwise open a sheet that never names what it is running.
+    const groups = groupModels('claude-code', CLAUDE, 'claude-opus-4-8')
+    expect(groups[0]?.label).toBe('In this session')
+    expect(groups[0]?.isLegacy).toBeUndefined()
+    expect(groups[0]?.models.map((model) => model.id)).toEqual(['claude-opus-4-8'])
+    expect(groups.find((group) => group.isLegacy)).toBeUndefined()
+  })
+
+  it('omits the legacy section when the agent has no superseded models', () => {
+    const current = CLAUDE.filter((model) => model.id !== 'claude-opus-4-8')
+    const groups = groupModels('claude-code', current, null)
+    expect(groups.map((group) => group.label)).toEqual([ALL_MODELS_LABEL])
   })
 
   it('opens on the full list when nothing is selected yet', () => {
     const groups = groupModels('claude-code', CLAUDE, null)
-    expect(groups.map((group) => group.label)).toEqual([ALL_MODELS_LABEL])
+    expect(groups.map((group) => group.label)).toEqual([ALL_MODELS_LABEL, LEGACY_MODELS_LABEL])
     expect(groups.flatMap((group) => group.models)).toHaveLength(CLAUDE.length)
   })
 })
@@ -67,7 +93,7 @@ describe('contextFact', () => {
 })
 
 describe('filterModelGroups', () => {
-  const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5')
+  const groups = groupModels('claude-code', CLAUDE, 'claude-opus-5-5')
 
   it('matches the fact as well as the name', () => {
     // "1M" is how someone looks for a long-context model when they cannot
@@ -85,5 +111,13 @@ describe('filterModelGroups', () => {
 
   it('returns everything for an empty query', () => {
     expect(filterModelGroups(groups, '   ')).toEqual(groups)
+  })
+
+  it('keeps the legacy section marked so a match does not lose its disclosure', () => {
+    // The sheet opens the section for as long as a filter is on, and closes it
+    // again afterwards — which it can only do if the flag survives the filter.
+    const matched = filterModelGroups(groups, '4.8')
+    expect(matched.map((group) => group.label)).toEqual([LEGACY_MODELS_LABEL])
+    expect(matched[0]?.isLegacy).toBe(true)
   })
 })

@@ -33,6 +33,7 @@
     "test": "bun run lint && bun run test:unit && bun run build:test && bun run playwright test",
     "lint": "bun run lint:layout && oxlint apps packages scripts",
     "lint:layout": "bun scripts/check-layout-discipline.ts",
+    "lint:surfaces": "bun scripts/check-surface-boundary.ts",
     "lint:rules": "node --test tools/oxlint/solus/rules/*.test.ts",
     "test:unit": "bun scripts/test-unit.ts",
     "db:generate": "bun scripts/generate-db-migrations.ts",
@@ -41,6 +42,7 @@
     "test:bg": "bun run playwright test --workers=1",
     "package:server": "bun scripts/package-server.ts",
     "deploy:server": "bash scripts/deploy-server.sh",
+    "release:workspace": "bun scripts/release-workspace.ts",
     "generate:codex-types": "codex app-server generate-ts --out packages/server/src/agents/codex/generated",
     "generate:icon": "bun scripts/generate-icon.ts",
     "generate:app-icons": "bun scripts/generate-app-icons.ts"

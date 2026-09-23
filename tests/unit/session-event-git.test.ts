@@ -35,15 +35,18 @@ describe('SessionEventReducer Git events', () => {
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
     let pushedStatus: GitState | null | undefined
+    // The watcher's push names a path on the session's host; landing it under
+    // the path alone let another host with that path read it.
+    let pushedServerId: string | undefined
     const reducer = new SessionEventReducer({
+      sessions: { byId: { 'session-1': session } },
       registry: {
         tabs: { 'tab-1': tab },
-        sessions: { 'session-1': session },
         sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
       tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },
       settings: { rateLimitBehavior: 'ask' },
-      setGitStatus: (_cwd: string, status: GitState | null) => { pushedStatus = status },
+      setGitStatus: (serverId: string, _cwd: string, status: GitState | null) => { pushedServerId = serverId; pushedStatus = status },
       log: () => {},
     } as any)
 
@@ -62,6 +65,7 @@ describe('SessionEventReducer Git events', () => {
 
     expect(session.run.gitContext?.branch).toBe('feature')
     expect(pushedStatus).toBe(status)
+    expect(pushedServerId).toBe(session.run.serverId)
   })
 
   test('writes a late dispatched worktree branch back to the task host', async () => {
@@ -83,9 +87,9 @@ describe('SessionEventReducer Git events', () => {
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
     const reducer = new SessionEventReducer({
+      sessions: { byId: { 'session-1': session } },
       registry: {
         tabs: { 'tab-1': tab },
-        sessions: { 'session-1': session },
         sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
         tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },

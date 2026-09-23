@@ -8,6 +8,7 @@
   import { MessageCircle as ChatCircleIcon, Code as CodeIcon } from "@lucide/svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
+  import OnboardingCloudConnectRow from "./OnboardingCloudConnectRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
   import type { OnboardingMode } from "./lib/onboarding-model";
 
@@ -53,6 +54,9 @@
         <ChatCircleIcon size={18} />
       {/snippet}
     </OnboardingRow>
+
+    <!-- Optional, desktop only: absent where the shell holds no account. -->
+    <OnboardingCloudConnectRow delay={0.3} />
   </div>
 
   <OnboardingStageActions

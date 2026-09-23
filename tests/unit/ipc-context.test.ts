@@ -38,11 +38,10 @@ describe('IPC context', () => {
       sessionFor: () => undefined,
       runFor: () => run,
       hasDraft: () => false,
-      globalDefaults: {
-        permissionMode: 'ask', workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null,
+      defaultRunConfig: () => ({
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      },
-      staticInfo: () => null,
+      }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
@@ -58,18 +57,10 @@ describe('IPC context', () => {
       sessionFor: () => undefined,
       runFor: () => undefined,
       hasDraft: () => false,
-      globalDefaults: {
-        permissionMode: 'auto',
-        workingDirectory: '/repo',
-        gitContext: null,
-        modelConfig: {
-          modelId: null,
-          reasoningEffort: 'high',
-          contextWindow: null,
-          fastMode: false,
-        },
-      },
-      staticInfo: () => null,
+      defaultRunConfig: () => ({
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      }),
       settings: {
         activeAgent: 'codex',
         ctx: {
@@ -100,13 +91,10 @@ describe('IPC context', () => {
       sessionFor: () => undefined,
       runFor: () => undefined,
       hasDraft: (sourceId: string) => sourceId === 'draft-1',
-      globalDefaults: {
-        permissionMode: 'auto',
-        workingDirectory: '/repo',
-        gitContext: null,
+      defaultRunConfig: () => ({
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      },
-      staticInfo: () => null,
+      }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
@@ -128,14 +116,10 @@ describe('IPC context', () => {
       tabs: () => ({}),
       sessionFor: () => undefined,
       runFor: () => undefined,
-      globalDefaults: {
-        permissionMode: 'auto',
-        workingDirectory: '/repo',
-        gitContext: null,
-        worktreeBaseBranch: null,
+      defaultRunConfig: () => ({
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      },
-      staticInfo: () => null,
+      }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps

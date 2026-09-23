@@ -1,3 +1,4 @@
+import { usesAccountIntegration } from '../vault/provider-credentials'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
 import { z } from 'zod'
@@ -20,8 +21,8 @@ const TOKEN_URL = 'https://auth.atlassian.com/oauth/token'
 const RESOURCES_URL = 'https://api.atlassian.com/oauth/token/accessible-resources'
 
 /**
- * Atlassian allows exactly one callback URL per app and matches it character
- * for character — no wildcards, no variable port. So Solus binds one fixed
+ * Atlassian matches a callback URL character for character — no wildcards, no
+ * variable port (an app may list up to 30 of them). So Solus binds one fixed
  * loopback port for the duration of a sign-in, which is the ordinary desktop
  * OAuth pattern, and registers that exact URL.
  *
@@ -170,6 +171,7 @@ function routeRedirectUri(callbackBaseUrl: string): string {
 export async function startOAuthFlow(
   options: AtlassianOAuthFlowOptions = {},
 ): Promise<AtlassianOAuthStartResult> {
+  if (usesAccountIntegration()) throw new Error('Connect Atlassian on your account website.')
   if (!isOAuthConfigured()) throw new AtlassianOAuthUnconfiguredError()
   cleanupExpiredFlows()
   const userId = currentCredentialUserId()
@@ -520,6 +522,7 @@ const refreshInFlight = new Map<string, Promise<AtlassianStoredCredential | null
  * eventually use an expired token.
  */
 export async function currentCredential(): Promise<AtlassianStoredCredential | null> {
+  if (usesAccountIntegration()) return loadCredential()
   const credential = await loadCredential()
   if (!credential) return null
   if (credential.expiresAt - REFRESH_MARGIN_MS > Date.now()) return credential

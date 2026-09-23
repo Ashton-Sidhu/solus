@@ -5,16 +5,15 @@ import { loadToken } from '../../providers/github/token-store'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { repoRootOrScope } from '../../git/ctx-paths'
 import { fetchAndCheckoutPr } from '../../git/worktree-manager'
-import { emptyStackGraph, readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
 import { computePrInterdiff } from '../../git/interdiff'
 import { runAsync } from '../../git/exec'
 import { writeReviewCheckpoint } from '../../review/checkpoints'
-import { estimateReviewEffort } from '../../review/effort'
 import { readPrGuidePatch, readPrGuideFileContents } from '../../review/pr-guide-diff'
+import { PlaneDisabledError } from '../roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import { publishPrGuideStatus } from '../../review/pr-guide-events'
 import type { Provider, RepoRef } from '../../providers/types'
-import type { PrEffortRequest, PrEffortResult, PrListPage, PrReviewTarget, DraftReview, PullRequestUpdate } from '@solus/contracts/providers'
+import type { PrListPage, PrReviewTarget, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { organizationOf } from '../principal'
@@ -30,72 +29,7 @@ import { repoForScope } from '../../prs/code-host'
 import type { PullRequest } from '../../prs/pull-request'
 
 const log = createLogger('main', 'provider-handlers')
-const EFFORT_FETCH_CONCURRENCY = 4
 const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
-
-const GENERATED_PATH_PATTERNS = [
-  /(^|\/)(bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|cargo\.lock|gemfile\.lock|poetry\.lock|composer\.lock|go\.sum)$/i,
-  /\.(min\.(js|css)|map)$/i,
-  /(^|\/)(dist|build|generated|vendor|third_party|node_modules)(\/|$)/i,
-  /(^|\/).*\.(generated|g)\.[^/]+$/i,
-]
-
-function isGeneratedPath(path: string): boolean {
-  return GENERATED_PATH_PATTERNS.some((pattern) => pattern.test(path))
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  transform: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = []
-  let nextIndex = 0
-  async function worker(): Promise<void> {
-    while (nextIndex < items.length) {
-      const index = nextIndex++
-      results[index] = await transform(items[index])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
-  return results
-}
-
-/**
- * Review effort is a reading of the changed-file counts, not a separate fact, so
- * it keeps no cache of its own: it asks the pull request for the counts it
- * already holds. The request names the revision it is asking about, which is
- * what makes a push produce a new answer rather than the size of the diff it
- * replaced.
- *
- * A pull request whose counts cannot be read is returned unchanged: a listing
- * missing one row's effort is a smaller answer, not a broken page.
- */
-async function loadReviewEfforts(
-  requests: PrEffortRequest[],
-  repo: RepoRef,
-  provider: Provider,
-): Promise<PrEffortResult[]> {
-  return mapWithConcurrency(requests, EFFORT_FETCH_CONCURRENCY, async (request) => {
-    try {
-      const pullRequest = prIndex.pullRequest(repo, provider, request.number)
-      const fileStats = await pullRequest.changedFiles(request.headSha)
-      return {
-        ...request,
-        effort: estimateReviewEffort({
-          fileStats,
-          generatedPaths: fileStats.filter((file) => isGeneratedPath(file.path)).map((file) => file.path),
-          renamedPaths: [],
-        }),
-        additions: fileStats.reduce((total, file) => total + file.additions, 0),
-        deletions: fileStats.reduce((total, file) => total + file.deletions, 0),
-      }
-    } catch (err) {
-      log.warn('review_effort_unavailable', { prNumber: request.number, error: err instanceof Error ? err.message : String(err) })
-      return request
-    }
-  })
-}
 
 /**
  * Resolve the provider for the current repo. Auth (token) is per-host and
@@ -305,6 +239,16 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.review.getViewerProfile()
   })
 
+  // A board's project picker on a host with no checkouts — the organization's
+  // workspace service — lists repositories instead; `prList` reads a
+  // `host/owner/repo` scope without one (docs/plans/cloud-console-native-pages.md §9).
+  server.register('providerRepositories', async (args) => {
+    const [providerId] = args
+    const provider = getProvider(providerId)
+    if (!provider) throw new Error(`No ${providerId} provider is available on this host.`)
+    return provider.review.listRepositories()
+  })
+
   // ─── PR review mode ─────────────────────────────────────────────────────────
 
   server.register('prList', async (args, handlerCtx) => {
@@ -344,53 +288,23 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         })
       })
     }
-    // Stack inference is experimental and advisory: even resolving the local
-    // repo root happens after the PR response is ready, so it cannot delay it.
+    // Guide warming is advisory: even resolving the local repo root happens
+    // after the PR response is ready, so it cannot delay it.
     if (cwd) void resolveRepoRoot(cwd).then((repoRoot) => {
       if (!repoRoot) return
       const isOpenPage = (!filter?.state || filter.state === 'open') && !filter?.author
-      if (!isOpenPage) return
-      const isCompleteOpenList = page === 1 && !result.hasMore
-      if (!ctx.settings.stackedPrsEnabled) {
-        if (isCompleteOpenList) {
-          scheduleGuideWarming({
-            dispatcher: deps.dispatcher,
-            ctx,
-            repoRoot,
-            repo,
-            provider,
-            openPullRequests: result.items,
-            graph: emptyStackGraph(),
-            isWorktreeInUse: deps.isWorktreeInUse,
-            onStatus: (event) => publishPrGuideStatus(deps.events, event),
-          })
-        }
-        return
-      }
-      scheduleStackDetection({
+      if (!isOpenPage || page !== 1 || result.hasMore) return
+      scheduleGuideWarming({
+        dispatcher: deps.dispatcher,
+        ctx,
         repoRoot,
         repo,
         provider,
         openPullRequests: result.items,
-        openPullRequestsComplete: isCompleteOpenList,
-        onUpdate: (graph) => {
-          deps.events.broadcast('stack.graphChanged', { repoRoot, graph })
-          if (isCompleteOpenList) {
-            scheduleGuideWarming({
-              dispatcher: deps.dispatcher,
-              ctx,
-              repoRoot,
-              repo,
-              provider,
-              openPullRequests: result.items,
-              graph,
-              isWorktreeInUse: deps.isWorktreeInUse,
-              onStatus: (event) => publishPrGuideStatus(deps.events, event),
-            })
-          }
-        },
+        isWorktreeInUse: deps.isWorktreeInUse,
+        onStatus: (event) => publishPrGuideStatus(deps.events, event),
       })
-    }).catch((err) => log.warn('stack_detection_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
+    }).catch((err) => log.warn('guide_warming_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
     return result
   })
 
@@ -402,12 +316,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       await prIndex.listNeedsReview(repo, provider, viewer),
       viewer,
     ).filter((pr) => pr.needsMyReview)
-  })
-
-  server.register('prGetEfforts', async (args) => {
-    const [ctx, requests] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
-    return loadReviewEfforts(requests.slice(0, 30), repo, provider)
   })
 
   server.register('prGuideMetadata', async (args) => {
@@ -423,7 +331,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prGetDiff', async (args) => {
     const [ctx, request] = args
-    if (request.repo) return readPrGuidePatch(request.repo, request)
+    // A guide's diff is read out of a guide checkout with Git: execution work,
+    // even though the pull request itself is read from its code host.
+    if (request.repo) {
+      if (!server.servesExecution()) throw new PlaneDisabledError('prGetDiff', 'execution')
+      return readPrGuidePatch(request.repo, request)
+    }
     const { repo, provider } = await reviewTargetFor(ctx)
     // Remembered, not fresh: the guard inside compares against the `headSha`
     // the client got from `prOpenReview`, which forced this same field moments
@@ -434,7 +347,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prGetDiffFileContents', async (args) => {
     const [ctx, request] = args
-    if (request.repo) return readPrGuideFileContents(request.repo, request)
+    if (request.repo) {
+      if (!server.servesExecution()) throw new PlaneDisabledError('prGetDiffFileContents', 'execution')
+      return readPrGuideFileContents(request.repo, request)
+    }
     const { repo, provider } = await reviewTargetFor(ctx)
     const detail = await prIndex.pullRequest(repo, provider, request.number).read()
     return provider.review.getPullRequestDiffFileContents(repo, detail, request)
@@ -679,6 +595,60 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return detail
   })
 
+  // Auto-merge is announced the same way as any lifecycle change: the armed
+  // badge belongs on every surface drawing this pull request, not only on the
+  // one that armed it.
+  function announceLifecycle(ctx: IpcContext, detail: PullRequestDetail): PullRequestDetail {
+    emitChanged()
+    const projectRoot = projectScopeOf(ctx.session)
+    if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail })
+    return detail
+  }
+
+  server.register('prEnableAutoMerge', async (args) => {
+    const [ctx, number, method, expectedHeadSha] = args
+    const detail = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (current.headSha !== expectedHeadSha) {
+        throw new Error('This pull request changed. Refresh it before turning on auto-merge.')
+      }
+      if (current.state !== 'open' || current.draft) throw new Error('Only an open pull request that is ready for review can merge on its own.')
+      if (!current.viewerPermissions.actions.includes('enable-auto-merge')) {
+        throw new Error('You do not have permission to turn on auto-merge for this pull request.')
+      }
+      if (!current.capabilities.mergeMethods.includes(method)) throw new Error(`The repository does not allow ${method} merges.`)
+      return provider.review.enablePullRequestAutoMerge(repo, number, method, expectedHeadSha)
+    })
+    return announceLifecycle(ctx, detail)
+  })
+
+  server.register('prDisableAutoMerge', async (args) => {
+    const [ctx, number] = args
+    const detail = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (!current.viewerPermissions.actions.includes('disable-auto-merge')) {
+        throw new Error('You do not have permission to turn off auto-merge for this pull request.')
+      }
+      return provider.review.disablePullRequestAutoMerge(repo, number)
+    })
+    return announceLifecycle(ctx, detail)
+  })
+
+  server.register('prRevert', async (args) => {
+    const [ctx, number] = args
+    const opened = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (current.state !== 'merged') throw new Error('Only a merged pull request can be reverted.')
+      if (!current.viewerPermissions.actions.includes('revert')) {
+        throw new Error('You do not have permission to revert this pull request.')
+      }
+      return provider.review.revertPullRequest(repo, number)
+    })
+    // The revert is a new pull request in this repository's list.
+    emitChanged()
+    return opened
+  })
+
   server.register('prChangedFiles', async (args) => {
     const [ctx, number] = args
     const { repo, provider } = await reviewTargetFor(ctx)
@@ -792,7 +762,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       repoRoot,
       repo,
       provider,
-      graph: ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null,
       isWorktreeInUse: deps.isWorktreeInUse,
       onStatus: (event) => publishPrGuideStatus(deps.events, event),
     }, numbers)

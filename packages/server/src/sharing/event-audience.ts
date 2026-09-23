@@ -34,10 +34,12 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'session.indexChanged',
   'attention.snapshotChanged',
   'tasks.invalidated',
+  'workspaceProjects.changed',
   'outbox.changed',
   'config.changed',
   'usage.limitsChanged',
   'host.presenceChanged',
+  'host.uplinkStatusChanged',
 ])
 
 /** The session or work an event is about, when it names exactly one. */

@@ -91,14 +91,6 @@ export class ProjectPrs {
    *  is the project. */
   readonly mirrors = new PrMirrors()
 
-  private readonly effortByKey = new Map<string, {
-    effort: NonNullable<Contracts.PullRequest['effort']>
-    additions: number
-    deletions: number
-  }>()
-  private readonly effortInFlight = new Set<string>()
-  private readonly pendingEffortNumbers = new Set<number>()
-  private effortBatch: Promise<void> | undefined
   /** What `ensure*` has already asked for, so it is safe on a render path. */
   private allPageRead: Promise<void> | undefined
   private revision = 0
@@ -285,10 +277,20 @@ export class ProjectPrs {
     }
   }
 
+  /**
+   * Show a list remembered from an earlier visit until the first read answers.
+   * Only into an empty, never-loaded list: a live answer always wins, and the
+   * rows are not absorbed into the index, so no other surface mistakes a
+   * remembered pull request for one the host has just described.
+   */
+  showCached(items: Contracts.PullRequest[]): void {
+    if (this.loaded || this.items.length > 0) return
+    this.items = items
+  }
+
   /** Take a page the host answered with: appended if it continues the list,
    *  replacing it if it is the first. */
   private acceptPage(result: PrListPage, appending: boolean): void {
-    for (const item of result.items) this.applyStoredEffort(item)
     const items = result.items.map((item) => this.get(item.number))
     if (appending) {
       const known = new Set(this.items.map((item) => item.number))
@@ -406,77 +408,6 @@ export class ProjectPrs {
   }
 
   /**
-   * Fill in review effort for rows already listed.
-   *
-   * Narrowed to rows that are open, have no effort yet, and are not already
-   * known or in flight; capped, because this is a decoration on a page rather
-   * than something a reader is waiting for.
-   */
-  loadEfforts(numbers: number[]): Promise<void> {
-    for (const number of numbers) this.pendingEffortNumbers.add(number)
-    if (!this.effortBatch) {
-      this.effortBatch = Promise.resolve()
-        .then(() => this.flushEfforts())
-        .finally(() => { this.effortBatch = undefined })
-    }
-    return this.effortBatch
-  }
-
-  private async flushEfforts(): Promise<void> {
-    const inList = (number: number): Contracts.PullRequest | undefined =>
-      this.items.find((item) => item.number === number)
-    while (this.pendingEffortNumbers.size > 0) {
-      const numbers = [...this.pendingEffortNumbers].slice(0, 30)
-      for (const number of numbers) this.pendingEffortNumbers.delete(number)
-      const requests = numbers
-        .map(inList)
-        .filter((item): item is Contracts.PullRequest => !!item && item.state === 'open' && !item.effort)
-        .filter((item) => {
-          const key = this.effortKey(item)
-          return !this.effortByKey.has(key) && !this.effortInFlight.has(key)
-        })
-      if (requests.length === 0) continue
-      const keys = requests.map((item) => this.effortKey(item))
-      for (const key of keys) this.effortInFlight.add(key)
-      try {
-        const results = await this.api.prGetEfforts(
-          detached(this.ctx),
-          requests.map(({ number, headSha }) => ({ number, headSha })),
-        )
-        for (const result of results) {
-          if (!result.effort || result.additions === undefined || result.deletions === undefined) continue
-          this.effortByKey.set(this.effortKey(result), {
-            effort: result.effort,
-            additions: result.additions,
-            deletions: result.deletions,
-          })
-          const item = inList(result.number)
-          if (item?.headSha !== result.headSha) continue
-          this.applyStoredEffort(item)
-        }
-      } finally {
-        for (const key of keys) this.effortInFlight.delete(key)
-      }
-    }
-  }
-
-  /** Put an effort already measured back onto a row a later list rebuilt. */
-  applyStoredEffort(item: Contracts.PullRequest): void {
-    const stored = this.effortByKey.get(this.effortKey(item))
-    if (!stored) return
-    item.effort = stored.effort
-    item.additions = stored.additions
-    item.deletions = stored.deletions
-    // The row is what one page paints; the pull request is what every other
-    // surface reads. One measurement, taken at one revision, so both get it.
-    const pullRequest = this.prs.get(item.number)
-    if (!pullRequest || pullRequest.headSha !== item.headSha) return
-    pullRequest.effort = stored.effort
-    pullRequest.additions = stored.additions
-    pullRequest.deletions = stored.deletions
-  }
-
-  /**
    * Tell the host to forget this project's pull requests.
    *
    * A refresh is a person asking for the code host to be asked again, and the
@@ -498,16 +429,11 @@ export class ProjectPrs {
     this.backgroundRetryAt.clear()
     this.mirrors.forgetPrefix('')
     this.mirrors.viewer.delete('viewer')
-    this.effortByKey.clear()
     this.allPageRead = undefined
     this.ensuredNumbers.clear()
   }
 
   private listKey(filter: PrFilter, page = 1): string {
-    return `${filter.state ?? 'open'}::${filter.author ?? ''}::${filter.head ?? ''}::${page}`
-  }
-
-  private effortKey(item: Pick<Contracts.PullRequest, 'number' | 'headSha'>): string {
-    return `${item.number}::${item.headSha}`
+    return `${filter.state ?? 'open'}::${filter.author ?? ''}::${filter.head ?? ''}::${filter.query?.trim() ?? ''}::${page}`
   }
 }

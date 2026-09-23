@@ -15,7 +15,7 @@ export type HostApi = SolusAPI & {
  * The API for the client shell. Never a proxy for "whatever host the user is
  * targeting".
  */
-export interface LocalApi extends Pick<SolusAPI & NativeSolusAPI, NativeOnlySolusMethod | 'isVisible'> {}
+export interface LocalApi extends Pick<SolusAPI & NativeSolusAPI, NativeOnlySolusMethod> {}
 
 /** @internal The only widening point from a raw RPC API to a host API. */
 export function asHostApi<Api extends object>(api: Api): HostApi {

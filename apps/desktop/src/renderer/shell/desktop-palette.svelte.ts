@@ -80,8 +80,14 @@ export function createDesktopPalette(
       session.activeSession?.run.workingDirectory;
     return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
   });
+  // The active session's host holds that project; a path alone names no machine.
+  const paletteGitServerId = $derived(
+    ui.paletteGitTarget
+      ? session.serverIdFor(ui.paletteGitTarget.tabId)
+      : (session.activeSession?.run.serverId ?? session.fallbackServerId),
+  );
   const paletteGitRefs = $derived(
-    sessionEnvironmentStore.refsFor(paletteGitProjectRoot),
+    sessionEnvironmentStore.refsFor(paletteGitServerId, paletteGitProjectRoot),
   );
   const worktrees = $derived(paletteGitRefs.worktrees);
   const paletteBranches = $derived(paletteGitRefs.branches);
@@ -95,6 +101,7 @@ export function createDesktopPalette(
       return;
     }
     void sessionEnvironmentStore.refreshRefs(
+      paletteGitServerId,
       projectRoot,
       untrack(() => session.ctxForDirectory(projectRoot)),
       { force: true },
@@ -120,6 +127,8 @@ export function createDesktopPalette(
   // Known projects for the "Create task in…" sub-page, refreshed when the palette
   // opens so the list mirrors what the projects manifest currently holds.
   let paletteProjects = $state<ProjectEntry[]>([]);
+  // The host those projects were listed from: a task filed in one lands there.
+  let paletteProjectsServerId = $state<string | null>(null);
   $effect(() => {
     if (!ui.commandPaletteOpen) return;
     const taskCwd = session.tasksProjectCwd;
@@ -136,14 +145,16 @@ export function createDesktopPalette(
     void session.automationsStore.loadAll();
     if (taskCwd) void session.tasksStore.ensureLoaded();
     const projectApi = session.apiForContext(ctx);
+    const projectServerId = serverConnections.serverIdForApi(projectApi);
     projectsStore
       .loadProjectsFor(
-        serverConnections.serverIdForApi(projectApi),
+        projectServerId,
         projectApi,
         { force: true },
       )
       .then((ps) => {
         paletteProjects = ps;
+        paletteProjectsServerId = projectServerId;
       })
       .catch(() => {
         paletteProjects = [];
@@ -214,7 +225,7 @@ export function createDesktopPalette(
       icon: PlusIcon,
       hint: comboHint("global.new-task"),
       keywords: ["create", "task"],
-      run: () => session.openSessionDraft({ freshTask: true, via: "palette" }),
+      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
     },
     {
       id: "new-tab",
@@ -223,7 +234,7 @@ export function createDesktopPalette(
       icon: PlusIcon,
       hint: comboHint("global.new-session"),
       keywords: ["create", "session", "tab"],
-      run: () => session.openSessionDraft({ via: "palette" }),
+      run: () => session.drafts.openSessionDraft({ via: "palette" }),
     },
     {
       id: "new-session-without-task",
@@ -233,7 +244,7 @@ export function createDesktopPalette(
       hint: comboHint("global.new-session-without-task"),
       keywords: ["create", "session", "tab", "no task"],
       run: () =>
-        session.openSessionDraft({ withoutTask: true, via: "palette" }),
+        session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
     {
       id: "save-prompt",
@@ -316,13 +327,14 @@ export function createDesktopPalette(
     if (projectRoot) {
       const ctx = session.ctxForDirectory(projectRoot);
       const refsReady = await sessionEnvironmentStore.refreshRefs(
+        paletteGitServerId,
         projectRoot,
         ctx,
         { force: true },
       );
       if (!refsReady) toasts.error("Couldn't refresh branches");
       const worktree = sessionEnvironmentStore
-        .refsFor(projectRoot)
+        .refsFor(paletteGitServerId, projectRoot)
         .worktrees.find((wt) => wt.branch === branch);
       if (worktree) {
         await session.switchToWorktree(worktree.path, undefined, "palette");
@@ -330,7 +342,11 @@ export function createDesktopPalette(
           session.activeSession?.run.gitContext?.worktreePath ??
           session.activeSession?.run.workingDirectory;
         if (nextCwd)
-          void sessionEnvironmentStore.refresh(nextCwd, { force: true });
+          void sessionEnvironmentStore.refresh(
+            session.activeSession?.run.serverId ?? session.fallbackServerId,
+            nextCwd,
+            { force: true },
+          );
         requestInputFocus();
         return true;
       }
@@ -341,7 +357,11 @@ export function createDesktopPalette(
       session.activeSession?.run.gitContext?.worktreePath ??
       session.activeSession?.run.workingDirectory;
     if (ok && nextCwd)
-      void sessionEnvironmentStore.refresh(nextCwd, { force: true });
+      void sessionEnvironmentStore.refresh(
+        session.activeSession?.run.serverId ?? session.fallbackServerId,
+        nextCwd,
+        { force: true },
+      );
     requestInputFocus();
     return ok;
   }
@@ -569,8 +589,9 @@ export function createDesktopPalette(
     });
     // Create a task — one entry scoped to the status-bar project, plus a sub-page
     // to pick any other known project. Both pop the standalone create-task modal.
-    const taskCwd = session.tasksProjectCwd;
-    if (taskCwd) {
+    const taskContext = session.taskCreationContext;
+    const taskCwd = taskContext?.projectKey ?? null;
+    if (taskContext && taskCwd) {
       const taskProjectName =
         taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
       commands.push({
@@ -580,18 +601,21 @@ export function createDesktopPalette(
         icon: CheckSquareIcon,
         hint: comboHint("global.create-task"),
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => session.openTaskComposer(taskCwd, true),
+        run: () => session.openTaskComposer(taskContext.serverId, taskCwd, true),
       });
     }
-    const createTaskInChildren: Command[] = paletteProjects.map((p) => ({
-      id: `create-task-in:${p.path}`,
-      label:
-        p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
-      group: "Projects",
-      icon: FolderIcon,
-      keywords: [p.folderName, p.path],
-      run: () => session.openTaskComposer(p.path),
-    }));
+    const projectsServerId = paletteProjectsServerId;
+    const createTaskInChildren: Command[] = projectsServerId
+      ? paletteProjects.map((p) => ({
+          id: `create-task-in:${p.path}`,
+          label:
+            p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
+          group: "Projects",
+          icon: FolderIcon,
+          keywords: [p.folderName, p.path],
+          run: () => session.openTaskComposer(projectsServerId, p.path),
+        }))
+      : [];
     commands.push({
       id: "create-task-in",
       label: "Create task in…",
@@ -608,7 +632,7 @@ export function createDesktopPalette(
     // cwd, so anything else is stale).
     const tasksLoadedForProject = !!taskCwd && session.tasksStore.loaded;
     const goToTaskChildren: Command[] = tasksLoadedForProject
-      ? session.tasksStore.tasksForProject(taskCwd).map((t) => ({
+      ? session.tasksStore.tasksForCheckout(session.activeCheckout?.serverId, taskCwd).map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
           group: "Tasks",
@@ -638,9 +662,9 @@ export function createDesktopPalette(
       run: () => session.openPrs(null, "palette"),
     });
 
-    const gitCtx =
-      session.activeSession?.run.gitContext ??
-      session.globalDefaults.gitContext;
+    const gitCtx = sessionEnvironmentStore.environmentFor(
+      session.activeSession?.run,
+    ).checkout;
     if (gitCtx) {
       const worktreeBranchNames = worktrees.map((wt) => wt.branch);
       const branchCommands: Command[] = [
@@ -677,7 +701,7 @@ export function createDesktopPalette(
           run: () => {
             // The draft starts in the worktree; its environment refresh resolves
             // the checkout from that directory, same as picking a project does.
-            session.openSessionDraft({ via: "palette" }, wt.path);
+            session.drafts.openSessionDraft({ via: "palette" }, wt.path);
           },
         }));
       const newSessionBranchChildren: Command[] = paletteBranches
@@ -708,7 +732,7 @@ export function createDesktopPalette(
           group: "General",
           icon: GitForkIcon,
           keywords: ["worktree", "branch", "isolated", "create", "new"],
-          run: () => void session.createWorktreeTab(),
+          run: () => void session.opening.createWorktreeTab(),
         },
         {
           id: "new-session-in",
@@ -758,7 +782,7 @@ export function createDesktopPalette(
               pr.author,
             ],
             run: () =>
-              void session.openPullRequest(pr, {
+              void session.prReview.openPullRequest(pr, {
                 ctx: ui.paletteGitTarget?.ctx,
                 via: "palette",
               }),
@@ -780,7 +804,7 @@ export function createDesktopPalette(
             "fork",
           ],
           hint: comboHint("global.continue-worktree"),
-          run: () => void session.continueInWorktree(activeTabId, "palette"),
+          run: () => void session.opening.continueInWorktree(activeTabId, "palette"),
         });
       }
       // Slot the git actions directly beneath "New session" so they stay near

@@ -57,17 +57,17 @@
         <Skeleton class="h-3 w-40 rounded-sm" />
       {/if}
       <div class="min-w-4 flex-auto"></div>
-      <!-- One ghost per real control, at its real width and radius: the
-           Markdown verb, Copy, the ⋯ menu, and the Ask Solus button (the row's
-           one filled surface, carrying the same margins that set it apart). -->
+      <!-- One ghost per real control, in row order and at its real width and
+           radius: the Markdown verb, the Share glyph, Ask Solus (a glyph plus
+           its mode caret), and the ⋯ menu that closes the row. -->
       <div
         class="flex shrink-0 items-center gap-1.5 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
         <Skeleton class="h-6 w-[4.625rem] rounded-[0.375rem]" />
-        <Skeleton class="h-6 w-[2.75rem] rounded-[0.375rem]" />
         <Skeleton class="size-6 rounded-[0.375rem]" />
-        <Skeleton class="mr-0.5 ml-1 h-6 w-[6.75rem] rounded-[0.4375rem]" />
+        <Skeleton class="h-6 w-[2.375rem] rounded-[0.375rem]" />
+        <Skeleton class="size-6 rounded-[0.375rem]" />
       </div>
     </header>
 

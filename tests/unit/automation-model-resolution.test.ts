@@ -85,7 +85,7 @@ describe('automation model resolution', () => {
     await session.done.catch(() => {})
 
     expect(fake.requests).toHaveLength(1)
-    expect(fake.requests[0]?.model).toBe('claude-opus-5')
+    expect(fake.requests[0]?.model).toBe('claude-opus-5-5')
     expect(fake.requests[0]?.contextWindow).toBe(1_000_000)
   })
 

@@ -30,7 +30,6 @@ import {
   sameRange,
   type TimeRange,
 } from './lib/time-range'
-import { formatGeneratedSql } from './lib/sql-format'
 import { toTurnRows, type TurnRow } from './lib/turn-rows'
 
 /**
@@ -84,6 +83,18 @@ function readRangePreference(): TimeRange {
     return parseStoredRange(globalThis.localStorage?.getItem(RANGE_KEY) ?? null) ?? DEFAULT_TIME_RANGE
   } catch {
     return DEFAULT_TIME_RANGE
+  }
+}
+
+/** The workspace imports this store at startup, so the formatter loads only
+ *  when a question compiles. Formatting is cosmetic: a chunk that fails to load
+ *  leaves the statement as the host compiled it. */
+async function formatGeneratedSqlLazily(sql: string): Promise<string> {
+  try {
+    const { formatGeneratedSql } = await import('./lib/sql-format')
+    return formatGeneratedSql(sql)
+  } catch {
+    return sql
   }
 }
 
@@ -570,7 +581,7 @@ export class InsightsStore {
         `${text}\n\n${rangeInstruction(this.range)}`,
       )
       this.compiling = false
-      const sql = formatGeneratedSql(compiled.sql)
+      const sql = await formatGeneratedSqlLazily(compiled.sql)
       this.compiledSql = sql
       this.sqlText = sql
       // The SQL stays editable, but this remains an NL run until the user edits

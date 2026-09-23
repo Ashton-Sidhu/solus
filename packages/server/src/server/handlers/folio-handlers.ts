@@ -1,5 +1,5 @@
 import { isWorkspaceMode } from '../workspace-mode'
-import { exportWorkForCloud, importWorkFromHost, removePushedWork } from '../../folio/works'
+import { exportWorkForCloud, importWorkFromHost, removePushedWork, loadWorkUpdatedAt } from '../../folio/works'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { readWorkExternalComments, refreshWorkExternalComments, sendWorkExternalComment } from '../../folio/work-comments'
@@ -54,12 +54,14 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
   })
 
   server.register('saveWork', async (args, ctx) => {
-    const [id, updates] = args
+    const [id, updates, expectedUpdatedAt] = args
     const organizationId = organizationOf(ctx.principal)
-    const work = await saveWork(organizationId, id, updates)
+    const work = await saveWork(organizationId, id, updates, expectedUpdatedAt)
     await linkWorkToSessionTasks(organizationId, work)
     return work
   })
+
+  server.register('loadWorkUpdatedAt', (args, ctx) => loadWorkUpdatedAt(organizationOf(ctx.principal), args[0]))
 
   server.register('loadWork', async (args, ctx) => {
     const [id] = args

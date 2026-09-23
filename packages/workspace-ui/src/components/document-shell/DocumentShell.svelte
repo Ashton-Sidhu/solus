@@ -24,7 +24,7 @@
     AlignLeft as ListIcon,
     ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
-  import { runtime, getSettingsContext, getWorkspaceContext } from "../../contexts";
+  import { runtime, getSettingsContext, getSurfaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
@@ -181,7 +181,7 @@
   }: Props = $props();
 
   const isMobile = $derived(runtime.isMobileViewport);
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const theme = getSettingsContext();
   const embedOptions = {
     worksStore: session.worksStore,
@@ -1267,8 +1267,8 @@
     outline-offset: 0.125rem;
     border-radius: 0.25rem;
   }
-  /* The header's own verbs are unfilled type — the only filled surface in the
-     cluster is the surface's primary action, so the eye finds it first. */
+  /* The header's own verbs are unfilled type, like every action WorkHeaderActions
+     puts beside them — the cluster carries no filled surface. */
   .doc-shell-header-btn {
     flex-shrink: 0;
     height: 1.5rem;

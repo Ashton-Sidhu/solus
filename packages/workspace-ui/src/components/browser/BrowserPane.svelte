@@ -337,7 +337,7 @@
       return;
     }
     void session
-      .openPullRequest({ number: target.number }, {
+      .prReview.openPullRequest({ number: target.number }, {
         ctx: session.ctxForDirectory(target.cwd),
       })
       .catch(failed("Couldn't open that pull request"));

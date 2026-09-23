@@ -6,7 +6,12 @@ export interface RemoteDispatchCardOptions {
   tabId: string
   hostLabel: string
   phase: RemoteDispatchPhase
-  error?: { step: 'connection' | 'repository'; message: string }
+  error?: {
+    step: 'connection' | 'repository'
+    message: string
+    /** The account's Connections page, when the host had no GitHub connection to clone with. */
+    connectGithubUrl?: string
+  }
 }
 
 const FUTURE_STEPS: StatusCardStep[] = [
@@ -43,13 +48,18 @@ export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): Sta
     repositoryStep,
     ...FUTURE_STEPS.map((step) => ({ ...step })),
   ]
-  return {
+  const card: StatusCardState = {
     id: `remote-dispatch-${tabId}`,
     title: error ? `Couldn’t prepare ${hostLabel}` : `Starting on ${hostLabel}`,
     icon: 'server',
     status: error ? 'error' : 'active',
     steps,
   }
+  if (error?.connectGithubUrl) {
+    card.recovery = 'connect-github'
+    card.recoveryUrl = error.connectGithubUrl
+  }
+  return card
 }
 
 /**

@@ -22,6 +22,7 @@
     type ChecksPresentation,
   } from "../prs/lib/checks";
   import {
+    armedAutoMergeLabel,
     mergeReadiness,
     type MergeAction,
   } from "../pr-review/lib/merge-readiness";
@@ -36,6 +37,7 @@
 
   const ACTION_ICON = {
     merge: GitMergeIcon,
+    "enable-auto-merge": GitMergeIcon,
     "mark-ready": GitPullRequestIcon,
     "resolve-conflicts": WarningCircleIcon,
     "fix-checks": HammerIcon,
@@ -57,8 +59,6 @@
     checks: ChecksPresentation | null;
     /** The owning tab and project panel are visible. */
     active: boolean;
-    /** The Git action that just finished moved this pull request's head. */
-    pushCompleted: boolean;
     /** The pull request left this branch's open set — the rail must re-read it. */
     onMerged: () => void;
     /** Open a new session draft for this branch with the prompt filled in —
@@ -72,7 +72,6 @@
     api,
     checks,
     active,
-    pushCompleted,
     onMerged,
     onAgentDraft,
   }: Props = $props();
@@ -101,7 +100,7 @@
 
   $effect(() => {
     const number = prNumber;
-    const headSha = prHeadSha;
+    void prHeadSha; // A push is a new revision to probe.
     const targetServerId = prServerId;
     const targetProjectScope = prProjectScope;
     const isActive = active;
@@ -113,23 +112,13 @@
       )
         return;
       void pullRequests.guides
-        .loadMetadata(api, targetServerId, ctx, { number, headSha })
+        .loadMetadata(api, targetServerId, ctx, [{ number }])
         .catch(() => {});
       if (!isActive) return;
       return pullRequests.projects.watch(
         pullRequests.projects.get(api, targetServerId, ctx),
         { details: [number] },
       );
-    });
-  });
-
-  // Background refresh belongs to the PR store. A completed push is an explicit
-  // state change and still invalidates the host before reading mergeability.
-  $effect(() => {
-    if (!active || !pushCompleted) return;
-    untrack(() => {
-      void pullRequests.projects.get(api, serverId, ctx).get(pr.number)
-        .refreshDetail().catch(() => {});
     });
   });
 
@@ -163,11 +152,13 @@
   }
   const readiness = $derived(detail ? readinessOf(detail) : null);
   const primary = $derived(readiness?.action ?? null);
+  // Said in place of the blocker's headline: the host is already waiting on it.
+  const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
 
   /** Without a tab the pane opens where it was last left, which is what "Open
    *  pull request" promises; the rows below it name the tab they stand for. */
   function openPr(tab?: "activity" | "guide") {
-    void session.openPullRequest(pr, {
+    void session.prReview.openPullRequest(pr, {
       ctx,
       serverId,
       target: "aside",
@@ -207,7 +198,7 @@
             action: {
               label: "View",
               onAction: () =>
-                void session.openPullRequest(
+                void session.prReview.openPullRequest(
                   { number },
                   {
                     ctx,
@@ -298,8 +289,27 @@
     }
   }
 
+  async function enableAutoMerge(method: Parameters<HostApi["prMerge"]>[2]) {
+    if (!detail || merging) return;
+    merging = true;
+    try {
+      // The store shows the armed state at once and takes it back on refusal.
+      await pullRequests.projects
+        .get(api, serverId, ctx)
+        .get(pr.number)
+        .enableAutoMerge(method);
+    } catch (error) {
+      toasts.error("Couldn't turn on auto-merge", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      merging = false;
+      requestInputFocus();
+    }
+  }
+
   function resolveConflicts() {
-    void session.startConflictResolverSession(
+    void session.prReview.startConflictResolverSession(
       { number: pr.number, title: pr.title },
       { ctx },
     );
@@ -327,8 +337,12 @@
         ? "Updating pull request…"
         : merging
           ? "Working…"
-          : (primary?.label ?? readiness.headline),
-      icon: primary ? ACTION_ICON[primary.kind] : WarningCircleIcon,
+          : (primary?.label ?? armedLabel ?? readiness.headline),
+      icon: primary
+        ? ACTION_ICON[primary.kind]
+        : armedLabel
+          ? GitMergeIcon
+          : WarningCircleIcon,
       phase: merging ? "loading" : "idle",
       danger: primary?.kind === "resolve-conflicts",
       badge: primary?.kind === "resolve-conflicts" ? "Conflicts" : undefined,
@@ -399,6 +413,7 @@
       else void generateGuide();
     } else if (key === "pr-checks") openPr("activity");
     else if (primary?.kind === "merge") void merge(primary.method);
+    else if (primary?.kind === "enable-auto-merge") void enableAutoMerge(primary.method);
     else if (primary?.kind === "mark-ready") void markReady();
     else if (primary?.kind === "resolve-conflicts") resolveConflicts();
     else if (primary?.kind === "fix-checks")

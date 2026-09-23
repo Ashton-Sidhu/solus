@@ -111,7 +111,7 @@
       provider,
       serverId,
       {
-        resume: (resumed, opts) => session.resumeSession(resumed, opts),
+        resume: (resumed, opts) => session.opening.resumeSession(resumed, opts),
         openInSplit: (openedTabId) => session.openTabInSplit(openedTabId),
       },
       options,

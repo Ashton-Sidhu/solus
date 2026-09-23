@@ -55,7 +55,7 @@ RPCs (`packages/contracts/src/seats.ts`): `seatList`, `seatConnectStart` (answer
 
 There is one relay on the host, `SeatConnector`: the setup wizard's agent sign-in was deleted (`setupAgentSignIn`, `setupSubmitAgentSignInCode`, `setupCancelAgentSignIn`) and the wizard's rows now drive the seat RPCs through `seatsStore` (`host-setup.store.svelte.ts` → `seatsStore.connectAndWait`). The host login signs in on the CLI's defaults with no seat variable set, so macOS keychain naming is untouched; a member's seat names its directory. The browser shim applies to both: the URL opens on the client's device, never on the host.
 
-Clients: Settings → Providers → **Your seats** (`components/seats/SeatsSettings.svelte`), shown to the owner (the host login, with "Switch account") and to an organization member (their seat, with Disconnect); the conversation card `SeatConnectCard.svelte` on a `SEAT_REQUIRED` refusal, at the tail of the transcript beside the other interrupt cards; the onboarding rail and the host page's provider panel for install plus sign-in. All of them read `seatsStore` and mount `DevicePrompt` for the URL and code. The failed bubble keeps the retry.
+Clients: Settings → Providers → **Your seats** (`components/seats/SeatsSettings.svelte`), shown only to an organization member (their seat, with Disconnect) — the owner's seat is the host login, managed in Connections → host → AI providers; the conversation card `SeatConnectCard.svelte` on a `SEAT_REQUIRED` refusal, at the tail of the transcript beside the other interrupt cards; the onboarding rail and the host page's provider panel for install plus sign-in. All of them read `seatsStore` and mount `DevicePrompt` for the URL and code. The failed bubble keeps the retry.
 
 ## §3.7 Removal and expiry
 

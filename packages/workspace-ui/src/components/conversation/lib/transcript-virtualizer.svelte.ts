@@ -65,7 +65,7 @@ export class TranscriptVirtualizer {
 
   private anchor(): { key: string; top: number } | null {
     if (!this.scroll) return null
-    const index = this.geometry.indexAt(this.scroll.scrollTop - this.origin)
+    const index = this.geometry.indexAt(this.scroll.scrollTop + this.adjustment - this.origin)
     const key = this.geometry.keys[index]
     return key === undefined ? null : { key, top: this.geometry.offsets[index] }
   }
@@ -100,7 +100,10 @@ export class TranscriptVirtualizer {
     if (!this.scroll || !this.content || this.scroll.clientHeight === 0) return
     // One content rectangle, independent of history length.
     this.origin = this.content.getBoundingClientRect().top - this.scroll.getBoundingClientRect().top + this.scroll.scrollTop
-    const next = this.geometry.range(this.scroll.scrollTop - this.origin, this.scroll.clientHeight)
+    // Geometry already includes measured heights, but the DOM scroll correction
+    // waits for the spacers to render. Select rows at that corrected position
+    // now so an overscan measurement cannot recycle the visible turn meanwhile.
+    const next = this.geometry.range(this.scroll.scrollTop + this.adjustment - this.origin, this.scroll.clientHeight)
     // A focused control pins only its own row, not every row between that
     // control and the viewport. Selected text pins its selected range.
     const keyFor = (node: Node | null): string | undefined => {

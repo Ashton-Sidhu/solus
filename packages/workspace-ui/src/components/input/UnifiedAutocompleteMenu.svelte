@@ -119,8 +119,10 @@
       ? `top:${anchorRect.bottom + 4}px`
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
   >
+    <!-- A fixed 12px, not the chrome rung: at 14px the mono rows read a size
+         larger than the composer they sit on. Every size inside is in `em`. -->
     <div
-      class="unified-menu text-workspace-chrome rounded-2xl bg-(--solus-popover-bg) p-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:p-1"
+      class="unified-menu text-xs rounded-2xl bg-(--solus-popover-bg) p-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:p-1"
       style="box-shadow:var(--solus-popover-shadow), 0 0 0 0.03125rem var(--wash-ring);backdrop-filter:blur(1.25rem)"
     >
       <div

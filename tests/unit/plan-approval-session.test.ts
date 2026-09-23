@@ -45,7 +45,7 @@ function approvalContext() {
   const ctx = {
     activeTabId: 'tab-1',
     tabs: { 'tab-1': tab },
-    sessions: { 'renderer-session-1': session },
+    sessions: { byId: { 'renderer-session-1': session } },
     tabOrder: ['tab-1'],
     planStore: {
       previewDescriptor: null,
@@ -59,9 +59,9 @@ function approvalContext() {
       stopSession: async () => true,
     }),
     ctxFor: () => ({ session: { sessionId: session.id } }),
-    interruptTabSession: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) },
+    controls: { interruptTabSession: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) } },
     settings: { update: () => {} },
-    switchActiveAgent: async (provider: string, tabId: string) => {
+    config: { switchActiveAgent: async (provider: string, tabId: string) => {
       handoffs.push({ provider, tabId })
       const fromProvider = session.run.provider!
       const fromSessionId = session.agentSessionId!
@@ -76,9 +76,9 @@ function approvalContext() {
         timestamp: Date.now(),
         agentChangedTo,
       })
-    },
+    } },
     notifySessionUnavailable: () => {},
-    sendMessage: () => {},
+    dispatch: { sendMessage: () => {} },
   }
 
   return { ctx, session, handoffs, notices, resetCount: () => resetCount }
@@ -119,7 +119,7 @@ function revisionContext(status: Session['status']) {
   const ctx = {
     activeTabId: 'tab-1',
     tabs: { 'tab-1': tab },
-    sessions: { 'renderer-session-1': session },
+    sessions: { byId: { 'renderer-session-1': session } },
     tabOrder: ['tab-1'],
     planStore: {
       previewDescriptor: null,
@@ -133,12 +133,12 @@ function revisionContext(status: Session['status']) {
       stopSession: async () => { calls.stops++ },
     }),
     ctxFor: () => ({ session: { sessionId: session.id } }),
-    interruptTabSession: () => { calls.interrupts++ },
+    controls: { interruptTabSession: () => { calls.interrupts++ } },
     setPermissionMode: (_mode: string, tabId?: string) => { calls.permissionModeTabIds.push(tabId) },
-    sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
+    dispatch: { sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
       calls.prompts.push(text)
       calls.promptTabIds.push(tabId)
-    },
+    } },
   }
 
   return { ctx, plan, calls }

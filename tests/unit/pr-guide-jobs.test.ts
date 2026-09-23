@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, mock, test } from 'bun:test'
+import { beforeAll, describe, expect, mock, spyOn, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -199,6 +199,37 @@ describe('one host job per pull request', () => {
     await run.completion
   })
 
+  test('a listed status answers from host storage and never asks the code host', async () => {
+    // A list probes every row at once. Asking the code host for each row's
+    // revision is what made one page cost about a hundred GitHub requests.
+    const reads: (string | undefined)[] = []
+    const f = fixture({
+      current: async () => { throw new Error('a listed probe must not check the code host') },
+      read: async (_context, _target, headRef) => { reads.push(headRef); return null },
+    })
+    expect(await f.jobs.savedStatus(ctx, target, 'feature/x')).toBeNull()
+    expect(reads).toEqual(['feature/x'])
+
+    // A saved guide reports the revision it was written for; the list marks it
+    // outdated when that head is not the head it listed.
+    f.dependencies.read = async () => guide()
+    expect(await f.jobs.savedStatus(ctx, { ...target, headSha: 'pushed' }, 'feature/x')).toMatchObject({
+      status: 'ready', headSha: 'head-a', baseSha: 'base-a', generatedAt: guide().generatedAt,
+    })
+  })
+
+  test('a listed status still reports a generation that is running', async () => {
+    const runGate = deferred<void>()
+    const f = fixture({ prepare: async (context, revision) => {
+      await runGate.promise
+      return { ctx: context, target: revision }
+    } })
+    const run = f.jobs.request(f.request)
+    expect((await f.jobs.savedStatus(ctx, target, 'feature/x'))?.generationId).toBe(run.status.generationId)
+    runGate.resolve()
+    await run.completion
+  })
+
   test('identity ignores checkout, base revision, and repository letter case', () => {
     expect(prGuideRepository(target)).toBe(prGuideRepository({ ...target, host: 'GitHub.com', owner: 'ACME' }))
     expect(prGuideKey(target)).toBe(prGuideKey({ ...target, baseSha: 'another-base', headSha: 'another-head' }))
@@ -245,6 +276,30 @@ describe('PR guide content and storage', () => {
       expect(recovered?.target).toMatchObject({ headSha: 'head-a', baseSha: 'base-a' })
       expect(readdirSync(dirname(prGuidePath(current)))).toEqual([`${prGuideKey(current)}.json`])
     } finally {
+      if (previous === undefined) delete process.env.SOLUS_DATA_DIR
+      else process.env.SOLUS_DATA_DIR = previous
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('a read that knows the head branch never asks the code host for the pull request', async () => {
+    // WHY: the old-format lookup fetched each PR only to learn its branch name.
+    // A list probing thirty rows made that three GitHub requests per row.
+    const directory = mkdtempSync(join(tmpdir(), 'solus-pr-guide-offline-'))
+    const previous = process.env.SOLUS_DATA_DIR
+    process.env.SOLUS_DATA_DIR = directory
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const lookup = spyOn(prIndex, 'pullRequest').mockImplementation(() => { throw new Error('offline') })
+    try {
+      const { readPrGuide } = await import('@solus/server/review/pr-guide-store')
+      expect(await readPrGuide(ctx, target, 'feature/x')).toBeNull()
+      expect(lookup).not.toHaveBeenCalled()
+
+      // Without the branch, the read still asks, and an offline host is not an error.
+      expect(await readPrGuide(ctx, target)).toBeNull()
+      expect(lookup).toHaveBeenCalledTimes(1)
+    } finally {
+      lookup.mockRestore()
       if (previous === undefined) delete process.env.SOLUS_DATA_DIR
       else process.env.SOLUS_DATA_DIR = previous
       rmSync(directory, { recursive: true, force: true })

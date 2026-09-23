@@ -53,7 +53,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
       'Finish with a concise summary of exact processes stopped, cache locations cleared, space recovered, items skipped for safety and further opportunities. If no safe cleanup is available, make no changes and say so.',
     ].join('\n'),
     agentProvider: 'codex',
-    modelId: 'gpt-5.6-luna',
+    modelId: 'gpt-6-luna',
     runsInWorkspace: true,
     trigger: { type: 'cron', expr: '0 3 * * 0' },
   },

@@ -112,7 +112,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs: number, what: s
 }
 
 export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
-  const entry = options.entry ?? resolve(process.cwd(), 'dist/main/standalone.js')
+  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? resolve(process.cwd(), 'dist/main/standalone.js')
   if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun run build:test\` first.`)
   const tempRoot = options.tempRoot ?? tmpdir()
   const restarting = options.dataDir !== undefined

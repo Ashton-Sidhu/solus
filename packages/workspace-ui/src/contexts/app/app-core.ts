@@ -3,7 +3,9 @@ import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
+import { SessionRecords, setSessionRecords } from '../workspace/session-records.svelte'
 import { type ClientShellContext, setClientShellContext } from './client-shell.svelte'
+import { setSurfaceContext } from './surface-context.svelte'
 import { StatusBarContext, setStatusBarContext } from './status-bar.context.svelte'
 import { PlanStore, setPlanStore } from '../plans/plan.store.svelte'
 import { SessionEnvironmentStore, setSessionEnvironmentStore } from '../git/session-environment.store.svelte'
@@ -42,6 +44,7 @@ export interface AppCore {
   sessionSidebarStore: SessionSidebarStore
   voiceModelStore: VoiceModelStore
   pullRequests: PullRequestsContext
+  sessions: SessionRecords
   session: WorkspaceContext
   agent: AgentContext
   keybindings: KeybindingsContext
@@ -66,7 +69,9 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   const otelSettingsStore = new OtelSettingsStore()
   const agent = new AgentContext(settings)
   const pullRequests = new PullRequestsContext()
+  const sessions = new SessionRecords()
   const session = new WorkspaceContext(
+    sessions,
     settings,
     shell,
     statusBar,
@@ -86,7 +91,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   session.trackVisibleConversations()
   trackSessionReviewGuides(session)
   trackBranchReviewGuides(session, sessionEnvironmentStore)
-  session.onTabClosing = (tabId) => sessionSidebarStore.clearTabAttention(tabId)
+  session.onTabClosing = (tabId) => sessionSidebarStore.releaseTab(tabId)
   const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
   statusBar.bindAgent(agent)
@@ -99,7 +104,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
         duration: 10_000,
         action: {
           label: 'Open guide',
-          onAction: () => { void session.openPullRequest({ number: target.number, expectedRepo: target }, { serverId, tab: 'guide' }) },
+          onAction: () => { void session.prReview.openPullRequest({ number: target.number, expectedRepo: target }, { serverId, tab: 'guide' }) },
         },
       })
       return
@@ -133,7 +138,9 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   setSettingsContext(settings)
   setClientShellContext(shell)
   setStatusBarContext(statusBar)
+  setSessionRecords(sessions)
   setWorkspaceContext(session)
+  setSurfaceContext(session)
   setPlanStore(planStore)
   setSessionEnvironmentStore(sessionEnvironmentStore)
   setProjectConfigStore(projectConfigStore)
@@ -158,6 +165,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     sessionSidebarStore,
     voiceModelStore,
     pullRequests,
+    sessions,
     session,
     agent,
     keybindings,

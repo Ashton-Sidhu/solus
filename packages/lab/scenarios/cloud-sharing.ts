@@ -40,7 +40,15 @@ async function prove(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?
         await expectRefused(ctx, 'viewer cannot edit work', guest.rpc('saveWork', work.id, { content: 'wrong' }))
         await expectRefused(ctx, 'other organization cannot read work', carol.rpc('loadWork', work.id))
         await alice.rpc('shareSetLink', { resource, role: 'editor' })
-        await guest.rpc('saveWork', work.id, { content: 'Guest edit' })
+        const viewedVersion = await alice.rpc('loadWorkUpdatedAt', work.id)
+        await guest.rpc('saveWork', work.id, { content: 'Guest edit' }, work.updatedAt)
+        const savedVersion = await alice.rpc('loadWorkUpdatedAt', work.id)
+        ctx.check(`${engine}: reader detects another editor's save`, savedVersion !== viewedVersion)
+        let refused = false
+        try { await alice.rpc('saveWork', work.id, { content: 'Stale draft' }, work.updatedAt) }
+        catch { refused = true }
+        ctx.check(`${engine}: stale copy cannot overwrite the saved change`, refused)
+        await expectRefused(ctx, 'other organization cannot check work version', carol.rpc('loadWorkUpdatedAt', work.id))
         ctx.check(`${engine}: role upgrade applies to live guest`, (await alice.rpc('loadWork', work.id))?.content === 'Guest edit')
       } else {
         const details = await guest.rpc('tasksGet', task.id)

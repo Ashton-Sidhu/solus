@@ -1,14 +1,16 @@
 import type {
   PrLifecycleAction,
   PrLifecycleUpdate,
+  PrMergeMethod,
+  PrRevertResult,
   PrReviewerCandidate,
   PrReviewCapabilities,
+  PrStateAction,
   PrViewerPermissions,
+  PullRequest,
   RepoRef,
 } from '@solus/contracts/providers'
-import type { GitHubClient } from './octokit'
-
-type MutableLifecycleAction = Exclude<PrLifecycleAction, 'merge'>
+import { GitHubReauthRequiredError, type GitHubClient } from './octokit'
 
 interface RepositoryAccess {
   viewer: string
@@ -18,6 +20,8 @@ interface RepositoryAccess {
   allowMergeCommit: boolean
   allowSquashMerge: boolean
   allowRebaseMerge: boolean
+  /** The repository has GitHub's auto-merge switched on. */
+  allowAutoMerge: boolean
 }
 
 interface RepositorySettings {
@@ -26,6 +30,7 @@ interface RepositorySettings {
   allowMergeCommit: boolean
   allowSquashMerge: boolean
   allowRebaseMerge: boolean
+  allowAutoMerge: boolean
 }
 
 export interface PullRequestAccess {
@@ -41,6 +46,7 @@ const MERGE_METHODS_QUERY = `
       mergeCommitAllowed
       squashMergeAllowed
       rebaseMergeAllowed
+      autoMergeAllowed
     }
   }
 `
@@ -50,6 +56,7 @@ interface MergeMethodsResponse {
     mergeCommitAllowed: boolean
     squashMergeAllowed: boolean
     rebaseMergeAllowed: boolean
+    autoMergeAllowed: boolean
   } | null
 }
 
@@ -64,8 +71,13 @@ interface MergeMethodsResponse {
 async function mergeMethodSettings(
   client: GitHubClient,
   repo: RepoRef,
-  restFallback: { merge: boolean | null | undefined; squash: boolean | null | undefined; rebase: boolean | null | undefined },
-): Promise<Pick<RepositorySettings, 'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge'>> {
+  restFallback: {
+    merge: boolean | null | undefined
+    squash: boolean | null | undefined
+    rebase: boolean | null | undefined
+    autoMerge: boolean | null | undefined
+  },
+): Promise<Pick<RepositorySettings, 'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge' | 'allowAutoMerge'>> {
   try {
     const result = await client.graphql<MergeMethodsResponse>(MERGE_METHODS_QUERY, {
       owner: repo.owner,
@@ -76,6 +88,7 @@ async function mergeMethodSettings(
         allowMergeCommit: result.repository.mergeCommitAllowed,
         allowSquashMerge: result.repository.squashMergeAllowed,
         allowRebaseMerge: result.repository.rebaseMergeAllowed,
+        allowAutoMerge: result.repository.autoMergeAllowed,
       }
     }
   } catch {
@@ -86,6 +99,9 @@ async function mergeMethodSettings(
     allowMergeCommit: restFallback.merge ?? true,
     allowSquashMerge: restFallback.squash ?? true,
     allowRebaseMerge: restFallback.rebase ?? true,
+    // Unlike the merge methods, auto-merge is off unless a repository turns it
+    // on, so an unknown answer does not offer a button the host would refuse.
+    allowAutoMerge: restFallback.autoMerge ?? false,
   }
 }
 
@@ -111,6 +127,7 @@ export async function githubPullRequestAccessFor(
           merge: data.allow_merge_commit,
           squash: data.allow_squash_merge,
           rebase: data.allow_rebase_merge,
+          autoMerge: data.allow_auto_merge,
         })),
       }))
       .catch((error) => {
@@ -128,6 +145,13 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
     ? ['close', 'reopen', 'ready', 'draft']
     : []
   if (access.canWrite) lifecycle.unshift('merge')
+  // GitHub asks for write access to arm auto-merge or open a revert, the same
+  // bar as the merge itself.
+  if (access.canWrite && access.allowAutoMerge) lifecycle.push('enable-auto-merge', 'disable-auto-merge')
+  if (access.canWrite) lifecycle.push('revert')
+  const supported: PrLifecycleAction[] = ['merge', 'close', 'reopen', 'ready', 'draft']
+  if (access.allowAutoMerge) supported.push('enable-auto-merge', 'disable-auto-merge')
+  supported.push('revert')
 
   const mergeMethods: PrReviewCapabilities['mergeMethods'] = []
   if (access.allowMergeCommit) mergeMethods.push('merge')
@@ -142,7 +166,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
       threadReplies: true,
       threadResolution: true,
       reviewVerdicts: ['comment', 'approve', 'request-changes'],
-      actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
+      actions: supported,
       mergeMethods,
       reviewerRequests: true,
       reviewerCandidates: true,
@@ -179,7 +203,7 @@ export async function updateGithubPullRequestLifecycle(
   client: GitHubClient,
   repo: RepoRef,
   number: number,
-  action: MutableLifecycleAction,
+  action: PrStateAction,
   expectedHeadSha: string,
   pullRequest: { headSha: string; nodeId: string; draft: boolean },
 ): Promise<PrLifecycleUpdate> {
@@ -242,3 +266,116 @@ export async function listGithubReviewerCandidates(
     .filter((user) => user.login.toLowerCase() !== author.toLowerCase())
     .map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
 }
+
+/** What an auto-merge mutation leaves on the pull request. */
+export type PrAutoMergeUpdate = Pick<PullRequest, 'state' | 'draft' | 'updatedAt' | 'autoMergeEnabled' | 'autoMergeMethod'>
+
+interface GithubAutoMergeResult extends GithubLifecycleResult {
+  autoMergeRequest: { mergeMethod: 'MERGE' | 'SQUASH' | 'REBASE' } | null
+}
+
+const AUTO_MERGE_RESULT_FIELDS = 'isDraft state updatedAt autoMergeRequest { mergeMethod }'
+
+const ENABLE_AUTO_MERGE_MUTATION = `
+  mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!, $expectedHeadOid: GitObjectID) {
+    enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: $mergeMethod, expectedHeadOid: $expectedHeadOid }) {
+      pullRequest { ${AUTO_MERGE_RESULT_FIELDS} }
+    }
+  }
+`
+
+const DISABLE_AUTO_MERGE_MUTATION = `
+  mutation($pullRequestId: ID!) {
+    disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+      pullRequest { ${AUTO_MERGE_RESULT_FIELDS} }
+    }
+  }
+`
+
+const REVERT_MUTATION = `
+  mutation($pullRequestId: ID!) {
+    revertPullRequest(input: { pullRequestId: $pullRequestId }) {
+      revertPullRequest { number url }
+    }
+  }
+`
+
+const GITHUB_MERGE_METHOD = {
+  merge: 'MERGE',
+  squash: 'SQUASH',
+  rebase: 'REBASE',
+} as const satisfies { [Method in PrMergeMethod]: string }
+
+/** GitHub's `auto_merge.merge_method` (REST) or `mergeMethod` (GraphQL). */
+export function githubAutoMergeMethod(method: string | null | undefined): PrMergeMethod | undefined {
+  const lower = method?.toLowerCase()
+  return lower === 'merge' || lower === 'squash' || lower === 'rebase' ? lower : undefined
+}
+
+function autoMergeUpdate(updated: GithubAutoMergeResult | undefined): PrAutoMergeUpdate {
+  if (!updated) throw new Error('GitHub did not return the updated pull request state.')
+  const autoMergeMethod = githubAutoMergeMethod(updated.autoMergeRequest?.mergeMethod)
+  return {
+    state: updated.state === 'MERGED' ? 'merged' : updated.state === 'CLOSED' ? 'closed' : 'open',
+    draft: updated.isDraft,
+    updatedAt: updated.updatedAt,
+    autoMergeEnabled: updated.autoMergeRequest !== null,
+    // Always stated, so a disarm clears the method the read before it held.
+    autoMergeMethod,
+  }
+}
+
+/**
+ * Arm auto-merge. The head the viewer saw rides along as `expectedHeadOid`, so
+ * GitHub itself refuses to arm a merge of commits nobody looked at.
+ */
+export async function enableGithubAutoMerge(
+  client: GitHubClient,
+  pullRequestId: string,
+  method: PrMergeMethod,
+  expectedHeadSha: string,
+): Promise<PrAutoMergeUpdate> {
+  const result = await client.graphql<{ enablePullRequestAutoMerge?: { pullRequest: GithubAutoMergeResult } }>(
+    ENABLE_AUTO_MERGE_MUTATION,
+    { pullRequestId, mergeMethod: GITHUB_MERGE_METHOD[method], expectedHeadOid: expectedHeadSha },
+  )
+  return autoMergeUpdate(result.enablePullRequestAutoMerge?.pullRequest)
+}
+
+export async function disableGithubAutoMerge(
+  client: GitHubClient,
+  pullRequestId: string,
+): Promise<PrAutoMergeUpdate> {
+  const result = await client.graphql<{ disablePullRequestAutoMerge?: { pullRequest: GithubAutoMergeResult } }>(
+    DISABLE_AUTO_MERGE_MUTATION,
+    { pullRequestId },
+  )
+  return autoMergeUpdate(result.disablePullRequestAutoMerge?.pullRequest)
+}
+
+export async function revertGithubPullRequest(
+  client: GitHubClient,
+  pullRequestId: string,
+): Promise<PrRevertResult> {
+  const result = await client.graphql<{ revertPullRequest?: { revertPullRequest: PrRevertResult | null } }>(
+    REVERT_MUTATION,
+    { pullRequestId },
+  )
+  const opened = result.revertPullRequest?.revertPullRequest
+  if (!opened) throw new Error('GitHub did not return the revert pull request.')
+  return { number: opened.number, url: opened.url }
+}
+
+/**
+ * Say a refused write as the thing that did not happen, then what to check.
+ * GitHub's own reason stays in the middle: it is usually the answer. A lapsed
+ * credential passes through unchanged, because its own error opens sign-in.
+ */
+export function githubWriteRefusal<E>(err: E, failure: string, hint: string): Error {
+  if (err instanceof GitHubReauthRequiredError) return err
+  const reason = err instanceof Error ? err.message.trim() : String(err)
+  return new Error(`${failure}${reason ? `: ${reason.replace(/\.$/, '')}` : ''}. ${hint}`)
+}
+
+export const AUTO_MERGE_REFUSAL_HINT =
+  'Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.'

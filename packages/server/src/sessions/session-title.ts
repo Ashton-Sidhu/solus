@@ -23,7 +23,7 @@ const MAX_DESCRIPTION_LENGTH = 1_000
 /** The cheapest model each backend has that still writes useful metadata, at
  * its lowest reasoning setting — scaffolding a thread must never cost a real turn. */
 const METADATA_MODELS = {
-  codex: { model: 'gpt-5.6-luna', reasoningEffort: 'low' },
+  codex: { model: 'gpt-6-luna', reasoningEffort: 'low' },
   'claude-code': { model: 'claude-haiku-4-5-20251001', reasoningEffort: 'low' },
 } satisfies { codex: { model: string; reasoningEffort: ReasoningEffort }; 'claude-code': { model: string; reasoningEffort: ReasoningEffort } }
 

@@ -89,7 +89,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
         } | undefined = event.detail;
       const requesterId = detail?.requesterId;
       const requesterDraftId =
-        requesterId && session.sessionDrafts.has(requesterId)
+        requesterId && session.drafts.sessionDrafts.has(requesterId)
           ? requesterId
           : undefined;
       directoryPickerDraftId = detail?.draftId ?? requesterDraftId;
@@ -159,7 +159,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     const draftId = directoryPickerDraftId;
     directoryPickerDraftId = undefined;
     if (draftId) {
-      const draft = session.sessionDrafts.get(draftId);
+      const draft = session.drafts.sessionDrafts.get(draftId);
       const draftHostOverride = directoryPickerServerIdOverride;
       const draftIntent = directoryPickerIntent;
       directoryPickerServerIdOverride = undefined;
@@ -172,7 +172,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
             ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
             : withCheckout(draft.run, dir, null);
         if (draftIntent === "open-project") draft.task = { kind: "new" };
-        void session.environment.refresh(dir);
+        void session.environment.refresh(draft.run.serverId, dir);
       }
       requestInputFocus();
       return;
@@ -187,7 +187,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       // A started conversation keeps its folder; the project opens as a new
       // draft beside it. Choosing a host is part of that draft's run config —
       // there is no tab to move, because nothing has started.
-      const draft = session.openSessionDraft(
+      const draft = session.drafts.openSessionDraft(
         { freshTask: intent === "open-project" },
         dir,
       );
@@ -203,7 +203,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       // setBaseDirectory alone would point the current host at a missing path.
       placeTabOnHost(targetTabId, overrideServerId, dir, { intent });
     } else {
-      await session.setBaseDirectory(dir, targetTabId);
+      await session.config.setBaseDirectory(dir, targetTabId);
     }
     directoryPickerTargetTabId = undefined;
     requestInputFocus(targetTabId ? { tabId: targetTabId } : undefined);
@@ -242,6 +242,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       isLocalHost: serverId === serverConnections.localServerId(),
       path,
       intent: options.intent ?? "open-project",
+      isolate: serversStore.isolatesSessions(serverId),
     });
   }
 
@@ -252,8 +253,8 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     intent: "dispatch" | "open-project",
   ): RunConfig {
     return intent === "dispatch"
-      ? withHost(run, serverId, { path })
-      : withProjectHost(run, serverId, { path });
+      ? withHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) })
+      : withProjectHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
   }
 
   function openProjectHosts() {
@@ -267,7 +268,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     const hosts = openProjectHosts();
     const targetServerId =
       session.projectPageScope.kind === "project"
-        ? session.projectPageScope.project.serverId
+        ? session.projectPageScope.checkout?.serverId
         : options.sourceId
           ? session.runFor(options.sourceId)?.serverId
           : undefined;
@@ -297,7 +298,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     // The flow may have been started from a draft (RunOnPicker passes its
     // requester id through `tabId`); re-aim that draft instead of opening a
     // second one and orphaning the prompt already typed into it.
-    const requesterDraft = tabId ? session.sessionDrafts.get(tabId) : undefined;
+    const requesterDraft = tabId ? session.drafts.sessionDrafts.get(tabId) : undefined;
     // A started session keeps its folder — the project opens beside it instead.
     const reusableTabId =
       !requesterDraft &&
@@ -314,17 +315,17 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       requesterDraft.run = withProjectHost(
         withCheckout(requesterDraft.run, path, null),
         serverId,
-        { path },
+        { path, isolate: serversStore.isolatesSessions(serverId) },
       );
       requesterDraft.task = { kind: "new" };
-      void session.environment.refresh(path);
+      void session.environment.refresh(serverId, path);
       requestInputFocus();
     } else if (reusableTabId) {
       placeTabOnHost(reusableTabId, serverId, path);
       requestInputFocus({ tabId: reusableTabId });
     } else {
-      const draft = session.openSessionDraft({ freshTask: true }, path);
-      draft.run = withProjectHost(draft.run, serverId, { path });
+      const draft = session.drafts.openSessionDraft({ freshTask: true }, path);
+      draft.run = withProjectHost(draft.run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
       requestInputFocus();
     }
 

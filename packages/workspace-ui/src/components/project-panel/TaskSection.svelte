@@ -102,7 +102,7 @@
             taskProjectDirectory: projectCwd ?? task.projectKey,
             linkProjectDirectory: link.targetScope,
           });
-          void session.openPullRequest({
+          void session.prReview.openPullRequest({
             number,
             title: link.title,
             url: link.url,

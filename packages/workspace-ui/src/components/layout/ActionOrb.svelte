@@ -42,6 +42,7 @@
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import { actionOrbWouldOverflow } from "./lib/action-orb-layout";
+  import { askInsights } from "../insights/lib/ask-insights";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import "./ActionOrb.css";
 
@@ -86,7 +87,7 @@
   );
   const uncommittedFiles = $derived(
     environmentStore
-      .statusFor(gitCwd)
+      .statusFor(sess?.run.serverId ?? session.fallbackServerId, gitCwd)
       ?.uncommittedChanges.files.map((file) => file.path) ?? [],
   );
   const showNativeDesktopActions = $derived(
@@ -116,7 +117,7 @@
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
-  const isCreatingWorktree = $derived(session.isContinuingInWorktree(tabId));
+  const isCreatingWorktree = $derived(session.ui.isContinuingInWorktree(tabId));
   // The repository can have unrelated uncommitted files. Do not mount an empty
   // session popover only because that broader repository count is non-zero.
   const showOpenFiles = $derived(
@@ -149,8 +150,11 @@
   // recorded for it yet.
   const showInsights = $derived(!!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
+  // A turn parked in 'background' is finished, but Stop is still how its
+  // background task ends.
   const showInterrupt = $derived(
-    isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
+    (isRunning || sess?.status === "background") &&
+      (sess?.messages.some((m) => m.role === "user") ?? false),
   );
   const uncommittedFilesLabel = $derived(
     uncommittedFiles.length > 99 ? "99+" : String(uncommittedFiles.length),
@@ -399,7 +403,7 @@
   function openSessionInsights() {
     const sessionId = sess?.id;
     if (!sessionId) return;
-    session.openInsightsForSession(sessionId);
+    void askInsights({ kind: "session", sessionId }, () => session.openInsights());
     closeExpanded();
   }
 
@@ -542,7 +546,7 @@
     "global.fork-tab",
     () => {
       if (showFork) {
-        session.forkTab(tabId);
+        session.opening.forkTab(tabId);
         requestInputFocus();
       }
     },
@@ -554,7 +558,7 @@
     "global.continue-worktree",
     () => {
       if (showContinueWorktree && !isCreatingWorktree) {
-        session.continueInWorktree(tabId, "keybinding");
+        session.opening.continueInWorktree(tabId, "keybinding");
         requestInputFocus();
       }
     },
@@ -675,7 +679,7 @@
           tabindex={tabIndexFor("stop")}
           style="--item-index:{itemIndices.stop}"
           onclick={() => {
-            session.interruptTabSession(tab.id);
+            session.controls.interruptTabSession(tab.id);
             session.apiFor(tab.id).stopSession(session.ctxFor(tab.id).session.sessionId);
             requestInputFocus();
           }}
@@ -789,7 +793,7 @@
           tabindex={tabIndexFor("fork")}
           style="--item-index:{itemIndices.fork}"
           onclick={() => {
-            session.forkTab(tabId);
+            session.opening.forkTab(tabId);
             closeExpanded();
           }}
           title="Fork session into a new tab"
@@ -841,7 +845,7 @@
           style="--item-index:{itemIndices.continueWorktree}"
           onclick={() => {
             if (isCreatingWorktree) return;
-            session.continueInWorktree(tabId);
+            session.opening.continueInWorktree(tabId);
             closeExpanded();
             requestInputFocus();
           }}

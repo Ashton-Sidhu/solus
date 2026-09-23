@@ -11,8 +11,10 @@ import type { AttentionState } from '../../../lib/sessionUtils'
  *
  *  `done` is the one status the user sets rather than the agent: it is what the
  *  check in the hover cluster writes, and it only says "I am finished with
- *  this", which nothing else in the app knows. */
-export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'idle' | 'done'
+ *  this", which nothing else in the app knows.
+ *
+ *  `background` is a finished turn whose background task still runs. */
+export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'background' | 'idle' | 'done'
 
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
@@ -22,17 +24,19 @@ export const STATUS_RANK = {
   plan: 2,
   limit: 3,
   running: 4,
-  idle: 5,
-  done: 6,
+  background: 5,
+  idle: 6,
+  done: 7,
 } satisfies Record<TaskStatus, number>
 
 export const ATTENTION_RANK = {
-  awaiting: 5,
-  awaiting_plan: 5,
-  queued: 4,
-  error: 3,
-  running: 2,
-  unread: 1,
+  awaiting: 6,
+  awaiting_plan: 6,
+  queued: 5,
+  error: 4,
+  running: 3,
+  unread: 2,
+  background: 1,
 } satisfies Record<NonNullable<AttentionState>, number>
 
 /** A task reports work and requests shared by its sessions, but a failed turn
@@ -60,7 +64,8 @@ export function shouldEmphasizeTitle(
   isCurrent: boolean,
 ): boolean {
   if (status === 'error') return unread
-  return isCurrent || hasGlyph(status)
+  // Background work does not ask for the user, so its glyph earns no weight.
+  return isCurrent || (hasGlyph(status) && status !== 'background')
 }
 
 /**
@@ -146,6 +151,8 @@ export function taskStatusFor(attention: AttentionState, markedDone = false): Ta
       return 'limit'
     case 'running':
       return 'running'
+    case 'background':
+      return 'background'
     default:
       return markedDone ? 'done' : 'idle'
   }
@@ -299,6 +306,14 @@ export function shouldRecedeRow(
 export interface SidebarTask {
   /** Stable renderer identity for this task or loose session row. */
   id: string
+  /**
+   * The key the list renders and animates this row under. A durable row's is
+   * its task id. A loose row whose session will mint a task uses that planned
+   * id, so when the task arrives and the row becomes durable it keeps its key:
+   * the list updates the row in place instead of replacing it. A taskless
+   * session's row uses its own id for its whole life.
+   */
+  listKey: string
   /** Durable task id when this row is backed by the task store. Loose session
    *  rows deliberately leave it unset until the first dispatch mints a task. */
   taskId?: string
@@ -307,6 +322,11 @@ export interface SidebarTask {
   title: string
   projectKey: string
   projectLabel: string
+  /** The project the row groups and filters under (docs/plans/project-model.md):
+   *  the repository key, so checkouts of one repository on any host share one
+   *  heading. `projectKey` stays the path the row's host reads links and pull
+   *  requests under. */
+  groupKey: string
   /** Real git branch, matched against a PR's head ref. Null off a branch. */
   branchName: string | null
   /** The host this task's sessions run on. Null when nothing is open for it —
@@ -323,10 +343,9 @@ export interface SidebarTask {
   /** True while any mounted session has output the user has not seen. The
    *  active session clears its own flag, so task activity must not set this. */
   unread: boolean
-  /** Durable creation position shared by task-backed and legacy loose rows. */
+  /** Durable creation position shared by task-backed rows and loose rows —
+   *  the sessions that have no task, which Solus supports on purpose. */
   createdAt: number
-  /** Sort tie-break: most recent activity first. */
-  activityAt: number
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
   lifecycle: 'active' | 'snoozed' | 'completed'
@@ -485,6 +504,7 @@ export function reconcileSidebarTasks(
     if (
       previous &&
       previous.taskId === next.taskId &&
+      previous.listKey === next.listKey &&
       previous.key === next.key &&
       previous.title === next.title &&
       previous.projectKey === next.projectKey &&
@@ -496,7 +516,6 @@ export function reconcileSidebarTasks(
       previous.attention === next.attention &&
       previous.unread === next.unread &&
       previous.createdAt === next.createdAt &&
-      previous.activityAt === next.activityAt &&
       previous.runStartedAt === next.runStartedAt &&
       previous.lifecycle === next.lifecycle &&
       previous.completedAt === next.completedAt &&
@@ -537,57 +556,31 @@ export function sortTasksByCreation(tasks: readonly Task[]): Task[] {
   return [...tasks].sort(compareTaskCreationOrder)
 }
 
-/** Keep sidebar rows in their fixed creation order. Session tabs can open,
- * close, merge under one task, or be dragged independently without moving the
- * task row the user already learned. */
+/** Keep sidebar rows in their fixed creation order, newest first, so new work
+ * lands at the top. Session tabs can open, close, merge under one task, or be
+ * dragged independently without moving the task row the user already learned. */
 export function sortSidebarRowsByCreation(tasks: SidebarTask[]): SidebarTask[] {
-  return [...tasks].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  return [...tasks].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
 }
 
-/** Rank, then most recent activity, then the order the tasks were created in
- *  — which is the order they arrive in. */
-function compareTasks(a: SidebarTask, b: SidebarTask): number {
-  const rank = STATUS_RANK[a.status] - STATUS_RANK[b.status]
-  if (rank !== 0) return rank
-  return b.activityAt - a.activityAt
-}
+/** When a row last did anything. Asked for, never stored on the row: it moves
+ *  with every streamed message, and a row model that carried it would make the
+ *  whole column rebuild on each one. */
+export type RowActivity = (task: SidebarTask) => number
 
 /**
- * Rank tasks by urgency. This is for the *pickers*, which are read top-down in
- * one glance and gain from putting the loudest task first. The sidebar list
- * itself never sorts: a row you learned the position of has to still be there
- * the next time you look, so open tasks keep the order they arrived in and
- * status is carried by the glyph alone.
+ * Rank tasks by urgency, then most recent activity. This is for the *pickers*,
+ * which are read top-down in one glance and gain from putting the loudest task
+ * first. The sidebar list itself never sorts: a row you learned the position of
+ * has to still be there the next time you look, so open tasks keep the order
+ * they arrived in and status is carried by the glyph alone.
  */
-export function sortTasks(tasks: SidebarTask[]): SidebarTask[] {
-  return [...tasks].sort(compareTasks)
-}
-
-export interface TaskGroup {
-  projectKey: string
-  projectLabel: string
-  tasks: SidebarTask[]
-}
-
-/** Groups keep their tasks in the order they were given, and sit in alphabetical
- *  order themselves — a project that starts working must not haul its whole
- *  section up the column. */
-export function groupTasks(tasks: SidebarTask[]): TaskGroup[] {
-  const groups = new Map<string, TaskGroup>()
-  for (const task of tasks) {
-    let group = groups.get(task.projectKey)
-    if (!group) {
-      group = {
-        projectKey: task.projectKey,
-        projectLabel: task.projectLabel,
-        tasks: [],
-      }
-      groups.set(task.projectKey, group)
-    }
-    group.tasks.push(task)
-  }
-
-  return [...groups.values()].sort((a, b) => a.projectLabel.localeCompare(b.projectLabel))
+export function sortTasks(tasks: SidebarTask[], activityAt: RowActivity): SidebarTask[] {
+  const activity = new Map(tasks.map((task) => [task, activityAt(task)]))
+  return [...tasks].sort((a, b) =>
+    STATUS_RANK[a.status] - STATUS_RANK[b.status]
+    || (activity.get(b) ?? 0) - (activity.get(a) ?? 0),
+  )
 }
 
 export interface ProjectSummary {
@@ -605,7 +598,7 @@ export interface ProjectSummary {
 /**
  * The projects behind the breadcrumb's picker.
  */
-export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[] {
+export function buildProjectSummaries(allTasks: SidebarTask[], activityAt: RowActivity): ProjectSummary[] {
   const byProject = new Map<string, SidebarTask[]>()
   for (const task of allTasks) {
     const tasks = byProject.get(task.projectKey)
@@ -614,7 +607,7 @@ export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[]
   }
 
   return [...byProject.entries()].map(([projectKey, tasks]) => {
-    const ranked = sortTasks(tasks)
+    const ranked = sortTasks(tasks, activityAt)
     return {
       projectKey,
       label: tasks[0].projectLabel,
@@ -639,7 +632,7 @@ export function resolveProjectFilter(
   allTasks: readonly SidebarTask[],
 ): string | null {
   if (!savedFilter) return null
-  return allTasks.some((task) => task.projectKey === savedFilter) ? savedFilter : null
+  return allTasks.some((task) => task.groupKey === savedFilter) ? savedFilter : null
 }
 
 export interface ProjectFilterChoice {
@@ -658,11 +651,12 @@ export function projectFilterChoices(allTasks: readonly SidebarTask[]): ProjectF
   const choices = new Map<string, ProjectFilterChoice>()
   for (const task of allTasks) {
     const active = task.lifecycle === 'active' ? 1 : 0
-    const existing = choices.get(task.projectKey)
+    const key = task.groupKey
+    const existing = choices.get(key)
     if (existing) existing.count += active
     else
-      choices.set(task.projectKey, {
-        projectKey: task.projectKey,
+      choices.set(key, {
+        projectKey: key,
         label: task.projectLabel,
         count: active,
       })

@@ -117,7 +117,6 @@ const resourceRpcRules = {
   editQueuedPrompt: editor(ctxAt(0)),
   // Typing in a session is something only someone who may prompt it does.
   presenceSetComposing: editor(sessionFieldAt(0, 'sessionId')),
-  rewindFiles: editor(ctxAt(0)),
   writePlanFile: editor(optionalCtxAt(2)),
   attachFiles: editor(optionalCtxAt(0)),
   attachFilePaths: editor(optionalCtxAt(1)),
@@ -141,6 +140,7 @@ const resourceRpcRules = {
   tasksRekeySession: editor(sessionIdAt(0)),
   // Works — reading
   loadWork: viewer(workIdAt(0)),
+  loadWorkUpdatedAt: viewer(workIdAt(0)),
   loadWorkPrevious: viewer(workIdAt(0)),
   loadWorkAnnotations: viewer(workIdAt(0)),
   markWorkCommentRead: viewer(workIdAt(0)),
@@ -269,6 +269,7 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'providerDisconnect',
   'githubExportCredential',
   'codeIntelInstall',
+  'browserRuntimeInstall',
   'browserRequestCookieAccess',
   'browserImportCookies',
 ])

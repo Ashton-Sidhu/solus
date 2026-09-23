@@ -3,7 +3,7 @@
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import {
     getClientShellContext,
-    getWorkspaceContext,
+    getSurfaceContext,
     hostCapabilitiesStore,
     serversStore,
   } from "../../contexts";
@@ -66,7 +66,7 @@
   }: Props = $props();
 
   const shell = getClientShellContext();
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
 
   const RASTER_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
 
@@ -87,8 +87,11 @@
     // resolution without changing the artifact's durable identity.
     void retryAttempt;
     const path = artifact.kind === "image" ? artifact.path : undefined;
-    const run = tabId ? session.runFor(tabId) : undefined;
-    if (!path || !tabId || !run) {
+    // An image on a tab's machine is read through that tab; a client with no
+    // tabs (the cloud console) shows the HTML render alone.
+    const workspace = session.workspace;
+    const run = tabId && workspace ? workspace.runFor(tabId) : undefined;
+    if (!path || !tabId || !run || !workspace) {
       artifactUrl = "";
       artifactError = null;
       artifactRetryAvailable = artifact.kind === "html";
@@ -129,8 +132,8 @@
         serverId: run.serverId,
         path,
         origin: serverConnections.httpOriginFor(run.serverId),
-        api: session.apiFor(tabId),
-        ctx: session.ctxFor(tabId),
+        api: workspace.apiFor(tabId),
+        ctx: workspace.ctxFor(tabId),
       })
       .then((url) => {
         if (!cancelled) artifactUrl = url;

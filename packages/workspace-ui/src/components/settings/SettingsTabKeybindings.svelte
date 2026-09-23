@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RotateCcw as ArrowCounterClockwiseIcon, Keyboard as KeyboardIcon } from "@lucide/svelte";
+  import { RotateCcw as ArrowCounterClockwiseIcon } from "@lucide/svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
   import { KEYBINDINGS, bindingsForScope, type BindingId } from "../../lib/keybindings/manifest";
@@ -220,16 +220,25 @@
   </button>
 {/snippet}
 
+<!-- A group name with a hairline running to the card's far edge, so a long
+     list of shortcuts reads as ruled sections rather than one tall column. -->
+{#snippet ruledSection(label: string)}
+  <div class="-mb-3 flex items-center gap-3 px-0.5">
+    <h2 class="shrink-0 text-micro font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</h2>
+    <span class="h-px flex-1 bg-border/60" aria-hidden="true"></span>
+  </div>
+{/snippet}
+
 {#snippet bindingRow(id: BindingId, def: BindingDef)}
   {@const combo = effectiveCombo(id, settings.keybindings)}
   {@const recording = bindingCapture.id === id}
   {@const conflict = conflicts.get(id)}
   {@const custom = isOverridden(id, settings.keybindings)}
   <div
-    class="kb-row flex min-h-10 items-center justify-between gap-4 border-t border-border px-4 py-[0.3125rem] text-xs first:border-t-0 [.is-laptop-display_&]:min-h-[2.125rem]
+    class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
  {recording ? 'bg-(--solus-accent)/8' : ''}"
   >
-    <span class="min-w-0 truncate text-workspace-chrome font-medium tracking-[-0.005em] text-(--solus-text-primary)">{def.label}</span>
+    <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{def.label}</span>
     <div class="flex shrink-0 items-center gap-1.5">
       {#if recording}
         {@render captureChip()}
@@ -278,9 +287,9 @@
   {@const combo = appShortcuts.toggle}
   {@const recording = bindingCapture.id === "app:toggle"}
   {@const failed = appFailed}
-  <div class="kb-row flex min-h-10 items-center justify-between gap-4 border-t border-border px-4 py-[0.3125rem] text-xs first:border-t-0 [.is-laptop-display_&]:min-h-[2.125rem]
+  <div class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
  {recording ? 'bg-(--solus-accent)/8' : ''}">
-    <span class="min-w-0 truncate text-workspace-chrome font-medium tracking-[-0.005em] text-(--solus-text-primary)">{APP_SHORTCUT_LABEL}</span>
+    <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{APP_SHORTCUT_LABEL}</span>
     <div class="flex shrink-0 items-center gap-1.5">
       {#if recording}
         {@render captureChip()}
@@ -311,14 +320,8 @@
 {/snippet}
 
 <div class="flex flex-col gap-1 text-xs">
-  <div class="flex items-center justify-between gap-4 pb-3">
-    <div class="flex items-center gap-2">
-      <KeyboardIcon size={15} class="text-(--solus-text-tertiary)" />
-      <span class="text-(--solus-text-tertiary)">Click a shortcut to rebind it.</span>
-    </div>
-    {#if overrideCount > 0}
-      <Button variant="ghost" size="xs" onclick={resetAll}>Reset all</Button>
-    {/if}
+  <div class="flex items-center justify-end gap-4 pb-3">
+    <Button variant="ghost" size="sm" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>
   </div>
 
   {#if !shell.supportsNativeSettings}
@@ -328,23 +331,23 @@
   {/if}
 
   <div class="flex items-start gap-5">
-    <nav class="sticky top-0 flex w-[10.5rem] shrink-0 flex-col gap-px" aria-label="Shortcut categories">
+    <nav class="sticky top-0 flex w-[12rem] shrink-0 flex-col gap-0.5 self-stretch border-r border-border/60 pr-5" aria-label="Shortcut categories">
       {#each railItems as item (item.key)}
         {@const active = selectedCategory === item.key && !searchQuery}
         <button
           type="button"
-          class="flex h-8 w-full cursor-pointer items-center justify-between gap-2 overflow-hidden rounded-md border px-2.5 text-left outline-none [transition:color_0.15s_ease,background_0.15s_ease,border-color_0.15s_ease,opacity_0.15s_ease] focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]
+          class="flex h-9 w-full cursor-pointer items-center justify-between gap-2 overflow-hidden rounded-lg px-3 text-left outline-none [transition:color_0.15s_ease,background_0.15s_ease,opacity_0.15s_ease] focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]
  {active
- ? 'border-border bg-card text-foreground shadow-xs'
+ ? 'bg-[color-mix(in_oklch,var(--primary)_10%,transparent)] text-foreground'
  : searchQuery && item.matchCount === 0
- ? 'border-transparent bg-transparent text-(--solus-text-secondary) opacity-40'
- : 'border-transparent bg-transparent text-(--solus-text-secondary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5 [@media(hover:hover)]:hover:text-(--solus-text-primary)'}"
+ ? 'bg-transparent text-(--solus-text-secondary) opacity-40'
+ : 'bg-transparent text-(--solus-text-secondary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5 [@media(hover:hover)]:hover:text-(--solus-text-primary)'}"
           aria-current={active ? "true" : undefined}
           onclick={() => selectCategory(item.key)}
         >
-          <!-- One weight for every scope row: selection is carried by the fill,
-               the ring and the accent count, never by a heavier label. -->
-          <span class="min-w-0 truncate text-workspace-chrome font-medium tracking-[-0.005em]">{item.label}</span>
+          <!-- One weight for every scope row: selection is carried by the fill
+               and the accent count, never by a heavier label. -->
+          <span class="min-w-0 truncate text-sm tracking-[-0.005em]">{item.label}</span>
           <span class="shrink-0 font-mono text-micro tabular-nums {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}">{searchQuery ? item.matchCount : item.total}</span>
         </button>
       {/each}
@@ -353,18 +356,19 @@
            the web client cannot, and a browser reserves combinations the desktop
            app is free to take. Syncing them would ship a shortcut that cannot
            fire, so they stay with the client that set them. -->
-      <p class="px-2.5 pt-4 leading-relaxed text-(--solus-text-tertiary) text-pretty">
+      <p class="px-3 pt-4 leading-relaxed text-(--solus-text-tertiary) text-pretty">
         {changedNote} Your other Solus clients keep their own.
       </p>
     </nav>
 
-    <div class="flex min-w-0 flex-1 flex-col gap-[1.125rem] [.is-laptop-display_&]:gap-3.5">
+    <div class="flex min-w-0 flex-1 flex-col gap-6">
       {#if searchQuery}
         {#if !hasSearchResults}
           <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.key)}
-            <SettingsSection label={section.label}>
+            {@render ruledSection(section.label)}
+            <SettingsSection>
               {#each section.rows as { id, def } (id)}
                 {@render bindingRow(id, def)}
               {/each}
@@ -372,15 +376,17 @@
           {/each}
         {/if}
       {:else if selectedCategory === "system"}
-        <div class="flex flex-col gap-[0.4375rem]">
-          <p class="px-0.5 pb-0.5 text-(--solus-text-tertiary)">Global shortcuts that summon Solus from anywhere on your computer.</p>
+        {@render ruledSection("System")}
+        <div class="-mt-3 flex flex-col gap-2.5">
+          <p class="px-0.5 text-(--solus-text-tertiary)">Global shortcuts that summon Solus from anywhere on your computer.</p>
           <SettingsSection>
             {@render appBindingRow()}
           </SettingsSection>
         </div>
       {:else}
         {#each selectedSections as section (section.key)}
-          <SettingsSection label={section.label}>
+          {@render ruledSection(section.label)}
+          <SettingsSection>
             {#each section.rows as { id, def } (id)}
               {@render bindingRow(id, def)}
             {/each}

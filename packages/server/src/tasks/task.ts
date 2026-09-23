@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { ulid } from './ulid'
+import { ulid } from '@solus/contracts/ulid'
 import { taskComments, taskLinks, taskSessionLinks, tasks } from './schema'
 import { diffTaskEvents, readTaskEvents, type EventActor } from './task-events'
 import { deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink } from './task-links'

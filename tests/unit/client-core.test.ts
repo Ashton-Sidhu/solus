@@ -144,6 +144,24 @@ describe('client core transport helpers', () => {
     }
   })
 
+  test('answers web visibility on the client without sending a host RPC', async () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { visibilityState: 'hidden' },
+    })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    try {
+      const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
+      expect(await api.isVisible()).toBe(false)
+      expect((transport as unknown as { requests: Map<string, unknown> }).requests.size).toBe(0)
+    } finally {
+      transport.destroy()
+      if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument)
+      else Reflect.deleteProperty(globalThis, 'document')
+    }
+  })
+
   test('expires outage-queued requests after 15s but never ages out the boot queue', () => {
     expect(shouldRejectQueuedRequest(1_000, false, 16_001)).toBe(true)
     expect(shouldRejectQueuedRequest(1_000, false, 16_000)).toBe(false)
@@ -153,6 +171,7 @@ describe('client core transport helpers', () => {
   test('keeps host RPCs on WebSocket but opens external links on the client device', () => {
     const transportApi = {
       start: () => 'ws-start',
+      isVisible: () => 'web-visible',
       openExternal: () => 'web-open',
       getPlatform: () => 'web',
       getPathForFile: () => '',
@@ -161,6 +180,7 @@ describe('client core transport helpers', () => {
     }
     const nativeApi = {
       start: () => 'ipc-start',
+      isVisible: () => 'native-visible',
       openExternal: () => 'native-open',
       getPlatform: () => 'darwin',
       getPathForFile: () => '/tmp/file.txt',
@@ -173,6 +193,7 @@ describe('client core transport helpers', () => {
     const merged = mergeNativeOnlySolusApi(transportApi, nativeApi)
 
     expect((merged.start as () => string)()).toBe('ws-start')
+    expect((merged.isVisible as () => string)()).toBe('native-visible')
     expect((merged.openExternal as () => string)()).toBe('native-open')
     expect((merged.getPlatform as () => string)()).toBe('darwin')
     expect((merged.getPathForFile as () => string)()).toBe('/tmp/file.txt')

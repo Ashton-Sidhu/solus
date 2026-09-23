@@ -6,6 +6,7 @@ import {
     CircleX as XCircleIcon,
     CircleStop as StopCircleIcon,
     Clock as ClockIcon,
+    Activity as ActivityIcon,
   } from "@lucide/svelte";
   import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
@@ -17,7 +18,7 @@ export type PickerEntry =
 
 export type StatusIcon = { component: any; color: string; spin: boolean }
 
-export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' | 'running' | 'queued' | null
+export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' | 'running' | 'background' | 'queued' | null
 
 /** True when `path` is `root` itself or nested beneath it (prefix match on
  *  path segments). Used to scope plans/works to the projects open in the
@@ -66,13 +67,20 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
   }
   if (sess.status === 'rate_limited') return 'queued'
   if (sess.status === 'running' || sess.status === 'connecting') return 'running'
+  return settledAttention(sess.status, tab.hasUnread)
+}
+
+/** What a session whose turn has ended still has to say. */
+function settledAttention(status: SessionStatus, hasUnread: boolean): AttentionState {
+  // A turn that ended with background work left running. Unread output is the
+  // stronger signal, so the background mark shows once the output has been read.
+  if (!hasUnread) return status === 'background' ? 'background' : null
   // A failure reads like the finished check, not like a status light: every path
   // that fails a session marks its tabs unread, so viewing the transcript — where
   // the error itself is — retires the glyph. Without this the red mark outlived
   // the reading of it and only a new turn could clear it.
-  if (!tab.hasUnread) return null
-  if (sess.status === 'failed' || sess.status === 'dead') return 'error'
-  if (sess.status === 'completed') return 'unread'
+  if (status === 'failed' || status === 'dead') return 'error'
+  if (status === 'completed' || status === 'background') return 'unread'
   return null
 }
 
@@ -82,6 +90,7 @@ export function attentionLabel(state: AttentionState): string {
   if (state === 'queued') return 'rate limited'
   if (state === 'error') return 'error'
   if (state === 'unread') return 'finished'
+  if (state === 'background') return 'background task running'
   return ''
 }
 
@@ -98,6 +107,8 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
     return { component: CheckCircleIcon, color: 'var(--solus-status-complete)', spin: false }
   if (state === 'running')
     return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
+  if (state === 'background')
+    return { component: ActivityIcon, color: 'var(--solus-status-running-icon)', spin: false }
   return null
 }
 
@@ -118,11 +129,15 @@ export function hasSessionStarted(
  *  one — it lives on `tab.title` — otherwise the opening prompt. */
 export function sessionTitle(sess: Session): string {
   if (sess.title && sess.title !== 'New Tab') return sess.title
-  for (const m of sess.messages) {
+  // By index, never `for…of`: iterating reads `length`, which subscribes every
+  // caller — the sidebar's whole column among them — to each streamed message
+  // of an untitled session. Indices depend only on the messages read.
+  for (let i = 0; ; i++) {
+    const m = sess.messages[i]
+    if (!m) return 'New session'
     if (m.role === 'user' && m.content)
       return m.content.replace(/\s+/g, ' ').slice(0, 80)
   }
-  return 'New session'
 }
 
 export function projectByline(sess: Session | undefined): string {
@@ -223,6 +238,9 @@ export function getStatusIcon(status: SessionStatus): StatusIcon | null {
     return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
   if (status === 'completed')
     return { component: CheckCircleIcon, color: 'var(--solus-status-complete)', spin: false }
+  // Still, unlike the running spinner: the agent is not working, its task is.
+  if (status === 'background')
+    return { component: ActivityIcon, color: 'var(--solus-status-running-icon)', spin: false }
   if (status === 'interrupted')
     return { component: StopCircleIcon, color: 'var(--solus-status-permission)', spin: false }
   return null
@@ -238,6 +256,7 @@ export function getStatusLabel(status: SessionStatus): string | null {
   if (status === 'running') return 'Running'
   if (status === 'failed' || status === 'dead') return 'Error'
   if (status === 'completed') return 'Completed'
+  if (status === 'background') return 'Background task'
   if (status === 'interrupted') return 'Stopped'
   return null
 }
@@ -263,7 +282,8 @@ export function getStatusGroupKey(sess: Session, tab: Tab, plans?: Record<string
   if (attention === 'queued') return 'rate-limited'
   if (attention === 'running') return 'running'
   if (attention === 'error') return 'error'
-  if (sess.status === 'completed') return 'completed'
+  // The turn is over, so it groups with the finished sessions.
+  if (sess.status === 'completed' || sess.status === 'background') return 'completed'
   return 'idle'
 }
 
@@ -402,7 +422,7 @@ export function findOpenTabForSession(
  *  read: the workspace registry can answer for tabs the plain record can't. */
 export interface OpenSessionLookup {
   tabs: Record<string, Tab>
-  sessions: Record<string, Session>
+  sessions: { byId: Record<string, Session> }
   tabOrder: string[]
   sessionFor(tabId: string): Session | undefined
 }
@@ -419,7 +439,7 @@ export function openSessionFor(
   const tabId = findOpenTabForSession(
     sessionId,
     workspace.tabs,
-    workspace.sessions,
+    workspace.sessions.byId,
     workspace.tabOrder,
     undefined,
     serverId ?? undefined,

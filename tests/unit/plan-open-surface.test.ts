@@ -19,7 +19,6 @@ function openContext(diskContent: string | null) {
   const ctx = {
     activeTabId: 'tab-1',
     activeSession: { run: { workingDirectory: '/repo', provider: 'claude-code' } },
-    globalDefaults: { workingDirectory: '/repo' },
     ctx: undefined,
     planStore: {
       plans,

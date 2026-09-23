@@ -97,16 +97,17 @@ function metaFromRow(row: WorkRow): WorkMeta {
 
 const database = getDatabase
 
-async function workRow(db: Db, organizationId: string, id: string): Promise<WorkRow | undefined> {
+async function workRow(db: Db, organizationId: string, id: string, lock = false): Promise<WorkRow | undefined> {
   return workRowSchema.nullish().parse(await db.get(sql`
     SELECT id, title, preview, type, session_id, agent_provider, cwd, pinned, content, created_at, updated_at, meta
     FROM ${works}
     WHERE id = ${id} AND organization_id = ${organizationId}
+    ${lock && db.engine === 'postgres' ? sql`FOR UPDATE` : sql``}
   `)) ?? undefined
 }
 
 async function requireWorkRow(db: Db, organizationId: string, id: string): Promise<WorkRow> {
-  const row = await workRow(db, organizationId, id)
+  const row = await workRow(db, organizationId, id, true)
   if (!row) throw new Error(`Work not found: ${id}`)
   return row
 }
@@ -174,7 +175,7 @@ export function assertWorkEditable(meta: WorkMeta): void {
 type WorkUpdates = Partial<Pick<Work, 'title' | 'preview' | 'content'>>
 
 async function writeWork(db: Db, id: string, row: WorkRow, updates: WorkUpdates): Promise<Work> {
-  const meta = { ...metaFromRow(row), updatedAt: new Date().toISOString() }
+  const meta = { ...metaFromRow(row), updatedAt: isoTime(Math.max(Date.now(), row.updated_at + 1)) }
   if (updates.title !== undefined) meta.title = updates.title
   if (updates.preview !== undefined) meta.preview = updates.preview
   await updateWorkMeta(db, id, meta, updates.content)
@@ -212,7 +213,7 @@ export async function agentSaveWork(
  * to. */
 export async function revertWork(organizationId: string, id: string): Promise<Work | null> {
   return database().transaction(async (db) => {
-    const row = await workRow(db, organizationId, id)
+    const row = await workRow(db, organizationId, id, true)
     if (!row) return null
     const meta = metaFromRow(row)
     assertWorkEditable(meta)
@@ -291,10 +292,21 @@ export async function duplicateWork(organizationId: string, id: string): Promise
   return { id: duplicateId, content, ...meta }
 }
 
-export async function saveWork(organizationId: string, id: string, updates: WorkUpdates): Promise<Work> {
+/** A small poll response; no document body is sent until the reader reloads. */
+export async function loadWorkUpdatedAt(organizationId: string, id: string): Promise<string | null> {
+  const row = z.object({ updated_at: z.number() }).nullish().parse(await database().get(sql`
+    SELECT updated_at FROM ${works} WHERE id = ${id} AND organization_id = ${organizationId}
+  `))
+  return row ? isoTime(row.updated_at) : null
+}
+
+export async function saveWork(organizationId: string, id: string, updates: WorkUpdates, expectedUpdatedAt?: string): Promise<Work> {
   return database().transaction(async (db) => {
     const row = await requireWorkRow(db, organizationId, id)
     assertWorkEditable(metaFromRow(row))
+    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== isoTime(row.updated_at)) {
+      throw new Error('This work changed in the cloud. Reload the saved copy before saving.')
+    }
     return writeWork(db, id, row, updates)
   })
 }
@@ -344,7 +356,7 @@ export async function listWorks(organizationId: string): Promise<(WorkMeta & { i
 
 export async function setWorkPinned(organizationId: string, id: string, pinned: boolean): Promise<void> {
   await database().transaction(async (db) => {
-    const row = await workRow(db, organizationId, id)
+    const row = await workRow(db, organizationId, id, true)
     if (!row) return
     const meta = metaFromRow(row)
     if (pinned) meta.pinned = true
@@ -373,7 +385,7 @@ export async function setWorkMirroredDoc(organizationId: string, id: string, lin
 
 export async function linkWorkSession(organizationId: string, id: string, sessionId: string): Promise<void> {
   await database().transaction(async (db) => {
-    const row = await workRow(db, organizationId, id)
+    const row = await workRow(db, organizationId, id, true)
     if (!row) return
     const meta = metaFromRow(row)
     const sessionIds = meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])

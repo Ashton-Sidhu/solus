@@ -88,6 +88,22 @@ describe('task status filter', () => {
     expect(withDone.find((group) => group.key === 'done')?.rows).toHaveLength(1)
   })
 
+  test('work in progress whose agent went idle waits on you, not under Agent running', () => {
+    // WHY: "Agent running" once meant "has a linked session", so a task whose
+    // agent stopped hours ago sat there looking busy. Idle work in progress is
+    // the user's turn: it must say so and offer to resume the session it has.
+    const rows = [task('live', 'in_progress'), task('idle', 'in_progress'), task('new', 'todo')]
+    const runningSessionsFor = (taskId: string) => taskId === 'live' ? 1 : 0
+    const groups = taskInboxGroups(rows, runningSessionsFor, NOW, actions, taskStatusesFor(OPEN_TASK_STATUS_KEYS))
+
+    expect(groups.find((group) => group.key === 'running')?.rows.map((row) => row.key)).toEqual(['live'])
+    const waiting = groups.find((group) => group.key === 'waiting')?.rows ?? []
+    expect(waiting.map((row) => [row.key, row.context, row.primary?.label])).toEqual([
+      ['idle', 'Agent idle', 'Resume'],
+      ['new', 'No agent running', 'Start agent'],
+    ])
+  })
+
   test('inbox rows keep the right edge clear of status chips', () => {
     // WHY: the inbox group and context line already explain why each task is
     // present. Repeating that state in a chip crowds the time and row actions.

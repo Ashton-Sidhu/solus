@@ -21,11 +21,8 @@ import type { PrGuideStatus } from '@solus/contracts/review'
 import { z } from 'zod'
 import {
   absoluteTime,
-  checksChip,
-  compactCount,
   compactRelativeTime,
   personFrom,
-  type InboxGroupSpec,
   type ListChecksSpec,
   type ListGroupSpec,
   type ListIcon,
@@ -34,8 +31,9 @@ import {
   type ListTint,
 } from '../../ui/list-page/list-page'
 import { Clock, LoaderCircle, CircleAlert, CircleMinus, BookOpen, BookOpenCheck } from '@lucide/svelte'
-import { relativeTime } from './pr-utils'
+import { relativeTime, type PrSortMode } from './pr-utils'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
+import { PR_STATUS_TONE } from './pr-row-styles'
 
 /** One of the host's labels, as the row's facts line draws it: the name on a
  *  pastel of the host's colour. */
@@ -45,6 +43,10 @@ export interface PrRowLabel {
   color: string
 }
 
+/** A review verdict worth a mark on the row. "Review required" is not one:
+ *  it is the resting state of an open PR, so the row says nothing. */
+export type PrVerdict = 'approved' | 'changes-requested'
+
 /**
  * The pull request row. The shared grammar carries the title, ident, people,
  * churn and checks; what a PR row says beyond that — which repository, whose
@@ -52,8 +54,12 @@ export interface PrRowLabel {
  */
 export interface PrRowSpec extends ListRowSpec {
   status: PrStatusKey
+  verdict: PrVerdict | null
   /** `owner/repo`, so a cross-project list says where each row lives. */
   repo: string
+  /** The project's own name, where the list spans every project. The row
+   *  shows it in place of the repository, which stays its tooltip. */
+  project: string | null
   labels: PrRowLabel[]
   /** Labels past the three drawn, as a `+n` after them. */
   moreLabels: number
@@ -66,14 +72,17 @@ export interface PrRowSpec extends ListRowSpec {
  *  before layout. `PrListRow.svelte` states the same 62. */
 export const PR_LIST_ROW_HEIGHT = 62
 
+/** The most rows the list pages to. Past it the page asks for a
+ *  narrower search: a list that long is searched, not scrolled. */
+export const PR_LIST_LOAD_CAP = 500
+
 const LABELS_SHOWN = 3
 
 export interface PrStatusGlyph {
   icon: ListIcon
   label: string
-  /** A CSS colour: the state's tone mixed toward the foreground so it holds in
-   *  both light and dark mode. */
-  color: string
+  /** The state's tone as text-colour classes, light and dark (`PR_STATUS_TONE`). */
+  toneClass: string
 }
 
 /** The lifecycle state as the glyph that leads the row, the way a code host
@@ -81,21 +90,13 @@ export interface PrStatusGlyph {
 export function prStatusGlyph(status: PrStatusKey): PrStatusGlyph {
   switch (status) {
     case 'open':
-      return {
-        icon: GitPullRequestIcon,
-        label: 'Open',
-        color: 'color-mix(in oklch, var(--success) 72%, var(--foreground))',
-      }
+      return { icon: GitPullRequestIcon, label: 'Open', toneClass: PR_STATUS_TONE.open }
     case 'draft':
-      return { icon: GitPullRequestDraftIcon, label: 'Draft', color: 'var(--muted-foreground)' }
+      return { icon: GitPullRequestDraftIcon, label: 'Draft', toneClass: PR_STATUS_TONE.draft }
     case 'merged':
-      return { icon: GitMergeIcon, label: 'Merged', color: 'var(--review)' }
+      return { icon: GitMergeIcon, label: 'Merged', toneClass: PR_STATUS_TONE.merged }
     case 'closed':
-      return {
-        icon: GitPullRequestClosedIcon,
-        label: 'Closed',
-        color: 'color-mix(in oklch, var(--failure) 70%, var(--foreground))',
-      }
+      return { icon: GitPullRequestClosedIcon, label: 'Closed', toneClass: PR_STATUS_TONE.closed }
   }
 }
 
@@ -105,8 +106,11 @@ export function prStatusGlyph(status: PrStatusKey): PrStatusGlyph {
 export interface PrRowContext {
   checks: (pr: PullRequest) => PrChecksSummary | undefined
   guideStatus?: (pr: PullRequest) => PrGuideStatus | undefined
-  /** Whether the viewer authored it. Drives the "Yours" filter and the inbox split. */
+  /** Whether the viewer authored it. Drives the Authored section. */
   isMine: (pr: PullRequest) => boolean
+  /** Whether the viewer is asked to review it. Absent means the host's own
+   *  `needsMyReview` flag is the whole answer. */
+  isReviewRequested?: (pr: PullRequest) => boolean
 }
 
 function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
@@ -130,55 +134,12 @@ function conflictChips(pr: PullRequest): ListRowSpec['chips'] {
   return hasMergeConflicts(pr) ? [{ label: 'Conflicts', tint: 'warning', icon: TriangleAlertIcon }] : []
 }
 
-/**
- * The lifecycle state as a chip, for the inbox row: its groups are about you
- * rather than about lifecycle, and it has no leading glyph, so the state has
- * to be said in words there.
- */
-function stateChips(pr: PullRequest): ListRowSpec['chips'] {
-  const status = prStatusOf(pr)
-  const glyph = prStatusGlyph(status)
-  return [{ label: glyph.label, tint: STATE_CHIP_TINT[status], icon: glyph.icon }, ...conflictChips(pr)]
-}
-
-/** Draft is the one state that is not news, so it is the one that stays neutral. */
-const STATE_CHIP_TINT: Record<PrStatusKey, ListTint | undefined> = {
-  open: 'success',
-  draft: undefined,
-  merged: 'primary',
-  closed: 'failure',
-}
-
 function rowLabels(pr: PullRequest): Pick<PrRowSpec, 'labels' | 'moreLabels'> {
   return {
     labels: pr.labels.slice(0, LABELS_SHOWN).map(({ name, color }) => ({ name, color })),
     moreLabels: Math.max(0, pr.labels.length - LABELS_SHOWN),
   }
 }
-
-/**
- * Lifecycle order, most-wants-you-first. "Awaiting your review" is deliberately
- * above "Open": the first group is the reason to be on this page at all.
- */
-type PrGroupKey = 'review' | 'open' | 'draft' | 'merged' | 'closed'
-
-function groupOf(pr: PullRequest, ctx: PrRowContext): PrGroupKey {
-  if (pr.state === 'merged') return 'merged'
-  if (pr.state === 'closed') return 'closed'
-  if (pr.draft) return 'draft'
-  if (pr.needsMyReview && !ctx.isMine(pr)) return 'review'
-  return 'open'
-}
-
-const GROUP_LABELS = {
-  review: 'Awaiting your review',
-  open: 'Open',
-  draft: 'Draft',
-  merged: 'Merged',
-  closed: 'Closed',
-} satisfies Record<PrGroupKey, string>
-
-const GROUP_ORDER: PrGroupKey[] = ['review', 'open', 'draft', 'merged', 'closed']
 
 /**
  * The lifecycle states the list can be filtered to. "Awaiting your review" is
@@ -215,13 +176,6 @@ export function prFetchScope(statuses: readonly string[]): 'open' | 'closed' | '
   const wantsClosed = statuses.includes('merged') || statuses.includes('closed')
   if (wantsOpen && wantsClosed) return 'all'
   return wantsClosed ? 'closed' : 'open'
-}
-
-/** `+248 −96`, compacted past a thousand so the column can't be pushed wide by
- *  one enormous PR. The list row draws the same two numbers itself, coloured;
- *  this is the form the inbox's one-line context needs. */
-export function diffSize(pr: PullRequest): string {
-  return `+${compactCount(pr.additions)} −${compactCount(pr.deletions)}`
 }
 
 const BRANCH_PRINTS_WHOLE = 26
@@ -282,6 +236,8 @@ export function prRow(
    *  a cross-repo list must pass a qualified key or two repos' identical
    *  numbers collide into one row. */
   key: string = String(pr.number),
+  /** The project's name, where the list spans every project. */
+  project: string | null = null,
 ): PrRowSpec {
   // A mounted PR store can still hold the former string-only shape during a
   // development hot reload. Keep those rows usable until the next host fetch.
@@ -296,7 +252,9 @@ export function prRow(
     ident: `#${pr.number}`,
     title: pr.title,
     status: prStatusOf(pr),
+    verdict: pr.reviewStatus === 'approved' || pr.reviewStatus === 'changes-requested' ? pr.reviewStatus : null,
     repo: `${pr.baseRepo.owner}/${pr.baseRepo.repo}`,
+    project,
     ...rowLabels(pr),
     updated: relativeTime(pr.updatedAt, now),
     // The state leads the row as a glyph, so the chips are only what needs
@@ -306,7 +264,9 @@ export function prRow(
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr, ctx.checks(pr)),
     meta: '',
-    churn: { additions: pr.additions, deletions: pr.deletions },
+    // 0 / 0 is what a listing without line counts reports, not an empty
+    // change, so it says nothing rather than a false "+0 −0".
+    churn: pr.additions + pr.deletions > 0 ? { additions: pr.additions, deletions: pr.deletions } : undefined,
     // Slot 1 is the author; slots 7 are whoever else is on the hook for it.
     people: [personFrom(pr.author, undefined, pr.authorAvatarUrl), ...reviewers],
     time: compactRelativeTime(pr.updatedAt, now),
@@ -314,175 +274,85 @@ export function prRow(
   }
 }
 
-/** The grouped global list. Empty groups are dropped rather than shown at zero. */
-export function prGroups(
-  prs: PullRequest[],
-  ctx: PrRowContext,
-  now: number,
-  /** Which PR each row is stacked on, when stacks are enabled. A function
-   *  rather than a `Map<number, number>` because a cross-repo list cannot key
-   *  a lookup by bare PR number. */
-  stackParentOf?: (pr: PullRequest) => number | null,
-  /** Row identity override — see `prRow`. */
-  keyFor?: (pr: PullRequest) => string,
-): ListGroupSpec<PrRowSpec>[] {
-  return GROUP_ORDER.map((key) => ({
-    key,
-    label: GROUP_LABELS[key],
-    rows: prs
-      .filter((pr) => groupOf(pr, ctx) === key)
-      .map((pr) => prRow(pr, ctx, now, stackParentOf?.(pr) ?? null, keyFor?.(pr))),
-  })).filter((group) => group.rows.length > 0)
+/**
+ * The list's sections, partitioned by involvement: what you wrote, then
+ * what you are asked to review, then everything else. A pull request that is
+ * both yours and waiting on your review is yours — it is the work you own.
+ * Order inside each section is the order handed in, so the chosen sort holds
+ * within every section while Authored stays first. Empty sections are dropped.
+ */
+export type PrSectionKey = 'authored' | 'review-requested' | 'others' | 'all'
+
+export interface PrSection {
+  key: PrSectionKey
+  label: string
+  prs: PullRequest[]
 }
 
-export interface PrInboxActions {
-  review: (pr: PullRequest) => void
-  open: (pr: PullRequest) => void
-  openExternal: (pr: PullRequest) => void
+const SECTION_LABELS = {
+  authored: 'Authored',
+  'review-requested': 'Review requested',
+  others: 'Others',
+} satisfies Record<Exclude<PrSectionKey, 'all'>, string>
+
+/** Whether the viewer wrote this pull request. No login means not the viewer's:
+ *  a PR is never labelled yours on a guess. */
+export function isAuthoredBy(pr: PullRequest, viewerLogin: string | null): boolean {
+  return !!viewerLogin && pr.author.toLowerCase() === viewerLogin.toLowerCase()
+}
+
+/** Whether the host lists the viewer as a requested reviewer on this pull request. */
+export function isReviewRequestedFrom(pr: PullRequest, viewerLogin: string | null): boolean {
+  const login = viewerLogin?.toLowerCase()
+  return !!login && !!pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === login)
+}
+
+export function prSections(prs: readonly PullRequest[], ctx: Pick<PrRowContext, 'isMine' | 'isReviewRequested'>): PrSection[] {
+  const authored: PullRequest[] = []
+  const reviewRequested: PullRequest[] = []
+  const others: PullRequest[] = []
+  for (const pr of prs) {
+    if (ctx.isMine(pr)) authored.push(pr)
+    else if (pr.needsMyReview || ctx.isReviewRequested?.(pr)) reviewRequested.push(pr)
+    else others.push(pr)
+  }
+  const sections: PrSection[] = [
+    { key: 'authored', label: SECTION_LABELS.authored, prs: authored },
+    { key: 'review-requested', label: SECTION_LABELS['review-requested'], prs: reviewRequested },
+    { key: 'others', label: SECTION_LABELS.others, prs: others },
+  ]
+  return sections.filter((section) => section.prs.length > 0)
 }
 
 /**
- * The personal inbox. The global list is for looking; this is for finishing.
- *
- * Three groups, derived from what the list fetch already knows: what is waiting
- * on your review, what is waiting on *you* to move your own PR along (failing
- * checks, requested changes), and what has landed. There is no mentions group —
- * review-comment mentions need a notifications fetch the PR list doesn't make.
- *
- * The page's status filter reaches in here too, so the queue holds only the
- * states asked for. Landed work is off by default: an inbox is a list of
- * decisions, and a merged PR is not one.
+ * Whether the list is split into sections. Only the unnarrowed list is: a
+ * search is ordered by how well each row answers it, and a list already
+ * narrowed to one involvement would put every row in one section anyway.
  */
-export function prInboxGroups(
-  prs: PullRequest[],
+export function showsPrSections(involvement: PrListView['involvement'], query: string): boolean {
+  return involvement === 'all' && query.trim().length === 0
+}
+
+/** The list as one flat group — the shape a search or a narrowed list takes. */
+export function flatPrSection(prs: PullRequest[]): PrSection[] {
+  return prs.length > 0 ? [{ key: 'all', label: 'Pull requests', prs }] : []
+}
+
+/** The sections as the shared list grammar's groups. */
+export function prGroups(
+  sections: PrSection[],
   ctx: PrRowContext,
   now: number,
-  actions: PrInboxActions,
-  statuses: Set<string>,
   /** Row identity override — see `prRow`. */
   keyFor?: (pr: PullRequest) => string,
-): InboxGroupSpec[] {
-  const groups: InboxGroupSpec[] = []
-  const updated = (pr: PullRequest) => Date.parse(pr.updatedAt) || 0
-  const shown = prs.filter((pr) => statuses.has(prStatusOf(pr)))
-
-  const needsYou = shown.filter(
-    (pr) => pr.state === 'open' && !pr.draft && pr.needsMyReview && !ctx.isMine(pr),
-  )
-  if (needsYou.length > 0) {
-    groups.push({
-      key: 'needs',
-      label: 'Needs you',
-      note: 'oldest first',
-      accent: true,
-      rows: [...needsYou]
-        .sort((a, b) => updated(a) - updated(b))
-        .map((pr) => ({
-          ...inboxRowBase(pr, ctx, now, keyFor),
-          title:
-            pr.reviewAttention === 'assigned'
-              ? `Assigned to you: ${pr.title}`
-              : `Review requested: ${pr.title}`,
-          context: reviewContext(pr, ctx),
-          unread: true,
-          primary: { label: 'Review', shortcut: '⏎', run: () => actions.review(pr) },
-          secondary: { label: 'Open on host', run: () => actions.openExternal(pr) },
-        })),
-    })
-  }
-
-  // Your open pull requests belong in the personal inbox even when they are
-  // healthy. The queue spans projects, so this is the one place to see what you
-  // own without opening each repository first.
-  const yours = shown.filter((pr) => pr.state === 'open' && ctx.isMine(pr))
-  if (yours.length > 0) {
-    groups.push({
-      key: 'waiting',
-      label: 'Your pull requests',
-      note: 'newest first',
-      rows: [...yours]
-        .sort((a, b) => updated(b) - updated(a))
-        .map((pr) => ({
-          ...inboxRowBase(pr, ctx, now, keyFor),
-          context: yourPrContext(pr, ctx),
-          unread: false,
-          primary: { label: 'Open', shortcut: '⏎', run: () => actions.open(pr) },
-        })),
-    })
-  }
-
-  const landed = shown.filter((pr) => pr.state === 'merged' || pr.state === 'closed')
-  if (landed.length > 0) {
-    groups.push({
-      key: 'done',
-      label: 'Done',
-      note: 'newest first',
-      rows: [...landed]
-        .sort((a, b) => updated(b) - updated(a))
-        .map((pr) => ({
-          ...inboxRowBase(pr, ctx, now, keyFor),
-          context: `${pr.state === 'merged' ? 'Merged' : 'Closed'} · ${diffSize(pr)}${pr.headRef ? ` · ${pr.headRef}` : ''}`,
-          unread: false,
-        })),
-    })
-  }
-
-  return groups
-}
-
-/** The lifecycle state rides as a chip, so the line only names the failing
- *  check — the one fact the chip's count cannot carry. */
-function yourPrContext(pr: PullRequest, ctx: PrRowContext): string {
-  const checks = ctx.checks(pr)
-  const parts = ['Your PR']
-  if (checks?.headSha === pr.headSha && checks.state === 'failing') parts.push(failingContext(checks))
-  if (pr.headRef) parts.push(pr.headRef)
-  return parts.join(' · ')
-}
-
-function inboxRowBase(
-  pr: PullRequest,
-  ctx: PrRowContext,
-  now: number,
-  keyFor?: (pr: PullRequest) => string,
-) {
-  return {
-    key: keyFor?.(pr) ?? String(pr.number),
-    ident: `#${pr.number}`,
-    title: pr.title,
-    context: '',
-    actor: personFrom(pr.author, undefined, pr.authorAvatarUrl),
-    time: compactRelativeTime(pr.updatedAt, now),
-    timeTitle: absoluteTime(pr.updatedAt),
-    unread: false,
-    chips: [...stateChips(pr), ...inboxChecksChips(pr, ctx), ...guideChips(pr, ctx)],
-  }
-}
-
-/** The inbox row has no checks slot, so the same fact rides as a chip. */
-function inboxChecksChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
-  const chip = checksChip(checksFor(pr, ctx.checks(pr)))
-  return chip ? [chip] : []
-}
-
-function reviewContext(pr: PullRequest, ctx: PrRowContext): string {
-  const parts: string[] = []
-  if (pr.headRef) parts.push(pr.headRef)
-  parts.push(diffSize(pr))
-  const checks = ctx.checks(pr)
-  if (checks && checks.headSha === pr.headSha && checks.state === 'failing') {
-    parts.push(failingContext(checks))
-  }
-  if (pr.effort) parts.push(`≈ ${pr.effort.minutes} min`)
-  return parts.join(' · ')
-}
-
-function failingContext(checks: PrChecksSummary | undefined): string {
-  if (!checks) return 'checks failing'
-  const failing = checks.required.filter((check) => check.conclusion === 'failure')
-  if (failing.length === 0) return 'checks failing'
-  if (failing.length === 1) return `${failing[0].name} failing`
-  return `${failing.length} checks failing`
+  /** The project a row belongs to, where the list spans every project. */
+  projectOf?: (pr: PullRequest) => string | null,
+): ListGroupSpec<PrRowSpec>[] {
+  return sections.map((section) => ({
+    key: section.key,
+    label: section.label,
+    rows: section.prs.map((pr) => prRow(pr, ctx, now, null, keyFor?.(pr), projectOf?.(pr) ?? null)),
+  }))
 }
 
 /**
@@ -496,10 +366,10 @@ function failingContext(checks: PrChecksSummary | undefined): string {
 export interface PrListView {
   guide: 'all' | 'has-guide'
   query: string
-  /** The lifecycle states the list and the inbox are showing. Also decides the
-   *  *fetch* scope, since the server pages open and closed separately. */
+  /** The lifecycle states the list is showing. Also decides the *fetch*
+   *  scope, since the server pages open and closed separately. */
   statusKeys: string[]
-  sortMode: 'updated' | 'created' | 'effort'
+  sortMode: PrSortMode
   involvement: 'all' | 'created' | 'assigned' | 'review-requested'
   author: string | null
   label: string | null
@@ -522,7 +392,7 @@ export function emptyListView(): PrListView {
     guide: 'all',
     query: '',
     statusKeys: [...OPEN_PR_STATUS_KEYS],
-    sortMode: 'created',
+    sortMode: 'ready',
     involvement: 'all',
     author: null,
     label: null,

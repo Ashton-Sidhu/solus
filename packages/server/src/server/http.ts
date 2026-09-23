@@ -1,3 +1,4 @@
+import { rememberIntegrationGrant } from '../vault/account-integrations'
 import { sharedPromptPollSchema, sharedPromptResultSchema, type SharedPromptRelay } from '../sharing/shared-prompt'
 import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
 import { createReadStream, existsSync, realpathSync } from 'fs'
@@ -22,8 +23,6 @@ import type { ResolvedLinkShare } from '../sharing/share-manager'
 import { normalizeDisplayName, parseGrantSubject, type GrantSubject, type HostGrantClaims } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from './uplink/runner-protocol'
 import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from './uplink/runner-protocol'
-import { RUNNER_CREDENTIAL_LEASE_PATH, RUNNER_CREDENTIAL_LOCK_PATH, RUNNER_CREDENTIAL_UNLOCK_PATH, RUNNER_CREDENTIAL_WRITEBACK_PATH, runnerCredentialLeaseRequestSchema, runnerCredentialLockRequestSchema, runnerCredentialUnlockRequestSchema, runnerCredentialWritebackRequestSchema, type RunnerCredentialLeaseRequest, type RunnerCredentialLeaseResponse, type RunnerCredentialLockRequest, type RunnerCredentialLockResponse, type RunnerCredentialUnlockRequest, type RunnerCredentialWritebackRequest, type RunnerCredentialWritebackResponse } from './uplink/runner-protocol'
-import type { RunnerCredentialOutcome } from './runner-intake'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -80,11 +79,7 @@ export interface HttpServerOptions {
     applySessionRecords: (runner: RunnerPrincipal, request: RunnerSessionRecordsRequest) => Promise<RunnerSessionRecordsResponse>
     /** The mirrored domains (§6): transcript rows and insights. */
     applyMirror: (runner: RunnerPrincipal, request: RunnerMirrorRequest) => Promise<RunnerMirrorResponse>
-    /** The credential vault (§5): a runner leases, locks, unlocks, and writes back one person's credential. */
-    leaseCredential: (runner: RunnerPrincipal, request: RunnerCredentialLeaseRequest) => Promise<RunnerCredentialOutcome<RunnerCredentialLeaseResponse>>
-    lockCredential: (runner: RunnerPrincipal, request: RunnerCredentialLockRequest) => Promise<RunnerCredentialOutcome<RunnerCredentialLockResponse>>
-    unlockCredential: (runner: RunnerPrincipal, request: RunnerCredentialUnlockRequest) => Promise<RunnerCredentialOutcome<{ released: boolean }>>
-    writebackCredential: (runner: RunnerPrincipal, request: RunnerCredentialWritebackRequest) => Promise<RunnerCredentialOutcome<RunnerCredentialWritebackResponse>>
+
   }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
@@ -366,7 +361,10 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
         log.info('host_grant_rejected', { reason: verdict.reason })
       } else {
         const outcome = await ticketForGrant(verdict.claims, await readJson(c, wsTicketRequestSchema), opts.resolveShareSecret, { workspace: opts.isWorkspaceMode ?? false })
-        if (outcome.ok) ticket = outcome.ticket
+        if (outcome.ok) {
+          ticket = outcome.ticket
+          rememberIntegrationGrant(bearer, verdict.claims)
+        }
         else log.info('host_grant_rejected', { reason: outcome.reason })
       }
     }
@@ -432,42 +430,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       if (!body) return c.json({ error: 'invalid_request' }, 400)
       if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
       return c.json(await runner.applyMirror(principal, body))
-    })
-    // The credential routes answer a refusal with its own status and the vault's
-    // error name, so the runner can tell "no credential" from "not yours".
-    const answerCredential = <T>(c: Ctx, outcome: RunnerCredentialOutcome<T>) =>
-      outcome.kind === 'ok' ? c.json(outcome.body) : c.json({ error: outcome.error }, outcome.status)
-    app.post(RUNNER_CREDENTIAL_LEASE_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerCredentialLeaseRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return answerCredential(c, await runner.leaseCredential(principal, body))
-    })
-    app.post(RUNNER_CREDENTIAL_LOCK_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerCredentialLockRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return answerCredential(c, await runner.lockCredential(principal, body))
-    })
-    app.post(RUNNER_CREDENTIAL_UNLOCK_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerCredentialUnlockRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return answerCredential(c, await runner.unlockCredential(principal, body))
-    })
-    app.post(RUNNER_CREDENTIAL_WRITEBACK_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerCredentialWritebackRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return answerCredential(c, await runner.writebackCredential(principal, body))
     })
   }
 

@@ -4,7 +4,7 @@
  * workspace service ticket door, and loses it the moment the link is regenerated.
  *
  * The Lab issuer stands in for Solus cloud. A small origin serves the built web client
- * under `/app/` and mints guest grants at `/v1/workspace/guest-grant`, exactly as the
+ * at `/` and mints guest grants at `/v1/workspace/guest-grant`, exactly as the
  * account origin does; the host trusts the issuer's key and admits the grant only with
  * the link secret. Nothing here touches `~/.solus`.
  *
@@ -41,7 +41,7 @@ const MIME = new Map([
 const addressSchema = z.object({ port: z.number().int().positive() })
 const guestRequestSchema = z.object({ guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(), displayName: z.string().max(160).optional() })
 
-/** The account origin in miniature: the bundle at `/app/`, guest grants at `/v1`. */
+/** The account origin in miniature: the bundle at `/`, guest grants at `/v1`. */
 function startOrigin(issuer: LabIssuer, host: WorkspaceService): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
@@ -72,10 +72,10 @@ function startOrigin(issuer: LabIssuer, host: WorkspaceService): Promise<{ serve
       response.end('{"error":"unauthorized"}')
       return
     }
-    // The bundle under /app/, with the SPA fallback the account origin has.
-    const relative = normalize(url.pathname.replace(/^\/app\/?/, '')).replace(/^(\.\.[/\\])+/, '')
+    // The bundle at the root, with the SPA fallback the account origin has.
+    const relative = normalize(url.pathname).replace(/^(\.\.[/\\])+/, '')
     let file = join(APP_DIR, relative)
-    if (!url.pathname.startsWith('/app') || !existsSync(file) || statSync(file).isDirectory()) file = join(APP_DIR, 'index.html')
+    if (!existsSync(file) || statSync(file).isDirectory()) file = join(APP_DIR, 'index.html')
     response.setHeader('content-type', MIME.get(extname(file)) ?? 'application/octet-stream')
     response.setHeader('cache-control', 'no-cache')
     response.end(readFileSync(file))
@@ -105,7 +105,7 @@ async function landAsGuest(page: Page, origin: string, resource: ShareResource, 
 
 async function main(): Promise<void> {
   mkdirSync(ARTIFACTS, { recursive: true })
-  const built = spawnSync('bun', ['run', 'vite', 'build', '--base=/app/', `--outDir=${APP_DIR}`], { cwd: join(ROOT, 'apps/client'), stdio: 'inherit' })
+  const built = spawnSync('bun', ['run', 'vite', 'build', `--outDir=${APP_DIR}`], { cwd: join(ROOT, 'apps/client'), stdio: 'inherit' })
   if (built.status !== 0) throw new Error('Client build failed')
   const issuer = new LabIssuer()
   await issuer.start()

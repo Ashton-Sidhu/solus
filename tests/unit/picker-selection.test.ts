@@ -3,8 +3,50 @@ import { describe, expect, test } from "bun:test";
 import {
   modelPickerNavigationTarget,
   isSessionSettingsShortcutTarget,
+  splitLegacyModels,
   supportsFastModeFor,
 } from "@solus/workspace-ui/components/pickers/lib/picker-selection";
+
+describe("legacy model disclosure", () => {
+  const CLAUDE = [
+    { id: "claude-opus-5-5", label: "Opus 5.5" },
+    { id: "claude-opus-4-8", label: "Opus 4.8" },
+    { id: "claude-sonnet-5", label: "Sonnet 5" },
+    { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  ];
+
+  test("keeps the superseded generation out of the column it is collapsed under", () => {
+    // WHY: the model column is a shortlist. Every profile stays selectable, but
+    // only the generation we expect people to pick is on screen by default.
+    const { current, legacy } = splitLegacyModels("claude-code", CLAUDE);
+    expect(current.map((model) => model.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+    expect(legacy.map((model) => model.id)).toEqual(["claude-opus-4-8", "claude-sonnet-4-6"]);
+  });
+
+  test("holds the provider's own order inside each section", () => {
+    // WHY: the backend lists newest first. Sorting either half would bury the
+    // model most people came for under the one they were avoiding.
+    const { current } = splitLegacyModels("claude-code", [...CLAUDE].reverse());
+    expect(current.map((model) => model.id)).toEqual(["claude-sonnet-5", "claude-opus-5-5"]);
+  });
+
+  test("treats a model the profile table does not know as current", () => {
+    // WHY: an unreported model is far likelier to be newly shipped than retired,
+    // and hiding it would make it unreachable rather than merely quiet.
+    const { current, legacy } = splitLegacyModels("claude-code", [
+      { id: "claude-opus-6", label: "Opus 6" },
+    ]);
+    expect(current.map((model) => model.id)).toEqual(["claude-opus-6"]);
+    expect(legacy).toHaveLength(0);
+  });
+
+  test("leaves the disclosure off entirely when nothing is superseded", () => {
+    const { legacy } = splitLegacyModels("claude-code", [
+      { id: "claude-opus-5-5", label: "Opus 5.5" },
+    ]);
+    expect(legacy).toHaveLength(0);
+  });
+});
 
 describe("model picker shortcut target", () => {
   test("opens the primary draft picker when the shortcut is unaddressed", () => {

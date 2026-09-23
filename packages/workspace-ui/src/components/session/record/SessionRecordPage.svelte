@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { SessionRecordStore } from "../../../contexts/sessions/session-record.store.svelte";
   import { CloudOff as CloudOffIcon, MessageSquare as MessageSquareIcon, Send as SendIcon } from "@lucide/svelte";
-  import { getClientShellContext, getWorkspaceContext, serversStore } from "../../../contexts";
+  import { getClientShellContext, getSurfaceContext, serversStore } from "../../../contexts";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import PaneChrome from "../../ui/PaneChrome.svelte";
@@ -22,7 +22,7 @@
    */
   let { params, paneId, composer }: RouteSurfaceProps<"sessionRecord"> & { composer?: Snippet } = $props();
 
-  const workspace = getWorkspaceContext();
+  const workspace = getSurfaceContext();
   const shell = getClientShellContext();
   const pane = paneActions(() => paneId);
 
@@ -43,7 +43,7 @@
   const homeLabel = $derived(serversStore.cloudHomeLabel(params.serverId) ?? home?.label ?? "this host");
 
   function close() {
-    workspace.router.closeGroup("page");
+    workspace.workspace?.router.closeGroup("page");
   }
 </script>
 

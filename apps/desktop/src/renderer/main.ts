@@ -85,19 +85,18 @@ async function boot(): Promise<void> {
   serverConnections.registerPrimary(target.id, api, transport, target)
 
   transport.start()
-  const startupTranscript = prefetchStartupTranscript()
+  void prefetchStartupTranscript()
   // Every catalog entry is eagerly desired: saved remote hosts hold live
   // supervised sockets from boot, so their rows go live instead of cached.
   serverConnections.startCatalogSupervisors()
   performance.mark('solus.boot.transport')
 
-  // The active transcript and its renderer are the boot path. Secondary host
-  // state starts after mount; never reveal a shell with no conversation renderer.
+  // Load the conversation renderer before mount, but let history arrive in the
+  // background. A slow or offline host must not keep the workspace hidden.
   const [{ mount }, { default: App }, { default: initialWorkspaceLayout }] = await Promise.all([
     import('svelte'),
     import('./App.svelte'),
     import('@solus/workspace-ui/components/layout/WorkspaceLayout.svelte'),
-    startupTranscript,
   ])
   performance.mark('solus.boot.modules')
   root.innerHTML = ''

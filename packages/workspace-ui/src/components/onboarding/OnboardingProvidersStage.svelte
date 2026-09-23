@@ -5,7 +5,6 @@
    * and the Atlassian site form — so anything connected here is connected
    * everywhere, and Settings shows it without a second round trip.
    */
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { Cloud as CloudIcon, LayoutGrid as AtlassianIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { atlassianStore, cloudflareStore, connectionsStore } from "../../contexts";
@@ -16,7 +15,7 @@
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
 
-  const serverId = serverConnections.defaultServerId();
+  const serverId = store.serverId;
 
   /** Open only while the user is actually pasting a token. */
   let cloudflareFormOpen = $state(false);

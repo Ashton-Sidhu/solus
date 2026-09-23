@@ -257,7 +257,6 @@ function isDivider(item: GroupedItem): boolean {
 
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
-  'question',
   'artifact',
   'automation',
   'document',
@@ -337,6 +336,10 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
       if (item.kind === 'tool-group' || item.kind === 'subagent-group') {
         turn.tools.push(...item.messages)
       }
+      // An answered question folds away with the rest of the work, so the row
+      // has to report that the turn asked — otherwise a decision the reader
+      // made disappears from the transcript once the turn ends.
+      if (item.kind === 'question') turn.tools.push(item.message)
     }
 
     // Only a notice at the very end closed the run; one in the middle is a
@@ -479,8 +482,14 @@ export function needsLiveRow(turn: Turn): boolean {
   // and render_artifact push their card the moment the call starts, so the group
   // stops being the last item while it is still running — checking only the tail
   // would report the same call twice.
-  if (turn.tools.some((tool) => tool.toolStatus === 'running')) return false
+  if (turn.tools.some((tool) => tool.toolStatus === 'running' && !tool.subMessages)) return false
   const last = turn.body[turn.body.length - 1]
+  // A running sub-agent does not: the parent keeps writing below its card, and
+  // once the card scrolls away nothing at the tail says the run is still going.
+  // Only the card at the tail reports its own agents.
+  if (last?.kind === 'subagent-group') {
+    return !last.messages.some((message) => message.toolStatus === 'running')
+  }
   // An agent-conversation stack at the tail carries its own live chrome (pulse dot, "writing
   // a reply" shimmer) — a Thinking row under it would report the run twice.
   return last?.kind !== 'tool-group' && last?.kind !== 'agent-conversation-group'

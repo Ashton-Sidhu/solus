@@ -23,7 +23,7 @@ export function installDesktopUpdates(core: DesktopAppCore): void {
   updatesStore.start();
 
   const isLocalHostBusy = $derived(
-    Object.values(session.sessions).some(
+    Object.values(session.sessions.byId).some(
       (item) => item.run.serverId === LOCAL_SERVER_ID && isSessionBusyStatus(item.status),
     ),
   );

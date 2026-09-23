@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { DiffScope } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import type {
     ReviewView,
@@ -26,6 +27,16 @@
     );
   }
 
+  // A new scope is a new change to read, so a file jump into the old one ends.
+  function selectScope(next: DiffScope | undefined) {
+    const { filePath: _filePath, scope: _scope, ...rest } = params;
+    const nextParams: RouteParams["review"] = next ? { ...rest, scope: next } : rest;
+    session.router.navigate(
+      { name: "review", params: nextParams },
+      { target: paneId, replace: true },
+    );
+  }
+
   // Jumping to a file is a request, not a state: asking for the same file twice
   // has to move the panel again. The router's navigation epoch is that request.
   const navigationRequestId = $derived(
@@ -39,6 +50,7 @@
   {view}
   onSelectView={selectView}
   scope={params.scope}
+  onSelectScope={selectScope}
   target={params.target}
   guideKeyOverride={params.guideKey}
   checkoutRepoRoot={params.cwd}

@@ -4,19 +4,28 @@
     RefreshCw as ArrowsClockwiseIcon,
     MessageCircleQuestion as ChatCircleQuestionIcon,
     Ellipsis as DotsThreeIcon,
+    BookOpen as GuideIcon,
     GitPullRequest as GitPullRequestIcon,
+    GitMerge as GitMergeIcon,
     Hammer as HammerIcon,
     Link as LinkIcon,
     Pen as PencilSimpleIcon,
+    Undo2 as UndoIcon,
   } from "@lucide/svelte";
   import type {
     PrLifecycleAction,
+    PrStateAction,
     PullRequest,
   } from "@solus/contracts/providers";
+  import type { MergeMethod } from "@solus/contracts/types";
+  import type { ReviewGuideStatus } from "@solus/contracts/review";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import PrActionConfirm from "./PrActionConfirm.svelte";
+  import { MERGE_METHOD_OPTIONS } from "./lib/merge-method";
+  import { prMenuHostActions, type MergeAction } from "./lib/merge-readiness";
 
   // Pull request actions that do not need a permanent button. The menu rides
   // in the status card beside the merge state, so the PR-aware agent handoffs
@@ -33,6 +42,14 @@
     fixCommentsBusy = false,
     onRefresh,
     onLifecycleAction,
+    primaryAction = null,
+    onEnableAutoMerge,
+    onDisableAutoMerge,
+    onMergeNow,
+    onRevert,
+    guideStatus,
+    onGenerateGuide,
+    onOpenGuide,
   }: {
     pr: { host?: string };
     detail: PullRequest | null;
@@ -44,15 +61,52 @@
     askQuestionBusy?: boolean;
     fixCommentsBusy?: boolean;
     onRefresh?: () => void;
-    onLifecycleAction?: (
-      action: Exclude<PrLifecycleAction, "merge">,
-    ) => Promise<void>;
+    onLifecycleAction?: (action: PrStateAction) => Promise<void>;
+    /** The move the status card already offers, so the menu offers the
+     *  others: "Merge now" beside an auto-merge, not a second auto-merge. */
+    primaryAction?: MergeAction | null;
+    onEnableAutoMerge?: (method: MergeMethod) => Promise<void>;
+    onDisableAutoMerge?: () => Promise<void>;
+    onMergeNow?: (method: MergeMethod) => Promise<void>;
+    onRevert?: () => Promise<void>;
+    /** The review guide's lifecycle; undefined until one is asked for. */
+    guideStatus?: ReviewGuideStatus;
+    /** Absent while the PR cannot carry a guide (draft, closed, merged). */
+    onGenerateGuide?: () => void;
+    onOpenGuide?: () => void;
   } = $props();
+
+  const generatingGuide = $derived(
+    guideStatus === "queued" || guideStatus === "generating",
+  );
+  const canOpenGuide = $derived(!!onOpenGuide && !!guideStatus && !generatingGuide);
 
   let open = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
-  let lifecycleAction = $state<Exclude<PrLifecycleAction, "merge"> | null>(
-    null,
+  let lifecycleAction = $state<PrLifecycleAction | null>(null);
+  // The host action waiting on the reader's answer in the confirmation.
+  let confirming = $state<"enable-auto-merge" | "revert" | null>(null);
+  let confirmOpen = $state(false);
+
+  const hostActions = $derived(
+    detail ? prMenuHostActions(detail, primaryAction) : null,
+  );
+  const methodLabel = $derived(
+    (
+      MERGE_METHOD_OPTIONS.find((option) => option.value === hostActions?.method)
+        ?.label ?? "Merge commit"
+    ).toLowerCase(),
+  );
+  const showEnableAutoMerge = $derived(
+    !!onEnableAutoMerge && !!hostActions?.enableAutoMerge,
+  );
+  const showDisableAutoMerge = $derived(
+    !!onDisableAutoMerge && !!hostActions?.disableAutoMerge,
+  );
+  const showMergeNow = $derived(!!onMergeNow && !!hostActions?.mergeNow);
+  const showRevert = $derived(!!onRevert && !!hostActions?.revert);
+  const hasHostAction = $derived(
+    showEnableAutoMerge || showDisableAutoMerge || showMergeNow || showRevert,
   );
 
   const allowedActions = $derived(
@@ -75,7 +129,10 @@
       (showRemoteLink && !!prUrl) ||
       !!prUrl ||
       !!onRefresh ||
-      hasLifecycleAction,
+      !!onGenerateGuide ||
+      canOpenGuide ||
+      hasLifecycleAction ||
+      hasHostAction,
   );
 
   function runAction(action: () => void) {
@@ -91,19 +148,45 @@
     requestInputFocus();
   }
 
-  async function updateLifecycle(action: Exclude<PrLifecycleAction, "merge">) {
-    if (!onLifecycleAction || lifecycleAction) return;
+  async function runHostAction(
+    action: PrLifecycleAction,
+    write: () => Promise<void>,
+    failure: string,
+  ) {
+    if (lifecycleAction) return;
     open = false;
     lifecycleAction = action;
     try {
-      await onLifecycleAction(action);
+      await write();
     } catch (error) {
-      toasts.error("Couldn't update the pull request", {
+      toasts.error(failure, {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
       lifecycleAction = null;
       requestInputFocus();
+    }
+  }
+
+  function updateLifecycle(action: PrStateAction) {
+    if (!onLifecycleAction) return;
+    const run = onLifecycleAction;
+    void runHostAction(action, () => run(action), "Couldn't update the pull request");
+  }
+
+  function confirm(action: "enable-auto-merge" | "revert") {
+    open = false;
+    confirming = action;
+    confirmOpen = true;
+  }
+
+  function runConfirmed() {
+    const method = hostActions?.method;
+    if (confirming === "enable-auto-merge" && onEnableAutoMerge && method) {
+      const run = onEnableAutoMerge;
+      void runHostAction("enable-auto-merge", () => run(method), "Couldn't turn on auto-merge");
+    } else if (confirming === "revert" && onRevert) {
+      void runHostAction("revert", onRevert, "Couldn't open a revert pull request");
     }
   }
 </script>
@@ -168,6 +251,32 @@
           {fixCommentsBusy ? "Preparing…" : "Draft fixes for comments"}
         </DropdownMenu.Item>
       {/if}
+      <!-- The review guide is a reading aid, not a merge move, so it lives
+           here rather than as a row in the rail. The label carries its state:
+           in flight, failed, or ready to open. -->
+      {#if canOpenGuide && onOpenGuide}
+        {@const openGuide = onOpenGuide}
+        <DropdownMenu.Item onSelect={() => runAction(openGuide)}>
+          <GuideIcon size={14} />
+          Open review guide
+        </DropdownMenu.Item>
+      {/if}
+      {#if onGenerateGuide}
+        {@const generate = onGenerateGuide}
+        <DropdownMenu.Item
+          disabled={generatingGuide}
+          onSelect={() => runAction(generate)}
+        >
+          <GuideIcon size={14} />
+          {generatingGuide
+            ? "Generating review guide…"
+            : guideStatus === "failed"
+              ? "Retry review guide"
+              : guideStatus
+                ? "Regenerate review guide"
+                : "Generate review guide"}
+        </DropdownMenu.Item>
+      {/if}
 
       {#if prUrl}
         <DropdownMenu.Separator />
@@ -187,13 +296,53 @@
         </DropdownMenu.Item>
       {/if}
 
-      {#if hasLifecycleAction}
+      {#if hasLifecycleAction || hasHostAction}
         <DropdownMenu.Separator />
+      {/if}
+      {#if showMergeNow && onMergeNow && hostActions}
+        {@const run = onMergeNow}
+        {@const method = hostActions.method}
+        <DropdownMenu.Item
+          disabled={!!lifecycleAction}
+          onSelect={() =>
+            void runHostAction("merge", () => run(method), "Couldn't merge the pull request")}
+        >
+          <GitMergeIcon size={14} />
+          Merge now
+        </DropdownMenu.Item>
+      {/if}
+      {#if showDisableAutoMerge && onDisableAutoMerge}
+        {@const run = onDisableAutoMerge}
+        <DropdownMenu.Item
+          disabled={!!lifecycleAction}
+          onSelect={() =>
+            void runHostAction("disable-auto-merge", run, "Couldn't turn off auto-merge")}
+        >
+          <GitMergeIcon size={14} />
+          Disable auto-merge
+        </DropdownMenu.Item>
+      {:else if showEnableAutoMerge}
+        <DropdownMenu.Item
+          disabled={!!lifecycleAction}
+          onSelect={() => confirm("enable-auto-merge")}
+        >
+          <GitMergeIcon size={14} />
+          Enable auto-merge
+        </DropdownMenu.Item>
+      {/if}
+      {#if showRevert}
+        <DropdownMenu.Item
+          disabled={!!lifecycleAction}
+          onSelect={() => confirm("revert")}
+        >
+          <UndoIcon size={14} />
+          Revert changes
+        </DropdownMenu.Item>
       {/if}
       {#if onLifecycleAction && detail?.state === "open" && detail.draft && allowedActions.has("ready")}
         <DropdownMenu.Item
           disabled={!!lifecycleAction}
-          onSelect={() => void updateLifecycle("ready")}
+          onSelect={() => updateLifecycle("ready")}
         >
           <GitPullRequestIcon size={14} />
           Mark ready for review
@@ -201,7 +350,7 @@
       {:else if onLifecycleAction && detail?.state === "open" && !detail.draft && allowedActions.has("draft")}
         <DropdownMenu.Item
           disabled={!!lifecycleAction}
-          onSelect={() => void updateLifecycle("draft")}
+          onSelect={() => updateLifecycle("draft")}
         >
           <PencilSimpleIcon size={14} />
           Convert to draft
@@ -210,7 +359,7 @@
       {#if onLifecycleAction && detail?.state === "open" && allowedActions.has("close")}
         <DropdownMenu.Item
           disabled={!!lifecycleAction}
-          onSelect={() => void updateLifecycle("close")}
+          onSelect={() => updateLifecycle("close")}
         >
           <GitPullRequestIcon size={14} />
           Close pull request
@@ -218,7 +367,7 @@
       {:else if onLifecycleAction && detail?.state === "closed" && allowedActions.has("reopen")}
         <DropdownMenu.Item
           disabled={!!lifecycleAction}
-          onSelect={() => void updateLifecycle("reopen")}
+          onSelect={() => updateLifecycle("reopen")}
         >
           <GitPullRequestIcon size={14} />
           Reopen pull request
@@ -227,3 +376,13 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/if}
+
+<PrActionConfirm
+  bind:open={confirmOpen}
+  title={confirming === "revert" ? "Revert these changes?" : "Enable auto-merge?"}
+  description={confirming === "revert"
+    ? `This opens a new pull request that reverses the changes merged by #${detail?.number ?? ""}.`
+    : `This merges #${detail?.number ?? ""} using ${methodLabel} as soon as the host considers it ready, which may be immediately.`}
+  confirmLabel={confirming === "revert" ? "Create revert PR" : "Enable auto-merge"}
+  onConfirm={runConfirmed}
+/>

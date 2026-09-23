@@ -191,9 +191,7 @@
     serversStore.affinityFor(panelRun?.serverId),
   );
 
-  const cwd = $derived(
-    panelRun?.workingDirectory ?? session.globalDefaults.workingDirectory,
-  );
+  const cwd = $derived((panelRun ?? session.defaultRunConfig).workingDirectory);
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
@@ -202,7 +200,7 @@
   // covers the window between "started from a task" and the first agent session
   // id existing, so the card is there from the tab's first frame.
   const panelTaskTarget = $derived(
-    panelSession?.task ?? session.sessionDrafts.get(sourceId)?.task,
+    panelSession?.task ?? session.drafts.sessionDrafts.get(sourceId)?.task,
   );
   const namedTaskId = $derived(
     panelTaskTarget ? existingTaskId(panelTaskTarget) : null,

@@ -5,6 +5,7 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
+    getSettingsContext,
     getWorkspaceContext,
     getSessionEnvironmentStore,
     serversStore,
@@ -60,6 +61,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const isPinned = $derived(sourceId !== undefined);
   const source = $derived(sourceId ?? session.activeTabId);
@@ -67,7 +69,7 @@
   // one; `sess` answers which. Both own the same `run`, which is all the chips
   // below read, so the header describes either without branching on it.
   const sess = $derived(session.sessionFor(source));
-  const draft = $derived(session.sessionDrafts.get(source));
+  const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
   // The task the started session will file under, held by whichever this source
   // is; neither, before a project is chosen, files under a new one.
@@ -78,9 +80,7 @@
   // primary bar, so it takes no target.
   const focusTarget = $derived(sess ? { tabId: source } : undefined);
 
-  const projectDir = $derived(
-    run?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~",
-  );
+  const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
   // Tasks belong to a project. The directory picker updates a draft outside
   // this component, so observe the run rather than only the project-chip click.
   // Changing active tabs is not a project change for either composer.
@@ -94,7 +94,9 @@
     previousTaskProjectScope = nextScope;
     if (shouldReset) selectTask({ kind: "new" });
   });
-  const defaultGitContext = $derived(session.globalDefaults.gitContext);
+  const env = $derived(environmentStore.environmentFor(run));
+  // With no run, the default run's checkout as Git last reported it.
+  const defaultGitContext = $derived(run ? null : env.checkout);
   const gitHome = $derived(
     homeGitDetails(projectDir, run?.gitContext, defaultGitContext),
   );
@@ -107,7 +109,6 @@
     ),
   );
 
-  const env = $derived(environmentStore.environmentFor(run));
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
   const worktreeForced = $derived(isDispatch(run) && !!run?.worktree);
   // Only a *pending* worktree changes where the next session starts. Choosing a
@@ -152,16 +153,18 @@
     run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  const git = $derived(environmentStore.statusFor(gitStatusCwd));
+  // The run's host holds this checkout; a path alone names no machine.
+  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
   const worktrees = $derived(
-    environmentStore.refsFor(gitHome.projectRoot ?? env.repoRoot).worktrees,
+    environmentStore.refsFor(gitServerId, gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
   // Keep branch data live for the header even when the status row is hidden.
   $effect(() => {
     const cwd = gitStatusCwd;
     if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(cwd);
+    void environmentStore.refresh(gitServerId, cwd);
   });
 
   let gitOpen = $state(false);
@@ -229,7 +232,7 @@
 
   async function selectWorktree(worktree: WorktreeEntry) {
     if (pendingDispatch) {
-      session.setDispatchWorktree(worktree, source);
+      session.config.setDispatchWorktree(worktree, source);
       requestInputFocus(focusTarget);
       return;
     }
@@ -251,8 +254,8 @@
   }
 
   function selectNewDispatchWorktree(baseBranch?: string) {
-    if (baseBranch) session.setDispatchBaseBranch(baseBranch, source);
-    else session.setDispatchWorktree(null, source);
+    if (baseBranch) session.config.setDispatchBaseBranch(baseBranch, source);
+    else session.config.setDispatchWorktree(null, source);
     requestInputFocus(focusTarget);
   }
 
@@ -282,7 +285,7 @@
       requestInputFocus(focusTarget);
       return;
     }
-    void session.setBaseDirectory(path, source).then(
+    void session.config.setBaseDirectory(path, source).then(
       () => requestInputFocus(focusTarget),
       () => {},
     );
@@ -332,13 +335,9 @@
   }
 
   function settleOnDestination() {
-    const nextRun = session.runFor(source);
-    const nextCwd =
-      nextRun?.gitContext?.worktreePath ??
-      nextRun?.workingDirectory ??
-      session.globalDefaults.gitContext?.worktreePath ??
-      session.globalDefaults.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
+    const nextRun = session.runFor(source) ?? session.defaultRunConfig;
+    const nextCwd = nextRun.gitContext?.worktreePath ?? nextRun.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextRun.serverId, nextCwd, { force: true });
     requestInputFocus(focusTarget);
   }
 </script>
@@ -422,13 +421,18 @@
       <TooltipUI.Content value={branchTooltip} />
     </TooltipUI.Root>
   {/if}
-  <TaskPicker
-    task={taskTarget}
-    projectKey={gitHome.projectRoot ?? projectDir}
-    onSelect={selectTask}
-    onDismiss={() => requestInputFocus(focusTarget)}
-    {paneId}
-  />
+  <!-- With the task system off, a new session starts with no task, so there is
+       nothing for this chip to choose. -->
+  {#if settings.tasksEnabled}
+    <TaskPicker
+      task={taskTarget}
+      projectKey={gitHome.projectRoot ?? projectDir}
+      serverId={gitServerId}
+      onSelect={selectTask}
+      onDismiss={() => requestInputFocus(focusTarget)}
+      {paneId}
+    />
+  {/if}
 </div>
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->

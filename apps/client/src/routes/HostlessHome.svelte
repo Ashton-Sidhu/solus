@@ -122,7 +122,10 @@
               No hosts are linked to your account yet. On your computer, open Solus and
               go to <strong class="font-medium text-(--solus-text-secondary)"
                 >Settings → Connections → Access → Link to Solus cloud</strong
-              >.
+              >, or
+              <a href={cloudOrigin.linkMachineUrl} class="underline underline-offset-2 text-(--solus-text-secondary)"
+                >get a link code</a
+              > to paste there.
             </p>
           {/if}
         </div>

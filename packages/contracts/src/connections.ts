@@ -57,6 +57,8 @@ export type ConnectionReason =
   | 'unspecified'
 
 export interface ConnectionConnectNeeded {
+  /** Account settings URL for account-owned integrations; never contains credentials. */
+  accountConnectionsUrl?: string
   provider: ConnectionProvider
   reason: ConnectionReason
   /** The Solus session whose turn is waiting on the connection. */

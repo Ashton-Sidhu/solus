@@ -10,6 +10,7 @@
    * browser sign-ins whose answer arrives on a host event. The chassis, the
    * dismissal, and the continue are the same either way.
    */
+  import { localApi } from "@solus/client-core/local-api";
   import { X as XIcon, CircleCheck as CheckCircleIcon } from "@lucide/svelte";
   import {
     atlassianStore,
@@ -40,7 +41,7 @@
   );
 
   const connected = $derived.by(() => {
-    if (!request || !serverId) return false;
+    if (!request || !serverId || request.accountConnectionsUrl) return false;
     if (request.provider === "cloudflare") return cloudflareStore.connected;
     if (request.provider === "atlassian") return atlassianStore.connected(serverId);
     if (request.provider === "github")
@@ -61,7 +62,7 @@
   // The turn is still waiting on the agent's side, so the way back in is a
   // prompt, not a silent resume.
   function continueRun() {
-    if (copy) session.sendMessage(`${copy.eyebrow} connected — continue`, undefined, tabId);
+    if (copy) session.dispatch.sendMessage(`${copy.eyebrow} connected — continue`, undefined, tabId);
     connectRequestStore.dismiss();
     requestInputFocus();
   }
@@ -116,7 +117,10 @@
           <p class="text-sm text-muted-foreground">{copy.purpose}</p>
 
           {#if serverId}
-            {#if request.provider === "cloudflare"}
+            {#if request.accountConnectionsUrl}
+              <button type="button" class="interrupt-btn" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>Open account connections</button>
+              <p class="text-sm text-muted-foreground">Connect your account, then return here and continue.</p>
+            {:else if request.provider === "cloudflare"}
               <CloudflareConnectForm {serverId} autofocus />
             {:else if request.provider === "atlassian"}
               <AtlassianConnectForm {serverId} />
@@ -145,7 +149,7 @@
           Not now
         </button>
         <div class="flex-1"></div>
-        {#if connected}
+        {#if connected || request.accountConnectionsUrl}
           <button
             type="button"
             class="interrupt-btn interrupt-btn--primary"

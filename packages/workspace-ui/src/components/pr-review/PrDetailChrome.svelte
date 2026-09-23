@@ -4,7 +4,7 @@
   import type { PullRequest } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
-  import { prGroups, type PrRowContext } from "../prs/lib/prs-list-view";
+  import { flatPrSection, prGroups, prStatusOf, type PrRowContext } from "../prs/lib/prs-list-view";
   import { SubPageCrumbLine, SUB_PAGE_CRUMB_BTN } from "../ui/list-page";
   import { statusDotColor } from "./lib/pr-status";
 
@@ -63,28 +63,31 @@
     isMine: () => false,
   });
 
-  /** The switcher's rows: the visible list, grouped exactly as the list groups
-   *  it, in exactly the order it shows them. */
+  const byNumber = $derived(new Map((project?.items ?? []).map((pr) => [pr.number, pr])));
+
+  /** The switcher's rows: the visible list as one group, in exactly the order
+   *  it shows them. */
   const menuGroups = $derived.by(() => {
-    const byNumber = new Map((project?.items ?? []).map((pr) => [pr.number, pr]));
     const ordered = order
       .map((n) => byNumber.get(n))
       .filter((pr): pr is PullRequest => !!pr);
-    return prGroups(ordered, rowContext, Date.now());
+    return prGroups(flatPrSection(ordered), rowContext, Date.now());
   });
+
+  /** The status speck the list row carries, for one pull request. */
+  function statusDotFor(prNumber: number): string {
+    const pr = byNumber.get(prNumber);
+    return statusDotColor(pr ? prStatusOf(pr) : "");
+  }
 
   /** The leaf crumb carries the same status speck the list row does, so the
    *  band says *which* pull request without spending a word on it. */
-  const statusDot = $derived(
-    statusDotColor(
-      menuGroups.find((g) => g.rows.some((r) => Number(r.key) === number))?.key ?? "",
-    ),
-  );
+  const statusDot = $derived(statusDotFor(number));
 
   function open(next: number) {
     menuOpen = false;
     if (next === number) return;
-    void session.openPullRequest(project?.prFor(next) ?? { number: next }, {
+    void session.prReview.openPullRequest(project?.prFor(next) ?? { number: next }, {
       ctx: projectCtx(),
       serverId,
     });
@@ -160,7 +163,7 @@
               >
                 <span
                   class="size-1.5 shrink-0 rounded-full"
-                  style="background:{statusDotColor(group.key)}"
+                  style="background:{statusDotFor(rowNumber)}"
                   aria-hidden="true"
                 ></span>
                 <span

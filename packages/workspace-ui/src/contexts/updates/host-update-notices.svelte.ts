@@ -56,7 +56,7 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
     // shows once the switch is turned on. The manual-check outcome below is
     // an answer to a click and is reported either way.
     const updateNoticesWanted = notificationsStore.wants('update_available')
-    const busyHosts = new Set(Object.values(session.sessions).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(item.run.serverId)))
+    const busyHosts = new Set(Object.values(session.sessions.byId).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(item.run.serverId)))
     for (const [serverId, notice] of shown) {
       const status = hostUpdatesStore.hostUpdateFor(serverId)
       const check = notice.target === 'solus' ? status?.check : status?.providers.find((p) => p.agent === notice.target)?.check

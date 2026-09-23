@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
+  import { solusToolsStore } from "../settings/solus-tools.store.svelte";
   import {
     ChevronDown as CaretDownIcon,
+    ChevronRight as CaretRightIcon,
     Check as CheckIcon,
     Code as CodeIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -14,6 +17,7 @@
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import {
     REASONING_EFFORT_LABELS,
+    isLegacyModel,
     type AgentMetadata,
     type ReasoningEffort,
     type AgentId,
@@ -34,7 +38,9 @@
     modelPickerNavigationTarget,
     modelOptionsFor,
     reasoningLevelsFor,
+    splitLegacyModels,
     supportsFastModeFor,
+    LEGACY_SECTION_VALUE,
     type ModelPickerColumn,
     type PickerSelection,
   } from "./lib/picker-selection";
@@ -56,8 +62,15 @@
     /** Model-only settings still use the shared provider/model picker, but do
      *  not expose reasoning effort that their setting cannot persist. */
     modelOnly?: boolean;
+    /** Offer Auto in a model-only picker. Only a setting whose value seeds a new
+     *  session may: Auto routes a first prompt, so nothing already running can
+     *  take it. */
+    allowAuto?: boolean;
     /** Host-scoped metadata can differ from the active workspace host. */
     agents?: AgentMetadata[];
+    /** The host whose TypeSafe key decides whether Auto can run. Defaults to
+     *  the host of `tabId`. */
+    serverId?: string;
     disabled?: boolean;
     ariaLabel?: string;
     returnFocusOnClose?: boolean;
@@ -75,7 +88,9 @@
     isPrimary = false,
     menuSide = "top",
     modelOnly = false,
+    allowAuto = false,
     agents,
+    serverId,
     disabled = false,
     ariaLabel = "Session settings",
     returnFocusOnClose = false,
@@ -94,7 +109,7 @@
   const isBusy = $derived(
     !detached && (sess?.status === "running" || sess?.status === "connecting"),
   );
-  const handoffInProgress = $derived(!detached && session.handoffInProgress);
+  const handoffInProgress = $derived(!detached && session.config.handoffInProgress);
   let pendingHandoffAgent = $state<AgentId | null>(null);
 
   const activeAgent = $derived(selection?.provider ?? pendingHandoffAgent ?? ctx.activeAgent);
@@ -115,7 +130,22 @@
         ? modelOptionsFor(activeAgent, metadata)
         : (modelMeta?.models ?? []),
   );
+  // Superseded models stay selectable but sit behind a disclosure, so the column
+  // reads as the generation we expect people to pick.
+  const modelSections = $derived(splitLegacyModels(activeAgent, models));
+  let legacyExpanded = $state(false);
   const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
+  // A model-only picker hides the reasoning column Auto normally sits in, so its
+  // Auto row joins the model list instead.
+  const routeInModelColumn = $derived(modelOnly && allowAuto);
+  // Auto asks Jev to classify the first prompt, and Jev needs this host's
+  // TypeSafe key. Without it Auto cannot route, so it cannot be picked.
+  const autoServerId = $derived(canRoute || routeInModelColumn ? (serverId ?? (tabId ? session.serverIdFor(tabId) : undefined)) : undefined);
+  $effect(() => {
+    const targetServerId = autoServerId;
+    if (targetServerId) return untrack(() => solusToolsStore.watch(targetServerId));
+  });
+  const autoNeedsKey = $derived(!!autoServerId && solusToolsStore.isTypeSafeKeyMissing(autoServerId));
   const defaultModel = $derived(modelMeta?.defaultModel ?? models[0]?.id ?? null);
   const currentModelId = $derived(
     selection
@@ -254,6 +284,9 @@
     }
   }
   function selectAgent(id: AgentId) {
+    // The menu stays up across the switch, so the disclosure has to follow the
+    // model the new agent lands on rather than keep the old agent's answer.
+    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata));
     if (selection) {
       const modelId = defaultModelIdFor(id, metadata);
       selection.provider = id;
@@ -264,7 +297,7 @@
       return;
     }
     pendingHandoffAgent = id;
-    void session.switchActiveAgent(id, tabId).finally(() => {
+    void session.config.switchActiveAgent(id, tabId).finally(() => {
       if (pendingHandoffAgent === id) pendingHandoffAgent = null;
     });
   }
@@ -378,7 +411,16 @@
   });
 </script>
 
-<DropdownMenu.Root bind:open onOpenChange={() => { hoveredModelId = null; hoveredLevel = null; }}>
+<DropdownMenu.Root
+  bind:open
+  onOpenChange={(nextOpen) => {
+    hoveredModelId = null;
+    hoveredLevel = null;
+    // Open on the section holding the current choice: a session already running
+    // a superseded model must not have to go looking for what it is running.
+    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
+  }}
+>
   <DropdownMenu.Trigger disabled={disabled || isBusy || handoffInProgress} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
@@ -402,7 +444,9 @@
             ? fastMode
               ? 'h-5 w-5 text-amber-500 dark:text-amber-300'
               : 'h-5 w-5 rounded-full bg-white text-(--solus-accent)'
-            : 'text-(--solus-accent)'}"
+            : isAuto && autoNeedsKey
+              ? 'text-(--solus-text-tertiary)'
+              : 'text-(--solus-accent)'}"
         >
           {#if isAuto}
             <SparklesIcon size={13} />
@@ -423,7 +467,7 @@
              goes. Named `/composer` so the rung is inert wherever the chip is
              not in a composer. The label inherits the chip's secondary colour,
              the same as the permission chip beside it. -->
-        <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly ? `${agentName} · ${modelLabel}` : modelLabel}</span>
+        <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
           <!-- Rung 3: the reasoning label is the first thing the chip can spend. -->
           <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
@@ -440,7 +484,7 @@
       </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Stop the task to change session settings" : ariaLabel} />
+        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Stop the task to change session settings" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
       </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
@@ -483,7 +527,7 @@
              level you're about to click. -->
         <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
           <DropdownMenu.GroupHeading>Model</DropdownMenu.GroupHeading>
-          {#each models as model (model.id)}
+          {#each modelSections.current as model (model.id)}
             <DropdownMenu.RadioItem
               value={model.id}
               disabled={handoffInProgress}
@@ -510,6 +554,67 @@
               {/if}
             </DropdownMenu.RadioItem>
           {/each}
+          {#if modelSections.legacy.length > 0}
+            <!-- A row in the same column, not a flyout: arrow keys reach it on
+                 the way down the list, and Enter opens it in place rather than
+                 sending the cursor sideways into a second surface. -->
+            <DropdownMenu.Item
+              disabled={handoffInProgress}
+              closeOnSelect={false}
+              aria-expanded={legacyExpanded}
+              data-picker-column="model"
+              data-picker-value={LEGACY_SECTION_VALUE}
+              onSelect={() => (legacyExpanded = !legacyExpanded)}
+              onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
+              onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+            >
+              <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">Legacy models</span>
+              <span class="shrink-0 text-(--solus-text-tertiary)">{modelSections.legacy.length}</span>
+              <CaretRightIcon size={11} class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 {legacyExpanded ? 'rotate-90' : ''}" />
+            </DropdownMenu.Item>
+            {#if legacyExpanded}
+              {#each modelSections.legacy as model (model.id)}
+                <DropdownMenu.RadioItem
+                  value={model.id}
+                  disabled={handoffInProgress}
+                  data-picker-column="model"
+                  data-picker-value={model.id}
+                  onSelect={() => selectModel(model.id)}
+                  onfocus={() => {
+                    hoveredModelId = model.id;
+                    hoveredLevel = null;
+                  }}
+                  onpointerenter={() => {
+                    hoveredModelId = model.id;
+                    hoveredLevel = null;
+                  }}
+                  data-menu-preview={previewedModelId === model.id ? "" : undefined}
+                >
+                  <span class="min-w-0 flex-1 truncate">{model.label}</span>
+                  {#if previewedModelId === model.id && model.id !== currentModelId}
+                    <CheckIcon size={12} class="absolute right-2 shrink-0 text-(--solus-accent) opacity-40" />
+                  {/if}
+                </DropdownMenu.RadioItem>
+              {/each}
+            {/if}
+          {/if}
+          {#if routeInModelColumn}
+            <DropdownMenu.Separator />
+            <DropdownMenu.RadioItem
+              value={AUTO_MODEL_ID}
+              disabled={handoffInProgress || autoNeedsKey}
+              data-picker-column="model"
+              data-picker-value={AUTO_MODEL_ID}
+              onSelect={() => selectModel(AUTO_MODEL_ID)}
+              onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
+              onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+            >
+              <span class="min-w-0 flex-1 truncate">Auto</span>
+              {#if autoNeedsKey}
+                <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Needs TypeSafe key</span>
+              {/if}
+            </DropdownMenu.RadioItem>
+          {/if}
         </DropdownMenu.RadioGroup>
       </div>
 
@@ -564,14 +669,17 @@
             <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
               <DropdownMenu.RadioItem
                 value={AUTO_MODEL_ID}
-                disabled={handoffInProgress}
+                disabled={handoffInProgress || autoNeedsKey}
                 data-picker-column="reasoning"
                 data-picker-value={AUTO_MODEL_ID}
                 onSelect={() => selectModel(AUTO_MODEL_ID)}
                 onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
                 onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
               >
-                Auto
+                <span class="min-w-0 flex-1 truncate">Auto</span>
+                {#if autoNeedsKey}
+                  <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Needs TypeSafe key</span>
+                {/if}
               </DropdownMenu.RadioItem>
             </DropdownMenu.RadioGroup>
           {/if}

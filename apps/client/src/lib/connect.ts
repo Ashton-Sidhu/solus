@@ -15,10 +15,10 @@ export function classifyConnectInput(raw: string): ConnectInput {
   return { kind: 'address', url: normalizeServerUrl(trimmed) }
 }
 
-export function pairTokenFromLocation(href: string, base = '/'): string | null {
+export function pairTokenFromLocation(href: string): string | null {
   try {
     const url = new URL(href)
-    if (url.pathname !== `${base}pair`) return null
+    if (url.pathname !== '/pair') return null
     return new URLSearchParams(url.hash.replace(/^#/, '')).get('token')
   } catch {
     return null

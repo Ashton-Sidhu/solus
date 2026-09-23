@@ -24,9 +24,12 @@ describe('the reviewer row', () => {
     }
   })
 
-  test('colours only the verdict that blocks the merge', () => {
+  test('colours only the verdicts that decide the merge', () => {
+    // WHY: the rail shows the verdict as an icon with no word, so colour is
+    // what tells an approval from a comment at a glance.
     expect(reviewerStateColor('CHANGES_REQUESTED')).toBe('var(--solus-art-negative)')
-    expect(reviewerStateColor('APPROVED')).toBe('var(--muted-foreground)')
+    expect(reviewerStateColor('APPROVED')).toBe('var(--solus-art-positive)')
+    expect(reviewerStateColor('COMMENTED')).toBe('var(--muted-foreground)')
     expect(reviewerStateColor(null)).toBe('var(--muted-foreground)')
     expect(reviewerStateLabel(null)).toBe('pending')
   })

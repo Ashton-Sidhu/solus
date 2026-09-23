@@ -22,6 +22,7 @@ import {
   isCloudServer,
   loadServers,
   LOCAL_SERVER_ID,
+  managedHostNeedsStart,
   onServerRemoving,
   removeServer,
   savedServerRoutes,
@@ -123,7 +124,22 @@ class ServersStore {
   private lastHostProbeAt = 0
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
+  /**
+   * The machines: every host a person can see, pick, or open. The
+   * organization's workspace service is not one of them — it is the control
+   * plane the records live in (docs/plans/cloud-service-model.md §15), reached
+   * through `cloudConnections` and never listed beside a machine.
+   */
   get servers(): ServerItem[] {
+    return this.rows.filter((row) => !isCloudServer(row))
+  }
+
+  /** The workspace service connections this account holds, one per organization. */
+  get cloudConnections(): ServerItem[] {
+    return this.rows.filter((row) => isCloudServer(row))
+  }
+
+  private get rows(): ServerItem[] {
     // Hosts are symmetric rows (dispatch-client step 5): the desktop's own
     // machine is the one genuinely local row; a web client has no machine of
     // its own, so every host — including the one it booted against — appears
@@ -193,18 +209,28 @@ class ServersStore {
     return this.executionServers.filter((server) => !server.local && server.status === 'online')
   }
 
-  /** The organizations' workspace services this account knows, connected or not. */
-  get cloudServers(): ServerItem[] {
-    return this.servers.filter((server) => isCloudServer(server))
+  /** The workspace service a work can move to: the first connection with a live transport. */
+  get connectedCloudServer(): ServerItem | null {
+    return this.cloudConnections.find((server) => server.status === 'online') ?? null
   }
 
-  /** The workspace service a work can move to: the first cloud host with a live transport. */
-  get connectedCloudServer(): ServerItem | null {
-    return this.cloudServers.find((server) => server.status === 'online') ?? null
+  /** The workspace service of the organization the account is working in —
+   *  where that organization's projects and cloud tasks live — or null when
+   *  the account holds none (docs/plans/project-model.md §2). */
+  get activeCloudServerId(): string | null {
+    const connections = this.cloudConnections
+    return (connections.find((server) => server.uplink?.isActiveWorkspace) ?? connections[0])?.id ?? null
+  }
+
+  /** Whether new sessions on this host start in their own worktree: a managed
+   *  host is shared by the organization's members, so work there is isolated
+   *  (docs/plans/project-model.md §7). A person's own machine is not. */
+  isolatesSessions(serverId: string | null | undefined): boolean {
+    return !!serverId && this.remotes.some((server) => server.id === serverId && server.uplink?.kind === 'managed')
   }
 
   isCloudHost(serverId: string | null | undefined): boolean {
-    return isCloudServer(this.servers.find((server) => server.id === serverId))
+    return isCloudServer(this.cloudConnections.find((server) => server.id === serverId))
   }
 
   /** "Solus Cloud" for a record whose home is the workspace service; null for a machine's. */
@@ -365,6 +391,34 @@ class ServersStore {
     }
   }
 
+  /**
+   * Ask a managed host to run when it is stopped or failed, and wait until this
+   * client is connected to it (docs/plans/project-model.md §6). The control plane
+   * pushes nothing, so the directory is read again every few seconds until it says
+   * `ready` and the host's catalog supervisor has dialed it. False when the account
+   * cannot start it, it failed, or it did not come up in time.
+   */
+  async startManagedHost(serverId: string, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
+    if (this.statusFor(serverId) === 'online') return true
+    const hostId = this.remotes.find((server) => server.id === serverId)?.uplink?.hostId
+    const source = uplinkAccountSource()
+    if (!hostId || !source) return false
+    await this.refreshDirectory()
+    if (managedHostNeedsStart(this.remotes.find((server) => server.id === serverId)?.uplink?.managedState)) {
+      const lifecycle = await source.startManagedHost(hostId)
+      if (!lifecycle || lifecycle === 'failed' || lifecycle === 'deleting') return false
+    }
+    const deadline = Date.now() + (opts.timeoutMs ?? 180_000)
+    while (Date.now() < deadline) {
+      await this.refreshDirectory()
+      if (this.statusFor(serverId) === 'online') return true
+      const state = this.remotes.find((server) => server.id === serverId)?.uplink?.managedState
+      if (state === 'failed' || state === 'deleting') return false
+      await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 3_000))
+    }
+    return this.statusFor(serverId) === 'online'
+  }
+
   /** The per-host version-skew notice, or null when versions match, the host
    *  has no session record yet, or this exact pairing was dismissed. */
   versionSkewNoticeFor(serverId: string): VersionSkewNotice | null {
@@ -478,9 +532,10 @@ class ServersStore {
       // The active host is only the new-work default now: step aside to
       // another catalog host in place, then forget as usual. Only the last
       // host has nowhere to step to.
+      // Another machine, never the workspace service: new work cannot start there.
       const fallbackId = this.local
         ? LOCAL_SERVER_ID
-        : this.remotes.find((server) => server.id !== serverId)?.id
+        : this.remotes.find((server) => server.id !== serverId && !isCloudServer(server))?.id
       if (!fallbackId) {
         const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
         toasts.error(`Pair another host before forgetting ${serverLabel}`)
@@ -584,14 +639,18 @@ class ServersStore {
    * the session on it is no more local for having lost its name.
    */
   affinityFor(serverId: string | null | undefined): HostAffinityGlyph | null {
+    // A record whose home is the workspace service runs nowhere; its row
+    // carries the "Solus Cloud" home label instead of a machine badge.
+    if (this.isCloudHost(serverId)) return null
     const host = this.hostFor(serverId)
     if (!host || host.local) return null
     return hostAffinityGlyph(host, this.statusFor(host.id))
   }
 
+  /** A machine, or the workspace service by its id: a record's `serverId` may name either. */
   hostFor(serverId: string | null | undefined): ServerItem | UnknownRemoteHost | null {
     if (!serverId) return null
-    const host = this.servers.find((server) => server.id === serverId)
+    const host = this.rows.find((server) => server.id === serverId)
     if (host) return host
     if (serverId === LOCAL_SERVER_ID) return null
     return { id: serverId, label: 'Unknown host', local: false, unknown: true }

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db } from '../db/database'
-import { ulid } from './ulid'
+import { ulid } from '@solus/contracts/ulid'
 import { taskEvents } from './schema'
 import type { TaskActor, TaskEvent, TaskEventKind, TaskLinkKind } from '@solus/contracts/task-types'
 

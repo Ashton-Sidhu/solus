@@ -2,11 +2,27 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 import type { SessionSearchResult } from '@solus/contracts/types'
+import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
 
 /** The hosts a search fans out to: the ones the app is already talking to. */
 export interface ConversationSearchHosts {
   connectedServerIds(): string[]
   apiFor(serverId: string): Pick<HostApi, 'searchSessions'>
+}
+
+/**
+ * The folder one host searches for a project scope named by a path: that
+ * host's checkout of the same repository (docs/plans/project-model.md §1).
+ * `undefined` when the path's repository is not known — the path is sent as
+ * it is; `null` when the repository is known and the host holds no checkout of
+ * it, so the host is not asked.
+ */
+export type ScopePathOnHost = (serverId: string, projectRoot: string) => string | null | undefined
+
+function checkoutPathOnHost(serverId: string, projectRoot: string): string | null | undefined {
+  const repositoryKey = projectsStore.entries.find((entry) => entry.projectRoot === projectRoot && entry.repositoryKey)?.repositoryKey
+  if (!repositoryKey) return undefined
+  return projectsStore.checkoutsOf(repositoryKey).find((entry) => entry.serverId === serverId)?.projectRoot ?? null
 }
 
 const DEBOUNCE_MS = 180
@@ -34,6 +50,7 @@ export class ConversationSearch {
   constructor(
     private readonly hosts: ConversationSearchHosts = serverConnections,
     private readonly debounceMs = DEBOUNCE_MS,
+    private readonly scopePathOnHost: ScopePathOnHost = checkoutPathOnHost,
   ) {}
 
   /** Search for `query`, scoped to one project root or to every project. */
@@ -65,10 +82,15 @@ export class ConversationSearch {
     const serverIds = this.hosts.connectedServerIds()
     const perHost = await Promise.all(
       serverIds.map(async (serverId) => {
+        // A project scope reaches each host as that host's own checkout of the
+        // repository: one path sent everywhere missed clones at other paths and
+        // combined unrelated folders that happened to share one.
+        const scopedPath = projectRoot ? this.scopePathOnHost(serverId, projectRoot) : undefined
+        if (scopedPath === null) return []
         try {
           const hits = await this.hosts.apiFor(serverId).searchSessions({
             query,
-            projectRoot: projectRoot ?? undefined,
+            projectRoot: scopedPath ?? projectRoot ?? undefined,
             prefixLastToken: true,
             limit: RESULTS_PER_HOST,
           })

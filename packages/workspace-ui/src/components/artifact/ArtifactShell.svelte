@@ -11,7 +11,7 @@
   import { downloadPayload } from "../work/lib/work-export";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { ARTIFACT_WIDTH_OPTIONS, artifactWidthFor } from "./lib/artifact-viewport";
-  import { getWorkspaceContext, presenceStore, sharesStore } from "../../contexts";
+  import { getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import { openThreads } from "../comments/lib/thread";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
@@ -124,7 +124,7 @@
   // Threads pinned to points over the render, on the same host-stamped model as
   // a document's or a diagram's: the store sends commands, the host names who
   // wrote what, and everyone who can open the work hears the change.
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const serverId = $derived(session.worksStore.hostFor(workId));
   const shareResource = $derived({ kind: "work" as const, id: workId });
   setCommentViewer(() => workCommentViewer(session.worksStore.hostFor(workId), { kind: "work", id: workId }));

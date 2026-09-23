@@ -23,7 +23,7 @@ import { tv } from '@solus/workspace-ui/lib/tw'
  * through the menu's "Publish to" label. It is `h-auto` + `min-h-7` for that
  * reason; a single-line row still measures 28px, so the rung is unchanged.
  *
- * Selection state (spine, weight, hover wash) lives in the `menu-row` utility
+ * Selection state (spine, ink, hover wash) lives in the `menu-row` utility
  * in `index.css`, because it needs `::before` and state selectors that
  * utilities can't express.
  *

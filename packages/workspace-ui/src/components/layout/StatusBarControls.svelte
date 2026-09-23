@@ -42,7 +42,7 @@
   // the defaults, never the conversation a draft happens to cover.
   const source = $derived(sourceId ?? "");
   const sess = $derived(session.sessionFor(source));
-  const draft = $derived(session.sessionDrafts.get(source));
+  const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
   const ctx = $derived(statusBar.ctxForRun(run));
   // Focus routes to a tab by id; a draft's composer claims bare focus as the
@@ -55,16 +55,18 @@
     displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
-  const projectDir = $derived(run?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
+  const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
   const defaultGitContext = $derived(session.tabCtx.gitContext);
   const worktreePath = $derived(run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  const git = $derived(environmentStore.statusFor(gitStatusCwd));
+  // The run's host holds this checkout; a path alone names no machine.
+  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
   $effect(() => {
     if (!showDestination) return;
     const cwd = gitStatusCwd;
     if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(cwd);
+    void environmentStore.refresh(gitServerId, cwd);
   });
 
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
@@ -72,10 +74,10 @@
   // branch (the GitDropdown switches by exact name); pending comes from env.
   const env = $derived(environmentStore.environmentFor(run));
   const worktrees = $derived(
-    environmentStore.refsFor(env.repoRoot ?? git?.repoRoot).worktrees,
+    environmentStore.refsFor(gitServerId, env.repoRoot ?? git?.repoRoot).worktrees,
   );
   const worktreeModePending = $derived(env.pending);
-  const creatingWorktree = $derived(session.isContinuingInWorktree(source));
+  const creatingWorktree = $derived(session.ui.isContinuingInWorktree(source));
   // While the worktree is being created, hold the pending label instead of the
   // live base branch so the pill doesn't read "main" and then teleport.
   const pendingDispatch = $derived(
@@ -170,7 +172,7 @@
   async function selectWorktree(worktree: WorktreeEntry) {
     if (!source) return;
     if (pendingDispatch) {
-      session.setDispatchWorktree(worktree, source);
+      session.config.setDispatchWorktree(worktree, source);
       requestInputFocus(focusTarget);
       return;
     }
@@ -180,8 +182,8 @@
 
   function selectNewDispatchWorktree(baseBranch?: string) {
     if (!source) return;
-    if (baseBranch) session.setDispatchBaseBranch(baseBranch, source);
-    else session.setDispatchWorktree(null, source);
+    if (baseBranch) session.config.setDispatchBaseBranch(baseBranch, source);
+    else session.config.setDispatchWorktree(null, source);
     requestInputFocus(focusTarget);
   }
 
@@ -193,13 +195,9 @@
   }
 
   function settleOnDestination() {
-    const nextRun = session.runFor(source);
-    const nextCwd =
-      nextRun?.gitContext?.worktreePath ??
-      nextRun?.workingDirectory ??
-      session.globalDefaults.gitContext?.worktreePath ??
-      session.globalDefaults.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
+    const nextRun = session.runFor(source) ?? session.defaultRunConfig;
+    const nextCwd = nextRun.gitContext?.worktreePath ?? nextRun.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextRun.serverId, nextCwd, { force: true });
     requestInputFocus(focusTarget);
   }
 
@@ -239,7 +237,7 @@
     </div>
   {/if}
   <!-- Transient status, not destination config, so it stays in both modes. -->
-  {#if !isPinned && session.runtimeSyncing}
+  {#if !isPinned && session.lifecycle.runtimeSyncing}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}

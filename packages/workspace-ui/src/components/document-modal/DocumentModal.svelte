@@ -14,7 +14,7 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
-  import { getClientShellContext, getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, sharesStore } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -51,7 +51,10 @@
 
   let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
 
-  const session = getWorkspaceContext();
+  // The console mounts this too, with no workspace: the comments and the editor
+  // work there, and the verbs that open a chat are omitted.
+  const session = getSurfaceContext();
+  const workspace = session.workspace;
   const clientShell = getClientShellContext();
   setMarkdownImageContext({
     cwd: () => undefined,
@@ -135,12 +138,12 @@
   }
 
   async function askPrivately(thread: DocCommentThread) {
-    if (!workId) return;
+    if (!workId || !workspace) return;
     const id = workId;
     const comment: PlanComment = { id: uuid(), externalThreadId: thread.id, selectedText: thread.quote, comment: `Review this external comment privately: ${thread.text}` };
     await session.worksStore.addAnnotationComment(id, comment);
-    await session.openChatForWork(id, 'new');
-    if (!session.leadingInput.text) session.leadingInput.text = `Please review local comment ${comment.id} on work ${id}. Keep the discussion in Solus. Do not post to the external document.`;
+    await workspace.openChatForWork(id, 'new');
+    if (!workspace.leadingInput.text) workspace.leadingInput.text = `Please review local comment ${comment.id} on work ${id}. Keep the discussion in Solus. Do not post to the external document.`;
     requestInputFocus();
   }
 
@@ -199,9 +202,9 @@
    *  the caret there rather than firing a half-formed prompt at the agent.
    *  Called with no text from the slash menu, where there's nothing to quote. */
   async function askSolusAbout(selectedText: string) {
-    if (!workId) return;
-    await session.openChatForWork(workId, "new");
-    const prompt = session.leadingInput;
+    if (!workId || !workspace) return;
+    await workspace.openChatForWork(workId, "new");
+    const prompt = workspace.leadingInput;
     // Never clobber something already half-typed in that composer.
     if (selectedText && !prompt.text) {
       const quote = selectedText
@@ -227,7 +230,7 @@
   }
 
   async function sendCommentsToAgent() {
-    if (!workId) return;
+    if (!workId || !workspace) return;
     const unresolved = openThreads(comments);
     // The rail holds both kinds of thread, so the button sends both. The
     // external ones travel as context the agent may not answer upstream.
@@ -236,7 +239,7 @@
     const body = unresolved.length > 0 ? formatInlineComments(unresolved) : "There are no open Solus comments.";
     const msg = `Please address these comments on "${doc.title}" (work_id: ${workId}):\n${body}${external}`;
 
-    const sent = await session.sendMessageToNewWorkSession(workId, msg);
+    const sent = await workspace.sendMessageToNewWorkSession(workId, msg);
     if (!sent) return;
 
     // Handed to the agent, so the threads are settled — they *resolve* rather
@@ -268,7 +271,7 @@
   canCommentSelection={canComment}
   {threadAnchors}
   railWidth={workId ? RAIL_WIDTH : "0px"}
-  onAskSolus={workId ? askSolusAbout : undefined}
+  onAskSolus={workId && workspace ? askSolusAbout : undefined}
   bind:tiptapEditor
   bind:scrollContainer
   bind:suppressSave
@@ -330,11 +333,37 @@
   {/snippet}
 
   {#snippet rail({ folded })}
+    {#snippet sendBar()}
+      <div class="dm-send-bar">
+        <span class="dm-send-bar__hint">
+          {openThreadCount} open thread{openThreadCount === 1 ? "" : "s"}
+        </span>
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps} class="inline-flex">
+                <Button
+                  size="icon"
+                  class="rounded-full"
+                  data-testid="send-comments"
+                  disabled={sending || openThreadCount === 0}
+                  onclick={handleSendComments}
+                  aria-label="Send comments to agent"
+                >
+                  <ArrowUpIcon size={16} weight="bold" />
+                </Button>
+              </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Send to agent"} />
+        </TooltipUI.Root>
+      </div>
+    {/snippet}
     {#if workId}
       <CommentLayer
         externalWorkId={hasExternalDoc ? workId : undefined}
         externalThreads={hasExternalDoc ? externalThreads : []}
-        onAskExternalPrivately={askPrivately}
+        onAskExternalPrivately={workspace ? askPrivately : undefined}
         onLocateExternalQuote={locateExternalQuote}
         bind:this={commentLayer}
         editor={tiptapEditor}
@@ -353,34 +382,8 @@
         bind:canComment
         bind:railOpen
         bind:threadAnchors
-      >
-        {#snippet footer()}
-          <div class="dm-send-bar">
-            <span class="dm-send-bar__hint">
-              {openThreadCount} open thread{openThreadCount === 1 ? "" : "s"}
-            </span>
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props: tooltipProps })}
-                  <span {...tooltipProps} class="inline-flex">
-                    <Button
-                      size="icon"
-                      class="rounded-full"
-                      data-testid="send-comments"
-                      disabled={sending || openThreadCount === 0}
-                      onclick={handleSendComments}
-                      aria-label="Send comments to agent"
-                    >
-                      <ArrowUpIcon size={16} weight="bold" />
-                    </Button>
-                  </span>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value={"Send to agent"} />
-            </TooltipUI.Root>
-          </div>
-        {/snippet}
-      </CommentLayer>
+        footer={workspace ? sendBar : undefined}
+      />
     {/if}
   {/snippet}
 </DocumentShell>
@@ -408,13 +411,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Narrow pane (split, or a compact window): collapse actions to icon-only. */
-  @container doc-shell (max-width: 34rem) {
-    :global(.doc-modal-shell .wha-label) {
-      display: none;
-    }
-    :global(.doc-modal-shell .wha-solus-trigger) {
-      padding-inline: 0.375rem;
-    }
-  }
+  /* The narrow-pane rung that collapsed these actions to icon-only is gone: the
+     header's Share and Ask Solus are glyphs at every width now. */
 </style>

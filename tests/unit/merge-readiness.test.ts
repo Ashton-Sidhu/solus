@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrLifecycleAction, PrMergeMethod, PullRequest } from '@solus/contracts/providers'
 import {
+  armedAutoMergeLabel,
   mergeReadiness,
+  prMenuHostActions,
   readinessTone,
 } from '@solus/workspace-ui/components/pr-review/lib/merge-readiness'
 
@@ -363,5 +365,98 @@ describe('merge readiness', () => {
     expect(readinessTone('merged')).toBe('review')
     expect(readinessTone('open')).toBe('neutral')
     expect(readinessTone('draft')).toBe('neutral')
+  })
+})
+
+describe('auto-merge', () => {
+  const autoMergeActions: PrLifecycleAction[] = ['merge', 'close', 'reopen', 'ready', 'draft', 'enable-auto-merge', 'disable-auto-merge']
+  function autoMergeDetail(overrides: Parameters<typeof detailOf>[0] = {}): PullRequest {
+    const detail = detailOf({ viewerActions: autoMergeActions, mergeMethods: ['squash'], ...overrides })
+    detail.capabilities.actions = autoMergeActions
+    return detail
+  }
+
+  test('pending checks offer to let the host merge when they pass, with the method it will use', () => {
+    // WHY: nothing on the branch needs fixing, only waiting for — so the one
+    // move is to hand the waiting to the host rather than leave the card empty.
+    const readiness = mergeReadiness({
+      detail: autoMergeDetail({ mergeStateStatus: 'blocked' }),
+      checks: checksOf('pending'),
+      ...quiet,
+    })
+    expect(readiness.headline).toBe('Checks in progress')
+    expect(readiness.action).toEqual({ kind: 'enable-auto-merge', label: 'Auto-merge (squash)', method: 'squash' })
+  })
+
+  test('a required review is waited on the same way', () => {
+    expect(
+      mergeReadiness({
+        detail: autoMergeDetail({ mergeStateStatus: 'blocked', requiredApprovingReviewCount: 1 }),
+        checks: checksOf('passing'),
+        ...quiet,
+      }).action?.kind,
+    ).toBe('enable-auto-merge')
+  })
+
+  test('never offered where the host would refuse it or it cannot help', () => {
+    // A repository without auto-merge, or a viewer without write access.
+    expect(
+      mergeReadiness({ detail: detailOf({ mergeStateStatus: 'blocked' }), checks: checksOf('pending'), ...quiet }).action,
+    ).toBeNull()
+    // A conflict or a red check never clears on its own: the fix stays the move.
+    expect(
+      mergeReadiness({ detail: autoMergeDetail({ mergeable: false, mergeStateStatus: 'dirty' }), checks: checksOf('pending'), ...quiet })
+        .action?.kind,
+    ).toBe('resolve-conflicts')
+    expect(
+      mergeReadiness({ detail: autoMergeDetail({ mergeStateStatus: 'unstable' }), checks: checksOf('failing'), ...quiet })
+        .action?.kind,
+    ).toBe('fix-checks')
+    // A draft cannot merge at all; a ready pull request merges now.
+    expect(
+      mergeReadiness({ detail: autoMergeDetail({ draft: true }), checks: checksOf('pending'), ...quiet }).action?.kind,
+    ).toBe('mark-ready')
+    expect(
+      mergeReadiness({ detail: autoMergeDetail(), checks: checksOf('passing'), ...quiet }).action?.kind,
+    ).toBe('merge')
+  })
+
+  test('once armed, the card says so and offers no second merge', () => {
+    // WHY: a merge button beside an armed auto-merge asks the reader to do what
+    // the host has already been told to do.
+    const detail = autoMergeDetail({ mergeStateStatus: 'blocked', autoMergeEnabled: true, autoMergeMethod: 'squash' })
+    expect(armedAutoMergeLabel(detail)).toBe('Auto-merge on (squash)')
+    expect(mergeReadiness({ detail, checks: checksOf('pending'), ...quiet }).action).toBeNull()
+    expect(mergeReadiness({ detail: { ...detail, mergeStateStatus: 'clean' }, checks: checksOf('passing'), ...quiet }).action)
+      .toBeNull()
+    // A merged pull request has nothing armed any more.
+    expect(armedAutoMergeLabel({ ...detail, state: 'merged' })).toBeNull()
+  })
+
+  test('the menu offers what the card does not', () => {
+    const waiting = autoMergeDetail({ mergeStateStatus: 'blocked' })
+    const offered = mergeReadiness({ detail: waiting, checks: checksOf('pending'), ...quiet }).action
+    // The card already offers auto-merge, so the menu offers the other way out.
+    expect(prMenuHostActions(waiting, offered)).toEqual({
+      enableAutoMerge: false,
+      disableAutoMerge: false,
+      mergeNow: true,
+      revert: false,
+      method: 'squash',
+    })
+    const armed = { ...waiting, autoMergeEnabled: true, autoMergeMethod: 'squash' as const }
+    expect(prMenuHostActions(armed, null)).toMatchObject({ enableAutoMerge: false, disableAutoMerge: true, mergeNow: true })
+    // A ready pull request merges from the card; the menu can still arm the host.
+    expect(prMenuHostActions(autoMergeDetail(), { kind: 'merge', label: 'Squash and merge', method: 'squash' }))
+      .toMatchObject({ enableAutoMerge: true, mergeNow: false })
+  })
+
+  test('revert is offered on a merged pull request to a viewer who may write', () => {
+    const merged = detailOf({ state: 'merged', viewerActions: ['merge', 'revert'] })
+    merged.capabilities.actions = ['merge', 'revert']
+    expect(prMenuHostActions(merged, null).revert).toBe(true)
+    expect(prMenuHostActions({ ...merged, viewerPermissions: { ...merged.viewerPermissions, actions: [] } }, null).revert)
+      .toBe(false)
+    expect(prMenuHostActions({ ...merged, state: 'open' }, null).revert).toBe(false)
   })
 })

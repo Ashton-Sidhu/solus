@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '@iconify/svelte'
   import { uuid } from '@solus/contracts/uuid'
-  import { getWorkspaceContext } from '../../contexts'
+  import { getSurfaceContext } from '../../contexts'
   import { toasts } from '../../lib/toasts'
   import { ensureIconCollections } from '../diagram/iconify'
   import * as TooltipUI from '../ui/tooltip'
@@ -19,8 +19,8 @@
      *  comment beside it. */
     externalThreadId?: string
   } = $props()
-  const store = getWorkspaceContext().worksStore.externalComments
-  const workspace = getWorkspaceContext()
+  const store = getSurfaceContext().worksStore.externalComments
+  const workspace = getSurfaceContext()
   const provider = $derived(workspace.worksStore.get(workId)?.mirroredDoc?.provider ?? 'gdrive')
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))
   const message = $derived(outboundText(text, author))

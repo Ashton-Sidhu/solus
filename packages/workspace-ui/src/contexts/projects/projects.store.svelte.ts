@@ -4,7 +4,17 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { z } from 'zod'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import { normalizeProjectRoot, projectRefKey, type ProjectCatalogEntry, type ProjectRef } from './project-catalog'
+import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
+import { localProjectKey } from '@solus/contracts/repository-key'
+import {
+  groupLogicalProjects,
+  logicalProjectKeyFor,
+  normalizeProjectRoot,
+  projectRefKey,
+  type LogicalProject,
+  type ProjectCatalogEntry,
+  type ProjectRef,
+} from './project-catalog'
 import { projectDirLabel } from '../../lib/paths'
 
 const STORAGE_KEY = 'solus-project-catalog'
@@ -14,6 +24,7 @@ const catalogEntrySchema = z.object({
   projectRoot: z.string(),
   label: z.string(),
   lastSeenAt: z.number(),
+  repositoryKey: z.string().nullable().optional().catch(undefined),
 })
 const catalogSchema = z.object({
   version: z.literal(1),
@@ -65,6 +76,55 @@ export class ProjectsStore {
 
   get entries(): ProjectCatalogEntry[] {
     return [...this.entriesByKey.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+  }
+
+  /** Every project the pages list: checkouts grouped by repository, with the
+   *  organization's cloud projects joined (docs/plans/project-model.md). */
+  logicalProjects(cloudProjects: readonly WorkspaceProject[]): LogicalProject[] {
+    return groupLogicalProjects(this.entries, cloudProjects)
+  }
+
+  /** The project a folder on a host belongs to: its checkout's repository
+   *  once the host has named it, else the folder itself as a local-only
+   *  project. A path alone never names a project across hosts. */
+  projectKeyFor(serverId: string, path: string): string {
+    const projectRoot = normalizeProjectRoot(path)
+    const entry = this.entriesByKey.get(projectRefKey({ serverId, projectRoot }))
+    return entry ? logicalProjectKeyFor(entry) : localProjectKey(serverId, projectRoot)
+  }
+
+  /** The repository a folder on a host holds, or null when its host has not
+   *  named one (no hosted remote, or not listed yet). */
+  repositoryKeyFor(serverId: string, path: string): string | null {
+    const projectRoot = normalizeProjectRoot(path)
+    return this.entriesByKey.get(projectRefKey({ serverId, projectRoot }))?.repositoryKey ?? null
+  }
+
+  /** The checkouts of one project across hosts, most recently touched first. */
+  checkoutsOf(projectKey: string): ProjectCatalogEntry[] {
+    return this.entries.filter((entry) => logicalProjectKeyFor(entry) === projectKey)
+  }
+
+  /** List each execution host's checkouts as it connects, so every page can
+   *  group by repository. Returns the unsubscribe. */
+  listen(isExecutionHost: (serverId: string) => boolean): () => void {
+    const load = (serverId: string) => {
+      if (!isExecutionHost(serverId)) return
+      void this.loadProjectsFor(serverId, serverConnections.apiFor(serverId), { force: true })
+    }
+    for (const serverId of serverConnections.connectedServerIds()) load(serverId)
+    return serverConnections.onStatusChange((serverId, status) => {
+      if (status === 'connected') load(serverConnections.resolveId(serverId))
+    })
+  }
+
+  /** Remember which repository a checkout holds, as its host reported it. */
+  private stampRepositoryKey(serverId: string, path: string, repositoryKey: string | null): void {
+    const key = projectRefKey({ serverId, projectRoot: normalizeProjectRoot(path) })
+    const entry = this.entriesByKey.get(key)
+    if (!entry || entry.repositoryKey === repositoryKey) return
+    this.entriesByKey.set(key, { ...entry, repositoryKey })
+    this.scheduleSave()
   }
 
   has(ref: ProjectRef): boolean {
@@ -128,6 +188,12 @@ export class ProjectsStore {
     this.scheduleSave()
   }
 
+  /** Forget every checkout of one project from this device's history. Never
+   *  touches files, sessions, or any host's or cloud's records. */
+  removeProject(projectKey: string): void {
+    for (const checkout of this.checkoutsOf(projectKey)) this.remove(checkout)
+  }
+
   /** Write now instead of waiting for the debounce — call on page hide, and
    *  from tests that assert on the persisted snapshot. */
   flush(): void {
@@ -183,6 +249,16 @@ export class ProjectsStore {
       .then((projects) => {
         this.projectsByHost.set(serverId, projects)
         this.projectsLoadedByHost.set(serverId, true)
+        // A host's projects are checkouts the pages group by repository; the
+        // host names the repository, the catalog remembers it for when the
+        // host is offline.
+        for (const project of projects) {
+          // Only an unknown checkout is recorded: a listing is not a visit, so
+          // it must not reorder the projects the person actually touched.
+          const ref = { serverId, projectRoot: project.path }
+          if (!this.has({ serverId, projectRoot: normalizeProjectRoot(project.path) })) this.recordDiscovered(ref, project.folderName)
+          this.stampRepositoryKey(serverId, project.path, project.repositoryKey)
+        }
         return projects
       })
       .catch(() => {

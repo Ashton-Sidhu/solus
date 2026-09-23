@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
-import { filterPrFacets, filterPrs, prStatusBadge, reviewEffortSummary, sortPrs } from '@solus/workspace-ui/components/prs/lib/pr-utils'
-import type { ReviewEffort } from '@solus/contracts/effort-types'
+import { filterPrFacets, filterPrs, prStatusBadge } from '@solus/workspace-ui/components/prs/lib/pr-utils'
 
-function pr(number: number, state: PullRequest['state'], effort?: ReviewEffort): PullRequest {
-  return pullRequestFixture(number, { author: 'sidhu', state, effort })
+function pr(number: number, state: PullRequest['state']): PullRequest {
+  return pullRequestFixture(number, { author: 'sidhu', state })
 }
 
 describe('filterPrs', () => {
@@ -74,27 +73,5 @@ describe('pull request status colours', () => {
     expect(prStatusBadge({ state: 'open', draft: false })?.tone).toBe('var(--success)')
     expect(prStatusBadge({ state: 'merged', draft: false })?.tone).toBe('var(--review)')
     expect(prStatusBadge({ state: 'closed', draft: false })?.tone).toBe('var(--failure)')
-  })
-})
-
-describe('review effort pacing', () => {
-  test('orders known reading effort smallest first without hiding unknown PRs', () => {
-    const items = [
-      pr(1, 'open', { band: 'involved', minutes: 12, signals: ['large'] }),
-      pr(2, 'open'),
-      pr(3, 'open', { band: 'quick', minutes: 1, signals: ['tiny'] }),
-    ]
-
-    expect(sortPrs(items, 'effort').map((item) => item.number)).toEqual([3, 1, 2])
-  })
-
-  test('totals known estimates while keeping the listed PR count honest', () => {
-    const items = [
-      pr(1, 'open', { band: 'quick', minutes: 1, signals: ['tiny'] }),
-      pr(2, 'open'),
-      pr(3, 'open', { band: 'standard', minutes: 4, signals: ['medium'] }),
-    ]
-
-    expect(reviewEffortSummary(items)).toEqual({ count: 3, knownCount: 2, minutes: 5 })
   })
 })

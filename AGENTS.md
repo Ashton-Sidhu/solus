@@ -313,6 +313,12 @@ in a `WeakMap` keyed by the item; bypass the cache while the item is still mutat
 ## Development safety
 
 - `bun install` installs dependencies.
+- **Never run `bun run build`.** It is also forbidden as `bun run build:test`,
+  `bash scripts/build-parallel.sh`, or a direct `electron-vite build` / `vite build`.
+  Each invocation starts two Rollup passes plus esbuild in parallel and uses several
+  gigabytes. Multiple agent sessions build at the same time, exhaust the developer's
+  memory, and push the machine into swap — including the Solus instance that directs
+  you. The developer runs the build. Prove your change with focused tests instead.
 - `bun run dev` starts the Electron/Vite development environment. Run it only when the
   developer explicitly requests interactive verification.
 - If you start a process, capture its PID and stop exactly that PID when finished.
@@ -531,7 +537,8 @@ Before reporting completion:
 - [ ] No large reactive object or transcript was rebuilt for a small update.
 - [ ] No live Solus data or unrelated process was modified.
 - [ ] Focused tests encode the intent of the change.
-- [ ] `bun run build` succeeds.
+- [ ] Focused tests and any targeted lint or typecheck for the changed area pass. Do not
+  run `bun run build`; the developer does that.
 - [ ] User-visible or architectural docs were updated when applicable.
 - [ ] The final response states what changed, how it was verified, and any surface that
   was intentionally unsupported or not exercised.

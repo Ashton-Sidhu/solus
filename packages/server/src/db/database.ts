@@ -37,6 +37,23 @@ interface RootDb extends Db {
 }
 
 const activeTransaction = new AsyncLocalStorage<Db>()
+const commitCallbacks = new AsyncLocalStorage<(() => Promise<void>)[]>()
+
+/** Notifications must not escape an outer transaction that can still roll back. */
+export async function afterDatabaseCommit(callback: () => Promise<void>): Promise<void> {
+  const callbacks = commitCallbacks.getStore()
+  if (callbacks) callbacks.push(callback)
+  else await callback()
+}
+
+async function withCommitCallbacks<T>(commit: () => Promise<T>): Promise<T> {
+  const callbacks: (() => Promise<void>)[] = []
+  const result = await commitCallbacks.run(callbacks, commit)
+  // The commit already succeeded. A failed notification cannot turn its receipt
+  // into a failure; reconnect reads the durable snapshot again.
+  await Promise.allSettled(callbacks.map(callback => callback()))
+  return result
+}
 
 /** postgres-js sends `undefined` as an error and SQLite refuses it; every absent value is NULL. */
 function nullForUndefined(params: unknown[]): SQLInputValue[] {
@@ -88,7 +105,7 @@ class SqliteDb implements RootDb {
     const open = activeTransaction.getStore()
     if (open) return fn(open)
     const tx = new SqliteTransaction(this.drizzle)
-    return withAsyncTx(() => activeTransaction.run(tx, () => fn(tx)))
+    return withCommitCallbacks(() => withAsyncTx(() => activeTransaction.run(tx, () => fn(tx))))
   }
 
   async close(): Promise<void> {
@@ -189,10 +206,10 @@ class PostgresDb implements RootDb {
     await this.ready
     const open = activeTransaction.getStore()
     if (open) return fn(open)
-    return this.drizzle.transaction((drizzleTx) => {
+    return withCommitCallbacks(() => this.drizzle.transaction((drizzleTx) => {
       const tx = new PostgresTransaction(drizzleTx)
       return activeTransaction.run(tx, () => fn(tx))
-    })
+    }))
   }
 
   async close(): Promise<void> {

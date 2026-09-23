@@ -61,7 +61,7 @@ self.addEventListener('notificationclick', (event) => {
       if (data.installationId) params.set('notificationInstallationId', data.installationId);
       if (data.route) params.set('notificationRoute', data.route);
       // The client's root is the registration scope with the per-host `push/<id>/`
-      // suffix removed: `/` when a host serves it, `/app/` on the account origin.
+      // suffix removed.
       const root = new URL(self.registration.scope).pathname.replace(/push\/[^/]+\/$/, '');
       await clients.openWindow(params.size > 0 ? `${root}?${params}` : root);
     }

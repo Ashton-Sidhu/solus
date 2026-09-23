@@ -1,4 +1,4 @@
-import type { AgentId, DiffComment, DiffCommentDraft, GitCheckout, ReasoningEffort } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, ReasoningEffort, Session } from '@solus/contracts/types'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { formatDiffInlineComments } from './session.utils'
 
@@ -8,57 +8,9 @@ function targetSession(ctx: WorkspaceContext, tabId?: string) {
   return ctx.sessionFor(tabId ?? ctx.activeTabId)
 }
 
-export function addDiffComment(ctx: WorkspaceContext, comment: DiffComment, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  session.diffComments.push(comment)
-}
-
-export function updateDiffComment(ctx: WorkspaceContext, commentId: string, newText: string, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  const c = session.diffComments.find((dc) => dc.id === commentId)
-  if (c) c.comment = newText
-}
-
-export function removeDiffComment(ctx: WorkspaceContext, commentId: string, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  const idx = session.diffComments.findIndex((dc) => dc.id === commentId)
-  if (idx !== -1) session.diffComments.splice(idx, 1)
-}
-
-export function restoreDiffComment(ctx: WorkspaceContext, comment: DiffComment, index: number, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  if (session.diffComments.some((dc) => dc.id === comment.id)) return
-  const clamped = Math.max(0, Math.min(index, session.diffComments.length))
-  session.diffComments.splice(clamped, 0, comment)
-}
-
-export function clearDiffComments(ctx: WorkspaceContext, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
+function clearDiffComments(session: Session): void {
   session.diffComments.splice(0, session.diffComments.length)
   session.diffCommentDraft = null
-}
-
-export function setDiffCommentDraft(ctx: WorkspaceContext, draft: DiffCommentDraft | null, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  session.diffCommentDraft = draft
-}
-
-export function updateDiffCommentDraftValue(ctx: WorkspaceContext, value: string, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session?.diffCommentDraft) return
-  session.diffCommentDraft.value = value
-}
-
-export function setDiffGeneralComment(ctx: WorkspaceContext, value: string, tabId?: string): void {
-  const session = targetSession(ctx, tabId)
-  if (!session) return
-  session.diffGeneralComment = value
 }
 
 export function submitDiffFeedback(ctx: WorkspaceContext, generalComment: string, tabId?: string): boolean {
@@ -73,8 +25,8 @@ export function submitDiffFeedback(ctx: WorkspaceContext, generalComment: string
     parts.push(`Inline comments:\n${formatDiffInlineComments(inlineComments)}`)
   }
 
-  ctx.sendMessage(parts.join('\n\n'), undefined, tabId)
-  clearDiffComments(ctx, tabId)
+  ctx.dispatch.sendMessage(parts.join('\n\n'), undefined, tabId)
+  clearDiffComments(session)
   session.diffGeneralComment = ''
   return true
 }
@@ -145,7 +97,7 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
     parts.push(`Inline comments:\n${formatDiffInlineComments(inlineComments)}`)
   }
 
-  ctx.sendMessage(parts.join('\n\n'), undefined, newTabId)
+  ctx.dispatch.sendMessage(parts.join('\n\n'), undefined, newTabId)
   if (session) {
     session.diffComments.splice(0, session.diffComments.length)
     session.diffCommentDraft = null

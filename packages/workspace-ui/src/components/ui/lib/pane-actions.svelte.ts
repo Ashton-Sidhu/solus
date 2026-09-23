@@ -1,4 +1,4 @@
-import { getWorkspaceContext } from '../../../contexts'
+import { getSurfaceContext } from '../../../contexts'
 import type { PaneId } from '../../../contexts/workspace/routing/location'
 import { requestInputFocus } from '../../../lib/inputFocus'
 
@@ -12,7 +12,20 @@ import { requestInputFocus } from '../../../lib/inputFocus'
  * still means something once there are more than two panes.
  */
 export function paneActions(readPaneId: () => PaneId | undefined) {
-  const session = getWorkspaceContext()
+  const session = getSurfaceContext().workspace
+  // A client with no panes (the cloud console) mounts a surface as a page: it
+  // leads nothing, and every positional command is inert.
+  if (!session) {
+    return {
+      inPane: false,
+      isLeading: false,
+      maximized: false,
+      close(): void {},
+      closeOverlay(): void {},
+      toggleMaximize(): void {},
+      moveAcross(): void {},
+    }
+  }
   const router = session.router
 
   return {

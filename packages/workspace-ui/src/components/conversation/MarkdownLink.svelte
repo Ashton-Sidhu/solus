@@ -3,7 +3,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
@@ -34,7 +34,11 @@
     rejected: "plan-rejected",
   } satisfies Record<Status, "plan-pending" | "plan-accepted" | "plan-rejected">;
 
-  const session = getWorkspaceContext();
+  // A link to a plan, a session, or a file opens in the workspace; a client
+  // with none (the cloud console) opens a work or a task at its own page and
+  // shows the rest as text.
+  const session = getSurfaceContext().workspace;
+  const shell = getClientShellContext();
   const sessionLinkContext = getSessionLinkContext();
   const assetContext = getMarkdownImageContext();
 
@@ -75,7 +79,7 @@
   // The same tab a click would preview against, so the tooltip names the
   // directory the link would actually open in.
   const fileLinkWorkingDirectory = $derived(
-    session.sessionFor(session.focusedChatTabId ?? session.activeTabId)?.run
+    session?.sessionFor(session.focusedChatTabId ?? session.activeTabId)?.run
       .workingDirectory,
   );
   // The destination comes from the codec; only the chip's own decoration is
@@ -104,17 +108,16 @@
 
   /** The host that would render it: the session that wrote the link, not the
    *  device showing it. A remote session's `localhost:5173` lives there. */
-  const linkServerId = $derived(
-    sessionLinkContext?.serverId() ?? session.fallbackServerId,
-  );
-
-  function openInSolusBrowser() {
-    void session.openUrlInBrowser(href, linkServerId).catch((error: Error) => {
-      toasts.error("Couldn't open that page in the browser", {
-        description: error.message,
-      });
-    });
-  }
+  const openInSolusBrowser = session
+    ? () => {
+        const linkServerId = sessionLinkContext?.serverId() ?? session.fallbackServerId;
+        void session.openUrlInBrowser(href, linkServerId).catch((error: Error) => {
+          toasts.error("Couldn't open that page in the browser", {
+            description: error.message,
+          });
+        });
+      }
+    : null;
 
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
@@ -132,20 +135,28 @@
       if (assetHref) localApi.openExternal(assetHref);
     } else if (linkRoute) {
       e.preventDefault();
-      session.openRoute(linkRoute, {
-        target: linkRoute.name === "task" ? "new" : "aside",
-        sourceUrl:
-          linkRoute.name === "prReview" && /^https:\/\//i.test(href)
-            ? href
-            : undefined,
-      });
+      if (session) {
+        session.openRoute(linkRoute, {
+          target: linkRoute.name === "task" ? "new" : "aside",
+          sourceUrl:
+            linkRoute.name === "prReview" && /^https:\/\//i.test(href)
+              ? href
+              : undefined,
+        });
+      } else if (linkRoute.name === "work") {
+        shell.openResource({ kind: "work", workId: linkRoute.params.workId, serverId: linkRoute.params.serverId });
+      } else if (linkRoute.name === "task") {
+        shell.openResource({ kind: "task", taskId: linkRoute.params.taskId, serverId: linkRoute.params.serverId });
+      }
     } else if (sessionParams) {
       e.preventDefault();
+      if (!session) return;
       void resolveSessionLinkMeta(sessionParams, sessionLinkContext?.serverId()).then((meta) =>
-        session.resumeSession(meta),
+        session.opening.resumeSession(meta),
       );
     } else if (fileRef) {
       e.preventDefault();
+      if (!session) return;
       requestFilePreview({
         ...fileRef,
         tabId: session.focusedChatTabId ?? session.activeTabId,
@@ -161,8 +172,7 @@
   <button
     type="button"
     onclick={handleClick}
-    class="{tokenClassName(VARIANT_FOR[planStatus])} solus-token--output-link cursor-pointer"
-    style="border:none"
+    class={tokenClassName(VARIANT_FOR[planStatus])}
   ><span class="solus-token__icon">
       {#if planStatus === "accepted"}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
@@ -177,8 +187,7 @@
   <button
     type="button"
     onclick={handleClick}
-    class="{tokenClassName('work')} solus-token--output-link cursor-pointer"
-    style="border:none"
+    class={tokenClassName('work')}
   ><span class="solus-token__icon">
       <FileTextIcon size={12} />
 </span><span>{@render children?.()}</span>
@@ -187,8 +196,7 @@
   <button
     type="button"
     onclick={handleClick}
-    class="{tokenClassName('pr')} solus-token--output-link cursor-pointer"
-    style="border:none"
+    class={tokenClassName('pr')}
   ><span class="solus-token__icon">
       <GitPullRequestIcon size={12} weight="bold" />
 </span><span>{@render children?.()}</span>
@@ -197,8 +205,7 @@
   <button
     type="button"
     onclick={handleClick}
-    class="{tokenClassName('session')} solus-token--output-link cursor-pointer"
-    style="border:none"
+    class={tokenClassName('session')}
   ><span class="solus-token__icon">
       <ChatCircleDotsIcon size={12} />
 </span><span>{@render children?.()}</span>
@@ -206,7 +213,7 @@
 {:else if fileRef}
   <button
     type="button"
-    class={`${tokenClassName("file", true)} solus-token--output-link solus-token--output-file-link`}
+    class={tokenClassName("file", true)}
     title={fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory)}
     onclick={handleClick}
   ><span class="solus-token__icon">

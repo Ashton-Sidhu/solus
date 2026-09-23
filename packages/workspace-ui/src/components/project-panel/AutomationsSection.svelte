@@ -133,7 +133,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
+          class="pointer-events-none absolute inset-y-0 right-1 my-auto opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
           title="Stop run"
           aria-label="Stop run"
           onclick={(event) => void stop(a, event)}
@@ -145,7 +145,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
+          class="pointer-events-none absolute inset-y-0 right-1 my-auto opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
           title={a.enabled ? "Pause automation" : "Resume automation"}
           aria-label={a.enabled ? "Pause automation" : "Resume automation"}
           onclick={(event) => void toggleEnabled(a, event)}

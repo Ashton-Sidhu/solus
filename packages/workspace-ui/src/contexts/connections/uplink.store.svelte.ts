@@ -1,4 +1,5 @@
 import type { UplinkStatus } from '@solus/contracts/uplink'
+import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { SvelteMap } from 'svelte/reactivity'
@@ -15,6 +16,7 @@ import { serversStore } from './servers.store.svelte'
 class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()
   busyServerId = $state<string | null>(null)
+  private stopListening: (() => void) | null = null
 
   /** This client can hold an account at all: the desktop bridge exists, or the
    *  cloud origin serves this web client. Signed out still shows the card — as
@@ -32,6 +34,19 @@ class UplinkStore {
 
   statusFor(serverId: string): UplinkStatus | undefined {
     return this.statusByServer.get(serverId)
+  }
+
+  /** Called once at boot: `uplinkLink` answers before the tunnel registers, so the
+   *  "online" that follows — and every later change — arrives from the host as a snapshot. */
+  listen(): () => void {
+    if (this.stopListening) return this.stopListening
+    this.stopListening = subscribeAllHosts('host.uplinkStatusChanged', (serverId, status) => {
+      this.statusByServer.set(serverId, status)
+    })
+    return () => {
+      this.stopListening?.()
+      this.stopListening = null
+    }
   }
 
   async refresh(serverId: string): Promise<void> {

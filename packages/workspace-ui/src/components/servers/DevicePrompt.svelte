@@ -57,7 +57,7 @@
   </span>
   {#if code}
     <code
-      class="shrink-0 font-mono text-sm st text-(--solus-text-primary)"
+      class="shrink-0 font-sans text-sm font-medium tracking-wider tabular-nums text-(--solus-text-primary)"
     >
       {code}
     </code>
@@ -93,7 +93,7 @@
       <form class="flex w-full items-center gap-2" onsubmit={submit}>
         <Input
           bind:value={returnedCode}
-          class="h-8 min-w-0 flex-1 font-mono"
+          class="h-8 min-w-0 flex-1"
           placeholder="Paste the code from {label}"
           autocomplete="one-time-code"
           aria-label="{label} sign-in code"

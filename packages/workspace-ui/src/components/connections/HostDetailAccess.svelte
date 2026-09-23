@@ -45,7 +45,7 @@
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
+        class="group flex items-center gap-3 px-4 py-2.5 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
       >
         <div
           class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"

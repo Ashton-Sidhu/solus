@@ -17,7 +17,8 @@
     onDelete: (id: string) => void;
     /** Center the canvas on the comment's node. */
     onScrollTo: (id: string) => void;
-    onSendToAgent: () => void;
+    /** Hand the comments to a new session. Null on a client that starts none. */
+    onSendToAgent: (() => void) | null;
     onClose: () => void;
     /** Focus the composer on mount — set when opened via an explicit
         "Add comment" intent, mirroring the details drawer's autoFocus. */
@@ -117,7 +118,7 @@
           {/if}
         {/snippet}
         {#snippet secondaryActions()}
-          {#if comments.length > 0}
+          {#if comments.length > 0 && onSendToAgent}
             <Button
               type="button"
               variant="ghost"

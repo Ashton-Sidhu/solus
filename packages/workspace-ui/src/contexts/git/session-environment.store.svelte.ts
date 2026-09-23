@@ -58,16 +58,11 @@ export interface SessionStartTarget {
   worktreeBaseBranch: string | null
 }
 
-interface SessionEnvironmentWorkspace {
+export interface SessionEnvironmentWorkspace {
   activeTabId: string
   tabOrder: string[]
-  globalDefaults: {
-    workingDirectory: string
-    gitContext: GitCheckout | null
-  }
-  config: {
-    applyGlobalStartTarget(target: { gitContext: GitCheckout | null }): void
-  }
+  /** Where work happens when no source names a run of its own. */
+  readonly defaultRunConfig: RunConfig
   /** The run a source owns. A tab and a session draft both hold one in the same
    *  position, which is why neither needs its own environment refresh. */
   runFor(sourceId: string): RunConfig | undefined
@@ -80,6 +75,9 @@ interface SessionEnvironmentWorkspace {
    *  from the API object. Present exactly when `apiFor` is. */
   serverIdFor?(sourceId: string): string
   apiForSession?(sessionId: string): HostApi
+  /** The branch the organization set for new worktrees of this run's project,
+   *  or null to use the repository's own default (docs/plans/project-model.md §7). */
+  projectDefaultBranchFor?(run: RunConfig): string | null
 }
 
 export type EnvironmentKind = 'workspace' | 'branch' | 'worktree'
@@ -125,8 +123,6 @@ export class SessionEnvironmentStore {
   private detailWatchers = new Map<string, number>()
   private detailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private versions = new Map<string, number>()
-  private apiByCwd = new Map<string, HostApi>()
-  private serverIdByCwd = new Map<string, string>()
   private dispatchRootByTarget = new SvelteMap<string, string | null>()
   private dispatchBranchesByTarget = new SvelteMap<string, string[]>()
   private dispatchBranchesLoading = new SvelteSet<string>()
@@ -148,20 +144,6 @@ export class SessionEnvironmentStore {
     this.registrationGenerationByServerId.set(serverId, generation + 1)
   }
 
-  bindCwd(serverId: string, cwd: string | null | undefined, api: HostApi): void {
-    if (!cwd || cwd === '~') return
-    this.serverIdByCwd.set(cwd, serverId)
-    this.apiByCwd.set(hostKey(serverId, cwd), api)
-  }
-
-  private apiForCwd(serverId: string, cwd: string): HostApi | undefined {
-    return this.apiByCwd.get(hostKey(serverId, cwd))
-  }
-
-  private boundServerIdFor(cwd: string): string | undefined {
-    return this.serverIdByCwd.get(cwd)
-  }
-
   private statusForHost(serverId: string, cwd: string): GitState | null | undefined {
     return this.byCwd[hostKey(serverId, cwd)]
   }
@@ -176,21 +158,18 @@ export class SessionEnvironmentStore {
    * Takes the run config rather than a tab id: an environment is a function of
    * three of its fields and nothing else, so a session draft — which has no tab
    * and no session — projects through exactly the same path as a started tab.
-   * `undefined` means "nothing chosen yet", which falls back to the app defaults.
+   * `undefined` means "nothing chosen yet", which falls back to the default run.
    */
   environmentFor(run?: RunConfig | null): SessionEnvironment {
     if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
-    const attachedCheckout = run ? run.gitContext : this.workspace.globalDefaults.gitContext
+    const target = run ?? this.workspace.defaultRunConfig
+    const attachedCheckout = target.gitContext
     // "Will branch" and "branches from X" are separate questions: a run can want
-    // a worktree before the host has said which branch it would fork from. Only
-    // a run can want one at all — isolation is a property of a piece of work.
-    const wantsWorktree = !!run?.worktree
-    const worktreeBaseBranch = run?.worktree?.baseBranch ?? null
-    const cwd = run?.gitContext?.worktreePath
-      ?? run?.workingDirectory
-      ?? this.workspace.globalDefaults.gitContext?.worktreePath
-      ?? this.workspace.globalDefaults.workingDirectory
-    const status = this.statusFor(cwd)
+    // a worktree before the host has said which branch it would fork from.
+    const wantsWorktree = !!target.worktree
+    const worktreeBaseBranch = target.worktree?.baseBranch ?? null
+    const cwd = target.gitContext?.worktreePath ?? target.workingDirectory
+    const status = this.statusFor(target.serverId, cwd)
     const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
@@ -247,19 +226,16 @@ export class SessionEnvironmentStore {
     const cwd = opts.cwd
       ?? run?.gitContext?.worktreePath
       ?? run?.workingDirectory
-      ?? workspace.globalDefaults.gitContext?.worktreePath
-      ?? workspace.globalDefaults.workingDirectory
+      ?? workspace.defaultRunConfig.workingDirectory
     const level = opts.level ?? 'status'
     if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
     // The host that holds the directory is the only one that can read it, and
-    // the run is what names that host. Resolving its surface also binds it to
-    // this directory, so every later status scan follows the same machine.
+    // the run is what names that host.
     const api = workspace.apiFor?.(sourceId)
     const serverId = workspace.serverIdFor?.(sourceId)
     if (!api || !serverId) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no host binding.' }
     }
-    this.bindCwd(serverId, cwd, api)
 
     const worktreePath = run?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
@@ -277,25 +253,17 @@ export class SessionEnvironmentStore {
     // toggle. Land identity first — repo + branch, all O(1) — and let the
     // working-tree scan below overwrite it. Both passes agree on every field, so
     // nothing re-keys or flickers. A cold target has no checkout yet, so the
-    // provisional answer is always a plain branch.
-    const coldTarget = run
-      ? run.gitContext === null
-      : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
-    if (coldTarget && this.statusForHost(serverId, cwd) === undefined) {
+    // provisional answer is always a plain branch. With no run there is nothing
+    // to land it on: the default run projects from the status cache alone.
+    if (run && run.gitContext === null && this.statusForHost(serverId, cwd) === undefined) {
       const identity = await api.gitIdentity(cwd).catch(() => null)
-      const stale = run ? movedAway() : workspace.globalDefaults.workingDirectory !== cwd
-      if (identity && !stale) {
-        const gitContext = gitCheckoutFromState(identity)
-        if (run) {
-          run.gitContext = gitContext
-          run.worktree = worktreeRequested ? { baseBranch: identity.targetBranch } : null
-        } else {
-          workspace.config.applyGlobalStartTarget({ gitContext })
-        }
+      if (identity && !movedAway()) {
+        run.gitContext = gitCheckoutFromState(identity)
+        run.worktree = worktreeRequested ? { baseBranch: identity.targetBranch } : null
       }
     }
 
-    const resolved = await this.resolveSessionStartTargetForHost(serverId, cwd, {
+    const resolved = await this.resolveSessionStartTarget(serverId, cwd, {
       force: opts.force,
       worktreePath,
       worktreeRequested,
@@ -304,7 +272,11 @@ export class SessionEnvironmentStore {
     if (!resolved.target) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t read the working tree', resolved.error) }
     }
-    const { gitContext, worktreeBaseBranch } = resolved.target
+    const { gitContext } = resolved.target
+    // The project's shared default branch, when the organization set one, is
+    // where a new worktree starts; else the branch the host detected.
+    const worktreeBaseBranch = (run && worktreeRequested ? workspace.projectDefaultBranchFor?.(run) : null)
+      ?? resolved.target.worktreeBaseBranch
 
     // Landing a result on a source that has moved on is not a failure; report it
     // as superseded so callers don't flash a misleading error.
@@ -326,11 +298,6 @@ export class SessionEnvironmentStore {
           return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }
         }
       }
-    } else if (workspace.tabOrder.length === 0) {
-      if (workspace.globalDefaults.workingDirectory !== cwd) {
-        return { status: true, details: false, refs: false, registration: true, ok: false, error: supersededError }
-      }
-      workspace.config.applyGlobalStartTarget({ gitContext })
     }
 
     // A full refresh asks for refs on the same round trip as the details.
@@ -339,7 +306,6 @@ export class SessionEnvironmentStore {
       : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true, refs: level === 'full' })
     const currentStatus = this.statusForHost(serverId, cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
-    if (projectRoot) this.bindCwd(serverId, projectRoot, api)
     // A host that predates refs-with-status answers without them; scan separately.
     const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot || detailsOutcome.refsApplied
       ? { ok: true }
@@ -413,28 +379,13 @@ export class SessionEnvironmentStore {
     const api = workspace.apiFor?.(sourceId)
     const serverId = workspace.serverIdFor?.(sourceId)
     if (!session || !api || !serverId) return
-    this.bindCwd(serverId, cwd, api)
     await this.registerCheckout(api, serverId, session, workspace.ctxFor(sourceId), cwd, gitContext)
   }
 
   /** Resolve where a session will start. Callers apply this snapshot as one unit
    * so directory, checkout, and worktree intent cannot come from different
    * refresh ticks. */
-  async resolveSessionStartTarget(
-    workingDirectory: string,
-    options: {
-      force?: boolean
-      worktreePath?: string
-      worktreeRequested: boolean
-      fallbackGitContext?: GitCheckout | null
-    },
-  ): Promise<{ target: SessionStartTarget | null; error?: string }> {
-    const serverId = this.boundServerIdFor(workingDirectory)
-    if (!serverId) return { target: null }
-    return this.resolveSessionStartTargetForHost(serverId, workingDirectory, options)
-  }
-
-  private async resolveSessionStartTargetForHost(
+  private async resolveSessionStartTarget(
     serverId: string,
     workingDirectory: string,
     options: {
@@ -465,9 +416,7 @@ export class SessionEnvironmentStore {
   }
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
-  async refresh(cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<boolean> {
-    const serverId = this.boundServerIdFor(cwd)
-    if (!serverId) return false
+  async refresh(serverId: string, cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<boolean> {
     return (await this.refreshStatusForHost(serverId, cwd, opts)).ok
   }
 
@@ -497,8 +446,8 @@ export class SessionEnvironmentStore {
       return this.refreshStatusForHost(serverId, cwd, opts)
     }
     const version = this.versions.get(key) ?? 0
-    const api = this.apiForCwd(serverId, cwd)
-    if (!api) return { ok: false }
+    // A path names a folder on one machine only, so the read goes to its host.
+    const api = serverConnections.apiFor(serverId)
     if (includeRefs) this.refsLoading.add(key)
     let requestOptions: GitStateOptions | undefined
     if (includeDetails) {
@@ -534,9 +483,7 @@ export class SessionEnvironmentStore {
   }
 
   /** Land a status pushed from the main-process Git watcher. */
-  set(cwd: string, status: GitState | null): void {
-    const serverId = this.boundServerIdFor(cwd)
-    if (!serverId) return
+  set(serverId: string, cwd: string, status: GitState | null): void {
     const key = hostKey(serverId, cwd)
     this.versions.set(key, (this.versions.get(key) ?? 0) + 1)
     const prev = this.byCwd[key]
@@ -632,15 +579,12 @@ export class SessionEnvironmentStore {
     this.detailRefreshTimers.set(key, timer)
   }
 
-  statusFor(cwd: string | null | undefined): GitState | null | undefined {
+  statusFor(serverId: string, cwd: string | null | undefined): GitState | null | undefined {
     if (!cwd) return undefined
-    const serverId = this.boundServerIdFor(cwd)
-    return serverId ? this.statusForHost(serverId, cwd) : undefined
+    return this.statusForHost(serverId, cwd)
   }
 
-  async refreshRefs(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {
-    const serverId = this.boundServerIdFor(projectRoot)
-    if (!serverId) return false
+  async refreshRefs(serverId: string, projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {
     return (await this.refreshRefsOutcomeForHost(serverId, projectRoot, ctx, opts)).ok
   }
 
@@ -656,8 +600,7 @@ export class SessionEnvironmentStore {
       await existing
       return this.refreshRefsOutcomeForHost(serverId, projectRoot, ctx, opts)
     }
-    const api = this.apiForCwd(serverId, projectRoot)
-    if (!api) return { ok: false }
+    const api = serverConnections.apiFor(serverId)
     const promise = Promise.allSettled([
       api.worktreeListProject($state.snapshot(ctx)),
       api.worktreeBranches($state.snapshot(ctx)),
@@ -685,19 +628,17 @@ export class SessionEnvironmentStore {
     return promise
   }
 
-  refsFor(projectRoot: string | null | undefined): GitProjectRefs {
+  refsFor(serverId: string, projectRoot: string | null | undefined): GitProjectRefs {
     if (!projectRoot) return { worktrees: [], branches: [] }
-    const serverId = this.boundServerIdFor(projectRoot)
-    return serverId ? this.refsForHost(serverId, projectRoot) : { worktrees: [], branches: [] }
+    return this.refsForHost(serverId, projectRoot)
   }
 
   /** Whether a worktree/branch scan is in flight for this project, so a picker
    *  that has nothing cached yet can say it is loading rather than say the repo
    *  has no branches. */
-  refsLoadingFor(projectRoot: string | null | undefined): boolean {
+  refsLoadingFor(serverId: string, projectRoot: string | null | undefined): boolean {
     if (!projectRoot) return false
-    const serverId = this.boundServerIdFor(projectRoot)
-    return serverId ? this.refsLoading.has(hostKey(serverId, projectRoot)) : false
+    return this.refsLoading.has(hostKey(serverId, projectRoot))
   }
 
   /** Existing isolated worktrees from this device's checkout on the selected
@@ -771,7 +712,6 @@ export class SessionEnvironmentStore {
           this.dispatchBranchesByTarget.set(key, branches)
           return rootsResult.status === 'fulfilled' && branchesResult.status === 'fulfilled'
         }
-        this.bindCwd(serverId, root, targetApi)
         const worktreesOutcome = await this.refreshRefsOutcomeForHost(
           serverId,
           root,

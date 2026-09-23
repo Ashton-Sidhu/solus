@@ -543,7 +543,7 @@
 
   function openPr(pr: PullRequest) {
     closeRowMenu();
-    void session.openPullRequest(pr, {
+    void session.prReview.openPullRequest(pr, {
       ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
       serverId: prServerId,
       target: "aside",
@@ -556,7 +556,7 @@
       void localApi.openExternal(url);
       return;
     }
-    void session.openPullRequest(
+    void session.prReview.openPullRequest(
       {
         number: parsed.number,
         url: parsed.url,
@@ -690,7 +690,7 @@
   // for this branch, prompt filled in, cursor in the composer — the user reads
   // and sends it, nothing runs on its own.
   function openAgentDraft(prompt: string, environment = env) {
-    const draft = session.openSessionDraft(
+    const draft = session.drafts.openSessionDraft(
       {
         sourceId,
         gitContext: environment.checkout,
@@ -810,7 +810,6 @@
       api={prApi}
       checks={prChecks}
       {active}
-      pushCompleted={actions.lastResult?.push.status === "pushed"}
       onMerged={() => void loadOpenPrs()}
       onAgentDraft={openAgentDraft}
     />

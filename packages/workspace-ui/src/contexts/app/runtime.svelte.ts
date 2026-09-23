@@ -6,6 +6,18 @@ const TOUCH_QUERY = '(pointer: coarse)'
 // Input: any connected pointer is precise (iPad + Magic Keyboard, touch laptop with trackpad)
 const FINE_POINTER_QUERY = '(any-pointer: fine)'
 
+/**
+ * How long the window has to stay blurred before it counts as left.
+ *
+ * `document.hasFocus()` is false for any handoff out of the document — a native
+ * menu, a webview, devtools, the composer's own refocus after a prompt — and
+ * those come back within a frame or two. Reported raw, each one is an away/back
+ * pair that every subscriber acts on: the checks cadence report, server
+ * discovery, the needs-review count. Only the falling edge waits. Coming back is
+ * the user actually there, and is published at once.
+ */
+const AWAY_SETTLE_MS = 1_000
+
 class RuntimeStore {
   isMobileViewport = $state(isMobileLayout(
     globalThis.window?.innerWidth,
@@ -23,6 +35,8 @@ class RuntimeStore {
   // Not reactive: only `refreshLaptopDisplay` reads it. null means settings has
   // not booted yet, which is what makes the first push identifiable.
   private zoomFactor: number | null = null
+  // A blur waiting to be believed. Cleared by a focus that arrives first.
+  private awaySettleTimer: number | null = null
 
   // Focus suppression: true on phones/tablets without keyboard, false for desktop and iPad+keyboard
   get shouldSuppressFocus(): boolean {
@@ -52,8 +66,22 @@ class RuntimeStore {
     listen(FINE_POINTER_QUERY, (v) => this.hasKeyboardPointer = v)
 
     const refreshWindowForeground = () => {
+      if (this.awaySettleTimer !== null) {
+        window.clearTimeout(this.awaySettleTimer)
+        this.awaySettleTimer = null
+      }
       const next = isWindowForeground()
-      if (next !== this.isWindowForeground) this.isWindowForeground = next
+      if (next === this.isWindowForeground) return
+      if (next) {
+        this.isWindowForeground = true
+        return
+      }
+      this.awaySettleTimer = window.setTimeout(() => {
+        this.awaySettleTimer = null
+        // Ask again rather than trusting the event: focus may have returned to a
+        // part of the document that raises no event we listen to.
+        if (!isWindowForeground()) this.isWindowForeground = false
+      }, AWAY_SETTLE_MS)
     }
     window.addEventListener('focus', refreshWindowForeground)
     window.addEventListener('blur', refreshWindowForeground)

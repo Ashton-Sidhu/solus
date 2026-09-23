@@ -2,6 +2,7 @@ import type { Via } from '@solus/contracts/analytics-events'
 import type { NavTarget } from '../workspace/routing/location'
 
 import type { PullRequestOpenTarget, WorkspaceContext } from '../workspace/workspace.context.svelte'
+import { connectionsNav } from '../../components/connections/connections-nav.svelte'
 
 /**
  * Where a surface asks to go, named by the resource rather than by the pane,
@@ -20,12 +21,14 @@ export type ResourceRoute =
   | { kind: 'task'; taskId: string; serverId?: string }
   | { kind: 'session'; sessionId: string; serverId: string }
   | { kind: 'pull-request'; target: PullRequestOpenTarget; serverId?: string; projectDirectory?: string; navTarget?: NavTarget }
+  /** Where a code-host connection is made: the workspace's API access settings. */
+  | { kind: 'connections'; serverId?: string }
 
 export type ResourceRouteKind = ResourceRoute['kind']
 
 /** Every kind the workspace shells (desktop, web) open in place. */
 export const WORKSPACE_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<ResourceRouteKind>([
-  'workspace', 'chat', 'work', 'task', 'session', 'pull-request',
+  'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'connections',
 ])
 
 /** The guest shell (docs/plans/multiplayer-sharing.md §4.2): the shared resource and what it reaches, nothing host-wide. */
@@ -51,11 +54,15 @@ export function openResourceInWorkspace(session: WorkspaceContext, route: Resour
       session.openRoute({ name: 'chat', params: { sessionId: route.sessionId, serverId: route.serverId } })
       return
     case 'pull-request':
-      void session.openPullRequest(route.target, {
+      void session.prReview.openPullRequest(route.target, {
         ctx: route.projectDirectory ? session.ctxForDirectory(route.projectDirectory) : session.ctx,
         serverId: route.serverId,
         target: route.navTarget,
       })
+      return
+    case 'connections':
+      session.showSettings('api-access')
+      if (route.serverId) connectionsNav.open(route.serverId)
       return
   }
 }

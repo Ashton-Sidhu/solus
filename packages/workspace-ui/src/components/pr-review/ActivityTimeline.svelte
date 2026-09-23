@@ -156,14 +156,15 @@
   </Button>
 {/snippet}
 
-<!-- A comment's body sits on the same raised card a review thread does, under
-     its header row on the spine — one kind of surface for everything said on
-     the pull request, so a bot's screenful and a one-line reply read as the
-     same object. -->
+<!-- A review verdict's words sit on a card under the verdict headline. An
+     ordinary comment builds the same card with its author row inside it (see
+     below), so every comment is one bounded object on the spine. The card is
+     the rail's status-card material: 14px corners and a hairline border. Not a
+     box-shadow ring: each timeline row has `content-visibility: auto`, whose
+     paint containment clips anything drawn outside the row's box, so a shadow
+     ring lost its right and bottom edges. -->
 {#snippet commentBody(body: string)}
-  <div
-    class="mt-2 rounded-2xl border border-border bg-card px-3 py-2.5 [.is-laptop-display_&]:rounded-xl [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
-  >
+  <div class="mt-2 rounded-[14px] border border-[var(--hairline-strong)] bg-card px-4 py-3.5">
     <div class={bodyProseClass}>
       <GithubMarkdown
         source={body}
@@ -177,7 +178,12 @@
      avatar's corner rather than a glyph in the person's place. The node is
      pinned to the avatar's 22px: as a flex child it would otherwise stretch
      to the row's full height, and its opaque background would blank the
-     spine for the whole row. -->
+     spine for the whole row.
+
+     Rows that carry one are `-m-1 p-1`: the halo and the verdict badge reach
+     past the node's box, and the row's `content-visibility: auto` clips paint
+     to the row. The pair grows the row's box by 4px on every side without
+     moving anything in it. -->
 {#snippet avatarNode(author: string, avatarUrl: string | undefined, tone?: "positive" | "negative")}
   <span
     class="relative z-10 mt-0.5 size-[22px] shrink-0 self-start rounded-full bg-background shadow-[0_0_0_3px_var(--background)]"
@@ -246,7 +252,7 @@
     <div class="min-w-0 flex-1 pt-1">
       <p class="text-muted-foreground">
         <span class="font-medium text-foreground">{authorName}</span>
-        opened this pull request{#if openedAt}<TooltipUI.Root>
+        opened this pull request{#if openedAt}{" "}<TooltipUI.Root>
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
               <span {...tooltipProps}
@@ -335,28 +341,25 @@
             </p>
             <!-- Sha + message only — the run header already credits the author,
                  and repeating the name at the row's far edge reads orphaned.
-                 Each commit sits on its own card chip inside a half-pixel ring:
-                 shas are literals, and a bare column of them disappears into the
-                 surrounding prose. A ring rather than a wash, so the chips read
-                 as objects lifted off the timeline instead of holes punched in
-                 it — same treatment as the composer at the foot of the feed. -->
-            <ul class="mt-2 flex flex-col gap-1.5" role="list">
+                 Plain rows, not chips: a run of commits is a list to scan, and
+                 a ringed card per commit outweighed the comments around it. -->
+            <ul class="mt-1 flex flex-col" role="list">
               {#each preview.visible as commit (commit.sha)}
                 <li>
-                  <!-- Each chip opens the diff scoped to that commit. Raw
-                       button by the list-row rule; hover promotes the message
-                       to foreground so the chip reads as pressable. -->
+                  <!-- Each row opens the diff scoped to that commit. Raw
+                       button by the list-row rule; the hover wash and the
+                       message's step to foreground say it is pressable. -->
                   <button
                     type="button"
-                    class="group/commit flex w-full cursor-pointer items-center gap-3 rounded-2xl bg-card px-3 py-[9px] text-left shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    class="group/commit -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2 py-1 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     aria-label="View changes in commit {commit.sha.slice(0, 7)}"
                     onclick={() => onOpenCommit?.(commit)}
                   >
-                    <code class="shrink-0 font-mono text-xs text-primary"
+                    <code class="shrink-0 font-mono text-[0.9em] text-primary"
                       >{commit.sha.slice(0, 7)}</code
                     >
                     <span
-                      class="min-w-0 flex-1 truncate  text-muted-foreground transition-colors group-hover/commit:text-foreground"
+                      class="min-w-0 flex-1 truncate text-foreground/80 transition-colors group-hover/commit:text-foreground"
                       >{commit.message}</span
                     >
                   </button>
@@ -464,7 +467,7 @@
                life — the reviewer's avatar with the verdict as its badge, and
                a bold headline (the headline IS the verdict). Same icons as
                PrReviewStateBadge. -->
-          <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+          <li class="relative -m-1 flex gap-2 p-1 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
             {@render avatarNode(
               event.comment.author,
               event.comment.authorAvatarUrl,
@@ -474,7 +477,7 @@
               <p class="flex items-start gap-2  font-medium">
                 <span class="min-w-0 flex-1">
                   {event.comment.author}
-                  {milestone.headline}<TooltipUI.Root>
+                  {milestone.headline}{" "}<TooltipUI.Root>
                   <TooltipUI.Trigger>
                     {#snippet child({ props: tooltipProps })}
                       <span {...tooltipProps}
@@ -497,10 +500,22 @@
             </div>
           </li>
         {:else}
-          <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-            {@render avatarNode(event.comment.author, event.comment.authorAvatarUrl)}
-            <div class="group/comment min-w-0 flex-1 pt-0.5">
-              <div class="flex items-start gap-2 ">
+          {@const bodyOpen = hasBody && !collapsedComments[eventKey]}
+          <!-- GitHub's comment shape: the author row is the card's tinted
+               header, ruled off from the body, so where one comment ends and
+               the next event starts is never in doubt — however many rules and
+               callouts a bot puts inside it. -->
+          <li class="relative -m-1 flex gap-2 p-1 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+            <!-- Dropped so the avatar sits on the header's centre line. -->
+            <span class="flex shrink-0 self-start pt-[5px]">
+              {@render avatarNode(event.comment.author, event.comment.authorAvatarUrl)}
+            </span>
+            <div class="group/comment min-w-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card">
+              <div
+                class="flex min-h-9 items-center gap-2 py-1 pr-2 pl-4 {bodyOpen
+                  ? 'shadow-[inset_0_-0.5px_0_var(--hairline-strong)]'
+                  : ''}"
+              >
                 <span class="min-w-0 flex-1">
                 <span class="font-medium text-foreground"
                   >{event.comment.author}</span
@@ -517,7 +532,10 @@
                   </TooltipUI.Trigger>
                   <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
                 </TooltipUI.Root>
-                {#if event.comment.kind === "review" && event.comment.reviewState}
+                <!-- A comment-only review is stored as `COMMENTED`; on a card
+                     that is already a comment the badge says nothing. Only a
+                     state that changes the review's standing gets one. -->
+                {#if event.comment.kind === "review" && event.comment.reviewState && event.comment.reviewState !== "COMMENTED"}
                   <span class="ml-2 inline-flex align-middle">
                     <PrReviewStateBadge state={event.comment.reviewState} />
                   </span>
@@ -530,8 +548,12 @@
                   {@render deleteCommentButton(event.comment.id, event.comment.author)}
                 {/if}
               </div>
-              {#if hasBody && !collapsedComments[eventKey]}
-                {@render commentBody(event.comment.body)}
+              {#if bodyOpen}
+                <div class="px-4 py-3.5">
+                  <div class={bodyProseClass}>
+                    <GithubMarkdown source={event.comment.body} />
+                  </div>
+                </div>
               {/if}
             </div>
           </li>

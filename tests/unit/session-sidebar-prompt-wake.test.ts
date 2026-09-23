@@ -12,6 +12,7 @@ function sidebarTask(
 ): SidebarTask {
   return {
     id: key,
+    listKey: key,
     key,
     title: key,
     projectKey: '/repo',
@@ -23,7 +24,6 @@ function sidebarTask(
     attention: null,
     unread: false,
     createdAt: 0,
-    activityAt: 0,
     runStartedAt: 0,
     lifecycle,
     completedAt: 0,

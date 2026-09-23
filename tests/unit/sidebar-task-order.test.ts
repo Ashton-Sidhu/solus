@@ -15,6 +15,7 @@ function sidebarTask(
 ): SidebarTask {
   return {
     id,
+    listKey: id,
     key: id,
     title: id,
     projectKey: '/repos/solus',
@@ -26,7 +27,6 @@ function sidebarTask(
     attention: null,
     unread: false,
     createdAt,
-    activityAt: 0,
     runStartedAt: 0,
     tabIds: [id],
   }
@@ -69,7 +69,7 @@ describe('sortTasksByCreation', () => {
 })
 
 describe('sortSidebarRowsByCreation', () => {
-  it('keeps task-backed and loose rows in their fixed creation order', () => {
+  it('keeps task-backed and loose rows in their fixed creation order, newest first', () => {
     const firstTask = sidebarTask('task-row-1', 'idle', 1_000)
     firstTask.taskId = 'task-1'
     const looseSession = sidebarTask('loose-session', 'idle', 2_000)
@@ -78,7 +78,7 @@ describe('sortSidebarRowsByCreation', () => {
 
     expect(
       sortSidebarRowsByCreation([firstTask, secondTask, looseSession]).map((item) => item.id),
-    ).toEqual(['task-row-1', 'loose-session', 'task-row-2'])
+    ).toEqual(['task-row-2', 'loose-session', 'task-row-1'])
   })
 
   it('does not move a task when its session tabs open, close, or reorder', () => {
@@ -92,16 +92,17 @@ describe('sortSidebarRowsByCreation', () => {
       sortSidebarRowsByCreation([multiSessionTask, looseSession, closedTask]).map(
         (item) => item.id,
       ),
-    ).toEqual(['closed-task', 'loose-session', 'task-row'])
+    ).toEqual(['task-row', 'loose-session', 'closed-task'])
   })
 
   it('orders a late-minted task by the session start instead of the task link time', () => {
     // WHY: a task can be minted after its agent turn settles. Using the task's
-    // later creation time puts an older session below a newer loose session.
+    // later creation time puts an older session above a newer loose session.
     type DurableRowHarness = {
       session: {
         tasksStore: {
           byParent: Map<string, ReturnType<typeof task>[]>
+          projectKeyOf: (task: { projectKey?: string | null }) => string | null
           get: () => {
             serverId: null
             sessions: Array<{
@@ -132,6 +133,7 @@ describe('sortSidebarRowsByCreation', () => {
     store.session = {
       tasksStore: {
         byParent: new Map(),
+        projectKeyOf: (task) => task.projectKey ?? null,
         get: () => ({
           serverId: null,
           sessions: [{
@@ -154,10 +156,13 @@ describe('sortSidebarRowsByCreation', () => {
     store.liveSessionStatuses = { stateFor: () => undefined }
 
     const durableRow = store.buildDurableTaskRow(linkedTask, new Map())
+    // A durable row is listed under its task id — the id its loose row already
+    // carried when the session planned it — so the list updates it in place.
+    expect(durableRow.listKey).toBe(linkedTask.id)
     const newerLooseSession = sidebarTask('newer-session', 'idle', 200)
 
     expect(sortSidebarRowsByCreation([newerLooseSession, durableRow]).map((item) => item.id))
-      .toEqual(['late-task', 'newer-session'])
+      .toEqual(['newer-session', 'late-task'])
   })
 })
 

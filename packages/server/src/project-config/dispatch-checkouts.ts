@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { SOLUS_REMOTE_DISPATCH_DIR, type DispatchHistoryRoot } from '@solus/contracts/types'
-import { resolveRepoRef } from '../git/git-helpers'
+import { resolveRepositoryKey } from '../git/git-helpers'
 import { listProjectWorktrees } from '../git/worktree-manager'
 
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -70,7 +70,10 @@ export function resolveDispatchWorktree(
   return worktree.path
 }
 
-/** Resolve exact roots without enumerating any other paired device's namespace. */
+/** Resolve exact roots without enumerating any other paired device's namespace.
+ *  A root matches when the repository key of its checkout (§1 rule) is the
+ *  requested key. A dispatch clone has only its clone source as a remote, so
+ *  the full path is compared, and GitLab subgroups match. */
 export async function resolveDispatchHistoryRoots(
   projectsRoot: string,
   deviceId: string,
@@ -80,10 +83,7 @@ export async function resolveDispatchHistoryRoots(
   const roots = await Promise.all(normalizedKeys.map(async (repoKey): Promise<DispatchHistoryRoot | null> => {
     const path = dispatchCheckoutPath(projectsRoot, deviceId, repoKey)
     if (!existsSync(path)) return null
-    const repo = await resolveRepoRef(path)
-    if (!repo) return null
-    const actualRepoKey = normalizeDispatchRepoKey(`${repo.host}/${repo.owner}/${repo.repo}`)
-    return actualRepoKey === repoKey ? { repoKey, path } : null
+    return await resolveRepositoryKey(path) === repoKey ? { repoKey, path } : null
   }))
   return roots.filter((root): root is DispatchHistoryRoot => root !== null)
 }

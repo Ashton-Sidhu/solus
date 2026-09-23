@@ -1,4 +1,4 @@
-import type { AgentId, NormalizedEvent, Session } from '@solus/contracts/types'
+import type { AgentId, Message, NormalizedEvent, Session } from '@solus/contracts/types'
 import { nextMsgId } from './session.utils'
 import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
@@ -76,18 +76,36 @@ export class WorkStreamTracker {
     }
   }
 
+  private beginArtifactUpdate(session: Session, toolInput: string, toolId: string): void {
+    if (session.messages.some((message) => message.artifact?.toolId === toolId)) return
+    const workId = /"work_id"\s*:\s*"([^"\\]+)"/.exec(toolInput)?.[1]
+    if (!workId) return
+    const previous = session.messages.findLast((message) => message.workRef?.workId === workId && message.artifact)
+    const work = this.worksStore.get(workId)
+    if (!previous && work?.type !== 'artifact') return
+    session.messages.push({
+      id: nextMsgId(), role: 'assistant', content: '', timestamp: Date.now(),
+      artifact: { kind: 'html', pending: true, toolId },
+      workRef: { workId, title: previous?.workRef?.title ?? work?.title ?? '', workType: 'artifact' },
+    })
+  }
+
   /**
    * Show a `render_artifact` call as it is written, instead of a skeleton until
    * it finishes. Off on a touch client, where re-creating an iframe every few
    * hundred milliseconds costs more than the wait it saves.
    */
   updateStreamingArtifact(session: Session, toolName: string | undefined, toolInput: string, toolId?: string): void {
-    if (!isRenderArtifactTool(toolName) || !toolId || runtime.isTouchDevice) return
+    if (!toolId) return
+    const isUpdate = !!toolName?.endsWith('update_work')
+    if (!isRenderArtifactTool(toolName) && !isUpdate) return
+    if (isUpdate) this.beginArtifactUpdate(session, toolInput, toolId)
+    if (runtime.isTouchDevice) return
     const now = Date.now()
     const last = this.lastProgressiveTickByTool.get(`${session.id}:${toolId}`) ?? 0
     if (now - last < PROGRESSIVE_RENDER_MS) return
 
-    const html = partialArtifactHtml(toolInput)
+    const html = partialArtifactHtml(toolInput, isUpdate ? 'content' : 'html')
     if (!html || !artifactHasBody(html)) return
     const pending = session.messages.find((m) => m.artifact?.toolId === toolId && (m.artifact.pending || m.artifact.streaming))
     if (!pending?.artifact) return
@@ -143,6 +161,10 @@ export class WorkStreamTracker {
       this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, session.run.serverId)
     }
 
+    this.completeArtifactPreview(session, event, workRef)
+  }
+
+  private completeArtifactPreview(session: Session, event: ArtifactCreatedEvent, workRef: Message['workRef']): Message {
     // Match only the originating call. Older hosts without a tool id append a
     // completed card; their unmatched provisional cards are removed at turn end.
     // The persisted document is the last word: a progressive render stops the
@@ -158,17 +180,19 @@ export class WorkStreamTracker {
       pending.artifact.pending = false
       pending.artifact.streaming = false
       if (workRef) pending.workRef = workRef
-      return
+      return pending
     }
 
-    session.messages.push({
+    const completed: Message = {
       id: nextMsgId(),
       role: 'assistant' as const,
       content: '',
       artifact: { kind: event.kind, html: event.html, path: event.path },
       workRef,
       timestamp: Date.now(),
-    })
+    }
+    session.messages.push(completed)
+    return completed
   }
 
   failArtifact(session: Session, toolId: string): void {
@@ -180,17 +204,28 @@ export class WorkStreamTracker {
   }
 
   updateArtifact(session: Session, event: Extract<NormalizedEvent, { type: 'work_updated' }>): void {
-    if (event.docType !== 'artifact') return
-    const previous = session.messages.findLast((message) => message.workRef?.workId === event.workId && message.artifact)
-    if (previous?.artifact?.updatedAt && previous.artifact.updatedAt >= event.updatedAt) return
-    session.messages.push({
-      id: nextMsgId(),
-      role: 'assistant',
-      content: '',
-      artifact: { kind: 'html', html: event.content, updatedAt: event.updatedAt },
-      workRef: { workId: event.workId, title: event.title, workType: 'artifact' },
-      timestamp: Date.now(),
-    })
+    // An update never changes a work's type, and a cloud-owned save cannot read
+    // the row it updates: it reports `doc` and no title. The saved record or
+    // this call's own update card is the authority on what the work is.
+    const saved = this.worksStore.get(event.workId)
+    const updateCard = event.toolId
+      ? session.messages.find((message) => message.artifact?.toolId === event.toolId && message.workRef?.workId === event.workId)
+      : undefined
+    if (event.docType !== 'artifact' && saved?.type !== 'artifact' && !updateCard) return
+    const title = event.title || saved?.title || updateCard?.workRef?.title || ''
+    const isStale = session.messages.some((message) => message.workRef?.workId === event.workId
+      && message.artifact?.updatedAt && message.artifact.updatedAt >= event.updatedAt)
+    if (isStale) {
+      if (event.toolId) this.failArtifact(session, event.toolId)
+      return
+    }
+    // The reducer applies the authoritative update to WorksStore. Completing
+    // the inline preview must not replace that record or its saved metadata.
+    const completed = this.completeArtifactPreview(session, {
+      type: 'artifact_created', kind: 'html', html: event.content,
+      workId: event.workId, title, toolId: event.toolId,
+    }, { workId: event.workId, title, workType: 'artifact' })
+    if (completed.artifact) completed.artifact.updatedAt = event.updatedAt
   }
 
   /** Drop provisional cards whose create_work never persisted (tool errored, or

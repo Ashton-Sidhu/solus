@@ -43,6 +43,5 @@ function guestScopedFocus(focus: PresenceFocus, principal: Principal): PresenceF
   if (principal.kind !== 'guest') return focus
   const shared = principal.share.resource
   if (focus.kind === 'session' && shared.kind === 'session' && focus.sessionId === shared.id) return focus
-  if (focus.kind === 'work' && shared.kind === 'work' && focus.workId === shared.id) return focus
   return PRESENCE_NO_FOCUS
 }

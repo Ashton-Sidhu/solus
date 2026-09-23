@@ -1,8 +1,17 @@
 {
   "claude-code": {
+    "claude-opus-5-5": {
+      "label": "Opus 5.5",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultracode"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
     "claude-opus-5": {
       "label": "Opus 5",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultracode"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,
@@ -20,6 +29,7 @@
     },
     "claude-opus-4-8": {
       "label": "Opus 4.8",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultracode"],
       "defaultReasoningEffort": "high",
       "supportsFastMode": false,
@@ -36,6 +46,7 @@
     },
     "claude-fable-5": {
       "label": "Fable 5",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultracode"],
       "defaultReasoningEffort": "high",
       "supportsFastMode": false,
@@ -44,6 +55,7 @@
     },
     "claude-opus-4-7": {
       "label": "Opus 4.7",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "xhigh",
       "supportsFastMode": false,
@@ -53,6 +65,7 @@
     "claude-opus-4-6": {
       "label": "Opus 4.6",
       "isDefault": false,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,
@@ -62,6 +75,7 @@
     "claude-sonnet-4-6": {
       "label": "Sonnet 4.6",
       "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,
@@ -87,9 +101,27 @@
       "contextWindows": [1050000],
       "defaultContextWindow": 1050000
     },
+    "gpt-6-sol": {
+      "label": "Gpt 6 Sol",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
+    "gpt-6-luna": {
+      "label": "Gpt 6 Luna",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
     "gpt-5.6-sol": {
       "label": "Gpt 5.6 Sol",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -98,7 +130,7 @@
     },
     "gpt-5.6-terra": {
       "label": "Gpt 5.6 Terra",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -107,7 +139,7 @@
     },
     "gpt-5.6-luna": {
       "label": "Gpt 5.6 Luna",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -117,6 +149,7 @@
     "gpt-5.5": {
       "label": "Gpt 5.5",
       "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -125,6 +158,7 @@
     },
     "gpt-5.5-pro": {
       "label": "Gpt 5.5 Pro",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -133,6 +167,7 @@
     },
     "gpt-5.4": {
       "label": "Gpt 5.4",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
@@ -141,6 +176,7 @@
     },
     "gpt-5.4-mini": {
       "label": "Gpt 5.4 Mini",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,
@@ -149,6 +185,7 @@
     },
     "gpt-5.3-codex": {
       "label": "Gpt 5.3 Codex",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,

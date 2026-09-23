@@ -3,7 +3,7 @@
   import { Check as CheckIcon, LoaderCircle as SpinnerIcon } from '@lucide/svelte'
   import type { DocCommentThread } from '@solus/contracts/work-comments'
   import { uuid } from '@solus/contracts/uuid'
-  import { getWorkspaceContext } from '../../contexts'
+  import { getSurfaceContext } from '../../contexts'
   import { ensureIconCollections } from '../diagram/iconify'
   import { CommentComposer } from '../ui/comment-composer'
   import { externalCommentDate, externalCommentBody, externalCommentQuote } from './lib/external-comments-view'
@@ -22,8 +22,8 @@
     onLocateQuote: (quote: string, threadId: string) => boolean
     onAskPrivately: (thread: DocCommentThread) => void
   } = $props()
-  const store = getWorkspaceContext().worksStore.externalComments
-  const workspace = getWorkspaceContext()
+  const store = getSurfaceContext().worksStore.externalComments
+  const workspace = getSurfaceContext()
   const provider = $derived(workspace.worksStore.get(workId)?.mirroredDoc?.provider ?? 'gdrive')
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))
   const busy = $derived(store.busy.get(workId) ?? false)

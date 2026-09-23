@@ -138,7 +138,7 @@
         </div>
       {:else if ref.name === "files"}
         <div class="relative h-full min-h-0 w-full">
-          <FilesRouteSkeleton variant="tree" />
+          <FilesRouteSkeleton variant={ref.params.path ? "editor" : "tree"} />
           <PaneChrome
             onClose={actions.closeOverlay}
             onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}

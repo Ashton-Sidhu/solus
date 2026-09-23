@@ -1,4 +1,3 @@
-import type { ReviewEffort, EffortBand } from '@solus/contracts/effort-types'
 import type {
   PendingDisposition,
   ReviewOutcome,
@@ -12,24 +11,16 @@ export interface ReviewModeQueueItem {
   number: number
   title: string
   author: string
-  effort?: ReviewEffort
 }
 
 export interface ReviewModeQueueRow extends ReviewModeQueueItem {
   position: number
-  band: EffortBand | null
-  minutes: number | null
   outcome: ReviewOutcome | null
   pending: boolean
   holdProgress: number
   unresolvedThreads: number | null
   flushError: string | null
   active: boolean
-}
-
-/** Quick reviews lead with the complete diff; everything else starts from the guide. */
-export function defaultReviewModeView(effort?: ReviewEffort): ReviewModeView {
-  return effort?.band === 'quick' ? 'diff' : 'guide'
 }
 
 export function deriveQueueRows(
@@ -50,8 +41,6 @@ export function deriveQueueRows(
     return [{
       ...item,
       position: index + 1,
-      band: item.effort?.band ?? null,
-      minutes: item.effort?.minutes ?? null,
       outcome: held?.outcome ?? entry.outcome,
       pending: !!held,
       holdProgress: held

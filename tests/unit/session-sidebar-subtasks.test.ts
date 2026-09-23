@@ -16,6 +16,8 @@ type SidebarStoreHarness = Pick<
   sessionsByTaskId: Map<string, unknown>
   pickerSessionsByTaskId: Map<string, unknown>
   sessionHomes: SessionHomeHosts
+  liveChildFor(tabId: string): Omit<ReturnType<SessionSidebarStore['childForTab']>, 'lastActivityAt'>
+  tabActivityAt(tabId: string): number
   projectsSessionUnder(
     rootTaskId: string,
     link: { sessionId: string; role?: 'working' | 'referenced' },
@@ -93,6 +95,7 @@ describe('session sidebar subtask rows', () => {
     const sidebarTask = {
       id: root.id,
       taskId: root.id,
+      listKey: root.id,
       key: root.id,
       title: root.title,
       projectKey: '/repo',
@@ -104,7 +107,6 @@ describe('session sidebar subtask rows', () => {
       attention: null,
       unread: false,
       createdAt: 0,
-      activityAt: 0,
       runStartedAt: 0,
       tabIds: [],
     } satisfies SidebarTask
@@ -280,7 +282,7 @@ describe('session sidebar subtask rows', () => {
     store.dismissedRowKeys = new Set()
     store.tabIdBySessionId = new Map([['restored', 'tab-1']])
     store.sessionsByTaskId = new Map()
-    store.childForTab = () => ({
+    store.liveChildFor = () => ({
       tabId: 'tab-1',
       label: 'Restored run',
       attention: null,
@@ -288,9 +290,10 @@ describe('session sidebar subtask rows', () => {
       serverId: 'workshop',
       branchName: null,
       runStartedAt: 0,
-      lastActivityAt: 0,
       reviewGuideStatus: null,
     })
+    // The mounted transcript is still empty.
+    store.tabActivityAt = () => 0
 
     const [row] = store.sessionsFor({
       id: root.id,

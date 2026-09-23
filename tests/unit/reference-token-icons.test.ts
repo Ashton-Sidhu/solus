@@ -4,6 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { JSDOM } from "jsdom";
 import { serializeReferenceToken } from "@solus/workspace-ui/components/editor/reference-tokens";
 import { createReferenceDecorations } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
+import { FOLDER_ICON_PATH, getFileIconPath } from "@solus/workspace-ui/components/editor/fileIcons";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const dom = new JSDOM("<div id=\"editor\"></div>");
@@ -63,5 +64,26 @@ describe("composer reference token icons", () => {
     expect(paths.every((path) => path.namespaceURI === SVG_NAMESPACE)).toBe(
       true,
     );
+  });
+
+  test("draws a folder chip with the folder glyph, not a file glyph", () => {
+    // WHY: a folder picked from the @ menu keeps its trailing slash. The chip
+    // must show that it is a folder, the same as the menu row and the sent
+    // message do.
+    const references = createReferenceDecorations(() => ({}));
+
+    view = new EditorView({
+      parent: document.querySelector("#editor") as HTMLElement,
+      state: EditorState.create({
+        doc: "see @/Users/me/project/ and @src/app.ts",
+        extensions: references.extension,
+      }),
+    });
+
+    const [folder, file] = [
+      ...document.querySelectorAll(".solus-token--file svg path"),
+    ].map((path) => path.getAttribute("d"));
+    expect(folder).toBe(FOLDER_ICON_PATH);
+    expect(file).toBe(getFileIconPath("src/app.ts"));
   });
 });

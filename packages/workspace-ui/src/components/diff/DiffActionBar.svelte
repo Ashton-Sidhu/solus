@@ -2,6 +2,7 @@
   import { GitFork as GitForkIcon, MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
+  import { setDiffGeneralComment } from "../../lib/diff-comments";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import type { DiffComment, GitCheckout } from "@solus/contracts/types";
 
@@ -173,7 +174,7 @@
 >
   <PromptComposer
     bind:this={composerRef}
-    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v, targetTabId)}
+    bind:value={() => generalComment, (v) => setDiffGeneralComment(sess, v)}
     bind:collapsed
     tabId={targetTabId}
     workingDirectory={sess?.run.workingDirectory}

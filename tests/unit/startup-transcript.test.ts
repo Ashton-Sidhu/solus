@@ -147,13 +147,13 @@ test('restored history and live attachment finish before secondary metadata, wit
     const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'codex' }, messages: [{ content: 'already visible' }], loadingHistory: false }
     let selected = session
     const context = {
-      tabs: { tab: { sessionId: 'stable' } }, sessions: { stable: session },
+      tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
       settings: { activeAgent: 'codex' }, apiFor: () => ({
         resolveSessionLineage: async () => null,
         watchSession: async () => { events.push('watch'); return { sessionId: 'stable', runtime: null } },
       }),
       ctxFor: () => ({}), sessionFor: () => selected,
-      eventReducer: { rebuildAgentConversations() {} }, recomputeChangedFiles() {},
+      eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
       planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, refreshThreadGoal() {},
       environment: { refreshEnvironment: async () => { events.push('git'); return new Promise(() => {}) } },
       tasksStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
@@ -176,7 +176,7 @@ test('restored history and live attachment finish before secondary metadata, wit
 })
 
 
-test('the selected transcript is materialized synchronously before the workspace first renders', () => {
+test.each([false, true])('first render keeps the loading state unless startup history is ready (%s)', (isReady) => {
   const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-session.ts', import.meta.url), 'utf8')
   const compiled = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
   const page = { messages: [], before: 'older' }
@@ -186,15 +186,15 @@ test('the selected transcript is materialized synchronously before the workspace
   const materialize = new Function('readPrefetchedSessionHistoryPage', 'RESTORED_TRANSCRIPT_LIMIT',
     'materializeSessionTranscript', 'markStartupTranscriptApplied',
     `${compiled}\nreturn materializeStartupTranscript;`)(
-      () => page, 200, () => ({ messages, before: 'older', truncated: true }), (tabId: string) => marks.push(tabId),
+      () => isReady ? page : undefined, 200, () => ({ messages, before: 'older', truncated: true }), (tabId: string) => marks.push(tabId),
     )
   const context = {
     activeTabId: 'active', sessionFor: () => session, apiFor: () => ({}), ctxFor: () => ({}),
-    eventReducer: { rebuildAgentConversations() {} }, recomputeChangedFiles() {},
+    eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
   }
   materialize(context, { tabs: [{ tabId: 'active', agentSessionId: 'thread', provider: 'codex' }] })
-  expect(session.messages).toEqual(messages)
-  expect(session.loadingHistory).toBe(false)
-  expect(session.historyCursor).toBe('older')
-  expect(marks).toEqual(['active'])
+  expect(session.messages).toEqual(isReady ? messages : [])
+  expect(session.loadingHistory).toBe(!isReady)
+  expect(session.historyCursor).toBe(isReady ? 'older' : null)
+  expect(marks).toEqual(isReady ? ['active'] : [])
 })

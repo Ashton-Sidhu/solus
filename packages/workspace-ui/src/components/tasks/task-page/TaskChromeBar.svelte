@@ -124,7 +124,6 @@
     serverId={shareServerId}
     resource={{ kind: "task", id: task.id }}
     title={task.title}
-    appearance="glyph"
     class={SUB_PAGE_ROUND_BTN}
   />
 

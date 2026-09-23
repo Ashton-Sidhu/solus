@@ -100,21 +100,21 @@ export function materializeTabs(ctx: WorkspaceContext): void {
   // Before the location, so a restored `draft/<id>` route resolves to the draft
   // it names rather than being dropped as a dead pane.
   const persistedDrafts = loadPersistedSessionDrafts()
-  if (persistedDrafts) ctx.restoreSessionDrafts(persistedDrafts)
+  if (persistedDrafts) ctx.drafts.restoreSessionDrafts(persistedDrafts)
   if (!snapshot?.tabs?.length) {
-    const hasCurrentDraftSnapshot = ctx.sessionDrafts.size > 0
+    const hasCurrentDraftSnapshot = ctx.drafts.sessionDrafts.size > 0
     if (drafts) ctx.activeInput.text = drafts.activeInputText
     restoreLocation(ctx, snapshot?.location)
     const hasVisibleDraft = ctx.router.panes.some(
       (pane) => pane.base?.name === 'draft'
-        && ctx.sessionDrafts.has(pane.base.params.draftId),
+        && ctx.drafts.sessionDrafts.has(pane.base.params.draftId),
     )
     // Keep a restored page or artifact in place. Only replace the empty chat
     // pool, which has no conversation to render in this state.
     if (!hasVisibleDraft && (!ctx.router.leadingPane.base || ctx.router.leadingPane.base.name === 'chat')) {
       let latestDraftId: string | null = null
-      for (const draftId of ctx.sessionDrafts.keys()) latestDraftId = draftId
-      if (latestDraftId) ctx.openDraft(latestDraftId)
+      for (const draftId of ctx.drafts.sessionDrafts.keys()) latestDraftId = draftId
+      if (latestDraftId) ctx.drafts.openDraft(latestDraftId)
     }
     seedSessionDraft(ctx)
     // Migrate the pre-session-draft text slot once. It no longer has a send
@@ -122,21 +122,21 @@ export function materializeTabs(ctx: WorkspaceContext): void {
     // empty while an invisible legacy composer still held the user's words.
     if (!hasCurrentDraftSnapshot && ctx.activeInput.text) {
       let latestDraftId: string | null = null
-      for (const draftId of ctx.sessionDrafts.keys()) latestDraftId = draftId
-      const draft = latestDraftId ? ctx.sessionDrafts.get(latestDraftId) : undefined
+      for (const draftId of ctx.drafts.sessionDrafts.keys()) latestDraftId = draftId
+      const draft = latestDraftId ? ctx.drafts.sessionDrafts.get(latestDraftId) : undefined
       if (draft?.isEmpty) {
         draft.prompt.text = ctx.activeInput.text
         ctx.activeInput.text = ''
       }
     }
-    ctx.hydrating = false
+    ctx.lifecycle.hydrating = false
     return
   }
   _materializeTabs(ctx, snapshot.tabs, snapshot.tabOrder, snapshot.activeTabId, drafts)
   restoreLocation(ctx, snapshot.location)
   materializeStartupTranscript(ctx, snapshot)
   seedSessionDraft(ctx)
-  ctx.hydrating = false
+  ctx.lifecycle.hydrating = false
 }
 
 /**
@@ -148,8 +148,8 @@ export function materializeTabs(ctx: WorkspaceContext): void {
 function seedSessionDraft(ctx: WorkspaceContext): void {
   if (ctx.hasOpenTabs()) return
   // A restored draft is already the thing the seed would have created.
-  if (ctx.sessionDrafts.size > 0) return
-  ctx.openSessionDraft({ reveal: false })
+  if (ctx.drafts.sessionDrafts.size > 0) return
+  ctx.drafts.openSessionDraft({ reveal: false })
 }
 
 /**
@@ -177,7 +177,7 @@ export function reconcileReloadLocation(ctx: WorkspaceContext): void {
     // A pre-fix snapshot can still point at an empty draft that was deliberately
     // not restored. Treat it like any other dead pane: the leading pane falls
     // back to the active conversation and a companion pane closes.
-    if (draftId && (hasRestoredTab || !ctx.sessionDrafts.has(draftId))) {
+    if (draftId && (hasRestoredTab || !ctx.drafts.sessionDrafts.has(draftId))) {
       ctx.router.closePane(pane.id)
     }
   }
@@ -221,7 +221,7 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * clearing client state. Used by the network-gap recovery path.
  */
 export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
-  ctx.runtimeSyncing = true
+  ctx.lifecycle.runtimeSyncing = true
   try {
     const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.run.serverId === serverId)
     // Clear only the affected host's in-flight activity before replay without
@@ -229,15 +229,15 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
     for (const tabId of tabIds) {
       const sessionId = ctx.tabs[tabId]?.sessionId
       if (!sessionId) continue
-      const session = ctx.sessions[sessionId]
+      const session = ctx.sessions.byId[sessionId]
       if (session) session.isStreamingText = false
-      delete ctx.turnSnapshots[sessionId]
+      delete ctx.lifecycle.turnSnapshots[sessionId]
     }
     // Re-register per session, not per tab: a split chat is one watch, and one
     // watch is what the host fans out to.
     const sessionIds = [...new Set(tabIds.map((tabId) => ctx.tabs[tabId]?.sessionId).filter(Boolean))]
     await Promise.all(sessionIds.map(async (sessionId) => {
-      const session = ctx.sessions[sessionId]
+      const session = ctx.sessions.byId[sessionId]
       const tabId = ctx.tabIdsForSession(sessionId)[0]
       if (!session || !tabId || session.forked) return
 
@@ -274,7 +274,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
           applyRuntimeConfig(session, info)
           session.status = info.status
           session.rateLimitInfo = info.rateLimitInfo
-          ctx.reconcileQueuedPrompts(tabId, info.queuedPrompts)
+          ctx.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
         } else if (info === null) {
           // Session no longer alive.
           session.status = 'idle'
@@ -285,7 +285,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       await environmentRefresh
     }))
   } finally {
-    ctx.runtimeSyncing = false
+    ctx.lifecycle.runtimeSyncing = false
   }
 }
 
@@ -325,7 +325,7 @@ function _materializeTabs(
   const savedServers = loadServers()
   for (const snapTab of persistedTabs) {
     let tab = ctx.tabs[snapTab.tabId]
-    let session = tab ? ctx.sessions[tab.sessionId] : undefined
+    let session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
     const draftText = drafts?.tabs[snapTab.tabId] ?? ''
 
     if (!tab || !session) {
@@ -391,7 +391,7 @@ function _materializeTabs(
       // snapshot carries.
       session.prompt = makePrompt({ text: draftText })
       tab.hasUnread = snapTab.hasUnread ?? false
-      ctx.sessions[session.id] = session
+      ctx.sessions.byId[session.id] = session
       ctx.tabs[tab.id] = tab
     } else if (draftText) {
       session.prompt.text = draftText
@@ -432,7 +432,7 @@ function startRestoredMetadataReads(
     void readSessionMeta(serverId, snapTab.agentSessionId)
       .then((meta) => {
         const tab = ctx.tabs[snapTab.tabId]
-        const session = tab ? ctx.sessions[tab.sessionId] : undefined
+        const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
         if (session?.agentSessionId !== snapTab.agentSessionId || !meta) return
         applyRestoredSessionMeta(session, meta)
         if (isSessionBusyStatus(session.status)) prioritizeTabHydration(ctx, snapTab.tabId)
@@ -448,7 +448,7 @@ function startRestoredMetadataReads(
  */
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<boolean> {
   const tab = ctx.tabs[snapTab.tabId]
-  const session = tab ? ctx.sessions[tab.sessionId] : undefined
+  const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
   if (!tab || !session || session.forked || snapTab.pendingFork) return true
 
   const api = ctx.apiFor(snapTab.tabId)
@@ -489,7 +489,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       const shouldApply = () => {
         const t = ctx.tabs[tabId]
         if (!t) return false
-        const s = ctx.sessions[t.sessionId]
+        const s = ctx.sessions.byId[t.sessionId]
         // Provider ids are replaceable handoff bindings. Only replacing this
         // stable Solus session makes the disk result stale.
         return s === session
@@ -507,7 +507,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         : { messages: [], planIds: [], progress: null, truncated: false, before: undefined, pendingMessages: undefined }
       if (!shouldApply()) return false
       const t = ctx.tabs[tabId]
-      const s = t ? ctx.sessions[t.sessionId] : undefined
+      const s = t ? ctx.sessions.byId[t.sessionId] : undefined
       if (s) {
         s.historyTruncated = transcript.truncated
         s.historyCursor = transcript.before
@@ -518,7 +518,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         markStartupTranscriptApplied(tabId)
         ctx.eventReducer.rebuildAgentConversations(s)
         s.progress = transcript.progress
-        ctx.recomputeChangedFiles(tabId)
+        ctx.lifecycle.recomputeChangedFiles(tabId)
         for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
       }
       if (
@@ -539,7 +539,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       }
     } finally {
       const t = ctx.tabs[tabId]
-      const s = t ? ctx.sessions[t.sessionId] : undefined
+      const s = t ? ctx.sessions.byId[t.sessionId] : undefined
       if (s === session) s.loadingHistory = false
     }
   }
@@ -594,7 +594,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom
-      ctx.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
+      ctx.lifecycle.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
     } else if (info === null && isSessionBusyStatus(session.status)) {
       // An optimistic status probe may race the session settling before its
       // deferred bind. Reconcile that stale busy state when no runtime remains.

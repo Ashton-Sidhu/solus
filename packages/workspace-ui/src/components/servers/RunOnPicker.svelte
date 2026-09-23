@@ -110,7 +110,7 @@
     homeGitDetails(
       run.workingDirectory,
       run.gitContext,
-      workspace.globalDefaults.gitContext,
+      environment.checkout,
     ),
   );
   const inWorktree = $derived(environment.isolated);
@@ -246,19 +246,10 @@
    * A host is named for where the work runs, and "runs here" is what local
    * means — the device's own name ("This Mac") is only interesting on surfaces
    * that list it beside other people's machines. A managed host's row already
-   * reads "Cloud" (`hostRowLabel`): its label and team belong to Connections.
+   * reads its own name (`hostRowLabel`) and never names its organization.
    */
   function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
     return !server || server.local ? stayLabel : server.label;
-  }
-
-  /** The line under a remote host's name: the state of a managed host whose
-   *  compute is not ready, or whose machine a shared personal host is. The
-   *  owner's own hosts and a ready Cloud row carry none. */
-  function hostSubtitle(server: ServerItem): string | null {
-    if (server.local) return null;
-    if (isManagedHost(server.uplink)) return managedHostStateLabel(server.uplink);
-    return server.uplink?.ownerName ?? null;
   }
 
   /** Send *this* project's work to another machine. The repository travels as a
@@ -290,8 +281,7 @@
   function returnToProjectHome(server: ServerItem) {
     if (locked || !run.projectGroupPath) return;
     const home = withProjectHost(withPendingHost(run, null), server.id, {
-      path: run.projectGroupPath,
-    });
+      path: run.projectGroupPath, isolate: serversStore.isolatesSessions(server.id) });
     home.projectGroupPath = null;
     onRun(home);
     open = false;
@@ -304,8 +294,7 @@
   function runLocally(local: ServerItem) {
     if (locked) return;
     const next = withProjectHost(withPendingHost(run, null), local.id, {
-      path: run.projectGroupPath ?? workspace.globalDefaults.workingDirectory,
-    });
+      path: run.projectGroupPath ?? workspace.staticInfo?.workspacePath ?? "~", isolate: serversStore.isolatesSessions(local.id) });
     next.projectGroupPath = null;
     onRun(next);
     open = false;
@@ -355,7 +344,7 @@
       withLocalStart(
         run,
         stayHostId,
-        workspace.globalDefaults.workingDirectory,
+        workspace.staticInfo?.workspacePath ?? "~",
         worktree,
       ),
     );
@@ -399,7 +388,7 @@
 {#snippet serverRow(server: ServerItem)}
   {@const isSelectedHost = server.id === selectedHostId}
   {@const affinity = hostAffinityGlyph(server, server.status)}
-  {@const subtitle = hostSubtitle(server)}
+  {@const subtitle = managedHostStateLabel(server.uplink)}
   <!-- The picker only chooses the host now; which project runs there is the
        project chip's job, so every reachable host is selectable — a checkout with
        no remote opens a project on that host instead of cloning to it. A managed
@@ -423,9 +412,8 @@
     {:else}
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
-    <!-- A host shared with the account says whose machine it is, and a managed
-         host that is not ready says its state; the owner's own hosts and a ready
-         Cloud row carry no second line. -->
+    <!-- A managed host that is not ready says its state; every other row
+         carries no second line. -->
     {#if subtitle}
       <span class="flex min-w-0 flex-1 flex-col leading-tight">
         <span class="truncate">{hostLabel(server)}</span>

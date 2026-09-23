@@ -396,6 +396,9 @@ export interface HeadlessSessionRequest {
 export interface ModelProfile {
   label: string
   isDefault?: boolean
+  /** A superseded generation. Still fully selectable, but pickers keep it behind
+   *  a disclosure so the list reads as the models we expect people to pick. */
+  isLegacy?: boolean
   reasoningLevels: ReasoningEffort[]
   defaultReasoningEffort: ReasoningEffort
   supportsFastMode: boolean
@@ -407,6 +410,7 @@ const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 
 const modelProfileSchema = z.object({
   label: z.string(),
   isDefault: z.boolean().optional(),
+  isLegacy: z.boolean().optional(),
   reasoningLevels: z.array(reasoningEffortSchema),
   defaultReasoningEffort: reasoningEffortSchema,
   supportsFastMode: z.boolean(),
@@ -422,6 +426,24 @@ const modelProfilesSchema = z.object({
 
 export const MODEL_PROFILES = modelProfilesSchema.parse(rawModelProfiles)
 
+/** The context window Claude runs a model at when it is not asked for the
+ *  `[1m]` long-context variant. */
+const CLAUDE_STANDARD_CONTEXT_WINDOW = 200_000
+
+/** A model id as a provider reported running it, split into the selectable
+ *  model id and the context window the variant names. Claude reports its
+ *  long-context variant as `<model>[1m]`; the bare id runs the standard window.
+ *  Other providers name no window in the id, so theirs is null. */
+export function runtimeModelVariant(
+  provider: string | null | undefined,
+  runtimeModelId: string,
+): { modelId: string; contextWindow: number | null } {
+  if (provider !== 'claude-code') return { modelId: runtimeModelId, contextWindow: null }
+  return runtimeModelId.endsWith('[1m]')
+    ? { modelId: runtimeModelId.slice(0, -4), contextWindow: 1_000_000 }
+    : { modelId: runtimeModelId, contextWindow: CLAUDE_STANDARD_CONTEXT_WINDOW }
+}
+
 /** A provider can report a runtime variant instead of the selectable model id.
  * Resolve that variant through the same profile so user-facing surfaces do not
  * leak backend syntax such as Claude's `[1m]` suffix. */
@@ -431,10 +453,22 @@ export function modelLabelFor(
 ): string | null {
   if (!modelId) return null
   if (!provider) return modelId
-  const selectableModelId = provider === 'claude-code' && modelId.endsWith('[1m]')
-    ? modelId.slice(0, -4)
-    : modelId
+  const selectableModelId = runtimeModelVariant(provider, modelId).modelId
   return MODEL_PROFILES[provider]?.[selectableModelId]?.label ?? modelId
+}
+
+/**
+ * A superseded model the pickers collapse behind a disclosure. A model the host
+ * reports but the profile table does not know is treated as current: an unknown
+ * model is more likely a new one than an old one, and hiding it would make it
+ * unreachable rather than merely quiet.
+ */
+export function isLegacyModel(
+  provider: AgentId | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (!provider || !modelId) return false
+  return MODEL_PROFILES[provider]?.[modelId]?.isLegacy === true
 }
 
 /**
@@ -461,6 +495,10 @@ export type SessionStatus =
   | 'awaiting_plan'
   | 'rate_limited'
   | 'completed'
+  /** The agent ended its turn, but a background task it started (a shell, a
+   *  sub-agent) still runs. The turn is settled and a prompt steers into the
+   *  still-open provider query; Stop ends the background work. */
+  | 'background'
   | 'failed'
   | 'interrupted'
   | 'dead'
@@ -744,7 +782,10 @@ export interface RunConfig {
  */
 export type TaskTarget =
   | { kind: 'existing'; taskId: string }
-  | { kind: 'new'; parentTaskId?: string }
+  /** `taskId` is the id the first prompt mints the task under. Only a session
+   *  carries one — `makeSession` mints it fresh for every session, so a draft
+   *  or a copied target never shares an id with another session. */
+  | { kind: 'new'; parentTaskId?: string; taskId?: string }
   | { kind: 'none' }
 
 /**
@@ -874,7 +915,6 @@ export interface Session {
   /** Cumulative token spend for the completed run (from task_complete). Not in
    *  the window — reported separately so neither number reads as the other. */
   runUsage: UsageData | null
-  latestCheckpointId: string | null
   /** Attempts at the current turn — 1 until a retry re-runs the last prompt.
    *  Printed on the turn's activity rail so a re-run never reads as a first try. */
   retryAttempt: number
@@ -1517,8 +1557,11 @@ export interface StatusCardState {
   icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
   steps: StatusCardStep[]
-  /** Explicit recovery choices after an isolated checkout fails to prepare. */
-  recovery?: 'worktree'
+  /** Explicit recovery choices: `worktree` after an isolated checkout fails to
+   *  prepare; `connect-github` when a host could not clone without the account's
+   *  GitHub connection, with `recoveryUrl` naming the account's Connections page. */
+  recovery?: 'worktree' | 'connect-github'
+  recoveryUrl?: string
 }
 
 // ─── Agent conversations (one agent talking to another agent) ───
@@ -1643,7 +1686,6 @@ export type NormalizedEvent =
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
-  | { type: 'checkpoint'; checkpointId: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
   | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string; author?: TurnAuthor }
@@ -1657,7 +1699,7 @@ export type NormalizedEvent =
   | { type: 'plan_rejected'; planToolUseId: string }
   | { type: 'permission_mode_changed'; permissionMode: 'ask' | 'auto' | 'plan' }
   | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string }
-  | { type: 'work_updated'; workId: string; title: string; docType: WorkType; content: string; updatedAt: string }
+  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
@@ -1781,7 +1823,6 @@ export interface SessionCtx {
   worktreeBaseBranch: string | null
   sessionChangedFiles: string[]
   readOnlyReason: string | null
-  latestCheckpointId: string | null
   title?: string | null
   forked?: boolean
   forkExcludeLatestTurn?: boolean
@@ -1789,6 +1830,9 @@ export interface SessionCtx {
   prReview?: PrReviewContext | null
 }
 
+/** The bundled interface presets. A font preference (`FontFamilyPreference` in
+ *  host-config) is one of these ids or the name of a family installed on the
+ *  client, so these lists are the presets, not the whole choice. */
 export type AppFontFamily = 'inter' | 'dm-sans' | 'system' | 'geist' | 'lora' | 'sf-pro-text' | 'sf-mono'
 export type AppCodeFontFamily = 'sf-mono' | 'geist-mono' | 'fira-code' | 'cascadia-code' | 'jetbrains-mono' | 'system-mono'
 
@@ -1807,14 +1851,13 @@ export interface SettingsCtx {
   reviewReasoning: ReasoningEffort | null
   /** User instructions applied only when a review guide is authored. */
   reviewGuideInstructions: string
-  /** Experimental: infer pull request lineage and present stacked PRs. */
-  stackedPrsEnabled: boolean
   /** Per-project opt-in resolved by the renderer before crossing IPC. */
   reviewWarmingEnabled: boolean
   rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
-  fontFamily: AppFontFamily
+  /** A preset id or an installed family name; see `FontFamilyPreference`. */
+  fontFamily: string
   fontSize: number
-  codeFontFamily: AppCodeFontFamily
+  codeFontFamily: string
   codeFontSize: number
   /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
@@ -2244,20 +2287,26 @@ export interface ProjectEntry {
   path: string          // decoded real path
   folderName: string    // last path segment
   addedAt: string       // ISO timestamp first recorded
+  /** The project this checkout belongs to (docs/plans/project-model.md §1):
+   *  the repository key of its primary remote, or null for a folder with no
+   *  hosted remote. */
+  repositoryKey: string | null
 }
 
 /** A known checkout keyed by its normalized origin identity across hosts. */
 export interface ProjectIdentity {
   path: string
   folderName: string
-  /** Lowercase `host/owner/repo`, derived from the checkout's origin remote. */
+  /** The clone source: the checkout's `origin` remote, reduced to lowercase
+   *  `host/path` by `repositoryKeyFromRemoteUrl`. For a fork this differs from
+   *  `ProjectEntry.repositoryKey`, which names the upstream. */
   repoKey: string
 }
 
 /** A host-internal dispatch checkout that can contain session history. */
 export interface DispatchHistoryRoot {
   path: string
-  /** Lowercase `host/owner/repo`, matching ProjectIdentity.repoKey. */
+  /** Lowercase `host/path` of the dispatch checkout's clone source, matching ProjectIdentity.repoKey. */
   repoKey: string
 }
 
@@ -2274,7 +2323,6 @@ export interface AgentMetadata {
   capabilities?: {
     planMode?: boolean
     permissions?: boolean
-    fileRewind?: boolean
     terminalResume?: boolean
     transport?: string
   }

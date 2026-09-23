@@ -5,7 +5,6 @@ import {
   type PrGuideMetadataRequest,
   type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
-import { type StackGraph } from '@solus/contracts/stack-types'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
 import { fetchAndCheckoutPr, listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
@@ -26,7 +25,6 @@ interface GuideWarmerInput {
   repo: RepoRef
   provider: Provider
   openPullRequests: PullRequest[]
-  graph: StackGraph
   isWorktreeInUse: (path: string) => boolean
   onStatus: (event: ReviewGuideStatusEvent) => void
 }
@@ -52,7 +50,6 @@ export interface PrGuideRequest {
   repoRoot: string
   repo: RepoRef
   provider: Provider
-  graph: StackGraph | null
   isWorktreeInUse: (path: string) => boolean
   onStatus: (event: ReviewGuideStatusEvent) => void
 }
@@ -98,7 +95,7 @@ export async function readPrGuideMetadata(
 }
 
 /**
- * Observe the complete open-PR list after stack detection has resolved. A head
+ * Observe the complete open-PR list. A head
  * must remain unchanged for a minute before it enters the serialized model
  * queue; `updatedAt` lets an already-settled PR warm immediately on first sight.
  */
@@ -139,16 +136,9 @@ export function scheduleGuideWarming(input: GuideWarmerInput): void {
     state.heads.set(pr.number, observation)
   }
 
-  for (const pr of [...eligible].sort(comparePrefetchPriority).slice(0, PREFETCH_COUNT)) {
+  for (const pr of [...eligible].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, PREFETCH_COUNT)) {
     enqueuePrefetch(input.repoRoot, pr.number, pr.headSha)
   }
-}
-
-function comparePrefetchPriority(a: PullRequest, b: PullRequest): number {
-  if (a.effort && b.effort) return a.effort.minutes - b.effort.minutes || b.updatedAt.localeCompare(a.updatedAt)
-  if (a.effort) return -1
-  if (b.effort) return 1
-  return b.updatedAt.localeCompare(a.updatedAt)
 }
 
 function enqueueGuide(repoRoot: string, number: number, headSha: string): void {

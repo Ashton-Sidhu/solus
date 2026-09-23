@@ -17,7 +17,9 @@
     links: TaskLink[];
     onOpen: (link: TaskLink) => void;
     onUnlink: (link: TaskLink) => void;
-    onAdd: () => void;
+    /** Pick a doc, plan, automation or PR to link. Null on a client that cannot
+     *  reach a machine's index (the cloud console). */
+    onAdd: (() => void) | null;
     /** True where the section is a tab of its own rather than one band of a
      *  scrolling column. The strip above already names it and counts it, so the
      *  section drops its header, spends the width on 32px chips and 52px rows,
@@ -236,23 +238,25 @@
       </button>
     {/each}
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
-    <button
-      type="button"
-      class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
-      onclick={onAdd}
-    >
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        aria-hidden="true"><path d="M7 2.6v8.8M2.6 7h8.8" /></svg
+    {#if onAdd}
+      <button
+        type="button"
+        class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+        onclick={onAdd}
       >
-      Link
-    </button>
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 14 14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"><path d="M7 2.6v8.8M2.6 7h8.8" /></svg
+        >
+        Link
+      </button>
+    {/if}
   </div>
 
   <div class="flex flex-col">

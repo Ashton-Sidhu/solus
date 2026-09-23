@@ -8,12 +8,12 @@
   } from "@pierre/trees";
   import {
     RotateCw as ArrowClockwiseIcon,
-    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
     FilePlus as FilePlusIcon,
     Save as FloppyDiskIcon,
     Folder as FolderIcon,
     FolderPlus as FolderPlusIcon,
-    PanelLeft as SidebarSimpleIcon,
+    PanelRight as FileTreeIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
@@ -32,7 +32,7 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SettingsSelect from "../settings/SettingsSelect.svelte";
   import MarkdownFileSurface from "./MarkdownFileSurface.svelte";
   import {
     initialMarkdownFileViewMode,
@@ -98,7 +98,10 @@
     return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
   }
 
-  let treeCollapsed = $state(false);
+  // Only the Files row in the environment section, and its ⌥⇧; binding, ask for
+  // the tree. Every other way in — a code span, the file picker, a search hit, a
+  // diff symbol — names one file, and that file is what the user came to read.
+  let treeCollapsed = $state(Boolean(requestedFile?.path));
 
   const TREE_MIN_WIDTH = 192;
   const TREE_MAX_WIDTH = 480;
@@ -130,6 +133,14 @@
   );
   const treeDefaultSize = $derived(
     panelWidth > 0 ? pixelsToPercent(treeWidth, panelWidth) : 32,
+  );
+  // PaneForge re-derives the group's layout from every pane's `defaultSize`
+  // whenever a pane's constraints change — and the constraints below all move
+  // with `panelWidth`, which settles a frame after mount. So the collapsed
+  // state has to be readable here; collapsing imperatively is undone by the
+  // next recompute. A zero default validates to `collapsedSize`.
+  const treePaneSize = $derived(
+    treeCollapsed ? 0 : stacked ? 35 : treeDefaultSize,
   );
 
   let loading = $state(false);
@@ -256,7 +267,13 @@
 
   function handleTreeLayout(layout: number[]) {
     if (stacked || layout.length !== 2 || panelWidth <= 0) return;
-    treeWidth = clampTreeWidth(percentToPixels(layout[0], panelWidth));
+    // The tree is the trailing pane, as it is in the diff panel. A collapsing
+    // one reports its way down to zero here before `onCollapse` flips the flag,
+    // and clamping those frames would persist the minimum over the width the
+    // user chose — so take a width only while the pane still has one.
+    const width = percentToPixels(layout[1], panelWidth);
+    if (width < TREE_MIN_WIDTH) return;
+    treeWidth = clampTreeWidth(width);
     if (!isResizing) persistTreeWidth();
   }
 
@@ -541,7 +558,7 @@
         ${FILE_TREE_THEME_CSS}
         [data-file-tree-search-container] {
           padding-top: 0.375rem;
-          padding-left: calc(var(--trees-padding-inline) + 2.125rem);
+          padding-right: calc(var(--trees-padding-inline) + 2.125rem);
           margin-bottom: 0.625rem;
         }
         [data-file-tree-search-input] {
@@ -693,7 +710,7 @@
               aria-pressed={!treeCollapsed}
               onclick={toggleTree}
             >
-              <SidebarSimpleIcon weight="bold" />
+              <FileTreeIcon weight="bold" />
             </Button>
           {/snippet}
         </TooltipUI.Trigger>
@@ -725,17 +742,17 @@
       </div>
     {/if}
     {#if isSelectedMarkdown}
-      <SegmentedControl
+      <SettingsSelect
         options={MARKDOWN_FILE_VIEW_OPTIONS}
-        isActive={(mode) => markdownViewMode === mode}
+        value={markdownViewMode}
         onSelect={selectMarkdownView}
         ariaLabel="Markdown file view"
         compact
       />
     {:else if isSelectedHtml && !selectedTruncated}
-      <SegmentedControl
+      <SettingsSelect
         options={HTML_FILE_VIEW_OPTIONS}
-        isActive={(mode) => htmlViewMode === mode}
+        value={htmlViewMode}
         onSelect={selectHtmlView}
         ariaLabel="HTML file view"
         compact
@@ -764,70 +781,7 @@
     class="min-h-0 flex-1"
     onLayoutChange={handleTreeLayout}
   >
-    <Resizable.Pane
-      bind:this={treePane}
-      order={1}
-      defaultSize={stacked ? 35 : treeDefaultSize}
-      minSize={stacked ? 20 : treeBounds.min}
-      maxSize={stacked ? 55 : treeBounds.max}
-      collapsedSize={0}
-      collapsible
-      onCollapse={() => (treeCollapsed = true)}
-      onExpand={() => (treeCollapsed = false)}
-      class="tree-pane"
-    >
-      <aside
-        class="relative flex h-full min-h-48 w-full flex-col border-b border-(--solus-container-border) md:min-h-0 md:border-r md:border-b-0"
-        aria-hidden={treeCollapsed}
-      >
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          type="button"
-          onclick={toggleTree}
-          aria-label="Hide file tree"
-          class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
-        >
-          <span
-            class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-            aria-hidden="true"
-          ></span>
-          <CaretLeftIcon size={12} weight="bold" />
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Hide file tree (⌥T)"} />
-        </TooltipUI.Root>
-        <div class="min-h-0 flex-1 overflow-hidden">
-          {#if loading && treePaths.length === 0}
-            <FilesPaneSkeleton variant="tree" />
-          {:else if error}
-            <div class="flex gap-2 p-3 text-xs text-(--solus-status-error)">
-              <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
-              <span class="min-w-0">{error}</span>
-            </div>
-          {:else if treePaths.length === 0}
-            <div class="p-3 text-xs text-(--solus-text-tertiary)">No files found.</div>
-          {:else}
-            <div
-              bind:this={treeHost}
-              class="files-tree h-full min-h-0 overflow-auto"
-              style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
-            ></div>
-          {/if}
-        </div>
-      </aside>
-    </Resizable.Pane>
-
-    <Resizable.Handle
-      aria-label="Resize file tree"
-      disabled={treeCollapsed || stacked}
-      class={treeCollapsed || stacked ? "hidden" : ""}
-      onDraggingChange={handleTreeDragging}
-    />
-
-    <Resizable.Pane order={2} minSize={stacked ? 45 : 0}>
+    <Resizable.Pane order={1} minSize={stacked ? 45 : 0}>
       <section data-file-editor-pane class="flex h-full min-h-0 min-w-0 flex-col">
         {#if fileLoading || (loading && treePaths.length === 0)}
           <FilesPaneSkeleton variant="editor" />
@@ -892,6 +846,69 @@
           </div>
         {/if}
       </section>
+    </Resizable.Pane>
+
+    <Resizable.Handle
+      aria-label="Resize file tree"
+      disabled={treeCollapsed || stacked}
+      class={treeCollapsed || stacked ? "hidden" : ""}
+      onDraggingChange={handleTreeDragging}
+    />
+
+    <Resizable.Pane
+      bind:this={treePane}
+      order={2}
+      defaultSize={treePaneSize}
+      minSize={stacked ? 20 : treeBounds.min}
+      maxSize={stacked ? 55 : treeBounds.max}
+      collapsedSize={0}
+      collapsible
+      onCollapse={() => (treeCollapsed = true)}
+      onExpand={() => (treeCollapsed = false)}
+      class="tree-pane"
+    >
+      <aside
+        class="relative flex h-full min-h-48 w-full flex-col border-t border-(--solus-container-border) md:min-h-0 md:border-t-0 md:border-l"
+        aria-hidden={treeCollapsed}
+      >
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          type="button"
+          onclick={toggleTree}
+          aria-label="Hide file tree"
+          class="tree-collapse-btn absolute top-[0.875rem] right-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
+        >
+          <span
+            class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+            aria-hidden="true"
+          ></span>
+          <CaretRightIcon size={12} weight="bold" />
+        </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Hide file tree (⌥T)"} />
+        </TooltipUI.Root>
+        <div class="min-h-0 flex-1 overflow-hidden">
+          {#if loading && treePaths.length === 0}
+            <FilesPaneSkeleton variant="tree" />
+          {:else if error}
+            <div class="flex gap-2 p-3 text-xs text-(--solus-status-error)">
+              <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
+              <span class="min-w-0">{error}</span>
+            </div>
+          {:else if treePaths.length === 0}
+            <div class="p-3 text-xs text-(--solus-text-tertiary)">No files found.</div>
+          {:else}
+            <div
+              bind:this={treeHost}
+              class="files-tree h-full min-h-0 overflow-auto"
+              style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
+            ></div>
+          {/if}
+        </div>
+      </aside>
     </Resizable.Pane>
   </Resizable.PaneGroup>
 </div>

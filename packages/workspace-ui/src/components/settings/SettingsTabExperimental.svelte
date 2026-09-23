@@ -1,6 +1,5 @@
 <script lang="ts">
   import { getSettingsContext } from "../../contexts";
-  import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSection from "./SettingsSection.svelte";
@@ -13,7 +12,6 @@
 
   const settings = getSettingsContext();
   const settingItems = [
-    { id: "stacked-prs", keywords: ["pull request", "pr", "stack", "stacked", "lineage", "parent", "branch"] },
     { id: "auto-voice", keywords: ["voice", "dictation", "automatic", "listen", "beta"] },
   ];
 
@@ -25,25 +23,6 @@
 
   const anyVisible = $derived(settingItems.some((item) => isVisible(item.id)));
 </script>
-
-<SettingsSection label="Pull requests" visible={isVisible("stacked-prs")}>
-  <SettingsRow
-    label="Stacked pull requests"
-    description="Detect pull request lineage and group dependent branches into stacks."
-    visible={isVisible("stacked-prs")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={settings.stackedPrsEnabled}
-        onCheckedChange={(enabled) => {
-          settings.update({ stackedPrsEnabled: enabled });
-          requestInputFocus();
-        }}
-        aria-label="Enable stacked pull requests"
-      />
-    {/snippet}
-  </SettingsRow>
-</SettingsSection>
 
 <SettingsSection
   label="Voice"

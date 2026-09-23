@@ -9,8 +9,8 @@ import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
 import { consumeWsTicket } from '../server/auth'
 import { RpcAccessError } from '../server/access-policy'
 import { PlaneDisabledError } from '../server/roles'
+import { GithubConnectionRequiredError } from '../providers/github/connection-required'
 import { SeatRequiredError } from '../seats/seat-manager'
-import { VaultNotConfiguredError } from '../vault/vault'
 import { principalExpiresAt, principalFor, principalSchema, type AdmissionEvidence, type Principal } from '../server/principal'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
@@ -384,10 +384,10 @@ function getCachedResponse(
       }
       // No seat, no turn: the code is what lets the client raise the connect card.
       if (err instanceof SeatRequiredError) return { error: { message: err.message, code: err.code } }
-      // The workspace service has no vault key: the client shows why seats are not offered here.
-      if (err instanceof VaultNotConfiguredError) return { error: { message: err.message, code: err.code } }
       // A plane this host does not serve: the client asks the host that does.
       if (err instanceof PlaneDisabledError) return { error: { message: err.message, code: err.code } }
+      // No GitHub on the account: the client offers its Connections page.
+      if (err instanceof GithubConnectionRequiredError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

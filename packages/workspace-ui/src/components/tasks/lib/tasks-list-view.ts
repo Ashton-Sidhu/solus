@@ -209,7 +209,7 @@ export function taskBoardCard(task: Task, activeSessions: number, now: number, h
 /** The grouped global list. Empty groups are dropped rather than shown at zero. */
 export function taskGroups(
   tasks: Task[],
-  sessionsFor: (taskId: string) => number,
+  runningSessionsFor: (taskId: string) => number,
   now: number,
   homeFor?: TaskHomeLabel,
 ): ListGroupSpec[] {
@@ -218,7 +218,7 @@ export function taskGroups(
     label: group.label,
     rows: tasks
       .filter((task) => group.statuses.includes(task.status))
-      .map((task) => taskRow(task, sessionsFor(task.id), now, homeFor)),
+      .map((task) => taskRow(task, runningSessionsFor(task.id), now, homeFor)),
   })).filter((group) => group.rows.length > 0)
 }
 
@@ -269,7 +269,7 @@ interface TaskInboxActions {
  */
 export function taskInboxGroups(
   tasks: Task[],
-  sessionsFor: (taskId: string) => number,
+  runningSessionsFor: (taskId: string) => number,
   now: number,
   actions: TaskInboxActions,
   statuses: Set<TaskStatus>,
@@ -290,7 +290,7 @@ export function taskInboxGroups(
         .map((task) => ({
           ...inboxRowBase(task, now, keyFor),
           title: `Review requested: ${task.title}`,
-          context: reviewContext(task, sessionsFor(task.id)),
+          context: reviewContext(task, runningSessionsFor(task.id)),
           unread: true,
           primary: { label: 'Review', shortcut: '⏎', run: () => actions.open(task) },
           secondary: { label: 'Mark done', run: () => actions.markDone(task) },
@@ -298,12 +298,13 @@ export function taskInboxGroups(
     })
   }
 
-  // Assigned, not done, and nothing running — the agent is not going to move
-  // these on its own, so they are waiting on a person.
+  // Not done, not in review, and nothing running — the agent is not going to
+  // move these on its own, so they are waiting on a person. Work in progress
+  // whose agent went idle is here too: its turn ended and the next is yours.
   const waiting = shown.filter(
     (task) =>
-      (task.status === 'todo' || task.status === 'inbox') &&
-      sessionsFor(task.id) === 0,
+      (task.status === 'todo' || task.status === 'inbox' || task.status === 'in_progress') &&
+      runningSessionsFor(task.id) === 0,
   )
   if (waiting.length > 0) {
     groups.push({
@@ -312,16 +313,24 @@ export function taskInboxGroups(
       note: 'no agent running',
       rows: [...waiting]
         .sort((a, b) => a.updatedAt - b.updatedAt)
-        .map((task) => ({
-          ...inboxRowBase(task, now, keyFor),
-          context: task.assignee ? `Assigned to ${task.assignee} · no session started` : 'No session started',
-          unread: false,
-          primary: { label: 'Start agent', shortcut: '⏎', run: () => actions.start(task) },
-        })),
+        .map((task) => {
+          const started = task.status === 'in_progress'
+          const state = started ? 'agent idle' : 'no agent running'
+          return {
+            ...inboxRowBase(task, now, keyFor),
+            context: task.assignee
+              ? `Assigned to ${task.assignee} · ${state}`
+              : state.charAt(0).toUpperCase() + state.slice(1),
+            unread: false,
+            primary: started
+              ? { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) }
+              : { label: 'Start agent', shortcut: '⏎', run: () => actions.start(task) },
+          }
+        }),
     })
   }
 
-  const running = shown.filter((task) => task.status === 'in_progress' && sessionsFor(task.id) > 0)
+  const running = shown.filter((task) => task.status === 'in_progress' && runningSessionsFor(task.id) > 0)
   if (running.length > 0) {
     groups.push({
       key: 'running',
@@ -330,7 +339,7 @@ export function taskInboxGroups(
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((task) => ({
           ...inboxRowBase(task, now, keyFor),
-          context: `${sessionsFor(task.id)} live session${sessionsFor(task.id) === 1 ? '' : 's'}`,
+          context: `${runningSessionsFor(task.id)} live session${runningSessionsFor(task.id) === 1 ? '' : 's'}`,
           unread: false,
           primary: { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) },
         })),

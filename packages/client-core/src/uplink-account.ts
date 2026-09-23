@@ -1,5 +1,6 @@
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import { cookieUplinkAccountSource, probeCloudOrigin, type UplinkAccountSource } from './uplink-session'
+import { configureCloudAccount, cookieCloudAccount } from './cloud-account'
+import { cookieUplinkAccountSource, probeCloudOrigin, type CloudOriginProbe, type UplinkAccountSource } from './uplink-session'
 
 /**
  * The one account source this page has, resolved once (decision U9): the native
@@ -13,17 +14,15 @@ let configuredSource: UplinkAccountSource | null | undefined
 function detectSource(): UplinkAccountSource | null {
   // The preload global, not `window.solus`: before a host connects the web client
   // installs a proxy there that answers every name, and would look like a bridge.
-  // SAFETY: `solusNative` is what the desktop preload exposes (apps/desktop/src/renderer/env.d.ts);
-  // an older preload without the Uplink methods reads as no bridge below.
-  const native = (globalThis as { window?: { solusNative?: Partial<NativeSolusAPI> } }).window?.solusNative
-  if (!native?.uplinkListDirectoryHosts || !native.uplinkAcquireHostGrant || !native.uplinkIssueEnrollmentTicket) return null
-  const { uplinkListDirectoryHosts, uplinkAcquireHostGrant, uplinkIssueEnrollmentTicket, uplinkOrganizationDirectory } = native
+  // SAFETY: `solusNative` is what the desktop preload exposes (apps/desktop/src/renderer/env.d.ts).
+  const native = (globalThis as { window?: { solusNative?: NativeSolusAPI } }).window?.solusNative
+  if (!native) return null
   return {
-    listDirectory: () => uplinkListDirectoryHosts(),
-    acquireHostGrant: (hostId) => uplinkAcquireHostGrant(hostId),
-    issueEnrollmentTicket: () => uplinkIssueEnrollmentTicket(),
-    // An older preload without the directory method: the dialog offers the link only.
-    loadOrganizationDirectory: (organizationId) => uplinkOrganizationDirectory ? uplinkOrganizationDirectory(organizationId) : Promise.resolve(null),
+    listDirectory: () => native.uplinkListDirectoryHosts(),
+    acquireHostGrant: (hostId) => native.uplinkAcquireHostGrant(hostId),
+    issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
+    loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
+    startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),
   }
 }
 
@@ -37,8 +36,9 @@ export function uplinkAccountSource(): UplinkAccountSource | null {
 }
 
 /** Web boot: adopt the serving origin as the account source when it is one. */
-export async function adoptCloudOriginIfPresent(origin: string): Promise<'signed-in' | 'signed-out' | 'not-cloud'> {
+export async function adoptCloudOriginIfPresent(origin: string): Promise<CloudOriginProbe> {
   const verdict = await probeCloudOrigin(origin)
-  if (verdict !== 'not-cloud') configureUplinkAccountSource(cookieUplinkAccountSource(origin))
+  if (verdict.kind !== 'not-cloud') configureUplinkAccountSource(cookieUplinkAccountSource(origin))
+  if (verdict.kind === 'signed-in') configureCloudAccount(cookieCloudAccount(origin))
   return verdict
 }

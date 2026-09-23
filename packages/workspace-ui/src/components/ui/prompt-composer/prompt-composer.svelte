@@ -269,7 +269,7 @@
       enterInsertsNewline
       {menuPlacement}
       maxHeight={260}
-      class="[--plain-editor-font-size:var(--text-caption)] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
+      class="[--plain-editor-font-size:var(--solus-prompt-font-size)] [font-family:var(--solus-prompt-font-family)] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
     />
   </div>
   <!-- Same geometry and the same rung as the input bar's toolbar row

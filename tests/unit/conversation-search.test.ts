@@ -28,6 +28,31 @@ function hit(sessionId: string, ts: number): SessionSearchResult {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5))
 
 describe('ConversationSearch', () => {
+  test('a project scope reaches each host as its own checkout, and skips a host without one', async () => {
+    // WHY: docs/plans/project-model.md §1 — one repository cloned at
+    // /Users/me/web and /home/me/web is one project. Sending one path to every
+    // host missed the second clone and matched unrelated folders at that path.
+    const requests: Array<{ serverId: string; projectRoot: string | undefined }> = []
+    const hosts = {
+      connectedServerIds: () => ['laptop', 'linux', 'scratch-box'],
+      apiFor: (serverId: string) => ({
+        searchSessions: async (request: SearchSessionsRequest) => {
+          requests.push({ serverId, projectRoot: request.projectRoot })
+          return []
+        },
+      }),
+    }
+    const checkouts: Record<string, string> = { laptop: '/Users/me/web', linux: '/home/me/web' }
+    const search = new ConversationSearch(hosts, 0, (serverId) => checkouts[serverId] ?? null)
+    search.search('deploy', '/Users/me/web')
+    await settle()
+
+    expect(requests).toEqual([
+      { serverId: 'laptop', projectRoot: '/Users/me/web' },
+      { serverId: 'linux', projectRoot: '/home/me/web' },
+    ])
+  })
+
   test('asks every connected host, stamps each hit with its host, and orders by hit date', async () => {
     const requests: Array<{ serverId: string; request: SearchSessionsRequest }> = []
     const hosts = {

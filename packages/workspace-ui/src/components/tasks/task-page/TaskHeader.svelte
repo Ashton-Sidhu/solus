@@ -2,7 +2,7 @@
   import { tick, untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
   import type { Task, TaskPriority, TaskStatus } from "@solus/contracts/task-types";
-  import { getAgentContext, getWorkspaceContext } from "../../../contexts";
+  import { getAgentContext, getSurfaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
   import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import { Button } from '../../ui/button';
@@ -44,7 +44,7 @@
 
   // The description reuses the document editor so a task can embed @files,
   // /skills, #plans, %docs and !PRs; refs round-trip through the saved markdown.
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const agentContext = getAgentContext();
   const editorProvider = $derived<AgentId>(
     agentContext.activeMetadata?.id ?? "claude-code",
@@ -58,6 +58,9 @@
   let titleDraft = $state(untrack(() => task.title));
   let bodyDraft = $state(untrack(() => task.body));
   let editingBody = $state(false);
+  // The body editor completes @ and # references against the workspace; a
+  // client without one (the cloud console) reads the body and edits the rest.
+  const canEditBody = $derived(canEdit && !!session.workspace);
   let bodyEditor: DocumentPromptEditor | undefined = $state();
   let editBodyButton: HTMLButtonElement | null = $state(null);
   // Re-seed when the route swaps to another task: the same component instance
@@ -185,12 +188,12 @@
 {/if}
 
 <div class="task-description-prose pt-[18px]">
-  {#if editingBody && canEdit}
+  {#if editingBody && canEditBody}
   <DocumentPromptEditor
     bind:this={bodyEditor}
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}
-    readOnly={!canEdit}
+    readOnly={!canEditBody}
     dragHandle={false}
     placeholder="Describe the work…"
     dictation
@@ -206,7 +209,7 @@
     <div class="github-markdown prose-cloud prose-pr">
       <GithubMarkdown source={task.body} policy="local" />
     </div>
-    {#if canEdit}
+    {#if canEditBody}
       <Button bind:ref={editBodyButton} variant="ghost" size="sm" onclick={async () => {
         bodyDraft = task.body;
         editingBody = true;

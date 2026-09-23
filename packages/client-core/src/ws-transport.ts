@@ -227,13 +227,17 @@ export class WsTransport {
       Reflect.set(api, method, (...args: unknown[]) => this.invoke(method, args))
     }
 
-    // Voice recordings are intentionally kept off the RPC socket. Serializing
-    // Float32 PCM as JSON expands long recordings enough to exceed Socket.IO's
-    // frame limit, then reconnect replays the same undeliverable request.
-    Reflect.set(api, 'transcribeAudio', (audio: Float32Array | string, ...args: unknown[]) =>
+    // Visibility belongs to the client window. Asking the selected host would
+    // fail for a remote web connection and would describe the wrong machine.
+    Reflect.set(api, 'isVisible', (): Promise<boolean> =>
+      Promise.resolve(document.visibilityState === 'visible'))
+
+    // Encode PCM as compact WAV before transport. Direct connections upload
+    // over HTTP; cloud connections use the host's base64 WAV RPC contract.
+    Reflect.set(api, 'transcribeAudio', (audio: Float32Array | string, ctx?: IpcContext) =>
       audio instanceof Float32Array
-        ? this.transcribeAudio(audio)
-        : this.invoke('transcribeAudio', [audio, ...args]))
+        ? this.transcribeAudio(audio, ctx)
+        : this.invoke('transcribeAudio', [audio, ctx]))
 
     // A link must open on the device the user is holding — the RPC would open
     // a browser on the host instead (e.g. provider sign-in verification URLs).
@@ -430,12 +434,7 @@ export class WsTransport {
     }
   }
 
-  private async transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
-    if (this.opts.acquireGrant) {
-      // The host's HTTP routes take a pairing token; the tunnel offers no upload door
-      // (docs/plans/personal-uplink.md, H3). Say so rather than spend grants on 401s.
-      return { error: 'Dictation is not available over Solus cloud yet. Type your prompt instead.', transcript: null }
-    }
+  private async transcribeAudio(samples: Float32Array, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }> {
     if (samples.length > MAX_VOICE_SAMPLES) {
       return {
         error: `Voice recordings can be up to ${MAX_VOICE_RECORDING_MINUTES} minutes long.`,
@@ -444,6 +443,18 @@ export class WsTransport {
     }
 
     const wav = encodePcm16Wav(samples)
+    if (this.opts.acquireGrant) {
+      // The cloud tunnel carries authenticated RPC, but has no HTTP upload
+      // route. Encode in small multiples of three bytes so only the final
+      // base64 chunk has padding, without spreading a whole recording.
+      const bytes = new Uint8Array(wav)
+      const chunks: string[] = []
+      const chunkSize = 24_576
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        chunks.push(btoa(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))))
+      }
+      return this.invoke('transcribeAudio', [chunks.join(''), ctx])
+    }
     let response = await this.postVoiceRecording(wav)
     if (response.status === 401 && await this.refreshToken() === 'refreshed') {
       response = await this.postVoiceRecording(wav)

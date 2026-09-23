@@ -1,5 +1,11 @@
 # Cloud service model — P0: engine, `Db`, and the ported domains; P1: the cloud workspace; P2: sessions and the mirror; P3: the credential vault
 
+> **Architecture revision — 2026-09-21:** Claude/Codex authentication stays on
+> each execution host, per user. GitHub/Google/Atlassian connections move to the
+> account backend at `app.solus.sh`. Section 26 is the target design; sections
+> 20 and 22 are implementation history. No central CLI vault or Node website
+> migration is planned. The runtime refactor is not implemented.
+
 Solus runs the same server binary on a laptop and in the cloud. A host keeps
 SQLite in its data directory with no configuration; the cloud runs one
 Postgres for every instance. The domain managers are the same code on both.
@@ -8,8 +14,8 @@ works, plans, sharing, and session records — as the pattern every later
 domain follows. P1 (§15–§17) boots that binary as an organization's workspace
 service and teaches a linked host to write to it. P2 (§18–§19) mirrors
 transcripts and insights to the service; a prompt still goes to the host that
-runs the session. P3 (§20) moves provider credentials into a vault every
-runner leases.
+runs the session. P3 (§20) records the earlier vault implementation; §26
+replaces it with account integration credentials and host-local agent auth.
 
 ## 1. Vocabulary
 
@@ -383,6 +389,72 @@ Fly's proxy, health on `/health`, the managed-host image with `SOLUS_MANAGED=0`
 overriding the baked value; the README names the secrets and the
 `WORKSPACE_SERVICE_URL` the control plane needs). Not deployed by this change.
 
+**The client and the console, revised 2026-09-21.** The workspace service is
+a connection the client holds, never a host the person sees: it is the
+control plane the organization's records live in — one service, one database,
+every organization scoped by its grant (§6) — not a machine, and the client
+does not present it as one. The account directory still lists one `cloud` row
+per organization so the client can hold one authenticated connection per
+grant; `serversStore.servers` is the machines alone, `cloudConnections` is
+those rows, and nothing lists, picks, or opens a workspace service the way it
+does a host: not Connections, not a Run-on picker, not the settings host
+selector, not an affinity badge. What a person sees of it is the record's
+home — "Solus Cloud" on a row, "Move to Solus Cloud" as an action, "Moved to
+Solus Cloud · <organization>" as the confirmation — and the organization's
+name where tenancy matters (the console's crumb, the team switcher). There is
+no separate page shell for it and no cloud-only mode of the web client. The
+client the account origin serves at `/` is the same bundle a machine serves
+at `/`: it merges the account directory into its saved hosts at boot and dials
+the service beside the runners, and its boards reach the cloud rows through
+the board's host scope.
+Which organization: the one the account is working in. The console's sidebar
+has a team switcher (`setActiveTeam`, better-auth's `setActiveOrganization` on
+the session); the directory marks that organization's workspace row
+`isActiveWorkspace` — the session's active organization when the caller is
+still a member, else the first by name. Sessions are unchanged: one row per
+session across its homes, the runner's transcript when it is up, the cloud
+record when it is not. Desktop keeps its project-scoped boards.
+
+**One door, revised 2026-09-22.** `app.solus.sh/` is the web client. A shared
+link, a pull request, a task, a session record open in it; signed out, the
+sign-in page brings the person back to the same path. The console (the
+SvelteKit site in `../solus-cloud`) is the dashboard a native-client product
+links out to — the pattern Cursor (`cursor.com/dashboard`), Zed
+(`dashboard.zed.dev`), Warp (`app.warp.dev/admin`), and Claude Code
+(`claude.ai/admin-settings`) share: members and roles, hosts, connections and
+the credential vault, the account, and later billing, SSO, SCIM, audit, and API
+keys. It renders no workspace surface. Its routes — `(auth)`, `/device`,
+`/oauth`, `/hosts`, `/teams`, `/connections`, `/invitations`, `/account`,
+`/api`, `/v1` — are reserved prefixes the client never routes; every other path
+serves the client document (`solus-cloud/src/routes/[...path]/+server.ts`,
+`src/lib/server/client-shell.ts`). The console's own pages on the record
+surfaces (`docs/plans/cloud-console-native-pages.md`) are gone with this
+revision; `SurfaceContext` and `lint:surfaces` stay, because they are what lets
+a record render with no runner behind it, which the client at the root needs
+when its only connection is the service. Enterprise features live in the
+console's closed repository, not in this one; the `ee/` pattern
+(Cal.com, GitLab) is for self-hosted enterprise code and is not needed until
+self-hosted SSO is a product goal. The client's in-app Organization section
+waits for the signed-in account control in the session sidebar.
+The earlier embedded shell (`packages/workspace-ui/src/embedded/`),
+`showsCloudBoardsOnly`, `serversStore.activeCloudServer`, the `#/w/<orgId>/…`
+page routes, `PageApp`, and its rail are gone. `workspace.css` is the
+workspace's appearance split from its Tailwind root so the console's root can
+import it; the console links the packages by symlink
+(`solus-cloud/scripts/link-solus.ts`), aliases them in Vite, and reads the
+workspace's `session_records` directly only for its sidebar's last-activity
+line (`solus-cloud/src/lib/server/workspace/`).
+
+**Surface boundary.** What keeps the surfaces mountable anywhere: a surface
+under `components/` reads stores and `ClientShellContext` facts and reaches a
+session through a context command (`revealSession`, `sessionForAgentSession`,
+`activeSession`); it never reads the tab strip (`tabs`, `tabOrder`,
+`activeTabId`, `selectTab`, `tabIdForAgentSession`). `bun run lint:surfaces`
+(`scripts/check-surface-boundary.ts`) rejects a tab-state read in the portable
+folders, and a `getWorkspaceContext()` read in a record surface the console
+mounts, which reads `getSurfaceContext()` instead. Leaves — rows, chips, cards,
+renderers — take props alone.
+
 Known limits of P1: `tasks.invalidated` and the other host-wide invalidation
 events are broadcast to every connected client of the service, whichever
 organization it is in — they carry no data, only "re-read"; guests and share
@@ -539,18 +611,20 @@ that migration 0007 created are dropped by 0008.
 
 ## 20. The credential vault (P3, §5)
 
+Implementation history; host-owned Claude/Codex auth replaces this design in §26.
+
 `credential_vault` holds one encrypted credential set per person and provider
 (`SOLUS_VAULT_KEY`, AES-256-GCM; `packages/server/src/vault/vault.ts`). On the
 workspace service the seat RPCs are served by `VaultSeatManager`: a relayed CLI
 login writes the provider's files into a seat directory, `markConnected` reads
 them into the vault and deletes them; a pasted token goes in as a `token`
 credential; for Claude, pasted `.credentials.json` contents are a `login`
-credential. The website links a signed-in person to `/app/#/w/<orgId>/connections`,
-which mounts the same seats surface against the cloud host, with the person's
-GitHub, Google, and Atlassian connections below it. Settings → Providers on a
-cloud row shows the same four sections; on a runner linked to an organization it
-shows a member one row that opens that page instead, so the member never
-overwrites the host's own connections. The host's owner, a guest, and a
+credential. The console's `/connections` page shows the person's GitHub, Google, and
+Atlassian connections; the client's vault pointers open it. Settings → Providers on a
+cloud row shows the seats, Google, and Atlassian sections, and Settings → Source
+Control shows the GitHub section; on a runner linked to an organization each
+page shows a member one row that opens that cloud page instead, so the member
+never overwrites the host's own connections. The host's owner, a guest, and a
 signed-out client see the host's sections as before.
 
 A runner leases the credential per turn (`POST /runner/credentials/lease`,
@@ -579,6 +653,9 @@ refreshing would; every run it is handed records the credential material it
 saw (`mock-runs.ndjson`).
 
 ## 22. Provider connections in the vault (P3, §5)
+
+Implementation history; account ownership and explicit user scope replace
+this design in §26.
 
 A person's GitHub, Google, and Atlassian (Jira and Confluence) connections are
 theirs, not the host's: made once on the workspace service and leased by every
@@ -710,3 +787,148 @@ keyboard focus. The revised `scripts/lab-guest-proof.ts` is available for an
 explicit browser verification run; it was not run for this change. No deployment
 is part of this implementation. Yjs/live co-editing and binary prompt attachments
 remain outside P4.
+
+## 24. P5 — cloud change checks (replaces live editing)
+
+Decision, 2026-09-19: remove multiplayer editing for every work type. Keep
+multiplayer sessions, work sharing, comments, cloud storage and runner access.
+No compatibility path is required; the unshipped live-work API and migration
+0010 are removed.
+
+A cloud work has one saved Markdown, diagram JSON or HTML body. Each open pane
+keeps the saved copy it loaded. A small `loadWorkUpdatedAt` RPC checks the cloud
+version every 30 seconds and on window focus/visibility return. No content is
+replaced by a check. If the saved version differs, show a notice and **Reload
+saved copy**. With local edits, label the action **Discard edits and reload**.
+Failed checks and failed reloads retain the open copy and report the error.
+
+Cloud saves send the timestamp of the copy being edited. The server checks it
+inside the write transaction and refuses stale saves. Save timestamps increase
+even when two writes occur in the same millisecond. A successful own save moves
+the pane's baseline forward. Agent edits and Restore use the ordinary save path.
+Documents keep rich text and editable Markdown; diagrams keep their ordinary
+editor and local undo; artifacts keep preview/export and agent-authored updates.
+Slides keep their ordinary save path. Google-linked content remains read-only.
+
+Removed: Yjs state/projections, live room RPCs, work cursors/presence/follow,
+shared HTML source, per-node room identities, LISTEN/NOTIFY, listener recovery,
+and `SOLUS_PG_LISTEN_URL`. No broker or second database connection is needed.
+Share notifications remain organization-scoped and wait for transaction commit.
+Keep one workspace service process for the existing session prompt relay.
+
+Verification and manual checks: `docs/plans/cloud-work-changes.md`.
+Session transfer remains P6, independent of this change.
+
+## 25. P6 — session transfer (not implemented)
+
+P6 moves execution of an existing session from one runner to another. A cloud
+transcript is a reading projection and is insufficient to resume Claude or
+Codex. Transfer must include the provider's resume material, repository and
+worktree state, uncommitted/untracked files, and a path mapping. The destination
+must have the acting user's Claude/Codex login. Credentials never enter a bundle.
+
+The first transfer should happen at an idle turn boundary. Stop accepting new
+source turns, checkpoint, restore and verify on the destination, then atomically
+change the assigned runner. A fencing epoch must prevent both runners from
+executing. Until acknowledgement, the source remains recoverable. Retries must
+be idempotent; a failed restore must not delete the source. Prove Claude and
+Codex separately, including changed paths, concurrent attempts, an offline
+source, and interrupted transfer. Active process/permission migration and
+independent ephemeral workers are later scope, not a P5 guarantee.
+
+
+### Claude resume storage and file checkpoints
+
+The unused Claude SDK file-checkpoint path has been removed: no
+`enableFileCheckpointing`, rewind RPC, checkpoint event, renderer checkpoint
+state, or `fileRewind` capability. Solus Git turn snapshots remain for diffs
+and review. Existing provider backup files are left on disk; this change does
+not clean up user data.
+
+P6 should use Claude `SessionStore` for native conversation state. It must
+preserve opaque entries and subagent state, use a stable project key, and
+confirm durable storage before a handoff. Project files and Git state still
+need a separate transfer checkpoint. SessionStore is not implemented by this
+removal.
+
+Proposed dirty-tree policy: ordinary same-host resume uses the current files.
+Cross-host transfer restores the source checkpoint into a new session checkout,
+never into an existing dirty destination. Preserve staged and unstaged changes
+separately, plus untracked files; declare excluded ignored files. Reusing an
+existing checkout is a separate explicit action, not an automatic stash, reset,
+merge, or overwrite. If another session or external tool changes the source
+during capture, fail or retry the capture instead of publishing an inconsistent
+checkpoint. A new checkout isolates future work; it cannot establish which
+session authored pre-existing shared changes.
+
+## 26. Credential ownership — account integrations and host agent sign-in (2026-09-21)
+
+**User decision:** Claude and Codex authentication stays on the execution host. GitHub, Google and Atlassian (Jira and Confluence) connections belong to the account backend at `app.solus.sh`. This replaces the earlier proposal to put all five providers in a cloud vault.
+
+| Provider | Configure | Credential home and refresh |
+|---|---|---|
+| GitHub, Google, Atlassian | Cloud-managed hosts and members: `app.solus.sh/connections`, once per user. Owner of a personal host: that host's Settings | Account backend, with encrypted storage and controlled delivery to the backend performing the user's action |
+| Claude, Codex | The selected execution host's provider setup, accessible through desktop, web and mobile | That user's provider login on that host; provider runtime manages its own auth state |
+
+### Claude and Codex on the execution host
+
+- Keep the provider's own login flow and host-local per-member seats. The client can show a login URL, device code or completion state; the account website and workspace service do not collect the credential files.
+- No Claude/Codex cloud vault rows, cloud credential leases, refresh write-back, or cross-host credential refresh locks in the target design. Their API keys, if used, also remain host-configured.
+- Each turn selects the author's seat on the assigned host. Queued turns retain their author; automations retain their owner. A missing seat requires sign-in on that host, with no fallback to another member or the host owner's seat.
+- A user signs in separately on each execution host. Host A being connected does not make host B connected. UI status must name the host; an offline host has unknown current auth state, not a global Connected label.
+- Disconnect acts on that user's provider login on that host. It does not disconnect their login on another host. Account sign-out ends account access but does not silently delete independent provider logins.
+- Account-free local use keeps the local provider login. On a shared host, the user's identity and seat selection remain explicit.
+- P6 session transfer carries conversation and checkout state, never provider credentials. Verify the destination user's seat before the move can execute there.
+- This storage decision does not widen guest permissions or authorize credential sharing. Existing guest execution policy remains a separate provider-specific requirement.
+
+### GitHub, Google and Atlassian on the account backend
+
+The account backend owns authorization, callbacks, encrypted storage, refresh, connection status and disconnect, keyed by `(userId, provider)`. Signing into Solus with Google or GitHub does not itself grant Drive or repository access.
+
+The trusted backend performing an action obtains the acting user's credentials directly from the account API. Provider secrets stay out of renderer/browser/mobile state. The workspace service keeps collaboration content and is removed from this credential delivery path. A cloud action can use the same account API under explicit user authority.
+
+Account-issued user grants bind the user, executor and expiry; the API limits delivery to the three integration providers and verifies current account-session, host-link and membership state. A host token or a caller-supplied user id is insufficient. Use verified account identity for remote members; do not fall back to host credentials when an account connection is absent or unavailable.
+
+**Revised (2026-09-22, user decision):** account connections are for cloud-managed hosts only — managed hosts and the workspace service — and for people who do not own the host (organization members and guests). The owner of a personal host connects GitHub, Google, and Atlassian on that host, signed in or not, locally or remotely, the same as Claude and Codex. Signing in to Solus does not move a personal host's connections to the account website. `integrationUserFor` (`packages/server/src/vault/account-integrations.ts`) decides this.
+
+The account backend coordinates integration refresh and sends access tokens without refresh tokens where possible. Disconnect refuses new delivery and invalidates stale write-back. Bound caches by authorization expiry and purge account-derived copies on sign-out or revocation. Do not promise instant invalidation of provider tokens already delivered unless the provider supports it.
+
+### Deployment and implementation status
+
+Keep the account website on Cloudflare Workers. It needs no Claude/Codex CLI binaries, subprocess login relay or separate authentication helper. The earlier Node account-backend recommendation is withdrawn.
+
+Implemented in both working trees. The account Worker owns `/connections`,
+`/oauth/{github,google,atlassian}/callback`, encrypted integration rows, and
+centralized refresh. It sends access tokens directly to authenticated backends;
+refresh tokens stay in the account backend. Workspace seat storage and runner
+credential leases/write-back were removed. Seat RPCs are execution-only.
+
+The local desktop owner uses the host's own connections (revised above); Electron
+main no longer passes the account identity to the host. Remote hosts present their existing host token plus a current user host grant;
+the service presents `SOLUS_INTEGRATION_SERVICE_KEY` plus a user workspace grant
+for its own integration actions. The account backend verifies audience, active
+account session, executor link and current membership. This reuses existing
+user-to-executor authority; separate provider/purpose delegation records were
+not added. An arbitrary user ID or executor token alone is insufficient.
+
+Apply account migration `0001_many_adam_destine` and workspace migration
+`0010_account_integrations` with the matching release. The latter drops the old
+cloud credential tables. Reconnect integrations on the account website; verify
+Claude/Codex login separately on each execution host. No credential is copied to
+another host. Existing host provider files remain. Setup, exact callbacks and
+runtime secrets are in `../solus-cloud/docs/account-integrations.md`.
+
+Verification (2026-09-21): account 114/114 tests; browser/HTTP/real isolated host
+33/33 checks with simulated upstream providers and no-JS desktop/phone pages;
+host-auth Lab 46 checks on SQLite/Postgres; host credential units 7/7; seat units
+22/22. Both production builds and contracts typecheck pass. Full Lab 14/16
+scenarios, 613/621 checks: `guest-revoke` and `share-matrix` have eight stale saves
+that omit the version required by the separate cloud-work change. Repository
+package typechecks and lint remain non-clean. No clean full-suite claim.
+
+No real provider consent/refresh, native Electron/iOS/Android run, production
+migration/deployment, commit or push in this change. LAN pairing alone does not
+identify an account user. Background or guest integration calls without current
+user authority fail closed; durable background delegation is not implemented.
+Disconnect refuses the next delivery, but cannot erase access tokens already
+sent to a backend. P6 transfer remains unimplemented and excludes credentials.

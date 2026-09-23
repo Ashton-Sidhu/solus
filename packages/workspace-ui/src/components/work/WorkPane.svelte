@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { getWorkspaceContext, getClientShellContext } from "../../contexts";
+  import { tick, untrack } from "svelte";
+  import { CloudWorkCopy } from "../../contexts/works/cloud-work-copy.store.svelte";
+  import { hostRolesStore } from "../../contexts/connections/host-roles.store.svelte";
+  import type { Work } from "@solus/contracts/types";
+  import { getSurfaceContext, getClientShellContext, serversStore, sharesStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -21,7 +25,7 @@
 
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const pane = paneActions(() => paneId);
   const shell = getClientShellContext();
 
@@ -29,12 +33,15 @@
   const workMetadata = $derived(session.worksStore.get(params.workId));
   // Manifest entries have no body. Do not mount an empty editor while the
   // content read is pending; a successfully loaded empty document is valid.
+  let cloudCopy = $state.raw<CloudWorkCopy | null>(null);
+  const workServerId = $derived(params.serverId ?? session.worksStore.hostFor(params.workId));
+  const isCloudWork = $derived(!!workServerId && (serversStore.isCloudHost(workServerId) || !hostRolesStore.hasExecution(workServerId)));
   const work = $derived(
-    workMetadata && (workMetadata.content || loadedWorkId === params.workId)
+    cloudCopy?.work ?? (workMetadata && (workMetadata.content || loadedWorkId === params.workId)
       ? workMetadata
-      : null,
+      : null),
   );
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  const sess = $derived(session.activeSession);
   let workLoadAttempt = $state(0);
   let workLoadError = $state<Error | null>(null);
 
@@ -58,6 +65,47 @@
     };
   });
 
+  const viewerReadOnly = $derived(!!workServerId && sharesStore.listFor(workServerId, { kind: "work", id: params.workId })?.callerRole === "viewer");
+  $effect(() => {
+    const serverId = workServerId;
+    const workId = params.workId;
+    if (serverId) untrack(() => { void sharesStore.load(serverId, { kind: "work", id: workId }); });
+  });
+
+  const hasLoadedContent = $derived(!!workMetadata?.content || loadedWorkId === params.workId);
+  $effect(() => {
+    const workId = params.workId;
+    const serverId = workServerId;
+    if (!isCloudWork || !serverId || !hasLoadedContent) { cloudCopy = null; return; }
+    const copy = untrack(() => new CloudWorkCopy(session.worksStore.get(workId)!, serverConnections.apiFor(serverId)));
+    cloudCopy = copy;
+    return untrack(() => { void copy.reload(); return copy.watch(); });
+  });
+
+  let discardingShell = false;
+  async function saveCopy(updates: Partial<Pick<Work, "title" | "preview" | "content">>) {
+    // DiagramShell flushes its draft on teardown. An explicit reload must not
+    // save that discarded draft over the version we just loaded.
+    if (discardingShell) return;
+    const workId = params.workId;
+    if (cloudCopy) await cloudCopy.save(updates, (write, version) => session.worksStore.save(workId, write, version));
+    else await session.worksStore.save(workId, updates);
+  }
+
+  async function reloadCloudCopy() {
+    if (await cloudCopy?.reload()) {
+      await remountSavedCopy();
+    }
+  }
+
+  async function remountSavedCopy() {
+    discardingShell = true;
+    shellDirty = false;
+    conflict = false;
+    renderKey++;
+    try { await tick(); } finally { discardingShell = false; }
+  }
+
   const originalSessionMeta = $derived.by(() => {
     if (!work) return null;
     // Candidate sessions, most-recent-linked first, then the legacy origin id.
@@ -66,17 +114,14 @@
       ...(work.sessionId ? [work.sessionId] : []),
     ];
     for (const sid of candidates) {
-      const openTab = session.tabIdForAgentSession(sid, session.worksStore.hostFor(work.id) ?? undefined);
-      if (openTab) {
-        const sess = session.sessionFor(openTab);
-        if (sess) {
-          return {
-            sessionId: sess.agentSessionId || "",
-            title: sess.title || "Unnamed session",
-            provider: sess.run.provider || "claude-code",
-            cwd: sess.run.workingDirectory,
-          };
-        }
+      const sess = session.sessionForAgentSession(sid, session.worksStore.hostFor(work.id) ?? undefined);
+      if (sess) {
+        return {
+          sessionId: sess.agentSessionId || "",
+          title: sess.title || "Unnamed session",
+          provider: sess.run.provider || "claude-code",
+          cwd: sess.run.workingDirectory,
+        };
       }
     }
     return null;
@@ -113,6 +158,7 @@
   $effect(() => {
     const workId = params.workId;
     const rev = agentRev;
+    if (isCloudWork) return;
     if (workId !== trackedWorkId) {
       trackedWorkId = workId;
       trackedAgentRev = rev;
@@ -170,16 +216,14 @@
   const canOpenChat = $derived(shell.canOpenResource("chat"));
 
   function handleRename(newTitle: string) {
-    void session.worksStore.save(params.workId, { title: newTitle });
+    void saveCopy({ title: newTitle }).catch((error) => toasts.error(error.message));
   }
 
   async function handleRevert() {
     const reverted = await session.worksStore.revert(params.workId);
     if (!reverted) return;
-    // Reload the shell off the reverted content (shells parse content at mount).
-    shellDirty = false;
-    conflict = false;
-    renderKey++;
+    if (cloudCopy) await cloudCopy.reload();
+    await remountSavedCopy();
   }
 
   function handleDelete() {
@@ -230,8 +274,16 @@
   </div>
 {/snippet}
 
-{#if work}
+{#if work && (!isCloudWork || cloudCopy?.ready)}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
+    {#if cloudCopy?.changed || cloudCopy?.error}
+      <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--solus-accent-border) bg-(--solus-accent-light) px-4 py-2 text-workspace-chrome" role="status">
+        <span>{cloudCopy.error ?? "This work changed in the cloud. You are viewing an older copy."}</span>
+        <button type="button" class="rounded-md border border-(--solus-accent-border) px-3 py-1 hover:bg-(--solus-surface-hover) focus-visible:outline-2 pointer-coarse:min-h-11" disabled={cloudCopy.reloading} onclick={() => void reloadCloudCopy()}>
+          {cloudCopy.reloading ? "Reloading…" : shellDirty ? "Discard edits and reload" : "Reload saved copy"}
+        </button>
+      </div>
+    {/if}
     {#if conflict}
       {@render refreshPill()}
     {/if}
@@ -240,7 +292,11 @@
     {/if}
     {#key `${work.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
-        {#if work.type === "diagram"}
+        {#if work.type === "diagram" && viewerReadOnly}
+          {#await import("../diagram/DiagramPreview.svelte") then previewModule}
+            <previewModule.default content={work.content} title={work.title} />
+          {/await}
+        {:else if work.type === "diagram"}
           {#await import("../diagram/DiagramShell.svelte")}
             <DiagramShellSkeleton />
           {:then diagramModule}
@@ -252,7 +308,7 @@
               title={work.title}
               workId={work?.id}
               onSave={async (c) => {
-                await session.worksStore.save(work.id, { content: c });
+                await saveCopy({ content: c });
               }}
               onDirtyChange={(d) => {
                 shellDirty = d;
@@ -306,7 +362,7 @@
               document={{ title: work.title, content: work.content }}
               workId={work?.id}
               onSave={async (c) => {
-                await session.worksStore.save(work.id, { content: c });
+                await saveCopy({ content: c });
               }}
               onDirtyChange={(d) => {
                 shellDirty = d;
@@ -353,6 +409,8 @@
       />
     {/if}
   </div>
+{:else if cloudCopy?.error && !cloudCopy.ready}
+  <RouteLoadError error={new Error(cloudCopy.error)} compact onRetry={() => void cloudCopy?.reload()} />
 {:else if workLoadError}
   <RouteLoadError
     error={workLoadError}

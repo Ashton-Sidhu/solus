@@ -1,7 +1,16 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { ModelRouting } from '@solus/contracts/model-routing'
+import { ROUTING_PROVIDERS, type ModelRouting } from '@solus/contracts/model-routing'
 import type { AgentMetadata } from '@solus/contracts/types'
+
+/** Every model Auto can route to: the installed routing providers' own models,
+ *  in provider order. A category picks one of these and nothing else. */
+export function routingModelsFor(agents: AgentMetadata[]): { value: string, label: string }[] {
+  return ROUTING_PROVIDERS.flatMap(provider => {
+    const agent = agents.find(agent => agent.id === provider && agent.available !== false)
+    return agent?.models.map(model => ({ value: model.id, label: model.label })) ?? []
+  })
+}
 
 interface RoutingState {
   config: ModelRouting | null
@@ -42,7 +51,7 @@ class ModelRoutingStore {
       this.states.set(serverId, { ...current,
         config: current.revision === revision ? snapshot.config.modelRouting : current.config,
         agents: models.agents, loading: false,
-        error: snapshot.config.modelRouting ? '' : 'Update this host to configure model routing.',
+        error: snapshot.config.modelRouting ? '' : 'Update this host to use model routing.',
       })
     } catch {
       if (this.loads.get(serverId) !== load) return

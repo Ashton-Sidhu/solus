@@ -172,7 +172,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       worktreeBaseBranch: null,
       sessionChangedFiles: ['session.txt'],
       readOnlyReason: null,
-      latestCheckpointId: null,
     },
     settings: {
       themeMode: 'system',
@@ -186,7 +185,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       reviewModel: 'gpt-5.6-sol',
       reviewReasoning: 'medium',
       reviewGuideInstructions: '',
-      stackedPrsEnabled: false,
       reviewWarmingEnabled: false,
       rateLimitBehavior: 'ask',
       fontFamily: 'inter',

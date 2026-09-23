@@ -1,3 +1,4 @@
+import { accountConnectionsUrl, integrationUserFor } from '../../vault/account-integrations'
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../auth'
 import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { createLogger } from '../../logger'
@@ -62,6 +63,8 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     const info = deps.getServerInfo()
     const principal = ctx.principal
     const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: principal.kind }
+    const connectionsUrl = integrationUserFor(principal) ? accountConnectionsUrl() : null
+    if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
     if (principal.kind === 'remote-owner') answer.userId = principal.userId
     if (principal.kind === 'org-member') {
       answer.userId = principal.userId

@@ -276,6 +276,7 @@ export interface MetricsSpanAttrs {
   hostOs?: string
   promptSource?: string
   requestedModel?: string
+  contextWindow?: number
   isResume?: boolean
   hasThinking?: boolean
   prompt?: string

@@ -130,7 +130,7 @@
         ? await readSessionMeta(draftingServerId, draftingSessionId)
         : null;
       if (!meta) throw new Error("Session not found");
-      await session.resumeSession({ ...meta, cwd: meta.cwd || draftingCwd });
+      await session.opening.resumeSession({ ...meta, cwd: meta.cwd || draftingCwd });
     } catch {
       toasts.error("Couldn't open that session");
     }

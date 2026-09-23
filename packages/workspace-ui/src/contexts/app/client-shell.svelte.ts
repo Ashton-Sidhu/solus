@@ -15,9 +15,8 @@ export interface ClientShellContext {
   readonly deferHistoryToolInputs: boolean
   /**
    * Whether this shell has somewhere to send a resource of this kind. The
-   * workspace shells open everything in place; the page shell on the account
-   * origin has a URL for tasks, works, and sessions and a way to the workspace
-   * for the rest; the guest shell (docs/plans/multiplayer-sharing.md §4.2) has
+   * workspace shells open everything in place; the guest shell
+   * (docs/plans/multiplayer-sharing.md §4.2) has
    * only the one resource it was let in to. A surface asks before it offers a
    * Workspace crumb, a chat, or a pull request.
    */

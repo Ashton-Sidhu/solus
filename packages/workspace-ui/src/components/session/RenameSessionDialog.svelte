@@ -29,7 +29,7 @@
   }
 
   function save(): void {
-    void session.renameTab(tabId, value);
+    void session.metadata.renameTab(tabId, value);
     close();
   }
 </script>

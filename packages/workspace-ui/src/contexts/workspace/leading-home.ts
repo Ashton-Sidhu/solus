@@ -7,7 +7,7 @@ export interface LeadingHomeInput {
   hasTabs: boolean
   /** The leading pane's own content at the moment of closing. */
   leadingBase: RouteRef | null
-  /** Every open draft, oldest first — `workspace.sessionDrafts`. */
+  /** Every open draft, oldest first — `workspace.drafts.sessionDrafts`. */
   drafts: ReadonlyMap<string, { id: string }>
   /** The drafts some pane is composing right now. */
   composingDraftIds: ReadonlySet<string>

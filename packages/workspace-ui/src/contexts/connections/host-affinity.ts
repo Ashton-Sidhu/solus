@@ -10,7 +10,6 @@ import AppleLogoIcon from '../../components/servers/AppleLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import type { ServerItemStatus } from './servers.store.svelte'
-import { SOLUS_CLOUD_LABEL } from './host-label'
 
 /** The host a surface belongs to, in the facts every badge needs. */
 export interface HostAffinityTarget {
@@ -63,11 +62,8 @@ export function hostAffinityGlyph(
   status: ServerItemStatus,
 ): HostAffinityGlyph | null {
   if (!host || host.local) return null
-  const kind = host.uplink?.kind
-  const { icon, className, statusLabel } = glyphForStatus(status, kind === 'managed' || kind === 'cloud' ? CloudIcon : operatingSystemIcon(host.os))
-  // A record whose home is the workspace service runs nowhere: it lives there.
-  const tooltip = kind === 'cloud' ? `${SOLUS_CLOUD_LABEL} · ${host.label} · ${statusLabel}` : `Runs on ${host.label} · ${statusLabel}`
-  return { icon, className, statusLabel, tooltip }
+  const { icon, className, statusLabel } = glyphForStatus(status, host.uplink?.kind === 'managed' ? CloudIcon : operatingSystemIcon(host.os))
+  return { icon, className, statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
 }
 
 function glyphForStatus(

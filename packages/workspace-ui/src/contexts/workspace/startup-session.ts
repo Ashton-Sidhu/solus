@@ -35,7 +35,7 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
   session.historyPendingMessages = transcript.pendingMessages
   session.progress = transcript.progress
   ctx.eventReducer.rebuildAgentConversations(session)
-  ctx.recomputeChangedFiles(tabId)
+  ctx.lifecycle.recomputeChangedFiles(tabId)
   session.loadingHistory = false
   if (session.messages.length) markStartupTranscriptApplied(tabId)
 }

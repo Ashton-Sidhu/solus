@@ -27,15 +27,6 @@
     "",
     "",
   ];
-
-  const treeRows = [
-    { indent: "", width: "w-24" },
-    { indent: "ml-4", width: "w-32" },
-    { indent: "ml-4", width: "w-24" },
-    { indent: "", width: "w-28" },
-    { indent: "ml-4", width: "w-36" },
-    { indent: "ml-4", width: "w-20" },
-  ];
 </script>
 
 {#if variant === "map"}
@@ -95,28 +86,8 @@
     </div>
   </div>
 {:else}
-  <div
-    class="@container flex min-h-0 min-w-0 flex-1 overflow-hidden"
-  >
-    <!-- Match DiffResizableContent's default 290px file-tree column and its
-         640px auto-open threshold. A container query applies on the first
-         layout pass; measuring clientWidth in Svelte made the tree pop in one
-         frame after the rest of the skeleton. -->
-    <div
-      class="relative flex w-[18.125rem] min-w-48 max-w-[40%] shrink-0 flex-col border-r border-(--solus-container-border) px-3 pt-12 @max-[39.999rem]:hidden"
-      aria-hidden="true"
-    >
-      <Skeleton class="absolute top-3.5 left-3 size-5 rounded" />
-      <div class="flex flex-col gap-3">
-        {#each treeRows as row, i (i)}
-          <div class="flex h-3 items-center gap-2 {row.indent}">
-            <Skeleton class="size-2.5 shrink-0 rounded-[0.1875rem]" />
-            <Skeleton class="h-2.5 {row.width} rounded-[0.1875rem]" />
-          </div>
-        {/each}
-      </div>
-    </div>
-
+  <!-- No file-tree column: the panel opens with the tree closed. -->
+  <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
     <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-1.5 overflow-hidden p-2">
       {#each Array(3) as _, i (i)}
         <div class="diff-skel-slot" style="background:transparent">

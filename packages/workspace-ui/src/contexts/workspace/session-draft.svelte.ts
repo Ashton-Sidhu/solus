@@ -99,6 +99,12 @@ export function parentTaskId(task: TaskTarget): string | null {
   return task.kind === 'new' ? task.parentTaskId ?? null : null
 }
 
+/** The id the first prompt will mint this session's task under, when it will
+ *  mint one. `makeSession` assigns it; a draft's target has none. */
+export function newTaskId(task: TaskTarget): string | null {
+  return task.kind === 'new' ? task.taskId ?? null : null
+}
+
 /** Read the three fields a persisted tab still stores back into a target. */
 export function taskTargetFrom(fields: {
   pendingTaskId?: string | null
@@ -125,4 +131,17 @@ export function taskTargetFields(task: TaskTarget): TaskTargetFields {
     pendingParentTaskId: task.kind === 'new' ? task.parentTaskId ?? null : null,
     taskCreationDisabled: task.kind === 'none',
   }
+}
+
+/**
+ * The task a started session's prompts file under. The durable link is the
+ * answer once there is one: the agent can move the session to another task
+ * mid-turn, and the binding recorded at first dispatch would otherwise send
+ * every later prompt back to the placeholder that transfer just removed.
+ * Before the link lands, the binding is all there is.
+ */
+export function ownedTaskId(tasksStore: { taskForSession(sessionId: string | null | undefined): { id: string } | null }, session: Session): string | undefined {
+  return tasksStore.taskForSession(taskBindingSessionId(session))?.id
+    ?? existingTaskId(session.task)
+    ?? undefined
 }

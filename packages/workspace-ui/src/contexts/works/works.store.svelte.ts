@@ -272,10 +272,10 @@ export class WorksStore {
     }
   }
 
-  async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<void> {
+  async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, expectedUpdatedAt?: string): Promise<Work> {
     const work = this.works[workId]
     const write = this.withDerivedTitle(work, updates)
-    const updated = await this.apiForWork(workId).saveWork(workId, write)
+    const updated = await this.apiForWork(workId).saveWork(workId, write, expectedUpdatedAt)
     const existing = this.works[workId]
     if (existing) {
       if (write.title !== undefined) existing.title = updated.title
@@ -285,6 +285,7 @@ export class WorksStore {
     } else {
       this.works[workId] = updated
     }
+    return updated
   }
 
   /** A still-unnamed document takes its name from the first heading the user
@@ -305,14 +306,16 @@ export class WorksStore {
    * updatedAt and mutates the store entry in place (Svelte 5 rule — no spreads).
    * If the work isn't loaded yet, pulls it fresh from disk.
    */
-  async applyRemoteUpdate(workId: string, title: string, docType: WorkType, content: string, updatedAt: string, serverId?: string): Promise<void> {
+  async applyRemoteUpdate(workId: string, title: string, content: string, updatedAt: string, serverId?: string): Promise<void> {
     if (serverId) this.hostByWorkId.set(workId, serverId)
     const existing = this.works[workId]
     if (existing) {
       if (existing.updatedAt && updatedAt && updatedAt < existing.updatedAt) return
-      existing.title = title
+      // A cloud-owned save cannot read the row it updates, so it reports `doc`
+      // and an empty title. An update never changes a work's type.
+      if (title) existing.title = title
       existing.content = content
-      existing.preview = workPreview(docType, content)
+      existing.preview = workPreview(existing.type, content)
       existing.updatedAt = updatedAt
       this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
       return

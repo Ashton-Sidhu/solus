@@ -14,7 +14,7 @@ import {
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig } from '@solus/contracts/types'
 import { runTarget } from '@solus/workspace-ui/components/servers/lib/run-target'
-import { canRunOnHost, managedHostStateLabel, managedHostSubtitle } from '@solus/workspace-ui/components/servers/lib/managed-host'
+import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
 import { startsWorktree, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from '@solus/workspace-ui/contexts/workspace/run-config'
 
@@ -64,40 +64,40 @@ describe('run-on host selection', () => {
 })
 
 describe('managed hosts in the picker', () => {
-  // WHY: docs/plans/managed-hosts.md — a managed host has no owner person, so its
-  // row names the team instead, and while its compute is not ready it is listed
-  // (the state is the information) but takes no work.
+  // WHY: docs/plans/managed-hosts.md — a managed host is "Cloud" and the name its
+  // owner gave it, never its organization; while its compute is not ready it is
+  // listed (the state is the information) but takes no work.
   const managed = { hostId: 'h', directoryUrl: 'https://app.example.test', kind: 'managed' as const }
 
-  test('a ready managed host is one word everywhere, names its team in Connections, and takes work', () => {
-    // WHY: every surface answers "where does this run"; the machine name is an
-    // identifier nobody chose, so the row is "Cloud" with no second line.
-    expect(hostRowLabel({ label: '89451eb6d07536', uplink: { kind: 'managed' } }, '89451eb6d07536')).toBe('Cloud')
+  test('a ready managed host reads the name members gave it, never names an organization, and takes work', () => {
+    expect(hostRowLabel({ label: 'Build box', uplink: { kind: 'managed' } }, '89451eb6d07536')).toBe('Build box')
+    // The machine name is an identifier nobody chose: with only that, the row is "Cloud".
+    expect(hostRowLabel({ label: '89451eb6d07536', uplink: { kind: 'managed' } }, '89451eb6d07536')).toBe('Cloud host')
+    expect(hostRowLabel({ label: '', uplink: { kind: 'managed' } }, undefined)).toBe('Cloud host')
     expect(hostRowLabel({ label: 'Mac mini', uplink: { kind: 'personal' } }, 'Ashton’s Mac mini')).toBe('Ashton’s Mac mini')
-    expect(hostRowLabel({ label: 'Build box', hasUserLabel: true, uplink: { kind: 'managed' } }, undefined)).toBe('Build box')
+    expect(hostRowLabel({ label: 'Studio', hasUserLabel: true, uplink: { kind: 'managed' } }, undefined)).toBe('Studio')
     expect(managedHostStateLabel({ ...managed, managedState: 'ready' })).toBeNull()
-    expect(managedHostSubtitle({ ...managed, managedState: 'ready' }, 'Acme')).toBe('Managed · Acme')
-    expect(managedHostSubtitle({ ...managed, managedState: 'ready' }, null)).toBe('Managed · Team host')
-    // An older control plane names no state: treated as ready rather than hidden.
-    expect(managedHostStateLabel(managed)).toBeNull()
-    expect(managedHostSubtitle(managed, undefined)).toBe('Managed · Team host')
     expect(canRunOnHost({ ...managed, managedState: 'ready' })).toBe(true)
-    expect(canRunOnHost(managed)).toBe(true)
+  })
+
+  test('a managed host with no known state takes no work', () => {
+    // WHY: the directory names a state for every managed host. A missing state
+    // is one this client could not read, and sending work there could fail.
+    expect(canRunOnHost(managed)).toBe(false)
+    expect(managedHostStateLabel(managed)).toBeNull()
   })
 
   test('a managed host that is not ready shows its state and is disabled for dispatch', () => {
     for (const state of ['provisioning', 'starting', 'stopping', 'stopped', 'failed', 'deleting'] as const) {
       const label = `${state[0]!.toUpperCase()}${state.slice(1)}`
       expect(managedHostStateLabel({ ...managed, managedState: state })).toBe(label)
-      expect(managedHostSubtitle({ ...managed, managedState: state }, 'Acme')).toBe(`Managed · ${label}`)
       expect(canRunOnHost({ ...managed, managedState: state })).toBe(false)
     }
   })
 
   test('a personal host is untouched: no managed line, always dispatchable', () => {
-    expect(managedHostSubtitle({ hostId: 'h', directoryUrl: 'x', ownerName: 'Alice' }, 'Acme')).toBeNull()
     expect(managedHostStateLabel({ hostId: 'h', directoryUrl: 'x', ownerName: 'Alice' })).toBeNull()
-    expect(managedHostSubtitle(undefined, 'Acme')).toBeNull()
+    expect(managedHostStateLabel(undefined)).toBeNull()
     expect(canRunOnHost(undefined)).toBe(true)
     expect(canRunOnHost({ hostId: 'h', directoryUrl: 'x', kind: 'personal' })).toBe(true)
   })
@@ -407,8 +407,24 @@ describe('which host the project chip lists', () => {
     // offers) stays on `taskServerId`. Listing studio's projects would offer
     // folders that have nothing to do with the work being dispatched.
     expect(
-      projectHostId(run({ pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'k' } })),
+      projectHostId(run({
+        workingDirectory: '/Users/me/solus',
+        pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'k' },
+      })),
     ).toBe('local')
+  })
+
+  test('a dispatch with no checkout at home lists the host that will clone it', () => {
+    // WHY: a repository opened from the cloud (onboarding's project, a cloud
+    // task) starts at `~` and is cloned on the target. There is no home checkout
+    // to keep offering, so listing the home machine shows unrelated projects
+    // while Run on names the cloud host.
+    expect(
+      projectHostId(run({
+        workingDirectory: '~',
+        pendingHostDispatch: { serverId: 'cloud', intent: 'dispatch', repoKey: 'github.com/me/solus' },
+      })),
+    ).toBe('cloud')
   })
 
   test('opening a project elsewhere lists that host, before Send moves the ids', () => {

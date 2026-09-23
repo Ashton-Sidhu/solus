@@ -259,8 +259,7 @@ const HOST_ACTOR: TurnActor = { userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWN
  * their credential scope. The host's own work keeps the host's connections.
  */
 function credentialScopedAgentTools(tools: AgentTool[], actor: TurnActor | undefined): AgentTool[] {
-  if (!actor || actor.userId === HOST_OWNER_USER_ID) return tools
-  const { userId } = actor
+  const userId = actor?.credentialUserId !== undefined ? actor.credentialUserId : (actor && actor.userId !== HOST_OWNER_USER_ID ? actor.userId : null)
   return tools.map((agentTool) => ({
     ...agentTool,
     execute: (input, context) => withCredentialScope(userId, () => agentTool.execute(input, context)),
@@ -725,12 +724,16 @@ export class ControlPlane extends EventEmitter {
           const handle = backend.getSessionHandle(agentSessionId)
           if (handle) handle.resultText = event.result
           this.activeRunRequests.delete(session.sessionId)
-          // Hold 'running' while background sub-agents are still in flight; the SDK
-          // query stays open servicing them and will emit exit once they settle.
-          if (session.backgroundTaskIds?.size) {
-            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, holdingRunning: true })
-          } else if (this._awaitingAgentReply(session.sessionId)) {
+          // The agent is done, but the SDK query stays open while its background
+          // tasks run and emits exit only once they settle. A task that never
+          // ends (a log tail, a dev server) would otherwise hold 'running' for
+          // the life of the query, so the turn settles into 'background'.
+          if (this._awaitingAgentReply(session.sessionId)) {
             log.info('turn_complete_awaiting_agent_reply', { sessionId: session.sessionId, holdingRunning: true })
+          } else if (session.backgroundTaskIds?.size) {
+            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size })
+            this._setStatus(session.sessionId, 'background')
+            this._processQueueForSession(session.sessionId)
           } else {
             this._setStatus(session.sessionId, 'completed')
           }
@@ -757,8 +760,7 @@ export class ControlPlane extends EventEmitter {
           if (run && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation') {
             // Host settings can change while a user turn is running. Read the
             // current preference here; an old client snapshot is not the policy.
-            const settings = getHostConfig()
-            if (settings.seeded) run.input.rateLimitBehavior = settings.config.rateLimitBehavior
+            run.input.rateLimitBehavior = getHostConfig().config.rateLimitBehavior
           }
           if (run?.input.rateLimitBehavior === 'queue') {
             this._queueActiveRateLimitedRequest(session.sessionId)
@@ -1885,6 +1887,12 @@ export class ControlPlane extends EventEmitter {
             deviceId,
           })
         }
+        // The turn is over, so a queued delivery has nothing to wait behind:
+        // any prompt goes into the query that the background work keeps open.
+        if (session.status === 'background' && session.agentSessionId) {
+          const steered = await this._steerActiveTurn(request, session.agentSessionId, session)
+          if (steered) return steered
+        }
       }
     }
 
@@ -2225,7 +2233,9 @@ export class ControlPlane extends EventEmitter {
     }
 
     const session = this.activeSessions.get(sessionId)
-    if (session?.agentSessionId && isSessionBusyStatus(session.status)) {
+    // 'background' is the way out of a task that never settles: cancelling the
+    // query is what ends the work the agent left running.
+    if (session?.agentSessionId && (isSessionBusyStatus(session.status) || session.status === 'background')) {
       const cancelled = this._backendFor(session.backendId).cancelSession(session.agentSessionId)
       if (cancelled) {
         this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
@@ -2396,9 +2406,12 @@ export class ControlPlane extends EventEmitter {
     request.completionRoutes ??= []
     const runStartedAt = Date.now()
     const promptSource = request.options.promptSource ?? 'typed'
-    // Read before dispatch: Auto routing overwrites `preferredModel` with the
-    // model it picked, and the turn must still say what the user asked for.
-    const requestedModel = request.input.preferredModel ?? undefined
+    // Read before dispatch: Auto routing overwrites the model with the one it
+    // picked, and the turn must still say what was asked for. `model`, not
+    // `preferredModel`: the preference is the session's stored choice, which
+    // outlives a switch of provider, while `model` is the choice resolved
+    // against the provider this turn runs on.
+    const requestedModel = request.input.model || undefined
     const turnTraceId = this.sessionEmitter.beginTurn({
       sessionId: request.sessionId,
       prompt: request.options.displayPrompt ?? request.options.prompt,
@@ -2449,6 +2462,7 @@ export class ControlPlane extends EventEmitter {
     this.sessionEmitter.completeSetup(request.sessionId, {
       provider: run.input.provider,
       model: run.input.model,
+      contextWindow: run.input.contextWindow,
       requestedModel,
       projectRoot: run.input.projectPath || run.input.workingDirectory,
       origin: promptSource,
@@ -2710,7 +2724,7 @@ export class ControlPlane extends EventEmitter {
   hasActiveWork(): boolean {
     if (this.activeUnattendedAgentRuns.size > 0) return true
     for (const session of this.activeSessions.values()) {
-      if (session.status === 'connecting' || session.status === 'running') return true
+      if (session.status === 'connecting' || session.status === 'running' || session.status === 'background') return true
     }
     return false
   }
@@ -2828,7 +2842,12 @@ export class ControlPlane extends EventEmitter {
               try { await this.seatForTurn(request.actor, agent.id); available.push(agent) }
               catch (error) { if (!(error instanceof SeatRequiredError)) throw error }
             }
-            const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, getHostConfig().config.modelRouting, available, controller.signal)
+            // A preferred provider with no quota left cannot answer this turn,
+            // so the category's other model takes it instead of a run that
+            // fails on arrival.
+            const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, getHostConfig().config.modelRouting, available, controller.signal, {
+              spent: provider => this.usageLimits.isSpent(provider),
+            })
             annotate({ provider: route.provider, modelId: route.modelId, category: route.category, usedFallback: route.usedFallback })
             return route
           },
@@ -3171,15 +3190,6 @@ export class ControlPlane extends EventEmitter {
 
     let handle: RunHandle
     const activeRun: SessionRunRequest = { ...request, input: effectiveInput }
-    // A leased seat's settlement (cloud-service-model.md §5): once the turn is
-    // over, a refreshed credential goes back to the vault and the lock is released.
-    let releaseSeat: TurnSeat['release']
-    const settleSeat = (): void => {
-      const release = releaseSeat
-      releaseSeat = undefined
-      if (!release) return
-      release().catch((error) => log.warn('seat_release_failed', { sessionId, error: error instanceof Error ? error.message : String(error) }))
-    }
     try {
       this.activeRunRequests.set(sessionId, activeRun)
       if (!dispatchAgentSessionId) {
@@ -3211,7 +3221,6 @@ export class ControlPlane extends EventEmitter {
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
       const seat = await this.seatForTurn(request.actor, provider)
-      releaseSeat = seat?.release
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops
       // being Solus's time and starts being the agent's. Timed without an
@@ -3261,9 +3270,7 @@ export class ControlPlane extends EventEmitter {
       }))
       handle = agentRun.handle
       handle.sessionId = sessionId
-      handle.runPromise.then(settleSeat, settleSeat)
     } catch (err) {
-      settleSeat()
       this.activeRunRequests.delete(sessionId)
       this._setStatus(sessionId, 'failed')
       this.activeSessions.delete(sessionId)
@@ -3507,18 +3514,6 @@ export class ControlPlane extends EventEmitter {
 
     const lifecycle = await this.runTurn(request)
     await lifecycle.agentSessionId
-  }
-
-  async rewindSessionFiles(ctx: IpcContext, checkpointId: string): Promise<void> {
-    const sessionId = this._sessionIdForCtx(ctx)
-    const session = sessionId ? this.activeSessions.get(sessionId) : undefined
-    const agentSessionId = session?.agentSessionId ?? ctx.session.agentSessionId
-    if (!agentSessionId) throw new Error('No provider thread to rewind')
-    const backend = this._backendFor(session?.backendId ?? (session?.runInput?.provider ?? ctx.session.provider ?? ctx.settings.activeAgent))
-    if (!backend) throw new Error('No backend found for this session')
-    if (!backend.rewindFiles) throw new Error('Active backend does not support file rewind')
-    const cwd = session?.gitContext?.worktreePath || ctx.session.workingDirectory
-    await backend.rewindFiles(agentSessionId, checkpointId, cwd)
   }
 
   /** Answers a pending permission by questionId alone — the question already
@@ -4015,7 +4010,7 @@ export class ControlPlane extends EventEmitter {
       agentSessionId: dispatchSession?.agentSessionId ?? reqInput.agentSessionId,
     }
 
-    this._startRunLifecycle({
+    const run: SessionRunRequest = {
       ...req.run,
       input,
       target: { kind: 'session', sessionId: req.sessionId },
@@ -4023,7 +4018,15 @@ export class ControlPlane extends EventEmitter {
       servedQueueId: req.queueId,
       servedEnqueuedAt: req.enqueuedAt,
       options: { ...req.run.options, promptSource: 'queued' },
-    })
+    }
+    // A session in 'background' still has its provider query open. A second
+    // run would resume the same thread beside it, so the prompt goes into the
+    // open query; a fresh run is only the fallback once that query has closed.
+    const lifecycle = dispatchSession?.status === 'background' && dispatchSession.agentSessionId
+      ? this._steerActiveTurn(run, dispatchSession.agentSessionId, dispatchSession)
+        .then((steered) => steered ?? this._startRunLifecycle(run))
+      : this._startRunLifecycle(run)
+    lifecycle
       .then((lifecycle) => lifecycle.done)
       .then(() => req.resolve())
       .catch((e) => req.reject(e))
@@ -4250,6 +4253,10 @@ export class ControlPlane extends EventEmitter {
     let goalUpdate: ThreadGoal | null = null
     if (session) {
       session.status = newStatus
+      // Leaving 'background' for 'running' is the agent taking a new turn in
+      // the open query — a steered prompt, or its reply to a settled task. The
+      // 'background' turn already settled, so this one needs its own id.
+      if (oldStatus === 'background' && newStatus === 'running') session.activeTurnId = crypto.randomUUID()
       if (session.backendId === 'claude-code' && agentSessionId) {
         goalUpdate = this.claudeGoals.applySessionStatus(agentSessionId, newStatus)
       }
@@ -4280,6 +4287,8 @@ export class ControlPlane extends EventEmitter {
     ) {
       this._queueTurnSettlement(sessionId, session, newStatus)
     }
+    // The agent's turn is finished even though its background work is not.
+    if (session && newStatus === 'background') this._queueTurnSettlement(sessionId, session, 'completed')
     if (goalUpdate) this._emit(sessionId, { type: 'goal_updated', goal: goalUpdate })
   }
 

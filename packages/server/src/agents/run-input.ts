@@ -76,7 +76,7 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     reasoningEffort: statusBar.reasoningEffort,
     fastMode: statusBar.fastMode,
     permissionMode: session.permissionMode,
-    rateLimitBehavior: settings.rateLimitBehavior,
+    rateLimitBehavior: getHostConfig().config.rateLimitBehavior,
     extraInstructions: settings.extraInstructions,
     modelInstructions: settings.modelInstructions?.[statusBar.model],
   }

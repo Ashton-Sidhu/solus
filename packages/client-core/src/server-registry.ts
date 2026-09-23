@@ -30,6 +30,28 @@ export interface SavedServerUplink {
   kind?: HostKind
   /** Managed hosts only: what the control plane last said of the compute. Only a `ready` host is dialed. */
   managedState?: ManagedHostLifecycle
+  /** Cloud rows only: the organization the account is working in, as the directory last said. */
+  isActiveWorkspace?: boolean
+}
+
+/**
+ * A managed host whose compute the directory does not call `ready`. The client
+ * does not dial it and does not send work to it. The directory names a state for
+ * every managed host, so a state that is missing (or one this client does not
+ * know) is not ready. A personal host never waits.
+ */
+export function awaitsManagedCompute(uplink: SavedServerUplink | undefined): boolean {
+  return uplink?.kind === 'managed' && uplink.managedState !== 'ready'
+}
+
+/**
+ * Whether a managed host must be asked to start before a client waits for it. A
+ * host that is ready, or still being set up, is only waited for: a start would run
+ * a second reconcile beside the setup already running on Solus Cloud. A failed
+ * host is asked again, which retries its setup.
+ */
+export function managedHostNeedsStart(lifecycle: ManagedHostLifecycle | undefined): boolean {
+  return lifecycle === 'stopped' || lifecycle === 'stopping' || lifecycle === 'failed'
 }
 
 export interface SavedServer {
@@ -138,6 +160,7 @@ const savedServerSchema = z.looseObject({
     ownerUserId: z.string().min(1).optional().catch(undefined),
     kind: hostKindSchema.optional().catch(undefined),
     managedState: managedHostLifecycleSchema.optional().catch(undefined),
+    isActiveWorkspace: z.boolean().optional().catch(undefined),
   }).optional().catch(undefined),
 })
 const savedServersSchema = forwardCompatibleArray(savedServerSchema)

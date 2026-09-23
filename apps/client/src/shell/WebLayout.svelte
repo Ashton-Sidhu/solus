@@ -3,7 +3,6 @@
   import ConversationView from "@solus/workspace-ui/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
   import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
-  import UnifiedPicker from "@solus/workspace-ui/components/session/unified-picker/UnifiedPicker.svelte";
   import DiffLoadingSkeleton from "@solus/workspace-ui/components/diff/DiffLoadingSkeleton.svelte";
   import { getPlanStore, getWorkspaceContext, runtime } from "@solus/workspace-ui/contexts";
 import { visibleRef } from "@solus/workspace-ui/contexts/workspace/routing/location";
@@ -126,6 +125,13 @@ import {
     if (router.at("folio")) hasMountedWorkspace = true;
   });
 
+  // The mobile picker loads on its first open, then stays mounted so its
+  // close transition and tree state survive later opens.
+  let hasMountedMobilePicker = $state(false);
+  $effect(() => {
+    if (isMobile && session.ui.unifiedPickerOpen) hasMountedMobilePicker = true;
+  });
+
   let prevActiveTabId: string | undefined;
   $effect(() => {
     const current = session.activeTabId;
@@ -143,7 +149,7 @@ import {
 
   onMount(() => {
     const handler = () => {
-      session.unifiedPickerOpen = !session.unifiedPickerOpen;
+      session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
     };
     window.addEventListener("solus:toggle-session-picker", handler);
     return () => window.removeEventListener("solus:toggle-session-picker", handler);
@@ -378,6 +384,7 @@ import {
         view={reviewView}
         onSelectView={(next) => (reviewView = next)}
         scope={diffScope}
+        onSelectScope={(next) => (diffScope = next)}
         onClose={() => {
           diffPanelOpen = false;
 
@@ -416,10 +423,19 @@ import {
   </div>
 {/if}
 
-<UnifiedPicker
-  open={isMobile && session.unifiedPickerOpen}
-  onClose={() => { session.unifiedPickerOpen = false; }}
-/>
+{#if hasMountedMobilePicker}
+  {#await import("@solus/workspace-ui/components/session/unified-picker/UnifiedPicker.svelte") then module}
+    {@const UnifiedPicker = module.default}
+    <UnifiedPicker
+      open={isMobile && session.ui.unifiedPickerOpen}
+      onClose={() => { session.ui.unifiedPickerOpen = false; }}
+    />
+  {:catch}
+    {#if isMobile && session.ui.unifiedPickerOpen}
+      <p role="alert">Could not load the session picker.</p>
+    {/if}
+  {/await}
+{/if}
 
 <style>
   .tab-hidden { display: none !important; }

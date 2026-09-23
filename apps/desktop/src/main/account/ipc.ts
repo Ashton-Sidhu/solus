@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
-import { acquireHostGrant, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory } from './uplink-client'
+import { acquireHostGrant, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -16,6 +16,7 @@ export const ACCOUNT_CHANNELS = {
   stateChanged: 'solus:account-state-changed',
   uplinkDirectory: 'solus:uplink-directory',
   uplinkGrant: 'solus:uplink-grant',
+  uplinkStartManagedHost: 'solus:uplink-start-managed-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
 } as const
@@ -81,6 +82,10 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkGrant, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
     return hostId.success ? acquireHostGrant(session, hostId.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkStartManagedHost, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? startManagedHost(session, hostId.data) : null
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkTicket, () => issueEnrollmentTicket(session))
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkOrganizationDirectory, (_event, rawOrganizationId) => {

@@ -11,11 +11,12 @@
     Maximize2 as ArrowsOutSimpleIcon,
     Minimize2 as ArrowsInSimpleIcon,
   } from "@lucide/svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import * as Popover from "../ui/popover";
   import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
   import { Input } from "../ui/input";
   import LabelChip from "../ui/labels/LabelChip.svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import type { AgentId } from "@solus/contracts/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
   import { PICKER_OPTION, PROPERTY_TRIGGER } from "./lib/composer-styles";
@@ -94,7 +95,7 @@
     onCancel,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
 
   // Only the plain "new task" composer restores and persists a draft — a preset
   // parent (add-from-epic) or preset status (add-into-column) is its own flow
@@ -184,58 +185,41 @@
   const canSubmit = $derived(title.trim().length > 0 && !saving);
 
   // ── Property pickers (Linear-style popovers) ──────────────────────────────
+  // Status, priority, and parent are menus; due date and labels hold an input,
+  // so they are popovers — a menu's typeahead would eat the typing.
   type PickerName = "status" | "priority" | "due" | "labels" | "parent";
   let statusOpen = $state(false);
   let priorityOpen = $state(false);
   let dueOpen = $state(false);
   let labelsOpen = $state(false);
   let parentOpen = $state(false);
-  let statusTrigger = $state<HTMLButtonElement | null>(null);
-  let priorityTrigger = $state<HTMLButtonElement | null>(null);
-  let dueTrigger = $state<HTMLButtonElement | null>(null);
-  let labelsTrigger = $state<HTMLButtonElement | null>(null);
-  let parentTrigger = $state<HTMLButtonElement | null>(null);
-  let statusPanel = $state<HTMLDivElement | null>(null);
-  let priorityPanel = $state<HTMLDivElement | null>(null);
   let duePanel = $state<HTMLDivElement | null>(null);
-  let parentPanel = $state<HTMLDivElement | null>(null);
 
   function closePickers() {
     statusOpen = priorityOpen = dueOpen = labelsOpen = parentOpen = false;
   }
 
+  /** ⌥-letter accelerators open one picker and close the rest. */
   function openPicker(name: PickerName) {
     statusOpen = name === "status";
     priorityOpen = name === "priority";
     dueOpen = name === "due";
     labelsOpen = name === "labels";
     parentOpen = name === "parent";
-    void tick().then(() => {
-      if (name === "labels") labelInputEl?.focus();
-      else
-        focusFirstItem(
-          name === "status"
-            ? statusPanel
-            : name === "priority"
-              ? priorityPanel
-              : name === "due"
-                ? duePanel
-                : parentPanel,
-        );
-    });
   }
 
-  function togglePicker(name: PickerName, isOpen: boolean) {
-    if (isOpen) closePickers();
-    else openPicker(name);
-  }
-
-  /** Apply a property choice, close the popover, and return focus to the title so
-   *  the user can keep typing (per the keyboard-first flow). */
+  /** Apply a property choice and close the picker. Closing lands focus on the
+   *  title (see `focusTitle`) so the user can keep typing. */
   function commit(apply: () => void) {
     apply();
     closePickers();
-    void tick().then(() => titleEl?.focus());
+  }
+
+  /** A closing picker returns focus to the title rather than its trigger, per
+   *  the keyboard-first flow: the next step is typing, not reopening. */
+  function focusTitle(e: Event) {
+    e.preventDefault();
+    titleEl?.focus();
   }
 
   function addLabelFromInput() {
@@ -303,8 +287,8 @@
   }
 
   // Handle keys at the panel level and stop propagation so Escape doesn't bubble
-  // to the Tasks page's `tasks.close` binding and tear down the whole view. When a
-  // picker is open the Dropdown's own Escape handler closes it first.
+  // to the Tasks page's `tasks.close` binding and tear down the whole view. An
+  // open picker is portalled out of the panel, so its Escape closes only it.
   function onPanelKeydown(e: KeyboardEvent) {
     // An open autocomplete menu in the body consumes its keys (e.g. Escape to
     // close the menu) via preventDefault but the event still bubbles here —
@@ -351,10 +335,6 @@
     }
   }
 
-  // Every picker portals out of the panel, so it cannot inherit the panel's
-  // rung. Each popover states the chrome rung once on its own root and its rows
-  // and fields inherit from there (ADR-0013: type is declared on a surface).
-  const MENU_SURFACE = "text-workspace-chrome";
   // Layout-only wrapper. The shared rich editor owns block formatting and slash
   // commands; this surface only decides how much room the description receives.
   const DESCRIPTION_FIELD = $derived(
@@ -536,55 +516,42 @@
 
       <!-- Status (local only — new GitHub issues always start open/todo) -->
       {#if allowEpics}
-          <button
-            type="button"
-            bind:this={statusTrigger}
-            class={PROPERTY_TRIGGER}
-            onclick={() => togglePicker("status", statusOpen)}
-            aria-haspopup="listbox"
-            aria-expanded={statusOpen}
-            disabled={saving}
-            aria-label="Status"
-            title="Status (⌥S)"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.45"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="shrink-0"
-              style="color:{statusTextColor(status)}"
-              aria-hidden="true"><path d={STATUS_META[status].glyph} /></svg
-            >
-            {STATUS_META[status].label}
-          </button>
-        <Dropdown
-          bind:open={statusOpen}
-          triggerEl={statusTrigger}
-          align="bottom"
-          anchor="left"
-          width={170}
-        >
-          <div
-            bind:this={statusPanel}
-            class="{MENU_SURFACE} py-1"
-            role="listbox"
-            tabindex="-1"
+        <DropdownMenu.Root bind:open={statusOpen}>
+          <DropdownMenu.Trigger disabled={saving}>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class={PROPERTY_TRIGGER}
+                aria-label="Status"
+                title="Status (⌥S)"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.45"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="shrink-0"
+                  style="color:{statusTextColor(status)}"
+                  aria-hidden="true"><path d={STATUS_META[status].glyph} /></svg
+                >
+                {STATUS_META[status].label}
+              </button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content
+            align="start"
+            sideOffset={6}
+            class="w-[170px]"
             aria-label="Set status"
-            onkeydown={(e) => pickerKeydown(e, statusPanel)}
+            onCloseAutoFocus={focusTitle}
           >
             {#each STATUS_OPTIONS as opt (opt)}
-              <button
-                type="button"
-                data-pick-item
-                data-selected={status === opt}
-                class={PICKER_OPTION}
-                onclick={() => commit(() => (status = opt))}
-              >
+              <DropdownMenu.Item onSelect={() => commit(() => (status = opt))}>
                 <svg
                   width="12"
                   height="12"
@@ -599,95 +566,92 @@
                   aria-hidden="true"><path d={STATUS_META[opt].glyph} /></svg
                 >
                 {STATUS_META[opt].label}
-              </button>
+                {#if opt === status}
+                  <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                {/if}
+              </DropdownMenu.Item>
             {/each}
-          </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       {/if}
 
       <!-- Priority + target date — only when the provider persists them on create -->
       {#if canPlan}
-        <button
-          type="button"
-          bind:this={priorityTrigger}
-          class={PROPERTY_TRIGGER}
-          onclick={() => togglePicker("priority", priorityOpen)}
-          aria-haspopup="listbox"
-          aria-expanded={priorityOpen}
-          disabled={saving}
-          aria-label="Priority"
-          title="Priority (⌥P)"
-        >
-          {@render priorityGlyph(priority || undefined)}
-          {priority ? PRIORITY_META[priority].label : "Priority"}
-        </button>
-      <Dropdown
-        bind:open={priorityOpen}
-        triggerEl={priorityTrigger}
-        align="bottom"
-        anchor="left"
-        width={170}
-      >
-        <div
-          bind:this={priorityPanel}
-          class="{MENU_SURFACE} py-1"
-          role="listbox"
-          tabindex="-1"
-          aria-label="Set priority"
-          onkeydown={(e) => pickerKeydown(e, priorityPanel)}
-        >
-          <button
-            type="button"
-            data-pick-item
-            data-selected={priority === ""}
-            class={PICKER_OPTION}
-            onclick={() => commit(() => (priority = ""))}
+        <DropdownMenu.Root bind:open={priorityOpen}>
+          <DropdownMenu.Trigger disabled={saving}>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class={PROPERTY_TRIGGER}
+                aria-label="Priority"
+                title="Priority (⌥P)"
+              >
+                {@render priorityGlyph(priority || undefined)}
+                {priority ? PRIORITY_META[priority].label : "Priority"}
+              </button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content
+            align="start"
+            sideOffset={6}
+            class="w-[170px]"
+            aria-label="Set priority"
+            onCloseAutoFocus={focusTitle}
           >
-            {@render priorityGlyph(undefined)}
-            No priority
-          </button>
-          {#each PRIORITY_OPTIONS as p (p)}
-            <button
-              type="button"
-              data-pick-item
-              data-selected={priority === p}
-              class={PICKER_OPTION}
-              onclick={() => commit(() => (priority = p))}
-            >
-              {@render priorityGlyph(p)}
-              {PRIORITY_META[p].label}
-            </button>
-          {/each}
-        </div>
-      </Dropdown>
+            <DropdownMenu.Item onSelect={() => commit(() => (priority = ""))}>
+              {@render priorityGlyph(undefined)}
+              No priority
+              {#if priority === ""}
+                <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+              {/if}
+            </DropdownMenu.Item>
+            {#each PRIORITY_OPTIONS as p (p)}
+              <DropdownMenu.Item onSelect={() => commit(() => (priority = p))}>
+                {@render priorityGlyph(p)}
+                {PRIORITY_META[p].label}
+                {#if priority === p}
+                  <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                {/if}
+              </DropdownMenu.Item>
+            {/each}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
 
-        <button
-          type="button"
-          bind:this={dueTrigger}
-          class={PROPERTY_TRIGGER}
-          onclick={() => togglePicker("due", dueOpen)}
-          aria-haspopup="dialog"
-          aria-expanded={dueOpen}
-          disabled={saving}
-          aria-label="Target date"
-          title="Target date (⌥D)"
-        >
-          <CalendarBlankIcon size={13} class="shrink-0" />
-          {dueLabel ?? "Target"}
-        </button>
-      <Dropdown
-        bind:open={dueOpen}
-        triggerEl={dueTrigger}
-        align="bottom"
-        anchor="left"
-        width={190}
-      >
+        <Popover.Root bind:open={dueOpen}>
+          <Popover.Trigger disabled={saving}>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class={PROPERTY_TRIGGER}
+                aria-label="Target date"
+                title="Target date (⌥D)"
+              >
+                <CalendarBlankIcon size={13} class="shrink-0" />
+                {dueLabel ?? "Target"}
+              </button>
+            {/snippet}
+          </Popover.Trigger>
+          <Popover.Content
+            data-solus-ui
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+            class="menu-surface z-[10002] w-[190px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-1.5 max-h-(--bits-popover-content-available-height) overflow-y-auto shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+            aria-label="Set due date"
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              focusFirstItem(duePanel);
+            }}
+            onCloseAutoFocus={focusTitle}
+          >
         <div
           bind:this={duePanel}
-          class="{MENU_SURFACE} py-1"
+          class="py-1"
           role="listbox"
           tabindex="-1"
-          aria-label="Set due date"
           onkeydown={(e) => pickerKeydown(e, duePanel)}
         >
           {#each presets as preset (preset.iso)}
@@ -727,33 +691,42 @@
             </button>
           {/if}
         </div>
-      </Dropdown>
+          </Popover.Content>
+        </Popover.Root>
       {/if}
 
       <!-- Labels: the chosen ones ARE the label of the control, so a filled row
            reads without opening anything. -->
-      <button
-        type="button"
-        bind:this={labelsTrigger}
-        class="max-w-[14rem] {PROPERTY_TRIGGER}"
-        onclick={() => togglePicker("labels", labelsOpen)}
-        aria-haspopup="dialog"
-        aria-expanded={labelsOpen}
-        disabled={saving}
-        aria-label="Labels"
-        title="Labels (⌥L)"
-      >
-        <TagIcon size={13} class="shrink-0" />
-        <span class="truncate">{labels.join(", ") || "Labels"}</span>
-      </button>
-      <Dropdown
-        bind:open={labelsOpen}
-        triggerEl={labelsTrigger}
-        align="bottom"
-        anchor="left"
-        width={224}
-      >
-        <div class="{MENU_SURFACE} flex flex-col gap-1.5 p-2">
+      <Popover.Root bind:open={labelsOpen}>
+        <Popover.Trigger disabled={saving}>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class="max-w-[14rem] {PROPERTY_TRIGGER}"
+              aria-label="Labels"
+              title="Labels (⌥L)"
+            >
+              <TagIcon size={13} class="shrink-0" />
+              <span class="truncate">{labels.join(", ") || "Labels"}</span>
+            </button>
+          {/snippet}
+        </Popover.Trigger>
+        <Popover.Content
+          data-solus-ui
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+          class="menu-surface z-[10002] w-[224px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-1.5 max-h-(--bits-popover-content-available-height) overflow-y-auto shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+          aria-label="Labels"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            labelInputEl?.focus();
+          }}
+          onCloseAutoFocus={focusTitle}
+        >
+        <div class="flex flex-col gap-1.5 p-0.5">
           {#if labels.length}
             <div class="flex flex-wrap gap-1">
               {#each labels as label (label)}
@@ -809,66 +782,56 @@
             </div>
           {/if}
         </div>
-      </Dropdown>
+        </Popover.Content>
+      </Popover.Root>
 
       {#if !initialParentId && allowEpics}
         {#if kind === "task" && epics.length}
-            <button
-              type="button"
-              bind:this={parentTrigger}
-              class="max-w-[12rem] {PROPERTY_TRIGGER}"
-              onclick={() => togglePicker("parent", parentOpen)}
-              aria-haspopup="listbox"
-              aria-expanded={parentOpen}
-              disabled={saving}
-              aria-label="Parent epic"
-            >
-              <StackIcon size={13} class="shrink-0" />
-              <span class="truncate"
-                >{parentEpic ? parentEpic.title : "No epic"}</span
-              >
-            </button>
-          <Dropdown
-            bind:open={parentOpen}
-            triggerEl={parentTrigger}
-            align="bottom"
-            anchor="left"
-            width={220}
-          >
-            <div
-              bind:this={parentPanel}
-              class="{MENU_SURFACE} py-1"
-              role="listbox"
-              tabindex="-1"
-              aria-label="Set parent epic"
-              onkeydown={(e) => pickerKeydown(e, parentPanel)}
-            >
-              <button
-                type="button"
-                data-pick-item
-                data-selected={parentId === ""}
-                class={PICKER_OPTION}
-                onclick={() => commit(() => (parentId = ""))}
-              >
-                No epic
-              </button>
-              {#each epics as epic (epic.id)}
+          <DropdownMenu.Root bind:open={parentOpen}>
+            <DropdownMenu.Trigger disabled={saving}>
+              {#snippet child({ props })}
                 <button
+                  {...props}
                   type="button"
-                  data-pick-item
-                  data-selected={parentId === epic.id}
-                  class={PICKER_OPTION}
-                  onclick={() => commit(() => (parentId = epic.id))}
+                  class="max-w-[12rem] {PROPERTY_TRIGGER}"
+                  aria-label="Parent epic"
+                >
+                  <StackIcon size={13} class="shrink-0" />
+                  <span class="truncate"
+                    >{parentEpic ? parentEpic.title : "No epic"}</span
+                  >
+                </button>
+              {/snippet}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={6}
+              class="w-[220px]"
+              aria-label="Set parent epic"
+              onCloseAutoFocus={focusTitle}
+            >
+              <DropdownMenu.Item onSelect={() => commit(() => (parentId = ""))}>
+                No epic
+                {#if parentId === ""}
+                  <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                {/if}
+              </DropdownMenu.Item>
+              {#each epics as epic (epic.id)}
+                <DropdownMenu.Item
+                  onSelect={() => commit(() => (parentId = epic.id))}
                 >
                   <StackIcon
                     size={14}
                     class="text-(--solus-text-tertiary) flex-shrink-0"
                   />
                   <span class="truncate">{epic.title}</span>
-                </button>
+                  {#if parentId === epic.id}
+                    <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                  {/if}
+                </DropdownMenu.Item>
               {/each}
-            </div>
-          </Dropdown>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         {/if}
       {/if}
     </div>

@@ -296,13 +296,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return controlPlane.editQueuedPrompt(ctx, queueId, text)
   })
 
-  server.register('rewindFiles', async (args) => {
-    const [ctx, checkpointId] = args
-    log.info('rpc_rewind_files', { sessionId: ctx.session.sessionId, checkpointId })
-    await controlPlane.rewindSessionFiles(ctx, checkpointId)
-    return true
-  })
-
   server.register('getPluginCommands', (args) => {
     const [workingDirectory, ctx] = args
     return controlPlane.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)

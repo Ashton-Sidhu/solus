@@ -77,8 +77,42 @@ describe('host config', () => {
     // Every field self-heals, so a hand-edited config file cannot take the
     // whole settings blob down with one typo.
     const parsed = hostConfigPatchSchema.parse({ fontSize: 'enormous', extraInstructions: 'Keep this.' })
-    expect(parsed.fontSize).toBe(13)
+    expect(parsed.fontSize).toBe(16)
     expect(parsed.extraInstructions).toBe('Keep this.')
+  })
+
+  test('the prompt box has its own font and size, absolute rather than scaled', () => {
+    // A prompt reads one step under the 14px transcript body; a font-size that
+    // multiplied the interface size would scale the box twice. A monospace
+    // face is a legitimate choice for a prompt, so the family accepts one.
+    expect(DEFAULT_HOST_CONFIG.promptFontSize).toBe(13)
+    expect(DEFAULT_HOST_CONFIG.promptFontFamily).toBe('interface')
+    const parsed = hostConfigPatchSchema.parse({ promptFontFamily: 'jetbrains-mono', promptFontSize: 'big' })
+    expect(parsed.promptFontFamily).toBe('jetbrains-mono')
+    expect(parsed.promptFontSize).toBe(13)
+  })
+
+  test('a font preference is a preset id or an installed family name', () => {
+    // The pickers list every family on the client, so the set is open; the
+    // host only stores the string. An empty or oversized value is not a font
+    // and heals to the surface's own default.
+    const parsed = hostConfigPatchSchema.parse({
+      fontFamily: '  Berkeley Mono  ',
+      codeFontFamily: 'jetbrains-mono',
+      documentFontFamily: '',
+      promptFontFamily: 'x'.repeat(500),
+    })
+    expect(parsed.fontFamily).toBe('Berkeley Mono')
+    expect(parsed.codeFontFamily).toBe('jetbrains-mono')
+    expect(parsed.documentFontFamily).toBe('solus')
+    expect(parsed.promptFontFamily).toBe('interface')
+  })
+
+  test('font smoothing defaults to grayscale antialiasing', () => {
+    // The root stylesheet has always antialiased; a missing key must not flip
+    // every existing install to the heavier platform default.
+    expect(DEFAULT_HOST_CONFIG.fontSmoothing).toBe(true)
+    expect(hostConfigPatchSchema.parse({ fontSmoothing: 'no' }).fontSmoothing).toBe(true)
   })
 
   test('an unknown key is dropped rather than persisted', () => {

@@ -7,7 +7,7 @@
   import { formatVoiceModelBytes } from "../../contexts/app/voice-model.store.svelte";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import type { HostApi } from "@solus/client-core/host-api";
@@ -85,9 +85,9 @@
     description="How long to wait after you stop speaking before sending."
   >
     {#snippet control()}
-      <SegmentedControl
+      <SettingsSelect
         options={silenceOptions}
-        isActive={(value) => settings.vadSilenceMs === Number(value)}
+        value={String(settings.vadSilenceMs)}
         onSelect={(value) => settings.update({ vadSilenceMs: Number(value) })}
         ariaLabel="Silence threshold"
       />

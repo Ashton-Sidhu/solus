@@ -112,10 +112,24 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     const oldTop = scroll.scrollTop;
     app.prepend(); flushSync(); await tick(); flushSync();
     assert.equal(scroll.scrollTop, oldTop + 24000, 'prepending preserves the visible turn and pixel offset');
-    heights.set('turn-4999', 600);
+    const visibleRow = rows().find(row => row.dataset.transcriptTurnId === 'turn-5000');
+    heights.set('turn-4999', 6000);
+    for (const observer of observers) observer.deliver();
+    assert.ok(virtualizer.range.start <= 5100 && virtualizer.range.end > 5100,
+      'measuring a tall row above the viewport must keep the visible turn in range before the scroll correction');
+    heights.set('turn-4999', 6500);
     for (const observer of observers) observer.deliver();
     flushSync(); await tick(); flushSync();
-    assert.equal(scroll.scrollTop, oldTop + 24000 + 360, 'measuring an overscan row above the viewport preserves its anchor');
+    assert.equal(scroll.scrollTop, oldTop + 24000 + 6260, 'measuring an overscan row above the viewport preserves its anchor');
+    assert.ok(document.contains(visibleRow), 'the visible turn must not unmount while its position is corrected');
+    const correctedTop = scroll.scrollTop;
+    for (let step = 1; step <= 8; step++) {
+      await move(correctedTop + step * 240);
+      for (const observer of observers) observer.deliver();
+      flushSync(); await tick(); flushSync();
+      assert.ok(rows().some(row => row.dataset.transcriptTurnId === 'turn-' + (5000 + step)),
+        'normal downward scrolling must reach each later turn');
+    }
     await virtualizer.reveal('turn-9999'); flushSync();
     assert.ok(rows().some(row => row.dataset.transcriptTurnId === 'turn-9999'));
     assert.ok(rows().length < 12);

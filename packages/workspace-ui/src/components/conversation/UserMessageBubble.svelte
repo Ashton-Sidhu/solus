@@ -18,7 +18,7 @@
     File as FileIcon,
     Zap as LightningIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, runtime } from "../../contexts";
+  import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { hostImageSources } from "./lib/host-image-src.svelte";
@@ -55,8 +55,10 @@
   }
   let { message, content, attachments, deliveryState = 'sent', ordinal, onEditSubmit, onRemove, skipMotion = false, tabId, author }: Props = $props();
 
-  const session = getWorkspaceContext();
-  const attachmentTabId = $derived(tabId ?? session.focusedChatTabId ?? session.activeTabId);
+  // A transcript read as a cloud record (the console) has no workspace: its
+  // attachments stay on the runner, and the routes below have nowhere to open.
+  const session = getSurfaceContext().workspace;
+  const attachmentTabId = $derived(tabId ?? session?.focusedChatTabId ?? session?.activeTabId ?? "");
 
   const text = $derived(content ?? message?.content ?? "");
   const isPending = $derived(deliveryState !== 'sent');
@@ -129,7 +131,7 @@
   function openMarkPage(attachmentId: string) {
     const page = parseAnnotationAttachmentId(attachmentId);
     if (!page) return;
-    session.openRoute(
+    session?.openRoute(
       { name: "browser", params: { browserPageId: page.browserPageId, serverId: page.serverId } },
       { via: "click" },
     );
@@ -153,12 +155,13 @@
     ) ?? [],
   );
   const imageServerId = $derived(
-    session.sessionFor(attachmentTabId)?.run.serverId ?? LOCAL_SERVER_ID,
+    session?.sessionFor(attachmentTabId)?.run.serverId ?? LOCAL_SERVER_ID,
   );
   function imageHost(attachment: NonNullable<Message['attachments']>[number]): string {
     return attachment.hostServerId ?? imageServerId;
   }
   $effect(() => {
+    if (!session) return;
     for (const attachment of imageAttachments) {
       if (attachment.dataUrl || !attachment.hostPath) continue;
       const serverId = imageHost(attachment);
@@ -247,7 +250,7 @@
           type="button"
           onclick={() => requestFilePreview({
             path: a.path,
-            tabId: session.focusedChatTabId ?? session.activeTabId,
+            tabId: session?.focusedChatTabId ?? session?.activeTabId ?? "",
           })}
           class="flex items-center gap-1.5 bg-(--solus-surface-primary) border border-(--solus-surface-secondary)"
           style="border-radius:0.625rem;padding:0.25rem 0.5rem;max-width:11.25rem"
@@ -303,7 +306,7 @@
             title={message?.automationName
               ? `Open automation: ${message.automationName}`
               : "Open automation"}
-            onclick={() => session.openAutomations(message?.automationId)}
+            onclick={() => session?.openAutomations(message?.automationId)}
             class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
           >
             <LightningIcon size={9} fill="currentColor" />

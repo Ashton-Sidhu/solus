@@ -12,7 +12,6 @@ const SDK_TO_UI_PERMISSION_MODE = {
   plan: 'plan',
 } satisfies Record<string, 'ask' | 'auto' | 'plan'>
 
-const checkpointEventSchema = z.object({ type: z.literal('user'), uuid: z.string() })
 const permissionDenialSchema = z.object({
   tool_name: z.string().optional(),
   tool_use_id: z.string().optional(),
@@ -136,10 +135,6 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     if (this.interrupted) return []
 
     const events: NormalizedEvent[] = []
-    const checkpoint = checkpointEventSchema.safeParse(raw)
-    if (checkpoint.success) {
-      events.push({ type: 'checkpoint', checkpointId: checkpoint.data.uuid })
-    }
 
     if (raw.type === 'result') {
       const denials = permissionDenialsSchema.safeParse(raw.permission_denials)

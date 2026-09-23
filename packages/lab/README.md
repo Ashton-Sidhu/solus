@@ -50,7 +50,7 @@ POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54335/postgres bun lab ru
 - `task-share` — a task shared with a person by name opens its page, the session under it, and the document linked to it at the task's role; the person's own row survives a scope change; a guest with a task link reaches exactly the task and its contents, prompts as an editor on the sharer's seat, and is ended when the link is turned off; only the owner deletes.
 - `seats` — a member with no provider seat is refused with `SEAT_REQUIRED` and nothing is spawned; a pasted token seat rides the run; a guest runs on the sharer's seat; two members run at once on their own seats; only the administrator removes a seat. The mock backend records every run it is handed in `<dataDir>/lab/mock-runs.ndjson`, which `src/oracle.ts` reads.
 - `cloud-sessions` (personal flavor only; cloud-service-model.md §18–§19, the P2 exit test) — a runner streams a slow turn whose rows reach the service as they land; the runner is killed mid-turn; the transcript so far is readable and the session listed with the runner dead; the runner restarts on its data directory and its owner prompts it locally; the new turn's rows reach the service and the record settles to idle; bob reads the same rows.
-- `cloud-vault` (personal flavor only; §20, the P3 exit test) — bob pastes his Claude credential set once on the service; runner A leases it for his turn, the mock provider refreshes it, A writes it back; runner B leases the refreshed version; cara is refused until she connects her own token, which runs in her own directory and never bob's; bob disconnects on the service and runner A refuses him and purges its copy.
+- `host-auth` (personal flavor, SQLite and Postgres workspace services) — the service refuses seat RPCs and the removed credential lease route; Claude and Codex seats stay on the selected host. Two hosts use independent logins; disconnect on A leaves B usable; another member cannot use either seat. Providers are mocked, never real accounts.
 - `cloud-workspace` (personal flavor only; docs/plans/cloud-service-model.md §15–§16) — alice and bob reach the workspace service with workspace grants; alice's task reaches bob live; a runner linked to the organization runs a mock-agent turn (`__MOCK_AGENT_TOOLS__`, the real `create_task` and `create_work` tools) whose task and work land on the service and not in the runner's own tables; the runner's session record is listed by the service, which keeps all three after the runner stops; carol, of another organization, sees none of it; execution methods answer `PLANE_DISABLED`.
 
 A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as('bob')` is a connected client, `ctx.client(...)` a fresh one, `expectOk` and `expectRefused` record checks, and `src/oracle.ts` holds the invariants scenarios call between steps.
@@ -61,7 +61,7 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 
 ## Browser proofs
 
-`scripts/lab-guest-proof.ts` walks a share link through the built web client in headless Chromium against a Lab host. `scripts/lab-cloud-page-proof.ts` (docs/plans/cloud-service-model.md, the P1 exit test) serves the built client under `/app/` from a miniature account origin, opens an organization's pages (`#/w/<orgId>/…`) against a Lab workspace service with every runner off, proves the task board and a document usable on a laptop and a phone, then boots a runner whose mock-agent task lands on the open board. Both build the client with `--base=/app/` into `.solus-local/` and put screenshots in `.solus-local/artifacts/`.
+`scripts/lab-guest-proof.ts` walks a share link through the built web client in headless Chromium against a Lab host. It builds the client into `.solus-local/` and serves it at `/`, as the account origin does, and puts screenshots in `.solus-local/artifacts/`.
 
 ## Not yet
 
@@ -71,7 +71,7 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 
 `cloud-sharing` proves work snapshot push, offline work/task reads, cross-organization
 refusal and the absence of a runner guest door. `cloud-sessions` additionally proves
-an offline guest transcript and an online prompt under the sharer's vault seat.
+an offline guest transcript and an online prompt under the sharer's execution-host seat.
 `share-matrix`, `guest-revoke` and `task-share` now run against the workspace service,
 not the personal/managed host. Set `POSTGRES_ADMIN_URL` to a disposable Postgres
 server to run both workspace engines. `bun scripts/lab.ts run all` is the command.
@@ -80,3 +80,19 @@ The optional browser proof is `bun scripts/lab-guest-proof.ts` after `build:test
 run it only when browser verification is authorized. It checks `/w/<id>#<secret>`
 on laptop and phone sizes with no runner. Never run `build` while Lab processes
 use the test bundle.
+
+
+### Cloud work change checks
+
+`cloud-sharing` checks the version RPC over the real transport, editor saves,
+stale-save refusal and organization access. Run on SQLite and disposable
+Postgres using `POSTGRES_ADMIN_URL`. Live-work and listener-recovery scenarios
+were removed with P5 live editing. Session multiplayer scenarios remain.
+
+### Account integration callback proof
+
+The sibling `solus-cloud/scripts/e2e/integration-flow.ts` drives real account
+forms and callbacks with simulated upstream providers, a disposable Postgres,
+and a real isolated Solus host. It verifies direct account delivery and host
+reads after disconnect. `scripts/prove-account-integrations-host.ts` supplies
+the host half. No real credentials or production state are used.

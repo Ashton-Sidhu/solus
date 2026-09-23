@@ -14,6 +14,9 @@ import type {
   PrReviewer,
   PrReviewerCandidate,
   PrLifecycleAction,
+  PrRevertResult,
+  PrStateAction,
+  ProviderRepository,
   ProviderViewer,
   PullRequest,
   PullRequestOverview,
@@ -132,7 +135,7 @@ export interface ReviewProvider {
   updatePullRequestLifecycle(
     repo: RepoRef,
     number: number,
-    action: Exclude<PrLifecycleAction, 'merge'>,
+    action: PrStateAction,
     expectedHeadSha: string,
   ): Promise<PullRequest>
   requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]>
@@ -141,6 +144,12 @@ export interface ReviewProvider {
   /** Merge via the host's merge button. Host refusals are returned as
    *  `merged: false` with a user-facing message. */
   mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
+  /** Arm the host's auto-merge with `method`, checked against the head the
+   *  viewer saw. Answers the pull request as the mutation left it. */
+  enablePullRequestAutoMerge(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
+  disablePullRequestAutoMerge(repo: RepoRef, number: number): Promise<PullRequest>
+  /** Open a pull request that reverses a merged one. */
+  revertPullRequest(repo: RepoRef, number: number): Promise<PrRevertResult>
   /** Changed files with host-reported per-file add/delete counts. */
   listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]>
   /** Login for the token's viewer. A repository selects the credential that
@@ -148,6 +157,8 @@ export interface ReviewProvider {
   getViewer(repo?: RepoRef): Promise<string>
   /** The token's viewer as a client draws it: login plus host avatar. */
   getViewerProfile(): Promise<ProviderViewer>
+  /** The repositories the token can read, newest push first. */
+  listRepositories(): Promise<ProviderRepository[]>
 }
 
 /** A host is the pair `{ auth, review }`, keyed by its `ProviderId`. */

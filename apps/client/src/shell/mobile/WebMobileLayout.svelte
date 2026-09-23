@@ -90,7 +90,7 @@
   const mobileDraft = $derived.by(() => {
     const base = session.router.leadingPane.base;
     return base?.name === "draft"
-      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      ? (session.drafts.sessionDrafts.get(base.params.draftId) ?? null)
       : null;
   });
   const mobileGoalSessionId = $derived(
@@ -222,7 +222,7 @@
 
   // Browser/OS back closes the topmost open mobile overlay (last registered wins).
   registerBackOverlay("mobile-task-sheet", () => taskSheetOpen, () => (taskSheetOpen = false));
-  registerBackOverlay("mobile-picker", () => runtime.isMobileViewport && session.unifiedPickerOpen, () => (session.unifiedPickerOpen = false));
+  registerBackOverlay("mobile-picker", () => runtime.isMobileViewport && session.ui.unifiedPickerOpen, () => (session.ui.unifiedPickerOpen = false));
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => mobileComposerMenu.open, () => (mobileComposerMenu.open = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
@@ -356,7 +356,7 @@
 
       <button
         class="mh-navbar-side-btn mh-navbar-side-btn--accent"
-        onclick={() => session.openSessionDraft({ via: "click" })}
+        onclick={() => session.drafts.openSessionDraft({ via: "click" })}
         aria-label="New session"
       >
         <PlusIcon size={19} />
@@ -806,11 +806,12 @@
       0 0.25rem 1.5rem rgba(0, 0, 0, 0.12);
   }
 
-  /* 16px exactly, and not a rung: iOS zooms into any field under 16px on
-     focus and does not zoom back out, so the page is left magnified with the
-     composer half off-screen. `--text-sm` is 14px and did that. */
+  /* Never under 16px: iOS zooms into any field under 16px on focus and does
+     not zoom back out, so the page is left magnified with the composer half
+     off-screen. The prompt size preference (13px by default) did that, so it
+     only applies here once it is 16px or more. */
   .mobile-shell :global(.cm-editor) {
-    font-size: var(--text-base);
+    font-size: max(var(--solus-prompt-font-size), 1rem);
     line-height: 1.5;
   }
 

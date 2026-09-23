@@ -9,17 +9,16 @@
   import {
     getProjectConfigStore,
     getClientShellContext,
-    getWorkspaceContext,
+    getSurfaceContext,
     getPullRequestsContext,
     hostRolesStore,
     sharesStore,
   } from "../../../contexts";
-  import { attemptServerId, findOpenTabForSession } from "../../../lib/sessionUtils";
+  import { attemptServerId } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
-  import { readSessionMeta } from "@solus/client-core/session-meta";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
@@ -90,7 +89,7 @@
     onOpenSession,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const pullRequests = getPullRequestsContext();
   const shell = getClientShellContext();
   const store = session.tasksStore;
@@ -166,7 +165,7 @@
   const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
   // A session runs on the task's host. The workspace service serves collaboration
   // only (docs/plans/cloud-service-model.md §15), so its task page offers no run.
-  const canStartSession = $derived(hostRolesStore.hasExecution(taskServerId ?? serverConnections.defaultServerId()));
+  const canStartSession = $derived(!!session.workspace && hostRolesStore.hasExecution(taskServerId ?? serverConnections.defaultServerId()));
   function openShare(record: Task): void {
     if (!shareServerId) return;
     sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });
@@ -222,7 +221,7 @@
     projectCwd ? store.assigneeCandidatesErrorByCwd.get(projectCwd) : undefined,
   );
   const capabilities = $derived(task ? taskPageCapabilities(task, providerStatus) : null);
-  const labelCandidates = $derived(store.knownLabels(projectCwd));
+  const labelCandidates = $derived(store.knownLabels(taskServerId, projectCwd));
   const publishTarget = $derived(
     task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
   );
@@ -275,9 +274,10 @@
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
+  const siblingProjectKey = $derived(task ? store.projectKeyOf(task) : null);
   const siblings = $derived(
     sortTasks(
-      task?.projectKey ? store.tasksForProject(task.projectKey) : store.inbox,
+      siblingProjectKey ? store.tasksInProject(siblingProjectKey) : store.inbox,
       DEFAULT_TASK_SORT,
     ),
   );
@@ -449,15 +449,17 @@
           via: "click",
         });
         break;
+      // A plan and an automation live on the machine that holds them; only the
+      // workspace can open one.
       case "plan":
-        void session.openPlanModal(
+        void session.workspace?.openPlanModal(
           `${link.targetScope}__${link.targetKey}`,
           undefined,
           { secondary: true },
         );
         break;
       case "automation":
-        session.openAutomationBuilder(link.targetKey, "aside");
+        session.workspace?.openAutomationBuilder(link.targetKey, "aside");
         break;
       case "pr": {
         const number = Number(link.targetKey);
@@ -472,8 +474,8 @@
             target: { number, title: link.title, url: link.url },
             projectDirectory: target.projectDirectory ?? undefined,
             serverId: target.serverId ?? undefined,
-            navTarget: paneId
-              ? session.router.targetAcrossFrom(paneId)
+            navTarget: paneId && session.workspace
+              ? session.workspace.router.targetAcrossFrom(paneId)
               : "aside",
           });
         }
@@ -490,6 +492,8 @@
    *  Resolve the indexed record first. The link stores a stable session id,
    *  not which agent backend wrote it. */
   async function reveal(sessionId: string, background: boolean): Promise<string | null> {
+    const workspace = session.workspace;
+    if (!workspace) return null;
     const taskFrame = store.get(taskId);
     const link = taskFrame.sessions.find((candidate) => candidate.sessionId === sessionId);
     // A directly opened local task can already have loaded through the default
@@ -503,20 +507,8 @@
       link: link ?? { executionServerId: null },
       taskServerId: taskServerId ?? null,
     });
-    const openTab = findOpenTabForSession(
-      sessionId,
-      session.tabs,
-      session.sessions,
-      session.tabOrder,
-      undefined,
-      serverId ? serverConnections.resolveId(serverId) : undefined,
-    );
-    if (openTab) {
-      if (!background) session.selectTab(openTab);
-      return openTab;
-    }
-    const meta = serverId ? await readSessionMeta(serverId, sessionId) : null;
-    return meta ? await session.resumeSession(meta, { background }) : null;
+    if (!serverId) return null;
+    return workspace.revealSession(sessionId, serverConnections.resolveId(serverId), { background });
   }
 
   async function openSession(sessionId: string) {
@@ -524,7 +516,7 @@
     try {
       const tabId = await reveal(sessionId, false);
       if (!tabId) return notifySessionUnavailable();
-      session.router.closeGroup("page");
+      session.workspace?.router.closeGroup("page");
     } catch (err) {
       toastError("open this session", err);
     }
@@ -537,8 +529,8 @@
       // beside itself.
       const tabId = await reveal(sessionId, true);
       if (!tabId) return notifySessionUnavailable();
-      const revealed = session.sessionFor(tabId);
-      if (revealed) session.openSplitChat(revealed.id);
+      const revealed = session.workspace?.sessionFor(tabId);
+      if (revealed) session.workspace?.openSplitChat(revealed.id);
     } catch (err) {
       toastError("open this session in a split", err);
     }
@@ -547,8 +539,8 @@
   /** Compose a new session already bound to this task. The link lands when the
    *  draft is sent, so an abandoned composer leaves nothing behind. */
   function startSession(record: Task) {
-    void session
-      .openTaskSession(record)
+    void session.workspace
+      ?.opening.openTaskSession(record)
       .catch((err) => toastError("start a session", err));
   }
 
@@ -630,6 +622,9 @@
   const bottomAction = $derived(
     stacked && (tab === "linked" || tab === "sessions") ? tab : null,
   );
+  // The picker reads a machine's docs, plans, automations and PRs through the
+  // workspace index; the console has none to pick from.
+  const openPicker = session.workspace ? () => (picking = true) : null;
 
   // Shares the Tasks scope: `task` and `tasks` are one exclusive page group, so
   // only ever one of them is mounted and Escape means the same thing in both.
@@ -742,11 +737,11 @@
       <PlusIcon size={16} />
       New session
     </button>
-  {:else if bottomAction === "linked"}
+  {:else if bottomAction === "linked" && openPicker}
     <button
       type="button"
       class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-transparent font-medium text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
-      onclick={() => (picking = true)}
+      onclick={openPicker}
     >
       <PlusIcon size={15} />
       Link an item
@@ -919,7 +914,7 @@
                 onOpen={openLink}
                 onOpenExternal={(url) => void localApi.openExternal(url)}
                 onUnlink={removeLink}
-                onAdd={() => (picking = true)}
+                onAdd={openPicker}
               />
             {/if}
           </div>
@@ -939,7 +934,7 @@
             {stacked}
             onOpen={openLink}
             onUnlink={removeLink}
-            onAdd={() => (picking = true)}
+            onAdd={openPicker}
             upstreamProvider={(link) =>
               linkedWorkProvider(link, (workId) => session.worksStore.get(workId))}
             artifactHtml={(link) => session.worksStore.get(link.targetKey)?.content || null}
@@ -958,7 +953,7 @@
               {stacked}
               taskTitle={task.title}
               onOpen={openSession}
-              onOpenSplit={openSessionSplit}
+              onOpenSplit={shell.hasCompanionPanes ? openSessionSplit : null}
               onStop={stopSession}
               onUnlink={unlinkSession}
               onNewSession={canStartSession ? () => startSession(task) : null}
@@ -1023,7 +1018,7 @@
   {/if}
 </div>
 
-{#if picking}
+{#if picking && session.workspace}
   <TaskLinkPicker
     {projectCwd}
     onPick={addLink}

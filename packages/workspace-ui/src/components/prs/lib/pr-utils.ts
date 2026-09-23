@@ -6,9 +6,12 @@ import {
   } from "@lucide/svelte";
   import type { PullRequest } from '@solus/contracts/providers'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
+import { matchesPrText } from './pr-search-query'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
-export type PrSortMode = 'updated' | 'created' | 'effort'
+/** `ready` is merge readiness — the default review queue. */
+export type PrSortMode = 'ready' | 'updated' | 'created'
+export type PrChecksState = 'passing' | 'pending' | 'failing'
 
 export interface PrFacetSelection {
   guide?: 'all' | 'has-guide'
@@ -92,88 +95,84 @@ export function filterPrs(
   query: string,
   stateFilter: PrStateFilter,
 ): PullRequest[] {
-  const q = query.trim().toLowerCase()
   return items.filter((pr) => {
     // "Closed" includes merged: the server's closed fetch returns merged PRs
     // (remapped to state 'merged'), and the tab counts group them as closed.
     if (stateFilter === 'open' && pr.state !== 'open') return false
     if (stateFilter === 'closed' && pr.state === 'open') return false
-    if (!q) return true
-    return (
-      pr.title.toLowerCase().includes(q) ||
-      pr.author.toLowerCase().includes(q) ||
-      String(pr.number).includes(q)
-    )
+    return matchesPrText(pr, query)
   })
+}
+
+/**
+ * The default review queue, in merge-readiness order: green and approved,
+ * then green and still waiting on a verdict, then everything else still open —
+ * drafts included, because their author has not made them mergeable yet — then
+ * finished work. A known conflict is never ready, whatever else is true, so it
+ * sinks to the bottom. Inside a tier the smaller measured diff comes first (an
+ * unknown size after every known one), then the most recently updated.
+ *
+ * Checks come from the checks store, not the row, so they are asked for; a
+ * summary for an older head is not this head's answer and counts as unknown.
+ */
+export function rankPrsByMergeReadiness(
+  items: readonly PullRequest[],
+  checksState: (pr: PullRequest) => PrChecksState | null,
+): PullRequest[] {
+  const tier = (pr: PullRequest): number => {
+    if (hasMergeConflicts(pr)) return 4
+    if (pr.state !== 'open') return 3
+    if (pr.draft) return 2
+    const checks = checksState(pr)
+    if (checks === 'passing' && pr.reviewStatus === 'approved') return 0
+    if (checks === 'passing') return 1
+    return 2
+  }
+  const size = (pr: PullRequest) => pr.additions + pr.deletions
+  return items.toSorted((a, b) =>
+    tier(a) - tier(b)
+      || Number(size(b) > 0) - Number(size(a) > 0)
+      || size(a) - size(b)
+      || b.updatedAt.localeCompare(a.updatedAt),
+  )
 }
 
 export function sortPrs(
   items: PullRequest[],
   mode: PrSortMode,
+  checksState: (pr: PullRequest) => PrChecksState | null = () => null,
 ): PullRequest[] {
+  if (mode === 'ready') return rankPrsByMergeReadiness(items, checksState)
   return [...items].sort((a, b) => {
-    if (mode === 'effort') {
-      if (!a.effort && !b.effort) return b.updatedAt.localeCompare(a.updatedAt)
-      if (!a.effort) return 1
-      if (!b.effort) return -1
-      return a.effort.minutes - b.effort.minutes || b.updatedAt.localeCompare(a.updatedAt)
-    }
     const dateA = mode === 'created' ? a.createdAt : a.updatedAt
     const dateB = mode === 'created' ? b.createdAt : b.updatedAt
     return dateB.localeCompare(dateA)
   })
 }
 
-export function reviewEffortSummary(items: PullRequest[]): {
-  count: number
-  knownCount: number
-  minutes: number
-} | null {
-  const known = items.filter((pr) => pr.effort)
-  if (known.length === 0) return null
-  return {
-    count: items.length,
-    knownCount: known.length,
-    minutes: known.reduce((sum, pr) => sum + pr.effort!.minutes, 0),
-  }
-}
-
 export interface PrInboxFacts {
   /** Open PRs in the loaded page. Counted from `items` rather than the tab
    *  filter so switching to Closed/All doesn't restate them as "open". */
   openCount: number
-  /** Review minutes across the rows currently on screen, or null when no PR
-   *  carries an estimate — the header drops the clause rather than asserting
-   *  a fabricated "≈ 0 min". */
-  effortMinutes: number | null
   /** Null until the first list fetch lands, so the header never claims a sync
    *  that hasn't happened. */
   syncedLabel: string | null
 }
 
-/** The three facts under the inbox title: how much is open, how long it reads,
- *  and how fresh the data is. */
+/** The facts under the inbox title: how much is open and how fresh the data is. */
 export function prInboxFacts({
   items,
-  filtered,
   listLoadedAt,
   now = Date.now(),
 }: {
   items: PullRequest[]
-  filtered: PullRequest[]
   listLoadedAt: number
   now?: number
 }): PrInboxFacts {
-  const effort = reviewEffortSummary(filtered)
   return {
     openCount: items.reduce((count, pr) => count + (pr.state === 'open' ? 1 : 0), 0),
-    effortMinutes: effort ? effort.minutes : null,
     syncedLabel: listLoadedAt > 0 ? `Synced ${relativeTime(listLoadedAt, now)}` : null,
   }
-}
-
-export function reviewEffortTooltip(pr: PullRequest): string | undefined {
-  return pr.effort?.signals.join(' · ')
 }
 
 export function relativeTime(at: string | number, now = Date.now()): string {

@@ -126,6 +126,7 @@ export class PrIndex {
       filter?.state ?? 'open',
       filter?.author ?? '',
       filter?.head ?? '',
+      filter?.query?.trim() ?? '',
       page,
     ].join('::')
     return this.listingField(key).read(() => provider.review.listPullRequestsPage(repo, filter, page))

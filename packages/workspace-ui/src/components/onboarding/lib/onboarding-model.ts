@@ -19,6 +19,18 @@ export type OnboardingStage =
   | 'providers'
   | 'host'
   | 'start'
+  | 'compute'
+  | 'github'
+  | 'project'
+
+/**
+ * Which onboarding this client gets (docs/plans/cloud-onboarding.md §2). The
+ * connection decides, not the device: `host` for a client that talks to one
+ * machine (the desktop app, or a browser paired to a machine), `cloud` for the
+ * web client signed in at a Solus Cloud origin, where the account and its
+ * organization come first and a machine is something the person chooses.
+ */
+export type OnboardingFlow = 'host' | 'cloud'
 
 /** What the last stage decided, and therefore what the workspace opens with. */
 export type OnboardingMode = 'project' | 'chat'
@@ -60,13 +72,35 @@ export const POINTER_STAGES: OnboardingStage[] = [
  */
 export const TOUCH_STAGES: OnboardingStage[] = ['getting-around', 'host', 'start']
 
-export function stagesFor(surface: OnboardingSurface): OnboardingStage[] {
+/**
+ * The cloud flow. Keys first, for the same reason as the host flow: the GitHub
+ * stage sends the person to another tab. Then each stage makes the next one
+ * possible: a machine, the agents on it, GitHub, and a repository. `agents` is
+ * passed over when no machine was chosen (`skipsAgents`); skipping GitHub ends
+ * the flow in the person's workspace instead of asking for a repository.
+ */
+export const CLOUD_POINTER_STAGES: OnboardingStage[] = ['shortcuts', 'compute', 'agents', 'github', 'project']
+export const CLOUD_TOUCH_STAGES: OnboardingStage[] = ['getting-around', 'compute', 'agents', 'github', 'project']
+
+export function stagesFor(surface: OnboardingSurface, flow: OnboardingFlow = 'host'): OnboardingStage[] {
+  if (flow === 'cloud') return surface === 'touch' ? CLOUD_TOUCH_STAGES : CLOUD_POINTER_STAGES
   return surface === 'touch' ? TOUCH_STAGES : POINTER_STAGES
 }
 
+/** The stages this run shows: `agents` is absent when no machine was chosen. */
+function visibleStages(surface: OnboardingSurface, flow: OnboardingFlow, skipsAgents: boolean): OnboardingStage[] {
+  const stages = stagesFor(surface, flow)
+  return skipsAgents ? stages.filter((stage) => stage !== 'agents') : stages
+}
+
 /** The stage after this one, or null when the flow is over. */
-export function nextStage(stage: OnboardingStage, surface: OnboardingSurface): OnboardingStage | null {
-  const stages = stagesFor(surface)
+export function nextStage(
+  stage: OnboardingStage,
+  surface: OnboardingSurface,
+  flow: OnboardingFlow = 'host',
+  skipsAgents = false,
+): OnboardingStage | null {
+  const stages = visibleStages(surface, flow, skipsAgents)
   if (stage === 'intro') return stages[0]
   const index = stages.indexOf(stage)
   return stages[index + 1] ?? null
@@ -76,9 +110,15 @@ export function nextStage(stage: OnboardingStage, surface: OnboardingSurface): O
  * The stage before this one, or null when there is nowhere back to. The first
  * asking stage has no Back: the greeting is not a place to return to.
  */
-export function previousStage(stage: OnboardingStage, surface: OnboardingSurface): OnboardingStage | null {
-  const index = stagesFor(surface).indexOf(stage)
-  return index > 0 ? stagesFor(surface)[index - 1] : null
+export function previousStage(
+  stage: OnboardingStage,
+  surface: OnboardingSurface,
+  flow: OnboardingFlow = 'host',
+  skipsAgents = false,
+): OnboardingStage | null {
+  const stages = visibleStages(surface, flow, skipsAgents)
+  const index = stages.indexOf(stage)
+  return index > 0 ? stages[index - 1] : null
 }
 
 /** The two coding agents, with the marks the rows draw them with. */

@@ -54,6 +54,8 @@ function reviewStatusResponse(nodeIds: string[]) {
           id,
           reviewDecision: 'APPROVED' as const,
           reviews: { totalCount: 1 },
+          additions: 120,
+          deletions: 8,
         })),
       },
     },
@@ -62,7 +64,7 @@ function reviewStatusResponse(nodeIds: string[]) {
 
 describe('GitHub pull request list loading', () => {
   test('the first page starts rows and review states together and limits time-to-first-list work', async () => {
-    // WHY: t3code has enough pull requests that waiting for 100 rows and then
+    // WHY: a large repository has enough pull requests that waiting for 100 rows and then
     // starting review state made the first useful paint take multiple seconds.
     const rows = deferred<{ data: typeof restPullRequest[] }>()
     const reviewStates = deferred<ReturnType<typeof reviewStatusResponse>>()
@@ -111,6 +113,9 @@ describe('GitHub pull request list loading', () => {
 
     expect(page.items).toHaveLength(1)
     expect(page.items[0]?.reviewStatus).toBe('approved')
+    // The REST listing omits line counts; the review-state query already on the
+    // wire carries them, so a row shows its size without a request of its own.
+    expect(page.items[0]).toMatchObject({ additions: 120, deletions: 8 })
   })
 
   test('a row that moved between parallel snapshots gets an exact-id status read', async () => {
@@ -136,6 +141,8 @@ describe('GitHub pull request list loading', () => {
             id: 'PR_1',
             reviewDecision: 'CHANGES_REQUESTED' as const,
             reviews: { totalCount: 1 },
+            additions: 3,
+            deletions: 1,
           }],
         }
       },
@@ -146,5 +153,6 @@ describe('GitHub pull request list loading', () => {
 
     expect(operations).toEqual(['parallel-page', 'exact-ids'])
     expect(page.items[0]?.reviewStatus).toBe('changes-requested')
+    expect(page.items[0]).toMatchObject({ additions: 3, deletions: 1 })
   })
 })

@@ -2,7 +2,7 @@
   import { Check as CheckIcon, Link as LinkIcon, ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import type { TaskLinkTarget } from "@solus/contracts/task-types";
-  import { getWorkspaceContext } from "../../../contexts";
+  import { getSurfaceContext } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { toasts } from "../../../lib/toasts";
   import * as Command from "../../ui/command";
@@ -39,7 +39,7 @@
 
   let { target, title, url, serverId, projectKey, conversationTaskId }: Props = $props();
 
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
   const store = session.tasksStore;
 
   const linked = $derived(store.linkedTasksFor(target));
@@ -67,7 +67,7 @@
   let triggerEl = $state<HTMLButtonElement | null>(null);
 
   const candidates = $derived(
-    (projectKey ? store.tasksForProject(projectKey) : store.tasks)
+    (projectKey ? store.tasksForCheckout(serverId, projectKey) : store.tasks)
       .filter((task) => task.kind === "task" && task.status !== "done" && task.status !== "dropped")
       .map((task) => ({ taskId: task.id, title: task.title, status: task.status, shortId: task.shortId })),
   );

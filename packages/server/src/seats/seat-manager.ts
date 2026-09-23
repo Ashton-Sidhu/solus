@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { integrationUserFor } from '../vault/account-integrations'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
@@ -8,10 +9,7 @@ import { SEAT_PROVIDERS, SEAT_REQUIRED_CODE, seatProviderSchema, type SeatChange
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
-import type { CredentialFiles, CredentialMaterial } from '../server/uplink/runner-protocol'
 import type { TurnActor } from '../sessions/turn-ledger'
-import { credentialExpiresAt } from '../vault/credential-material'
-import type { VaultClient } from '../vault/vault-client'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 
 const log = createLogger('main', 'seat-manager')
@@ -80,21 +78,13 @@ export const CLAUDE_TOKEN_FILE = 'solus-seat-token'
 export const CLAUDE_CREDENTIALS_FILE = '.credentials.json'
 export const CODEX_AUTH_FILE = 'auth.json'
 
-/** A leased credential this close to expiry is refreshed under the vault's lock (cloud-service-model.md §5). */
-const REFRESH_LOCK_MARGIN_MS = 5 * 60_000
-const REFRESH_LOCK_TTL_MS = 90_000
-const REFRESH_LOCK_POLL_MS = 2_000
-
 export class SeatRequiredError extends Error {
   readonly code = SEAT_REQUIRED_CODE
 
-  /** `where` names the place the seat is connected: this host, or Solus cloud when the host leases from the vault. */
-  constructor(readonly provider: SeatProvider, readonly state: 'none' | 'connecting' | 'expired', where: 'host' | 'cloud' = 'host') {
+  constructor(readonly provider: SeatProvider, readonly state: 'none' | 'connecting' | 'expired') {
     super(state === 'expired'
       ? `Your ${seatProviderLabel(provider)} login on this host expired. Reconnect it to continue.`
-      : where === 'cloud'
-        ? `Connect your ${seatProviderLabel(provider)} account in Solus cloud to run a turn.`
-        : `Connect your ${seatProviderLabel(provider)} account on this host to run a turn.`)
+      : `Connect your ${seatProviderLabel(provider)} account on this host to run a turn.`)
     this.name = 'SeatRequiredError'
   }
 }
@@ -112,13 +102,11 @@ export interface TurnSeat {
   isHostLogin?: true
   /** Set for a token seat: injected as `CLAUDE_CODE_OAUTH_TOKEN` for that turn only. */
   envToken?: string
-  /** A leased seat's settlement: the refreshed credential goes back to the vault and the lock is released. Called once the turn settles. */
-  release?: () => Promise<void>
 }
 
 /**
  * What the handlers, the connector, and the control plane need of a seat store:
- * the host's `SeatManager`, or the workspace service's `VaultSeatManager`.
+ * implemented by the execution host's SeatManager.
  */
 export interface SeatStore {
   onChanged(listener: (event: SeatChangedEvent) => void): () => void
@@ -136,14 +124,6 @@ export interface SeatStore {
   disconnect(userId: string, provider: SeatProvider): Promise<SeatStatus>
   remove(userId: string, provider?: SeatProvider): Promise<number>
   sweep(maxIdleMs?: number): Promise<number>
-}
-
-/** A credential a runner materialized from the vault, and the version it stands for. */
-interface LeasedCredential {
-  version: number
-  method: 'login' | 'token'
-  expiresAt: number | null
-  material: CredentialMaterial
 }
 
 /**
@@ -167,6 +147,7 @@ export function seatUserFor(principal: Principal): string {
 /** The ledger's view of a prompt: its author, whose seat it runs on, and how the author is named to others. */
 export function turnActorFor(principal: Principal): TurnActor {
   const actor: TurnActor = { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, seatUserId: seatUserFor(principal) }
+  actor.credentialUserId = integrationUserFor(principal)
   if (principal.kind !== 'system') actor.displayName = principalDisplayName(principal)
   if (principal.kind === 'org-member' && principal.avatarUrl) actor.avatarUrl = principal.avatarUrl
   return actor
@@ -187,8 +168,6 @@ export interface SeatManagerDeps {
   /** Whether the host login is signed in; the CLI's own answer by default. */
   hostLoginConnected?: (provider: SeatProvider) => Promise<boolean>
   now?: () => number
-  /** How a lease waits on another runner's refresh lock; a test hands in a clock. */
-  sleep?: (ms: number) => Promise<void>
 }
 
 export class SeatManager implements SeatStore {
@@ -197,11 +176,6 @@ export class SeatManager implements SeatStore {
   private readonly hostCodexHome: string
   private readonly hostLoginConnected: (provider: SeatProvider) => Promise<boolean>
   private readonly listeners = new Set<(event: SeatChangedEvent) => void>()
-  /** The vault, on a runner linked to an organization; null on a host that keeps its own rows. */
-  private vault: VaultClient | null = null
-  /** What each member's directory holds, by (user, provider), so an unchanged version is not written again. */
-  private readonly leased = new Map<string, LeasedCredential>()
-
   constructor(private readonly deps: SeatManagerDeps) {
     deps.db.exec(SCHEMA)
     this.seatsRoot = deps.seatsRoot ?? `${solusDir()}-seats`
@@ -213,21 +187,6 @@ export class SeatManager implements SeatStore {
   onChanged(listener: (event: SeatChangedEvent) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
-  }
-
-  /**
-   * On a runner: members' credentials are leased from the organization's vault
-   * while the runner holds a grant (cloud-service-model.md §5). Without one the
-   * local rows answer as before. When the grant goes, every leased credential is
-   * purged from the member directories; a member who connected on this host
-   * directly keeps theirs.
-   */
-  useVault(client: VaultClient): void {
-    this.vault = client
-    client.onGrant((info) => {
-      if (info) return
-      this.purgeLeasedCredentials()
-    })
   }
 
   // ── Reading ─────────────────────────────────────────────────────────────
@@ -247,14 +206,6 @@ export class SeatManager implements SeatStore {
       // The owner's login is the CLI's to report: no row, no stale answer.
       if (isHostLogin) {
         return { provider, state: await this.hostLoginConnected(provider) ? 'connected' : 'none', method: 'login', usageCapable: true, hostLogin: true }
-      }
-      // A member on a runner in an organization: the vault's answer, without materializing anything.
-      const vault = this.vault
-      if (vault?.currentGrant()) {
-        const outcome = await vault.lease(userId, provider)
-        if (outcome.kind === 'ok') {
-          return { provider, state: 'connected', method: outcome.lease.method, usageCapable: !(provider === 'claude-code' && outcome.lease.method === 'token') }
-        }
       }
       return { provider, state: 'none', usageCapable: false }
     }
@@ -280,7 +231,6 @@ export class SeatManager implements SeatStore {
   async resolveForTurn(seatUserId: string, provider: AgentId): Promise<TurnSeat | null> {
     if (!isSeatProvider(provider)) return null
     if (seatUserId === HOST_OWNER_USER_ID) return this.connectedSeat(seatUserId, provider)
-    if (this.vault?.currentGrant()) return this.resolveLeasedSeat(this.vault, seatUserId, provider)
     const row = this.row(seatUserId, provider)
     if (!row) throw new SeatRequiredError(provider, 'none')
     if (row.state !== 'connected') throw new SeatRequiredError(provider, row.state)
@@ -288,154 +238,6 @@ export class SeatManager implements SeatStore {
     if (!seat) throw new SeatRequiredError(provider, 'none')
     this.deps.db.prepare('UPDATE provider_seat SET last_used_at = ? WHERE user_id = ? AND provider = ?').run(this.now(), seatUserId, provider)
     return seat
-  }
-
-  // ── The vault (cloud-service-model.md §5) ───────────────────────────────
-
-  /**
-   * A member's turn on a runner in an organization: lease the credential, write
-   * it into the member's directory when the version moved, and take the refresh
-   * lock when the provider is likely to refresh it during this turn. The seat's
-   * `release` writes a refreshed credential back and releases the lock.
-   */
-  private async resolveLeasedSeat(vault: VaultClient, userId: string, provider: SeatProvider): Promise<TurnSeat> {
-    let leased = await this.lease(vault, userId, provider)
-    let locked = false
-    if (refreshLikely(leased, this.now())) {
-      const lock = await this.lockForRefresh(vault, userId, provider)
-      locked = lock.locked
-      // Another runner held the lock: it may have refreshed and written back, so what is here is stale.
-      if (lock.waited) leased = await this.lease(vault, userId, provider)
-    }
-    const seat: TurnSeat = { userId, provider, home: this.memberHome(userId, provider) }
-    if (leased.material.token) seat.envToken = leased.material.token
-    seat.release = () => this.settleLeasedSeat(vault, userId, provider, locked)
-    return seat
-  }
-
-  private async lease(vault: VaultClient, userId: string, provider: SeatProvider): Promise<LeasedCredential> {
-    const key = leaseKey(userId, provider)
-    const outcome = await vault.lease(userId, provider)
-    if (outcome.kind === 'no_credential') {
-      // The vault says no: nothing of theirs stays on this host.
-      this.leased.delete(key)
-      this.removeCredentialFiles(userId, provider)
-      throw new SeatRequiredError(provider, 'none', 'cloud')
-    }
-    if (outcome.kind === 'unavailable') {
-      // The service could not be asked; a credential leased earlier still runs the turn.
-      const held = this.leased.get(key)
-      if (held) return held
-      throw new SeatRequiredError(provider, 'none', 'cloud')
-    }
-    const { lease } = outcome
-    const held = this.leased.get(key)
-    if (held && held.version === lease.version) return held
-    this.materialize(userId, provider, lease.material)
-    const entry: LeasedCredential = { version: lease.version, method: lease.method, expiresAt: lease.expiresAt, material: lease.material }
-    this.leased.set(key, entry)
-    log.info('seat_credential_leased', { userId, provider, version: lease.version, method: lease.method })
-    return entry
-  }
-
-  /** Takes the refresh lock, or waits for the holder's to end. `waited` says the credential must be leased again. */
-  private async lockForRefresh(vault: VaultClient, userId: string, provider: SeatProvider): Promise<{ locked: boolean; waited: boolean }> {
-    const first = await vault.lock(userId, provider, REFRESH_LOCK_TTL_MS)
-    if (!first) return { locked: false, waited: false }
-    if (first.acquired) return { locked: true, waited: false }
-    log.info('seat_refresh_lock_wait', { userId, provider, until: first.expiresAt })
-    const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-    while (this.now() < first.expiresAt) {
-      await sleep(Math.min(REFRESH_LOCK_POLL_MS, Math.max(1, first.expiresAt - this.now())))
-      const again = await vault.lock(userId, provider, REFRESH_LOCK_TTL_MS)
-      if (!again) return { locked: false, waited: true }
-      if (again.acquired) return { locked: true, waited: true }
-    }
-    // The holder's lock ran out without a release: proceed, unlocked, on a fresh lease.
-    return { locked: false, waited: true }
-  }
-
-  /** After the turn: a credential the provider refreshed goes back under the version it was leased at. */
-  private async settleLeasedSeat(vault: VaultClient, userId: string, provider: SeatProvider, locked: boolean): Promise<void> {
-    try {
-      const key = leaseKey(userId, provider)
-      const held = this.leased.get(key)
-      // A pasted Claude token is never refreshed by the CLI; only a file set can change.
-      if (!held?.material.files) return
-      const files = this.readCredentialFiles(userId, provider)
-      if (Object.keys(files).length === 0) {
-        // The CLI removed its own credential (a sign-out on a 401): the next lease writes it again.
-        this.leased.delete(key)
-        return
-      }
-      if (sameFiles(files, held.material.files)) return
-      const material: CredentialMaterial = { files }
-      const expiresAt = credentialExpiresAt(provider, material)
-      const outcome = await vault.writeBack(userId, provider, held.version, material, expiresAt)
-      if (outcome.kind === 'ok') {
-        held.version = outcome.version
-        held.material = material
-        held.expiresAt = expiresAt
-        log.info('seat_credential_written_back', { userId, provider, version: outcome.version })
-      } else if (outcome.kind === 'version_conflict') {
-        // Another runner refreshed first: drop this copy so the next lease takes theirs.
-        this.leased.delete(key)
-        this.removeCredentialFiles(userId, provider)
-        log.info('seat_credential_write_back_conflict', { userId, provider, version: held.version })
-      }
-    } finally {
-      if (locked) await vault.unlock(userId, provider)
-    }
-  }
-
-  /** Writes the leased file set into the member's directory, replacing whatever credential was there. */
-  private materialize(userId: string, provider: SeatProvider, material: CredentialMaterial): void {
-    const home = this.memberHome(userId, provider)
-    this.removeCredentialFiles(userId, provider)
-    for (const [name, contents] of Object.entries(material.files ?? {})) {
-      const path = join(home, name)
-      writeFileSync(path, contents, { mode: 0o600 })
-      chmodSync(path, 0o600)
-    }
-  }
-
-  private readCredentialFiles(userId: string, provider: SeatProvider): CredentialFiles {
-    const home = this.memberHome(userId, provider)
-    const files: CredentialFiles = {}
-    for (const name of credentialFiles(provider)) {
-      if (name === CLAUDE_TOKEN_FILE) continue
-      const contents = readFileOrNull(join(home, name))
-      if (contents !== null) files[name] = contents
-    }
-    return files
-  }
-
-  private removeCredentialFiles(userId: string, provider: SeatProvider): void {
-    const home = this.memberHome(userId, provider)
-    for (const file of credentialFiles(provider)) rmSync(join(home, file), { force: true })
-  }
-
-  /**
-   * The grant is gone: every leased credential leaves the member directories. A
-   * member with a row connected on this host directly; their files are their own.
-   */
-  private purgeLeasedCredentials(): void {
-    this.leased.clear()
-    let purged = 0
-    for (const provider of SEAT_PROVIDERS) {
-      const level = join(this.seatsRoot, provider === 'claude-code' ? 'claude' : 'codex')
-      if (!existsSync(level)) continue
-      for (const userId of readdirSync(level)) {
-        if (!seatUserIdSchema.safeParse(userId).success || this.row(userId, provider)) continue
-        for (const file of credentialFiles(provider)) {
-          const path = join(level, userId, file)
-          if (!existsSync(path)) continue
-          rmSync(path, { force: true })
-          purged += 1
-        }
-      }
-    }
-    if (purged) log.info('seat_credentials_purged', { purged })
   }
 
   /**
@@ -670,22 +472,6 @@ export function ensureSeatShims(seatsRoot: string): string {
 function ensureDir(path: string, mode: number): void {
   if (!existsSync(path)) mkdirSync(path, { recursive: true, mode })
   chmodSync(path, mode)
-}
-
-function leaseKey(userId: string, provider: SeatProvider): string {
-  return `${userId}\n${provider}`
-}
-
-/** Whether the provider is likely to refresh this credential during the turn: near expiry, or a login that never said when. */
-function refreshLikely(leased: LeasedCredential, now: number): boolean {
-  if (leased.expiresAt !== null) return leased.expiresAt - now <= REFRESH_LOCK_MARGIN_MS
-  return leased.method === 'login'
-}
-
-function sameFiles(a: Record<string, string>, b: Record<string, string>): boolean {
-  const names = Object.keys(a)
-  if (names.length !== Object.keys(b).length) return false
-  return names.every((name) => a[name] === b[name])
 }
 
 /** Points `linkPath` at `target`, replacing a link that points elsewhere; a real directory there is left alone. */

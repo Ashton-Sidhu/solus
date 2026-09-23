@@ -73,7 +73,9 @@
   const repoCtx = $derived<IpcContext | null>(
     projectRoot ? session.ctxForDirectory(projectRoot) : null,
   );
-  const gitRefs = $derived(environmentStore.refsFor(projectRoot));
+  // The run's host holds this repository; a path alone names no machine.
+  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  const gitRefs = $derived(environmentStore.refsFor(gitServerId, projectRoot));
   const pendingDispatch = $derived(
     run?.pendingHostDispatch?.intent === "dispatch"
       ? run.pendingHostDispatch
@@ -93,7 +95,7 @@
   // A scan with nothing cached yet must not read as "this repo has one branch";
   // once refs have arrived the list refreshes in place instead.
   const refsLoading = $derived(
-    !pendingDispatch && environmentStore.refsLoadingFor(projectRoot),
+    !pendingDispatch && environmentStore.refsLoadingFor(gitServerId, projectRoot),
   );
   const worktreeBranches = $derived(worktrees.map((w) => w.branch));
   // The branch you are on leads the list in its own right, so it must not also
@@ -115,7 +117,7 @@
       );
       return;
     }
-    if (projectRoot && repoCtx) void environmentStore.refreshRefs(projectRoot, repoCtx, { force: true });
+    if (projectRoot && repoCtx) void environmentStore.refreshRefs(gitServerId, projectRoot, repoCtx, { force: true });
   });
 
   $effect(() => {

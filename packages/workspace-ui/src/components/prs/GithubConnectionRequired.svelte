@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext, serversStore } from "../../contexts";
-  import { connectionsNav } from "../connections/connections-nav.svelte";
+  import { getClientShellContext, getSurfaceContext, serversStore } from "../../contexts";
   import { Button } from "../ui/button";
 
   let {
@@ -13,12 +12,17 @@
     message?: string;
   } = $props();
 
-  const workspace = getWorkspaceContext();
+  // Where the connection is made is the shell's: the workspace's API access
+  // settings, or the console's connections page.
+  const shell = getClientShellContext();
+  // A workspace can hold GitHub on one machine and not another, so it names
+  // the host. The console has one host, whose label is the organization's
+  // name — meaningless beside "Connect GitHub", so it is left off.
+  const namesHost = getSurfaceContext().workspace !== null;
   const hostLabel = $derived(serversStore.hostFor(serverId)?.label ?? "this host");
 
   function connectGithub() {
-    workspace.showSettings("api-access");
-    connectionsNav.open(serverId);
+    shell.openResource({ kind: "connections", serverId });
   }
 </script>
 
@@ -34,7 +38,7 @@
       ? 'text-center text-pretty'
       : ''}"
   >
-    {message ?? `GitHub is not connected on ${hostLabel}.`}
+    {message ?? (namesHost ? `GitHub is not connected on ${hostLabel}.` : "GitHub is not connected.")}
   </span>
   <Button
     type="button"
@@ -45,6 +49,6 @@
       : undefined}
     onclick={connectGithub}
   >
-    Connect GitHub on {hostLabel}
+    {namesHost ? `Connect GitHub on ${hostLabel}` : "Connect GitHub"}
   </Button>
 </div>

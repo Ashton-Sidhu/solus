@@ -4,6 +4,8 @@ import { resolveArtifactTitle } from '@solus/contracts/work-preview'
 import { fenceIsSettled, fenceRenderMode, isHtmlFence } from './html-block'
 
 export interface ArtifactRevision {
+  /** The chain this revision belongs to: `work:<id>` or `fence:<identity>`. */
+  identity: string
   messageId: string
   html: string
   title: string
@@ -19,11 +21,12 @@ export function fenceArtifactIdentity(info: string | undefined): string | undefi
 }
 
 function fenceArtifacts(message: Message): FenceArtifact[] {
-  if (!message.content.includes('artifact=')) return []
+  // The cache comes first: the index runs on every streamed token, and an
+  // unchanged message must cost a reference comparison, not a content scan.
   const cached = fenceCache.get(message)
   if (cached?.content === message.content) return cached.artifacts
   const artifacts: FenceArtifact[] = []
-  marked.walkTokens(marked.lexer(message.content), (token) => {
+  if (message.content.includes('artifact=')) marked.walkTokens(marked.lexer(message.content), (token) => {
     if (token.type !== 'code' || !isHtmlFence(token.lang) || !fenceIsSettled(token.raw)
       || fenceRenderMode(token.lang, token.text) !== 'block') return
     const identity = fenceArtifactIdentity(token.lang)
@@ -36,21 +39,22 @@ function fenceArtifacts(message: Message): FenceArtifact[] {
 /** One index per conversation, including virtualized/offscreen revisions. */
 export function artifactRevisionIndex(messages: Message[]): Map<string, ArtifactRevision[]> {
   const index = new Map<string, ArtifactRevision[]>()
-  function append(identity: string, revision: ArtifactRevision) {
-    const revisions = index.get(identity)
+  function append(revision: ArtifactRevision) {
+    const revisions = index.get(revision.identity)
     if (revisions) revisions.push(revision)
-    else index.set(identity, [revision])
+    else index.set(revision.identity, [revision])
   }
   for (const message of messages) {
     const artifact = message.artifact
     if (artifact?.kind === 'html' && artifact.html && !artifact.pending && !artifact.streaming && message.workRef) {
-      append(`work:${message.workRef.workId}`, {
-        messageId: message.id, html: artifact.html,
+      append({
+        identity: `work:${message.workRef.workId}`, messageId: message.id, html: artifact.html,
         title: message.workRef.title, workRef: message.workRef,
       })
     } else if (message.role === 'assistant' && !artifact) {
-      for (const fence of fenceArtifacts(message)) append(`fence:${fence.identity}`, {
-        messageId: message.id, html: fence.html, title: resolveArtifactTitle(undefined, fence.html),
+      for (const fence of fenceArtifacts(message)) append({
+        identity: `fence:${fence.identity}`, messageId: message.id,
+        html: fence.html, title: resolveArtifactTitle(undefined, fence.html),
       })
     }
   }

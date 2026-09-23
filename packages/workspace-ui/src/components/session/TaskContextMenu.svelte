@@ -26,7 +26,8 @@
   import type { TaskPrChoice } from "./lib/task-list";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
-  import { getWorkspaceContext } from "../../contexts";
+  import { askInsights } from "../insights/lib/ask-insights";
+  import { getSurfaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
@@ -43,7 +44,7 @@
     task: Task;
     hasLinkedSession: boolean;
     isRunning: boolean;
-    onStart: () => void;
+    onStart?: () => void;
     onResume?: () => void;
     onStop?: () => void;
     onOpenTask: () => void;
@@ -114,14 +115,17 @@
     onClose,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
+  // The menu is drawn by the workspace and by the cloud console's task board
+  // alike; Insights is a workspace pane.
+  const session = getSurfaceContext();
 
   /** Every turn the task's sessions ran, in Insights. A task nothing has worked
    *  on yet has no turns to show, so the item appears once one attempt exists. */
   function openInInsights() {
     const taskId = task.id;
     onClose();
-    session.openInsightsForTask(taskId);
+    const workspace = session.workspace;
+    if (workspace) void askInsights({ kind: "task", taskId }, () => workspace.openInsights());
   }
 
   async function copyTaskId() {
@@ -323,7 +327,7 @@
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
     {/if}
-    {#if hasLinkedSession}
+    {#if hasLinkedSession && session.workspace}
       <ContextMenu.Item onSelect={openInInsights}>
         <ChartBarIcon />
         Open in Insights

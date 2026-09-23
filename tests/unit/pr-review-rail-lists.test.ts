@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import type { ChangedFileStat } from '@solus/contracts/types'
+import type { CheckItem } from '@solus/contracts/checks-types'
 import {
-  CHECKS_VISIBLE_ROWS,
   FILES_VISIBLE_ROWS,
-  checkRowHeight,
   fileRowHeight,
   listViewportHeight,
 } from '@solus/workspace-ui/components/pr-review/lib/rail-rows'
+import { checksSummary } from '@solus/workspace-ui/components/pr-review/lib/check-verdict'
 
 /**
- * The rail's Checks and Changed files sections are virtualized, so their
+ * The rail's Changed files section is virtualized, so its
  * geometry is arithmetic rather than layout: the list positions each row from
  * the number these functions return, and the row is given that same number as
  * its height. Everything that can go wrong here is silent — overlapping rows,
@@ -45,7 +45,6 @@ describe('changed-file row heights', () => {
     expect(fileRowHeight(file('b.ts'), true)).toBeLessThan(
       fileRowHeight(file('b.ts'), false),
     )
-    expect(checkRowHeight(true)).toBeLessThan(checkRowHeight(false))
   })
 })
 
@@ -59,21 +58,21 @@ describe('the section scrollport', () => {
   })
 
   test('a list exactly at the cap still does not scroll', () => {
-    const rows = Array.from({ length: CHECKS_VISIBLE_ROWS }, () => 30)
-    expect(listViewportHeight(rows, CHECKS_VISIBLE_ROWS)).toBe(
-      CHECKS_VISIBLE_ROWS * 30,
+    const rows = Array.from({ length: FILES_VISIBLE_ROWS }, () => 30)
+    expect(listViewportHeight(rows, FILES_VISIBLE_ROWS)).toBe(
+      FILES_VISIBLE_ROWS * 30,
     )
   })
 
   test('a long list cuts the next row in half rather than on a row seam', () => {
     // WHY: VirtualList pins `scrollbar-width: none`, so a viewport cut to a
     // whole number of rows gives a reader no signal that there is more below —
-    // the list simply appears to end at six checks when there are forty. A row
+    // the list simply appears to end at seven files when there are forty. A row
     // sliced by the fold is the only "keep scrolling" cue that survives a
     // hidden scrollbar.
     const rows = Array.from({ length: 40 }, () => 30)
-    const height = listViewportHeight(rows, CHECKS_VISIBLE_ROWS)
-    expect(height).toBe(CHECKS_VISIBLE_ROWS * 30 + 15)
+    const height = listViewportHeight(rows, FILES_VISIBLE_ROWS)
+    expect(height).toBe(FILES_VISIBLE_ROWS * 30 + 15)
     expect(height % 30).not.toBe(0)
   })
 
@@ -90,5 +89,44 @@ describe('the section scrollport', () => {
     // VirtualList renders nothing at height 0, which is what collapses a
     // section with no rows instead of leaving an empty box under its heading.
     expect(listViewportHeight([], FILES_VISIBLE_ROWS)).toBe(0)
+  })
+})
+
+function check(conclusion: CheckItem['conclusion'], inFlight = false): CheckItem {
+  return {
+    id: Math.random().toString(36),
+    name: 'ci',
+    conclusion,
+    inFlight,
+    detailsUrl: null,
+    appName: null,
+    startedAt: null,
+    completedAt: null,
+  }
+}
+
+describe('the folded Checks summary', () => {
+  // WHY: Checks start folded, so this one line is all most readers see. It
+  // must never call a pull request green while something is broken or still
+  // running.
+  test('a failure leads, even while other checks run', () => {
+    expect(checksSummary([check('success'), check('failure'), check(null, true)])).toEqual({
+      text: '1 of 3 failing',
+      icon: 'failed',
+    })
+  })
+
+  test('running and queued checks keep it from saying passed', () => {
+    expect(checksSummary([check('success'), check(null, true), check(null)])).toEqual({
+      text: '2 of 3 running',
+      icon: 'running',
+    })
+  })
+
+  test('skipped and neutral checks do not block the all-clear', () => {
+    expect(checksSummary([check('success'), check('skipped'), check('neutral')])).toEqual({
+      text: 'All checks passed',
+      icon: 'passed',
+    })
   })
 })

@@ -2,8 +2,6 @@ import { untrack } from 'svelte'
 import type { PrCommit, PrDiffSlice, PrReviewTarget, ReviewComment, ReviewThread } from '@solus/contracts/providers'
 import type { DiffScope, IpcContext, PrCheckoutContext, PrInterdiffResult, PrReviewContext } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
-import type { DiffBase, StackGraph } from '@solus/contracts/stack-types'
-import { reviewGuideKeyForBase } from '@solus/contracts/review'
 import { ReviewDrafts } from '../../review/lib/review-drafts.svelte'
 import { interdiffReviewThreads } from '../../diff/lib/interdiff-annotations'
 import { matchedReviewComments } from './since-review'
@@ -60,12 +58,6 @@ export class PrReviewState {
   interdiff = $state<PrInterdiffResult | null>(null)
   showingSinceReview = $state(false)
 
-  // ── Stack / diff base ──
-  stackReady = $state(false)
-  stackLoadFailed = $state(false)
-  /** Whether the stacked view is showing the full diff rather than own-delta. */
-  showingFullDiff = $state(false)
-  ownDeltaFileCount = $state<number | null>(null)
 
   /**
    * A file the review asked its popped-out diff to show. Carried here rather
@@ -90,7 +82,7 @@ export class PrReviewState {
     this.drafts = new ReviewDrafts({
       getApi: deps.getApi,
       getCtx: () => this.ctx,
-      getKey: () => this.effectiveGuideKey,
+      getKey: () => this.guideKey,
     })
   }
 
@@ -118,7 +110,7 @@ export class PrReviewState {
   setTarget(target: PrReviewTarget | null): void {
     // This command is called from an effect that tracks the target prop. Do not
     // also subscribe that effect to the state it updates, or each assignment
-    // schedules the target sync again and repeatedly reloads the stack.
+    // schedules the target sync again.
     const changedRevision = untrack(() => {
       const previous = this.pr
       return previous?.host !== target?.host
@@ -135,8 +127,6 @@ export class PrReviewState {
     this.checkoutError = null
     this.interdiff = null
     this.showingSinceReview = false
-    this.stackReady = false
-    this.stackLoadFailed = false
     // A moved head may have dropped the scoped commit (force push / new PR);
     // never strand the reader on a commit the revision no longer has.
     this.commitScope = null
@@ -147,51 +137,22 @@ export class PrReviewState {
     this.#commitDiffKey = ''
   }
 
-  get liveDiffBase(): DiffBase {
-    const review = this.pr
-    return this.#deps.stackedPrsEnabled() && review && this.stackReady && !this.stackLoadFailed
-      ? this.#deps.resolveDiffBase(review.number, review.baseRef)
-      : { kind: 'target', ref: review?.baseRef ?? '' }
-  }
-
-  get ownDeltaBase(): { parent: number; headSha: string } | null {
-    const base = this.liveDiffBase
-    return base.kind === 'own-delta' && base.parent
-      ? { parent: base.parent, headSha: base.ref }
-      : null
-  }
-
   /** The deterministic review branch key also finds a cached guide before the
    * checkout exists. Generating a new guide still requires `ensureCheckout`. */
   get guideKey(): string {
     return this.pr ? (this.checkout?.branch ?? `solus/pr-${this.pr.number}`).replace(/\//g, '__') : ''
   }
 
-  get effectiveGuideKey(): string {
-    return reviewGuideKeyForBase(this.guideKey, this.ownDeltaBase?.headSha)
-  }
-
   get diffScope(): DiffScope {
-    const base = this.ownDeltaBase
-    const review = this.pr
-    return base && !this.showingFullDiff
-      ? {
-          kind: 'pr',
-          baseSha: review?.baseSha ?? '',
-          ownDeltaBaseSha: base.headSha,
-          parentPr: base.parent,
-        }
-      : { kind: 'pr', baseSha: review?.baseSha ?? '' }
+    return { kind: 'pr', baseSha: this.pr?.baseSha ?? '' }
   }
 
   get hasReviewCheckpointNotice(): boolean {
     return this.interdiff?.state === 'changed' || this.interdiff?.state === 'invalid'
   }
 
-  /** "Since your last review" only applies to a plain target diff — an
-   *  own-delta base is already a narrowed view. */
   get isSinceReviewMode(): boolean {
-    return !this.ownDeltaBase && this.interdiff?.state === 'changed' && this.showingSinceReview
+    return this.interdiff?.state === 'changed' && this.showingSinceReview
   }
 
   get sinceReviewThreads(): ReviewThread[] {
@@ -205,20 +166,6 @@ export class PrReviewState {
   }
 
   // ── Loads ──
-
-  loadStack(): void {
-    this.stackReady = false
-    this.stackLoadFailed = false
-    if (!this.pr) return
-    if (!this.checkout) {
-      this.stackReady = true
-      return
-    }
-    void this.#deps
-      .loadStacks(this.ctx)
-      .catch(() => (this.stackLoadFailed = true))
-      .finally(() => (this.stackReady = true))
-  }
 
   loadThreads(force = false): void {
     this.threadsLoadFailed = false
@@ -251,32 +198,7 @@ export class PrReviewState {
   }
 
   loadDrafts(): void {
-    if (!this.stackReady) return
     void untrack(() => this.drafts.load())
-  }
-
-  loadOwnDeltaFileCount(): void {
-    const base = this.ownDeltaBase
-    const review = this.pr
-    if (!base || !review || !this.checkout) {
-      this.ownDeltaFileCount = null
-      return
-    }
-    const key = `${review.number}:${review.headSha}:${base.headSha}`
-    this.ownDeltaFileCount = null
-    void this.#deps
-      .diffStats(this.ctx, {
-        kind: 'pr',
-        baseSha: review.baseSha,
-        ownDeltaBaseSha: base.headSha,
-        parentPr: base.parent,
-      })
-      .then((count) => {
-        if (`${this.pr?.number}:${this.pr?.headSha}:${this.ownDeltaBase?.headSha ?? ''}` === key) {
-          this.ownDeltaFileCount = count
-        }
-      })
-      .catch(() => {})
   }
 
   requestJump(path: string, line?: number | null, side: 'old' | 'new' = 'new'): void {
@@ -394,7 +316,6 @@ export class PrReviewState {
         }
         this.checkout = checkout
         this.checkoutStatus = 'ready'
-        this.loadStack()
         return { ...target, ...checkout }
       })
       .catch((error) => {
@@ -481,9 +402,6 @@ export interface PrReviewDeps {
   getApi: () => HostApi
   fallbackCtx: () => IpcContext
   ctxForDirectory: (path: string) => IpcContext
-  stackedPrsEnabled: () => boolean
-  resolveDiffBase: (number: number, baseRef: string) => DiffBase
-  loadStacks: (ctx: IpcContext) => Promise<StackGraph>
   loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
   loadDiff: (ctx: IpcContext, request: import('@solus/contracts/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>

@@ -107,11 +107,41 @@ describe('describeBackgroundWait', () => {
     expect(wait?.target).toBe(POLL_COMMAND)
   })
 
-  test('leaves a backgrounded sub-agent to the agents that own it', () => {
-    // WHY: `waitingOnLabel` names sub-agents. Counting them here would produce
-    // two rival descriptions of the same wait.
-    const subagent = backgroundBash({ id: 'agent-1', toolName: 'Agent', subagentType: 'Explore' })
-    expect(describeBackgroundWait(turn(subagent))).toBeNull()
+  function subagent(overrides: Partial<Message> = {}): Message {
+    return {
+      id: 'agent-1',
+      role: 'tool',
+      content: '',
+      toolName: 'Agent',
+      toolStatus: 'running',
+      timestamp: LAUNCHED_AT,
+      toolInput: JSON.stringify({ description: 'Study Solus diff panel', prompt: 'Find how…' }),
+      subMessages: [],
+      ...overrides,
+    } as Message
+  }
+
+  test('names a running sub-agent whose card is above the fold', () => {
+    // WHY: the parent keeps writing below the sub-agent card. Without this the
+    // tail says nothing and the session looks finished while an agent works.
+    const items: GroupedItem[] = [
+      { kind: 'subagent-group', messages: [subagent(), subagent({ id: 'agent-2', toolStatus: 'completed' })] },
+      { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'One report is in.', timestamp: LAUNCHED_AT + 1 } as Message },
+    ]
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on a subagent…', target: 'Study Solus diff panel' })
+  })
+
+  test('counts sub-agents when several are running, ahead of any command', () => {
+    const items: GroupedItem[] = [
+      { kind: 'tool-group', messages: [backgroundBash()] },
+      { kind: 'subagent-group', messages: [subagent(), subagent({ id: 'agent-2' })] },
+    ]
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on 2 subagents…', target: '' })
+  })
+
+  test('says nothing once every sub-agent has reported', () => {
+    const items: GroupedItem[] = [{ kind: 'subagent-group', messages: [subagent({ toolStatus: 'completed' })] }]
+    expect(describeBackgroundWait(items)).toBeNull()
   })
 })
 

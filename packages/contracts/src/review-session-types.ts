@@ -36,8 +36,8 @@ export interface ReviewSessionEntry {
 }
 
 export interface ReviewSessionState {
-  /** Ordered queue. Default effort ascending (WS4); stack order wins within a
-   *  stack (WS7). Order is fixed at session start — re-sorting under a reviewer
+  /** Ordered queue, in the order the reviewer selected; stack order wins
+   *  within a stack (WS7). Order is fixed at session start — re-sorting under a reviewer
    *  mid-session would move the thing they were about to press a key on. */
   entries: ReviewSessionEntry[]
   cursor: number

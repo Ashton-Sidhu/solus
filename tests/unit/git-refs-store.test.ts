@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -7,7 +7,13 @@ import type { IpcContext } from '@solus/contracts/types'
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
+/** Serve each host's reads from its own fake connection. */
+function stubHosts(apis: Record<string, unknown>): void {
+  spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => apis[serverId] as HostApi)
+}
+
 afterEach(() => {
+  mock.restore()
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
   else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
@@ -37,19 +43,43 @@ describe('SessionEnvironmentStore refs', () => {
 
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
-    store.bindCwd('test-host', '/repo', window.solus as never)
+    stubHosts({ 'test-host': window.solus })
     store.refsByRoot[hostKey('test-host', '/repo')] = {
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],
       branches: ['main'],
     }
 
-    const ok = await store.refreshRefs('/repo', { session: {} } as IpcContext, { force: true })
+    const ok = await store.refreshRefs('test-host', '/repo', { session: {} } as IpcContext, { force: true })
 
     expect(ok).toBe(false)
-    expect(store.refsFor('/repo')).toEqual({
+    expect(store.refsFor('test-host', '/repo')).toEqual({
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],
       branches: ['main', 'feature'],
     })
+  })
+
+  test('keeps two hosts with the same path apart', async () => {
+    // WHY: `/workspace/app` on a laptop and on a Linux box are different
+    // checkouts. A lookup by path alone answered with whichever host bound the
+    // path last, so one machine showed the other's branches.
+    Object.defineProperty(globalThis, '$state', {
+      configurable: true,
+      writable: true,
+      value: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value }),
+    })
+    const hostWith = (branch: string) => ({
+      worktreeListProject: async () => [],
+      worktreeBranches: async () => [branch],
+    })
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    stubHosts({ 'host-a': hostWith('laptop-branch'), 'host-b': hostWith('linux-branch') })
+
+    await store.refreshRefs('host-a', '/workspace/app', { session: {} } as IpcContext, { force: true })
+    await store.refreshRefs('host-b', '/workspace/app', { session: {} } as IpcContext, { force: true })
+
+    expect(store.refsFor('host-a', '/workspace/app').branches).toEqual(['laptop-branch'])
+    expect(store.refsFor('host-b', '/workspace/app').branches).toEqual(['linux-branch'])
   })
 
   test('reports a local refs scan as loading until the branches arrive', async () => {
@@ -71,16 +101,16 @@ describe('SessionEnvironmentStore refs', () => {
     }
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
-    store.bindCwd('loading-host', '/repo', api as never)
+    stubHosts({ 'loading-host': api })
 
-    expect(store.refsLoadingFor('/repo')).toBe(false)
-    const refresh = store.refreshRefs('/repo', { session: {} } as IpcContext, { force: true })
-    expect(store.refsLoadingFor('/repo')).toBe(true)
+    expect(store.refsLoadingFor('loading-host', '/repo')).toBe(false)
+    const refresh = store.refreshRefs('loading-host', '/repo', { session: {} } as IpcContext, { force: true })
+    expect(store.refsLoadingFor('loading-host', '/repo')).toBe(true)
 
     finishBranchLoad(['main', 'feature'])
     expect(await refresh).toBe(true)
-    expect(store.refsLoadingFor('/repo')).toBe(false)
-    expect(store.refsFor('/repo').branches).toEqual(['main', 'feature'])
+    expect(store.refsLoadingFor('loading-host', '/repo')).toBe(false)
+    expect(store.refsFor('loading-host', '/repo').branches).toEqual(['main', 'feature'])
   })
 
   test('loads device-scoped target worktrees and source origin branches', async () => {
@@ -168,7 +198,7 @@ describe('SessionEnvironmentStore detail watches', () => {
     const store = new SessionEnvironmentStore()
     // SAFETY: this test exercises only gitRefreshState; the fake implements that
     // exact HostApi method and no other store path can reach the omitted methods.
-    store.bindCwd('host-a', '/repo', api as HostApi)
+    stubHosts({ 'host-a': api })
 
     const stopFirst = store.watchDetails('host-a', '/repo')
     const stopSecond = store.watchDetails('host-a', '/repo')

@@ -2,6 +2,10 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path, { basename } from 'node:path'
 import { isRemoteDispatchCheckoutPath, type ProjectEntry } from '@solus/contracts/types'
+
+/** A folder as the manifest records it. Its repository is read from Git when
+ *  the folder is listed to a client (`listProjects` handler), not stored. */
+export type ManifestProject = Omit<ProjectEntry, 'repositoryKey'>
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
@@ -31,7 +35,7 @@ function errorMessage(error: Parameters<typeof String>[0]): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function fromRow(row: ProjectRow): ProjectEntry {
+function fromRow(row: ProjectRow): ManifestProject {
   return {
     key: row.key,
     path: row.path,
@@ -40,7 +44,7 @@ function fromRow(row: ProjectRow): ProjectEntry {
   }
 }
 
-async function readManifest(): Promise<ProjectEntry[]> {
+async function readManifest(): Promise<ManifestProject[]> {
   const rows = z.array(projectRowSchema).parse(getDb().prepare(`
     SELECT key, path, folder_name, added_at
     FROM projects
@@ -65,7 +69,7 @@ export async function recordProject(cwd: string): Promise<void> {
  * All known projects. Back-fills the manifest from recent projects so existing
  * users see their history, and drops entries whose folder no longer exists.
  */
-export async function listProjects(): Promise<ProjectEntry[]> {
+export async function listProjects(): Promise<ManifestProject[]> {
   const manifest = await readManifest()
   const byKey = new Map(manifest.map((project) => [project.key, project]))
 

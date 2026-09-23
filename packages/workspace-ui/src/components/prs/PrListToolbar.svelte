@@ -1,8 +1,8 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import {
     ArrowUpDown as ArrowUpDownIcon,
     ListFilter as ListFilterIcon,
-    RefreshCw as RefreshIcon,
     Search as SearchIcon,
   } from "@lucide/svelte";
   import type { PrSortMode } from "./lib/pr-utils";
@@ -17,47 +17,56 @@
    *  so the row never has to fit five chips and can never push one off the
    *  pane with no scrollbar to say so.
    *
-   *  Refresh is on the row only where the crumb line that normally carries it
-   *  is gone (the split column); the full page keeps it beside the sync stamp.
+   *  Refresh lives on the crumb line above, which stays on screen beside an
+   *  open detail panel too.
    *
    *  ── The ladder ──
-   *  Under 40rem of pane the menus drop their labels and keep their glyphs, so
-   *  the search field keeps a usable measure. At the record
-   *  rung (30rem) the page wraps this row onto a full-width second line and the
-   *  controls take a thumb-height. Nothing unmounts. */
+   *  Measured on the list (`listpage`), not the pane, so it holds beside an
+   *  open detail panel. Between 32rem and 40rem the menus drop their labels and
+   *  keep their glyphs, so the search field keeps a usable measure. Under 32rem
+   *  the search takes a line of its own and the menus, labelled again, sit
+   *  under it. At the pane's record rung (30rem) the
+   *  controls also take a thumb-height. Nothing unmounts. */
   interface Props {
     query: string;
     searchEl?: HTMLInputElement | null;
     placeholder?: string;
     sortMode: PrSortMode;
-    /** Absent where the list orders itself (the inbox). */
-    sortOptions?: { value: PrSortMode; label: string }[];
+    sortOptions: { value: PrSortMode; label: string }[];
     filterGroups: PrFilterGroup[];
-    onRefresh?: () => void;
-    refreshing?: boolean;
+    /** The project scope group, after the facet groups. */
+    projectFilter?: Snippet;
+    /** Counts the project scope into the active filters. */
+    projectFilterActive?: boolean;
+    /** Whether the search field holds focus — the page keeps this row
+     *  unfolded while someone is typing in it. */
+    onSearchFocusChange?: (focused: boolean) => void;
   }
 
   let {
     query = $bindable(),
     searchEl = $bindable(null),
-    placeholder = "Search pull requests, branches, authors…",
+    placeholder = "Search pull requests, or label:bug",
     sortMode = $bindable(),
     sortOptions,
     filterGroups,
-    onRefresh,
-    refreshing = false,
+    projectFilter,
+    projectFilterActive = false,
+    onSearchFocusChange,
   }: Props = $props();
 
   let sortOpen = $state(false);
   let filtersOpen = $state(false);
-  const activeFilterCount = $derived(filterGroups.filter((group) => group.active).length);
+  const activeFilterCount = $derived(
+    filterGroups.filter((group) => group.active).length + Number(projectFilterActive),
+  );
 </script>
 
 <div
-  class="flex min-w-0 flex-1 items-center gap-2 text-workspace-chrome @max-[30rem]/pane:order-3 @max-[30rem]/pane:basis-full"
+  class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-workspace-chrome @max-[32rem]/listpage:basis-full @max-[30rem]/pane:order-3 @max-[30rem]/pane:basis-full"
 >
   <div
-    class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base"
+    class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 @max-[32rem]/listpage:basis-full shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base"
   >
     <SearchIcon size={16} class="shrink-0 text-muted-foreground" />
     <input
@@ -68,40 +77,40 @@
       {placeholder}
       class="w-full min-w-0 border-0 bg-transparent caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
       aria-label={placeholder}
+      onfocus={() => onSearchFocusChange?.(true)}
+      onblur={() => onSearchFocusChange?.(false)}
     />
   </div>
 
-  {#if sortOptions}
-    <DropdownMenu.Root bind:open={sortOpen}>
-      <DropdownMenu.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            type="button"
-            class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-2 text-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10"
-            aria-label="Sort pull requests"
-            title="Sort"
-          >
-            <ArrowUpDownIcon size={16} class="shrink-0 text-muted-foreground" />
-            <span class="@max-[40rem]/pane:hidden">Sort</span>
-            <span
-              class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-              aria-hidden="true"
-            ></span>
-          </button>
-        {/snippet}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[150px]">
-        <DropdownMenu.RadioGroup bind:value={sortMode}>
-          {#each sortOptions as option (option.value)}
-            <DropdownMenu.RadioItem value={option.value}>
-              {option.label}
-            </DropdownMenu.RadioItem>
-          {/each}
-        </DropdownMenu.RadioGroup>
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
-  {/if}
+  <DropdownMenu.Root bind:open={sortOpen}>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-2 text-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/listpage:pr-3 @max-[32rem]/listpage:pr-3 @max-[30rem]/pane:h-10"
+          aria-label="Sort pull requests"
+          title="Sort"
+        >
+          <ArrowUpDownIcon size={16} class="shrink-0 text-muted-foreground" />
+          <span class="@max-[40rem]/listpage:@min-[32rem]/listpage:hidden">Sort</span>
+          <span
+            class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+            aria-hidden="true"
+          ></span>
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[170px]">
+      <DropdownMenu.RadioGroup bind:value={sortMode}>
+        {#each sortOptions as option (option.value)}
+          <DropdownMenu.RadioItem value={option.value}>
+            {option.label}
+          </DropdownMenu.RadioItem>
+        {/each}
+      </DropdownMenu.RadioGroup>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 
   <DropdownMenu.Root bind:open={filtersOpen}>
     <DropdownMenu.Trigger>
@@ -109,20 +118,17 @@
         <button
           {...props}
           type="button"
-          class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10 {activeFilterCount > 0
-            ? 'bg-[color-mix(in_oklch,var(--primary)_13%,var(--card))] text-[color:color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
-            : 'bg-card text-foreground'}"
+          class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/listpage:pr-3 @max-[32rem]/listpage:pr-3 @max-[30rem]/pane:h-10 bg-card text-foreground data-[state=open]:bg-[var(--wash-1)]"
           aria-label={activeFilterCount > 0
             ? `Filter pull requests (${activeFilterCount} active)`
             : "Filter pull requests"}
           title="Filters"
         >
           <ListFilterIcon size={16} class="shrink-0 text-muted-foreground" />
-          <span class="@max-[40rem]/pane:hidden">Filters</span>
+          <span class="@max-[40rem]/listpage:@min-[32rem]/listpage:hidden">Filters</span>
           {#if activeFilterCount > 0}
-            <!-- The count stands in for the label once the label is gone, so a
-                 narrowed list still says so on its face. -->
-            <span class="text-xs tabular-nums @min-[40rem]/pane:hidden">{activeFilterCount}</span>
+            <!-- The count is the only sign of a narrowed list, so it shows at every width. -->
+            <span class="text-xs text-muted-foreground tabular-nums">{activeFilterCount}</span>
           {/if}
           <span
             class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
@@ -153,28 +159,11 @@
           <PrFilterSubmenu {group} />
         </DropdownMenu.Sub>
       {/each}
+      {#if projectFilter}
+        <DropdownMenu.Separator />
+        {@render projectFilter()}
+      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 
-  {#if onRefresh}
-    <button
-      type="button"
-      class="relative flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-card text-muted-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 @max-[30rem]/pane:size-10"
-      onclick={onRefresh}
-      disabled={refreshing}
-      aria-label={refreshing ? "Refreshing pull requests" : "Refresh pull requests"}
-      title={refreshing ? "Refreshing…" : "Refresh"}
-    >
-      <RefreshIcon
-        size={16}
-        class="shrink-0 {refreshing
-          ? 'animate-spin [animation-duration:0.9s] motion-reduce:animate-none'
-          : ''}"
-      />
-      <span
-        class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-        aria-hidden="true"
-      ></span>
-    </button>
-  {/if}
 </div>

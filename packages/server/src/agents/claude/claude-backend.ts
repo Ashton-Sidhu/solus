@@ -77,7 +77,6 @@ const CLAUDE_METADATA: AgentMetadata = {
   capabilities: {
     planMode: true,
     permissions: true,
-    fileRewind: true,
     terminalResume: true,
     transport: 'claude-sdk/stream-json',
   },
@@ -288,7 +287,6 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         maxBudgetUsd: request.maxBudgetUsd,
         canUseTool,
         seat: request.seat ? claudeSeatOf(request.seat) : undefined,
-        enableFileCheckpointing: request.persistence === 'session',
         persistSession: request.persistence === 'session',
         abortController,
         onSessionInit: request.persistence === 'session'
@@ -404,10 +402,6 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       priority: 'next',
     })
     return accepted ? handle : null
-  }
-
-  rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
-    return this.agent.rewindFiles(sessionId, checkpointId, projectPath)
   }
 
   async listSessions(projectPath?: string, onBatch?: (sessions: SessionMeta[]) => void, limit?: number): Promise<SessionMeta[]> {

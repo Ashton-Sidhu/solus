@@ -2,7 +2,6 @@
   import type { Snippet } from "svelte";
   import {
     ChevronLeft as CaretLeftIcon,
-    ChevronRight as CaretRightIcon,
     MessageCircle as ChatCircleTextIcon,
     Minimize as ArrowsInIcon,
     Maximize as ArrowsOutIcon,
@@ -14,18 +13,22 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
   import ReviewPanelOverflowMenu from "./ReviewPanelOverflowMenu.svelte";
+  import ReviewScopePicker from "./ReviewScopePicker.svelte";
+  import type { DiffScope } from "@solus/contracts/types";
   import {
+    reviewScopeLabel,
     turnScrubberLabel,
     type ChangedFileSummary,
     type GuideHeaderActions,
+    type ReviewScopeKind,
   } from "./lib/review-header";
 
   /**
    * The review panel's one chrome row.
    *
    * It carries navigation and state and nothing else: where you are (the tabs),
-   * what changed (the branch and its two counts), which turn you are reading,
-   * and the two window controls. Anything the *view* can be configured to do —
+   * which change you read (the scope, or one turn of the session), what changed
+   * (the branch and its two counts), and the two window controls. Anything the *view* can be configured to do —
    * unified/split, the file tree, collapse, token highlighting, refresh — lives
    * under the overflow, whose contents follow the active tab. That is what lets
    * the band's slots stay fixed: only the menu is contextual.
@@ -46,9 +49,10 @@
     deletions,
     changedFiles,
     baseLabel,
+    reviewScope = null,
+    onSelectScope,
     turns,
     selectedTurnIndex,
-    onStepTurn,
     diffStyle,
     onSetStyle,
     tokenHighlight,
@@ -79,11 +83,14 @@
     deletions: number;
     changedFiles: ChangedFileSummary[];
     baseLabel: string;
-    /** Empty where turns are not a scope this panel can take — a working-tree
-     *  read, or a panel embedded in a surface that owns the scope itself. */
+    /** Which change the review reads. Null where the host fixes the scope, such
+     *  as a pull request, so the band has no picker. */
+    reviewScope?: ReviewScopeKind | null;
+    onSelectScope?: (scope: DiffScope | undefined) => void;
+    /** Empty where turns are not a scope this panel can take — a panel
+     *  embedded in a surface that owns the scope itself. */
     turns: TurnSnapshot[];
     selectedTurnIndex: number | null;
-    onStepTurn: (direction: 1 | -1) => void;
     diffStyle: "unified" | "split";
     onSetStyle: (style: "unified" | "split") => void;
     tokenHighlight: boolean;
@@ -109,11 +116,12 @@
     onClose: () => void;
   } = $props();
 
-  const showTurns = $derived(turns.length > 0);
-  const turnLabelWide = $derived(turnScrubberLabel(turns, selectedTurnIndex, "wide"));
-  const turnLabelNarrow = $derived(turnScrubberLabel(turns, selectedTurnIndex, "narrow"));
   const scopeLabel = $derived(
-    selectedTurnIndex === null ? "all turns" : turnScrubberLabel(turns, selectedTurnIndex, "wide").toLowerCase(),
+    reviewScope
+      ? reviewScopeLabel(reviewScope, turns, selectedTurnIndex).toLowerCase()
+      : selectedTurnIndex === null
+        ? "all turns"
+        : turnScrubberLabel(turns, selectedTurnIndex, "wide").toLowerCase(),
   );
 
   const maximizeHint = $derived(comboHint("pane.maximize"));
@@ -139,8 +147,8 @@
      Six slots on one 40px row do not fit a phone, and the two that got pushed
      off the end were the pane controls — so the review covered the conversation
      with no way back to it. The record leads with the platform's back chevron,
-     the turn scrubber and the pane cluster stand down (one pane, no ⌥ keys to
-     step with), and the tabs take a row of their own underneath. -->
+     the pane cluster stands down (one pane), and the tabs take a row of their
+     own underneath. The scope picker stays, so a phone can still pick a turn. -->
 <div class="@container/band workspace-titlebar shrink-0" data-testid="review-panel-header">
 <div
   class="flex min-h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5 @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:p-0"
@@ -194,6 +202,13 @@
     </TooltipUI.Root>
   {/if}
 
+  {#if reviewScope && onSelectScope}
+    <!-- One control, three consequences: the map re-areas, the guide re-reads
+         and the diff re-hunks off the same scope. That is why it is on the band
+         and not in the menu. -->
+    <ReviewScopePicker scope={reviewScope} {turns} {selectedTurnIndex} onSelect={onSelectScope} />
+  {/if}
+
   <ChangeSummaryPopover
     {branchLabel}
     {branchTitle}
@@ -204,57 +219,6 @@
     {scopeLabel}
     {onOpenFile}
   />
-
-  {#if showTurns}
-    <!-- One control, three consequences: the map re-areas, the guide re-steps
-         and the diff re-hunks off the same turn. That is why it is on the band
-         and not in the menu. The label column is fixed so stepping past 9 never
-         nudges the controls beside it. -->
-    <div
-      class="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] px-[0.1875rem] [.is-laptop-display_&]:h-6.5 @max-[30rem]/band:hidden"
-      role="group"
-      aria-label="Agent turn"
-    >
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button
-              {...tooltipProps}
-              type="button"
-              class="flex size-[1.375rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-[background-color,color] duration-100 ease-in-out hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-              aria-label="Previous turn"
-              onclick={() => onStepTurn(-1)}
-            >
-              <CaretLeftIcon size={12} />
-            </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={`Previous turn (${comboHint("diff-panel.prev-turn")})`} />
-      </TooltipUI.Root>
-
-      <span class="text-center font-mono text-chrome-dense tabular-nums">
-        <span class="hidden min-w-[3.25rem] @min-[62.5rem]/band:inline-block">{turnLabelWide}</span>
-        <span class="inline-block min-w-[1.75rem] @min-[62.5rem]/band:hidden">{turnLabelNarrow}</span>
-      </span>
-
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button
-              {...tooltipProps}
-              type="button"
-              class="flex size-[1.375rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-[background-color,color] duration-100 ease-in-out hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-              aria-label="Next turn"
-              onclick={() => onStepTurn(1)}
-            >
-              <CaretRightIcon size={12} />
-            </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={`Next turn (${comboHint("diff-panel.next-turn")})`} />
-      </TooltipUI.Root>
-    </div>
-  {/if}
 
   <ReviewPanelOverflowMenu
     {view}

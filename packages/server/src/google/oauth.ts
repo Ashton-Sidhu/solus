@@ -5,7 +5,7 @@ import { createLogger } from '../logger'
 import { GOOGLE_CLIENT_ID } from './client-id'
 import { GOOGLE_CLIENT_SECRET } from './client-secret'
 import { currentCredentialUserId, withCredentialScope } from '../vault/credential-scope'
-import { clearProviderCredential, EncryptionUnavailableError, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
+import { clearProviderCredential, usesAccountIntegration, EncryptionUnavailableError, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
 import { hostForUrl } from '@solus/contracts/entrypoint'
 import { GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_OAUTH_SCOPES, parseGoogleScopes } from '@solus/contracts/google-auth'
 
@@ -97,12 +97,13 @@ export async function grantedGoogleScopes(): Promise<string[] | null> {
 }
 
 function assertConfigured(): void {
+  if (usesAccountIntegration()) throw new Error('Connect Google on your account website.')
   if (!GOOGLE_CLIENT_ID) throw new Error('Google client ID not configured')
   if (!GOOGLE_CLIENT_SECRET) throw new Error('Google client secret not configured')
 }
 
 export function isGoogleOAuthConfigured(): boolean {
-  return !!GOOGLE_CLIENT_ID && !!GOOGLE_CLIENT_SECRET
+  return usesAccountIntegration() || (!!GOOGLE_CLIENT_ID && !!GOOGLE_CLIENT_SECRET)
 }
 
 function oauthClient(redirectUri?: string): OAuth2Client {
@@ -267,6 +268,7 @@ function escapeHtml(value: string): string {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  if (usesAccountIntegration()) return (await loadStored())?.accessToken ?? null
   assertConfigured()
 
   const stored = await loadStored()

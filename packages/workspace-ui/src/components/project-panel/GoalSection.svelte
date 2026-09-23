@@ -5,7 +5,7 @@
     Play as PlayIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSessionRecords, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
@@ -31,7 +31,8 @@
   let { sessionId, collapsed, onToggle, onResizePointerDown, onCleared }: Props = $props();
 
   const workspace = getWorkspaceContext();
-  const session = $derived(workspace.sessions[sessionId]);
+  const sessions = getSessionRecords();
+  const session = $derived(sessions.byId[sessionId]);
   const goal = $derived(session?.goal ?? null);
   const goalStatus = $derived(
     goal && session?.run.provider === "claude-code" && session.status === "completed" ? "complete" : goal?.status,

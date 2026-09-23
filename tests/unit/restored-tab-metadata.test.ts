@@ -52,11 +52,6 @@ describe('restored tab metadata', () => {
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
       sessionFor: () => session,
-      globalDefaults: {
-        workingDirectory: '/repo',
-        modelConfig: session.run.modelConfig,
-        permissionMode: 'ask',
-      },
     } as never)
 
     expect(snapshot[0]).toMatchObject({
@@ -83,11 +78,6 @@ describe('restored tab metadata', () => {
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
       sessionFor: () => session,
-      globalDefaults: {
-        workingDirectory: '/repo',
-        modelConfig: session.run.modelConfig,
-        permissionMode: 'ask',
-      },
     } as never)
 
     expect(snapshot[0]?.status).toBe('idle')
@@ -127,5 +117,17 @@ describe('restored tab metadata', () => {
     // unread, and a tab restored already-read has had its error read too.
     expect(getAttentionState(session, makeTab(session.id, { hasUnread: true }))).toBe('error')
     expect(getAttentionState(session, makeTab(session.id))).toBeNull()
+  })
+
+  test('a finished turn with a background task reads as finished first, then as background', () => {
+    const session = restoredSession()
+
+    applyRestoredSessionMeta(session, meta({ status: 'background', currentTurnStartedAt: 1_000 }))
+
+    // The turn is over, so no turn clock runs while the task does.
+    expect(session.currentTurnStartedAt).toBeNull()
+    expect(getAttentionState(session, makeTab(session.id, { hasUnread: true }))).toBe('unread')
+    // Once read, the tab still says that work goes on, instead of nothing.
+    expect(getAttentionState(session, makeTab(session.id))).toBe('background')
   })
 })

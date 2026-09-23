@@ -42,7 +42,20 @@ import {
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResponseStreamingMode = 'buffered' | 'paragraph'
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
+/**
+ * A font choice: a bundled preset id, one of the surface's own sentinels
+ * (`solus` for the document preset, `interface` for the prompt box), or the
+ * name of a family installed on the client, the way a native editor lists
+ * system fonts. The client resolves the string to a stack; the host only
+ * stores it, so the set is open and bounded by length alone.
+ */
+export type FontFamilyPreference = string
+/** Longer than any real family name; a paste of prose is not a font. */
+export const FONT_FAMILY_PREFERENCE_MAX_LENGTH = 120
 export type DocumentFontFamily = 'solus' | AppFontFamily
+/** The prompt box follows the interface font unless the user picks a face for
+ *  it alone; a monospace face is allowed because a prompt is often code. */
+export type PromptFontFamily = 'interface' | AppFontFamily | AppCodeFontFamily
 
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
@@ -51,8 +64,12 @@ export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
  *  it is the default of a host-config key; `lib/completed-task-retention`
  *  re-exports it so renderer call sites keep one import. */
 export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
+/** How long a sidebar row takes to arrive, leave, or move, in milliseconds.
+ *  0 turns the motion off (docs/plans/sidebar-motion.md). */
+export const DEFAULT_SIDEBAR_MOTION_MS = 150
+export const MAX_SIDEBAR_MOTION_MS = 600
 export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
-export const DEFAULT_REVIEW_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_REVIEW_MODEL = 'gpt-6-sol'
 export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'medium'
 
 export interface HostConfig {
@@ -75,7 +92,6 @@ export interface HostConfig {
   reviewReasoning: ReasoningEffort
   /** User instructions applied only when a review guide is authored. */
   reviewGuideInstructions: string
-  stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   /**
    * Keyed by project path. Host config rather than device config because the
@@ -86,15 +102,27 @@ export interface HostConfig {
   responseStreamingMode: ResponseStreamingMode
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
+  /** File new sessions under a task. Off: a session starts with no task and
+   *  the composer hides its task picker. */
+  tasksEnabled: boolean
   showDiffSummaryAfterTurn: boolean
   /** The composer tucks its toolbar row away while the keyboard is elsewhere. */
   collapseComposerWhenIdle: boolean
-  fontFamily: AppFontFamily
+  /** `AppFontFamily` preset or an installed family name. */
+  fontFamily: FontFamilyPreference
   fontSize: number
-  codeFontFamily: AppCodeFontFamily
+  /** `AppCodeFontFamily` preset or an installed monospace family name. */
+  codeFontFamily: FontFamilyPreference
   codeFontSize: number
-  documentFontFamily: DocumentFontFamily
+  /** `DocumentFontFamily` preset or an installed family name. */
+  documentFontFamily: FontFamilyPreference
   documentFontSize: number
+  /** `PromptFontFamily` preset or an installed family name. */
+  promptFontFamily: FontFamilyPreference
+  promptFontSize: number
+  /** Grayscale `antialiased` text; false keeps the heavier platform default.
+   *  Only macOS engines honor the property, so elsewhere it is inert. */
+  fontSmoothing: boolean
   /** App-wide user instructions added through each provider's instruction extension point. */
   extraInstructions: string
   /** Extra instructions keyed by resolved model id, appended when that model runs. */
@@ -103,6 +131,8 @@ export interface HostConfig {
   tabGroupMode: TabGroupMode
   archivedAutomationRetentionDays: number
   sidebarCompletedRetentionDays: number
+  /** Sidebar row motion, in milliseconds; 0 turns it off. */
+  sidebarMotionMs: number
 
   // ─── Operator settings ───
   //
@@ -123,8 +153,11 @@ export interface HostConfig {
   sourceControlWriting: SourceControlWritingPreferences
 }
 
-const APP_FONT_FAMILIES = ['inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono'] as const
-const APP_CODE_FONT_FAMILIES = ['sf-mono', 'geist-mono', 'fira-code', 'cascadia-code', 'jetbrains-mono', 'system-mono'] as const
+/** Trimmed; an empty or oversized string heals to the surface's default. */
+const fontFamilyPreferenceSchema = z
+  .string()
+  .transform((value) => value.trim())
+  .pipe(z.string().min(1).max(FONT_FAMILY_PREFERENCE_MAX_LENGTH))
 const AGENT_IDS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
 const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const satisfies readonly ReasoningEffort[]
 
@@ -137,7 +170,7 @@ export const DEFAULT_OTEL_SETTINGS: OtelSettings = {
 }
 
 export const DEFAULT_TEXT_GENERATION_MODELS = {
-  codex: 'gpt-5.6-luna',
+  codex: 'gpt-6-luna',
   'claude-code': 'claude-haiku-4-5-20251001',
 } as const
 
@@ -197,170 +230,147 @@ function normalizeSourceControlWriting(
 }
 
 /**
- * Every field is optional and every field self-heals with `.catch`, so a
- * hand-edited or partially-written config never costs a user their whole
- * settings blob — only the one key that is wrong falls back to its default.
- */
-export const hostConfigPatchSchema = z.object({
-  solusTools: z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()),
-  themeMode: z.enum(['system', 'light', 'dark']).catch('system'),
-  voiceModeEnabled: z.boolean().catch(false),
-  autoSendVoiceTranscripts: z.boolean().catch(false),
-  vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
-  defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
-  fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
-  activeAgent: z.enum(AGENT_IDS).catch('claude-code'),
-  defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
-  notifications: notificationPreferencesPatchSchema.catch({}),
-  modelRouting: modelRoutingSchema.catch(DEFAULT_MODEL_ROUTING),
-  defaultModels: z.record(z.string(), z.string()).catch({}),
-  reviewAgent: z.enum(AGENT_IDS).catch(DEFAULT_REVIEW_AGENT),
-  reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
-  reviewReasoning: z.enum(REASONING_EFFORTS).catch(DEFAULT_REVIEW_REASONING),
-  reviewGuideInstructions: z.string().max(20_000).catch(''),
-  stackedPrsEnabled: z.boolean().catch(false),
-  generatePrGuidesOnOpen: z.boolean().catch(false),
-  reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
-  responseStreamingMode: z.enum(['buffered', 'paragraph']).catch('paragraph'),
-  rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
-  autoRenameSessions: z.boolean().catch(true),
-  showDiffSummaryAfterTurn: z.boolean().catch(true),
-  collapseComposerWhenIdle: z.boolean().catch(true),
-  fontFamily: z.enum(APP_FONT_FAMILIES).catch('inter'),
-  fontSize: z.number().min(8).max(32).catch(13),
-  codeFontFamily: z.enum(APP_CODE_FONT_FAMILIES).catch('jetbrains-mono'),
-  codeFontSize: z.number().min(8).max(32).catch(12),
-  documentFontFamily: z.enum(['solus', ...APP_FONT_FAMILIES]).catch('solus'),
-  documentFontSize: z.number().min(12).max(40).catch(16),
-  // Bounded because it is added to each agent run: an accidental paste of a
-  // whole file would silently eat the context window.
-  extraInstructions: z.string().max(20_000).catch(''),
-  modelInstructions: z.record(z.string(), z.string().max(20_000)).catch({}),
-  analyticsEnabled: z.boolean().catch(true),
-  tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
-  archivedAutomationRetentionDays: z.number().int().min(1).max(3650),
-  sidebarCompletedRetentionDays: z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
-  agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).catch('moderate'),
-  otel: otelPatchSchema.catch({}),
-  textGenerationModel: modelSelectionSchema,
-  sourceControlWriterModel: modelSelectionSchema.nullable(),
-  sourceControlWriting: sourceControlWritingPatchSchema.catch({}),
-}).partial().strip()
-
-export type HostConfigPatch = z.infer<typeof hostConfigPatchSchema>
-
-/**
- * What a host answers with before any client has seeded it. Deliberately
- * platform-neutral: the host cannot know whether the client asking is a Mac
- * (`sf-pro-text`) or a phone (11px), so the first client to connect seeds those
- * from its own environment rather than adopting a wrong guess. See
- * `HostConfigSnapshot.seeded`.
- */
-export const DEFAULT_HOST_CONFIG: HostConfig = {
-  solusTools: {},
-  themeMode: 'system',
-  voiceModeEnabled: false,
-  autoSendVoiceTranscripts: false,
-  vadSilenceMs: 1500,
-  defaultEditor: 'vim',
-  fallbackTerminal: 'default-terminal',
-  activeAgent: 'claude-code',
-  defaultPermissionMode: 'auto',
-  notifications: DEFAULT_NOTIFICATION_PREFERENCES,
-  modelRouting: DEFAULT_MODEL_ROUTING,
-  defaultModels: {},
-  reviewAgent: DEFAULT_REVIEW_AGENT,
-  reviewModel: DEFAULT_REVIEW_MODEL,
-  reviewReasoning: DEFAULT_REVIEW_REASONING,
-  reviewGuideInstructions: '',
-  stackedPrsEnabled: false,
-  generatePrGuidesOnOpen: false,
-  reviewWarmingByProject: {},
-  responseStreamingMode: 'paragraph',
-  rateLimitBehavior: 'ask',
-  autoRenameSessions: true,
-  showDiffSummaryAfterTurn: true,
-  collapseComposerWhenIdle: true,
-  fontFamily: 'inter',
-  fontSize: 13,
-  codeFontFamily: 'jetbrains-mono',
-  codeFontSize: 12,
-  documentFontFamily: 'solus',
-  documentFontSize: 16,
-  extraInstructions: '',
-  modelInstructions: {},
-  analyticsEnabled: true,
-  tabGroupMode: 'flat',
-  archivedAutomationRetentionDays: 30,
-  sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
-  agentTaskLifecyclePolicy: 'moderate',
-  otel: DEFAULT_OTEL_SETTINGS,
-  textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
-  sourceControlWriterModel: null,
-  sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
-}
-
-/**
- * Which keys an agent may write, and which only the user may.
+ * One row per key. Everything the host and its clients need to know about a
+ * config key — how a patch value validates, what the key is before anyone sets
+ * it, and whether an agent may write it — is declared here once; the patch
+ * schema, the defaults, and the agent policy are read off this table.
  *
+ * `patch` is what a partial update validates as. Every field self-heals with
+ * `.catch`, so a hand-edited or partially-written config never costs a user
+ * their whole settings blob — only the one key that is wrong falls back to its
+ * default. The exceptions are the keys where a wrong value is worse than a
+ * refused one (`solusTools`, `archivedAutomationRetentionDays`, the model
+ * selections) and the nested keys, whose patch is a partial that
+ * `mergeHostConfig` lays over the current value.
+ *
+ * `default` is what a host answers with before any client has seeded it.
+ * Deliberately platform-neutral: the host cannot know whether the client
+ * asking is a Mac (`sf-pro-text`) or a phone (11px), so the first client to
+ * connect seeds those from its own environment rather than adopting a wrong
+ * guess. See `HostConfigSnapshot.seeded`.
+ *
+ * `agentWritable` is which keys an agent may set, and which only the user may.
  * Four are deliberately closed:
  *
  * - `analyticsEnabled` is a consent decision. An agent must never move it.
- * - `extraInstructions`, `modelInstructions`, and `reviewGuideInstructions` alter future agent runs
- *   this host. An agent reads issues, pages, and diffs written by other people;
- *   text in any of them could ask it to append a persistent instruction, and
- *   the change would outlive the conversation that caused it. Reading them is
- *   allowed, so an agent can still tell the user what to paste.
- * - `reviewWarmingByProject` is keyed by absolute host path. A key that does not
- *   match an existing project silently does nothing, which is a bad thing for a
- *   tool to be able to write.
+ * - `extraInstructions`, `modelInstructions`, and `reviewGuideInstructions`
+ *   alter future agent runs on this host. An agent reads issues, pages, and
+ *   diffs written by other people; text in any of them could ask it to append
+ *   a persistent instruction, and the change would outlive the conversation
+ *   that caused it. Reading them is allowed, so an agent can still tell the
+ *   user what to paste.
+ * - `reviewWarmingByProject` is keyed by absolute host path. A key that does
+ *   not match an existing project silently does nothing, which is a bad thing
+ *   for a tool to be able to write.
+ *
+ * The operator settings are closed too. They configure the machine, not the
+ * workspace, and two of them can stop the host talking to anything: a wrong
+ * text-generation model breaks every summary, a wrong collector silently drops
+ * telemetry.
  */
-export const HOST_CONFIG_AGENT_WRITABLE = {
-  solusTools: false,
-  themeMode: true,
-  voiceModeEnabled: true,
-  autoSendVoiceTranscripts: true,
-  vadSilenceMs: true,
-  defaultEditor: true,
-  fallbackTerminal: true,
-  activeAgent: true,
-  defaultPermissionMode: false,
-  notifications: true,
-  modelRouting: true,
-  defaultModels: true,
-  reviewAgent: true,
-  reviewModel: true,
-  reviewReasoning: true,
-  reviewGuideInstructions: false,
-  stackedPrsEnabled: true,
-  generatePrGuidesOnOpen: true,
-  reviewWarmingByProject: false,
-  responseStreamingMode: true,
-  rateLimitBehavior: true,
-  autoRenameSessions: true,
-  showDiffSummaryAfterTurn: true,
-  collapseComposerWhenIdle: true,
-  fontFamily: true,
-  fontSize: true,
-  codeFontFamily: true,
-  codeFontSize: true,
-  documentFontFamily: true,
-  documentFontSize: true,
-  extraInstructions: false,
-  modelInstructions: false,
-  analyticsEnabled: false,
-  tabGroupMode: true,
-  archivedAutomationRetentionDays: false,
-  sidebarCompletedRetentionDays: true,
-  // Operator settings. These configure the machine, not the workspace, and two
-  // of them can stop the host talking to anything: a wrong text-generation
-  // model breaks every summary, a wrong collector silently drops telemetry.
-  agentTaskLifecyclePolicy: false,
-  otel: false,
-  textGenerationModel: false,
-  sourceControlWriterModel: false,
-  sourceControlWriting: false,
-} as const satisfies Record<keyof HostConfig, boolean>
+interface HostConfigField<Value, Patch> {
+  patch: z.ZodType<Patch, unknown>
+  default: Value
+  agentWritable: boolean
+}
+
+type HostConfigFieldTable = { [K in keyof HostConfig]: HostConfigField<HostConfig[K], unknown> }
+
+function field<const Value, Patch>(
+  patch: z.ZodType<Patch, unknown>,
+  defaultValue: Value,
+  agentWritable: boolean,
+): HostConfigField<Value, Patch> {
+  return { patch, default: defaultValue, agentWritable }
+}
+
+export const HOST_CONFIG_FIELDS = {
+  solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()), {}, false),
+  themeMode: field(z.enum(['system', 'light', 'dark']).catch('system'), 'system', true),
+  voiceModeEnabled: field(z.boolean().catch(false), false, true),
+  autoSendVoiceTranscripts: field(z.boolean().catch(false), false, true),
+  vadSilenceMs: field(z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500), 1500, true),
+  defaultEditor: field(z.enum(EDITOR_IDS).nullable().catch(null), 'vim', true),
+  fallbackTerminal: field(z.enum(TERMINAL_APP_IDS).nullable().catch(null), 'default-terminal', true),
+  activeAgent: field(z.enum(AGENT_IDS).catch('claude-code'), 'claude-code', true),
+  defaultPermissionMode: field(z.enum(['ask', 'auto', 'plan']).catch('auto'), 'auto', false),
+  notifications: field(notificationPreferencesPatchSchema.catch({}), DEFAULT_NOTIFICATION_PREFERENCES, true),
+  modelRouting: field(modelRoutingSchema.catch(DEFAULT_MODEL_ROUTING), DEFAULT_MODEL_ROUTING, true),
+  defaultModels: field(z.record(z.string(), z.string()).catch({}), {}, true),
+  reviewAgent: field(z.enum(AGENT_IDS).catch(DEFAULT_REVIEW_AGENT), DEFAULT_REVIEW_AGENT, true),
+  reviewModel: field(z.string().catch(DEFAULT_REVIEW_MODEL), DEFAULT_REVIEW_MODEL, true),
+  reviewReasoning: field(z.enum(REASONING_EFFORTS).catch(DEFAULT_REVIEW_REASONING), DEFAULT_REVIEW_REASONING, true),
+  reviewGuideInstructions: field(z.string().max(20_000).catch(''), '', false),
+  generatePrGuidesOnOpen: field(z.boolean().catch(false), false, true),
+  reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}, false),
+  responseStreamingMode: field(z.enum(['buffered', 'paragraph']).catch('paragraph'), 'paragraph', true),
+  rateLimitBehavior: field(z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'), 'ask', true),
+  autoRenameSessions: field(z.boolean().catch(true), true, true),
+  tasksEnabled: field(z.boolean().catch(true), true, true),
+  showDiffSummaryAfterTurn: field(z.boolean().catch(true), true, true),
+  collapseComposerWhenIdle: field(z.boolean().catch(true), true, true),
+  fontFamily: field(fontFamilyPreferenceSchema.catch('inter'), 'inter', true),
+  fontSize: field(z.number().min(8).max(32).catch(16), 16, true),
+  codeFontFamily: field(fontFamilyPreferenceSchema.catch('jetbrains-mono'), 'jetbrains-mono', true),
+  codeFontSize: field(z.number().min(8).max(32).catch(12), 12, true),
+  documentFontFamily: field(fontFamilyPreferenceSchema.catch('solus'), 'solus', true),
+  documentFontSize: field(z.number().min(12).max(40).catch(16), 16, true),
+  promptFontFamily: field(fontFamilyPreferenceSchema.catch('interface'), 'interface', true),
+  promptFontSize: field(z.number().min(8).max(32).catch(13), 13, true),
+  fontSmoothing: field(z.boolean().catch(true), true, true),
+  // Bounded because it is added to each agent run: an accidental paste of a
+  // whole file would silently eat the context window.
+  extraInstructions: field(z.string().max(20_000).catch(''), '', false),
+  modelInstructions: field(z.record(z.string(), z.string().max(20_000)).catch({}), {}, false),
+  analyticsEnabled: field(z.boolean().catch(true), true, false),
+  tabGroupMode: field(z.enum(TAB_GROUP_MODES).catch('flat'), 'flat', true),
+  archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30, false),
+  sidebarCompletedRetentionDays: field(
+    z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
+    DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
+    true,
+  ),
+  sidebarMotionMs: field(
+    z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS).catch(DEFAULT_SIDEBAR_MOTION_MS),
+    DEFAULT_SIDEBAR_MOTION_MS,
+    true,
+  ),
+  agentTaskLifecyclePolicy: field(z.enum(['none', 'moderate', 'autonomous']).catch('moderate'), 'moderate', false),
+  otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS, false),
+  textGenerationModel: field(
+    modelSelectionSchema,
+    { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
+    false,
+  ),
+  sourceControlWriterModel: field(modelSelectionSchema.nullable(), null, false),
+  sourceControlWriting: field(sourceControlWritingPatchSchema.catch({}), DEFAULT_SOURCE_CONTROL_WRITING, false),
+} satisfies HostConfigFieldTable
+
+export type HostConfigKey = keyof typeof HOST_CONFIG_FIELDS
+
+export function isHostConfigKey(key: string): key is HostConfigKey {
+  return Object.hasOwn(HOST_CONFIG_FIELDS, key)
+}
+
+export const HOST_CONFIG_KEYS: readonly HostConfigKey[] = Object.keys(HOST_CONFIG_FIELDS).filter(isHostConfigKey)
+
+type HostConfigColumn<Column extends keyof HostConfigField<unknown, unknown>> = {
+  [K in HostConfigKey]: (typeof HOST_CONFIG_FIELDS)[K][Column]
+}
+
+/** One column of the table, read out as an object keyed like the table. */
+function column<Column extends keyof HostConfigField<unknown, unknown>>(name: Column): HostConfigColumn<Column> {
+  // SAFETY: every `HostConfigKey` contributes one entry, so the result has exactly the table's keys.
+  return Object.fromEntries(HOST_CONFIG_KEYS.map((key) => [key, HOST_CONFIG_FIELDS[key][name]])) as HostConfigColumn<Column>
+}
+
+export const hostConfigPatchSchema = z.object(column('patch')).partial().strip()
+
+export type HostConfigPatch = z.infer<typeof hostConfigPatchSchema>
+
+export const DEFAULT_HOST_CONFIG: HostConfig = column('default')
+
+export const HOST_CONFIG_AGENT_WRITABLE: Record<HostConfigKey, boolean> = column('agentWritable')
 
 /**
  * Never sent to an agent in any form. `otel.headers` carries the credentials

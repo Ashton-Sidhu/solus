@@ -121,6 +121,6 @@ describe('text-generation model resolution', () => {
     const output = JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('\n{') + 1)) as {
       effective: { provider: string; model: string }
     }
-    expect(output.effective).toEqual({ provider: 'codex', model: 'gpt-5.6-luna' })
+    expect(output.effective).toEqual({ provider: 'codex', model: 'gpt-6-luna' })
   })
 })

@@ -1,4 +1,4 @@
-import { format } from 'sql-formatter'
+import { formatDialect, sqlite } from 'sql-formatter'
 
 /**
  * Make agent-generated SQL readable before it enters the editor.
@@ -6,11 +6,14 @@ import { format } from 'sql-formatter'
  * Formatting is presentation only. If the formatter does not understand a
  * SQLite construct that the host accepted, keep the original statement so a
  * cosmetic step never prevents the query from running.
+ *
+ * `formatDialect` with the one dialect Insights runs keeps the other database
+ * dialects out of the bundle; `format` pulls in every dialect it can name.
  */
 export function formatGeneratedSql(sql: string): string {
   try {
-    return format(sql, {
-      language: 'sqlite',
+    return formatDialect(sql, {
+      dialect: sqlite,
       keywordCase: 'lower',
       tabWidth: 2,
     }).trim()

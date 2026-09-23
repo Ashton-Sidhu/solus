@@ -7,11 +7,11 @@ import Icon from "@iconify/svelte";
    * host stage.
    */
   import { localApi } from "@solus/client-core/local-api";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { ExternalLink as ArrowSquareOutIcon, Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { connectionsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
+  import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
 
   interface Props {
@@ -21,7 +21,7 @@ import Icon from "@iconify/svelte";
   let { delay = 0 }: Props = $props();
 
   const session = getWorkspaceContext();
-  const serverId = serverConnections.defaultServerId();
+  const serverId = store.serverId;
 
   let copiedDeviceCode = $state(false);
 

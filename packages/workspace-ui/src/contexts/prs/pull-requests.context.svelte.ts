@@ -11,7 +11,6 @@ import { PrGuidesStore } from './pr-guides.store.svelte'
 import { PrNeedsReviewStore } from './pr-needs-review.store.svelte'
 import { PrView } from './pr-view.svelte'
 import { PrsStore } from './prs.store.svelte'
-import { StacksStore } from './stacks.store.svelte'
 
 export class PullRequestsContext {
   readonly projects = new PrsStore()
@@ -19,7 +18,6 @@ export class PullRequestsContext {
   readonly guides = new PrGuidesStore(this.projects)
   readonly checks = new PrChecksStore()
   readonly needsReview = new PrNeedsReviewStore(this.projects)
-  readonly stacks = new StacksStore()
 }
 
 export const [getPullRequestsContext, setPullRequestsContext] =

@@ -9,6 +9,7 @@ import type { WorksStore } from '../works/works.store.svelte'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
+import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
 import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
@@ -18,6 +19,7 @@ import type { NotificationSoundTrigger } from '@solus/contracts/notification-typ
 
 export interface SessionEventReducerDeps {
   registry: TabRegistry
+  sessions: SessionRecords
   settings: SettingsContext
   planStore: PlanStore
   worksStore: WorksStore
@@ -31,7 +33,7 @@ export interface SessionEventReducerDeps {
   publishSessionViewed(sessionId: string): void
   addChangedFilesFromMessage(sessionId: string, message: Message): void
   refreshTurnSnapshots(sessionId: string): void
-  setGitStatus(cwd: string, status: GitState | null): void
+  setGitStatus(serverId: string, cwd: string, status: GitState | null): void
   playNotificationIfHidden(sessionId: string, trigger: NotificationSoundTrigger): void
   closePlanModal(): void
   onTurnSettled(sessionId: string, cwd: string | null): void
@@ -108,7 +110,7 @@ export class SessionEventReducer {
   }
 
   apply(sessionId: string, event: WireNormalizedEvent): void {
-    const session = this.deps.registry.sessions[sessionId]
+    const session = this.deps.sessions.byId[sessionId]
     if (!session) return
 
     if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared'].includes(event.type)) {
@@ -272,6 +274,7 @@ export class SessionEventReducer {
           session.run.provider ?? this.deps.settings.activeAgent,
           event.toolId,
         )
+        if (event.toolInput) this.deps.workStreamTracker.updateStreamingArtifact(session, event.toolName, event.toolInput, event.toolId)
         break
       }
 
@@ -616,11 +619,7 @@ export class SessionEventReducer {
       case 'git_status':
         // Pushed live from the main-process git watcher — lands in the same
         // store the environment views already read by cwd.
-        this.deps.setGitStatus(event.cwd, event.state)
-        break
-
-      case 'checkpoint':
-        session.latestCheckpointId = event.checkpointId
+        this.deps.setGitStatus(session.run.serverId, event.cwd, event.state)
         break
 
       case 'user_message': {
@@ -821,7 +820,7 @@ export class SessionEventReducer {
       }
 
       case 'work_updated': {
-        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.docType, event.content, event.updatedAt, session.run.serverId)
+        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, session.run.serverId)
         this.deps.workStreamTracker.updateArtifact(session, event)
         break
       }
@@ -903,7 +902,7 @@ export class SessionEventReducer {
    */
   interruptSession(sessionId: string, opts: { notice?: boolean } = {}): void {
     const { notice = true } = opts
-    const session = this.deps.registry.sessions[sessionId]
+    const session = this.deps.sessions.byId[sessionId]
     if (!session) return
     this.deps.workStreamTracker.sweep(session)
     session.status = 'interrupted'
@@ -927,7 +926,7 @@ export class SessionEventReducer {
   }
 
   handleError(sessionId: string, error: EnrichedError): void {
-    const session = this.deps.registry.sessions[sessionId]
+    const session = this.deps.sessions.byId[sessionId]
     if (!session) return
     if (session.status === 'interrupted') return
 

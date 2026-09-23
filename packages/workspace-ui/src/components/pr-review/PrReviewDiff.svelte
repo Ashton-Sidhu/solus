@@ -7,11 +7,10 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
-  import StackDiffBanner from "./StackDiffBanner.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
 
   let { review, pr, reviewTabId, paneId, getCtx, getApi, projectPath, headless,
-    onClose, toggleFullDiff, clearCommitScope, diffPanelRef = $bindable(null),
+    onClose, clearCommitScope, diffPanelRef = $bindable(null),
   }: {
     review: PrReviewState;
     pr: PrReviewTarget;
@@ -22,7 +21,6 @@
     projectPath: string;
     headless: boolean;
     onClose: () => void;
-    toggleFullDiff: () => void;
     clearCommitScope: () => void;
     diffPanelRef?: DiffPanel | null;
   } = $props();
@@ -32,14 +30,7 @@
   const diffViewError = $derived(review.commitScope ? review.commitDiffError : review.diffError);
 </script>
 
-{#if !review.commitScope && review.ownDeltaBase}
-  <StackDiffBanner
-    parent={review.ownDeltaBase.parent}
-    fileCount={review.ownDeltaFileCount}
-    showingFull={review.showingFullDiff}
-    onToggle={toggleFullDiff}
-  />
-{:else if review.hasReviewCheckpointNotice && review.interdiff}
+{#if review.hasReviewCheckpointNotice && review.interdiff}
   <SinceReviewBar
     result={review.interdiff}
     showingSince={review.isSinceReviewMode}

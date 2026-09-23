@@ -6,7 +6,7 @@
     getClientShellContext,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import ProjectPanel from "../project-panel/ProjectPanel.svelte";
+  import { afterPaint } from "../../lib/after-paint";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import type { PaneId } from "../../contexts/workspace/routing/location";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
@@ -49,6 +49,10 @@
     closeLabel,
     body,
   }: Props = $props();
+
+  // Same deferred module `WorkspaceBody` loads for the leading rail. A static
+  // import here would put the panel back into the startup bundle.
+  const projectPanelComponent = afterPaint().then(() => import("../project-panel/ProjectPanel.svelte"));
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -102,12 +106,17 @@
     </div>
   </div>
 
-  <ProjectPanel
-    sourceId={tabId ?? draft?.id ?? ""}
-    isSplit
-    containerWidth={paneWidth}
-    workspaceWidth={shell.workAreaWidth}
-    active={surfaceVisible}
-    onCollapse={toggleRail}
-  />
+  {#await projectPanelComponent then module}
+    {@const ProjectPanel = module.default}
+    <ProjectPanel
+      sourceId={tabId ?? draft?.id ?? ""}
+      isSplit
+      containerWidth={paneWidth}
+      workspaceWidth={shell.workAreaWidth}
+      active={surfaceVisible}
+      onCollapse={toggleRail}
+    />
+  {:catch}
+    <p role="alert">Could not load this panel.</p>
+  {/await}
 </div>

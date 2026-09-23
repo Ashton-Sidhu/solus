@@ -36,7 +36,7 @@ export class StatusBarContext {
    *  ctx is a reading of the run alone, so a draft and a started session give
    *  the same answer without the caller knowing which it holds. */
   ctxForRun(run: RunConfig | undefined): StatusBarCtx {
-    const defaults = this._session?.globalDefaults
+    const defaults = this._session?.config.globalDefaults
     const effectiveAgent = run?.provider ?? this.settings.activeAgent
     const models = this._agent?.metadata[effectiveAgent]?.models ?? []
     const metaDefault = this._agent?.metadata[effectiveAgent]?.defaultModel ?? null
@@ -47,7 +47,7 @@ export class StatusBarContext {
       : metaDefault ?? models[0]?.id ?? ''
     const profile = MODEL_PROFILES[effectiveAgent]?.[model]
     return {
-      workingDirectory: run?.workingDirectory ?? defaults?.workingDirectory ?? '~',
+      workingDirectory: run?.workingDirectory ?? this._session?.defaultRunConfig.workingDirectory ?? '~',
       activeAgent: effectiveAgent,
       permissionMode: run?.permissionMode ?? defaults?.permissionMode ?? 'auto',
       model,

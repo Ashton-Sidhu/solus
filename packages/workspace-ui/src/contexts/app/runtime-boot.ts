@@ -25,7 +25,7 @@ export function refreshRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): void {
-  void afterPaint().then(() => session.initStaticInfo())
+  void afterPaint().then(() => session.lifecycle.initStaticInfo())
     .catch((error) => logConnectionReadError('static info initialization', error))
 
   void bootstrapRuntimeTabs(session)
@@ -51,7 +51,7 @@ export function initializeRuntime(
   // queued work survives a dead host and delivers on the next session.
   const stopPhases = serverConnections.onPhaseChange((serverId, phase) => {
     if (phase !== 'connected') return
-    void sendOutbox.drain(serverId, (record) => session.redeliverOutboxPrompt(serverId, record))
+    void sendOutbox.drain(serverId, (record) => session.dispatch.redeliverOutboxPrompt(serverId, record))
   })
 
   // Hosts skip watch-fired freshness work while no client is foregrounded.

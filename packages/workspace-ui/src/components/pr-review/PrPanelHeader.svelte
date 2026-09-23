@@ -17,7 +17,7 @@
    * branch are the same object in the same places.
    *
    * Slots, left to right and fixed at every width: the tab group, flexible
-   * space, the pull request's number, its primary action, the overflow, then
+   * space, the pull request's number, its actions (Review, Check out), the overflow, then
    * the pane controls. Nothing appears or disappears as the tab changes — only
    * the overflow's contents follow it. J and K still walk the list's order;
    * the band does not spend a slot saying where in it you are.
@@ -74,7 +74,7 @@
     headRef?: string;
     /** Map · Guide · Diff, pinned left. */
     tabs?: Snippet;
-    /** The surface's own primary action — Check out. */
+    /** The surface's own actions — Review and Check out. */
     actions?: Snippet;
   } = $props();
 </script>
@@ -94,8 +94,9 @@
      overflow and the ✕ — under the pane beside this one, where they cannot be
      reached. Beside a companion the band is legally ~40rem, and in full screen
      the traffic-light inset spends another ~6rem of it, so the widest slot
-     that can give does: under 40rem the Check out action keeps its glyph and
-     drops its label (see `checkoutButton` in PrReviewPane). The number never gives
+     that can give does: under 40rem the Review and Check out actions keep
+     their glyphs and drop their labels (see `reviewButton` and
+     `checkoutButton` in PrReviewPane). The number never gives
      — in this shape the band is the only place the pull request is named.
 
      ── The record rung (`@max-[30rem]/band`) ──

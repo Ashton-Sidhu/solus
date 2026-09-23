@@ -39,7 +39,7 @@ describe('the access map', () => {
     // unless it is a catalog read (listSessions, listWorks) or a creation.
     // `tasksPrepareForSession` mints a task before any session exists; the others list or create.
     const catalog = new Set(['listSessions', 'searchSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'worksCloudImport', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses'])
-    const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree)/i.test(method) && !catalog.has(method) && !RESOURCE_RPC_RULES.has(method))
+    const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !RESOURCE_RPC_RULES.has(method))
     expect(unclassified).toEqual([])
   })
 

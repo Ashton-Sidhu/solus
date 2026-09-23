@@ -10,6 +10,7 @@ import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/conn
  */
 
 export interface ConnectRequest {
+  accountConnectionsUrl?: string
   serverId: string
   sessionId: string
   provider: ConnectionProvider
@@ -40,6 +41,7 @@ export class ConnectRequestStore {
     return subscribeAllHosts('connection.connectNeeded', (serverId, event) => {
       this.request = {
         serverId,
+        accountConnectionsUrl: event.accountConnectionsUrl,
         sessionId: event.sessionId,
         provider: event.provider,
         reason: event.reason,

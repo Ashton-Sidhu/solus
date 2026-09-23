@@ -29,7 +29,7 @@ test.describe('Workspace page', () => {
     expect(await workspace.isOpen()).toBe(false)
   })
 
-  test('names the open project in the rail and lists it in the switcher menu', async ({ page }) => {
+  test('names the open project in the Filters menu and lists it in the project group', async ({ page }) => {
     const app = new AppPage(page)
     const workspace = new WorkspacePage(page)
     await app.waitForAppReady()
@@ -38,11 +38,11 @@ test.describe('Workspace page', () => {
     await workspace.waitForOpen()
 
     // Every ledger count is relative to the project scope, so the scope has to
-    // be named — and reachable — from the rail, not just implied.
-    await expect(workspace.projectSwitcher()).toBeVisible()
-    await workspace.projectSwitcher().click()
-    // One open project in the mock backend, so no "All projects" row.
-    await expect(page.getByRole('menuitemradio')).toHaveCount(1)
+    // be named — and reachable — from the Filters menu, not just implied.
+    await workspace.filtersMenu().click()
+    await expect(workspace.projectFilter()).toBeVisible()
+    await workspace.projectFilter().click()
+    await expect(page.getByRole('menuitem', { name: 'All projects' })).toBeVisible()
   })
 
   test('previews the artifact the pointer rests on, and nothing before it rests', async ({ page, electronApp }) => {

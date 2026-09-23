@@ -5,8 +5,9 @@ import { AsyncLocalStorage } from 'node:async_hooks'
  * (docs/plans/cloud-service-model.md §22). The scope is set once at the edge —
  * an RPC dispatch from its principal, an agent tool call from the turn's actor,
  * a task sync from the task's owner — and every accessor below it reads the
- * scoped person's credential. `null` means the host's own: the signed-out host,
- * the host's owner, and headless work nobody in particular asked for.
+ * scoped person's credential. `null` means explicit local mode: the signed-out
+ * host and headless work nobody in particular asked for. A signed-in desktop
+ * owner has their real account ID, captured before the operation starts.
  */
 
 interface CredentialScope {

@@ -2,7 +2,6 @@ import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, Sess
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import type { StaticInfo } from './workspace-lifecycle.store.svelte'
 import { isDispatch } from './run-config'
 
 export interface IpcContextBuilderDeps {
@@ -11,18 +10,8 @@ export interface IpcContextBuilderDeps {
   runFor(sourceId: string): RunConfig | undefined
   /** Whether a source id names a draft rather than a tab. */
   hasDraft(sourceId: string): boolean
-  globalDefaults: {
-    permissionMode: 'ask' | 'auto' | 'plan'
-    workingDirectory: string
-    gitContext: GitCheckout | null
-    modelConfig: {
-      modelId: string | null
-      reasoningEffort: SessionCtx['reasoningEffort']
-      contextWindow: number | null
-      fastMode: boolean
-    }
-  }
-  staticInfo(): StaticInfo | null
+  /** The run a source with none of its own stands on — `WorkspaceContext.defaultRunConfig`. */
+  defaultRunConfig(): RunConfig
   settings: SettingsContext
   statusBar: StatusBarContext
 }
@@ -61,20 +50,12 @@ export class IpcContextBuilder {
 
   sessionCtx(sourceId: string): SessionCtx {
     const session = this.deps.sessionFor(sourceId)
-    const globalDefaults = this.deps.globalDefaults
     // Where the work happens comes from the run — a started session's or a
-    // draft's — while everything below it describes a conversation and so only
-    // exists once one has started.
-    const run = this.deps.runFor(sourceId)
-    const staticInfo = run ? null : this.deps.staticInfo()
-    const workingDirectory = run
-      ? run.workingDirectory
-      : globalDefaults.workingDirectory
-        || staticInfo?.projectPath
-        || staticInfo?.workspacePath
-        || '~'
-    const modelConfig = run ? run.modelConfig : globalDefaults.modelConfig
-    const gitContext = run ? run.gitContext : globalDefaults.gitContext
+    // draft's, else the default one — while everything below it describes a
+    // conversation and so only exists once one has started.
+    const ownRun = this.deps.runFor(sourceId)
+    const run = ownRun ?? this.deps.defaultRunConfig()
+    const { workingDirectory, modelConfig, gitContext } = run
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
@@ -90,7 +71,7 @@ export class IpcContextBuilder {
 
     const context: SessionCtx = {
       sessionId: session?.id ?? '',
-      provider: run ? run.provider ?? null : null,
+      provider: ownRun?.provider ?? null,
       agentSessionId: session ? session.agentSessionId : null,
       handoffFrom: session?.handoffFrom,
       status: session ? session.status : 'idle',
@@ -101,16 +82,15 @@ export class IpcContextBuilder {
       reasoningEffort: modelConfig.reasoningEffort,
       contextWindow: modelConfig.contextWindow,
       fastMode: modelConfig.fastMode,
-      permissionMode: run ? run.permissionMode : globalDefaults.permissionMode,
+      permissionMode: run.permissionMode,
       gitContext: gitContext ? { ...gitContext } : null,
-      worktreeBaseBranch: run?.worktree?.baseBranch ?? null,
+      worktreeBaseBranch: run.worktree?.baseBranch ?? null,
       sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
       readOnlyReason: session ? session.readOnlyReason : null,
-      latestCheckpointId: session ? session.latestCheckpointId : null,
       title: session?.title ?? null,
       ...sessionExtras,
     }
-    if (run && isDispatch(run)) context.origin = 'dispatch'
+    if (ownRun && isDispatch(ownRun)) context.origin = 'dispatch'
     // A draft names itself so host-side per-conversation storage — attachment
     // uploads — has a bucket before a session id exists.
     if (!session && sourceId && this.deps.hasDraft(sourceId)) context.draftId = sourceId

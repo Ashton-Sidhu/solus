@@ -2,8 +2,10 @@ import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
   hostGrantResponseSchema,
+  managedHostStartResponseSchema,
   organizationDirectorySchema,
   type HostGrantResponse,
+  type ManagedHostLifecycle,
   type OrganizationDirectory,
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
@@ -46,6 +48,18 @@ export async function acquireHostGrant(client: CloudRequester, hostId: string): 
   if (!response?.ok) return null
   const parsed = hostGrantResponseSchema.safeParse(await response.json().catch(() => null))
   return parsed.success ? parsed.data : null
+}
+
+/** Start the organization's managed host; the lifecycle it is in afterwards, or
+ *  null when signed out, refused, or the website did not answer. */
+export async function startManagedHost(client: CloudRequester, hostId: string): Promise<ManagedHostLifecycle | null> {
+  const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
+  if (!response?.ok) {
+    log.info('managed_host_start_refused', { hostId, status: response?.status ?? null })
+    return null
+  }
+  const parsed = managedHostStartResponseSchema.safeParse(await response.json().catch(() => null))
+  return parsed.success ? parsed.data.lifecycle : null
 }
 
 /** The share dialog's people and teams; null when signed out, not a member, or the website did not answer. */

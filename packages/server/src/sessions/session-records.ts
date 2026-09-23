@@ -281,6 +281,7 @@ export function sessionRecordStatusOf(status: SessionStatus): SessionRecordStatu
       return 'interrupted'
     case 'idle':
     case 'completed':
+    case 'background':
     case 'failed':
     case 'dead':
       return 'idle'

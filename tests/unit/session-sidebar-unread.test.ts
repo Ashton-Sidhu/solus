@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
-import type { Tab } from '@solus/contracts/types'
+import type { Session, Tab } from '@solus/contracts/types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
@@ -8,6 +8,7 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'markTaskUnread' | 'acknowl
   catalogTasks: SidebarTask[]
   session: {
     tabs: Record<string, Tab>
+    sessions: { byId: Record<string, Session> }
     tasksStore: {
       peek: (taskId: string) => Task | null
       get: (taskId: string) => { markRead: (read: boolean) => Promise<Task> }
@@ -25,6 +26,7 @@ describe('session sidebar unread state', () => {
     const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
     store.catalogTasks = [sidebarTask(task.id, ['tab-a', 'tab-b'])]
     store.session = {
+      sessions: { byId: {} },
       tabs: {
         'tab-a': tab('tab-a'),
         'tab-b': tab('tab-b'),
@@ -50,6 +52,7 @@ describe('session sidebar unread state', () => {
     const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
     store.catalogTasks = [sidebarTask('root', ['child-tab'])]
     store.session = {
+      sessions: { byId: {} },
       tabs: { 'child-tab': tab('child-tab') },
       tasksStore: {
         peek: () => child,
@@ -74,6 +77,7 @@ describe('session sidebar unread state', () => {
     const row = sidebarTask('root', ['child-tab'])
     store.catalogTasks = [row]
     store.session = {
+      sessions: { byId: {} },
       tabs: {},
       tasksStore: {
         peek: () => child,
@@ -111,6 +115,7 @@ function sidebarTask(taskId: string, tabIds: string[]): SidebarTask {
   return {
     id: taskId,
     taskId,
+    listKey: taskId,
     key: taskId,
     title: taskId,
     projectKey: '/repo',
@@ -122,7 +127,6 @@ function sidebarTask(taskId: string, tabIds: string[]): SidebarTask {
     attention: null,
     unread: false,
     createdAt: 0,
-    activityAt: 0,
     runStartedAt: 0,
     lifecycle: 'active',
     completedAt: 0,

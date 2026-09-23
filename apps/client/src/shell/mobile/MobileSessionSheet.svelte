@@ -2,6 +2,7 @@
   import { onMount, untrack } from "svelte";
   import {
     Check as CheckIcon,
+    ChevronRight as ChevronRightIcon,
     Minus as MinusIcon,
     Plus as PlusIcon,
     Search as MagnifyingGlassIcon,
@@ -93,11 +94,15 @@
 
   let open = $state(false);
   let query = $state("");
+  let showLegacy = $state(false);
   let triggerEl: HTMLButtonElement | undefined = $state();
 
   const groups = $derived(
     filterModelGroups(groupModels(ctx.activeAgent, models, selectedModelId), query),
   );
+  // A filter is a request for every match, so it opens the section for as long
+  // as it is on: a model you typed the name of must not stay hidden.
+  const legacyExpanded = $derived(showLegacy || query.trim().length > 0);
 
   registerBackOverlay("mobile-session-sheet", () => open, () => (open = false));
 
@@ -108,6 +113,7 @@
 
   function close() {
     open = false;
+    showLegacy = false;
   }
 
   function selectModel(modelId: string) {
@@ -125,7 +131,7 @@
   // The agent decides which models exist, so the sheet stays open on a switch:
   // the list under this control is the next thing you were going to read.
   function selectAgent(agentId: AgentId) {
-    session.switchActiveAgent(agentId, composerSourceId);
+    session.config.switchActiveAgent(agentId, composerSourceId);
   }
 
   function selectPermissionMode(mode: "ask" | "auto" | "plan") {
@@ -227,7 +233,26 @@
     <div class="flex flex-col gap-4 px-4 pb-1 text-sm">
       {#each groups as group (group.label)}
         <div class="flex flex-col gap-2">
-          <span class={SHEET_SECTION_LABEL}>{group.label}</span>
+          {#if group.isLegacy}
+            <!-- The heading is the disclosure: a thumb-sized row, so reaching a
+                 superseded model is one tap rather than a trip to Settings. -->
+            <button
+              type="button"
+              class="flex min-h-11 w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left [-webkit-tap-highlight-color:transparent]"
+              aria-expanded={legacyExpanded}
+              onclick={() => (showLegacy = !showLegacy)}
+            >
+              <span class={SHEET_SECTION_LABEL}>{group.label}</span>
+              <span class={SHEET_SECTION_LABEL}>{group.models.length}</span>
+              <ChevronRightIcon
+                size={13}
+                class="shrink-0 text-(--muted-foreground) transition-transform duration-150 {legacyExpanded ? 'rotate-90' : ''}"
+              />
+            </button>
+          {:else}
+            <span class={SHEET_SECTION_LABEL}>{group.label}</span>
+          {/if}
+          {#if !group.isLegacy || legacyExpanded}
           <div class={SHEET_CARD}>
             {#each group.models as model, index (model.id)}
               {@const isSelected = model.id === selectedModelId}
@@ -256,6 +281,7 @@
               </button>
             {/each}
           </div>
+          {/if}
         </div>
       {/each}
 

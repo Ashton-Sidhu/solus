@@ -1,3 +1,5 @@
+import { usesAccountIntegration } from '../vault/provider-credentials'
+import { accountConnectionsUrl } from '../vault/account-integrations'
 import { z } from 'zod'
 import {
   CONNECTION_LABELS,
@@ -53,7 +55,7 @@ async function atlassianState(): Promise<ConnectionState> {
   if (credential) {
     return { connected: true, source: 'stored', account: credential.siteName ?? credential.siteUrl }
   }
-  if (!isAtlassianOAuthConfigured()) {
+  if (!usesAccountIntegration() && !isAtlassianOAuthConfigured()) {
     return { connected: false, unavailableReason: 'This build ships no Atlassian OAuth client.' }
   }
   return { connected: false }
@@ -147,7 +149,11 @@ export const connectionStatusAgentTool: AgentTool = {
       }
     }
 
-    const state = await PROVIDER_STATE[target.provider]()
+    const accountUrl = target.provider !== 'cloudflare' && usesAccountIntegration() ? accountConnectionsUrl() : null
+    const state = await PROVIDER_STATE[target.provider]().catch((error) => {
+      if (accountUrl) return { connected: false }
+      throw error
+    })
     if (state.connected) {
       return { ok: true, text: JSON.stringify({ provider: target.provider, ...state }) }
     }
@@ -166,7 +172,9 @@ export const connectionStatusAgentTool: AgentTool = {
     // put it and simply reports the gap.
     const sessionId = context.solusSessionId()
     if (sessionId) {
-      notifyConnectNeeded?.({ provider: target.provider, reason: target.reason, sessionId })
+      const request: ConnectionConnectNeeded = { provider: target.provider, reason: target.reason, sessionId }
+      if (accountUrl) request.accountConnectionsUrl = accountUrl
+      notifyConnectNeeded?.(request)
     }
     return {
       ok: true,

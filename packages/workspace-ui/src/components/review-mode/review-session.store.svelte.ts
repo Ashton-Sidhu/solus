@@ -1,12 +1,10 @@
 import type { PendingDisposition } from '@solus/contracts/review-session-types'
-import type { StackGraph } from '@solus/contracts/stack-types'
 import {
   ReviewSessionCore,
   type DispositionPoster,
   type PostableReviewOutcome,
   type ReviewSessionCoreState,
 } from './lib/review-session-core'
-import { orderReviewQueue, type ReviewQueueItem } from './lib/review-queue-order'
 
 export interface ReviewVisibilitySource {
   readonly hidden: boolean
@@ -15,10 +13,12 @@ export interface ReviewVisibilitySource {
 }
 
 export interface StartReviewSessionOptions {
-  items: ReviewQueueItem[]
-  stackGraph: StackGraph | null
+  /** Pull request numbers in queue order. */
+  numbers: number[]
   poster: DispositionPoster
-  minutesFor: (prNumber: number) => number | undefined
+  /** Called when a pull request becomes the current entry, by any command:
+   *  start, a visit, a step, or a disposition that advances the queue. */
+  onEnter?: (prNumber: number) => void
   now?: () => number
   visibilitySource?: ReviewVisibilitySource | null
 }
@@ -28,8 +28,8 @@ export class ReviewSessionStore {
   state = $state<ReviewSessionCoreState | null>(null)
 
   private core: ReviewSessionCore | null = null
-  private minutesFor: (prNumber: number) => number | undefined = () => undefined
   private now: () => number = Date.now
+  private onEnter: (prNumber: number) => void = () => {}
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private visibilitySource: ReviewVisibilitySource | null = null
 
@@ -44,37 +44,13 @@ export class ReviewSessionStore {
     return `${visiblePosition}/${this.state.entries.length}`
   }
 
-  get totalMinutes(): number | null {
-    if (!this.state) return 0
-    let total = 0
-    for (const entry of this.state.entries) {
-      const minutes = this.minutesFor(entry.prNumber)
-      if (minutes === undefined) return null
-      total += minutes
-    }
-    return total
-  }
-
-  get remainingMinutes(): number | null {
-    if (!this.state) return 0
-    let remaining = 0
-    for (const entry of this.state.entries) {
-      if (entry.outcome === null && !this.pendingFor(entry.prNumber)) {
-        const minutes = this.minutesFor(entry.prNumber)
-        if (minutes === undefined) return null
-        remaining += minutes
-      }
-    }
-    return remaining
-  }
-
   start(options: StartReviewSessionOptions): void {
     this.detach()
+    this.state = null
     this.now = options.now ?? Date.now
-    this.minutesFor = options.minutesFor
+    this.onEnter = options.onEnter ?? (() => {})
     this.core = new ReviewSessionCore(options.poster, this.now)
-    const ordered = orderReviewQueue(options.items, options.stackGraph)
-    this.core.start(ordered.map((item) => item.number), this.now())
+    this.core.start(options.numbers, this.now())
 
     this.sync()
 
@@ -185,7 +161,16 @@ export class ReviewSessionStore {
     }, delay)
   }
 
+  /** Every command ends here, so this is the one place the current entry can
+   *  change — and so the one place to announce it. */
   private sync(): void {
+    const before = this.currentEntry?.prNumber ?? null
+    this.copyCoreState()
+    const after = this.currentEntry?.prNumber ?? null
+    if (after !== null && after !== before) this.onEnter(after)
+  }
+
+  private copyCoreState(): void {
     const source = this.core?.state ?? null
     if (!source) {
       this.state = null

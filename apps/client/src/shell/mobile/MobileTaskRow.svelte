@@ -19,6 +19,9 @@
 
   interface Props {
     task: SidebarTask;
+    /** When the row last did anything. Passed per row, not carried on the row
+     *  model, so a streamed message updates this row and no other. */
+    activityAt: number;
     /** True while the session on screen belongs to this task. */
     active: boolean;
     sessionCount: number;
@@ -29,7 +32,7 @@
     /** Only snoozed rows offer it — the row's visible twin of the swipe. */
     onWake?: () => void;
   }
-  let { task, active, sessionCount, reviewStatus, now, onOpen, onWake }: Props = $props();
+  let { task, activityAt, active, sessionCount, reviewStatus, now, onOpen, onWake }: Props = $props();
 
   const state = $derived(mobileTaskState(task));
   const isRunning = $derived(task.lifecycle === "active" && task.status === "running");
@@ -42,7 +45,7 @@
   const timestamp = $derived(
     isRunning || task.lifecycle === "snoozed"
       ? ""
-      : mobileRowTimestamp(task.activityAt, now),
+      : mobileRowTimestamp(activityAt, now),
   );
   const runs = $derived(mobileSessionCount(sessionCount));
   // A completed row keeps its title, at a lower ink: the work is done, not gone.

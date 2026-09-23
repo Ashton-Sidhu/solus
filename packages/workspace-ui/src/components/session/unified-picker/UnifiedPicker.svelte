@@ -142,7 +142,7 @@
   // answered with everyone else's work. `currentProject` is the same rule the
   // sidebar uses to decide what project a draft belongs to.
   const currentProjectKey = $derived(sidebarStore.currentProject?.projectKey ?? null);
-  const scopeProjectKey = $derived(resolvePickerScope(session.pickerScope, currentProjectKey));
+  const scopeProjectKey = $derived(resolvePickerScope(session.ui.pickerScope, currentProjectKey));
   const projectChoices = $derived(sidebarStore.pickerProjectChoices);
   const scopeProject = $derived(
     projectChoices.find((choice) => choice.projectKey === scopeProjectKey) ?? null,
@@ -164,7 +164,7 @@
       tasks, query, sessionsFor, expandedTaskIds,
       resultType: session.ui.pickerResultType,
       projectKey: scopeProjectKey,
-      sort: session.pickerSort,
+      sort: session.ui.pickerSort,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       snoozedTaskIds: new Set(sidebarStore.snoozedTasks.flatMap((row) => row.taskId ?? [])),
       conversations: conversationHits,
@@ -290,7 +290,7 @@
   // match names only, and a section of passages would contradict that choice.
   $effect(() => {
     if (!open) return;
-    if (session.pickerSearchMode === "keywords" || session.ui.pickerResultType === "tasks") conversationSearch.reset();
+    if (session.ui.pickerSearchMode === "keywords" || session.ui.pickerResultType === "tasks") conversationSearch.reset();
     else conversationSearch.search(query, scopeProjectKey);
   });
 
@@ -345,14 +345,14 @@
    *  so every mounted picker reads the same choice. Both re-run the list, so
    *  the cursor returns to the top of what is now the best row. */
   function chooseSort(sort: PickerSort): void {
-    session.pickerSort = sort;
+    session.ui.pickerSort = sort;
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
   }
 
   function chooseSearchMode(mode: PickerSearchMode): void {
-    session.pickerSearchMode = mode;
+    session.ui.pickerSearchMode = mode;
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
@@ -362,7 +362,7 @@
    *  every other mounted picker. Landing back on the composer's own project
    *  resumes following it rather than pinning it — see `scopeForChoice`. */
   function chooseProject(projectKey: string | null): void {
-    session.pickerScope = scopeForChoice(projectKey, currentProjectKey);
+    session.ui.pickerScope = scopeForChoice(projectKey, currentProjectKey);
     scopeMenuOpen = false;
     selectedKey = null;
     void scrollSelectionIntoView();
@@ -386,13 +386,13 @@
 
   function startDraft(task: Task): void {
     close();
-    void session.openTaskSession(task);
+    void session.opening.openTaskSession(task);
   }
 
   /** ⏎ on a conversation: resume it where it ran, task or no task. */
   function resumeConversation(meta: SessionMeta): void {
     close();
-    session.resumeSession(meta).catch((error) => {
+    session.opening.resumeSession(meta).catch((error) => {
       toasts.error("Couldn't resume session", {
         description: error instanceof Error ? error.message : String(error),
       });
@@ -449,7 +449,7 @@
 
   function resumeTask(task: Task): void {
     close();
-    void session.openTaskLinkedSession(task);
+    void session.opening.openTaskLinkedSession(task);
   }
 
   function openSourceTicket(task: Task): void {
@@ -724,7 +724,6 @@
            a long folder name cannot push the search field off the row. -->
       <div class="max-w-56 shrink-0 max-md:max-w-36">
         <ListProjectSwitcher
-          variant="crumb"
           projects={projectOptions}
           activeKey={scopeProjectKey ?? undefined}
           emptyLabel="All projects"
@@ -763,8 +762,8 @@
       bind:open={resultMenuOpen}
     />
     <PickerSearchOptions
-      sort={session.pickerSort}
-      mode={session.pickerSearchMode}
+      sort={session.ui.pickerSort}
+      mode={session.ui.pickerSearchMode}
       onSort={chooseSort}
       onMode={chooseSearchMode}
       portalTarget={layer.el}
@@ -964,7 +963,7 @@
     showSplit
     rowActions={{
       onStop: menuSession.attention === "running" && menuSession.tabId
-        ? () => session.interruptTabSession(menuSession.tabId!)
+        ? () => session.controls.interruptTabSession(menuSession.tabId!)
         : undefined,
     }}
     portalTarget={layer.el}

@@ -1,55 +1,37 @@
 import { describe, expect, test } from 'bun:test'
-import { connectionSectionDescription } from '../../packages/workspace-ui/src/components/seats/lib/connection-copy'
 import { cloudConnectionsPointerUrl } from '../../packages/workspace-ui/src/components/seats/lib/cloud-connections'
 import type { HostIdentity } from '../../packages/workspace-ui/src/contexts/sharing/shares.store.svelte'
 
-// docs/plans/cloud-service-model.md: a person connects GitHub, Google, and Atlassian
-// once, in Solus cloud; every runner of the organization uses them for that person's
-// turns. A runner linked to an organization points a member there, so they never
-// overwrite the host's own connections.
+// docs/plans/cloud-service-model.md §26: the owner of a personal host connects GitHub,
+// Google, and Atlassian on that host, signed in or not. Account connections in Solus
+// cloud are for cloud-managed hosts and for members, so a member never overwrites
+// the host's own connections. The workspace service itself is never a settings host
+// (§15), so there is no cloud row to ask.
 
 const directoryUrl = 'https://app.solus.sh/'
 const member: HostIdentity = { principal: 'org-member', userId: 'u1', organizationId: 'org 1' }
 
-describe('the provider sections on a cloud row', () => {
-  test('say the connection is the person’s own and every runner uses it', () => {
-    for (const provider of ['github', 'google', 'atlassian'] as const) {
-      const line = connectionSectionDescription(provider, true)
-      expect(line).toMatch(/your own/i)
-      expect(line).toMatch(/every runner uses it/i)
-    }
-    expect(connectionSectionDescription('github', true)).toContain('GitHub')
-    expect(connectionSectionDescription('google', true)).toContain('Google')
-    expect(connectionSectionDescription('atlassian', true)).toContain('Atlassian')
-  })
-
-  test('stay silent on a machine host, as before', () => {
-    expect(connectionSectionDescription('github', false)).toBeUndefined()
-  })
-})
-
 describe('where a host row keeps a person’s connections', () => {
-  test('a cloud row shows the sections itself, whoever the person is', () => {
-    expect(cloudConnectionsPointerUrl({ isCloudHost: true, identity: member, directoryUrl })).toBeNull()
+  test('an account-authenticated runner points directly to the account page', () => {
+    expect(cloudConnectionsPointerUrl({ identity: member, directoryUrl })).toBe('https://app.solus.sh/connections')
   })
 
-  test('a runner linked to an organization points a member at the cloud page', () => {
-    // WHY: the member's connection must not overwrite the host's own; the row
-    // links to the page shell route the client bundle parses.
-    expect(cloudConnectionsPointerUrl({ isCloudHost: false, identity: member, directoryUrl }))
-      .toBe('https://app.solus.sh/app/#/w/org%201/connections')
+  test('a cloud-managed host answer points to the account page even when absent from the directory', () => {
+    const identity: HostIdentity = { principal: 'remote-owner', userId: 'alice', organizationId: null, accountConnectionsUrl: 'https://account.example/connections' }
+    expect(cloudConnectionsPointerUrl({ identity, directoryUrl: undefined })).toBe(identity.accountConnectionsUrl!)
   })
 
-  test('the owner, a guest, and a signed-out client keep the host’s sections', () => {
-    for (const principal of ['local-owner', 'remote-owner', 'guest'] as const) {
-      const identity: HostIdentity = { principal, userId: null, organizationId: 'org 1' }
-      expect(cloudConnectionsPointerUrl({ isCloudHost: false, identity, directoryUrl })).toBeNull()
+  test('a signed-out local client and an anonymous guest do not get account integration controls', () => {
+    for (const principal of ['local-owner', 'guest'] as const) {
+      const identity: HostIdentity = { principal, userId: null, organizationId: null }
+      expect(cloudConnectionsPointerUrl({ identity, directoryUrl })).toBeNull()
     }
-    expect(cloudConnectionsPointerUrl({ isCloudHost: false, identity: undefined, directoryUrl })).toBeNull()
+    expect(cloudConnectionsPointerUrl({ identity: undefined, directoryUrl })).toBeNull()
   })
 
-  test('a member with no organization or no account origin has no page to open', () => {
-    expect(cloudConnectionsPointerUrl({ isCloudHost: false, identity: { ...member, organizationId: null }, directoryUrl })).toBeNull()
-    expect(cloudConnectionsPointerUrl({ isCloudHost: false, identity: member, directoryUrl: undefined })).toBeNull()
+  test('the owner of a linked personal host keeps the host sections', () => {
+    const identity: HostIdentity = { principal: 'remote-owner', userId: 'alice', organizationId: null }
+    expect(cloudConnectionsPointerUrl({ identity, directoryUrl })).toBeNull()
+    expect(cloudConnectionsPointerUrl({ identity: member, directoryUrl: undefined })).toBeNull()
   })
 })

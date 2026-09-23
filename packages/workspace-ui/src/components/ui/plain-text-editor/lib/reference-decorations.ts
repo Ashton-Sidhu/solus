@@ -11,7 +11,7 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view";
-import { getFileIconPath, FILE_ICON_VIEWBOX } from "../../../editor/fileIcons";
+import { getFileIconPath, FILE_ICON_VIEWBOX, FOLDER_ICON_PATH } from "../../../editor/fileIcons";
 import {
   extractTrackedReferences,
   parseReferenceTokens,
@@ -21,7 +21,6 @@ import {
   type ReferenceTokenRange,
 } from "../../../editor/reference-tokens";
 import {
-  linkTokenClassName,
   tokenClassName,
   TOKEN_ICONS,
   type SvgSpec,
@@ -79,7 +78,10 @@ function appendTokenIcon(parent: HTMLElement, token: ReferenceToken): void {
     svg.setAttribute("viewBox", FILE_ICON_VIEWBOX);
     svg.setAttribute("fill", "currentColor");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", getFileIconPath(token.path));
+    path.setAttribute(
+      "d",
+      token.path.endsWith("/") ? FOLDER_ICON_PATH : getFileIconPath(token.path),
+    );
     svg.appendChild(path);
     icon.appendChild(svg);
   } else if (token.kind !== "slash") {
@@ -102,9 +104,7 @@ function tokenVariant(token: ReferenceToken): TokenVariant {
 }
 
 export function referenceTokenClassName(token: ReferenceToken): string {
-  return token.kind === "slash"
-    ? tokenClassName("slash", true)
-    : linkTokenClassName(tokenVariant(token));
+  return tokenClassName(tokenVariant(token), token.kind === "slash");
 }
 
 function tokenLabel(token: ReferenceToken): string {

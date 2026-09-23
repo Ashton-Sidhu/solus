@@ -15,6 +15,7 @@ function attentionForStatus(status: SessionStatus): AttentionState {
   if (status === 'rate_limited') return 'queued'
   if (status === 'failed' || status === 'dead') return 'error'
   if (status === 'connecting' || status === 'running') return 'running'
+  if (status === 'background') return 'background'
   return null
 }
 

@@ -122,7 +122,7 @@
   // conversation. It has no tab, so the band and the rail read it directly.
   const leadingDraft = $derived(
     leadingRef?.name === "draft"
-      ? (session.sessionDrafts.get(leadingRef.params.draftId) ?? null)
+      ? (session.drafts.sessionDrafts.get(leadingRef.params.draftId) ?? null)
       : null,
   );
   // A draft's rail follows the fresh-tab rule regardless of what the tab behind
@@ -441,7 +441,7 @@
       }
       // A second composition beside the first: a draft in its own companion
       // pane, which becomes a split chat the moment it is sent.
-      session.openSessionDraft({ target: "aside", via: "keybinding" });
+      session.drafts.openSessionDraft({ target: "aside", via: "keybinding" });
       requestInputFocus();
     },
     { enabled: () => active },
@@ -751,13 +751,13 @@
                       class="conversation-area flex-1 flex min-h-0 relative"
                       data-conversation-space
                     >
-                      {#if active && session.unifiedPickerOpen}
+                      {#if active && session.ui.unifiedPickerOpen}
                         {#await import("../session/unified-picker/UnifiedPicker.svelte") then module}
                           {@const UnifiedPicker = module.default}
                           <UnifiedPicker
-                            open={active && session.unifiedPickerOpen}
+                            open={active && session.ui.unifiedPickerOpen}
                             onClose={() => {
-                              session.unifiedPickerOpen = false;
+                              session.ui.unifiedPickerOpen = false;
                             }}
                           />
                         {:catch}

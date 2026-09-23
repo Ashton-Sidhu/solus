@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken, type ReferenceToken } from '../reference-tokens'
-import { linkTokenClassName, type IconArray, type TokenVariant } from '../tokenStyle'
+import { tokenClassName, type IconArray, type TokenVariant } from '../tokenStyle'
 
 /**
  * One shape for every URL-scheme reference node — plan, work, PR, session.
@@ -119,7 +119,7 @@ export function createReferenceNode<Attrs extends object>(spec: ReferenceNodeSpe
         mergeAttributes(HTMLAttributes, {
           [spec.dataAttr]: spec.idOf(attrs),
           contenteditable: 'false',
-          class: linkTokenClassName(spec.variant(attrs)),
+          class: tokenClassName(spec.variant(attrs)),
         }),
         ['span', { class: 'solus-token__icon' }, spec.icon(attrs)],
         ['span', {}, spec.label(attrs)],

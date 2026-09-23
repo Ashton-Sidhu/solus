@@ -1,10 +1,9 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { LogOut as SignOutIcon } from "@lucide/svelte";
-  import { atlassianStore, serversStore } from "../../contexts";
+  import { atlassianStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ensureIconCollections } from "../diagram/iconify";
-  import { connectionSectionDescription } from "../seats/lib/connection-copy";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
@@ -24,7 +23,6 @@
     void atlassianStore.ensureStatus(serverId);
   });
 
-  const sectionDescription = $derived(connectionSectionDescription("atlassian", serversStore.isCloudHost(serverId)));
   const siteDescription = $derived.by(() => {
     if (!atlassianStore.statusLoaded(serverId)) return "Checking…";
     if (atlassianStore.connected(serverId))
@@ -44,7 +42,7 @@
   <AtlassianConnectForm {serverId} onconnected={() => requestInputFocus()} />
 {/snippet}
 
-<SettingsSection label="Atlassian" description={sectionDescription}>
+<SettingsSection label="Atlassian">
   {#snippet icon()}
     <Icon icon={PROVIDER_LOGOS.atlassian} width={13} height={13} />
   {/snippet}

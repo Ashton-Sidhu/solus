@@ -25,7 +25,7 @@
 <Button
   variant={updatesStore.isReady ? "default" : "outline"}
   size="sm"
-  class="text-workspace-chrome"
+  class="text-workspace-chrome font-normal"
   disabled={pending || (updatesStore.isAvailable && !command)}
   title={updatesStore.isAvailable ? updateStatusLine(state) : "Check connected hosts for updates"}
   onclick={runCommand}

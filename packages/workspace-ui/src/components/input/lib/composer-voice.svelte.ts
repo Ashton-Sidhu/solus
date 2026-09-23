@@ -184,7 +184,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
     const becameVisible = visible && !previousShellVisible;
     previousShellVisible = visible;
     if (!options.active()) return;
-    if (becameVisible && options.isPrimary() && !session.unifiedPickerOpen && !options.isReadOnly())
+    if (becameVisible && options.isPrimary() && !session.ui.unifiedPickerOpen && !options.isReadOnly())
       requestInputFocus();
     if (!visible && ownsVoice && (voiceState === "recording" || voice.starting))
       voice.cancel();

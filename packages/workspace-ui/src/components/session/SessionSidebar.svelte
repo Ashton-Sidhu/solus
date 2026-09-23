@@ -9,7 +9,6 @@
     Clock as ClockIcon,
     ChevronRight as CaretRightIcon,
     Pin as PushPinIcon,
-    Settings as GearIcon,
     RefreshCw as ArrowsClockwiseIcon,
     ChartBar as ChartBarIcon,
     ListChecks as ListChecksIcon,
@@ -39,7 +38,6 @@
   } from "../layout/lib/workspace-body";
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
-  import HostPresence from "../presence/HostPresence.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import SidebarNavContextMenu from "./SidebarNavContextMenu.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
@@ -47,6 +45,7 @@
   import TaskRow from "./TaskRow.svelte";
   import DraftRow from "./DraftRow.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
+  import SidebarAccountFooter from "./SidebarAccountFooter.svelte";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
   import {
     taskSnoozeToastLabel,
@@ -64,6 +63,8 @@
     type SidebarTask,
   } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
+  import { sidebarListMotion } from "./lib/sidebar-list-motion.svelte";
+  import { buildSidebarListItems, sidebarListOrderKey } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import * as TooltipUI from "../ui/tooltip";
 
@@ -174,10 +175,18 @@
     completedShelfOpen ||
       (taskQuery.trim().length > 0 && searchedCompletedTasks.length > 0),
   );
-  const hasTaskSearchResults = $derived(
-    searchedTasks.length > 0 ||
-      searchedSnoozedTasks.length > 0 ||
-      searchedCompletedTasks.length > 0,
+  /** Drafts, the active column, and both shelves as one list, so every change
+   *  between them animates as a change of order (docs/plans/sidebar-motion.md). */
+  const listItems = $derived(
+    buildSidebarListItems({
+      drafts: sidebarStore.draftRows,
+      active: session.tasksStore.loaded ? searchedTasks : [],
+      snoozed: searchedSnoozedTasks,
+      completed: searchedCompletedTasks,
+      isSnoozedOpen: snoozedShelfOpen,
+      isCompletedOpen: isCompletedShelfExpanded,
+      shelfRevealTaskId: sidebarStore.shelfRevealTaskId,
+    }),
   );
   const selectedTaskIds = new SvelteSet<string>();
   let selectionAnchorId = $state<string | null>(null);
@@ -248,7 +257,7 @@
   }
 
   function newTask() {
-    session.openSessionDraft({ freshTask: true, via: "click" });
+    session.drafts.openSessionDraft({ freshTask: true, via: "click" });
   }
 
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
@@ -259,7 +268,7 @@
   /** A draft row goes back to the composer it was left in, with the caret in it
    *  — the row is a way to resume typing, not a way to look at the text. */
   function openDraft(row: DraftRowModel) {
-    session.openDraft(row.draftId);
+    session.drafts.openDraft(row.draftId);
     requestInputFocus();
     onSessionSelect?.();
   }
@@ -267,7 +276,7 @@
   /** Discarding loses words the user wrote, and it is one click away on a hover
    *  action, so the toast holds them until it is dismissed. */
   function discardDraft(row: DraftRowModel) {
-    const discarded = session.discardSessionDraft(row.draftId);
+    const discarded = session.drafts.discardSessionDraft(row.draftId);
     requestInputFocus();
     if (!discarded) return;
     toasts.show({
@@ -276,7 +285,7 @@
         {
           label: "Undo",
           onAction: () => {
-            session.restoreSessionDrafts({
+            session.drafts.restoreSessionDrafts({
               order: [row.draftId],
               drafts: { [row.draftId]: discarded },
             });
@@ -460,7 +469,7 @@
   }
 
   function stopTask(task: SidebarTask) {
-    for (const tabId of task.tabIds) session.interruptTabSession(tabId);
+    for (const tabId of task.tabIds) session.controls.interruptTabSession(tabId);
     requestInputFocus();
   }
 
@@ -757,7 +766,7 @@
     const openTabId = sidebarStore.openTabIdForPinned(pin);
     const splitTabId =
       openTabId ??
-      (await session.resumeSession(
+      (await session.opening.resumeSession(
         {
           provider: pin.provider,
           sessionId: pin.sessionId,
@@ -782,11 +791,11 @@
     {task}
     prChip={prChipForChoices(prChoices)}
     {prChoices}
-    onPath={sidebarStore.taskForTab(session.onScreenTabId)?.id === task.id}
+    onPath={sidebarStore.onScreenTaskId === task.id}
     bulkSelected={selectedTaskIds.has(task.id)}
     expanded={expandedTaskIds.has(task.id)}
     sessions={sidebarStore.sessionsFor(task)}
-    selectedTabId={sidebarStore.taskForTab(session.onScreenTabId)?.id === task.id
+    selectedTabId={sidebarStore.onScreenTaskId === task.id
       ? session.onScreenTabId
       : null}
     {renamingTabId}
@@ -971,10 +980,6 @@
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
-        <!-- Who else is on the hosts this client is connected to: the last row
-             of the navigation, in its geometry. The team is context for the
-             work, not a page of its own. Renders nothing for a person working alone. -->
-        <HostPresence />
       </Sidebar.Menu>
     </Sidebar.GroupContent>
   </Sidebar.Group>
@@ -1037,7 +1042,7 @@
         aria-label="Open picker"
         title={`Open picker (${comboHint("global.task-picker")})`}
         onclick={() => {
-          session.unifiedPickerOpen = true;
+          session.ui.unifiedPickerOpen = true;
         }}
       >
         <PlusIcon
@@ -1113,117 +1118,96 @@
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
-    <!-- Drafts lead the list rather than sitting under a heading of their own. A
-         prompt on its way to becoming a task is not one yet, and a standing
-         eyebrow that appears and disappears above the list says more about that
-         distinction than it is worth. The pencil mark on each row carries it,
-         and the divider below the group keeps drafts from reading as tasks.
-         They scroll with the tasks; the group is absent until something is
-         written. -->
-    {#if sidebarStore.draftRows.length > 0}
-      <div
-        class="mb-2 flex flex-col gap-[0.1875rem] border-b border-sidebar-border/50 pb-2"
-        role="listbox"
-        aria-label="Drafts"
-      >
-        {#each sidebarStore.draftRows as row (row.draftId)}
-          <DraftRow
-            {row}
-            onSelect={() => openDraft(row)}
-            onDiscard={() => discardDraft(row)}
-          />
-        {/each}
-      </div>
-    {/if}
+    <!-- One list: drafts lead, then the active column,
+         then the Snoozed and Completed sections with their headers as entries.
+         A row that changes section, and a draft that arrives or leaves, then
+         animate as a change of order (docs/plans/sidebar-motion.md, step 3).
+         Drafts carry a pencil mark and a divider below them rather than a
+         heading; a prompt on its way to becoming a task is not one yet. -->
     <div
       role="tree"
       tabindex="-1"
       aria-label="Tasks"
       onkeydown={handleTreeKeydown}
     >
+      <div
+        class="relative flex flex-col gap-[0.1875rem]"
+        {@attach sidebarListMotion(
+          () => sidebarListOrderKey(listItems),
+          () => theme.sidebarMotionMs,
+        )}
+      >
+        {#each listItems as item (item.key)}
+          {#if item.kind === "draft"}
+            <div>
+              <DraftRow
+                row={item.draft}
+                onSelect={() => openDraft(item.draft)}
+                onDiscard={() => discardDraft(item.draft)}
+              />
+            </div>
+          {:else if item.kind === "drafts-divider"}
+            <div class="my-[0.3125rem] h-px bg-sidebar-border/50" aria-hidden="true"></div>
+          {:else if item.kind === "header" && item.section === "snoozed"}
+            <div class="mt-3">
+              <button
+                type="button"
+                class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
+                aria-expanded={item.isOpen}
+                onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
+              >
+                Snoozed
+                <span
+                  class="h-px min-w-4 flex-1 bg-sidebar-border/50"
+                  aria-hidden="true"
+                ></span>
+                <span class="tabular-nums opacity-60">{item.count}</span>
+                <span class="flex size-4 shrink-0 items-center justify-center">
+                  <CaretRightIcon
+                    size={14}
+                    class="transition-transform duration-150 {item.isOpen ? 'rotate-90' : ''}"
+                  />
+                </span>
+              </button>
+            </div>
+          {:else if item.kind === "header"}
+            <div class="mt-2">
+              <button
+                type="button"
+                class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
+                aria-expanded={item.isOpen}
+                onclick={() => (completedShelfOpen = !completedShelfOpen)}
+              >
+                Completed
+                <span
+                  class="h-px min-w-4 flex-1 bg-sidebar-border/50"
+                  aria-hidden="true"
+                ></span>
+                <span class="tabular-nums opacity-60">{item.count}</span>
+                <span class="flex size-4 shrink-0 items-center justify-center">
+                  <CaretRightIcon
+                    size={14}
+                    class="transition-transform duration-150 {item.isOpen ? 'rotate-90' : ''}"
+                  />
+                </span>
+              </button>
+            </div>
+          {:else}
+            <div class={item.section === "completed" ? "opacity-80" : ""}>
+              {@render taskRow(item.task)}
+            </div>
+          {/if}
+        {/each}
+      </div>
       {#if !session.tasksStore.loaded}
         <TaskListSkeleton />
-      {:else}
-        <div class="flex flex-col gap-[0.1875rem]">
-          {#each searchedTasks as task (task.id)}
-            {@render taskRow(task)}
-          {/each}
-        </div>
-      {/if}
-      {#if searchedSnoozedTasks.length > 0}
-        <div class="mt-3">
-          <button
-            type="button"
-            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
-            aria-expanded={snoozedShelfOpen}
-            onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
-          >
-            Snoozed
-            <span
-              class="h-px min-w-4 flex-1 bg-sidebar-border/50"
-              aria-hidden="true"
-            ></span>
-            <span class="tabular-nums opacity-60"
-              >{searchedSnoozedTasks.length}</span
-            >
-            <span class="flex size-4 shrink-0 items-center justify-center">
-              <CaretRightIcon
-                size={14}
-                class="transition-transform duration-150 {snoozedShelfOpen
-                  ? 'rotate-90'
-                  : ''}"
-              />
-            </span>
-          </button>
-          {#if snoozedShelfOpen}
-            <div class="flex flex-col gap-[0.1875rem]">
-              {#each searchedSnoozedTasks as task (task.id)}
-                {@render taskRow(task)}
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-      {#if searchedCompletedTasks.length > 0}
-        <div class="mt-2">
-          <button
-            type="button"
-            class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
-            aria-expanded={isCompletedShelfExpanded}
-            onclick={() => (completedShelfOpen = !completedShelfOpen)}
-          >
-            Completed
-            <span
-              class="h-px min-w-4 flex-1 bg-sidebar-border/50"
-              aria-hidden="true"
-            ></span>
-            <span class="tabular-nums opacity-60"
-              >{searchedCompletedTasks.length}</span
-            >
-            <span class="flex size-4 shrink-0 items-center justify-center">
-              <CaretRightIcon
-                size={14}
-                class="transition-transform duration-150 {isCompletedShelfExpanded
-                  ? 'rotate-90'
-                  : ''}"
-              />
-            </span>
-          </button>
-          {#if isCompletedShelfExpanded}
-            <div class="flex flex-col gap-[0.1875rem] opacity-80">
-              {#each searchedCompletedTasks as task (task.id)}
-                {@render taskRow(task)}
-              {/each}
-            </div>
-          {/if}
-        </div>
       {/if}
     </div>
   </div>
 
   <!-- Separate the task list from saved sessions. -->
   <Sidebar.Footer
-    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 pt-2.5 pb-3.5 @max-[15rem]:px-2.5"
+    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 py-2 @max-[15rem]:px-2.5"
   >
     <Sidebar.Menu class="gap-0.5">
       {#if sidebarStore.pinnedSessions.length > 0}
@@ -1309,39 +1293,7 @@
           </div>
         {/if}
       {/if}
-      <Sidebar.MenuItem>
-        <Sidebar.MenuButton
-          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-          onclick={() => localApi.openExternal("https://solus.sh/docs")}
-        >
-          <span
-            class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
-            ><BooksIcon size={14} /></span
-          >
-          <span class="flex-1 text-left text-workspace-chrome">Docs</span>
-        </Sidebar.MenuButton>
-      </Sidebar.MenuItem>
-      <Sidebar.MenuItem>
-        <Sidebar.MenuButton
-          class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-            'settings',
-          )
-            ? 'text-foreground'
-            : ''}"
-          isActive={session.router.at("settings")}
-          onclick={() => session.showSettings()}
-        >
-          <span
-            class="flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90"
-            ><GearIcon size={14} /></span
-          >
-          <span class="flex-1 text-left text-workspace-chrome">Settings</span>
-          <span
-            class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-            >{comboHint("global.settings")}</span
-          >
-        </Sidebar.MenuButton>
-      </Sidebar.MenuItem>
+      <SidebarAccountFooter />
     </Sidebar.Menu>
   </Sidebar.Footer>
 </SidePanel>
@@ -1386,14 +1338,14 @@
         {hasLinkedSession}
         isRunning={sidebarTask?.status === "running" ||
           menuChild?.attention === "running"}
-        onStart={() => void session.openTaskSession(menuTask)}
+        onStart={() => void session.opening.openTaskSession(menuTask)}
         onResume={hasLinkedSession
-          ? () => void session.openTaskLinkedSession(menuTask)
+          ? () => void session.opening.openTaskLinkedSession(menuTask)
           : undefined}
         onStop={sidebarTask
           ? () => stopTask(sidebarTask)
           : menuChild?.tabId
-            ? () => session.interruptTabSession(menuChild.tabId!)
+            ? () => session.controls.interruptTabSession(menuChild.tabId!)
             : undefined}
         onOpenTask={() => session.goToTask(menuTask.id)}
         onOpenSource={() => {
@@ -1432,15 +1384,15 @@
         onRemove={undefined}
         sessionId={leafSession?.sessionId ?? null}
         onFork={leafTabId && leafSess?.agentSessionId
-          ? () => void session.forkTab(leafTabId)
+          ? () => void session.opening.forkTab(leafTabId)
           : undefined}
         onContinueWorktree={leafTabId &&
         leafSess?.agentSessionId &&
         !leafSess?.run.gitContext?.worktreePath
-          ? () => void session.continueInWorktree(leafTabId)
+          ? () => void session.opening.continueInWorktree(leafTabId)
           : undefined}
         isContinuingWorktree={leafTabId
-          ? session.isContinuingInWorktree(leafTabId)
+          ? session.ui.isContinuingInWorktree(leafTabId)
           : false}
         isSplit={!!leafTabId && leafTabId === session.splitChatTabId}
         onOpenInSplit={leafTabId
@@ -1462,7 +1414,7 @@
         onStop:
           menuTabId &&
           sidebarStore.childForTab(menuTabId).attention === "running"
-            ? () => session.interruptTabSession(menuTabId)
+            ? () => session.controls.interruptTabSession(menuTabId)
             : undefined,
       }}
       onCloseTab={closeSession}

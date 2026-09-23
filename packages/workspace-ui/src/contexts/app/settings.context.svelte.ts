@@ -1,9 +1,9 @@
-/** Unified settings context: theme + editor/terminal/agent + rate-limit + worktree toggle. */
+/** Unified settings context: theme + editor/terminal/agent + worktree toggle. */
 
 import { z } from 'zod'
 
 import { createAppContext } from './create-app-context'
-import { EDITOR_IDS, TERMINAL_APP_IDS, type AgentId, type AppCodeFontFamily, type AppFontFamily, type EditorId, type ReasoningEffort, type SettingsCtx, type TerminalAppId } from '@solus/contracts/types'
+import { TERMINAL_APP_IDS, type AppCodeFontFamily, type AppFontFamily, type SettingsCtx } from '@solus/contracts/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
@@ -12,16 +12,11 @@ import { runtime } from './runtime.svelte'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
-import { DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS } from '../../lib/completed-task-retention'
-import {
-  DEFAULT_REVIEW_AGENT,
-  DEFAULT_REVIEW_MODEL,
-  DEFAULT_REVIEW_REASONING,
-  TAB_GROUP_MODES,
-} from '@solus/contracts/host-config'
-import type { HostConfig } from '@solus/contracts/host-config'
+import { DEFAULT_HOST_CONFIG, HOST_CONFIG_FIELDS, MAX_SIDEBAR_MOTION_MS } from '@solus/contracts/host-config'
+import type { HostConfig, HostConfigKey } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import type { DocumentFontFamily, RateLimitBehavior, ResponseStreamingMode, TabGroupMode, ThemeMode } from '@solus/contracts/host-config'
+import type { DocumentFontFamily, FontFamilyPreference, PromptFontFamily } from '@solus/contracts/host-config'
+import { customFamilyStack } from '../../lib/font-family'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NOTIFICATION_CHANNELS,
@@ -39,6 +34,8 @@ import {
 export { TAB_GROUP_MODES } from '@solus/contracts/host-config'
 export type {
   DocumentFontFamily,
+  FontFamilyPreference,
+  PromptFontFamily,
   RateLimitBehavior,
   TabGroupMode,
   ThemeMode,
@@ -59,64 +56,6 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   subagents: false,
   automations: true,
 } as const satisfies Record<ProjectPanelSectionId, boolean>
-
-export type SettingsFields = {
-  themeMode: ThemeMode
-  voiceModeEnabled: boolean
-  autoSendVoiceTranscripts: boolean
-  vadSilenceMs: number
-  defaultEditor: EditorId | null
-  fallbackTerminal: TerminalAppId | null
-  activeAgent: AgentId
-  defaultPermissionMode: HostConfig['defaultPermissionMode']
-  notifications: NotificationPreferences
-  defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
-  reviewAgent: AgentId
-  reviewModel: string
-  reviewReasoning: ReasoningEffort
-  reviewGuideInstructions: string
-  stackedPrsEnabled: boolean
-  generatePrGuidesOnOpen: boolean
-  reviewWarmingByProject: Record<string, boolean>
-  responseStreamingMode: ResponseStreamingMode
-  rateLimitBehavior: RateLimitBehavior
-  autoRenameSessions: boolean
-  showDiffSummaryAfterTurn: boolean
-  collapseComposerWhenIdle: boolean
-  fontFamily: AppFontFamily
-  fontSize: number
-  zoomFactor: number
-  codeFontFamily: AppCodeFontFamily
-  codeFontSize: number
-  documentFontFamily: DocumentFontFamily
-  documentFontSize: number
-  extraInstructions: string
-  modelInstructions: Record<string, string>
-  keybindings: Record<string, KeyCombo>
-  analyticsEnabled: boolean
-  projectPanelOpen: boolean
-  splitProjectPanelOpen: boolean
-  projectPanelWidth: number | null
-  splitProjectPanelWidth: number | null
-  projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
-  splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
-  tabGroupMode: TabGroupMode
-  /** Number of days a done task remains in the session sidebar's Completed shelf. */
-  sidebarCompletedRetentionDays: number
-  archivedAutomationRetentionDays: number
-  /** The project the task list is scoped to, by `projectKey`. Null is the whole
-   *  list — the sidebar is flat across every open project either way, so this
-   *  narrows what is in it rather than changing its shape. */
-  sidebarProjectFilter: string | null
-  /**
-   * First-run onboarding has already been through, or skipped. A client that
-   * has never persisted settings is a fresh install, so the absence of the whole
-   * blob is what means "show it" — a saved blob without this key belongs to
-   * someone who was already working here before onboarding existed, and they do
-   * not get ambushed with it.
-   */
-  onboardingCompleted: boolean
-}
 
 /** Safari does not paint `theme-color` neat: it lays a translucent white
  *  material over the toolbars, so chrome fed the app's own edge colour renders
@@ -166,8 +105,11 @@ function applyTheme(isDark: boolean): void {
     ?.setAttribute('content', isDark ? 'black-translucent' : 'default')
 }
 
-const BASE_FONT_SIZE = 13
-const DEFAULT_FONT_SIZE = globalThis.matchMedia?.(MOBILE_QUERY).matches ? 11 : 13
+/** The "Interface size" number reads like a root font-size: 16 is the fixed
+ *  16px root (ADR-0010) at scale 1, so the content rungs in index.css resolve
+ *  to their stated sizes (`--text-body` = 0.875rem × scale = 14px prose). */
+const BASE_FONT_SIZE = 16
+const DEFAULT_FONT_SIZE = globalThis.matchMedia?.(MOBILE_QUERY).matches ? 14 : 16
 
 function applyFontSize(size: number): void {
   document.documentElement.style.setProperty('--solus-font-scale', String(size / BASE_FONT_SIZE))
@@ -189,7 +131,7 @@ const DEFAULT_ZOOM_FACTOR =
     ? ZOOM_FACTOR_DEFAULT
     : defaultZoomFactorForScreen(globalThis.screen?.width)
 
-const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
+export const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
 const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
 
 // `weight` is the body weight tuned for crispest rendering of each typeface at
@@ -199,23 +141,43 @@ const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inte
 // render heavier — at 500 their strokes muddy and counters fill, so they're
 // crispest at their native 400 (Regular). Keep every option on a named Regular or
 // Medium instance so the type policy has only those two weights.
-export const APP_FONT_FAMILIES: { id: AppFontFamily; label: string; stack: string; weight: number }[] = [
+//
+// `tracking` and `features` are the tightened letter-spacing and the stylistic
+// sets Inter and DM Sans are tuned with (single-storey a, open digits). The
+// other faces take their native metrics: SF Pro with these on top read visibly
+// different from the same system font in every other macOS app.
+const INTER_TRACKING = '-0.0115em'
+const INTER_FEATURES = "'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1, 'ss01' 1"
+export const APP_FONT_FAMILIES: { id: AppFontFamily; label: string; stack: string; weight: number; tracking?: string; features?: string }[] = [
   ...(IS_MAC_OS ? [{ id: 'sf-pro-text' as const, label: 'SF Pro Text', stack: "'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", weight: 400 }] : []),
-  { id: 'inter', label: 'Inter', stack: "'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500 },
-  { id: 'dm-sans', label: 'DM Sans', stack: "'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500 },
+  { id: 'inter', label: 'Inter', stack: "'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500, tracking: INTER_TRACKING, features: INTER_FEATURES },
+  { id: 'dm-sans', label: 'DM Sans', stack: "'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 500, tracking: INTER_TRACKING, features: INTER_FEATURES },
   { id: 'system', label: 'System', stack: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif", weight: 400 },
   { id: 'geist', label: 'Geist Sans', stack: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif", weight: 400 },
   { id: 'lora', label: 'Lora', stack: "'Lora', Georgia, 'Times New Roman', serif", weight: 400 },
   { id: 'sf-mono', label: 'SF Mono', stack: "'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace", weight: 400 },
 ]
 
-function applyFontFamily(fontFamily: AppFontFamily): void {
-  const family = APP_FONT_FAMILIES.find((option) => option.id === fontFamily) ?? APP_FONT_FAMILIES[0]
-  document.documentElement.style.setProperty('--solus-font-family', family.stack)
-  // Each selectable face uses only its Regular or Medium named instance.
-  document.documentElement.style.setProperty('--solus-font-weight-body', String(family.weight))
-  document.documentElement.style.setProperty('--solus-font-weight-secondary', String(family.weight))
-  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(family.weight))
+/** The stack the interface font preference renders with: a preset's own stack,
+ *  or an installed family name in front of the default preset's stack. */
+function interfaceFontStack(fontFamily: FontFamilyPreference): string {
+  const preset = APP_FONT_FAMILIES.find((option) => option.id === fontFamily)
+  if (preset) return preset.stack
+  const fallback = APP_FONT_FAMILIES.find((option) => option.id === DEFAULT_APP_FONT_FAMILY) ?? APP_FONT_FAMILIES[0]
+  return customFamilyStack(fontFamily, fallback.stack)
+}
+
+function applyFontFamily(fontFamily: FontFamilyPreference): void {
+  const preset = APP_FONT_FAMILIES.find((option) => option.id === fontFamily)
+  document.documentElement.style.setProperty('--solus-font-family', interfaceFontStack(fontFamily))
+  // Each preset uses only its Regular or Medium named instance; an installed
+  // family is an unknown quantity, so it takes its native Regular.
+  const weight = preset?.weight ?? 400
+  document.documentElement.style.setProperty('--solus-font-weight-body', String(weight))
+  document.documentElement.style.setProperty('--solus-font-weight-secondary', String(weight))
+  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(weight))
+  document.documentElement.style.setProperty('--solus-font-tracking', preset?.tracking ?? 'normal')
+  document.documentElement.style.setProperty('--solus-font-features', preset?.features ?? 'normal')
 }
 
 export const APP_CODE_FONT_FAMILIES: { id: AppCodeFontFamily; label: string; stack: string }[] = [
@@ -234,15 +196,17 @@ export const DOCUMENT_FONT_FAMILIES: { id: DocumentFontFamily; label: string }[]
 
 const DEFAULT_DOCUMENT_FONT_SIZE = 16
 
-function applyDocumentFontFamily(documentFontFamily: DocumentFontFamily): void {
-  const family = APP_FONT_FAMILIES.find((option) => option.id === documentFontFamily)
+function applyDocumentFontFamily(documentFontFamily: FontFamilyPreference): void {
+  // 'solus' is the preset: the interface face for the body, Lora for headings.
+  // Any other value, preset or installed name, is one face for both.
+  const stack = documentFontFamily === 'solus' ? null : interfaceFontStack(documentFontFamily)
   document.documentElement.style.setProperty(
     '--solus-document-font-family',
-    family?.stack ?? 'var(--solus-font-family)',
+    stack ?? 'var(--solus-font-family)',
   )
   document.documentElement.style.setProperty(
     '--solus-document-heading-font-family',
-    family?.stack ?? "'Lora', Georgia, 'Times New Roman', serif",
+    stack ?? "'Lora', Georgia, 'Times New Roman', serif",
   )
 }
 
@@ -253,11 +217,54 @@ function applyDocumentFontSize(size: number): void {
   )
 }
 
-const DEFAULT_CODE_FONT_SIZE = 12
+/** The prompt box: the interface face by default, or one face chosen for it
+ *  alone. `--solus-prompt-font-family` is read by every composer wrapper. */
+export const PROMPT_FONT_FAMILIES: { id: PromptFontFamily; label: string }[] = [
+  { id: 'interface', label: 'Interface font' },
+  ...APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label })),
+  ...APP_CODE_FONT_FAMILIES.filter((font) => font.id !== 'sf-mono').map(({ id, label }) => ({ id, label })),
+]
 
-function applyCodeFontFamily(codeFontFamily: AppCodeFontFamily): void {
-  const family = APP_CODE_FONT_FAMILIES.find((option) => option.id === codeFontFamily) ?? APP_CODE_FONT_FAMILIES[0]
-  document.documentElement.style.setProperty('--solus-code-font-family', family.stack)
+/** 13px at the 16px root — one step under the transcript body, so the box you
+ *  type in reads a little quieter than the reply. Absolute rather than a
+ *  multiple of the interface size, so the two preferences never scale the box
+ *  twice. */
+const DEFAULT_PROMPT_FONT_SIZE = 13
+
+function applyPromptFontFamily(promptFontFamily: FontFamilyPreference): void {
+  const preset =
+    APP_FONT_FAMILIES.find((option) => option.id === promptFontFamily) ??
+    APP_CODE_FONT_FAMILIES.find((option) => option.id === promptFontFamily)
+  document.documentElement.style.setProperty(
+    '--solus-prompt-font-family',
+    promptFontFamily === 'interface'
+      ? 'var(--solus-font-family)'
+      : (preset?.stack ?? interfaceFontStack(promptFontFamily)),
+  )
+}
+
+function applyPromptFontSize(size: number): void {
+  // A scale like the code font: `--solus-prompt-font-size` is a rem calc in
+  // index.css, so the box follows zoom exactly as every other rung does.
+  document.documentElement.style.setProperty('--solus-prompt-font-scale', String(size / DEFAULT_PROMPT_FONT_SIZE))
+}
+
+function applyFontSmoothing(enabled: boolean): void {
+  // Inherited from the root; `auto` restores the platform default, which macOS
+  // renders with heavier stem darkening.
+  document.documentElement.style.setProperty('--solus-font-smoothing', enabled ? 'antialiased' : 'auto')
+}
+
+const DEFAULT_CODE_FONT_SIZE = 12
+const DEFAULT_CODE_FONT_FAMILY: AppCodeFontFamily = 'jetbrains-mono'
+
+function applyCodeFontFamily(codeFontFamily: FontFamilyPreference): void {
+  const preset = APP_CODE_FONT_FAMILIES.find((option) => option.id === codeFontFamily)
+  const fallback = APP_CODE_FONT_FAMILIES.find((option) => option.id === DEFAULT_CODE_FONT_FAMILY) ?? APP_CODE_FONT_FAMILIES[0]
+  document.documentElement.style.setProperty(
+    '--solus-code-font-family',
+    preset?.stack ?? customFamilyStack(codeFontFamily, fallback.stack),
+  )
 }
 
 function applyCodeFontSize(size: number): void {
@@ -274,31 +281,77 @@ const SETTINGS_KEY = 'solus-settings'
  *  a second device sees the change while the user is still looking at it. */
 const HOST_PUSH_DEBOUNCE_MS = 400
 
-/** Settings mirrored on this device. Host-only controls, including Solus tool
- *  choices, use their own host-scoped stores and must not be seeded from here. */
-type MirroredHostConfig = Pick<HostConfig, Extract<keyof SettingsFields, keyof HostConfig>>
-const HOST_CONFIG_KEY_MAP = {
-  themeMode: true, voiceModeEnabled: true, autoSendVoiceTranscripts: true,
-  vadSilenceMs: true, defaultEditor: true, fallbackTerminal: true, activeAgent: true,
-  defaultPermissionMode: true, notifications: true,
-  defaultModels: true, reviewAgent: true, reviewModel: true, reviewReasoning: true,
-  reviewGuideInstructions: true,
-  stackedPrsEnabled: true, generatePrGuidesOnOpen: true, reviewWarmingByProject: true,
-  responseStreamingMode: true, rateLimitBehavior: true, autoRenameSessions: true, showDiffSummaryAfterTurn: true,
-  collapseComposerWhenIdle: true,
-  fontFamily: true, fontSize: true, codeFontFamily: true, codeFontSize: true,
-  documentFontFamily: true, documentFontSize: true, extraInstructions: true,
-  modelInstructions: true, analyticsEnabled: true, tabGroupMode: true,
-  sidebarCompletedRetentionDays: true,
-  archivedAutomationRetentionDays: true,
-} satisfies Record<keyof MirroredHostConfig, true>
+// ─── The two tiers ───
+//
+// A setting is one row in one of the two tables below, and nothing else: the
+// stored shape, the defaults, the reactive fields, `update`, and the host
+// mirror are all read off them.
+//
+// The promoted tier is a list of host-config keys. The contract owns each key's
+// schema and default; this client only names which ones it mirrors and where it
+// knows better than the host's platform-neutral default. Host-only controls —
+// Solus tools, model routing, rate-limit behavior, operator settings — use
+// their own host-scoped stores and must not be seeded from here.
+//
+// The device tier stays in `localStorage`: zoom and keybindings (a desktop
+// global shortcut cannot fire on web), pane widths, panel collapse state, the
+// sidebar filter, and the onboarding flag.
 
-function isHostConfigKey(key: string): key is keyof MirroredHostConfig {
-  return key in HOST_CONFIG_KEY_MAP
+const MIRRORED_HOST_KEYS = [
+  'themeMode',
+  'voiceModeEnabled',
+  'autoSendVoiceTranscripts',
+  'vadSilenceMs',
+  'defaultEditor',
+  'fallbackTerminal',
+  'activeAgent',
+  'defaultPermissionMode',
+  'notifications',
+  'defaultModels',
+  'reviewAgent',
+  'reviewModel',
+  'reviewReasoning',
+  'reviewGuideInstructions',
+  'generatePrGuidesOnOpen',
+  'reviewWarmingByProject',
+  'responseStreamingMode',
+  'autoRenameSessions',
+  'tasksEnabled',
+  'showDiffSummaryAfterTurn',
+  'collapseComposerWhenIdle',
+  'fontFamily',
+  'fontSize',
+  'codeFontFamily',
+  'codeFontSize',
+  'documentFontFamily',
+  'documentFontSize',
+  'promptFontFamily',
+  'promptFontSize',
+  'fontSmoothing',
+  'extraInstructions',
+  'modelInstructions',
+  'analyticsEnabled',
+  'tabGroupMode',
+  'sidebarCompletedRetentionDays',
+  'sidebarMotionMs',
+  'archivedAutomationRetentionDays',
+] as const satisfies readonly HostConfigKey[]
+
+type MirroredHostKey = (typeof MIRRORED_HOST_KEYS)[number]
+type MirroredHostConfig = Pick<HostConfig, MirroredHostKey>
+const MIRRORED_HOST_KEY_SET: ReadonlySet<string> = new Set(MIRRORED_HOST_KEYS)
+
+function isHostConfigKey(key: string): key is MirroredHostKey {
+  return MIRRORED_HOST_KEY_SET.has(key)
 }
 
+/** Where this client resolves a better first-run default than the host can:
+ *  the host does not know whether it is talking to a Mac or a phone. */
+const CLIENT_HOST_DEFAULTS: Partial<MirroredHostConfig> = {
+  fontFamily: DEFAULT_APP_FONT_FAMILY,
+  fontSize: DEFAULT_FONT_SIZE,
+}
 
-const VALID_AGENTS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
 /**
  * Drop unknown binding ids and malformed combos so a stale or hand-edited
  * localStorage blob can't break the dispatcher. Each value must be a combo with
@@ -330,62 +383,154 @@ const projectPanelCollapsedSchema = z.object({
   automations: z.boolean().optional(),
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
+const projectLocationSchema = z.object({
+  serverId: z.string().min(1),
+  directory: z.string().min(1),
+})
+
+/** A project directory on one host. A path names a folder on one machine only. */
+export type ProjectLocation = z.infer<typeof projectLocationSchema>
+
+interface DeviceField<Value> {
+  /** Heals a stored value; a bad one falls back rather than failing the blob. */
+  schema: z.ZodType<Value, unknown>
+  /** A fresh install. */
+  default: Value
+  /** A stored blob without the key, when that means something other than a
+   *  fresh install. Unset means the fresh default. */
+  missing?: Value
+}
+
+function deviceField<Value>(
+  schema: z.ZodType<Value, unknown>,
+  defaultValue: Value,
+  missing?: Value,
+): DeviceField<Value> {
+  return { schema, default: defaultValue, missing }
+}
+
+const DEVICE_FIELDS = {
+  // Only a first run may seed the screen-derived zoom (see the constructor);
+  // a blob from before zoom existed reads as the neutral factor instead.
+  zoomFactor: deviceField(z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT), DEFAULT_ZOOM_FACTOR, ZOOM_FACTOR_DEFAULT),
+  // Settings → Appearance shows the per-surface font overrides (prompt,
+  // document, smoothing) only when this is on; the two-font view is the
+  // default. Device-local: it is how this client's settings page is folded,
+  // not a preference the host mirrors.
+  typographyAdvanced: deviceField(z.boolean().catch(false), false),
+  keybindings: deviceField<Record<string, KeyCombo>>(keybindingsSchema.catch({}), {}),
+  projectPanelOpen: deviceField(z.boolean().catch(false), false),
+  splitProjectPanelOpen: deviceField(z.boolean().catch(false), false),
+  projectPanelWidth: deviceField<number | null>(z.number().positive().nullable().catch(null), null),
+  splitProjectPanelWidth: deviceField<number | null>(z.number().positive().nullable().catch(null), null),
+  projectPanelCollapsed: deviceField<Record<ProjectPanelSectionId, boolean>>(
+    projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
+    DEFAULT_PROJECT_PANEL_COLLAPSED,
+  ),
+  splitProjectPanelCollapsed: deviceField<Record<ProjectPanelSectionId, boolean>>(
+    projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
+    DEFAULT_PROJECT_PANEL_COLLAPSED,
+  ),
+  // The project the task list is scoped to, by `projectKey`. Null is the whole
+  // list — the sidebar is flat across every open project either way, so this
+  // narrows what is in it rather than changing its shape.
+  sidebarProjectFilter: deviceField<string | null>(z.string().nullable().catch(null), null),
+  // The project the last session started in, and the host that holds it. A new
+  // session opened with nothing on screen to follow starts here. Device-local:
+  // a server id only means something to the client that registered it.
+  lastProject: deviceField<ProjectLocation | null>(projectLocationSchema.nullable().catch(null), null),
+  // First-run onboarding has already been through, or skipped. A client that
+  // has never persisted settings is a fresh install, so the absence of the
+  // whole blob is what means "show it" — a saved blob without this key belongs
+  // to someone who was already working here before onboarding existed, and
+  // they do not get ambushed with it.
+  onboardingCompleted: deviceField(z.boolean().catch(true), false, true),
+}
+
+type DeviceKey = keyof typeof DEVICE_FIELDS
+type DeviceFields = { [K in DeviceKey]: (typeof DEVICE_FIELDS)[K]['default'] }
+const DEVICE_KEYS: readonly DeviceKey[] = Object.keys(DEVICE_FIELDS).filter(
+  (key): key is DeviceKey => Object.hasOwn(DEVICE_FIELDS, key),
+)
+
+export type SettingsFields = MirroredHostConfig & DeviceFields
+type SettingKey = keyof SettingsFields
+const SETTING_KEYS: readonly SettingKey[] = [...MIRRORED_HOST_KEYS, ...DEVICE_KEYS]
+
+/** How a key paints. Run for every key at boot and for each key `update`
+ *  changes, so the document always shows the stored value. */
+type SettingEffects = { [K in SettingKey]?: (value: SettingsFields[K]) => void }
+const SETTING_EFFECTS: SettingEffects = {
+  fontFamily: applyFontFamily,
+  fontSize: applyFontSize,
+  zoomFactor: applyZoomFactor,
+  codeFontFamily: applyCodeFontFamily,
+  codeFontSize: applyCodeFontSize,
+  documentFontFamily: applyDocumentFontFamily,
+  documentFontSize: applyDocumentFontSize,
+  promptFontFamily: applyPromptFontFamily,
+  promptFontSize: applyPromptFontSize,
+  fontSmoothing: applyFontSmoothing,
+}
+
+/** Bounds a value takes on the way in, so a slider or a typed number cannot
+ *  store something the surfaces reading it cannot render. */
+type SettingNormalizers = { [K in SettingKey]?: (value: SettingsFields[K]) => SettingsFields[K] }
+const SETTING_NORMALIZERS: SettingNormalizers = {
+  vadSilenceMs: (value) => Math.max(1000, Math.min(8000, value)),
+  fontSize: (value) => Math.max(8, value),
+  zoomFactor: clampZoomFactor,
+  codeFontSize: (value) => Math.max(8, value),
+  documentFontSize: (value) => Math.max(12, value),
+  promptFontSize: (value) => Math.max(8, value),
+  sidebarCompletedRetentionDays: (value) => Math.max(1, Math.min(365, Math.floor(value))),
+  sidebarMotionMs: (value) => Math.max(0, Math.min(MAX_SIDEBAR_MOTION_MS, Math.round(value))),
+}
+
+// ─── Loading ───
+
+/** A stored key reads through its own schema, which heals a bad value; an
+ *  absent key reads as `missing`. `.optional()` is what tells the two apart —
+ *  a `.catch` on its own would turn absence into the schema's fallback. */
+function storedField<Value>(schema: z.ZodType<Value, unknown>, missing: Value): z.ZodType<Value, unknown> {
+  return schema.optional().transform((value) => (value === undefined ? missing : value))
+}
+
+type StoredSettingsFields = { [K in Exclude<SettingKey, 'notifications'>]: z.ZodType<SettingsFields[K], unknown> }
+
+/** Built key by key from the two tables. */
+function storedSettingsFields(): StoredSettingsFields {
+  const hostEntries = MIRRORED_HOST_KEYS.filter((key) => key !== 'notifications').map((key) => [
+    key,
+    storedField(HOST_CONFIG_FIELDS[key].patch, CLIENT_HOST_DEFAULTS[key] ?? DEFAULT_HOST_CONFIG[key]),
+  ])
+  const deviceEntries = DEVICE_KEYS.map((key) => {
+    const field = DEVICE_FIELDS[key]
+    return [key, storedField(field.schema, field.missing ?? field.default)]
+  })
+  // SAFETY: every key of both tables contributes one entry, and `SettingKey` is their union.
+  return Object.fromEntries([...hostEntries, ...deviceEntries]) as StoredSettingsFields
+}
+
 /** The whole object is stored, so a malformed blob heals to the defaults;
- *  a well-formed partial is completed by the merge below. */
+ *  a well-formed partial is completed by the merge below. Absent altogether,
+ *  the legacy flags below decide. */
 const notificationPreferencesSchema = notificationPreferencesPatchSchema
   .transform((patch) => mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, patch))
   .catch(DEFAULT_NOTIFICATION_PREFERENCES)
 
-const savedSettingsSchema = z.object({
-  themeMode: z.enum(['light', 'dark', 'system']).catch('system'),
-  voiceModeEnabled: z.boolean().catch(false),
-  autoSendVoiceTranscripts: z.boolean().catch(false),
-  vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
-  defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
-  fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
-  activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
-  defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
+const storedSettingsSchema = z.object({
+  ...storedSettingsFields(),
   notifications: notificationPreferencesSchema.optional(),
-  defaultModels: z.record(z.string(), z.string()).catch({}),
-  reviewAgent: z.enum(VALID_AGENTS).catch(DEFAULT_REVIEW_AGENT),
-  reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
-  reviewReasoning: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).catch(DEFAULT_REVIEW_REASONING),
-  reviewGuideInstructions: z.string().catch(''),
-  stackedPrsEnabled: z.boolean().catch(false),
-  generatePrGuidesOnOpen: z.boolean().catch(false),
-  reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
-  responseStreamingMode: z.enum(['buffered', 'paragraph']).catch('paragraph'),
-  rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
-  autoRenameSessions: z.boolean().catch(true),
-  showDiffSummaryAfterTurn: z.boolean().catch(true),
-  collapseComposerWhenIdle: z.boolean().catch(true),
-  fontFamily: z.enum(['inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono']).catch(DEFAULT_APP_FONT_FAMILY),
-  fontSize: z.number().min(8).catch(DEFAULT_FONT_SIZE),
-  zoomFactor: z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT),
-  codeFontFamily: z.enum(['sf-mono', 'geist-mono', 'fira-code', 'cascadia-code', 'jetbrains-mono', 'system-mono']).catch('jetbrains-mono'),
-  codeFontSize: z.number().min(8).catch(DEFAULT_CODE_FONT_SIZE),
-  documentFontFamily: z.enum(['solus', 'inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono']).catch('solus'),
-  documentFontSize: z.number().min(12).catch(DEFAULT_DOCUMENT_FONT_SIZE),
-  extraInstructions: z.string().catch(''),
-  modelInstructions: z.record(z.string(), z.string()).catch({}),
-  keybindings: keybindingsSchema.catch({}),
-  analyticsEnabled: z.boolean().catch(true),
-  projectPanelOpen: z.boolean().catch(false),
-  splitProjectPanelOpen: z.boolean().catch(false),
-  projectPanelWidth: z.number().positive().nullable().catch(null),
-  splitProjectPanelWidth: z.number().positive().nullable().catch(null),
-  projectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
-  splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
-  tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
-  sidebarCompletedRetentionDays: z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
-  archivedAutomationRetentionDays: z.number().int().min(1).max(3650).catch(30),
-  sidebarProjectFilter: z.string().nullable().catch(null),
-  onboardingCompleted: z.boolean().catch(true),
 })
 
 /** `defaultTerminal` became `fallbackTerminal` when terminal choice turned into a
- * fallback for sessions with no attached terminal. Keep the old pick. */
-const legacyTerminalSchema = z.object({ defaultTerminal: z.enum(TERMINAL_APP_IDS) })
+ * fallback for sessions with no attached terminal. Keep the old pick when the
+ * new key has never been written. */
+const legacyTerminalSchema = z.object({
+  fallbackTerminal: z.undefined().optional(),
+  defaultTerminal: z.enum(TERMINAL_APP_IDS),
+})
 
 /** `soundEnabled` gated the sound and the system alert together, and
  * `backgroundActivityToasts` gated toasts, before `notifications` replaced them.
@@ -406,125 +551,56 @@ function notificationsFromLegacyFlags(flags: LegacyNotificationFlags): Notificat
   return mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, { channels })
 }
 
+function freshSettings(): SettingsFields {
+  const hostEntries = MIRRORED_HOST_KEYS.map((key) => [key, CLIENT_HOST_DEFAULTS[key] ?? DEFAULT_HOST_CONFIG[key]])
+  const deviceEntries = DEVICE_KEYS.map((key) => [key, DEVICE_FIELDS[key].default])
+  // SAFETY: every key of both tables contributes one entry, and `SettingKey` is their union.
+  return Object.fromEntries([...hostEntries, ...deviceEntries]) as SettingsFields
+}
+
 /** True when this boot found a settings blob. Only a first run may seed the
  *  screen-derived zoom, and it persists the result immediately. */
 let hasStoredSettings = false
 
+/** Cloned on the way out: the defaults are shared module constants, and the
+ *  `$state` proxy over the result writes through to the object beneath it. */
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
       const stored: unknown = JSON.parse(raw)
-      const parsed = savedSettingsSchema.safeParse(stored)
+      const parsed = storedSettingsSchema.safeParse(stored)
       if (parsed.success) {
         hasStoredSettings = true
-        if (parsed.data.fallbackTerminal === null) {
-          const legacy = legacyTerminalSchema.safeParse(stored)
-          if (legacy.success) parsed.data.fallbackTerminal = legacy.data.defaultTerminal
-        }
+        const legacyTerminal = legacyTerminalSchema.safeParse(stored)
         const legacyFlags = legacyNotificationFlagsSchema.safeParse(stored)
-        return {
+        return structuredClone({
           ...parsed.data,
+          fallbackTerminal: legacyTerminal.success ? legacyTerminal.data.defaultTerminal : parsed.data.fallbackTerminal,
           notifications:
             parsed.data.notifications ??
             (legacyFlags.success ? notificationsFromLegacyFlags(legacyFlags.data) : DEFAULT_NOTIFICATION_PREFERENCES),
-        }
+        })
       }
     }
   } catch {}
-  return {
-    themeMode: 'system',
-    voiceModeEnabled: false,
-    autoSendVoiceTranscripts: false,
-    vadSilenceMs: 1500,
-    defaultEditor: 'vim',
-    fallbackTerminal: 'default-terminal',
-    activeAgent: 'claude-code',
-    defaultPermissionMode: 'auto',
-    notifications: DEFAULT_NOTIFICATION_PREFERENCES,
-    defaultModels: {},
-    reviewAgent: DEFAULT_REVIEW_AGENT,
-    reviewModel: DEFAULT_REVIEW_MODEL,
-    reviewReasoning: DEFAULT_REVIEW_REASONING,
-    reviewGuideInstructions: '',
-    stackedPrsEnabled: false,
-    generatePrGuidesOnOpen: false,
-    reviewWarmingByProject: {},
-    responseStreamingMode: 'paragraph',
-    rateLimitBehavior: 'ask',
-    autoRenameSessions: true,
-    showDiffSummaryAfterTurn: true,
-    collapseComposerWhenIdle: true,
-    fontFamily: DEFAULT_APP_FONT_FAMILY,
-    fontSize: DEFAULT_FONT_SIZE,
-    zoomFactor: DEFAULT_ZOOM_FACTOR,
-    codeFontFamily: 'jetbrains-mono',
-    codeFontSize: DEFAULT_CODE_FONT_SIZE,
-    documentFontFamily: 'solus',
-    documentFontSize: DEFAULT_DOCUMENT_FONT_SIZE,
-    extraInstructions: '',
-    modelInstructions: {},
-    keybindings: {},
-    analyticsEnabled: true,
-    projectPanelOpen: false,
-    splitProjectPanelOpen: false,
-    projectPanelWidth: null,
-    splitProjectPanelWidth: null,
-    projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
-    splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
-    tabGroupMode: 'flat',
-    sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
-    archivedAutomationRetentionDays: 30,
-    sidebarProjectFilter: null,
-    onboardingCompleted: false,
-  }
+  return structuredClone(freshSettings())
 }
 
+// ─── The context ───
+
+/**
+ * Every setting reads as a property of the context — `settings.themeMode` —
+ * through the reactive object beneath, so a `$derived` on one key wakes for
+ * that key alone. The properties are defined in the constructor from the key
+ * list; the interface merge below is what makes them typed. Writes go through
+ * `update`, which is why they are read-only here.
+ */
+// eslint-disable-next-line typescript/no-unsafe-declaration-merging -- the constructor defines every `SettingKey` before anything reads it
+export interface SettingsContext extends Readonly<SettingsFields> {}
+
 export class SettingsContext {
-  themeMode = $state<ThemeMode>('system')
-  voiceModeEnabled = $state(false)
-  autoSendVoiceTranscripts = $state(false)
-  vadSilenceMs = $state(1500)
-  defaultEditor = $state<EditorId | null>(null)
-  fallbackTerminal = $state<TerminalAppId | null>(null)
-  activeAgent = $state<AgentId>('claude-code')
-  defaultPermissionMode = $state<HostConfig['defaultPermissionMode']>('auto')
-  notifications = $state<NotificationPreferences>(mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, {}))
-  defaultModels = $state<Record<string, string>>({})
-  reviewAgent = $state<AgentId>(DEFAULT_REVIEW_AGENT)
-  reviewModel = $state(DEFAULT_REVIEW_MODEL)
-  reviewReasoning = $state<ReasoningEffort>(DEFAULT_REVIEW_REASONING)
-  reviewGuideInstructions = $state('')
-  stackedPrsEnabled = $state(false)
-  generatePrGuidesOnOpen = $state(false)
-  reviewWarmingByProject = $state<Record<string, boolean>>({})
-  responseStreamingMode = $state<ResponseStreamingMode>('paragraph')
-  rateLimitBehavior = $state<RateLimitBehavior>('ask')
-  autoRenameSessions = $state(true)
-  showDiffSummaryAfterTurn = $state(true)
-  collapseComposerWhenIdle = $state(true)
-  fontFamily = $state<AppFontFamily>(DEFAULT_APP_FONT_FAMILY)
-  fontSize = $state(13)
-  zoomFactor = $state(ZOOM_FACTOR_DEFAULT)
-  codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
-  codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
-  documentFontFamily = $state<DocumentFontFamily>('solus')
-  documentFontSize = $state(DEFAULT_DOCUMENT_FONT_SIZE)
-  extraInstructions = $state('')
-  modelInstructions = $state<Record<string, string>>({})
-  keybindings = $state<Record<string, KeyCombo>>({})
-  analyticsEnabled = $state(true)
-  projectPanelOpen = $state(false)
-  splitProjectPanelOpen = $state(false)
-  projectPanelWidth = $state<number | null>(null)
-  splitProjectPanelWidth = $state<number | null>(null)
-  projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
-  splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
-  tabGroupMode = $state<TabGroupMode>('flat')
-  sidebarCompletedRetentionDays = $state(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS)
-  archivedAutomationRetentionDays = $state(30)
-  sidebarProjectFilter = $state<string | null>(null)
-  onboardingCompleted = $state(true)
+  private values = $state<SettingsFields>(loadSettings())
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
   private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
@@ -532,66 +608,18 @@ export class SettingsContext {
   /** The host that owns the promoted tier, once `hydrateFromHost` has run. */
   private hostConfigServerId: string | null = null
   /** Which promoted keys are waiting to be pushed. Values are read at flush. */
-  private readonly pendingHostKeys = new Set<keyof MirroredHostConfig>()
+  private readonly pendingHostKeys = new Set<MirroredHostKey>()
   private hostPushTimer: ReturnType<typeof setTimeout> | null = null
   private applyingFromHost = false
 
   constructor() {
-    const saved = loadSettings()
-    this.themeMode = saved.themeMode
-    this.voiceModeEnabled = saved.voiceModeEnabled
-    this.autoSendVoiceTranscripts = saved.autoSendVoiceTranscripts
-    this.vadSilenceMs = saved.vadSilenceMs
-    this.defaultEditor = saved.defaultEditor
-    this.fallbackTerminal = saved.fallbackTerminal
-    this.activeAgent = saved.activeAgent
-    this.defaultPermissionMode = saved.defaultPermissionMode
-    this.notifications = mergeNotificationPreferences(saved.notifications, {})
-    this.defaultModels = saved.defaultModels
-    this.reviewAgent = saved.reviewAgent
-    this.reviewModel = saved.reviewModel
-    this.reviewReasoning = saved.reviewReasoning
-    this.reviewGuideInstructions = saved.reviewGuideInstructions
-    this.stackedPrsEnabled = saved.stackedPrsEnabled
-    this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
-    this.reviewWarmingByProject = saved.reviewWarmingByProject
-    this.responseStreamingMode = saved.responseStreamingMode
-    this.rateLimitBehavior = saved.rateLimitBehavior
-    this.autoRenameSessions = saved.autoRenameSessions
-    this.showDiffSummaryAfterTurn = saved.showDiffSummaryAfterTurn
-    this.collapseComposerWhenIdle = saved.collapseComposerWhenIdle
-    this.fontFamily = saved.fontFamily
-    this.fontSize = saved.fontSize
-    this.zoomFactor = saved.zoomFactor
-    this.codeFontFamily = saved.codeFontFamily
-    this.codeFontSize = saved.codeFontSize
-    this.documentFontFamily = saved.documentFontFamily
-    this.documentFontSize = saved.documentFontSize
-    this.extraInstructions = saved.extraInstructions
-    this.modelInstructions = saved.modelInstructions
-    this.keybindings = saved.keybindings
-    this.analyticsEnabled = saved.analyticsEnabled
-    this.projectPanelOpen = saved.projectPanelOpen
-    this.splitProjectPanelOpen = saved.splitProjectPanelOpen
-    this.projectPanelWidth = saved.projectPanelWidth
-    this.splitProjectPanelWidth = saved.splitProjectPanelWidth
-    this.projectPanelCollapsed = saved.projectPanelCollapsed
-    this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
-    this.tabGroupMode = saved.tabGroupMode
-    this.sidebarCompletedRetentionDays = saved.sidebarCompletedRetentionDays
-    this.archivedAutomationRetentionDays = saved.archivedAutomationRetentionDays
-    this.sidebarProjectFilter = saved.sidebarProjectFilter
-    this.onboardingCompleted = saved.onboardingCompleted
+    for (const key of SETTING_KEYS) {
+      Object.defineProperty(this, key, { get: () => this.values[key], enumerable: true })
+    }
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(this.isDark)
-    applyFontFamily(saved.fontFamily)
-    applyFontSize(saved.fontSize)
-    applyZoomFactor(saved.zoomFactor)
-    applyCodeFontFamily(saved.codeFontFamily)
-    applyCodeFontSize(saved.codeFontSize)
-    applyDocumentFontFamily(saved.documentFontFamily)
-    applyDocumentFontSize(saved.documentFontSize)
+    for (const key of SETTING_KEYS) this.runEffect(key, this.values[key])
 
     // Write the seeded blob straight back on a first run so the screen-derived
     // zoom is decided once. Chromium reports `screen.width` in zoomed CSS
@@ -607,15 +635,15 @@ export class SettingsContext {
         const parsed = z.object({ zoomFactor: z.number() }).safeParse(JSON.parse(e.newValue))
         if (!parsed.success) return
         const next = clampZoomFactor(parsed.data.zoomFactor)
-        if (next === this.zoomFactor) return
-        this.zoomFactor = next
+        if (next === this.values.zoomFactor) return
+        this.values.zoomFactor = next
         applyZoomFactor(next)
       } catch {}
     })
   }
 
   get isDark(): boolean {
-    return this.themeMode === 'dark' || (this.themeMode === 'system' && this._systemIsDark)
+    return this.values.themeMode === 'dark' || (this.values.themeMode === 'system' && this._systemIsDark)
   }
 
   get ctx(): SettingsCtx {
@@ -631,9 +659,9 @@ export class SettingsContext {
       reviewModel: this.reviewModel,
       reviewReasoning: this.reviewReasoning,
       reviewGuideInstructions: this.reviewGuideInstructions,
-      stackedPrsEnabled: this.stackedPrsEnabled,
       reviewWarmingEnabled: false,
-      rateLimitBehavior: this.rateLimitBehavior,
+      // Legacy RPC field; the receiving host resolves its own policy.
+      rateLimitBehavior: 'ask',
       fontFamily: this.fontFamily,
       fontSize: this.fontSize,
       codeFontFamily: this.codeFontFamily,
@@ -656,96 +684,26 @@ export class SettingsContext {
 
   setReviewWarmingEnabled(projectPath: string, enabled: boolean): void {
     if (!projectPath || projectPath === '~') return
-    this.reviewWarmingByProject[projectPath] = enabled
+    this.values.reviewWarmingByProject[projectPath] = enabled
     this.saveSettings()
-    this.scheduleHostPush({ reviewWarmingByProject: this.reviewWarmingByProject })
+    this.scheduleHostPush({ reviewWarmingByProject: this.values.reviewWarmingByProject })
   }
 
   update(patch: Partial<SettingsFields>): void {
-    if (patch.themeMode !== undefined) {
-      this.themeMode = patch.themeMode
-      const resolved = patch.themeMode === 'system' ? this._systemIsDark : patch.themeMode === 'dark'
-      applyTheme(resolved)
+    for (const key of SETTING_KEYS) {
+      if (key === 'notifications') continue
+      this.adopt(key, patch[key])
     }
-    if (patch.voiceModeEnabled !== undefined) this.voiceModeEnabled = patch.voiceModeEnabled
-    if (patch.autoSendVoiceTranscripts !== undefined) this.autoSendVoiceTranscripts = patch.autoSendVoiceTranscripts
-    if (patch.vadSilenceMs !== undefined) this.vadSilenceMs = Math.max(1000, Math.min(8000, patch.vadSilenceMs))
-    if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
-    if (patch.fallbackTerminal !== undefined) this.fallbackTerminal = patch.fallbackTerminal
-    if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
-    if (patch.defaultPermissionMode !== undefined) this.defaultPermissionMode = patch.defaultPermissionMode
     if (patch.notifications !== undefined) this.adoptNotifications(patch.notifications)
-    if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
-    if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
-    if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
-    if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
-    if (patch.reviewGuideInstructions !== undefined) this.reviewGuideInstructions = patch.reviewGuideInstructions
-    if (patch.stackedPrsEnabled !== undefined) this.stackedPrsEnabled = patch.stackedPrsEnabled
-    if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
-    if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
-    if (patch.responseStreamingMode !== undefined) this.responseStreamingMode = patch.responseStreamingMode
-    if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
-    if (patch.autoRenameSessions !== undefined) this.autoRenameSessions = patch.autoRenameSessions
-    if (patch.showDiffSummaryAfterTurn !== undefined)
-      this.showDiffSummaryAfterTurn = patch.showDiffSummaryAfterTurn
-    if (patch.collapseComposerWhenIdle !== undefined)
-      this.collapseComposerWhenIdle = patch.collapseComposerWhenIdle
-    if (patch.fontFamily !== undefined) {
-      this.fontFamily = patch.fontFamily
-      applyFontFamily(this.fontFamily)
-    }
-    if (patch.fontSize !== undefined) {
-      this.fontSize = Math.max(8, patch.fontSize)
-      applyFontSize(this.fontSize)
-    }
-    if (patch.zoomFactor !== undefined) {
-      this.zoomFactor = clampZoomFactor(patch.zoomFactor)
-      applyZoomFactor(this.zoomFactor)
-    }
-    if (patch.codeFontFamily !== undefined) {
-      this.codeFontFamily = patch.codeFontFamily
-      applyCodeFontFamily(this.codeFontFamily)
-    }
-    if (patch.codeFontSize !== undefined) {
-      this.codeFontSize = Math.max(8, patch.codeFontSize)
-      applyCodeFontSize(this.codeFontSize)
-    }
-    if (patch.documentFontFamily !== undefined) {
-      this.documentFontFamily = patch.documentFontFamily
-      applyDocumentFontFamily(this.documentFontFamily)
-    }
-    if (patch.documentFontSize !== undefined) {
-      this.documentFontSize = Math.max(12, patch.documentFontSize)
-      applyDocumentFontSize(this.documentFontSize)
-    }
-    if (patch.extraInstructions !== undefined) this.extraInstructions = patch.extraInstructions
-    if (patch.modelInstructions !== undefined) this.modelInstructions = patch.modelInstructions
-    if (patch.keybindings !== undefined) this.keybindings = patch.keybindings
-    if (patch.analyticsEnabled !== undefined) {
-      this.analyticsEnabled = patch.analyticsEnabled
-      setAnalyticsEnabled(patch.analyticsEnabled)
-      // The host learns about consent through the host-config push below, which
-      // every client makes. The old `setAnalyticsConsent` call was desktop-only,
-      // so a user who opted out on web was still counted by the server.
-    }
-    if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
-    if (patch.splitProjectPanelOpen !== undefined)
-      this.splitProjectPanelOpen = patch.splitProjectPanelOpen
-    if (patch.projectPanelWidth !== undefined)
-      this.projectPanelWidth = patch.projectPanelWidth
-    if (patch.splitProjectPanelWidth !== undefined)
-      this.splitProjectPanelWidth = patch.splitProjectPanelWidth
-    if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
-    if (patch.splitProjectPanelCollapsed !== undefined)
-      this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
-    if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
-    if (patch.archivedAutomationRetentionDays !== undefined)
-      this.archivedAutomationRetentionDays = patch.archivedAutomationRetentionDays
-    if (patch.sidebarCompletedRetentionDays !== undefined)
-      this.sidebarCompletedRetentionDays = Math.max(1, Math.min(365, Math.floor(patch.sidebarCompletedRetentionDays)))
-    if (patch.sidebarProjectFilter !== undefined)
-      this.sidebarProjectFilter = patch.sidebarProjectFilter
-    if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
+    // The theme resolves through the system preference, so it reads the
+    // context rather than the value alone.
+    if (patch.themeMode !== undefined) applyTheme(this.isDark)
+    // Consent is applied on change only; the shell initialises analytics at
+    // boot from the stored value. The host learns about it through the
+    // host-config push below, which every client makes — the old
+    // `setAnalyticsConsent` call was desktop-only, so a user who opted out on
+    // web was still counted by the server.
+    if (patch.analyticsEnabled !== undefined) setAnalyticsEnabled(patch.analyticsEnabled)
     this.saveSettings()
     // localStorage stays the whole blob — device config plus a mirror of the
     // promoted tier, so a boot paints instantly and an offline client keeps its
@@ -753,31 +711,41 @@ export class SettingsContext {
     this.scheduleHostPush(patch)
   }
 
+  private adopt<K extends Exclude<SettingKey, 'notifications'>>(key: K, value: SettingsFields[K] | undefined): void {
+    if (value === undefined) return
+    const next = SETTING_NORMALIZERS[key]?.(value) ?? value
+    this.values[key] = next
+    this.runEffect(key, next)
+  }
+
+  private runEffect<K extends SettingKey>(key: K, value: SettingsFields[K]): void {
+    SETTING_EFFECTS[key]?.(value)
+  }
+
   /** Written per flag so a `$derived` on one switch does not wake for the others. */
   private adoptNotifications(next: NotificationPreferences): void {
-    for (const channel of NOTIFICATION_CHANNELS) this.notifications.channels[channel] = next.channels[channel]
-    for (const event of NOTIFICATION_EVENTS) this.notifications.events[event] = next.events[event]
+    for (const channel of NOTIFICATION_CHANNELS) this.values.notifications.channels[channel] = next.channels[channel]
+    for (const event of NOTIFICATION_EVENTS) this.values.notifications.events[event] = next.events[event]
   }
 
   setNotificationChannel(channel: NotificationChannel, enabled: boolean): void {
-    this.notifications.channels[channel] = enabled
+    this.values.notifications.channels[channel] = enabled
     this.saveSettings()
-    this.scheduleHostPush({ notifications: this.notifications })
+    this.scheduleHostPush({ notifications: this.values.notifications })
   }
 
   setNotificationEvent(event: NotificationEvent, enabled: boolean): void {
-    this.notifications.events[event] = enabled
+    this.values.notifications.events[event] = enabled
     this.saveSettings()
-    this.scheduleHostPush({ notifications: this.notifications })
+    this.scheduleHostPush({ notifications: this.values.notifications })
   }
 
-  // OS-supplied system theme; not persisted.
   zoomIn(): void {
-    this.setZoomFactor(stepZoomFactor(this.zoomFactor, 1))
+    this.setZoomFactor(stepZoomFactor(this.values.zoomFactor, 1))
   }
 
   zoomOut(): void {
-    this.setZoomFactor(stepZoomFactor(this.zoomFactor, -1))
+    this.setZoomFactor(stepZoomFactor(this.values.zoomFactor, -1))
   }
 
   resetZoom(): void {
@@ -785,63 +753,25 @@ export class SettingsContext {
   }
 
   setZoomFactor(factor: number): void {
-    this.zoomFactor = clampZoomFactor(factor)
-    applyZoomFactor(this.zoomFactor)
+    this.values.zoomFactor = clampZoomFactor(factor)
+    applyZoomFactor(this.values.zoomFactor)
     this.saveSettings()
   }
 
+  // OS-supplied system theme; not persisted.
   setSystemTheme(isDark: boolean): void {
     this._systemIsDark = isDark
-    if (this.themeMode === 'system') {
+    if (this.values.themeMode === 'system') {
       applyTheme(isDark)
     }
   }
 
-  /**
-   * The promoted tier. Everything not listed here is device config and stays in
-   * `localStorage`: zoom and keybindings (a desktop global shortcut cannot fire
-   * on web), pane widths, panel collapse state, the sidebar filter, and the
-   * onboarding flag.
-   */
+  /** The promoted tier, as a plain object: these are `$state` proxies, and a
+   *  proxy is not structured-cloneable, so passing one raw fails the RPC call. */
   get hostConfig(): MirroredHostConfig {
-    return {
-      themeMode: this.themeMode,
-      voiceModeEnabled: this.voiceModeEnabled,
-      autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
-      vadSilenceMs: this.vadSilenceMs,
-      defaultEditor: this.defaultEditor,
-      fallbackTerminal: this.fallbackTerminal,
-      activeAgent: this.activeAgent,
-      reviewAgent: this.reviewAgent,
-      reviewModel: this.reviewModel,
-      reviewReasoning: this.reviewReasoning,
-      reviewGuideInstructions: this.reviewGuideInstructions,
-      stackedPrsEnabled: this.stackedPrsEnabled,
-      generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
-      defaultPermissionMode: this.defaultPermissionMode,
-      responseStreamingMode: this.responseStreamingMode,
-      rateLimitBehavior: this.rateLimitBehavior,
-      autoRenameSessions: this.autoRenameSessions,
-      showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
-      collapseComposerWhenIdle: this.collapseComposerWhenIdle,
-      fontFamily: this.fontFamily,
-      fontSize: this.fontSize,
-      codeFontFamily: this.codeFontFamily,
-      codeFontSize: this.codeFontSize,
-      documentFontFamily: this.documentFontFamily,
-      documentFontSize: this.documentFontSize,
-      extraInstructions: this.extraInstructions,
-      analyticsEnabled: this.analyticsEnabled,
-      tabGroupMode: this.tabGroupMode,
-      sidebarCompletedRetentionDays: this.sidebarCompletedRetentionDays,
-      archivedAutomationRetentionDays: this.archivedAutomationRetentionDays,
-      // Plain-object snapshots: these are `$state` proxies, and a proxy is not
-      // structured-cloneable, so passing one raw fails the RPC call.
-      defaultModels: $state.snapshot(this.defaultModels),
-      modelInstructions: $state.snapshot(this.modelInstructions),
-      reviewWarmingByProject: $state.snapshot(this.reviewWarmingByProject),
-      notifications: $state.snapshot(this.notifications),
-    }
+    const plain = $state.snapshot(this.values)
+    // SAFETY: every `MirroredHostKey` contributes one entry, so the result has exactly those keys.
+    return Object.fromEntries(MIRRORED_HOST_KEYS.map((key) => [key, plain[key]])) as MirroredHostConfig
   }
 
   /**
@@ -923,55 +853,11 @@ export class SettingsContext {
 
   private saveSettings(): void {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-        themeMode: this.themeMode,
-        voiceModeEnabled: this.voiceModeEnabled,
-        autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
-        vadSilenceMs: this.vadSilenceMs,
-        defaultEditor: this.defaultEditor,
-        fallbackTerminal: this.fallbackTerminal,
-        activeAgent: this.activeAgent,
-        notifications: this.notifications,
-        defaultModels: this.defaultModels,
-        reviewAgent: this.reviewAgent,
-        reviewModel: this.reviewModel,
-        reviewReasoning: this.reviewReasoning,
-        reviewGuideInstructions: this.reviewGuideInstructions,
-        stackedPrsEnabled: this.stackedPrsEnabled,
-        generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
-        reviewWarmingByProject: this.reviewWarmingByProject,
-        defaultPermissionMode: this.defaultPermissionMode,
-        responseStreamingMode: this.responseStreamingMode,
-        rateLimitBehavior: this.rateLimitBehavior,
-        autoRenameSessions: this.autoRenameSessions,
-        showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
-        collapseComposerWhenIdle: this.collapseComposerWhenIdle,
-        fontFamily: this.fontFamily,
-        fontSize: this.fontSize,
-        zoomFactor: this.zoomFactor,
-        codeFontFamily: this.codeFontFamily,
-        codeFontSize: this.codeFontSize,
-        documentFontFamily: this.documentFontFamily,
-        documentFontSize: this.documentFontSize,
-        extraInstructions: this.extraInstructions,
-        modelInstructions: this.modelInstructions,
-        keybindings: this.keybindings,
-        analyticsEnabled: this.analyticsEnabled,
-        projectPanelOpen: this.projectPanelOpen,
-        splitProjectPanelOpen: this.splitProjectPanelOpen,
-        projectPanelWidth: this.projectPanelWidth,
-        splitProjectPanelWidth: this.splitProjectPanelWidth,
-        projectPanelCollapsed: this.projectPanelCollapsed,
-        splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
-        tabGroupMode: this.tabGroupMode,
-        sidebarCompletedRetentionDays: this.sidebarCompletedRetentionDays,
-      archivedAutomationRetentionDays: this.archivedAutomationRetentionDays,
-        sidebarProjectFilter: this.sidebarProjectFilter,
-        onboardingCompleted: this.onboardingCompleted,
-      }))
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify($state.snapshot(this.values)))
     } catch {}
   }
 }
+
 
 export const spacing = {
   contentWidth: 960,

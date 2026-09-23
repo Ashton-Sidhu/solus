@@ -67,7 +67,50 @@ export function parseGithubMarkdown(source: string, policy: MarkdownPolicy = 're
       delete node.properties.src
     }
   })
+  if (policy === 'remote') markMentions(tree)
   return tree
+}
+
+/** A code-host login after `@`, as GitHub reads one: not inside a word (so an
+ *  email address stays text), up to 39 letters, digits and inner hyphens, and
+ *  an optional `/team` for an organisation team mention. */
+const MENTION = /(^|[^\w@/`])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?(?:\/[\w.-]+)?)(?![\w@])/g
+
+/** Places where `@name` is literal text, not a mention. */
+const MENTION_OPAQUE = new Set(['a', 'code', 'pre', 'kbd', 'script', 'style'])
+
+/**
+ * Wraps each `@login` in code-host text in a `.markdown-mention` span, the way
+ * GitHub sets a mention apart from the sentence around it. A span, not a link:
+ * the host may be GitHub or GitLab, and the renderer does not know which
+ * profile URL is right. Runs after sanitizing, so the class is ours.
+ */
+function markMentions(parent: Root | Element): void {
+  for (let index = 0; index < parent.children.length; index++) {
+    const child = parent.children[index]
+    if (child.type === 'element') {
+      if (!MENTION_OPAQUE.has(child.tagName)) markMentions(child)
+      continue
+    }
+    if (child.type !== 'text' || !child.value.includes('@')) continue
+    const parts: RootContent[] = []
+    let last = 0
+    for (const match of child.value.matchAll(MENTION)) {
+      const start = match.index + match[1].length
+      if (start > last) parts.push({ type: 'text', value: child.value.slice(last, start) })
+      parts.push({
+        type: 'element',
+        tagName: 'span',
+        properties: { className: ['markdown-mention'] },
+        children: [{ type: 'text', value: `@${match[2]}` }],
+      })
+      last = start + 1 + match[2].length
+    }
+    if (parts.length === 0) continue
+    if (last < child.value.length) parts.push({ type: 'text', value: child.value.slice(last) })
+    parent.children.splice(index, 1, ...(parts as typeof parent.children))
+    index += parts.length - 1
+  }
 }
 
 /** HAST uses DOM property names; Svelte dynamic elements need HTML attribute names. */

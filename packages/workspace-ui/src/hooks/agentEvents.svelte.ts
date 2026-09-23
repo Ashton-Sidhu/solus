@@ -10,24 +10,24 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
  * verified without mounting the application. */
 export function bindAgentEventSubscriptions(session: WorkspaceContext): () => void {
   const isOwnHost = (serverId: string, sessionId: string): boolean => {
-    const sessionServerId = session.sessions[sessionId]?.run.serverId
+    const sessionServerId = session.sessions.byId[sessionId]?.run.serverId
     return !!sessionServerId && serverConnections.resolveId(sessionServerId) === serverId
   }
 
   const unsubEvent = subscribeAllHosts('session.eventReceived', (serverId, { sessionId, event }) => {
-    if (isOwnHost(serverId, sessionId)) session.handleNormalizedEvent(sessionId, event)
+    if (isOwnHost(serverId, sessionId)) session.eventReducer.apply(sessionId, event)
   })
   const unsubError = subscribeAllHosts('session.errorReceived', (serverId, { sessionId, error }) => {
-    if (isOwnHost(serverId, sessionId)) session.handleError(sessionId, error)
+    if (isOwnHost(serverId, sessionId)) session.eventReducer.handleError(sessionId, error)
   })
   const unsubSessionTitle = subscribeAllHosts('session.titleChanged', (serverId, event: SessionTitleChangedEvent) => {
-    session.applySessionTitleChanged(serverId, event)
+    session.metadata.applySessionTitleChanged(serverId, event)
   })
   // Read state is the host's, so this arrives for a read that happened on
   // another device as readily as for one made here. Applying it unconditionally
   // is what keeps the desktop, the web client and the phone in agreement.
   const unsubReadState = subscribeAllHosts('session.readStateChanged', (serverId, { sessionId, viewedAt }) => {
-    if (isOwnHost(serverId, sessionId)) session.applySessionReadState(sessionId, viewedAt)
+    if (isOwnHost(serverId, sessionId)) session.metadata.applySessionReadState(sessionId, viewedAt)
   })
 
   return () => {

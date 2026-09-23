@@ -1,9 +1,5 @@
 import type { Session, SessionTitleChangedEvent } from '@solus/contracts/types'
 
-interface SessionTitleWorkspace {
-  sessions: Record<string, Session>
-}
-
 export interface ChangedSessionTitle {
   sessionId: string
   taskServerId: string
@@ -17,12 +13,13 @@ export interface ChangedSessionTitle {
  * their naming round trip finished.
  */
 export function applySessionTitleChange(
-  workspace: SessionTitleWorkspace,
+  sessions: Record<string, Session>,
   serverId: string,
   event: SessionTitleChangedEvent,
 ): ChangedSessionTitle[] {
   const changed: ChangedSessionTitle[] = []
-  for (const [sessionId, session] of Object.entries(workspace.sessions)) {
+  for (const [sessionId, session] of Object.entries(sessions)) {
+    if (session.forked) continue
     if (session.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
     session.title = event.title ?? 'New Tab'
     session.titleCustom = event.title !== null

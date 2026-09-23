@@ -74,8 +74,10 @@
   const canExpand = $derived(hasVisibleTurnBody(turn));
   const kinds = $derived(activityKinds(turn.tools));
 
+  // A running sub-agent is a wait, not the row's subject — `backgroundWait`
+  // names it.
   const runningTool = $derived(
-    turn.tools.find((t) => t.toolStatus === "running"),
+    turn.tools.find((t) => t.toolStatus === "running" && !t.subMessages),
   );
   // Steps that have actually landed — a tool still in flight is the row's
   // subject, not something folded away behind it.

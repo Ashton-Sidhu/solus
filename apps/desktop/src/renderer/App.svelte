@@ -22,11 +22,10 @@
 
   import DesignAnnotation from "@solus/workspace-ui/components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
-  import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
-  import { connectionsStore, serversStore } from "@solus/workspace-ui/contexts";
+  import { connectionsStore, serversStore, sharesStore } from "@solus/workspace-ui/contexts";
 
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -94,12 +93,7 @@
   // can all open it. Saves straight through to the provider.
   const taskComposer = $derived(session.ui.taskComposer);
   const sessionRename = $derived(session.ui.sessionRename);
-  const taskComposerServerId = $derived(
-    taskComposer
-      ? (session.tasksStore.hostForProject(taskComposer.projectKey) ??
-          serverConnections.defaultServerId())
-      : null,
-  );
+  const taskComposerServerId = $derived(taskComposer?.serverId ?? null);
   const taskComposerHost = $derived(
     taskComposerServerId
       ? {
@@ -121,14 +115,14 @@
   );
   const taskComposerTasks = $derived(
     taskComposer
-      ? session.tasksStore.tasksForProject(taskComposer.projectKey)
+      ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey)
       : [],
   );
   const taskComposerEpics = $derived(
     taskComposerTasks.filter((t) => t.kind === "epic"),
   );
   const taskComposerLabels = $derived(
-    taskComposer ? session.tasksStore.knownLabels(taskComposer.projectKey) : [],
+    taskComposer ? session.tasksStore.knownLabels(taskComposer.serverId, taskComposer.projectKey) : [],
   );
 
   $effect(() => {
@@ -154,6 +148,7 @@
     if (serversStore.addServerOpen) ui.hasMountedAddServer = true;
     if (openProjectStore.isOpen) ui.hasMountedOpenProject = true;
     if (hostOnboardingStore.isOpen) ui.hasMountedHostOnboarding = true;
+    if (sharesStore.dialog) ui.hasMountedShareDialog = true;
   });
 
   // Warm the components a keystroke can summon, so the first ⌘K / Open project
@@ -283,7 +278,7 @@
         | undefined = event.detail;
       const requesterId = detail?.requesterId;
       const requesterDraftId =
-        requesterId && session.sessionDrafts.has(requesterId)
+        requesterId && session.drafts.sessionDrafts.has(requesterId)
           ? requesterId
           : undefined;
       ui.directoryPickerDraftId = detail?.draftId ?? requesterDraftId;
@@ -669,7 +664,16 @@
       />
     {/if}
 
-    <ShareDialog />
+    {#if ui.hasMountedShareDialog}
+      {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
+        {@const ShareDialog = module.default}
+        <ShareDialog />
+      {:catch}
+        {#if sharesStore.dialog}
+          <p role="alert">Could not load the share dialog.</p>
+        {/if}
+      {/await}
+    {/if}
 
     {#if taskComposer && taskComposerConfig !== undefined}
       {#await import("@solus/workspace-ui/components/tasks/TaskComposer.svelte")}
@@ -689,10 +693,10 @@
             const context = taskComposer;
             if (!context) return;
             try {
-              await session.tasksStore.create({
-                ...input,
-                projectKey: context.projectKey,
-              });
+              await session.tasksStore.create(
+                { ...input, projectKey: context.projectKey },
+                context.serverId,
+              );
               toasts.success("Task created");
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);

@@ -37,6 +37,7 @@
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
+  import { cloudOnboardingStore } from "@solus/workspace-ui/components/onboarding/cloud-onboarding.store.svelte";
   import { webState } from "./lib/web-state.svelte";
   import { webPushState } from "./lib/web-push.svelte";
   import {
@@ -53,8 +54,7 @@
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
-  import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
-  import { activeSessionShareTarget, presenceStore, seatsStore, sharesStore } from "@solus/workspace-ui/contexts";
+  import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
@@ -79,12 +79,7 @@
   const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
 
   const taskComposer = $derived(session.ui.taskComposer);
-  const taskComposerServerId = $derived(
-    taskComposer
-      ? (session.tasksStore.hostForProject(taskComposer.projectKey) ??
-        serverConnections.defaultServerId())
-      : null,
-  );
+  const taskComposerServerId = $derived(taskComposer?.serverId ?? null);
   const taskComposerHost = $derived(
     taskComposerServerId
       ? {
@@ -102,7 +97,7 @@
     taskComposerConfig?.taskProvider ?? "local",
   );
   const taskComposerTasks = $derived(
-    taskComposer ? session.tasksStore.tasksForProject(taskComposer.projectKey) : [],
+    taskComposer ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey) : [],
   );
   const taskComposerEpics = $derived(
     taskComposerTasks.filter((task) => task.kind === "epic"),
@@ -147,7 +142,7 @@
     }),
   );
 
-  session.hydrateStaticInfoFromCache();
+  session.lifecycle.hydrateStaticInfoFromCache();
   materializeTabs(session);
   // The web shell has an address bar, so the location is mirrored into it: every
   // pane, its overlay, and the focused index are in the URL, which is what makes
@@ -159,7 +154,7 @@
   // Reads only the persisted fields, so it won't re-run on message streaming.
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
-    if (session.hydrating) return;
+    if (session.lifecycle.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
       version: 2,
@@ -175,7 +170,7 @@
   // every keystroke but only collects strings — no object spreads, no I/O until
   // the debounce settles — so the structural snapshot above stays keystroke-free.
   $effect(() => {
-    if (session.hydrating) return;
+    if (session.lifecycle.hydrating) return;
     const tabs: Record<string, string> = {};
     for (const tabId of session.tabOrder) {
       const sess = session.sessionFor(tabId);
@@ -188,8 +183,8 @@
   // prompt the user already wrote must survive a reload. The web client
   // restores from this key (materializeTabs), so it must write it too.
   $effect(() => {
-    if (session.hydrating) return;
-    savePersistedSessionDraftsDebounced(session.sessionDraftsSnapshot);
+    if (session.lifecycle.hydrating) return;
+    savePersistedSessionDraftsDebounced(session.drafts.sessionDraftsSnapshot);
   });
 
   // Flush pending drafts before the window unloads so the latest keystrokes survive.
@@ -211,7 +206,7 @@
   $effect(() => {
     void settings.activeAgent;
     untrack(() =>
-      void session.refreshPluginCommands(session.tabCtx.workingDirectory),
+      void session.lifecycle.refreshPluginCommands(session.tabCtx.workingDirectory),
     );
   });
 
@@ -233,6 +228,7 @@
   let hasMountedHostOnboarding = $state(false);
   let hasMountedAddServer = $state(false);
   let hasMountedServerSetup = $state(false);
+  let hasMountedShareDialog = $state(false);
   let shortcutsActiveScopes = $state<import("@solus/workspace-ui/lib/keybindings/types").Scope[]>([]);
 
   $effect(() => {
@@ -242,6 +238,7 @@
     if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
     if (serversStore.addServerOpen) hasMountedAddServer = true;
     if (webState.serverSetupOpen) hasMountedServerSetup = true;
+    if (sharesStore.dialog) hasMountedShareDialog = true;
   });
 
   const activeTabId = $derived(session.activeTabId);
@@ -281,6 +278,11 @@
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
       const defaultServerId = serverConnections.defaultServerId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
+      // The promoted settings tier lives on the host so it follows the user
+      // between desktop, web, and mobile, exactly as the desktop boot does.
+      if (defaultServerId) void settings.hydrateFromHost(defaultServerId);
+      const unsubHostConfig = settings.listenForHostConfigChanges();
+      const unsubProjectDirectory = listenForProjectDirectory();
       const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
         session.automationsStore.applyChange(serverId, event);
         if (event.kind === 'run-finished' && event.run.status === 'failed') {
@@ -302,13 +304,18 @@
       // Who else is on each host, and what they are looking at; the rooms arrive
       // as snapshots and every presence surface reads the one store.
       const unsubPresence = presenceStore.listen();
+      // The tunnel comes up after the host has answered the link; the cloud row follows it.
+      const unsubUplink = uplinkStore.listen();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
+        unsubHostConfig();
+        unsubProjectDirectory();
         unsubAutomations();
         unsubUsage();
         unsubSeats();
         unsubPresence();
+        unsubUplink();
       };
     }),
   );
@@ -369,6 +376,15 @@
 
   onMount(() => initializeRuntime(session, sessionSidebarStore));
 
+  // At a Solus Cloud origin, onboarding belongs to the account: it is shown
+  // until the account finished or skipped it, on any browser, and again when a
+  // "Get started" item reopens it at one stage. Elsewhere it is
+  // this device's first run (docs/plans/cloud-onboarding.md §3.6).
+  onMount(() => void cloudOnboardingStore.load());
+  const showsOnboarding = $derived(
+    cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted,
+  );
+
   const detectReconnect = createReconnectDetector(webState.connectionStatus);
   $effect(() => {
     const connectionStatus = webState.connectionStatus;
@@ -401,7 +417,7 @@
   useKeybinding("global.open-host-project", () => {
     const pageServerId =
       session.projectPageScope.kind === "project"
-        ? session.projectPageScope.project.serverId
+        ? session.projectPageScope.checkout?.serverId
         : serversStore.activeServer?.id;
     window.dispatchEvent(
       new CustomEvent("solus:open-directory-picker", {
@@ -423,13 +439,13 @@
     );
   });
   useKeybinding("global.new-task", () => {
-    session.openSessionDraft({ freshTask: true, via: "keybinding" });
+    session.drafts.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
-    session.openSessionDraft({ withoutTask: true, via: "keybinding" });
+    session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session", () =>
-    void session.openSessionDraft({ via: "keybinding" }),
+    void session.drafts.openSessionDraft({ via: "keybinding" }),
   );
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -563,7 +579,7 @@
       group: "General",
       hint: comboHint("global.new-task"),
       keywords: ["create", "task"],
-      run: () => session.openSessionDraft({ freshTask: true, via: "palette" }),
+      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
     },
     {
       id: "new-session",
@@ -571,7 +587,7 @@
       group: "General",
       hint: comboHint("global.new-session"),
       keywords: ["create", "chat", "tab"],
-      run: () => session.openSessionDraft({ via: "palette" }),
+      run: () => session.drafts.openSessionDraft({ via: "palette" }),
     },
     {
       id: "new-session-without-task",
@@ -580,7 +596,7 @@
       hint: comboHint("global.new-session-without-task"),
       keywords: ["create", "chat", "tab", "no task"],
       run: () =>
-        session.openSessionDraft({ withoutTask: true, via: "palette" }),
+        session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
     {
       id: "workspace",
@@ -649,7 +665,7 @@
       (candidate) => candidate.id === currentAgent,
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id, composerSourceId, via);
+    session.config.switchActiveAgent(next.id, composerSourceId, via);
   }
 
   let isDraggingFile = $state(false);
@@ -718,7 +734,16 @@
 {:catch}
   <p role="alert">Could not load the command palette.</p>
 {/await}
-<ShareDialog />
+{#if hasMountedShareDialog}
+  {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
+    {@const ShareDialog = module.default}
+    <ShareDialog />
+  {:catch}
+    {#if sharesStore.dialog}
+      <p role="alert">Could not load the share dialog.</p>
+    {/if}
+  {/await}
+{/if}
 
 {#if hasMountedDirectoryPicker && projectPicker.directoryPickerApi}
   {#await import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
@@ -765,7 +790,15 @@
 
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
-{#if !settings.onboardingCompleted}
+{#if cloudOnboardingStore.isAwaitingAccount}
+  <!-- At a cloud origin, until the account says whether onboarding is due: an
+       opaque cover, not the workspace, so the draft composer never flashes
+       before onboarding. Same composite as the onboarding surface. -->
+  <div
+    class="fixed inset-0 z-[10005]"
+    style="background: linear-gradient(var(--background), var(--background)) var(--solus-edge-bg)"
+  ></div>
+{:else if showsOnboarding}
   {#await import("@solus/workspace-ui/components/onboarding/OnboardingSurface.svelte")}
     <!-- Opaque from the first frame: without this the workspace is visible for
          as long as the lazy chunk takes to arrive. Same composite as the
@@ -835,10 +868,13 @@
       workingDirectory={taskComposer.workingDirectory}
       provider={settings.activeAgent}
       onCreate={async (input) => {
-        const cwd = taskComposer?.projectKey;
-        if (!cwd) return;
+        const context = taskComposer;
+        if (!context) return;
         try {
-          await session.tasksStore.create({ ...input, projectKey: cwd });
+          await session.tasksStore.create(
+            { ...input, projectKey: context.projectKey },
+            context.serverId,
+          );
           toasts.success("Task created");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

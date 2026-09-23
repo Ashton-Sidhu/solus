@@ -24,8 +24,6 @@ export interface WorkspaceServiceOptions {
   /** Path to `dist/main/standalone.js`; defaults to the worktree's build. */
   entry?: string
   tempRoot?: string
-  /** Base64 of 32 random bytes: the credential vault's key (cloud-service-model.md §5). Absent means no vault. */
-  vaultKey?: string
 }
 
 export interface WorkspaceService {
@@ -57,7 +55,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs: number, what: s
 }
 
 export async function bootWorkspaceService(options: WorkspaceServiceOptions): Promise<WorkspaceService> {
-  const entry = options.entry ?? resolve(process.cwd(), 'dist/main/standalone.js')
+  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? resolve(process.cwd(), 'dist/main/standalone.js')
   if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun run build:test\` first.`)
   if (options.engine === 'postgres' && !options.databaseUrl) throw new Error('A Postgres workspace service needs databaseUrl')
   const dataDir = mkdtempSync(join(options.tempRoot ?? tmpdir(), `solus-lab-workspace-${options.engine}-`))
@@ -74,8 +72,6 @@ export async function bootWorkspaceService(options: WorkspaceServiceOptions): Pr
     SOLUS_DB: options.engine,
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
   }
-  if (options.vaultKey) env.SOLUS_VAULT_KEY = options.vaultKey
-  else delete env.SOLUS_VAULT_KEY
   // No managed link, no host token: a workspace service is nobody's machine.
   delete env.SOLUS_MANAGED
   delete env.SOLUS_MANAGED_LINK

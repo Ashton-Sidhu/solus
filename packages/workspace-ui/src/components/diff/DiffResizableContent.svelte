@@ -62,7 +62,8 @@
 
   function handleTreeLayout(layout: number[]) {
     if (layout.length !== 2 || panelWidth <= 0) return;
-    treeWidth = clampTreeWidth(percentToPixels(layout[0], panelWidth));
+    // The tree is the trailing pane.
+    treeWidth = clampTreeWidth(percentToPixels(layout[1], panelWidth));
     if (!isTreeResizing) persistTreeWidth();
   }
 
@@ -78,21 +79,21 @@
   class="flex-1 min-h-0 min-w-0"
   onLayoutChange={handleTreeLayout}
 >
+  <Resizable.Pane order={1} minSize={treeCollapsed ? 100 : 0}>
+    {@render children()}
+  </Resizable.Pane>
   {#if !treeCollapsed && !isStackedPane(panelWidth)}
+    <Resizable.Handle
+      aria-label="Resize file tree"
+      onDraggingChange={handleTreeDragging}
+    />
     <Resizable.Pane
-      order={1}
+      order={2}
       defaultSize={treeDefaultSize}
       minSize={treeBounds.min}
       maxSize={treeBounds.max}
     >
       <DiffFileTreeColumn {mountFileTree} onToggleTree={onToggleTree} />
     </Resizable.Pane>
-    <Resizable.Handle
-      aria-label="Resize file tree"
-      onDraggingChange={handleTreeDragging}
-    />
   {/if}
-  <Resizable.Pane order={2} minSize={treeCollapsed ? 100 : 0}>
-    {@render children()}
-  </Resizable.Pane>
 </Resizable.PaneGroup>

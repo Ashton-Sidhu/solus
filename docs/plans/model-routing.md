@@ -6,27 +6,33 @@ open-ended exploration, or well-defined task. Interface work takes priority over
 the structured category when both describe the prompt. General covers unclear
 requests and requests outside the other categories.
 
-Settings → Model routing stores one Claude model, one Codex model, and a preferred
-provider for each category. These settings belong to the selected host and are
-shared by desktop, web, and mobile clients. Restore defaults resets all routes.
+Settings → General → Auto stores one model for each category, chosen from a single
+picker that lists the models the installed providers offer. The model names its
+own provider, so there is no separate provider choice. These settings belong to
+the selected host and are shared by desktop, web, and mobile clients. Restore
+defaults resets all four categories.
 
-| Category | Preferred provider | Claude default | Codex default |
-| --- | --- | --- | --- |
-| User interface | Claude | Opus 5 | GPT 6 Astra |
-| General use | Codex | Sonnet 5 | GPT 5.6 Sol |
-| Open-ended exploration | Claude | Opus 5 | GPT 6 Astra |
-| Well-defined task | Codex | Sonnet 5 | GPT 5.6 Terra |
+| Category | Default model |
+| --- | --- |
+| User interface | Opus 5.5 |
+| General use | GPT 5.6 Sol |
+| Open-ended exploration | Fable 5.1 |
+| Well-defined task | GPT 5.6 Sol |
 
-The host uses the other provider if the preferred provider is not installed or
-the turn's author has no seat for it. OpenCode does not participate in Auto.
+The host uses the General use model if no installed provider offers the category
+model, or if the turn's author has no seat for that provider. After the category
+selects a model, the host checks the usage store: if the chosen provider has a
+session or weekly window at 100 percent, it selects again without that provider.
+If no other provider has quota left, the first choice stands. OpenCode does not
+participate in Auto.
 Explicit model selection remains available through the existing picker.
 
 Jev receives the first prompt text, capped at 30,000 characters, using the host's
 TypeSafe key. Image contents and subsequent turns are not sent for classification.
 There are no retries. A three-second deadline, missing key, or service error uses
-the configured General use route. If category models have been removed, the host
-also uses General use. If those models are unavailable, it uses an available
-provider's default. With no eligible provider, the prompt fails with a connection
+the configured General use model. If a category model has been removed, the host
+also uses General use. If that model is unavailable too, it uses an available
+provider's own default. With no eligible provider, the prompt fails with a connection
 message. Stop cancels classification without starting a fallback run.
 
 The host resolves Auto before it creates the provider conversation. It publishes

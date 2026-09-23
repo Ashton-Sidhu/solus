@@ -1,5 +1,5 @@
 import { getDb, withTx } from '../db'
-import { ulid } from '../tasks/ulid'
+import { ulid } from '@solus/contracts/ulid'
 import { createLogger } from '../logger'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { z } from 'zod'

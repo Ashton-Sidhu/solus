@@ -1,9 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  AUTO_MERGE_REFUSAL_HINT,
+  enableGithubAutoMerge,
   githubPullRequestAccess,
   githubPullRequestAccessFor,
+  githubWriteRefusal,
+  revertGithubPullRequest,
   updateGithubPullRequestLifecycle,
 } from '@solus/server/providers/github/pull-request-actions'
+import { GitHubReauthRequiredError } from '@solus/server/providers/github/octokit'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 
 describe('GitHub pull request capabilities', () => {
@@ -18,6 +23,7 @@ describe('GitHub pull request capabilities', () => {
       allowMergeCommit: false,
       allowSquashMerge: true,
       allowRebaseMerge: false,
+      allowAutoMerge: false,
     })
 
     expect(access.capabilities.actions).toContain('merge')
@@ -37,6 +43,7 @@ describe('GitHub pull request capabilities', () => {
       allowMergeCommit: true,
       allowSquashMerge: true,
       allowRebaseMerge: true,
+      allowAutoMerge: false,
     })
 
     expect(access.viewerPermissions.reviewVerdicts).toEqual(['comment'])
@@ -53,6 +60,7 @@ describe('GitHub pull request capabilities', () => {
       allowMergeCommit: true,
       allowSquashMerge: true,
       allowRebaseMerge: true,
+      allowAutoMerge: false,
     })
 
     expect(access.viewerPermissions.manageLabels).toBe(true)
@@ -162,5 +170,104 @@ describe('GitHub pull request lifecycle', () => {
       updatedAt: '2026-08-11T18:00:00Z',
     })
     expect(mutations).toBe(1)
+  })
+})
+
+describe('GitHub auto-merge and revert', () => {
+  const writer = {
+    viewer: 'writer',
+    author: 'author',
+    canWrite: true,
+    canTriage: false,
+    allowMergeCommit: true,
+    allowSquashMerge: true,
+    allowRebaseMerge: true,
+  }
+
+  test('offers auto-merge only where the repository allows it and the viewer may write', () => {
+    // WHY: GitHub refuses to arm auto-merge on a repository without the
+    // setting, so offering it there is a button that only ever fails.
+    const allowed = githubPullRequestAccess({ ...writer, allowAutoMerge: true })
+    expect(allowed.capabilities.actions).toContain('enable-auto-merge')
+    expect(allowed.viewerPermissions.actions).toEqual(expect.arrayContaining(['enable-auto-merge', 'disable-auto-merge', 'revert']))
+
+    const disallowed = githubPullRequestAccess({ ...writer, allowAutoMerge: false })
+    expect(disallowed.capabilities.actions).not.toContain('enable-auto-merge')
+    expect(disallowed.viewerPermissions.actions).not.toContain('enable-auto-merge')
+    expect(disallowed.viewerPermissions.actions).toContain('revert')
+
+    // The author without write access can close their own pull request, but
+    // neither arm a merge nor revert one.
+    const author = githubPullRequestAccess({ ...writer, viewer: 'author', canWrite: false, allowAutoMerge: true })
+    expect(author.viewerPermissions.actions).not.toContain('enable-auto-merge')
+    expect(author.viewerPermissions.actions).not.toContain('revert')
+  })
+
+  test('reads whether the repository allows auto-merge from GraphQL', async () => {
+    const client = {
+      rest: { repos: { get: async () => ({ data: { permissions: { push: true }, allow_auto_merge: null } }) } },
+      graphql: async () => ({
+        repository: { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true },
+      }),
+    } as unknown as GitHubClient
+    const access = await githubPullRequestAccessFor(client, { host: 'github.com', owner: 'acme', repo: 'auto' }, 'viewer', 'author')
+    expect(access.viewerPermissions.actions).toContain('enable-auto-merge')
+  })
+
+  test('arms auto-merge with the chosen method against the head the viewer saw', async () => {
+    // WHY: the head rides with the mutation, so GitHub refuses to arm a merge
+    // of commits pushed after the reader looked.
+    const calls: Array<{ query: string; variables: object }> = []
+    const client = {
+      graphql: async (query: string, variables: object) => {
+        calls.push({ query, variables })
+        return {
+          enablePullRequestAutoMerge: {
+            pullRequest: { isDraft: false, state: 'OPEN', updatedAt: '2026-09-01T00:00:00Z', autoMergeRequest: { mergeMethod: 'SQUASH' } },
+          },
+        }
+      },
+    } as unknown as GitHubClient
+
+    await expect(enableGithubAutoMerge(client, 'PR_node', 'squash', 'head-1')).resolves.toEqual({
+      state: 'open',
+      draft: false,
+      updatedAt: '2026-09-01T00:00:00Z',
+      autoMergeEnabled: true,
+      autoMergeMethod: 'squash',
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].query).toContain('enablePullRequestAutoMerge')
+    expect(calls[0].variables).toEqual({ pullRequestId: 'PR_node', mergeMethod: 'SQUASH', expectedHeadOid: 'head-1' })
+  })
+
+  test('says a refusal as what did not happen and what to check', () => {
+    const refusal = githubWriteRefusal(
+      new Error('Pull request Auto merge is not allowed for this repository.'),
+      'GitHub could not turn on auto-merge',
+      AUTO_MERGE_REFUSAL_HINT,
+    )
+    expect(refusal.message).toBe(
+      'GitHub could not turn on auto-merge: Pull request Auto merge is not allowed for this repository. ' +
+        'Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.',
+    )
+    // A lapsed credential keeps its own error, which is what opens sign-in.
+    const reauth = new GitHubReauthRequiredError()
+    expect(githubWriteRefusal(reauth, 'x', 'y')).toBe(reauth)
+  })
+
+  test('a revert answers the new pull request GitHub opened', async () => {
+    let variables: object | null = null
+    const client = {
+      graphql: async (_query: string, sent: object) => {
+        variables = sent
+        return { revertPullRequest: { revertPullRequest: { number: 42, url: 'https://github.com/acme/app/pull/42' } } }
+      },
+    } as unknown as GitHubClient
+    await expect(revertGithubPullRequest(client, 'PR_node')).resolves.toEqual({
+      number: 42,
+      url: 'https://github.com/acme/app/pull/42',
+    })
+    expect(variables).toEqual({ pullRequestId: 'PR_node' })
   })
 })

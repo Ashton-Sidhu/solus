@@ -5,7 +5,7 @@
     Download as DownloadIcon,
     PanelRight as PanelRightIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import ArtifactRail from "../artifact/ArtifactRail.svelte";
@@ -33,7 +33,9 @@
 
   let { html, onShowSource }: Props = $props();
 
-  const session = getWorkspaceContext();
+  // Saving a block as an artifact writes it through a session; a client with
+  // no workspace (the cloud console) can only download it.
+  const session = getSurfaceContext().workspace;
   const origin = getHtmlBlockOrigin();
 
   let saving = $state(false);
@@ -41,7 +43,7 @@
 
   async function ensureSaved(): Promise<{ workId: string; title: string } | null> {
     if (saved) return saved;
-    if (saving) return null;
+    if (saving || !session) return null;
     saving = true;
     try {
       saved = await session.createArtifact(html, origin?.().tabId);
@@ -58,7 +60,7 @@
 
   async function openInSplit() {
     const work = await ensureSaved();
-    if (work) session.openWork(work.workId, "aside");
+    if (work) session?.openWork(work.workId, "aside");
     requestInputFocus();
   }
 
@@ -107,7 +109,7 @@
         {@render action("Show source", "html-block-source", onShowSource, CodeIcon)}
       {/if}
       {@render action("Save as HTML", "html-block-download", saveAsHtml, DownloadIcon)}
-      {#if !saved}
+      {#if !saved && session}
         <!-- Once saved, the rail below names the artifact; the action goes away. -->
         {@render action(
           saving ? "Saving…" : "Save as artifact",
@@ -117,7 +119,9 @@
           saving,
         )}
       {/if}
-      {@render action("Open in split", "html-block-open-split", openInSplit, PanelRightIcon, saving)}
+      {#if session}
+        {@render action("Open in split", "html-block-open-split", openInSplit, PanelRightIcon, saving)}
+      {/if}
     {/snippet}
   </SandboxFrame>
 

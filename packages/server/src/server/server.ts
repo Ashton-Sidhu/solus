@@ -1,11 +1,11 @@
+import { integrationUserFor } from '../vault/account-integrations'
 import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/docs'
 import { createLogger, isDebugEnabled } from '../logger'
-import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { withCredentialScope } from '../vault/credential-scope'
 import { assertRpcAccess, type ResourceAccess } from './access-policy'
-import { INTERNAL_PRINCIPAL, principalOwnerId, type Principal } from './principal'
+import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 import { ALL_ROLES, assertPlaneServed, type SolusRole } from './roles'
 
 const log = createLogger('server', 'server.ts')
@@ -42,6 +42,13 @@ export class SolusServer {
     this.roles = roles
   }
 
+  /** Whether this host has checkouts and agent processes to act on. A handler
+   *  whose method reads on the collaboration plane but has one execution-only
+   *  path refuses that path here, the same way the plane check would. */
+  servesExecution(): boolean {
+    return this.roles.has('execution')
+  }
+
   register<M extends RpcMethod>(method: M, handler: RpcHandler<M>): void {
     if (this.handlers.has(method)) {
       throw new Error(`SolusServer: duplicate handler for "${method}"`)
@@ -59,7 +66,7 @@ export class SolusServer {
     await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (method === 'typeSafeKeySet') {
+      if (method === 'typeSafeKeySet' || method === 'transcribeAudio') {
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.
@@ -89,8 +96,8 @@ export class SolusServer {
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
     // Whose provider connections the handler acts with (cloud-service-model.md
     // §22): the calling person's, or the host's own for its owner and itself.
-    const credentialUserId = principalOwnerId(ctx.principal)
-    const run = () => withCredentialScope(credentialUserId === HOST_OWNER_USER_ID ? null : credentialUserId, () => handler(args, ctx))
+    const credentialUserId = integrationUserFor(ctx.principal)
+    const run = () => withCredentialScope(credentialUserId, () => handler(args, ctx))
     if (!isDebugEnabled()) return await run()
     // The part of a handler that runs before its first await is the part that
     // blocks every other request. Debug builds report it when it is long

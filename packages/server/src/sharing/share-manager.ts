@@ -1,3 +1,4 @@
+import { afterDatabaseCommit } from '../db/database'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -106,6 +107,7 @@ export interface ResolvedLinkShare {
 
 /** What a share change means to connected clients; the transport and the publisher act on it. */
 export interface ShareChange extends ShareChangedEvent {
+  organizationId: string
   /** The guest link was removed or regenerated: every guest socket on this resource ends now. */
   guestsRevoked: boolean
 }
@@ -220,20 +222,22 @@ export class ShareManager {
 
   /** Only the owner may hand a resource to another member; the change is announced to everyone with access. */
   async transfer(request: ShareTransferRequest, principal: Principal): Promise<ShareList> {
-    const organizationId = organizationOf(principal)
-    const resource = this.canonical(request.resource)
-    if (await this.roleFor(principal, request.resource) !== 'owner') {
-      throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
-    }
-    const previousOwner = await this.ownerOf(organizationId, resource)
-    await this.deps.db.run(sql`
-      INSERT INTO ${resourceOwner} (resource_kind, resource_id, owner_user_id, created_at, organization_id)
-      VALUES (${resource.kind}, ${resource.id}, ${request.toUserId}, ${this.now()}, ${organizationId})
-      ON CONFLICT(resource_kind, resource_id) DO UPDATE SET owner_user_id = excluded.owner_user_id
-    `)
-    log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
-    await this.announce(organizationId, resource, principal, previousOwner && previousOwner !== request.toUserId ? [previousOwner] : [], false)
-    return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
+    return this.deps.db.transaction(async () => {
+      const organizationId = organizationOf(principal)
+      const resource = this.canonical(request.resource)
+      if (await this.roleFor(principal, request.resource) !== 'owner') {
+        throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
+      }
+      const previousOwner = await this.ownerOf(organizationId, resource)
+      await this.deps.db.run(sql`
+        INSERT INTO ${resourceOwner} (resource_kind, resource_id, owner_user_id, created_at, organization_id)
+        VALUES (${resource.kind}, ${resource.id}, ${request.toUserId}, ${this.now()}, ${organizationId})
+        ON CONFLICT(resource_kind, resource_id) DO UPDATE SET owner_user_id = excluded.owner_user_id
+      `)
+      log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
+      await this.announce(organizationId, resource, principal, previousOwner && previousOwner !== request.toUserId ? [previousOwner] : [], false)
+      return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
+    })
   }
 
   // ── Roles ───────────────────────────────────────────────────────────────
@@ -427,17 +431,17 @@ export class ShareManager {
   /** Replaces every named row. The owner and editors may share; a viewer may not (§3.4).
    *  A row removed for a team or the organization names nobody: only a person's own row does. */
   async setGrants(request: ShareSetRequest, principal: Principal): Promise<ShareList> {
-    const organizationId = organizationOf(principal)
-    const resource = this.canonical(request.resource)
-    await this.assertRole(principal, request.resource, 'editor')
-    const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
-    const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole }>()
-    for (const grant of request.grants) {
-      const subject = shareNamedSubjectSchema.parse(grant.subject)
-      next.set(`${subject.kind}:${subject.id}`, { subject, role: grant.role })
-    }
-    const removedUserIds: string[] = []
-    await this.deps.db.transaction(async (db) => {
+    return this.deps.db.transaction(async (db) => {
+      const organizationId = organizationOf(principal)
+      const resource = this.canonical(request.resource)
+      await this.assertRole(principal, request.resource, 'editor')
+      const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
+      const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole }>()
+      for (const grant of request.grants) {
+        const subject = shareNamedSubjectSchema.parse(grant.subject)
+        next.set(`${subject.kind}:${subject.id}`, { subject, role: grant.role })
+      }
+      const removedUserIds: string[] = []
       const before = (await this.grantRows(organizationId, resource, db)).filter((row) => row.subject_kind !== 'everyone')
       for (const row of before) {
         const key = `${row.subject_kind}:${row.subject_id}`
@@ -456,10 +460,10 @@ export class ShareManager {
           ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO UPDATE SET role = excluded.role
         `)
       }
+      log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
+      await this.announce(organizationId, resource, principal, removedUserIds, false)
+      return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
     })
-    log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
-    await this.announce(organizationId, resource, principal, removedUserIds, false)
-    return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
   }
 
   /**
@@ -468,42 +472,44 @@ export class ShareManager {
    * disconnects every guest at once (§3.4).
    */
   async setLink(request: ShareSetLinkRequest, principal: Principal): Promise<ShareLink | null> {
-    const organizationId = organizationOf(principal)
-    const resource = this.canonical(request.resource)
-    await this.assertRole(principal, request.resource, 'editor')
-    const existing = (await this.grantRows(organizationId, resource)).find((row) => row.subject_kind === 'everyone')
-    const db = this.deps.db
-    if (request.role === null) {
-      if (!existing) return null
-      await db.run(sql`
-        DELETE FROM ${shareGrant}
-        WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
-      `)
-      log.info('share_link_removed', { kind: resource.kind, resourceId: resource.id })
-      await this.announce(organizationId, resource, principal, [], true)
-      return null
-    }
-    const rotate = !existing || request.regenerate === true
-    const secret = rotate ? randomBytes(32).toString('base64url') : null
-    const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
-    if (secret) {
-      await db.run(sql`
-        INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
-        VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, 'everyone', '', ${request.role}, ${hashLinkSecret(secret)}, ${secret}, ${grantedBy}, ${this.now()}, ${organizationId})
-        ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO UPDATE SET
-          role = excluded.role, link_secret_hash = excluded.link_secret_hash, link_secret = excluded.link_secret, granted_by_user_id = excluded.granted_by_user_id
-      `)
-    } else {
-      await db.run(sql`
-        UPDATE ${shareGrant} SET role = ${request.role}
-        WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
-      `)
-    }
-    log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role: request.role, rotated: rotate })
-    // A regenerated secret ends the old guests; a role change alone lets them stay with the new role.
-    await this.announce(organizationId, resource, principal, [], rotate && !!existing)
-    if (!secret) return null
-    return { role: request.role, secret }
+    return this.deps.db.transaction(async () => {
+      const organizationId = organizationOf(principal)
+      const resource = this.canonical(request.resource)
+      await this.assertRole(principal, request.resource, 'editor')
+      const existing = (await this.grantRows(organizationId, resource)).find((row) => row.subject_kind === 'everyone')
+      const db = this.deps.db
+      if (request.role === null) {
+        if (!existing) return null
+        await db.run(sql`
+          DELETE FROM ${shareGrant}
+          WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
+        `)
+        log.info('share_link_removed', { kind: resource.kind, resourceId: resource.id })
+        await this.announce(organizationId, resource, principal, [], true)
+        return null
+      }
+      const rotate = !existing || request.regenerate === true
+      const secret = rotate ? randomBytes(32).toString('base64url') : null
+      const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
+      if (secret) {
+        await db.run(sql`
+          INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+          VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, 'everyone', '', ${request.role}, ${hashLinkSecret(secret)}, ${secret}, ${grantedBy}, ${this.now()}, ${organizationId})
+          ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO UPDATE SET
+            role = excluded.role, link_secret_hash = excluded.link_secret_hash, link_secret = excluded.link_secret, granted_by_user_id = excluded.granted_by_user_id
+        `)
+      } else {
+        await db.run(sql`
+          UPDATE ${shareGrant} SET role = ${request.role}
+          WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
+        `)
+      }
+      log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role: request.role, rotated: rotate })
+      // A regenerated secret ends the old guests; a role change alone lets them stay with the new role.
+      await this.announce(organizationId, resource, principal, [], rotate && !!existing)
+      if (!secret) return null
+      return { role: request.role, secret }
+    })
   }
 
   /** Admission: the secret names one resource and one role, or nothing. The hash
@@ -554,17 +560,20 @@ export class ShareManager {
     guestsRevoked: boolean,
   ): Promise<void> {
     const change: ShareChange = {
+      organizationId,
       resource,
       ownerUserId: await this.ownerOf(organizationId, resource) ?? HOST_OWNER_USER_ID,
       changedBy: { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, displayName: principalDisplayName(principal) },
       removedUserIds,
       guestsRevoked,
     }
-    for (const listener of this.listeners) {
-      try { listener(change) } catch (error) {
-        log.warn('share_change_listener_failed', { error: error instanceof Error ? error.message : String(error) })
+    await afterDatabaseCommit(async () => {
+      for (const listener of this.listeners) {
+        try { listener(change) } catch (error) {
+          log.warn('share_change_listener_failed', { error: error instanceof Error ? error.message : String(error) })
+        }
       }
-    }
+    })
   }
 
   private now(): number {

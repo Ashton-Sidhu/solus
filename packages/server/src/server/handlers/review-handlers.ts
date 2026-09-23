@@ -97,6 +97,9 @@ export function registerReviewHandlers(
 
   server.register('sessionGuideStatuses', async ([sessions]) => getSessionGuideStatuses(sessions))
 
+  server.register('prGuideStatuses', async ([ctx, requests]) =>
+    Promise.all(requests.map(({ target, headRef }) => prGuideJobs.savedStatus(ctx, target, headRef))))
+
   server.register('cancelGenerateGuide', async (args) => {
     const [ctx, opts] = args
     const target = prTargetFor(ctx, opts)

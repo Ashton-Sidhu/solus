@@ -25,7 +25,9 @@ export function prGuidePath(target: PrGuideTarget): string {
   return reviewGuidePath(prGuideRepository(target), prGuideKey(target))
 }
 
-export async function readPrGuide(ctx: IpcContext, target: PrGuideTarget): Promise<ReviewGuide | null> {
+/** `headRef` is the PR's head branch when the caller already holds it; without
+ * it, the compatibility read asks the code host for the PR. */
+export async function readPrGuide(ctx: IpcContext, target: PrGuideTarget, headRef?: string): Promise<ReviewGuide | null> {
   const saved = await readJson<ReviewGuide>(prGuidePath(target))
   if (saved) return saved
   const guides = await readPriorPrGuides(target)
@@ -39,13 +41,9 @@ export async function readPrGuide(ctx: IpcContext, target: PrGuideTarget): Promi
   if (target.baseSha && target.headSha) roots.add(managedPrCheckoutPath(target, {
     ...target, baseSha: target.baseSha, headSha: target.headSha,
   }))
-  try {
-    const provider = providerForRepo(target)
-    const detail = provider ? await prIndex.pullRequest(target, provider, target.number).read() : undefined
-    if (detail) keys.add(detail.headRef.replace(/\//g, '__'))
-  } catch {
-    // An offline read can still recover a known cached PR guide.
-  }
+  // An offline read can still recover a known cached PR guide.
+  const branch = await prHeadRef(target, headRef).catch(() => undefined)
+  if (branch) keys.add(branch.replace(/\//g, '__'))
   for (const root of roots) {
     if (!root || root === '~') continue
     const repository = await resolveRepoRef(root).catch(() => null)
@@ -65,6 +63,13 @@ export async function readPrGuide(ctx: IpcContext, target: PrGuideTarget): Promi
     }
   }
   return promoteLegacyPrGuide(target, guides)
+}
+
+/** The caller's head branch, or the code host's when the caller holds none. */
+async function prHeadRef(target: PrGuideTarget, headRef: string | undefined): Promise<string | undefined> {
+  if (headRef !== undefined) return headRef
+  const provider = providerForRepo(target)
+  return provider ? (await prIndex.pullRequest(target, provider, target.number).read()).headRef : undefined
 }
 
 async function promoteLegacyPrGuide(target: PrGuideTarget, guides: ReviewGuide[]): Promise<ReviewGuide | null> {

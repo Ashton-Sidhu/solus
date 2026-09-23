@@ -158,7 +158,7 @@
     if (row.kind === "open") {
       // An open row exists only once the store described the pull request.
       if (branchPullRequest) {
-        void session.openPullRequest(branchPullRequest, {
+        void session.prReview.openPullRequest(branchPullRequest, {
           ctx,
           serverId: environmentServerId,
           via: "click",
@@ -171,7 +171,7 @@
       void localApi.openExternal(row.url);
       return;
     }
-    void session.openPullRequest(
+    void session.prReview.openPullRequest(
       { number: parsed.number, url: parsed.url, expectedRepo: parsed.baseRepo },
       { ctx, serverId: environmentServerId, via: "click" },
     );
@@ -194,20 +194,20 @@
     if (pendingDispatch) return;
     // The branch you are already on means this checkout as it stands,
     // uncommitted work and all, so it names no base to cut a worktree from.
-    session.setWorktreeBaseBranch(picked === branch ? null : picked);
+    session.config.setWorktreeBaseBranch(picked === branch ? null : picked);
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
     if (pendingDispatch) {
-      session.setDispatchWorktree(worktree, tabId);
+      session.config.setDispatchWorktree(worktree, tabId);
       return;
     }
     await session.switchToWorktree(worktree.path, tabId);
   }
 
   function selectNewDispatchWorktree(baseBranch?: string) {
-    if (baseBranch) session.setDispatchBaseBranch(baseBranch, tabId);
-    else session.setDispatchWorktree(null, tabId);
+    if (baseBranch) session.config.setDispatchBaseBranch(baseBranch, tabId);
+    else session.config.setDispatchWorktree(null, tabId);
   }
 
   async function completeTask() {
@@ -245,7 +245,7 @@
   }
 
   function newSessionInTask() {
-    session.openSessionDraft({ via: "click" });
+    session.drafts.openSessionDraft({ via: "click" });
     onClose();
     requestInputFocus();
   }

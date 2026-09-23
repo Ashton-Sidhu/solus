@@ -53,7 +53,6 @@
   tint={AGENT_PRESENTATION[agent].tint}
   abbr={AGENT_PRESENTATION[agent].abbr}
   state={row.state}
-  statusText={row.state === "busy" ? row.detail : undefined}
   actionLabel={row.actionLabel}
   onaction={row.run}
   expanded={!!verification || !!failure}

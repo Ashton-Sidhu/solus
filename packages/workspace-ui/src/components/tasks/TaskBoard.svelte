@@ -33,7 +33,8 @@
     selectedKey: string | null;
     onOpen: (task: Task) => void;
     onSetStatus: (task: Task, status: TaskStatus) => void;
-    sessionsFor: (taskId: string) => number;
+    /** Sessions whose agent works on the task now, not every linked one. */
+    runningSessionsFor: (taskId: string) => number;
     /** "Solus Cloud" for a task whose home is the workspace service; null for this machine's. */
     homeFor?: (taskId: string) => string | null;
     /** Ticking clock, so card times age instead of freezing. */
@@ -49,7 +50,7 @@
     selectedKey,
     onOpen,
     onSetStatus,
-    sessionsFor,
+    runningSessionsFor,
     homeFor,
     now,
     onContextMenu,
@@ -227,7 +228,7 @@
           {/if}
           <div use:drag.card={task.id}>
             <TaskBoardCard
-              card={taskBoardCard(task, sessionsFor(task.id), now, homeFor)}
+              card={taskBoardCard(task, runningSessionsFor(task.id), now, homeFor)}
               selected={selectedKey === task.id}
               flashing={drag.flashId === task.id}
               {canReorder}
@@ -289,7 +290,7 @@
     style:width="{drag.drag.width}px"
   >
     <TaskBoardCard
-      card={taskBoardCard(dragged, sessionsFor(dragged.id), now, homeFor)}
+      card={taskBoardCard(dragged, runningSessionsFor(dragged.id), now, homeFor)}
       floating
       onSelect={() => {}}
       onSetStatus={() => {}}

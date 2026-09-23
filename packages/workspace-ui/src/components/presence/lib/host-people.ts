@@ -75,7 +75,7 @@ export function primaryPresence(person: RosterPerson): HostPerson {
 }
 
 /**
- * Where a person is, in words: the session or work by name, or that they are
+ * Where a person is, in words: the session by name, or that they are
  * idle. The host's own description of a session names it first and says what
  * its agent is doing; this client's tabs and sidebar name it only when the host
  * could not (an unindexed session), so "In Fix login, agent running" reads the
@@ -83,21 +83,19 @@ export function primaryPresence(person: RosterPerson): HostPerson {
  */
 export function focusLabel(
   focus: PresenceFocus | undefined,
-  names: { sessionLabel: (sessionId: string) => string | null; workLabel: (workId: string) => string | null },
+  names: { sessionLabel: (sessionId: string) => string | null },
   activity?: SessionActivity,
 ): string {
   if (!focus || focus.kind === 'none') return 'Not in a session'
-  if (focus.kind === 'work') return `In ${names.workLabel(focus.workId) ?? 'a work'}`
   const title = (activity?.sessionId === focus.sessionId ? activity.title : null) ?? names.sessionLabel(focus.sessionId) ?? 'a session'
   const doing = activityWords(activity?.sessionId === focus.sessionId ? activity : undefined)
   return doing ? `In ${title}, ${doing}` : `In ${title}`
 }
 
-/** What a roster can name things with: the mounted sessions, the sidebar's rows, and the works catalog. */
+/** What a roster can name things with: the mounted sessions, the sidebar's rows. */
 export interface RosterNames {
   mountedSessions: Iterable<Session>
   sidebarSessions: Iterable<{ sessionId?: string | null; serverId?: string | null; label: string }>
-  workTitle: (workId: string) => string | undefined
 }
 
 /** A session's name as this client knows it: a mounted tab first, then the sidebar's rows. */
@@ -115,7 +113,6 @@ export function sessionLabelIn(names: RosterNames, serverId: string, sessionId: 
 export function whereIs(person: HostPerson, names: RosterNames): string {
   return focusLabel(person.focus, {
     sessionLabel: (sessionId) => sessionLabelIn(names, person.serverId, sessionId),
-    workLabel: (workId) => names.workTitle(workId) ?? null,
   }, person.activity)
 }
 

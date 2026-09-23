@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { browserProfilePartition, type BrowserPage } from '@solus/contracts/browser-types'
+import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 
 /**
  * Clearing a browser profile on a standalone server.
@@ -71,11 +72,17 @@ class FakeContext {
     detach(): Promise<void>
   }> {
     const calls: FakeCdpCall[] = []
+    let screencastActive = false
     this.sessions.push(calls)
     return {
       send: async (method, params) => {
         if (this.closed) throw new Error('Target closed')
         calls.push({ method, params })
+        if (method === 'Page.startScreencast') {
+          if (screencastActive) throw new Error('Screencast is already active')
+          screencastActive = true
+        }
+        if (method === 'Page.stopScreencast') screencastActive = false
         return {}
       },
       on: () => {},
@@ -152,9 +159,28 @@ async function harness() {
     pageChanged: (page) => published.push(structuredClone(page)),
     pageClosed: () => {},
     surfaceRequested: () => {},
-  })
+  }, new BrowserFrameChannel())
   return { registry, published }
 }
+
+test('resizing a streamed Playwright page replaces the active screencast', async () => {
+  // WHY: opening or resizing a remote pane changes the frame caps. Chromium
+  // refuses a second active stream, leaving the client with stale frame sizing.
+  const { registry } = await harness()
+  const page = registry.open({ target: TARGET })
+  try {
+    await registry.subscribeFrames(page.browserPageId, 'remote-client')
+    await registry.setViewport(page.browserPageId, { mode: 'fill', width: 390, height: 844 })
+    const methods = contexts[0]?.sessions.flat()
+      .map((call) => call.method)
+      .filter((method) => method === 'Page.startScreencast' || method === 'Page.stopScreencast')
+    expect(methods).toEqual(['Page.startScreencast', 'Page.stopScreencast', 'Page.startScreencast'])
+    expect(registry.get(page.browserPageId)?.viewport.width).toBe(390)
+    await registry.unsubscribeFrames(page.browserPageId, 'remote-client')
+  } finally {
+    await registry.shutdown()
+  }
+})
 
 describe('clearing a profile on a Playwright host', () => {
   test('a jar with live pages is emptied in place, and the pages survive', async () => {

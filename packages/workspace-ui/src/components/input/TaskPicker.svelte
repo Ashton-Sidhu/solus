@@ -16,6 +16,8 @@
     /** Where the session this composer starts will be filed. */
     task: TaskTarget;
     projectKey: string;
+    /** The host `projectKey` is a folder on. */
+    serverId: string;
     onSelect: (task: TaskTarget) => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
@@ -24,7 +26,7 @@
     paneId?: string;
   }
 
-  let { task: target, projectKey, onSelect, onDismiss, paneId }: Props = $props();
+  let { task: target, projectKey, serverId, onSelect, onDismiss, paneId }: Props = $props();
 
   const workspace = getWorkspaceContext();
   const selectedTask = $derived(
@@ -35,7 +37,7 @@
   );
   const tasks = $derived(
     workspace.tasksStore
-      .tasksForProject(projectKey)
+      .tasksForCheckout(serverId, projectKey)
       .filter(
         (task) =>
           task.kind === "task" &&

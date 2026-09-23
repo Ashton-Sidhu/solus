@@ -172,14 +172,14 @@
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
 
   const worktrees = $derived(
-    environmentStore.refsFor(branchRepoRoot).worktrees,
+    environmentStore.refsFor(sectionRun?.serverId ?? session.fallbackServerId, branchRepoRoot).worktrees,
   );
 
   // Both pickers edit a pre-flight destination. A panel on a session first
   // opens a draft from that source, preserving its project and host.
   function destinationDraft() {
-    return session.sessionDrafts.get(sourceId) ??
-      session.openSessionDraft({ sourceId });
+    return session.drafts.sessionDrafts.get(sourceId) ??
+      session.drafts.openSessionDraft({ sourceId });
   }
 
   async function selectBranch(branch: string) {
@@ -200,7 +200,7 @@
     const targetBranch = env.targetBranch;
     const draft = destinationDraft();
     if (pendingDispatch) {
-      session.setDispatchWorktree(worktree, draft.id);
+      session.config.setDispatchWorktree(worktree, draft.id);
       requestInputFocus();
       return;
     }
@@ -212,8 +212,8 @@
 
   function selectNewDispatchWorktree(baseBranch?: string) {
     const draft = destinationDraft();
-    if (baseBranch) session.setDispatchBaseBranch(baseBranch, draft.id);
-    else session.setDispatchWorktree(null, draft.id);
+    if (baseBranch) session.config.setDispatchBaseBranch(baseBranch, draft.id);
+    else session.config.setDispatchWorktree(null, draft.id);
     requestInputFocus();
   }
 
@@ -242,13 +242,9 @@
   }
 
   function settleOnDestination(draftId: string) {
-    const run = session.runFor(draftId);
-    const nextCwd =
-      run?.gitContext?.worktreePath ??
-      run?.workingDirectory ??
-      session.globalDefaults.gitContext?.worktreePath ??
-      session.globalDefaults.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
+    const run = session.runFor(draftId) ?? session.defaultRunConfig;
+    const nextCwd = run.gitContext?.worktreePath ?? run.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(run.serverId, nextCwd, { force: true });
     requestInputFocus();
   }
 </script>

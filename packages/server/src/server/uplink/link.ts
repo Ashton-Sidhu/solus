@@ -65,6 +65,8 @@ export interface UplinkLinkDeps {
   connector: UplinkConnectorHandle
   /** The current link, or null once unlinked — the grant verifier follows it. */
   onLinkChanged?: (link: UplinkLinkConfig | null) => void
+  /** What `status()` now answers, after every link, unlink, or connector observation — the clients' `host.uplinkStatusChanged`. */
+  onStatusChanged?: (status: UplinkStatus) => void
   fetchImpl?: FetchLike
   /** Managed mode (managed-hosts.md §2): the link the control plane put in the environment; null on a personal host. */
   managedLink?: () => EnrollHostResponse | null
@@ -280,11 +282,13 @@ export class UplinkLinkManager {
     this.persisted = next
     writePersistedLink(next)
     this.deps.onLinkChanged?.(this.currentLink())
+    this.deps.onStatusChanged?.(this.status())
   }
 
   private setObservation(observation: ConnectorObservation): void {
     this.observed = observation.observed
     this.observedError = observation.observed === 'error' ? observation.error : undefined
+    this.deps.onStatusChanged?.(this.status())
   }
 }
 

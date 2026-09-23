@@ -4,8 +4,6 @@
 // interfaces (which carry Promise-returning methods) stay in
 // `src/main/providers/types.ts` and re-export these.
 
-import type { ReviewEffort } from './effort-types'
-
 /** owner/repo + host, derived from the local `origin` remote. */
 export interface RepoRef {
   owner: string
@@ -52,24 +50,15 @@ export interface PrFilter {
   author?: string
   /** Exact head branch lookup; used by task/session PR discovery. */
   head?: string
+  /** Code-host search text, qualifiers included (`label:bug fix login`).
+   *  When set, the host answers from its search index instead of the listing. */
+  query?: string
 }
 
 export interface PrListPage {
   items: PullRequest[]
   page: number
   hasMore: boolean
-}
-
-export interface PrEffortRequest {
-  number: number
-  headSha: string
-}
-
-export interface PrEffortResult extends PrEffortRequest {
-  effort?: ReviewEffort
-  /** Diff totals loaded alongside effort because PR list responses omit them. */
-  additions?: number
-  deletions?: number
 }
 
 /**
@@ -118,8 +107,6 @@ export interface PullRequest {
   requiredApprovingReviewCount?: number | null
   capabilities: PrReviewCapabilities
   viewerPermissions: PrViewerPermissions
-  /** Pacing guidance only; review always opens the complete diff. */
-  effort?: ReviewEffort
   /** Who the host has asked to review this PR and who has not answered yet. */
   requestedReviewers?: PrRequestedReviewer[]
   /** Host logins currently assigned to this PR. */
@@ -130,10 +117,33 @@ export interface PullRequest {
   /** GitHub's aggregate review result for list filtering. A direct REST read
    *  can omit it; list pages enrich the row through one batched GraphQL read. */
   reviewStatus?: 'approved' | 'changes-requested' | 'review-required' | 'no-reviews' | 'reviewed'
+  /** The host will merge this on its own once its requirements pass. Absent
+   *  where the host has no auto-merge, which is not the same as off. */
+  autoMergeEnabled?: boolean
+  /** The method stored with an armed auto-merge; absent while it is off. */
+  autoMergeMethod?: PrMergeMethod
 }
 
 export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'
-export type PrLifecycleAction = 'merge' | 'close' | 'reopen' | 'ready' | 'draft'
+export type PrLifecycleAction =
+  | 'merge'
+  | 'close'
+  | 'reopen'
+  | 'ready'
+  | 'draft'
+  | 'enable-auto-merge'
+  | 'disable-auto-merge'
+  | 'revert'
+/** The lifecycle actions that only move the state or draft flag, which the
+ *  one `prUpdateLifecycle` write carries. Merge, auto-merge and revert take
+ *  their own inputs and have their own writes. */
+export type PrStateAction = Extract<PrLifecycleAction, 'close' | 'reopen' | 'ready' | 'draft'>
+
+/** The pull request a revert opened on the host. */
+export interface PrRevertResult {
+  number: number
+  url: string
+}
 
 /** Canonical lifecycle fields returned by a provider mutation. The mutation
  * response owns these values; callers must not immediately re-read an
@@ -182,6 +192,14 @@ export interface ProviderViewer {
   login: string
   /** The host's profile image; absent when the host does not report one. */
   avatarUrl?: string
+}
+
+/** A repository the connected credential can read, as a board's project
+ *  picker lists it (docs/plans/cloud-console-native-pages.md §9). */
+export interface ProviderRepository extends RepoRef {
+  isPrivate: boolean
+  /** ISO time of the last push; null when the host reports none. */
+  pushedAt: string | null
 }
 
 /** A reviewer the host has asked for, as the list fetch already knows them. */
@@ -349,3 +367,10 @@ export interface PrLabelActivityItem extends PrActivityItemBase {
 
 /** Provider activity interleaved with commits and inline review threads. */
 export type PrConversationItem = PrCommentActivityItem | PrLabelActivityItem
+
+/**
+ * A host that clones with the account's GitHub connection (a managed host, or a
+ * runner acting for a member) found none. The client offers the account's
+ * Connections page instead of the raw git failure (docs/plans/cloud-onboarding.md §9).
+ */
+export const GITHUB_CONNECTION_REQUIRED_CODE = 'GITHUB_CONNECTION_REQUIRED'
