@@ -54,7 +54,8 @@ afterAll(() => {
 interface Spy {
   permissions: Array<{ questionId: string; optionId: string; revised?: string }>
   prompts: Array<{ prompt: string; permissionMode?: string }>
-  watches: number
+  /** Prompts that carry a route bringing the peer's reply back to the model. */
+  replyRoutes: number
   permissionAccepted: boolean
 }
 
@@ -77,7 +78,7 @@ const CLAUDE_OPTIONS = [
 ]
 
 function installController(pending: NormalizedEvent[], provider: SessionMeta['provider'] = 'claude-code'): Spy {
-  const spy: Spy = { permissions: [], prompts: [], watches: 0, permissionAccepted: true }
+  const spy: Spy = { permissions: [], prompts: [], replyRoutes: 0, permissionAccepted: true }
   sessionTools.setSessionController({
     listSessions: async () => [],
     getSessionInfo: async () => peer(provider),
@@ -86,9 +87,10 @@ function installController(pending: NormalizedEvent[], provider: SessionMeta['pr
     pendingInputEvents: () => pending,
     promptSession: async (_sessionId, prompt, _delivery, options) => {
       spy.prompts.push({ prompt, permissionMode: options?.permissionMode })
+      if (options?.reply?.callerAgentSessionId === 'caller-1' && options.reply.notifyModel) spy.replyRoutes += 1
       return { disposition: 'queued', queueId: 'q1' }
     },
-    watchSessionSettled: () => { spy.watches += 1 },
+    watchSessionSettled: () => false,
     stopSession: () => true,
     answerQuestion: () => true,
     respondPermission: (questionId, optionId, revised) => {
@@ -154,9 +156,9 @@ describe('review_plan — a blocking plan (Claude ExitPlanMode)', () => {
     expect(spy.prompts).toEqual([])
   })
 
-  test('request_changes denies the permission, then queues the revision in plan mode and re-arms the watch', async () => {
-    // WHY: the deny cancels the run, which consumes the caller's live watch. A
-    // new watch is the only way the revised plan comes back to the reviewer.
+  test('request_changes denies the permission, then queues the revision in plan mode with a reply route', async () => {
+    // WHY: the deny cancels the run, which settles the caller's route. The
+    // revision's own route is the only way the revised plan comes back.
     const spy = installController([planEvent(CLAUDE_OPTIONS)])
     const result = await run({ session_id: 'peer-1', decision: 'request_changes', comment: 'the swap still blocks readers' })
     expect(result.ok).toBe(true)
@@ -164,7 +166,7 @@ describe('review_plan — a blocking plan (Claude ExitPlanMode)', () => {
     expect(spy.prompts).toEqual([
       { prompt: 'Please revise the plan with these comments:\n\nthe swap still blocks readers', permissionMode: 'plan' },
     ])
-    expect(spy.watches).toBe(1)
+    expect(spy.replyRoutes).toBe(1)
   })
 
   test('a plan the peer no longer holds open reports that instead of half-applying', async () => {
@@ -186,7 +188,7 @@ describe('review_plan — a non-blocking plan (Codex)', () => {
     expect(result.ok).toBe(true)
     expect(spy.permissions).toEqual([])
     expect(spy.prompts).toEqual([{ prompt: `Implement this plan:\n\n${PLAN_TEXT}`, permissionMode: 'ask' }])
-    expect(spy.watches).toBe(1)
+    expect(spy.replyRoutes).toBe(1)
   })
 
   test('approve with revised_plan implements the revision, not the plan the peer wrote', async () => {
@@ -222,10 +224,4 @@ describe('review_plan — the ruling is recorded', () => {
     expect((await annotations.loadAnnotations('local', 'peer-1', 'toolu_1'))?.status).toBe('accepted')
   })
 
-  test('a ruling flips the caller card to answered', async () => {
-    installController([planEvent(CLAUDE_OPTIONS)])
-    const updates: AgentConversationUpdate[] = []
-    await run({ session_id: 'peer-1', decision: 'approve' }, updates)
-    expect(updates.some((u) => u.phase === 'answered' && u.answerText === 'Approved the plan')).toBe(true)
-  })
 })

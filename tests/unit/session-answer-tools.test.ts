@@ -189,15 +189,6 @@ describe('answer_session', () => {
     expect(result.text).toContain('review_plan')
   })
 
-  test('a delivered answer flips the caller card to answered', async () => {
-    const updates: AgentConversationUpdate[] = []
-    installController([questionEvent([CHOICE_QUESTION])])
-    await run({ session_id: 'peer-1', answers: [{ key: 'strategy', choice: 'Snapshot' }] }, updates)
-    expect(updates).toEqual([
-      { phase: 'answered', agentSessionId: 'peer-1', answerText: 'Snapshot or hold the lock? → Snapshot' },
-    ])
-  })
-
   test('a question answered elsewhere in the meantime reports that instead of pretending', async () => {
     // WHY: the peer's own tab can resolve the pause at any moment; a silent
     // success would leave the caller believing it unblocked the peer.

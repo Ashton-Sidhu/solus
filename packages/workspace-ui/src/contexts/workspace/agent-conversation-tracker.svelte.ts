@@ -5,9 +5,9 @@ interface AgentConversationState {
   /** agentSessionId → message id of that agent's card in the current turn.
    *  Cleared on every genuine user message, so each turn gets one card per agent. */
   currentByAgent: Map<string, string>
-  /** exchangeId → message id, so settles land in the card that dispatched them —
+  /** Session message id → the transcript card it belongs to, so settles land in the card that dispatched them —
    *  including cards from earlier turns. */
-  byExchange: Map<string, string>
+  cardByMessage: Map<string, string>
   /** agentSessionId → cumulative exchange count; indices never renumber. */
   countByAgent: Map<string, number>
 }
@@ -35,7 +35,7 @@ export class AgentConversationTracker {
   private state(session: Session): AgentConversationState {
     let state = this.states.get(session.messages)
     if (!state) {
-      state = { currentByAgent: new Map(), byExchange: new Map(), countByAgent: new Map() }
+      state = { currentByAgent: new Map(), cardByMessage: new Map(), countByAgent: new Map() }
       this.states.set(session.messages, state)
     }
     return state
@@ -45,7 +45,7 @@ export class AgentConversationTracker {
   rebuild(session: Session): void {
     const state: AgentConversationState = {
       currentByAgent: new Map(),
-      byExchange: new Map(),
+      cardByMessage: new Map(),
       countByAgent: new Map(),
     }
     for (const message of session.messages) {
@@ -56,7 +56,7 @@ export class AgentConversationTracker {
       if (!conversation) continue
       state.currentByAgent.set(conversation.agentSessionId, message.id)
       for (const exchange of conversation.exchanges) {
-        state.byExchange.set(exchange.exchangeId, message.id)
+        state.cardByMessage.set(exchange.messageId, message.id)
         state.countByAgent.set(
           conversation.agentSessionId,
           Math.max(state.countByAgent.get(conversation.agentSessionId) ?? 0, exchange.index),
@@ -67,7 +67,7 @@ export class AgentConversationTracker {
   }
 
   /** A genuine user message closes the turn: the next dispatch per agent starts
-   *  a fresh card. Exchange correlation (`byExchange`) survives — late settles
+   *  a fresh card. Exchange correlation (`cardByMessage`) survives — late settles
    *  still land in the older turn's card. */
   closeTurn(session: Session): void {
     this.states.get(session.messages)?.currentByAgent.clear()
@@ -82,7 +82,7 @@ export class AgentConversationTracker {
         const index = (state.countByAgent.get(update.agentSessionId) ?? 0) + 1
         state.countByAgent.set(update.agentSessionId, index)
         const exchange: AgentExchange = {
-          exchangeId: update.exchangeId,
+          messageId: update.messageId,
           index,
           prompt: update.prompt,
           delivery: update.delivery,
@@ -102,7 +102,7 @@ export class AgentConversationTracker {
           existing.agentConversationRef.title = update.title || existing.agentConversationRef.title
           if (update.model) existing.agentConversationRef.model = update.model
           if (update.reasoningEffort) existing.agentConversationRef.reasoningEffort = update.reasoningEffort
-          state.byExchange.set(update.exchangeId, existing.id)
+          state.cardByMessage.set(update.messageId, existing.id)
           return { newCard: false, needsAttention: false }
         }
         const agentConversationRef: AgentConversationRef = {
@@ -125,14 +125,14 @@ export class AgentConversationTracker {
           timestamp: Date.now(),
         })
         state.currentByAgent.set(update.agentSessionId, msgId)
-        state.byExchange.set(update.exchangeId, msgId)
+        state.cardByMessage.set(update.messageId, msgId)
         return { newCard: true, needsAttention: false }
       }
 
       case 'attached': {
-        // Rebind the provisional card ("pending:<exchangeId>") to the session
+        // Rebind the provisional card ("pending:<messageId>") to the session
         // that just started, so status tracking and Open have a real target.
-        const message = this.messageFor(session, state.byExchange.get(update.exchangeId))
+        const message = this.messageFor(session, state.cardByMessage.get(update.messageId))
         if (!message?.agentConversationRef) return { newCard: false, needsAttention: false }
         const provisionalId = message.agentConversationRef.agentSessionId
         message.agentConversationRef.agentSessionId = update.agentSessionId
@@ -150,28 +150,25 @@ export class AgentConversationTracker {
       }
 
       case 'awaiting_input': {
-        const exchange = this.exchangeFor(session, state, update.agentSessionId, update.exchangeId)
+        const exchange = this.exchangeFor(session, state, update.agentSessionId, update.messageId)
         if (!exchange) return { newCard: false, needsAttention: false }
         exchange.status = 'awaiting_input'
-        exchange.question = { kind: update.kind, questionId: update.questionId, text: update.questionText }
+        exchange.question = { kind: update.kind, text: update.questionText }
+        if (update.questionId) exchange.question.questionId = update.questionId
+        if (update.answerKey) exchange.question.answerKey = update.answerKey
         return { newCard: false, needsAttention: true }
       }
 
       case 'answered': {
-        // The answering tool acts on a session, not on an exchange, so the card
-        // is resolved the same way `stopped` resolves it: the agent's latest
-        // card, and within it the exchange that is actually parked.
-        const message = this.latestAgentConversationMessage(session, update.agentSessionId)
-        const exchanges = message?.agentConversationRef?.exchanges
-        const parked = exchanges?.findLast((exchange) => exchange.status === 'awaiting_input')
-        if (!parked) return { newCard: false, needsAttention: false }
-        parked.status = 'answered'
-        parked.answer = update.answerText
+        const exchange = this.exchangeFor(session, state, update.agentSessionId, update.messageId)
+        if (!exchange) return { newCard: false, needsAttention: false }
+        exchange.status = 'answered'
+        exchange.answer = update.answerText
         return { newCard: false, needsAttention: false }
       }
 
       case 'settled': {
-        let exchange = this.exchangeFor(session, state, update.agentSessionId, update.exchangeId)
+        let exchange = this.exchangeFor(session, state, update.agentSessionId, update.messageId)
         if (!exchange) {
           // Renderer reloaded mid-flight: the dispatch card is gone, but the
           // reply still deserves a home in the current turn.
@@ -225,11 +222,11 @@ export class AgentConversationTracker {
     session: Session,
     state: AgentConversationState,
     agentSessionId: string,
-    exchangeId: string,
+    messageId: string,
   ): AgentExchange | undefined {
-    const tracked = this.messageFor(session, state.byExchange.get(exchangeId))
+    const tracked = this.messageFor(session, state.cardByMessage.get(messageId))
     const message = tracked?.agentConversationRef ? tracked : this.latestAgentConversationMessage(session, agentSessionId)
-    return message?.agentConversationRef?.exchanges.find((exchange) => exchange.exchangeId === exchangeId)
+    return message?.agentConversationRef?.exchanges.find((exchange) => exchange.messageId === messageId)
   }
 
   private orphanExchange(
@@ -240,7 +237,7 @@ export class AgentConversationTracker {
     const index = (state.countByAgent.get(update.agentSessionId) ?? 0) + 1
     state.countByAgent.set(update.agentSessionId, index)
     const exchange: AgentExchange = {
-      exchangeId: update.exchangeId,
+      messageId: update.messageId,
       index,
       prompt: '',
       dispatchedAt: update.settledAt,
@@ -250,7 +247,7 @@ export class AgentConversationTracker {
       ?? this.latestAgentConversationMessage(session, update.agentSessionId)
     if (current?.agentConversationRef) {
       current.agentConversationRef.exchanges.push(exchange)
-      state.byExchange.set(update.exchangeId, current.id)
+      state.cardByMessage.set(update.messageId, current.id)
       return exchange
     }
     const msgId = nextMsgId()
@@ -271,7 +268,7 @@ export class AgentConversationTracker {
       timestamp: Date.now(),
     })
     state.currentByAgent.set(update.agentSessionId, msgId)
-    state.byExchange.set(update.exchangeId, msgId)
+    state.cardByMessage.set(update.messageId, msgId)
     return exchange
   }
 }

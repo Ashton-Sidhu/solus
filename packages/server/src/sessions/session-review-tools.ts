@@ -10,7 +10,6 @@ import { describePendingInput, type PendingInputDescription } from './pending-in
 import {
   findSession,
   getSessionController,
-  peerTitle,
   sessionLink,
   type SessionToolDeps,
 } from './session-tools'
@@ -110,32 +109,13 @@ async function resolvePeer(
  *  Without this the revised plan never comes back to the reviewer. */
 async function dispatchToPeer(meta: SessionMeta, prompt: string, permissionMode: 'ask' | 'plan', deps: SessionToolDeps): Promise<void> {
   const controller = getSessionController()!
-  const result = await controller.promptSession(meta.sessionId, prompt, 'queue', { permissionMode })
-  const exchangeId = randomUUID()
-  const dispatchedAt = Date.now()
   const callerSessionId = deps.ctx?.sessionId
-  if (callerSessionId) {
-    controller.watchSessionSettled(meta.sessionId, callerSessionId, {
-      exchangeId,
-      dispatchedAt,
-      notifyModel: true,
-      runKey: result.disposition === 'queued' && result.queueId ? result.queueId : 'active',
-    })
-  }
-  deps.onAgentConversationUpdate?.({
-    phase: 'dispatched',
-    agentSessionId: meta.sessionId,
-    exchangeId,
-    origin: 'prompted',
-    prompt,
-    delivery: 'queue',
-    provider: meta.provider,
-    title: peerTitle(meta),
-    cwd: meta.cwd,
-    model: meta.model,
-    reasoningEffort: meta.reasoningEffort,
-    dispatchedAt,
-  })
+  // The route rides the prompt, so the revised plan comes back even when the
+  // peer answers before this call returns.
+  const reply = callerSessionId
+    ? { messageId: randomUUID(), dispatchedAt: Date.now(), notifyModel: true, callerAgentSessionId: callerSessionId }
+    : undefined
+  await controller.promptSession(meta.sessionId, prompt, 'queue', { permissionMode, reply })
 }
 
 /** Files the ruling on the plan itself, so `request_changes` from an agent shows
@@ -279,11 +259,8 @@ async function answerSession(args: SessionReviewToolArgs, deps: SessionToolDeps)
     return { ok: false, text: `Session ${sessionLink(meta)} is no longer waiting on that question — it was answered or cancelled. Call answer_session again to see its current state.` }
   }
 
-  const answerText = pending.questions
-    .map((q) => (answers[q.key] ? `${q.question} → ${answers[q.key]}` : null))
-    .filter(Boolean)
-    .join('\n') || '(handed the decision back)'
-  deps.onAgentConversationUpdate?.({ phase: 'answered', agentSessionId: meta.sessionId, answerText })
+  // The control plane tells this conversation's card it was answered, as it
+  // does for an answer given anywhere else.
   log.info('peer_question_answered', { sessionId: meta.sessionId, questionCount: pending.questions.length })
   return { ok: true, text: `Answered ${sessionLink(meta)}. It is continuing; its reply will arrive in this conversation.` }
 }
@@ -347,10 +324,8 @@ async function reviewPlan(args: SessionReviewToolArgs, deps: SessionToolDeps): P
 
   await recordPlanDecision(meta, pending, decision === 'approve' ? 'accepted' : 'rejected', comment || undefined, deps)
 
-  const answerText = decision === 'approve'
-    ? (revisedPlan ? 'Approved the plan, with edits' : 'Approved the plan')
-    : `Requested changes: ${comment}`
-  deps.onAgentConversationUpdate?.({ phase: 'answered', agentSessionId: meta.sessionId, answerText })
+  // A blocking plan's ruling reaches the card through the control plane; a
+  // revision note arrives as a message of its own.
   log.info('peer_plan_reviewed', { sessionId: meta.sessionId, decision, blocking: pending.blocking })
 
   return {

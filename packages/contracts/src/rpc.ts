@@ -65,6 +65,7 @@ export const RPC_INVOKE_METHODS = [
   // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
   'promptSession',
+  'sessionMessagesSentBy',
 
   // Permission / interaction
   'respondPermission',

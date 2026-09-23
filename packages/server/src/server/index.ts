@@ -32,11 +32,11 @@ import { registerPresenceHandlers } from './handlers/presence-handlers'
 import { PresenceManager } from '../presence/presence-manager'
 import { SeatManager, seatUserFor, turnActorFor } from '../seats/seat-manager'
 import { SeatConnector } from '../seats/seat-connect'
-import { TurnLedger } from '../sessions/turn-ledger'
 import { eventVisibleTo } from '../sharing/event-audience'
 import { getDb } from '../db'
 import { closeDatabase, getDatabase } from '../db/database'
 import { markOwnRunningSessionRecordsInterrupted } from '../sessions/session-records'
+import { assertRpcAccess } from './access-policy'
 import { LOCAL_ORGANIZATION_ID } from './principal'
 import { resolveRoles, type SolusRole } from './roles'
 import { hostOperatingSystem } from '../platform/host-operating-system'
@@ -107,7 +107,6 @@ import { registerOutboxHandlers } from './handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from '../tasks/task-applier'
 import { registerWorkOutboxApplier } from '../folio/work-applier'
 import { agentTargetFromMetadata } from '../agents/agent-targets'
-import { recordSessionDelegation } from '../sessions/session-delegations'
 import { registerAttachmentHandlers } from './handlers/attachment-handlers'
 import { registerAssetHandlers } from './handlers/asset-handlers'
 import { registerCapabilityHandlers } from './handlers/capability-handlers'
@@ -354,11 +353,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sessionExists: (sessionId) => opts.controlPlane.isKnownSession(sessionId),
   })
   server.useResourceAccess(shares)
-  // Provider seats and the turn ledger (Step 2 plan): every turn runs on its
-  // author's own login, and the host records whose it was. The workspace service
+  // Provider seats (Step 2 plan): every turn runs on its author's own login.
+  // The workspace service
   // VAULT_NOT_CONFIGURED to every seat call.
   const seats = new SeatManager({ db: getDb() })
-  const turnLedger = new TurnLedger(getDb())
   // A record this host left `running` names a turn the previous process never settled.
   const interruptSweep = markOwnRunningSessionRecordsInterrupted(LOCAL_ORGANIZATION_ID).catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
@@ -374,7 +372,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const source = opts.controlPlane.sessionTranscriptSource(sessionId)
     if (source) transcriptMirror.touch(source.agentSessionId, source)
   }
-  opts.controlPlane.useSeats(seats, turnLedger)
+  opts.controlPlane.useSeats(seats)
   const seatConnector = new SeatConnector({ seats })
   const clientEvents = new ClientEventRegistry((clientId, event) => {
     const principal = ws?.principalOf(clientId)
@@ -500,15 +498,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.controlPlane.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
-    recordSessionDelegation,
   })
   // Agent-conversation cards drive sessions that have no bound tab in the renderer.
   server.register('promptSession', async (args, ctx) => {
-    const [sessionId, prompt, delivery] = args
+    const [sessionId, prompt, delivery, reply] = args
     if (!sessionId.trim()) throw new Error('promptSession requires a session id')
     if (!prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
-    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue', { actor: turnActorFor(ctx.principal) })
+    // The reply lands in the sender's conversation, so the caller must be
+    // allowed to drive that session as well as the one it prompts.
+    if (reply) await assertRpcAccess('promptSession', ctx.principal, [reply.fromSessionId], shares)
+    // A card's message is the person's; the sender's model is not woken by its reply.
+    const route = reply
+      ? { messageId: reply.messageId, dispatchedAt: Date.now(), notifyModel: false, callerAgentSessionId: reply.fromSessionId }
+      : undefined
+    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue', {
+      actor: turnActorFor(ctx.principal),
+      reply: route,
+    })
   })
+  server.register('sessionMessagesSentBy', (args) => opts.controlPlane.sessionMessagesSentBy(args[0]))
   server.register('stopSession', async (args) => {
     const [sessionId] = args
     if (!sessionId.trim()) throw new Error('stopSession requires a session id')
@@ -580,6 +588,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   phaseDone('update_services_ready')
   startAutomationScheduler()
+  // A parent that delegated to a child the previous process was running is
+  // told the child's turn is gone, rather than waiting for a reply forever.
+  void interruptSweep.then((interrupted) => {
+    if (interrupted) opts.controlPlane.reportChildrenInterruptedByRestart(interrupted)
+  })
   server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))

@@ -44,6 +44,10 @@ export interface SessionCreateRequest {
   taskId?: string | null
   /** Create the session-born task as a direct child of this task. */
   parentTaskId?: string | null
+  /** Where the child's first reply goes, fixed before the child starts. */
+  reply?: AgentReplyRoute
+  /** The calling session, recorded as the child's parent with the child's first index row. */
+  delegation?: { parentAgentSessionId: string; intent: 'delegate' | 'fire_and_forget' }
 }
 
 export type SessionCreator = (req: SessionCreateRequest) => Promise<{ agentSessionId: string; taskId?: string }>
@@ -53,18 +57,22 @@ export function setSessionCreator(creator: SessionCreator): void {
   sessionCreator = creator
 }
 
-/** An armed agent exchange: settle/awaiting reports for `targetSessionId`
+/** An armed agent exchange: settle/awaiting reports for the target session
  *  will be correlated back to this exchange in the caller's thread. */
 export interface AgentConversationWatchRequest {
-  exchangeId: string
+  messageId: string
   dispatchedAt: number
   /** When false the renderer still receives agent-conversation updates, but no [session
    *  report] prose is injected into the caller's turn input. */
   notifyModel: boolean
-  /** Which run settles this exchange: 'active' = the run in flight when the
-   *  exchange was armed (started/steered dispatches, watches, created
-   *  sessions); otherwise the queueId whose future run it awaits. */
-  runKey: 'active' | (string & {})
+}
+
+/** A reply route handed over with the prompt itself, so the run that answers
+ *  it carries it from the moment it is accepted: started, queued, or steered
+ *  into the active turn. Nothing is registered after dispatch. */
+export interface AgentReplyRoute extends AgentConversationWatchRequest {
+  /** The session the reply goes to. */
+  callerAgentSessionId: string
 }
 
 export interface SessionController {
@@ -78,9 +86,10 @@ export interface SessionController {
     agentSessionId: string,
     prompt: string,
     delivery?: PromptDelivery,
-    options?: { permissionMode?: 'ask' | 'auto' | 'plan' },
+    options?: { permissionMode?: 'ask' | 'auto' | 'plan'; reply?: AgentReplyRoute },
   ): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
-  watchSessionSettled(targetSessionId: string, callerSessionId: string, watch: AgentConversationWatchRequest): void
+  /** Attach a route to the turn running now; false when nothing is running. */
+  watchSessionSettled(targetSessionId: string, callerSessionId: string, watch: AgentConversationWatchRequest): boolean
   stopSession(agentSessionId: string): boolean
   /** Resolve a peer's pending question / plan permission. Both key on the
    *  questionId carried by the pending input event, so no tab is involved. */
@@ -89,13 +98,6 @@ export interface SessionController {
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCaches(sessionId: string): void
-  recordSessionDelegation?(input: {
-    childSessionId: string
-    parentSessionId: string
-    exchangeId: string
-    intent: 'delegate' | 'fire_and_forget'
-    createdAt: number
-  }): boolean | Promise<boolean>
 }
 
 let sessionController: SessionController | null = null
@@ -605,35 +607,16 @@ export async function executeSessionTool(
       const delivery: PromptDelivery = parsed.data.delivery
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-      const result = await sessionController.promptSession(sessionId, prompt, delivery)
-      const exchangeId = randomUUID()
+      const messageId = randomUUID()
       const dispatchedAt = Date.now()
-      // Always arm the exchange when we know the caller — the renderer's
-      // agent-conversation card needs the settle even when the model opted out.
-      // Queued dispatches bind to their queueId's future run; started/steered
-      // ones ride the run now in flight.
-      if (callerSessionId) {
-        sessionController.watchSessionSettled(sessionId, callerSessionId, {
-          exchangeId,
-          dispatchedAt,
-          notifyModel: notifyOnCompletion,
-          runKey: result.disposition === 'queued' && result.queueId ? result.queueId : 'active',
-        })
-      }
-      deps.onAgentConversationUpdate?.({
-        phase: 'dispatched',
-        agentSessionId: sessionId,
-        exchangeId,
-        origin: 'prompted',
-        prompt,
-        delivery,
-        provider: meta.provider,
-        title: peerTitle(meta),
-        cwd: meta.cwd,
-        model: meta.model,
-        reasoningEffort: meta.reasoningEffort,
-        dispatchedAt,
-      })
+      // The route travels with the prompt whenever we know the caller — the
+      // renderer's agent-conversation card needs the settle even when the model
+      // opted out — so a reply that comes back at once still has somewhere to go.
+      const reply = callerSessionId
+        ? { messageId, dispatchedAt, notifyModel: notifyOnCompletion, callerAgentSessionId: callerSessionId }
+        : undefined
+      // The control plane puts the message on the caller's card as it accepts it.
+      const result = await sessionController.promptSession(sessionId, prompt, delivery, reply ? { reply } : undefined)
       const dispatch = result.disposition === 'queued'
         ? 'Queued prompt for'
         : result.disposition === 'steered'
@@ -642,7 +625,7 @@ export async function executeSessionTool(
       const completion = notifyOnCompletion
         ? " You'll receive its reply in this conversation when it finishes (note: pending replies are lost if the app restarts — use read_session to catch up)."
         : ''
-      return { ok: true, text: `${dispatch} ${sessionLink(meta)}.${completion}` }
+      return { ok: true, text: `${dispatch} ${sessionLink(meta)} (message=${messageId}).${completion}` }
     }
 
     if (name === 'wait_for_session') {
@@ -663,13 +646,18 @@ export async function executeSessionTool(
           text: `Session ${sessionLink(meta)} is currently ${status}, not running/busy; no watcher was registered. Use read_session to inspect its latest reply.`,
         }
       }
-      const watchExchangeId = randomUUID()
+      const watchMessageId = randomUUID()
       const watchDispatchedAt = Date.now()
-      sessionController.watchSessionSettled(sessionId, callerSessionId, { exchangeId: watchExchangeId, dispatchedAt: watchDispatchedAt, notifyModel: true, runKey: 'active' })
+      if (!sessionController.watchSessionSettled(sessionId, callerSessionId, { messageId: watchMessageId, dispatchedAt: watchDispatchedAt, notifyModel: true })) {
+        return {
+          ok: true,
+          text: `Session ${sessionLink(meta)} finished before a watcher could attach; no watcher was registered. Use read_session to inspect its latest reply.`,
+        }
+      }
       deps.onAgentConversationUpdate?.({
         phase: 'dispatched',
         agentSessionId: sessionId,
-        exchangeId: watchExchangeId,
+        messageId: watchMessageId,
         origin: 'watched',
         prompt: '',
         provider: meta.provider,
@@ -681,7 +669,7 @@ export async function executeSessionTool(
       })
       return {
         ok: true,
-        text: `Watching session ${sessionLink(meta)} (current status: ${liveStatus}). This call returns immediately; its reply will arrive later in this conversation as a [session report].`,
+        text: `Watching session ${sessionLink(meta)} (current status: ${liveStatus}; message=${watchMessageId}). This call returns immediately; its reply will arrive later in this conversation as a [session report].`,
       }
     }
 
@@ -750,7 +738,7 @@ export async function executeSessionTool(
     if (taskId && parentTaskId) {
       return { ok: false, text: 'create_session accepts either task_id or parent_task_id, not both.' }
     }
-    const exchangeId = randomUUID()
+    const messageId = randomUUID()
     const dispatchedAt = Date.now()
 
     // The card appears the moment the prompt is dispatched — starting a session
@@ -758,8 +746,8 @@ export async function executeSessionTool(
     // never be invisible. It binds to the real session id via `attached`.
     deps.onAgentConversationUpdate?.({
       phase: 'dispatched',
-      agentSessionId: `pending:${exchangeId}`,
-      exchangeId,
+      agentSessionId: `pending:${messageId}`,
+      messageId,
       origin: 'created',
       prompt,
       provider: p,
@@ -771,26 +759,37 @@ export async function executeSessionTool(
       dispatchedAt,
     })
 
+    // The renderer's agent-conversation card always gets the first reply; the
+    // model's [session report] only fires in delegate mode. Both the route and
+    // the parent link go in with the request, so a child that finishes at once
+    // still reports, and its first index row already names its parent.
+    const callerSessionId = deps.ctx?.sessionId
+    const notifyModel = mode === 'delegate'
     let agentSessionId: string
     let createdTaskId: string | undefined
+    const createRequest: SessionCreateRequest = {
+      prompt,
+      provider: p,
+      modelId,
+      reasoningEffort,
+      contextWindow,
+      cwd,
+      worktreeBaseBranch,
+      taskId,
+      parentTaskId,
+    }
+    if (callerSessionId) {
+      createRequest.reply = { messageId, dispatchedAt, notifyModel, callerAgentSessionId: callerSessionId }
+      createRequest.delegation = { parentAgentSessionId: callerSessionId, intent: mode }
+    }
     try {
-      ;({ agentSessionId, taskId: createdTaskId } = await sessionCreator({
-        prompt,
-        provider: p,
-        modelId,
-        reasoningEffort,
-        contextWindow,
-        cwd,
-        worktreeBaseBranch,
-        taskId,
-        parentTaskId,
-      }))
+      ;({ agentSessionId, taskId: createdTaskId } = await sessionCreator(createRequest))
     } catch (err: any) {
       // Settle the card rather than leaving it dispatching forever.
       deps.onAgentConversationUpdate?.({
         phase: 'settled',
-        agentSessionId: `pending:${exchangeId}`,
-        exchangeId,
+        agentSessionId: `pending:${messageId}`,
+        messageId,
         status: 'failed',
         replyText: '',
         settledAt: Date.now(),
@@ -801,45 +800,17 @@ export async function executeSessionTool(
     // Once started, the indexed cwd is the worktree path for worktree-backed
     // sessions; the pre-worktree cwd stood in until now.
     const created = await findSession(agentSessionId)
-    deps.onAgentConversationUpdate?.({ phase: 'attached', exchangeId, agentSessionId, cwd: created?.cwd })
+    deps.onAgentConversationUpdate?.({ phase: 'attached', messageId, agentSessionId, cwd: created?.cwd })
 
-    const callerSessionId = deps.ctx?.sessionId
-    if (callerSessionId && sessionController?.recordSessionDelegation) {
-      try {
-        await sessionController.recordSessionDelegation({
-          childSessionId: agentSessionId,
-          parentSessionId: callerSessionId,
-          exchangeId,
-          intent: mode,
-          createdAt: dispatchedAt,
-        })
-      } catch (error) {
-        // The child is already running. Lineage is useful metadata, but failure
-        // to record it must not strand or fail a successfully-created session.
-        log.warn('session_delegation_record_failed', { sessionId: agentSessionId, error: String(error) })
-      }
-    }
-
-    // The renderer's agent-conversation card always gets the first reply; the model's
-    // [session report] only fires in delegate mode.
-    const notifyModel = mode === 'delegate'
-    if (callerSessionId && sessionController) {
-      sessionController.watchSessionSettled(agentSessionId, callerSessionId, {
-        exchangeId,
-        dispatchedAt,
-        notifyModel,
-        runKey: 'active',
-      })
-    }
     const followUp = notifyModel
-      ? " Its first reply will arrive in this conversation as a [session report] — finish your turn rather than polling (pending reports are lost if the app restarts; use read_session to catch up)."
+      ? " Its first reply will arrive in this conversation as a [session report] — finish your turn rather than polling. If the app restarts while it runs, a report says it was interrupted."
       : ' Fire-and-forget: no report will arrive here. Do not wait or poll — the user follows the session through its card.'
     const taskNote = createdTaskId
       ? ` Bound to task ${createdTaskId}${parentTaskId ? `, a new subtask of ${parentTaskId}` : ''}.`
       : ''
     return {
       ok: true,
-      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}).${taskNote} A card to open it was added to the conversation.${followUp}`,
+      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} (message=${messageId}) running on ${p}/${modelId} (reasoning: ${reasoningEffort}).${taskNote} A card to open it was added to the conversation.${followUp}`,
     }
   } catch (err: any) {
     log.error('session_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })

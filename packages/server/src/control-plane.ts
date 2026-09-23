@@ -1,4 +1,5 @@
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { questionKey } from '@solus/contracts/question-answer'
 import { installedRoutingProviders, routeModelPrompt } from './agents/model-routing'
 import { loadHistoryPage, type HistorySegment } from './sessions/history-page'
 import { EventEmitter } from 'events'
@@ -58,7 +59,7 @@ import {
   formatPendingInputReport,
   agentConversationQuestionFromPendingInput,
 } from './sessions/session-report'
-import type { AgentConversationWatchRequest } from './sessions/session-tools'
+import type { AgentConversationWatchRequest, AgentReplyRoute } from './sessions/session-tools'
 import { ClaudeGoalStore } from './sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
 import type {
@@ -85,6 +86,9 @@ import type {
   SessionDescription,
   SessionLineageResolution,
   SessionProviderSwitchResult,
+  SessionRecordStatus,
+  SentSessionMessage,
+  AgentConversationQuestion,
   StatusCardState,
   StatusCardStep,
   ThreadGoal,
@@ -98,9 +102,8 @@ import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
-import { SeatRequiredError, type SeatStore, type TurnSeat } from './seats/seat-manager'
+import { SeatRequiredError, type SeatStore, type TurnActor, type TurnSeat } from './seats/seat-manager'
 import { withCredentialScope } from './vault/credential-scope'
-import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
 import { activeTurnFor, turnAuthorOf } from './presence/presence-manager'
@@ -179,6 +182,8 @@ interface CreateSessionRequest {
   taskId?: string | null
   parentTaskId?: string | null
   skipTaskCreation?: boolean
+  reply?: AgentReplyRoute
+  delegation?: { parentAgentSessionId: string; intent: 'delegate' | 'fire_and_forget' }
 }
 
 function startedSession(agentSessionId: string, taskId?: string): Parameters<PendingStart['resolve']>[0] {
@@ -197,6 +202,13 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
   if (request.parentTaskId) options.parentTaskId = request.parentTaskId
   if (request.skipTaskCreation) options.skipTaskCreation = true
   return options
+}
+
+const CHILD_INTERRUPTED_BY_RESTART = 'The host restarted while this session was running. Its turn ended without a reply. Use read_session to see how far it got, and prompt_session to continue it.'
+
+function planRulingText(optionId: string, updatedPlan: string | undefined): string {
+  if (optionId === 'deny') return 'Rejected the plan'
+  return updatedPlan ? 'Approved the plan, with edits' : 'Approved the plan'
 }
 
 function eventHasQuestionId(event: NormalizedEvent, questionId: string): boolean {
@@ -242,16 +254,17 @@ export interface SessionRunRequest {
   servedQueueId?: string
   /** Dispatch timestamp of the drained queue entry. */
   servedEnqueuedAt?: number
-  /** Agent exchanges waiting on this exact run. Routes move with a queued retry
-   *  and settle before this request is released. */
+  /** Agent exchanges waiting on this exact run. A route arrives with the prompt
+   *  (or, for `wait_for_session`, joins the run already in flight), moves with
+   *  a queued retry, and settles before this request is released. */
   completionRoutes?: AgentCompletionRoute[]
+  /** The session that created this one, recorded with the new thread's first
+   *  index row so the child is never indexed without its parent. */
+  delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
   /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
    *  for the host's own work: automations, agent follow-ups, and local prompts. */
   actor?: TurnActor
 }
-
-/** The host's own work: the owner asked, and the host's login runs it. */
-const HOST_ACTOR: TurnActor = { userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID }
 
 /**
  * A member's turn calls GitHub, Google, and Atlassian as that member
@@ -318,6 +331,14 @@ export class ControlPlane extends EventEmitter {
   /** Client-generated prompt ids this plane already accepted, insertion-ordered
    *  so the oldest fall off first (outbox replay dedupe, dispatch-client step 6). */
   private acceptedClientPromptIds = new Set<string>()
+  /** Provider thread id → the session record status this process last wrote for it. */
+  private recordStatusWritten = new Map<string, SessionRecordStatus>()
+  /** Provider threads whose lineage this process has registered; later inits of the same thread skip the transaction. */
+  private registeredLineageThreads = new Set<string>()
+  /** Provider threads whose start this process has indexed, with the model and effort it recorded. */
+  private indexedThreadStarts = new Map<string, string>()
+  /** Sessions whose durable lineage showed no provisional handoff. Only this plane begins one, and it records it in `pendingHandoffs` first. */
+  private sessionsWithoutPendingHandoff = new Set<string>()
   private hadActiveWork = false
   private requestQueue = new Map<string, QueuedRequest[]>()
   private activeRunRequests = new Map<string, SessionRunRequest>()
@@ -374,9 +395,8 @@ export class ControlPlane extends EventEmitter {
   private deferredGitWatchCwds = new Set<string>()
   private readonly handoffBuilder: typeof buildHandoff
   private readonly sessionTaskPreparer: typeof prepareSessionTask
-  /** Provider seats and the turn ledger, once the host has opened its database. */
+  /** Provider seats, once the host has opened its database. */
   private seats: SeatStore | null = null
-  private turnLedger: TurnLedger | null = null
 
   constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
     super()
@@ -443,10 +463,14 @@ export class ControlPlane extends EventEmitter {
   private _pendingHandoffFor(sessionId: string): PendingSessionHandoff | undefined {
     const inMemory = this.pendingHandoffs.get(sessionId)
     if (inMemory) return inMemory
+    if (this.sessionsWithoutPendingHandoff.has(sessionId)) return undefined
     const handoff = resolveSessionLineageById(sessionId)
     const activeMember = handoff?.active
     const previousMember = handoff?.members.at(-2)
-    if (activeMember?.providerSessionId !== null || !previousMember?.providerSessionId) return undefined
+    if (activeMember?.providerSessionId !== null || !previousMember?.providerSessionId) {
+      this.sessionsWithoutPendingHandoff.add(sessionId)
+      return undefined
+    }
     const restored = {
       fromProvider: previousMember.provider,
       fromSessionId: previousMember.providerSessionId,
@@ -504,31 +528,38 @@ export class ControlPlane extends EventEmitter {
         // a restart — the registered id comes back and the proposed one is dropped.
         // Everything below routes by the registered id, so two clients cannot end up
         // holding two names for one conversation.
-        const registered = registerSessionLineage({
-          sessionId: initSessionId,
-          provider: backend.id,
-          providerSessionId: event.sessionId,
-          cwd: pendingStart?.run.input.workingDirectory
-            ?? this.activeSessions.get(initSessionId)?.runInput?.workingDirectory
-            ?? getIndexedSession(event.sessionId)?.cwd
-            ?? '~',
-        })
-        if (registered.sessionId !== initSessionId) {
-          log.warn('session_init_id_already_registered', {
-            sessionId: registered.sessionId,
-            proposedSessionId: initSessionId,
-            agentSessionId: event.sessionId,
+        // Claude reports init on every turn. A thread this process already
+        // registered under the same id has nothing new to write.
+        const alreadyRegistered = this.registeredLineageThreads.has(event.sessionId)
+          && this.agentSessionToSession.get(event.sessionId) === initSessionId
+        if (!alreadyRegistered) {
+          const registered = registerSessionLineage({
+            sessionId: initSessionId,
             provider: backend.id,
+            providerSessionId: event.sessionId,
+            cwd: pendingStart?.run.input.workingDirectory
+              ?? this.activeSessions.get(initSessionId)?.runInput?.workingDirectory
+              ?? getIndexedSession(event.sessionId)?.cwd
+              ?? '~',
           })
-        }
-        const sourceRun = pendingStart?.run ?? this.activeRunRequests.get(initSessionId)
-        if (sourceRun?.input.forked && sourceRun.input.agentSessionId
-          && registered.active.providerSessionId === sourceRun.input.agentSessionId) {
-          replaceSessionLineageThread({
-            sessionId: initSessionId, provider: backend.id,
-            sourceThreadId: sourceRun.input.agentSessionId,
-            providerSessionId: event.sessionId, cwd: sourceRun.input.workingDirectory,
-          })
+          if (registered.sessionId !== initSessionId) {
+            log.warn('session_init_id_already_registered', {
+              sessionId: registered.sessionId,
+              proposedSessionId: initSessionId,
+              agentSessionId: event.sessionId,
+              provider: backend.id,
+            })
+          }
+          const sourceRun = pendingStart?.run ?? this.activeRunRequests.get(initSessionId)
+          if (sourceRun?.input.forked && sourceRun.input.agentSessionId
+            && registered.active.providerSessionId === sourceRun.input.agentSessionId) {
+            replaceSessionLineageThread({
+              sessionId: initSessionId, provider: backend.id,
+              sourceThreadId: sourceRun.input.agentSessionId,
+              providerSessionId: event.sessionId, cwd: sourceRun.input.workingDirectory,
+            })
+          }
+          this.registeredLineageThreads.add(event.sessionId)
         }
         this.agentSessionToSession.set(event.sessionId, initSessionId)
         const pendingHandoff = this.pendingHandoffs.get(initSessionId)
@@ -563,6 +594,11 @@ export class ControlPlane extends EventEmitter {
               },
             }
             this.activeRunRequests.set(initSessionId, initializedRun)
+            // A created child's routes were addressed to its pending card; from
+            // here its updates name the real thread, as `attached` does.
+            for (const route of initializedRun.completionRoutes ?? []) {
+              if (route.targetAgentSessionId.startsWith('pending:')) route.targetAgentSessionId = event.sessionId
+            }
             const started: Parameters<PendingStart['resolve']>[0] = { agentSessionId: event.sessionId }
             if (pendingStart.run.options.taskId) started.taskId = pendingStart.run.options.taskId
             pendingStart.resolve(started)
@@ -575,7 +611,13 @@ export class ControlPlane extends EventEmitter {
         // no runInput and bind returns null, leaving the session stuck at idle.
         const existingSession = this.activeSessions.get(initSessionId)
         const runReqInput = this.activeRunRequests.get(initSessionId)?.input ?? initializedRun?.input
-        if (runReqInput) {
+        // Every column the index row fills is COALESCE-guarded, and status has its
+        // own writer, so a later init of the same thread only matters when the
+        // model or effort the record shows has changed.
+        const indexedStart = runReqInput ? `${runReqInput.model}\u0000${runReqInput.reasoningEffort}` : null
+        if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
+          this.indexedThreadStarts.set(event.sessionId, indexedStart)
+          this.recordStatusWritten.set(event.sessionId, 'running')
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,
@@ -585,6 +627,7 @@ export class ControlPlane extends EventEmitter {
             runReqInput.reasoningEffort,
             firstDispatchRun?.options.displayPrompt ?? firstDispatchRun?.options.prompt ?? null,
             runReqInput.gitContext?.branch ?? null,
+            firstDispatchRun?.delegation,
           )
         }
         if (existingSession) {
@@ -1522,41 +1565,36 @@ export class ControlPlane extends EventEmitter {
     return [...(this.activeSessions.get(sessionId)?.pendingInputEvents ?? [])]
   }
 
-  /** Both ids arrive from the agent-tool surface. Normalize them once, then put
-   *  the completion route on the exact active or queued run it belongs to. */
-  watchSessionSettled(targetAgentSessionId: string, callerAgentSessionId: string, watch: AgentConversationWatchRequest): void {
-    if (targetAgentSessionId === callerAgentSessionId) {
+  /** A route for a reply to `targetAgentSessionId`, addressed to the calling
+   *  session. Both ids arrive from the agent-tool surface and are normalized
+   *  here once. The caller is live: it is the session making the call. */
+  private _replyRoute(targetAgentSessionId: string, reply: AgentReplyRoute, targetSessionId?: string): AgentCompletionRoute {
+    const { callerAgentSessionId, ...watch } = reply
+    const callerSessionId = this._sessionIdFor(callerAgentSessionId)
+    if (!callerSessionId) throw new Error(`Session ${callerAgentSessionId} is not live`)
+    if (targetAgentSessionId === callerAgentSessionId || targetSessionId === callerSessionId) {
       throw new Error('Cannot watch your own session.')
     }
+    return { ...watch, awaitingReported: false, callerSessionId, callerAgentSessionId, targetAgentSessionId }
+  }
+
+  /** Attach a route to the turn running now, for `wait_for_session`. Returns
+   *  false when no turn is running, so the caller never waits on nothing. */
+  watchSessionSettled(targetAgentSessionId: string, callerAgentSessionId: string, watch: AgentConversationWatchRequest): boolean {
     const targetSessionId = this._sessionIdFor(targetAgentSessionId)
-    const callerSessionId = this._sessionIdFor(callerAgentSessionId)
-    if (!targetSessionId || !callerSessionId) {
-      throw new Error(`Session ${!targetSessionId ? targetAgentSessionId : callerAgentSessionId} is not live`)
-    }
-    if (targetSessionId === callerSessionId) throw new Error('Cannot watch your own session.')
-
-    const run = watch.runKey === 'active'
-      ? this.activeRunRequests.get(targetSessionId)
-      : this.requestQueue.get(targetSessionId)?.find((request) => request.queueId === watch.runKey)?.run
-    if (!run) throw new Error(`Session ${targetAgentSessionId} has no ${watch.runKey} run to watch`)
-
-    const armed: AgentCompletionRoute = {
-      ...watch,
-      awaitingReported: false,
-      callerSessionId,
-      callerAgentSessionId,
-      targetAgentSessionId,
-    }
+    if (!targetSessionId) return false
+    const run = this.activeRunRequests.get(targetSessionId)
+    if (!run) return false
+    const armed = this._replyRoute(targetAgentSessionId, { ...watch, callerAgentSessionId }, targetSessionId)
     const routes = run.completionRoutes ??= []
     routes.push(armed)
     log.info('agent_conversation_watch_armed', {
       targetSessionId,
       targetAgentSessionId,
-      callerSessionId,
+      callerSessionId: armed.callerSessionId,
       callerAgentSessionId,
-      exchangeId: watch.exchangeId,
+      messageId: watch.messageId,
       notifyModel: watch.notifyModel,
-      runKey: watch.runKey,
       watchCount: routes.length,
     })
 
@@ -1566,6 +1604,7 @@ export class ControlPlane extends EventEmitter {
     if (status === 'awaiting_input' || status === 'awaiting_plan') {
       this._fireAwaitingInputWatchers(targetSessionId, status, armed)
     }
+    return true
   }
 
   private *_completionRouteRuns(): Iterable<SessionRunRequest> {
@@ -1581,6 +1620,47 @@ export class ControlPlane extends EventEmitter {
         yield request.run
       }
     }
+  }
+
+  /** The messages a session sent that this process still carries: every route
+   *  on a run not yet settled, and every reply queued back to the sender. What
+   *  is missing has finished or died with an earlier process. */
+  sessionMessagesSentBy(senderId: string): SentSessionMessage[] {
+    const senderSessionId = this._sessionIdFor(senderId)
+    if (!senderSessionId) return []
+    const sent: SentSessionMessage[] = []
+    for (const run of this._completionRouteRuns()) {
+      const isActive = this.activeRunRequests.get(run.sessionId) === run
+      const parkedOn = isActive ? this._parkedQuestion(run.sessionId) : null
+      for (const route of run.completionRoutes ?? []) {
+        if (route.callerSessionId !== senderSessionId) continue
+        const message: SentSessionMessage = {
+          messageId: route.messageId,
+          targetAgentSessionId: route.targetAgentSessionId,
+          state: !isActive ? 'queued' : parkedOn ? 'awaiting_input' : 'running',
+        }
+        if (parkedOn) message.question = parkedOn
+        sent.push(message)
+      }
+    }
+    for (const queued of this.requestQueue.get(senderSessionId) ?? []) {
+      const { via, agentSessionId, agentMessageId } = queued.run.options
+      if (via !== 'session-report' || !agentSessionId || !agentMessageId) continue
+      sent.push({ messageId: agentMessageId, targetAgentSessionId: agentSessionId, state: 'reply_queued' })
+    }
+    return sent
+  }
+
+  /** What a session's turn is parked on, if it is parked. */
+  private _parkedQuestion(sessionId: string): AgentConversationQuestion | null {
+    const session = this.activeSessions.get(sessionId)
+    if (session?.status !== 'awaiting_input' && session?.status !== 'awaiting_plan') return null
+    const parkedOn = agentConversationQuestionFromPendingInput(session.pendingInputEvents)
+    if (!parkedOn) return null
+    const question: AgentConversationQuestion = { kind: parkedOn.kind, text: parkedOn.questionText }
+    if (parkedOn.questionId) question.questionId = parkedOn.questionId
+    if (parkedOn.answerKey) question.answerKey = parkedOn.answerKey
+    return question
   }
 
   private _awaitingAgentReply(callerSessionId: string): boolean {
@@ -1605,7 +1685,7 @@ export class ControlPlane extends EventEmitter {
           update: {
             phase: 'settled',
             agentSessionId: route.targetAgentSessionId,
-            exchangeId: route.exchangeId,
+            messageId: route.messageId,
             status: 'interrupted',
             replyText: '',
             settledAt: Date.now(),
@@ -1627,7 +1707,7 @@ export class ControlPlane extends EventEmitter {
         update: {
           phase: 'settled',
           agentSessionId: route.targetAgentSessionId,
-          exchangeId: route.exchangeId,
+          messageId: route.messageId,
           status: 'interrupted',
           replyText: '',
           settledAt: Date.now(),
@@ -1754,9 +1834,8 @@ export class ControlPlane extends EventEmitter {
    * Provider seats (Step 2 plan §3.3). Every turn with an actor resolves its seat
    * before anything is spawned; the host's own work runs on the host's login.
    */
-  useSeats(seats: SeatStore, turnLedger: TurnLedger): void {
+  useSeats(seats: SeatStore): void {
     this.seats = seats
-    this.turnLedger = turnLedger
   }
 
   /**
@@ -1927,7 +2006,7 @@ export class ControlPlane extends EventEmitter {
     }
     if (options.agentSessionId) {
       event.agentSessionId = options.agentSessionId
-      event.agentExchangeId = options.agentExchangeId
+      event.agentMessageId = options.agentMessageId
     }
     return event
   }
@@ -1943,6 +2022,23 @@ export class ControlPlane extends EventEmitter {
       imageAttachments: await resolvePromptImages(request.options),
     })
     if (!handle) return null
+    // A steer is answered by the turn that accepted it. Its routes join that
+    // turn now, in the same microtask the acceptance resolved in, before any
+    // event of that turn's end can be handled, so they settle with it and hear
+    // its questions.
+    const steeredRoutes = request.completionRoutes?.splice(0) ?? []
+    if (steeredRoutes.length) {
+      const activeRun = this.activeRunRequests.get(request.sessionId)
+      if (activeRun) (activeRun.completionRoutes ??= []).push(...steeredRoutes)
+      else {
+        // A backgrounded turn has already released its run record.
+        request.completionRoutes = steeredRoutes
+        void handle.runPromise.then(
+          () => this._settleCompletionRoutes(request, handle.abortController.signal.aborted ? 'interrupted' : 'completed', handle.resultText),
+          () => this._settleCompletionRoutes(request, handle.abortController.signal.aborted ? 'interrupted' : 'failed', handle.resultText),
+        )
+      }
+    }
 
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
@@ -2127,7 +2223,7 @@ export class ControlPlane extends EventEmitter {
     agentSessionId: string,
     prompt: string,
     delivery: PromptDelivery = 'queue',
-    origin?: Pick<PromptOptions, 'via' | 'agentSessionId' | 'agentExchangeId'> & {
+    origin?: Pick<PromptOptions, 'via' | 'agentSessionId' | 'agentMessageId'> & {
       /** Replaces the session's stored run mode for this prompt and every later
        *  one. A peer that just planned is still in 'plan' mode: prompting it as
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
@@ -2135,9 +2231,14 @@ export class ControlPlane extends EventEmitter {
       permissionMode?: SessionRunInput['permissionMode']
       /** The person behind an agent-card prompt; an agent's own follow-up has none. */
       actor?: TurnActor
+      /** Where this prompt's reply goes. It is on the run before the run is
+       *  accepted, so a reply that comes back at once is never lost. */
+      reply?: AgentReplyRoute
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
-    const { permissionMode, actor, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor, reply, ...promptOrigin } = origin ?? {}
+    // The id the caller named is the one its card shows; settle updates use it.
+    const requestedAgentSessionId = agentSessionId
     const requestedMeta = getIndexedSession(agentSessionId)
     const handoff = resolveSessionLineageById(agentSessionId) ?? (requestedMeta
       ? resolveSessionLineage(requestedMeta.provider, agentSessionId)
@@ -2184,27 +2285,62 @@ export class ControlPlane extends EventEmitter {
     }
     if (permissionMode) input.permissionMode = permissionMode
     await this.seatForTurn(actor, input.provider)
+    const route = reply ? this._replyRoute(requestedAgentSessionId, reply, sessionId) : undefined
+    // The sender's card shows the message before anything can answer it, from
+    // every surface that sends one: agent tools, cards, and plan rulings.
+    if (route) {
+      this._emit(route.callerSessionId, {
+        type: 'agent_conversation_update',
+        update: {
+          phase: 'dispatched',
+          agentSessionId: route.targetAgentSessionId,
+          messageId: route.messageId,
+          origin: 'prompted',
+          prompt,
+          delivery,
+          provider: input.provider,
+          title: requestedMeta?.slug || requestedMeta?.firstMessage?.replace(/\s+/g, ' ').trim().slice(0, 80) || requestedAgentSessionId.slice(0, 8),
+          cwd: input.workingDirectory,
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          dispatchedAt: route.dispatchedAt,
+        },
+      })
+    }
 
-    const lifecycle = await this.runTurn({
-      input,
-      target: { kind: 'session', sessionId },
-      sessionId,
-      actor,
-      tools: selectAgentTools(
-        solusToolbox.works,
-        solusToolbox.docs,
-        solusToolbox.artifact,
-        solusToolbox.automations,
-        solusToolbox.connections,
-        solusToolbox.insights,
-        solusToolbox.intelligence,
-        solusToolbox.browser,
-        solusToolbox.sessions,
-        solusToolbox.tasks,
-        solusToolbox.config,
-      ),
-      options: { prompt, displayPrompt: prompt, delivery, promptSource: 'agent', ...promptOrigin },
-    })
+    let lifecycle: SessionRunLifecycle
+    try {
+      lifecycle = await this.runTurn({
+        input,
+        target: { kind: 'session', sessionId },
+        sessionId,
+        actor,
+        completionRoutes: route ? [route] : undefined,
+        tools: selectAgentTools(
+          solusToolbox.works,
+          solusToolbox.docs,
+          solusToolbox.artifact,
+          solusToolbox.automations,
+          solusToolbox.connections,
+          solusToolbox.insights,
+          solusToolbox.intelligence,
+          solusToolbox.browser,
+          solusToolbox.sessions,
+          solusToolbox.tasks,
+          solusToolbox.config,
+        ),
+        options: { prompt, displayPrompt: prompt, delivery, promptSource: 'agent', ...promptOrigin },
+      })
+    } catch (error) {
+      // Never accepted, so no turn will ever settle this message.
+      if (route) {
+        this._emit(route.callerSessionId, {
+          type: 'agent_conversation_update',
+          update: { phase: 'settled', agentSessionId: route.targetAgentSessionId, messageId: route.messageId, status: 'failed', replyText: '', settledAt: Date.now() },
+        })
+      }
+      throw error
+    }
     return { disposition: lifecycle.disposition, queueId: lifecycle.queueId }
   }
 
@@ -2292,11 +2428,28 @@ export class ControlPlane extends EventEmitter {
       rateLimitBehavior: 'queue',
       ...hostInstructionsFor(model),
     }
+    const sessionId = crypto.randomUUID()
+    // The child has no thread yet. Its card knows it as `pending:<exchange>`
+    // until `attached`; session_init binds the route to the real thread.
+    const completionRoutes = req.reply
+      ? [this._replyRoute(`pending:${req.reply.messageId}`, req.reply, sessionId)]
+      : undefined
+    const delegation = req.delegation
+      ? {
+          // The index keys sessions by provider thread; so does the parent link.
+          parentSessionId: req.delegation.parentAgentSessionId,
+          messageId: req.reply?.messageId ?? crypto.randomUUID(),
+          intent: req.delegation.intent,
+          createdAt: req.reply?.dispatchedAt ?? Date.now(),
+        }
+      : undefined
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'new-session' },
-      sessionId: crypto.randomUUID(),
+      sessionId,
       actor,
+      completionRoutes,
+      delegation,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2438,14 +2591,6 @@ export class ControlPlane extends EventEmitter {
       throw error
     }
     const { handle, run } = startedRun
-    this.turnLedger?.start({
-      turnId: turnTraceId,
-      promptId: run.options.clientPromptId ?? request.servedQueueId ?? crypto.randomUUID(),
-      sessionId: request.sessionId,
-      actor: run.actor ?? HOST_ACTOR,
-      provider: run.input.provider,
-      startedAt: runStartedAt,
-    })
     // Its own scope: this runs after `launch_run` resolved, so there is no
     // ambient step left to nest under — but it is still inside the setup
     // window, being awaited before setup is closed below.
@@ -2520,7 +2665,6 @@ export class ControlPlane extends EventEmitter {
       () => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'completed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
         void this._settleCompletionRoutes(request, status, handle.resultText, {
           durationMs: Date.now() - runStartedAt,
@@ -2531,7 +2675,6 @@ export class ControlPlane extends EventEmitter {
       (error) => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'failed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
         // A provider limit rejects this attempt, but the prompt is still owned
         // by Solus while it waits for a reset or a user decision. Do not tell a
@@ -2561,24 +2704,45 @@ export class ControlPlane extends EventEmitter {
     }
   }
 
-  private _dispatchSessionReport(callerAgentSessionId: string, prompt: string, agent: { agentSessionId: string; exchangeId: string }): void {
+  /**
+   * Children whose turn the previous process never settled. A parent that
+   * delegated to one would otherwise wait for a reply nothing will send, so it
+   * gets a report instead. The same boot marks each record interrupted, so a
+   * child is reported once.
+   */
+  reportChildrenInterruptedByRestart(childThreadIds: readonly string[]): void {
+    for (const childThreadId of childThreadIds) {
+      const delegation = getIndexedSession(childThreadId)?.delegation
+      if (delegation?.intent !== 'delegate') continue
+      log.info('session_child_interrupted_by_restart', { agentSessionId: childThreadId, parentAgentSessionId: delegation.parentSessionId })
+      // No message id: the report resolves whichever message to the child is
+      // still open in the parent, which a restart cannot know.
+      this._dispatchSessionReport(
+        delegation.parentSessionId,
+        buildSessionSettledReport(childThreadId, 'interrupted', CHILD_INTERRUPTED_BY_RESTART),
+        { agentSessionId: childThreadId, messageId: delegation.messageId },
+      )
+    }
+  }
+
+  private _dispatchSessionReport(callerAgentSessionId: string, prompt: string, agent: { agentSessionId: string; messageId: string }): void {
     // Keep the update drain open until this report has started or queued.
     this.updateWorkCount++
     // promptSession addresses its target the way the agent-tool surface does.
     log.info('session_report_dispatch_started', {
       callerAgentSessionId,
       targetAgentSessionId: agent.agentSessionId,
-      exchangeId: agent.exchangeId,
+      messageId: agent.messageId,
     })
     void this.promptSession(callerAgentSessionId, prompt, 'queue', {
       via: 'session-report',
       agentSessionId: agent.agentSessionId,
-      agentExchangeId: agent.exchangeId,
+      agentMessageId: agent.messageId,
     }).then((result) => {
       log.info('session_report_dispatched', {
         callerAgentSessionId,
         targetAgentSessionId: agent.agentSessionId,
-        exchangeId: agent.exchangeId,
+        messageId: agent.messageId,
         disposition: result.disposition,
         queueId: result.queueId,
       })
@@ -2586,7 +2750,7 @@ export class ControlPlane extends EventEmitter {
       log.warn('session_report_failed', {
         callerAgentSessionId,
         targetAgentSessionId: agent.agentSessionId,
-        exchangeId: agent.exchangeId,
+        messageId: agent.messageId,
         error: String(error),
       })
     }).finally(() => { this.updateWorkCount-- })
@@ -2619,17 +2783,35 @@ export class ControlPlane extends EventEmitter {
       if (question) {
         this._emit(route.callerSessionId, {
           type: 'agent_conversation_update',
-          update: { phase: 'awaiting_input', agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId, ...question },
+          update: { phase: 'awaiting_input', agentSessionId: route.targetAgentSessionId, messageId: route.messageId, ...question },
         })
       }
       if (pendingInput && route.notifyModel && !route.awaitingReported) {
         route.awaitingReported = true
         this._dispatchSessionReport(
           route.callerAgentSessionId,
-          buildSessionAwaitingInputReport(route.targetAgentSessionId, status, pendingInput),
-          { agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId },
+          buildSessionAwaitingInputReport(route.targetAgentSessionId, status, pendingInput, route.messageId),
+          { agentSessionId: route.targetAgentSessionId, messageId: route.messageId },
         )
       }
+    }
+  }
+
+  /** Someone answered the question or plan a session's turn is parked on — a
+   *  caller's agent tool, a card, or a person in the session itself. Every caller
+   *  waiting on that turn hears it against the message it sent, the same one
+   *  `_fireAwaitingInputWatchers` raised the question on. */
+  private _announceAnswered(sessionId: string | undefined, answerText: string): void {
+    if (!sessionId) return
+    const oldestByCaller = new Map<string, AgentCompletionRoute>()
+    for (const route of this.activeRunRequests.get(sessionId)?.completionRoutes ?? []) {
+      if (!oldestByCaller.has(route.callerSessionId)) oldestByCaller.set(route.callerSessionId, route)
+    }
+    for (const route of oldestByCaller.values()) {
+      this._emit(route.callerSessionId, {
+        type: 'agent_conversation_update',
+        update: { phase: 'answered', agentSessionId: route.targetAgentSessionId, messageId: route.messageId, answerText },
+      })
     }
   }
 
@@ -2697,7 +2879,7 @@ export class ControlPlane extends EventEmitter {
         update: {
           phase: 'settled',
           agentSessionId: route.targetAgentSessionId,
-          exchangeId: route.exchangeId,
+          messageId: route.messageId,
           status,
           replyText: finalText ?? '',
           durationMs: runMeta?.durationMs,
@@ -2708,8 +2890,8 @@ export class ControlPlane extends EventEmitter {
       if (route.notifyModel) {
         this._dispatchSessionReport(
           route.callerAgentSessionId,
-          buildSessionSettledReport(route.targetAgentSessionId, status, finalText || '(no final assistant reply available)'),
-          { agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId },
+          buildSessionSettledReport(route.targetAgentSessionId, status, finalText || '(no final assistant reply available)', route.messageId),
+          { agentSessionId: route.targetAgentSessionId, messageId: route.messageId },
         )
       }
     }
@@ -3528,6 +3710,8 @@ export class ControlPlane extends EventEmitter {
         const sessionId = this.questionIdToSession.get(questionId)
           ?? (pendingInfo?.sessionId ? this.agentSessionToSession.get(pendingInfo.sessionId) : undefined)
         if (sessionId) this.sessionEmitter.resolvePermission(sessionId, questionId, optionId)
+        // Before a rejection cancels the run and its routes settle.
+        if (pendingInfo?.toolName === 'ExitPlanMode') this._announceAnswered(sessionId, planRulingText(optionId, updatedPlan))
         this._clearPendingInputEvent(questionId)
         this.questionIdToSession.delete(questionId)
         const analytics = { decision: optionId, tool_name: pendingInfo?.toolName }
@@ -3557,6 +3741,12 @@ export class ControlPlane extends EventEmitter {
         (event) => event.type === 'question_request' && event.questionId === questionId,
       ) : undefined
       if (b.permissions.respondToQuestion(questionId, answers)) {
+        if (question?.type === 'question_request') {
+          this._announceAnswered(sessionId, question.questions
+            .map((item) => (answers[questionKey(item)] ? `${item.question} → ${answers[questionKey(item)]}` : null))
+            .filter(Boolean)
+            .join('\n') || '(handed the decision back)')
+        }
         if (sessionId) {
           this.sessionEmitter.resolveQuestion(sessionId, questionId)
           if (question?.type === 'question_request' && (!question.kind || question.kind === 'standard')) {
@@ -4240,6 +4430,16 @@ export class ControlPlane extends EventEmitter {
     })
   }
 
+  private _writeSessionRecordStatus(sessionId: string, agentSessionId: string, status: SessionRecordStatus): void {
+    if (this.recordStatusWritten.get(agentSessionId) === status) return
+    this.recordStatusWritten.set(agentSessionId, status)
+    void setSessionRecordStatus(LOCAL_ORGANIZATION_ID, agentSessionId, status).catch((error) => {
+      // Unknown outcome: the next transition writes again.
+      this.recordStatusWritten.delete(agentSessionId)
+      log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
+    })
+  }
+
   private _applyStatus(sessionId: string, newStatus: SessionStatus): void {
     const session = this.activeSessions.get(sessionId)
     // Attention persists across restarts and is correlated with rows read off
@@ -4274,12 +4474,10 @@ export class ControlPlane extends EventEmitter {
     }
 
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
-    // The collaboration plane's record keeps one fact of this: a turn open or not.
-    if (agentSessionId) {
-      void setSessionRecordStatus(LOCAL_ORGANIZATION_ID, agentSessionId, sessionRecordStatusOf(newStatus)).catch((error) => {
-        log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
-      })
-    }
+    // The collaboration plane's record keeps one fact of this: a turn open or
+    // not. Most transitions (connecting, awaiting input, rate limited) keep that
+    // fact, so write only when it changes.
+    if (agentSessionId) this._writeSessionRecordStatus(sessionId, agentSessionId, sessionRecordStatusOf(newStatus))
     this._emit(sessionId, { type: 'status_change', status: newStatus, oldStatus })
     if (
       session &&

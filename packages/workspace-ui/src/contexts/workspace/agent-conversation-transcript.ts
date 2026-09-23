@@ -15,11 +15,13 @@ export function isAgentConversationTool(name: string | undefined): boolean {
   )
 }
 
-const REPORT_HEAD = /^\[session report\] Session ([0-9a-f-]{36}) (finished|is waiting) \(status: ([a-z_]+)\)/
+// Older reports carry no exchange; newer ones name the exchange they answer.
+const REPORT_HEAD = /^\[session report\] Session ([0-9a-f-]{36}) (finished|is waiting) \(status: ([a-z_]+)(?:; message: ([0-9a-f-]{36}))?\)/
 interface ParsedReport {
   agentSessionId: string
   kind: 'settled' | 'awaiting'
   status: string
+  messageId?: string
   body: string
 }
 
@@ -44,12 +46,14 @@ export function parseSessionReport(text: string): ParsedReport | null {
   if (!head) return null
   const marker = head[2] === 'finished' ? 'Final reply:\n' : 'Pending input:\n'
   const at = text.indexOf(marker)
-  return {
+  const report: ParsedReport = {
     agentSessionId: head[1],
     kind: head[2] === 'finished' ? 'settled' : 'awaiting',
     status: head[3],
     body: at === -1 ? '' : text.slice(at + marker.length),
   }
+  if (head[4]) report.messageId = head[4]
+  return report
 }
 
 /**
@@ -95,6 +99,7 @@ export class AgentConversationTranscriptBuilder {
       const agentSessionId = result?.agentSessionId
       if (!agentSessionId) return
       this.openExchange(agentSessionId, {
+        messageId: result?.messageId,
         prompt: input.prompt ?? '',
         origin: 'created',
         fireAndForget: input.mode === 'fire_and_forget',
@@ -110,6 +115,7 @@ export class AgentConversationTranscriptBuilder {
     if (!agentSessionId) return
     if (toolName.endsWith('prompt_session')) {
       this.openExchange(agentSessionId, {
+        messageId: result?.messageId,
         prompt: input.prompt ?? '',
         origin: 'prompted',
         delivery: input.delivery === 'steer' ? 'steer' : undefined,
@@ -119,7 +125,7 @@ export class AgentConversationTranscriptBuilder {
     } else if (toolName.endsWith('wait_for_session')) {
       // A watch that never armed (target was idle) produced no exchange.
       if (result?.watcherRegistered === false) return
-      this.openExchange(agentSessionId, { prompt: '', origin: 'watched', cwd: '', timestamp })
+      this.openExchange(agentSessionId, { messageId: result?.messageId, prompt: '', origin: 'watched', cwd: '', timestamp })
     }
   }
 
@@ -129,14 +135,18 @@ export class AgentConversationTranscriptBuilder {
     const report = parseSessionReport(text)
     if (!report) return false
     const pending = this.unresolvedByAgent.get(report.agentSessionId)
-    let exchange = pending?.[0]
+    // A report that names its exchange resolves exactly that one; an older
+    // report falls back to arrival order, as the control plane once did.
+    let exchange = report.messageId
+      ? pending?.find((candidate) => candidate.messageId === report.messageId)
+      : pending?.[0]
     if (!exchange) {
       // A stale waiting notice with nothing to attach to can drop; a settled
       // reply cannot — its dispatching tool row may sit outside the hydrated
       // history window, and suppressing the bubble without a card would lose
       // the other agent's words entirely. Synthesize the exchange.
       if (report.kind === 'awaiting') return true
-      exchange = this.openExchange(report.agentSessionId, { prompt: '', origin: 'prompted', cwd: '', timestamp })
+      exchange = this.openExchange(report.agentSessionId, { messageId: report.messageId, prompt: '', origin: 'prompted', cwd: '', timestamp })
     }
     if (report.kind === 'awaiting') {
       exchange.status = 'awaiting_input'
@@ -144,7 +154,8 @@ export class AgentConversationTranscriptBuilder {
       return true
     }
     const queue = this.unresolvedByAgent.get(report.agentSessionId)
-    if (queue && queue[0] === exchange) queue.shift()
+    const resolved = queue?.indexOf(exchange) ?? -1
+    if (queue && resolved !== -1) queue.splice(resolved, 1)
     exchange.status = report.status === 'interrupted' ? 'interrupted' : report.status === 'failed' ? 'failed' : 'done'
     exchange.question = undefined
     exchange.reply = report.body.trim()
@@ -154,6 +165,8 @@ export class AgentConversationTranscriptBuilder {
   private openExchange(
     agentSessionId: string,
     opts: {
+      /** The id the host gave the exchange, when the transcript recorded it. */
+      messageId?: string
       prompt: string
       origin: AgentConversationRef['origin']
       fireAndForget?: boolean
@@ -167,7 +180,9 @@ export class AgentConversationTranscriptBuilder {
     const index = (this.countByAgent.get(agentSessionId) ?? 0) + 1
     this.countByAgent.set(agentSessionId, index)
     const exchange: AgentExchange = {
-      exchangeId: `rebuilt:${agentSessionId}:${index}`,
+      // The host's id lets a reply that arrives after this reload land here
+      // instead of in an orphan card. Older transcripts never recorded one.
+      messageId: opts.messageId ?? `rebuilt:${agentSessionId}:${index}`,
       index,
       prompt: opts.prompt,
       delivery: opts.delivery,

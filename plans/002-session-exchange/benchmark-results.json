@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-18T19:59:55.280Z",
+  "measuredAt": "2026-09-23T14:40:44.055Z",
   "node": "v25.8.1",
   "platform": "darwin",
   "warmup": 200,
@@ -7,101 +7,53 @@
   "promptBytes": 1024,
   "resultBytes": 8192,
   "settings": "WAL, synchronous=NORMAL, foreign_keys=ON, default autocheckpoint",
-  "scope": "Sequential single-connection DB calls only. Baseline is the existing ledger, not the whole app. No provider, transport, contention, or live DB.",
+  "scope": "Sequential single-connection DB calls only. Not the whole app. No provider, transport, contention, or live DB. routed results are queued (the parent is busy) so no running-index conflict arises across samples.",
   "results": [
     {
-      "mode": "ledger",
+      "mode": "routed",
       "reusePrepared": false,
       "milliseconds": {
         "total": {
-          "p50": 0.0357,
-          "p95": 0.1084,
-          "p99": 0.2213,
-          "max": 1.54
+          "p50": 0.1627,
+          "p95": 0.3627,
+          "p99": 2.6462,
+          "max": 17.9762
         },
         "beforeLaunch": {
-          "p50": 0.0231,
-          "p95": 0.0714,
-          "p99": 0.1615,
-          "max": 1.4381
+          "p50": 0.0496,
+          "p95": 0.0887,
+          "p99": 0.2687,
+          "max": 2.8531
         },
         "completion": {
-          "p50": 0.012,
-          "p95": 0.0403,
-          "p99": 0.0895,
-          "max": 1.1898
+          "p50": 0.1117,
+          "p95": 0.2013,
+          "p99": 2.1369,
+          "max": 17.9315
         }
       }
     },
     {
-      "mode": "idle",
-      "reusePrepared": false,
-      "milliseconds": {
-        "total": {
-          "p50": 0.179,
-          "p95": 0.4253,
-          "p99": 2.8431,
-          "max": 14.8114
-        },
-        "beforeLaunch": {
-          "p50": 0.0577,
-          "p95": 0.144,
-          "p99": 0.3542,
-          "max": 4.356
-        },
-        "completion": {
-          "p50": 0.1189,
-          "p95": 0.2722,
-          "p99": 2.0716,
-          "max": 14.7598
-        }
-      }
-    },
-    {
-      "mode": "ledger",
+      "mode": "routed",
       "reusePrepared": true,
       "milliseconds": {
         "total": {
-          "p50": 0.0213,
-          "p95": 0.0415,
-          "p99": 0.0854,
-          "max": 1.1889
+          "p50": 0.0882,
+          "p95": 0.142,
+          "p99": 1.9647,
+          "max": 4.0777
         },
         "beforeLaunch": {
-          "p50": 0.0146,
-          "p95": 0.0319,
-          "p99": 0.0586,
-          "max": 1.1405
-        },
-        "completion": {
-          "p50": 0.0067,
-          "p95": 0.0083,
-          "p99": 0.029,
-          "max": 0.9437
-        }
-      }
-    },
-    {
-      "mode": "idle",
-      "reusePrepared": true,
-      "milliseconds": {
-        "total": {
-          "p50": 0.09,
-          "p95": 0.2237,
-          "p99": 2.5293,
-          "max": 4.2793
-        },
-        "beforeLaunch": {
-          "p50": 0.0328,
-          "p95": 0.0838,
-          "p99": 0.1923,
-          "max": 3.8494
+          "p50": 0.0297,
+          "p95": 0.0498,
+          "p99": 0.0927,
+          "max": 1.9724
         },
         "completion": {
           "p50": 0.0572,
-          "p95": 0.1357,
-          "p99": 0.2865,
-          "max": 4.1498
+          "p95": 0.0932,
+          "p99": 1.8495,
+          "max": 4.0469
         }
       }
     }

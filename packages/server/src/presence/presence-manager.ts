@@ -12,7 +12,7 @@ import type {
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
-import type { TurnActor } from '../sessions/turn-ledger'
+import type { TurnActor } from '../seats/seat-manager'
 import { presenceColorIndex } from './presence-color'
 
 /**

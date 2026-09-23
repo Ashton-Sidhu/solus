@@ -468,10 +468,9 @@ describe.serial('ControlPlane observability hooks', () => {
     await target.agentSessionId
 
     plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'created-exchange',
+      messageId: 'created-exchange',
       dispatchedAt: Date.now(),
       notifyModel: false,
-      runKey: 'active',
     })
     backend.complete('thread-2', 0)
     await target.done
@@ -483,7 +482,7 @@ describe.serial('ControlPlane observability hooks', () => {
         update: expect.objectContaining({
           phase: 'settled',
           agentSessionId: 'thread-2',
-          exchangeId: 'created-exchange',
+          messageId: 'created-exchange',
           status: 'completed',
           replyText: 'done',
         }),
@@ -515,10 +514,9 @@ describe.serial('ControlPlane observability hooks', () => {
     await target.agentSessionId
 
     plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'report-exchange',
+      messageId: 'report-exchange',
       dispatchedAt: Date.now(),
       notifyModel: true,
-      runKey: 'active',
     })
     backend.complete('thread-1', 0)
     await caller.done
@@ -553,25 +551,28 @@ describe.serial('ControlPlane observability hooks', () => {
       options: { prompt: 'first', promptSource: 'typed', skipTaskCreation: true },
     })
     await first.agentSessionId
-    const queued = await plane.runTurn({
-      target: { kind: 'session', sessionId: 'solus-target' }, sessionId: 'solus-target', input: input('thread-2'), tools: [],
-      options: { prompt: 'second', promptSource: 'agent', delivery: 'queue', skipTaskCreation: true },
+    const queued = await plane.promptSession('thread-2', 'second', 'queue', {
+      reply: { messageId: 'queued-exchange', dispatchedAt: Date.now(), notifyModel: false, callerAgentSessionId: 'thread-1' },
     })
-    if (!queued.queueId) throw new Error('Expected a queued run')
-    plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'queued-exchange',
-      dispatchedAt: Date.now(),
-      notifyModel: false,
-      runKey: queued.queueId,
-    })
+    expect(queued.disposition).toBe('queued')
+    const settledFor = (messageId: string) => delivered.some(({ event }) => (
+      event.type === 'agent_conversation_update' && event.update.phase === 'settled' && event.update.messageId === messageId
+    ))
 
     const secondStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
     backend.complete('thread-2', 0)
     await first.done
     await secondStarted
     await Promise.resolve()
+    // The first run's end is not the queued message's reply.
+    expect(settledFor('queued-exchange')).toBe(false)
+    const secondSettled = new Promise<void>((resolve) => {
+      plane.on('event', (_sessionId, event: NormalizedEvent) => {
+        if (event.type === 'agent_conversation_update' && event.update.phase === 'settled') resolve()
+      })
+    })
     backend.complete('thread-2', 0)
-    await queued.done
+    await secondSettled
 
     expect(delivered).toContainEqual({
       sessionId: 'solus-caller',
@@ -580,7 +581,7 @@ describe.serial('ControlPlane observability hooks', () => {
         update: expect.objectContaining({
           phase: 'settled',
           agentSessionId: 'thread-2',
-          exchangeId: 'queued-exchange',
+          messageId: 'queued-exchange',
           status: 'completed',
           replyText: 'done',
         }),

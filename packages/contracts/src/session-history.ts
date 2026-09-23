@@ -55,6 +55,8 @@ export interface SessionLoadMessage {
 export interface AgentConversationResultProjection {
   agentSessionId?: string
   watcherRegistered?: boolean
+  /** The exchange the tool opened; live updates and reports name the same id. */
+  messageId?: string
 }
 
 /** History row shape allowed across the host-to-client boundary. */

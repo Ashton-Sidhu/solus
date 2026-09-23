@@ -258,14 +258,16 @@ export function setSessionRecordTitle(organizationId: string, sessionId: string,
 /**
  * At boot, a record this host reported as `running` names a turn its previous
  * process never settled. Only the host's own records: a record another runner
- * reported is that runner's to settle.
+ * reported is that runner's to settle. Returns the sessions it marked, so the
+ * sessions waiting on them can be told.
  */
-export async function markOwnRunningSessionRecordsInterrupted(organizationId: string): Promise<number> {
-  const result = await getDatabase().run(sql`
+export async function markOwnRunningSessionRecordsInterrupted(organizationId: string): Promise<string[]> {
+  const rows = z.array(z.object({ session_id: z.string() })).parse(await getDatabase().all(sql`
     UPDATE ${sessionRecords} SET status = 'interrupted'
     WHERE organization_id = ${organizationId} AND status = 'running' AND runner_host_id IS NULL
-  `)
-  return result.changes
+    RETURNING session_id
+  `))
+  return rows.map((row) => row.session_id)
 }
 
 /** What a control-plane status means to the record: a turn open, or not. */

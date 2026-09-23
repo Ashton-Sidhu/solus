@@ -60,6 +60,30 @@ function resolutionFromRows(rows: SessionLineageMemberRow[]): SessionLineageReso
   }
 }
 
+/**
+ * Reads this module answered, per connection. Submit, handoff check and launch
+ * each ask on every turn, and every write to these tables goes through a
+ * function below that clears the cache, so an answer stays true until then.
+ */
+interface LineageReads {
+  byId: Map<string, SessionLineageResolution | null>
+  byThread: Map<string, string>
+}
+const lineageReads = new WeakMap<DatabaseSync, LineageReads>()
+
+function readsFor(db: DatabaseSync): LineageReads {
+  let reads = lineageReads.get(db)
+  if (!reads) {
+    reads = { byId: new Map(), byThread: new Map() }
+    lineageReads.set(db, reads)
+  }
+  return reads
+}
+
+function forgetLineageReads(db: DatabaseSync): void {
+  lineageReads.delete(db)
+}
+
 function rowsForLineage(db: DatabaseSync, sessionId: string): SessionLineageMemberRow[] {
   return z.array(sessionLineageMemberRowSchema).parse(db.prepare(`
     SELECT session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
@@ -92,6 +116,9 @@ export function stableSessionIdForProviderThread(
   providerSessionId: string,
   db: DatabaseSync = getDb(),
 ): string | undefined {
+  const reads = readsFor(db)
+  const known = reads.byThread.get(providerSessionId)
+  if (known) return known
   const parsed = lineageIdRowSchema.safeParse(db.prepare(`
     SELECT session_id
     FROM session_lineage_members
@@ -100,14 +127,20 @@ export function stableSessionIdForProviderThread(
     SELECT session_id FROM session_thread_aliases WHERE provider_session_id = ?
     LIMIT 1
   `).get(providerSessionId, providerSessionId))
-  return parsed.success ? parsed.data.session_id : undefined
+  if (!parsed.success) return undefined
+  reads.byThread.set(providerSessionId, parsed.data.session_id)
+  return parsed.data.session_id
 }
 
 export function resolveSessionLineageById(
   sessionId: string,
   db: DatabaseSync = getDb(),
 ): SessionLineageResolution | null {
-  return resolutionFromRows(rowsForLineage(db, sessionId))
+  const reads = readsFor(db)
+  if (!reads.byId.has(sessionId)) reads.byId.set(sessionId, resolutionFromRows(rowsForLineage(db, sessionId)))
+  const resolution = reads.byId.get(sessionId) ?? null
+  // Callers own what they are given; the cached answer stays untouched.
+  return resolution ? structuredClone(resolution) : null
 }
 
 /**
@@ -127,6 +160,7 @@ export function registerSessionLineage(
   db: DatabaseSync = getDb(),
 ): SessionLineageResolution {
   const now = input.now ?? Date.now()
+  forgetLineageReads(db)
   db.exec('BEGIN IMMEDIATE')
   try {
     const existing = resolveSessionLineage(input.provider, input.providerSessionId, db)
@@ -167,6 +201,7 @@ export function replaceSessionLineageThread(
   db: DatabaseSync = getDb(),
   now = Date.now(),
 ): SessionLineageResolution {
+  forgetLineageReads(db)
   db.exec('BEGIN IMMEDIATE')
   try {
     const current = resolutionFromRows(rowsForLineage(db, input.sessionId))
@@ -201,6 +236,7 @@ export function beginSessionHandoff(
   db: DatabaseSync = getDb(),
 ): SessionLineageResolution {
   const now = input.now ?? Date.now()
+  forgetLineageReads(db)
   db.exec('BEGIN IMMEDIATE')
   try {
     let rows = rowsForLineage(db, input.sessionId)
@@ -258,6 +294,7 @@ export function completeSessionHandoff(
   db: DatabaseSync = getDb(),
   now = Date.now(),
 ): SessionLineageResolution {
+  forgetLineageReads(db)
   db.exec('BEGIN IMMEDIATE')
   try {
     const rows = rowsForLineage(db, sessionId)
@@ -287,6 +324,7 @@ export function cancelProvisionalSessionHandoff(
   db: DatabaseSync = getDb(),
   now = Date.now(),
 ): SessionLineageResolution | null {
+  forgetLineageReads(db)
   db.exec('BEGIN IMMEDIATE')
   try {
     const rows = rowsForLineage(db, sessionId)

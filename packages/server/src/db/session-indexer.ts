@@ -20,6 +20,7 @@ import {
 } from '../plans/plan-index'
 import { createLogger } from '../logger'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import { delegationColumnsFor, type SessionDelegationStart } from '../sessions/session-delegations'
 import {
   deleteSessionRecord,
   listSessionRecords,
@@ -730,7 +731,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     ? {
         parentSessionId: row.parent_session_id,
         rootSessionId: row.root_session_id,
-        exchangeId: row.delegation_exchange_id,
+        messageId: row.delegation_exchange_id,
         depth: row.delegation_depth,
         intent: row.delegation_intent,
         createdAt: row.delegation_created_at,
@@ -779,6 +780,14 @@ export function getSessionMessages(sessionId: string): Array<{ role: string; ts:
   `).all(sessionId))
 }
 
+/** The six delegation columns of a `sessions` row, in insert order; all null
+ *  for a session nobody delegated. */
+function delegationRowValues(delegation: SessionDelegationStart | undefined): [string | null, string | null, string | null, number | null, string | null, number | null] {
+  if (!delegation) return [null, null, null, null, null, null]
+  const columns = delegationColumnsFor(delegation)
+  return [columns.parentSessionId, columns.rootSessionId, columns.messageId, columns.depth, columns.intent, columns.createdAt]
+}
+
 export function persistIndexedSessionStart(
   sessionId: string,
   provider: AgentId,
@@ -788,19 +797,29 @@ export function persistIndexedSessionStart(
   reasoningEffort: ReasoningEffort,
   firstMessage: string | null = null,
   branch: string | null = null,
+  delegation?: SessionDelegationStart,
 ): void {
+  const parent = delegationRowValues(delegation)
   getDb().prepare(`
     INSERT INTO sessions(
       session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort, branch
+      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort, branch,
+      parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
+      delegation_intent, delegation_created_at
     )
-    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?, ?)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
       first_message = COALESCE(sessions.first_message, excluded.first_message),
       model = COALESCE(sessions.model, excluded.model),
       reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort),
-      branch = COALESCE(sessions.branch, excluded.branch)
+      branch = COALESCE(sessions.branch, excluded.branch),
+      parent_session_id = COALESCE(sessions.parent_session_id, excluded.parent_session_id),
+      root_session_id = COALESCE(sessions.root_session_id, excluded.root_session_id),
+      delegation_exchange_id = COALESCE(sessions.delegation_exchange_id, excluded.delegation_exchange_id),
+      delegation_depth = COALESCE(sessions.delegation_depth, excluded.delegation_depth),
+      delegation_intent = COALESCE(sessions.delegation_intent, excluded.delegation_intent),
+      delegation_created_at = COALESCE(sessions.delegation_created_at, excluded.delegation_created_at)
   `).run(
     sessionId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -813,6 +832,7 @@ export function persistIndexedSessionStart(
     model,
     reasoningEffort,
     branch,
+    ...parent,
   )
   void upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
     sessionId,
@@ -823,6 +843,8 @@ export function persistIndexedSessionStart(
     reasoningEffort,
     status: 'running',
     lastActivityAt: Date.now(),
+    parentSessionId: parent[0] ?? undefined,
+    rootSessionId: parent[1] ?? undefined,
   }).catch((error) => {
     log.warn('session_record_start_failed', { sessionId, error: String(error) })
   })

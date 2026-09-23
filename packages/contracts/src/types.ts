@@ -1574,7 +1574,7 @@ export type AgentExchangeStatus = 'dispatched' | 'awaiting_input' | 'answered' |
 /** One prompt→reply round-trip with another agent. `index` is dispatch order
  *  within the agent-conversation card and never renumbers. */
 export interface AgentExchange {
-  exchangeId: string
+  messageId: string
   index: number
   prompt: string
   delivery?: PromptDelivery
@@ -1586,7 +1586,7 @@ export interface AgentExchange {
   restored?: boolean
   /** Set while the other agent is waiting on human input mid-exchange. Kept
    *  after status 'answered' so the card still shows what was asked. */
-  question?: { kind: 'question' | 'permission' | 'plan'; questionId?: string; text: string }
+  question?: AgentConversationQuestion
   /** What this side answered that question with. Only set with status 'answered'. */
   answer?: string
   reply?: string
@@ -1595,11 +1595,20 @@ export interface AgentExchange {
   settledAt?: number
 }
 
+/** What a message's turn is parked on. `answerKey` is set only for a single
+ *  plain question, the one kind a card can answer with typed text. */
+export interface AgentConversationQuestion {
+  kind: 'question' | 'permission' | 'plan'
+  questionId?: string
+  answerKey?: string
+  text: string
+}
+
 /** An agent-conversation card's message payload: one card per agent per turn.
  *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
  *  transcript (tool rows + [session report] user turns) on history reload. */
 export interface AgentConversationRef {
-  /** `pending:<exchangeId>` until a created session reports its real id. */
+  /** `pending:<messageId>` until a created session reports its real id. */
   agentSessionId: string
   provider: AgentId
   /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
@@ -1618,19 +1627,39 @@ export interface AgentConversationRef {
   exchanges: AgentExchange[]
 }
 
+/** A card's message to another session: the id the client chose for it, and
+ *  the session whose conversation card it joins and whose card hears the reply. */
+export interface SessionMessageReply {
+  messageId: string
+  fromSessionId: string
+}
+
+/**
+ * A message a session sent that the host still carries: its turn has not
+ * settled (`queued`, `running`, `awaiting_input`), or its reply is queued for
+ * the sender (`reply_queued`). Served from host memory, so a message missing
+ * from the list is either finished — its reply is in the sender's transcript —
+ * or was lost to a host restart.
+ */
+export interface SentSessionMessage {
+  messageId: string
+  targetAgentSessionId: string
+  state: 'queued' | 'running' | 'awaiting_input' | 'reply_queued'
+  question?: AgentConversationQuestion
+}
+
 /** Structured agent-conversation lifecycle updates, broadcast to the caller's tabs.
  *  The model-facing [session report] prose is separate and never rendered. */
 export type AgentConversationUpdate =
-  | { phase: 'dispatched'; agentSessionId: string; exchangeId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  | { phase: 'dispatched'; agentSessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
   /** A card dispatched against a not-yet-existing session (create_session) binds
-   *  to its real agent session id once startup resolves. Keyed by exchangeId. */
-  | { phase: 'attached'; exchangeId: string; agentSessionId: string; cwd?: string }
-  | { phase: 'awaiting_input'; agentSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
-  /** This side answered the peer's question or ruled on its plan. No exchangeId
-   *  — the answering tool never learns one; the tracker patches the agent's last
-   *  awaiting exchange in place. */
-  | { phase: 'answered'; agentSessionId: string; answerText: string }
-  | { phase: 'settled'; agentSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+   *  to its real agent session id once startup resolves. Keyed by messageId. */
+  | { phase: 'attached'; messageId: string; agentSessionId: string; cwd?: string }
+  | { phase: 'awaiting_input'; agentSessionId: string; messageId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; answerKey?: string; questionText: string }
+  /** The question or plan the message's turn was parked on was answered —
+   *  by this side's agent, its card, or a person in the other session. */
+  | { phase: 'answered'; agentSessionId: string; messageId: string; answerText: string }
+  | { phase: 'settled'; agentSessionId: string; messageId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; agentSessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -1688,7 +1717,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string; author?: TurnAuthor }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentMessageId?: string; author?: TurnAuthor }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: TurnAuthor }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
@@ -1787,7 +1816,7 @@ export interface PromptOptions {
   /** Present when `via === 'session-report'`: the agent session and exchange the
    *  report settles, so the renderer can correlate without parsing prose. */
   agentSessionId?: string
-  agentExchangeId?: string
+  agentMessageId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
@@ -2191,7 +2220,7 @@ export interface SessionMeta {
 export interface SessionDelegation {
   parentSessionId: string
   rootSessionId: string
-  exchangeId: string
+  messageId: string
   depth: number
   intent: 'delegate' | 'fire_and_forget'
   createdAt: number

@@ -5,6 +5,8 @@ import type { AgentConversationResultProjection, SessionLoadMessage, WireSession
 export const ERROR_HEAD_MAX_BYTES = 2 * 1024
 
 const AGENT_SESSION_ID = /sessionId=([0-9a-f-]{36})/
+/** The message a session tool sent, so a reloaded card keeps the id live updates use. */
+const MESSAGE_ID = /message=([0-9a-f-]{36})/
 
 interface AgentConversationProjection {
   agentConversationResult?: AgentConversationResultProjection
@@ -120,12 +122,19 @@ function agentConversationProjection(
   content: string,
 ): AgentConversationProjection {
   if (!toolName) return {}
+  const messageId = content.match(MESSAGE_ID)?.[1]
   if (toolName.endsWith('create_session')) {
     const agentSessionId = content.match(AGENT_SESSION_ID)?.[1]
-    return agentSessionId ? { agentConversationResult: { agentSessionId } } : {}
+    if (!agentSessionId) return {}
+    const agentConversationResult: AgentConversationResultProjection = { agentSessionId }
+    if (messageId) agentConversationResult.messageId = messageId
+    return { agentConversationResult }
   }
   if (toolName.endsWith('wait_for_session') && content.includes('no watcher was registered')) {
     return { agentConversationResult: { watcherRegistered: false } }
+  }
+  if ((toolName.endsWith('prompt_session') || toolName.endsWith('wait_for_session')) && messageId) {
+    return { agentConversationResult: { messageId } }
   }
   return {}
 }

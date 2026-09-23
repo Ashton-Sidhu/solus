@@ -44,7 +44,7 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   status: z.enum(['ok', 'error']).optional(),
   errorHead: z.string().optional(),
   contentBytes: z.number().optional(),
-  agentConversationResult: z.object({ agentSessionId: z.string().optional(), watcherRegistered: z.boolean().optional() }).optional(),
+  agentConversationResult: z.object({ agentSessionId: z.string().optional(), watcherRegistered: z.boolean().optional(), messageId: z.string().optional() }).optional(),
   artifactWorkRef: z.object({ workId: z.string(), title: z.string() }).optional(),
   workUpdateSucceeded: z.boolean().optional(),
 })

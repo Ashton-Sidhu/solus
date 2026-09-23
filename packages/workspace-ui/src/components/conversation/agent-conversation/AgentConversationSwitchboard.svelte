@@ -13,15 +13,19 @@
     agentConversationElapsedMs,
     agentLatestLine,
     agentMessages,
+    awaitsHostWord,
     formatAgentConversationDuration,
     hostLabelFor,
     isLiveAgentConversationState,
     isPendingAgent,
     openAgentSession,
     provenanceLine,
+    sendFromCard,
+    typedAnswerTarget,
     worktreeLabel,
   } from "./lib/agent-conversation";
   import { agentConversationStatus } from "./agent-conversation-status.store.svelte";
+  import { sentMessages } from "./sent-messages.store.svelte";
   import AgentDialogue from "./AgentDialogue.svelte";
   import AgentExchangeFooter from "./AgentExchangeFooter.svelte";
   import AgentTypingDots from "./AgentTypingDots.svelte";
@@ -57,10 +61,21 @@
     return () => { for (const release of releases) release(); };
   });
 
+  const senderSessionId = $derived(session.sessionFor(tabId)?.id);
+  // Messages rebuilt from the transcript ask the host whether they are still live.
+  $effect(() => {
+    if (!senderSessionId || !refs.some((ref) => !isPendingAgent(ref) && awaitsHostWord(ref))) return;
+    return sentMessages.retain(senderSessionId, api, serverId);
+  });
+  function carriedFor(ref: AgentConversationRef) {
+    const last = ref.exchanges[ref.exchanges.length - 1];
+    return last?.restored && senderSessionId ? sentMessages.lookup(senderSessionId, serverId, last.messageId) : undefined;
+  }
+
   let now = $state(Date.now());
   const states = $derived(
     refs.map((ref) =>
-      agentConversationCardState(ref, agentConversationStatus.statusFor(ref.agentSessionId), now),
+      agentConversationCardState(ref, agentConversationStatus.statusFor(ref.agentSessionId), carriedFor(ref)),
     ),
   );
   const anyLive = $derived(states.some(isLiveAgentConversationState));
@@ -93,7 +108,7 @@
   });
 
   const disclosure = getTranscriptDisclosure();
-  const view = $derived(disclosure.forKey(`agents:${refs[0]?.exchanges[0]?.exchangeId ?? refs[0]?.agentSessionId}`));
+  const view = $derived(disclosure.forKey(`agents:${refs[0]?.exchanges[0]?.messageId ?? refs[0]?.agentSessionId}`));
   const selectedIndex = $derived.by(() => {
     const picked = refs.findIndex((ref) => ref.agentSessionId === view.pickedId);
     return picked === -1 ? defaultIndex : picked;
@@ -102,7 +117,12 @@
   const selectedState = $derived(states[selectedIndex]);
   const selectedLive = $derived(isLiveAgentConversationState(selectedState));
   const selectedName = $derived(nameOf(selected));
-  const selectedQuestion = $derived(selected.exchanges[selected.exchanges.length - 1]?.question);
+  // The host names a rebuilt question; the transcript never recorded its id.
+  const selectedQuestion = $derived(
+    carriedFor(selected)?.question ?? selected.exchanges[selected.exchanges.length - 1]?.question,
+  );
+  const selectedAnswerTarget = $derived(selectedState === "waiting" ? typedAnswerTarget(selectedQuestion) : null);
+  const sender = $derived({ ctx: session.ctxFor(tabId), sessionId: senderSessionId });
 
   const totalMessages = $derived(
     refs.reduce((sum, ref, index) => sum + messageCountOf(ref, isLiveAgentConversationState(states[index])), 0),
@@ -169,15 +189,15 @@
       scope === "one"
         ? [selected]
         : refs.filter((ref, index) => isLiveAgentConversationState(states[index]) && !isPendingAgent(ref));
-    const results = await Promise.allSettled(
-      targets.map((ref) => api.promptSession(ref.agentSessionId, text, "queue")),
+    // Typing at the selected agent's plain question answers it; a broadcast is
+    // always a new message to each agent.
+    const results = await Promise.all(
+      targets.map((ref) =>
+        sendFromCard(api, sender, ref.agentSessionId, text, scope === "one" ? selectedAnswerTarget : null),
+      ),
     );
-    if (results.every((result) => result.status === "rejected")) return "failed";
-    return results.some(
-      (result) => result.status === "fulfilled" && result.value.disposition === "queued",
-    )
-      ? "queued"
-      : "sent";
+    if (results.every((result) => result === "failed")) return "failed";
+    return results.includes("queued") ? "queued" : "sent";
   }
 
   const liveCount = $derived(states.filter(isLiveAgentConversationState).length);
@@ -390,12 +410,12 @@
 
     {#if selectedLive && !isPendingAgent(selected)}
       <AgentExchangeFooter
-        draftKey={selected.exchanges[0]?.exchangeId ?? selected.agentSessionId}
+        draftKey={selected.exchanges[0]?.messageId ?? selected.agentSessionId}
         agentName={selectedName}
         needsYou={selectedState === "waiting"}
         answerInSessionOnly={selectedState === "waiting" &&
           !!selectedQuestion &&
-          selectedQuestion.kind !== "question"}
+          !selectedAnswerTarget}
         onSend={send}
         onOpen={(options) => open(selected, options)}
         onStop={selectedState === "waiting"

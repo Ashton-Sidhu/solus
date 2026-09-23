@@ -255,6 +255,51 @@ describe('runner delivery', () => {
     }
   })
 
+  test('session records are followed only while a link exists, so an unlinked host pays nothing per record write', async () => {
+    // WHY: following records makes every record write read the row back, several
+    // times per turn. An unlinked host would drop the report anyway.
+    const cloud = new FakeCloud()
+    await cloud.start()
+    cloud.online = false
+    let linked = false
+    const runner = new delivery.RunnerDelivery({
+      link: () => (linked ? link(cloud) : null),
+      hostToken: () => HOST_TOKEN,
+      setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20))) as typeof setTimeout,
+    })
+    // Count the record read-backs a status write triggers.
+    const connection = dbModule.getDb() as unknown as { prepare: (text: string) => unknown }
+    const prepare = connection.prepare.bind(connection)
+    let readBacks = 0
+    connection.prepare = (text: string) => {
+      if (/^\s*select[\s\S]*from "session_records"/i.test(text)) readBacks++
+      return prepare(text)
+    }
+    runner.start()
+    try {
+      await records.upsertSessionRecord('local', { sessionId: 's-follow', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+      readBacks = 0
+      await records.setSessionRecordStatus('local', 's-follow', 'running')
+      expect(readBacks).toBe(0)
+
+      linked = true
+      runner.linkChanged()
+      await records.setSessionRecordStatus('local', 's-follow', 'idle')
+      expect(readBacks).toBe(1)
+      expect(outbox.listSessionReports(10).filter((report) => report.record.sessionId === 's-follow')).toHaveLength(1)
+
+      linked = false
+      runner.linkChanged()
+      readBacks = 0
+      await records.setSessionRecordStatus('local', 's-follow', 'running')
+      expect(readBacks).toBe(0)
+    } finally {
+      connection.prepare = prepare
+      await runner.stop()
+      await cloud.stop()
+    }
+  })
+
   test('a refused grant mints a fresh one; an outage backs off and a restart resumes from the queue', async () => {
     const cloud = new FakeCloud()
     await cloud.start()

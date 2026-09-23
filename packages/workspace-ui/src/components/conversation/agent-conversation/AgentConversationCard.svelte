@@ -13,6 +13,7 @@
     agentConversationElapsedMs,
     agentConversationTitle,
     agentMessages,
+    awaitsHostWord,
     directionFlow,
     formatAgentConversationDuration,
     hostLabelFor,
@@ -20,8 +21,11 @@
     isPendingAgent,
     openAgentSession,
     provenanceLine,
+    sendFromCard,
+    typedAnswerTarget,
   } from "./lib/agent-conversation";
   import { agentConversationStatus } from "./agent-conversation-status.store.svelte";
+  import { sentMessages } from "./sent-messages.store.svelte";
   import AgentDialogue from "./AgentDialogue.svelte";
   import AgentExchangeFooter from "./AgentExchangeFooter.svelte";
   import { liveActivityClock } from "../../../lib/shared-clock";
@@ -62,8 +66,20 @@
   const agentStatus = $derived(
     agentConversationStatus.statusFor(ref.agentSessionId),
   );
+  const senderSessionId = $derived(session.sessionFor(tabId)?.id);
+  // A message rebuilt from the transcript asks the host whether it is still live.
+  $effect(() => {
+    if (neverStarted || !senderSessionId || !awaitsHostWord(ref)) return;
+    return sentMessages.retain(senderSessionId, api, serverId);
+  });
+  const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
+  const carried = $derived(
+    lastExchange?.restored && senderSessionId
+      ? sentMessages.lookup(senderSessionId, serverId, lastExchange.messageId)
+      : undefined,
+  );
   let now = $state(Date.now());
-  const cardState = $derived(agentConversationCardState(ref, agentStatus, now));
+  const cardState = $derived(agentConversationCardState(ref, agentStatus, carried));
   const live = $derived(isLiveAgentConversationState(cardState));
   // Reloaded transcripts default the provider; the index knows the truth.
   const provider = $derived(meta?.provider ?? ref.provider);
@@ -85,14 +101,13 @@
     agentMessages(ref).filter((message) => live || !message.pending).length,
   );
   const flow = $derived(directionFlow(cardState));
-  const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
-  // A permission or a plan can't be answered by typing at it — that one has to
-  // be taken in the agent's own session.
-  const answerInSessionOnly = $derived(
-    cardState === "waiting" &&
-      !!lastExchange?.question &&
-      lastExchange.question.kind !== "question",
-  );
+  // Only one plain question can be answered by typing at it; a permission, a
+  // plan or a form has to be taken in the agent's own session.
+  // The host names a rebuilt question; the transcript never recorded its id.
+  const question = $derived(carried?.question ?? lastExchange?.question);
+  const answerTarget = $derived(cardState === "waiting" ? typedAnswerTarget(question) : null);
+  const answerInSessionOnly = $derived(cardState === "waiting" && !!question && !answerTarget);
+  const sender = $derived({ ctx: session.ctxFor(tabId), sessionId: senderSessionId });
 
   // Every card folds to its header, which is already the whole summary. Only the
   // starting position differs: a launched session owes this conversation nothing,
@@ -100,7 +115,7 @@
   // blocked on a human unfolds itself — that is the one thing the header can't
   // say, and the answer field lives in the body — until the reader rules on it.
   const disclosure = getTranscriptDisclosure();
-  const view = $derived(disclosure.forKey(`agent:${ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}`));
+  const view = $derived(disclosure.forKey(`agent:${ref.exchanges[0]?.messageId ?? ref.agentSessionId}`));
   const bodyOpen = $derived(
     view.openedByUser ?? (cardState === "waiting" || !ref.fireAndForget),
   );
@@ -125,16 +140,11 @@
   /** Retry resumes the same session, never a new one. */
   function retry() {
     if (!lastExchange?.prompt) return open();
-    void api.promptSession(ref.agentSessionId, lastExchange.prompt, "queue");
+    void sendFromCard(api, sender, ref.agentSessionId, lastExchange.prompt, null);
   }
 
-  async function send(text: string): Promise<"sent" | "queued" | "failed"> {
-    try {
-      const result = await api.promptSession(ref.agentSessionId, text, "queue");
-      return result.disposition === "queued" ? "queued" : "sent";
-    } catch {
-      return "failed";
-    }
+  function send(text: string): Promise<"sent" | "queued" | "failed"> {
+    return sendFromCard(api, sender, ref.agentSessionId, text, answerTarget);
   }
 
   // A cardState ring is a full pixel of colour where the resting card carries a
@@ -352,7 +362,7 @@
 
       {#if live && !neverStarted}
         <AgentExchangeFooter
-          draftKey={ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}
+          draftKey={ref.exchanges[0]?.messageId ?? ref.agentSessionId}
           {agentName}
           needsYou={cardState === "waiting"}
           {answerInSessionOnly}

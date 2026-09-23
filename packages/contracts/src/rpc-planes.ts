@@ -37,6 +37,7 @@ export const RPC_PLANES = {
   switchSessionAgent: 'execution',
   createHeadlessSession: 'execution',
   promptSession: 'execution',
+  sessionMessagesSentBy: 'execution',
 
   // Permission / interaction
   respondPermission: 'execution',

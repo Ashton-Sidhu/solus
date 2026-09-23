@@ -1,4 +1,5 @@
-import type { AgentConversationRef, AgentExchange, AgentId, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { AgentConversationQuestion, AgentConversationRef, AgentExchange, AgentId, IpcContext, SentSessionMessage, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { HostApi } from '@solus/client-core/host-api'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import { worktreeDisplayName } from '../../../../lib/git-context'
@@ -16,14 +17,30 @@ export function isPendingAgent(ref: AgentConversationRef): boolean {
   return ref.agentSessionId.startsWith('pending:')
 }
 
-export function agentConversationCardState(ref: AgentConversationRef, agentStatus: SessionStatus | null, now: number): AgentConversationCardState {
+/** A message rebuilt from the transcript and not yet answered there: only the
+ *  host can say whether it is still being carried. */
+export function awaitsHostWord(ref: AgentConversationRef): boolean {
+  const last = ref.exchanges[ref.exchanges.length - 1]
+  return !!last?.restored && (last.status === 'dispatched' || last.status === 'awaiting_input')
+}
+
+/**
+ * `carried` is the host's word on the last message when it was rebuilt from the
+ * transcript (see `sent-messages.store`): undefined while unasked, null once
+ * the host no longer carries it.
+ */
+export function agentConversationCardState(
+  ref: AgentConversationRef,
+  agentStatus: SessionStatus | null,
+  carried: SentSessionMessage | null | undefined,
+): AgentConversationCardState {
   if (ref.closedByAgent) return 'closed'
   const last = ref.exchanges[ref.exchanges.length - 1]
   if (!last) return 'dispatching'
   if (last.status === 'awaiting_input') {
-    // The question may have been answered in the other agent's own tab — no
-    // agent-conversation event fires for that, so the live status feed decides:
-    // moved on and the card follows it back to replying.
+    // A question answered in the other agent's own tab also sends `answered`,
+    // but the live status feed may say so first: moved on and the card follows
+    // it back to replying.
     return agentStatus && BUSY_STATUSES.has(agentStatus) ? 'replying' : 'waiting'
   }
   // Answered by this side — the peer is unblocked and back at work, so the card
@@ -37,11 +54,54 @@ export function agentConversationCardState(ref: AgentConversationRef, agentStatu
     if (agentStatus === 'awaiting_input' || agentStatus === 'awaiting_plan') return 'waiting'
     if (agentStatus && BUSY_STATUSES.has(agentStatus)) return 'replying'
     // A live dispatch is authoritative even if the status store still carries
-    // the previous round's quiet state. Only a dispatch rebuilt after restart
-    // can have lost its in-memory completion watcher and age out here.
-    return last.restored && now - last.dispatchedAt >= 15_000 ? 'replied' : 'dispatching'
+    // the previous round's quiet state. A rebuilt one is live only while the
+    // host still carries it; one it no longer carries has nothing left to say.
+    if (!last.restored || carried === undefined) return 'dispatching'
+    if (carried === null) return 'replied'
+    if (carried.state === 'awaiting_input') return 'waiting'
+    return carried.state === 'queued' ? 'dispatching' : 'replying'
   }
   return 'replied'
+}
+
+/** The question a card answers with typed text: one plain question the host
+ *  named. Anything else — a permission, a plan, a form, several questions —
+ *  is answered in the other agent's own session. */
+export function typedAnswerTarget(question: AgentConversationQuestion | undefined): { questionId: string; answerKey: string } | null {
+  if (question?.kind !== 'question' || !question.questionId || !question.answerKey) return null
+  return { questionId: question.questionId, answerKey: question.answerKey }
+}
+
+/** Where a card's words come from: the conversation the card sits in. */
+export interface CardSender {
+  ctx: IpcContext
+  /** Unset before the conversation has a session; the message then carries no reply route. */
+  sessionId: string | undefined
+}
+
+/**
+ * A card's composer. Text typed at a plain question answers it; anything else
+ * is a new message that joins this card, under an id chosen here, and brings
+ * its reply back to it.
+ */
+export async function sendFromCard(
+  api: Pick<HostApi, 'promptSession' | 'respondQuestion'>,
+  sender: CardSender,
+  agentSessionId: string,
+  text: string,
+  answerTarget: { questionId: string; answerKey: string } | null,
+): Promise<'sent' | 'queued' | 'failed'> {
+  try {
+    if (answerTarget) {
+      const delivered = await api.respondQuestion(sender.ctx, answerTarget.questionId, { [answerTarget.answerKey]: text })
+      return delivered ? 'sent' : 'failed'
+    }
+    const reply = sender.sessionId ? { messageId: crypto.randomUUID(), fromSessionId: sender.sessionId } : undefined
+    const result = await api.promptSession(agentSessionId, text, 'queue', reply)
+    return result.disposition === 'queued' ? 'queued' : 'sent'
+  } catch {
+    return 'failed'
+  }
 }
 
 /** Live states keep their colour, clock and footer; settled states drop all three. */
@@ -128,7 +188,7 @@ export function agentMessages(ref: AgentConversationRef): AgentMessage[] {
   const messages: AgentMessage[] = []
   for (const exchange of ref.exchanges) {
     if (exchange.prompt) {
-      messages.push({ key: `${exchange.exchangeId}:you`, from: 'you', kind: 'prompt', text: exchange.prompt, pending: false })
+      messages.push({ key: `${exchange.messageId}:you`, from: 'you', kind: 'prompt', text: exchange.prompt, pending: false })
     }
     messages.push(...agentSideOf(exchange))
   }
@@ -136,16 +196,16 @@ export function agentMessages(ref: AgentConversationRef): AgentMessage[] {
 }
 
 function agentSideOf(exchange: AgentExchange): AgentMessage[] {
-  const key = `${exchange.exchangeId}:agent`
+  const key = `${exchange.messageId}:agent`
   // Question then answer then reply are one exchange, so an answered pause keeps
   // both halves rather than collapsing to whichever came last.
   const asked = exchange.question && (exchange.status === 'awaiting_input' || exchange.answer)
     ? [{ key, from: 'agent' as const, kind: 'question' as const, text: exchange.question.text, pending: false }]
     : []
   const answered = exchange.answer
-    ? [{ key: `${exchange.exchangeId}:answer`, from: 'you' as const, kind: 'prompt' as const, text: exchange.answer, pending: false }]
+    ? [{ key: `${exchange.messageId}:answer`, from: 'you' as const, kind: 'prompt' as const, text: exchange.answer, pending: false }]
     : []
-  const replyKey = `${exchange.exchangeId}:reply`
+  const replyKey = `${exchange.messageId}:reply`
   if (exchange.reply) {
     return [...asked, ...answered, { key: replyKey, from: 'agent', kind: 'reply', text: exchange.reply, pending: false }]
   }

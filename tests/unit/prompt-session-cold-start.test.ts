@@ -156,9 +156,9 @@ describe.serial('ControlPlane.promptSession cold start', () => {
               && event.update.phase === 'settled') resolve(event)
           })
         })
-        resumed.watchSessionSettled(targetId, 'thread-2', {
-          exchangeId: 'cold-exchange', dispatchedAt: Date.now(), notifyModel: false, runKey: 'active',
-        })
+        expect(resumed.watchSessionSettled(targetId, 'thread-2', {
+          messageId: 'cold-message', dispatchedAt: Date.now(), notifyModel: false,
+        })).toBe(true)
         resumedBackend.complete('thread-1')
         expect(await settled).toMatchObject({
           type: 'agent_conversation_update',
@@ -169,7 +169,7 @@ describe.serial('ControlPlane.promptSession cold start', () => {
       }
     })
 
-    test(`queues on the active session and attaches its completion watcher using ${targetId}`, async () => {
+    test(`queues on the active session with its reply route using ${targetId}`, async () => {
       const backend = new Backend()
       const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
       plane.on('error', () => {})
@@ -185,16 +185,15 @@ describe.serial('ControlPlane.promptSession cold start', () => {
         })
         await caller.agentSessionId
 
-        const result = await plane.promptSession(targetId, 'follow up', 'queue')
+        const result = await plane.promptSession(targetId, 'follow up', 'queue', {
+          reply: { messageId: 'follow-up', dispatchedAt: Date.now(), notifyModel: false, callerAgentSessionId: 'solus-caller' },
+        })
         expect(result.disposition).toBe('queued')
         expect(backend.requests).toHaveLength(2)
         expect(result.queueId).toBeDefined()
-        expect(() => plane.watchSessionSettled(targetId, 'solus-caller', {
-          exchangeId: 'exchange', dispatchedAt: Date.now(), notifyModel: false, runKey: result.queueId!,
-        })).not.toThrow()
-        expect(() => plane.watchSessionSettled('solus-target', 'thread-1', {
-          exchangeId: 'self', dispatchedAt: Date.now(), notifyModel: false, runKey: 'active',
-        })).toThrow('Cannot watch your own session.')
+        await expect(plane.promptSession('solus-target', 'self', 'queue', {
+          reply: { messageId: 'self', dispatchedAt: Date.now(), notifyModel: false, callerAgentSessionId: 'thread-1' },
+        })).rejects.toThrow('Cannot watch your own session.')
       } finally {
         plane.shutdown()
       }

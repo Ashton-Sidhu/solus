@@ -107,6 +107,7 @@ const resourceRpcRules = {
   prompt: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
   promptSession: editor(sessionIdAt(0)),
+  sessionMessagesSentBy: viewer(sessionIdAt(0)),
   stopSession: editor(sessionIdAt(0)),
   resetSession: editor(ctxAt(0)),
   switchSessionAgent: editor(sessionIdAt(0)),
