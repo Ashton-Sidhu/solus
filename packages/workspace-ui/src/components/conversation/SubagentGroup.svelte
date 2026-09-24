@@ -1,16 +1,19 @@
 <script lang="ts">
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
-  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
-  import {
-    getSessionEnvironmentStore,
-    getWorkspaceContext,
-  } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
   import { formatActivityDuration } from "./lib/activity-summary";
-  import { subagentGroupSummary, subagentRow } from "./lib/subagent-group";
+  import {
+    subagentGroupRail,
+    subagentGroupSummary,
+    subagentGroupType,
+    subagentRow,
+  } from "./lib/subagent-group";
+  import ActivityRow from "./ActivityRow.svelte";
   import SubagentReturnCard from "./SubagentReturnCard.svelte";
   import SubagentRow from "./SubagentRow.svelte";
   import SubagentRunCard from "./SubagentRunCard.svelte";
+  import TranscriptCard from "./TranscriptCard.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
 
   /**
@@ -18,7 +21,8 @@
    * one decision render as one card with one row each; a lone sub-agent is the
    * same card with one row, so nothing about the anatomy shifts as a turn adds
    * agents. When the last one lands the whole card folds to a single activity
-   * row, the same shape §16 gives a finished turn.
+   * row, the same shape §16 gives a finished turn. The reader can open it
+   * again and fold it back.
    */
   interface Props {
     messages: Message[];
@@ -31,7 +35,6 @@
   const MAX_ROWS = 8;
 
   const session = getWorkspaceContext();
-  const environments = getSessionEnvironmentStore();
   const sess = $derived(session.sessionFor(tabId));
 
   const isBatch = $derived(messages.length > 1);
@@ -55,19 +58,7 @@
       }),
     ),
   );
-  // The agents share the checkout they run in, so that — not their models — is
-  // the environment fact the header carries.
-  const environment = $derived(
-    environments.environmentFor(session.sessionFor(tabId)?.run),
-  );
-  const summary = $derived(
-    subagentGroupSummary(
-      messages,
-      rows,
-      now,
-      environment.isolated ? environment.name : "",
-    ),
-  );
+  const summary = $derived(subagentGroupSummary(messages, rows, now));
   $effect(() => {
     if (runningCount === 0) return;
     return liveActivityClock.subscribe((value) => {
@@ -76,6 +67,7 @@
   });
 
   const elapsed = $derived(formatActivityDuration(summary.elapsedMs));
+  const railText = $derived(subagentGroupRail(summary));
 
   // The group speaks for itself once every agent has landed, so it folds by
   // default — until the reader asks for it back.
@@ -89,229 +81,96 @@
   const hiddenCount = $derived(rows.length - visibleRows.length);
 </script>
 
-<div class="py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
-  {#if !isBatch}
-    <!-- §3 — one agent has two faces, and which one it wears is the whole state:
-         while it runs it is a row on a chassis with a step seam, and when it lands
-         it is a card, because only then is there something to read. Each owns its
-         own shell, so nothing here wraps them. -->
-    {#if rows[0].state === "done"}
-      <SubagentReturnCard
-        message={messages[0]}
-        row={rows[0]}
-        {tabId}
-        worktree={environment.isolated ? environment.name : ""}
-      />
-    {:else}
-      <SubagentRunCard row={rows[0]} {tabId} />
-    {/if}
-  {:else if collapsed}
-    <!-- §16's turn-collapse row with the fan-out glyph in the icon slot.
-         Expanding brings the group card back, not a list of n cards. -->
+{#snippet fanOutGlyph()}
+  <svg
+    width="11"
+    height="11"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="4" cy="3.4" r="1.6" />
+    <circle cx="4" cy="8.6" r="1.6" />
+    <circle cx="9" cy="3.4" r="1.6" />
+    <circle cx="9" cy="8.6" r="1.6" />
+  </svg>
+{/snippet}
+
+{#snippet foldLabel()}
+  {summary.total} subagents worked{elapsed ? " for " : ""}<span
+    class="text-(--solus-text-primary)">{elapsed}</span
+  >
+{/snippet}
+
+{#snippet foldRail()}
+  <span class="text-[color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]"
+    >{summary.failed} failed</span
+  >
+{/snippet}
+
+{#snippet groupRail()}{railText}{/snippet}
+
+{#snippet agentRows()}
+  {#each visibleRows as row (row.id)}
+    <SubagentRow {row} {tabId} />
+  {/each}
+  {#if hiddenCount > 0}
     <button
       type="button"
-      class="subagent-fold mx-auto w-[88%]"
-      data-testid="subagent-group-folded"
-      onclick={() => (view.openedByUser = true)}
+      class="h-(--tx-card-row) cursor-pointer rounded-(--tx-card-row-radius) border-none bg-transparent px-2 text-left text-transcript-meta text-muted-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]"
+      onclick={() => (view.showAllRows = true)}
     >
-      <CaretRightIcon
-        size={10}
-        aria-hidden="true"
-        class="subagent-fold__caret shrink-0"
-      />
-      <span class="subagent-fold__glyph" aria-hidden="true">
-        <svg
-          width="11"
-          height="11"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <circle cx="4" cy="3.4" r="1.6" />
-          <circle cx="4" cy="8.6" r="1.6" />
-          <circle cx="9" cy="3.4" r="1.6" />
-          <circle cx="9" cy="8.6" r="1.6" />
-        </svg>
-      </span>
-      <span class="subagent-fold__label"
-        >{summary.total} subagents worked{elapsed ? " for " : ""}<span
-          class="subagent-fold__figure">{elapsed}</span
-        ></span
-      >
-      <span class="flex-1"></span>
-      {#if summary.failed > 0}
-        <span class="subagent-fold__rail subagent-fold__rail--failed"
-          >{summary.failed} failed</span
-        >
-      {/if}
+      {hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
     </button>
-  {:else}
-    <section
-      class="subagent-group mx-auto w-[88%] overflow-hidden rounded-2xl"
-      aria-label={`${messages.length} sub-agents`}
-      data-testid="subagent-group"
-    >
-      <!-- The header carries only what is genuinely shared: the objective, the
-           worktree, and a tally of how many are in each state. Model, effort,
-           progress and elapsed vary per agent, so they live on the row. -->
-      <header class="subagent-group__header">
-        <div class="subagent-group__kicker">Subagents</div>
-        <div class="flex items-center gap-2">
-          <span class="subagent-group__title">{summary.title}</span>
-        </div>
-        <div class="subagent-group__meta">
-          {#each summary.meta as item (item)}
-            <span>{item}</span>
-            <span class="subagent-group__sep" aria-hidden="true">·</span>
-          {/each}
-          <span class="">{elapsed}</span>
-        </div>
-      </header>
-
-      <div class="subagent-group__rows">
-        {#each visibleRows as row (row.id)}
-          <SubagentRow {row} {tabId} />
-        {/each}
-        {#if hiddenCount > 0}
-          <button
-            type="button"
-            class="subagent-group__more"
-            onclick={() => (view.showAllRows = true)}
-          >
-            {hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
-          </button>
-        {/if}
-      </div>
-    </section>
   {/if}
-</div>
+{/snippet}
 
-<style>
-  .subagent-group {
-    background: var(--solus-tx-card-bg);
-    box-shadow: var(--solus-tx-card-shadow);
-  }
-
-  .subagent-group__header {
-    padding: 0.875rem 1rem 0.75rem;
-  }
-
-  /* Geometry only: the type rungs already follow the display, and touch keeps
-     the open spacing. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .subagent-group__header {
-      padding: 0.6875rem 0.8125rem 0.625rem;
-    }
-  }
-
-  .subagent-group__kicker {
-    margin-bottom: 0.3125rem;
-    font-size: var(--text-transcript-meta);
-    font-weight: 500;
-
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    opacity: 0.7;
-  }
-
-  .subagent-group__title {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-transcript-card);
-    font-weight: 500;
-    color: var(--solus-text-primary);
-  }
-
-  .subagent-group__meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.125rem;
-    font-size: var(--text-transcript-meta);
-    color: var(--muted-foreground);
-  }
-
-  .subagent-group__sep {
-    opacity: 0.4;
-  }
-
-  .subagent-group__rows {
-    display: flex;
-    flex-direction: column;
-    gap: 0.0625rem;
-    padding: 0 0.8125rem 0.5rem;
-  }
-
-  .subagent-group__more {
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    padding: 0.375rem;
-    text-align: left;
-    font-size: var(--text-transcript-meta);
-    color: var(--muted-foreground);
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-
-  .subagent-group__more:hover {
-    background: color-mix(in oklch, var(--foreground) 4%, transparent);
-  }
-
-  .subagent-fold {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    border: none;
-    border-radius: 0.5rem;
-    background: transparent;
-    padding: 0.375rem 0.5rem;
-    text-align: left;
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-
-  .subagent-fold:hover {
-    background: color-mix(in oklch, var(--foreground) 4%, transparent);
-  }
-
-  :global(.subagent-fold__caret) {
-    color: var(--muted-foreground);
-    opacity: 0.45;
-  }
-
-  .subagent-fold__glyph {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    color: var(--muted-foreground);
-    opacity: 0.6;
-  }
-
-  .subagent-fold__label {
-    font-size: var(--text-transcript-card);
-    color: var(--muted-foreground);
-  }
-
-  .subagent-fold__figure {
-    color: var(--solus-text-primary);
-  }
-
-  .subagent-fold__rail {
-    flex-shrink: 0;
-    font-size: var(--text-transcript-meta);
-    color: var(--muted-foreground);
-    opacity: 0.55;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .subagent-fold__rail--failed {
-    color: color-mix(in oklch, var(--destructive) 70%, var(--foreground));
-    opacity: 0.85;
-  }
-</style>
+{#if !isBatch}
+  <!-- §3 — one agent has two faces, and which one it wears is the whole state:
+       while it runs it is one line with a step seam, and when it lands it opens
+       a body, because only then is there something to read. -->
+  {#if rows[0].state === "done"}
+    <SubagentReturnCard
+      message={messages[0]}
+      row={rows[0]}
+      {tabId}
+      {skipMotion}
+    />
+  {:else}
+    <SubagentRunCard row={rows[0]} {tabId} {skipMotion} />
+  {/if}
+{:else if collapsed}
+  <!-- §16's turn-collapse row with the fan-out glyph in the icon slot.
+       Expanding brings the group card back, not a list of n cards.
+       `activity-host` opts the row out of the transcript's paint containment. -->
+  <div class="activity-host py-1 {skipMotion ? '' : 'animate-msg-in-side'}">
+    <ActivityRow
+      glyph={fanOutGlyph}
+      label={foldLabel}
+      rail={summary.failed > 0 ? foldRail : undefined}
+      onToggle={() => (view.openedByUser = true)}
+      testid="subagent-group-folded"
+    />
+  </div>
+{:else}
+  <!-- The line carries only what the agents share: the objective, the count,
+       and a tally. Progress and elapsed time vary per agent, so they live on
+       the row. Once every agent has landed, the line folds the group away. -->
+  <TranscriptCard
+    title={summary.title}
+    type={subagentGroupType(summary)}
+    bodyLayout="rows"
+    expanded={runningCount === 0 ? true : undefined}
+    ariaLabel="Fold sub-agents"
+    onOpen={runningCount === 0 ? () => (view.openedByUser = false) : undefined}
+    data-testid="subagent-group"
+    {skipMotion}
+    glyph={fanOutGlyph}
+    rail={groupRail}
+    body={agentRows}
+  />
+{/if}

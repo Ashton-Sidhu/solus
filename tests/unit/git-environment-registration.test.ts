@@ -404,4 +404,49 @@ describe('Git environment on a tab switch', () => {
     await Bun.sleep(0)
     expect(detailReads()).toBe(2)
   })
+
+  test('line counts a status push overtook are read again, not marked current', async () => {
+    // WHY: while an agent edits, the host pushes status during almost every
+    // details read. The store discards the overtaken answer; if it still called
+    // the details current, the Environment section showed a file count with no
+    // +/− line counts until the next change.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const edited = (): GitState => {
+      const state = gitState('main')
+      state.uncommittedChanges.files = [{ path: 'a.ts', conflicted: false }]
+      return state
+    }
+    const answers: Array<(state: GitState) => void> = []
+    const api = asHostApi({
+      gitRefreshState: (_cwd: string, options?: GitStateOptions) => {
+        if (!options?.includeDetails) return Promise.resolve(edited())
+        return new Promise<GitState>((resolve) => answers.push(resolve))
+      },
+    })
+    servedBy(api)
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.set('host-a', '/repo', edited())
+    const stopWatching = store.watchDetails('host-a', '/repo')
+    expect(answers).toHaveLength(1)
+
+    // The agent edits again before the first read answers.
+    const pushed = edited()
+    pushed.uncommittedChanges.files.push({ path: 'b.ts', conflicted: false })
+    store.set('host-a', '/repo', pushed)
+    const withCounts = edited()
+    withCounts.uncommittedChanges.insertions = 12
+    withCounts.uncommittedChanges.deletions = 3
+    answers[0](withCounts)
+    await Bun.sleep(200)
+
+    expect(answers).toHaveLength(2)
+    answers[1](withCounts)
+    await Bun.sleep(0)
+    expect(store.statusFor('host-a', '/repo')?.uncommittedChanges).toMatchObject({ insertions: 12, deletions: 3 })
+    stopWatching()
+  })
 })

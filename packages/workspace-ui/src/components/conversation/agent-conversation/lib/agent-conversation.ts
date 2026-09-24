@@ -1,5 +1,5 @@
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SentSessionMessage, SessionMeta } from '@solus/contracts/types'
-import { exchangeRequestText, sessionOutputKey, type ExchangeRequest, type SessionOutput } from '@solus/contracts/session-exchange'
+import { exchangeRequestText, type ExchangeRequest, type SessionOutput } from '@solus/contracts/session-exchange'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
@@ -90,23 +90,6 @@ export function cardTaskId(ref: AgentConversationRef): string | undefined {
   return ref.exchanges.findLast((exchange) => exchange.taskId)?.taskId
 }
 
-/** An output the card shows as its own row. Questions and permissions are not:
- *  the dialogue already shows what was asked and answered. */
-export type CardOutput = Extract<SessionOutput, { kind: 'plan' | 'work' | 'changed_files' | 'pull_request' | 'session' }>
-
-/** Everything the other agent produced across this card's exchanges, once
- *  each. Changed files are the session's running total, so the latest wins. */
-export function cardOutputs(ref: AgentConversationRef): CardOutput[] {
-  const seen = new Map<string, CardOutput>()
-  for (const exchange of ref.exchanges) {
-    for (const output of exchange.outputs ?? []) {
-      if (output.kind === 'question' || output.kind === 'permission') continue
-      seen.set(sessionOutputKey(output), output)
-    }
-  }
-  return [...seen.values()]
-}
-
 /** When a card parked on a rate limit resumes, if its provider said. The host
  *  carries it for a message rebuilt from the transcript. */
 export function rateLimitedUntil(ref: AgentConversationRef, carried: SentSessionMessage | null | undefined): number | undefined {
@@ -114,11 +97,6 @@ export function rateLimitedUntil(ref: AgentConversationRef, carried: SentSession
   if (!last) return undefined
   if (last.restored) return carried?.state === 'rate_limited' ? carried.resetsAt : undefined
   return last.status === 'rate_limited' ? last.rateLimitedUntil : undefined
-}
-
-/** '15:40' in the reader's own clock. */
-export function formatResetTime(resetsAt: number): string {
-  return new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /** Live states keep their colour, clock and footer; settled states drop all three. */
@@ -216,52 +194,6 @@ function agentSideOf(exchange: AgentExchange): AgentMessage[] {
   return [...asked, ...answered]
 }
 
-export interface AgentMessageFold {
-  folded: AgentMessage[]
-  open: AgentMessage[]
-}
-
-/** Live shows the last two messages, at rest the final reply only — a long
- *  negotiation reads at constant height. */
-export function foldMessages(messages: AgentMessage[], atRest: boolean): AgentMessageFold {
-  const openCount = atRest ? 1 : 2
-  if (messages.length <= openCount) return { folded: [], open: messages }
-  return {
-    folded: messages.slice(0, messages.length - openCount),
-    open: messages.slice(messages.length - openCount),
-  }
-}
-
-/** The fold row's trail: the first clause of each folded reply, joined — the
- *  agent's own words, never a generated summary. */
-export function foldTrail(folded: AgentMessage[]): string {
-  return truncate(
-    folded
-      .filter((message) => message.from === 'agent' && message.text)
-      .map((message) => firstClause(message.text))
-      .join(' · '),
-    90,
-  )
-}
-
-/** The opening sentence, or the first line if it runs on — what a person would
- *  quote back when asked what the reply said. */
-function firstClause(text: string): string {
-  const line = text.replace(/\s+/g, ' ').trim()
-  const stop = line.search(/[.!?](\s|$)/)
-  return stop === -1 ? line : line.slice(0, stop + 1)
-}
-
-export function wordCount(text: string): number {
-  const trimmed = text.trim()
-  return trimmed ? trimmed.split(/\s+/).length : 0
-}
-
-export function truncate(text: string, max: number): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim()
-  return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
-}
-
 // ─── Identity ───
 
 /** Colour is identity, and only the remote side has one. Assigned by dispatch
@@ -280,50 +212,6 @@ export function directionFlow(state: AgentConversationCardState): 'to-you' | 'to
   if (state === 'replying') return 'to-you'
   if (state === 'dispatching') return 'to-agent'
   return null
-}
-
-// ─── Oversized replies ───
-
-/** Some replies are artefacts rather than answers. Those never inline at any
- *  height: the card states what arrived and hands off to the session or the
- *  diff panel. A conversation is not a log viewer. */
-export interface AgentReplyArtefact {
-  /** What arrived and how big it is, in the product's words. */
-  label: string
-  /** The agent's own one-line framing, where it wrote one before the payload.
-   *  Empty when the reply is nothing but the artefact. */
-  framing: string
-}
-
-const ARTEFACT_CHARS = 6000
-const DIFF_LINE_RE = /^(?:diff --git |@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|--- \S)/
-
-export function replyArtefact(text: string): AgentReplyArtefact | null {
-  const lines = text.split('\n')
-  const payloadStart = lines.findIndex((line) => DIFF_LINE_RE.test(line))
-  if (payloadStart !== -1) {
-    const files = lines.filter((line) => line.startsWith('diff --git ')).length
-      || lines.filter((line) => line.startsWith('--- ')).length
-      || 1
-    const changed = lines.filter((line) => /^[+-][^+-]/.test(line)).length
-    return {
-      label: `Patch · ${plural(files, 'file')}, ${plural(changed, 'line')}`,
-      framing: framingBefore(lines, payloadStart),
-    }
-  }
-  if (text.length > ARTEFACT_CHARS) {
-    return { label: `Output · ${plural(lines.length, 'line')}`, framing: firstClause(text) }
-  }
-  return null
-}
-
-function framingBefore(lines: string[], payloadStart: number): string {
-  const lead = lines.slice(0, payloadStart).join(' ').trim()
-  return lead ? firstClause(lead) : ''
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 // ─── Numbers, provenance, navigation ───

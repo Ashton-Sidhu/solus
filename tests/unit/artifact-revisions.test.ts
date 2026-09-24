@@ -42,6 +42,16 @@ test('saved revisions use work IDs and exclude provisional renders and images', 
   expect(index.size).toBe(2)
 })
 
+test('a fence is named by its <title>, else by its identity, never left untitled', () => {
+  const messages = [
+    reply('titled', fence('chart', '<title>Revenue</title><p>One</p>')),
+    reply('bare', fence('chart-token_uplift', '<style>p{}</style><p>One</p>')),
+  ]
+  const index = artifactRevisionIndex(messages)
+  expect(index.get('fence:chart')?.[0].title).toBe('Revenue')
+  expect(index.get('fence:chart-token_uplift')?.[0].title).toBe('Chart token uplift')
+})
+
 test('identity is case-sensitive, bounded and must occupy a whole info word', () => {
   expect(fenceArtifactIdentity('html render artifact=Chart_2')).toBe('Chart_2')
   expect(fenceArtifactIdentity('html render artifact=bad/value')).toBeUndefined()

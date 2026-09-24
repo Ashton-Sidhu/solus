@@ -42,7 +42,7 @@ describe('what a snapshot card says', () => {
     expect(snapshotCaption(snapshot())).toContain('iPhone 15')
   })
 
-  test('names the server it came from, in the footer address', () => {
+  test('names the server it came from, in the address on the stamp', () => {
     // WHY: two worktrees serving the same app produce identical screenshots and
     // differ only by port, so the origin is the one thing that says which of
     // them the agent was actually looking at. It is stated once, beside the

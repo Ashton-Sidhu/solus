@@ -25,6 +25,7 @@
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";
+  import { requestInputFocus } from "../../lib/inputFocus";
   import { formatWaited } from "./lib/queued-prompts";
   import { shouldCollapseUserMessage } from "./lib/user-message";
   import type { Message, OutboundPromptState } from "@solus/contracts/types";
@@ -82,16 +83,24 @@
     isEditing = true;
   }
 
-  function commitEdit() {
+  /** Saves the draft. A blur saves too, but leaves focus where the user put it. */
+  function commitEdit(refocus = true) {
+    if (!isEditing) return;
     const next = draft.trim();
     isEditing = false;
     if (next && next !== text) onEditSubmit?.(next);
+    if (refocus) requestInputFocus();
+  }
+
+  function cancelEdit() {
+    isEditing = false;
+    requestInputFocus();
   }
 
   function handleEditKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
-      isEditing = false;
+      cancelEdit();
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       commitEdit();
@@ -271,12 +280,6 @@
          card means an agent or automation sent it, and a fill plus an outline
          means it exists but hasn't gone out yet. -->
     <div class="flex w-full items-center justify-end gap-2">
-      {#if ordinal !== undefined}
-        <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
-        <span class="shrink-0 text-transcript-meta text-(--muted-foreground) opacity-45">
-          {ordinal}
-        </span>
-      {/if}
       <!-- A held prompt is its own focusable region: its controls only paint on
            hover, so focus is what keeps them reachable from the keyboard. The
            tabindex is the point of the pattern, not an oversight. -->
@@ -286,10 +289,10 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] pointer-fine:[.is-laptop-display_&]:max-w-[36rem] overflow-hidden outline-none {hasControls
+        class="group/bubble relative max-w-[41.25rem] pointer-fine:[.is-laptop-display_&]:max-w-[36rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
  ? 'min-w-[8.5rem] pointer-fine:[.is-laptop-display_&]:min-w-[7.5rem]'
  : 'min-w-0'} {isPending
- ? 'queued-bubble rounded-xl px-2.5 py-2 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:py-1.5'
+ ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:py-1.5 pointer-fine:[.is-laptop-display_&]:pr-2.5 pointer-fine:[.is-laptop-display_&]:pl-2'
  : isAutomation
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 pt-2.5 pb-2.5'}"
@@ -297,6 +300,12 @@
         {#if !isAutomation}
           <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->
           <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
+        {/if}
+        {#if ordinal !== undefined && !isEditing}
+          <!-- The place in the queue, inside the bubble, beside the words. -->
+          <span class="float-left mr-2.5 pt-0.5 text-transcript-meta tabular-nums text-(--muted-foreground)">
+            {ordinal}
+          </span>
         {/if}
         {#if isAutomation}
           <!-- Required origin label: the only thing separating an agent-sent
@@ -316,14 +325,44 @@
         {#if isEditing}
           <!-- Editing keeps the prompt's slot in the queue, so it stays inside
                the bubble that owns it rather than travelling to the composer. -->
+          <!-- Takes the bubble's full width and grows with its text, so a long
+               prompt is read whole while it is edited, in the queued type. -->
           <textarea
             bind:this={editEl}
             bind:value={draft}
             onkeydown={handleEditKeydown}
-            onblur={commitEdit}
+            onblur={() => commitEdit(false)}
+            aria-label="Edit queued prompt"
             rows={Math.min(8, draft.split("\n").length + 1)}
-            class="w-full resize-none bg-transparent {isPending ? 'text-transcript-card' : 'text-sm leading-[1.55]'} text-(--solus-text-primary) outline-none"
+            class="block max-h-[12lh] w-full resize-none bg-transparent field-sizing-content {isPending ? 'text-transcript-card leading-(--text-transcript-card--line-height)' : 'text-sm leading-[1.55]'} text-(--solus-text-primary) outline-none"
           ></textarea>
+          <!-- Enter and Escape have buttons too: a phone has no Escape key.
+               They keep focus on press, so the textarea's blur does not save
+               before Cancel can run. -->
+          <div
+            class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5"
+          >
+            <span class="text-transcript-meta text-(--solus-text-tertiary) pointer-coarse:hidden">
+              Enter to save · Esc to cancel
+            </span>
+            <span class="flex-1"></span>
+            <button
+              type="button"
+              onmousedown={(e) => e.preventDefault()}
+              onclick={cancelEdit}
+              class="cursor-pointer text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => commitEdit()}
+              class="cursor-pointer text-transcript-meta font-medium text-(--solus-text-primary) transition-opacity duration-100 hover:opacity-80 focus-visible:underline focus-visible:outline-none"
+            >
+              Save
+            </button>
+          </div>
         {:else}
           <div class="relative">
             <div
@@ -466,22 +505,18 @@
 </div>
 
 <style>
-  /* Typed but held — the limit is spent or the session is mid-turn. No fill at
-     all, and the only dashed edge in the transcript: the shell says the words
-     exist, the missing fill says they haven't been sent. */
+  /* Typed but held: a 3.5% fill under a hairline ring, a step quieter than a
+     sent prompt's text, with its place in the queue as a mono ordinal. */
   .queued-bubble {
-    background: none;
-    border: 0.0625rem dashed
-      color-mix(in oklch, var(--foreground) 18%, transparent);
+    background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
+    box-shadow: inset 0 0 0 0.03125rem
+      color-mix(in oklch, var(--foreground) 10%, transparent);
   }
 
-  /* Reaching for a held prompt firms it up: the shell it will keep once it
-     sends, minus the fill it has not earned yet. The text comes forward with
-     it, because you are about to act on those words. */
   .queued-bubble:hover,
   .queued-bubble:focus-within {
-    border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
-    background: color-mix(in oklch, var(--foreground) 3%, transparent);
+    box-shadow: inset 0 0 0 0.03125rem
+      color-mix(in oklch, var(--foreground) 18%, transparent);
   }
   .queued-bubble:hover :global(.prose-transcript-user),
   .queued-bubble:focus-within :global(.prose-transcript-user) {

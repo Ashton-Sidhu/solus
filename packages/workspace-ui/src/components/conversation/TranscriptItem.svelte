@@ -54,7 +54,7 @@
     link: MarkdownLink,
     [RAW_HTML_TOKEN]: HtmlBlock,
   };
-  /** The store is the truth for a work's title, preview and type; the message's
+  /** The store is the truth for a work's title and type; the message's
    *  own ref is the fallback that keeps a historical row named. */
   function documentStackEntries(messages: Message[]): DocumentStackEntry[] {
     const entries: DocumentStackEntry[] = [];
@@ -66,7 +66,6 @@
         workId: ref.workId,
         title: work?.title ?? ref.title ?? "Untitled document",
         workType: work?.type ?? ref.workType,
-        preview: work?.preview,
         updatedAt: work?.updatedAt,
         streaming: session.worksStore.streaming[ref.workId] ?? false,
       });

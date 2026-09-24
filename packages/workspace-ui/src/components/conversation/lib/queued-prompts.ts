@@ -63,9 +63,10 @@ function windowLabel(count: number, unit: string): string {
 }
 
 export interface QueuedCaption {
-  /** "2 queued" / "1 still queued" / "Steering" — the kicker. */
+  /** "2 queued" / "1 still queued" / "Steering" — the lead. */
   label: string
-  /** What decides when it goes out: a reset time, or the end of this turn. */
+  /** What decides when it goes out: the reset the clock counts to, or the end
+   *  of this turn. */
   detail: string
   /** Live countdown, empty unless a limit is still holding the queue. */
   clock: string
@@ -109,7 +110,7 @@ export function queuedCaption(
     const window = formatLimitWindow(rateLimitType)
     return {
       label,
-      detail: `${window ? `${window} ` : ''}rate limit resets ${formatReleaseTime(resetsAt)}`,
+      detail: `${window ? `${window} ` : ''}limit resets in`,
       clock: formatClock(secondsLeft),
       canSendNow: true,
     }

@@ -1,11 +1,8 @@
 <script lang="ts">
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
-  import {
-    LayoutTemplate as ArtifactIcon,
-    ChevronDown as CaretDownIcon,
-    PanelRight as PanelRightIcon,
-  } from "@lucide/svelte";
+  import { LayoutTemplate as ArtifactIcon } from "@lucide/svelte";
   import { getSurfaceContext } from "../../contexts";
+  import TranscriptCard from "../conversation/TranscriptCard.svelte";
   import ArtifactView from "./ArtifactView.svelte";
 
   /**
@@ -16,9 +13,9 @@
    * frame runs at a time.
    *
    * The card is the handle, not the render: it is the one raised object on a
-   * feed of one-line events, with the accent disc and kicker that say "this
-   * is a render" from across the page. When opened, the frame lands below it
-   * flush on the feed, the way it sits in a conversation.
+   * feed of one-line events, a `TranscriptCard` with the artifact glyph that
+   * says "this is a render" from across the page. When opened, the frame lands
+   * below it flush on the feed, the way it sits in a conversation.
    */
   interface Props {
     workId: string;
@@ -46,49 +43,23 @@
   });
 </script>
 
-<div
-  class="group/artifact w-full overflow-hidden rounded-xl border border-(--solus-tool-border) bg-(--solus-container-bg) shadow-[shadow:var(--solus-tx-card-shadow)] transition-[border-color,box-shadow] duration-(--duration-base) ease-(--ease-premium) hover:border-(--solus-accent-border) hover:shadow-[shadow:var(--solus-tx-card-shadow-hover)]"
-  class:border-(--solus-accent-border)={open}
+{#snippet viaRail()}via {via}{/snippet}
+
+<TranscriptCard
+  {title}
+  type="artifact"
+  expanded={open}
+  glyphClass="is-artifact"
+  ariaLabel={open ? `Hide ${title}` : `Show ${title}`}
+  secondaryActionLabel={`Open ${title} in split`}
   data-testid="artifact-activity-card"
+  rail={via ? viaRail : undefined}
+  skipMotion
+  onOpen={onToggle}
+  onOpenSecondary={() => session.openWork(workId, "aside")}
 >
-  <div class="flex items-center gap-2.5 px-3 py-2.5">
-    <button
-      type="button"
-      class="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 overflow-hidden text-left"
-      onclick={onToggle}
-      aria-expanded={open}
-    >
-      <span class="grid size-7 shrink-0 place-items-center rounded-lg bg-(--solus-accent-soft) text-(--solus-accent)">
-        <ArtifactIcon size={14} />
-      </span>
-      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="text-[10px] font-medium uppercase tracking-[0.12em] text-(--solus-text-tertiary)">Artifact</span>
-        <span class="flex min-w-0 items-baseline gap-2">
-          <span class="min-w-0 truncate text-sm font-medium tracking-[-0.005em] text-(--solus-text-primary)">{title}</span>
-          {#if via}
-            <span class="min-w-0 shrink truncate text-xs text-(--solus-text-tertiary)">via {via}</span>
-          {/if}
-        </span>
-      </span>
-      <span class="flex shrink-0 items-center gap-1 text-xs font-medium text-(--solus-text-secondary)">
-        {open ? "Hide" : "Show"}
-        <CaretDownIcon
-          size={12}
-          class="transition-transform duration-(--duration-quick) {open ? 'rotate-180' : ''}"
-        />
-      </span>
-    </button>
-    <button
-      type="button"
-      class="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-(--solus-text-tertiary) transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      onclick={() => session.openWork(workId, "aside")}
-      title="Open in split"
-      aria-label={`Open ${title} in split`}
-    >
-      <PanelRightIcon size={13} />
-    </button>
-  </div>
-</div>
+  {#snippet glyph()}<ArtifactIcon />{/snippet}
+</TranscriptCard>
 
 <!-- The render sits under the card, not inside it: the frame is chrome-less
      everywhere else in Solus, and boxing it here made it read as a thumbnail

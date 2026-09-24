@@ -49,6 +49,22 @@ export function clip(text: string, max: number): string {
   return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
 }
 
+/**
+ * A session title made from its prompt. The first sentence when it is short
+ * enough to read as a title; otherwise the prompt cut at a word, with an
+ * ellipsis. A card then truncates it again to its own width, so the text never
+ * stops mid-word without a mark.
+ */
+export function promptTitle(prompt: string, max: number = ORCHESTRATION_LIMITS.title): string {
+  const oneLine = prompt.replace(/\s+/g, ' ').trim()
+  const sentenceEnd = oneLine.search(/[.!?](\s|$)/)
+  if (sentenceEnd !== -1 && sentenceEnd + 1 <= max) return oneLine.slice(0, sentenceEnd + 1)
+  if (oneLine.length <= max) return oneLine
+  const cut = oneLine.slice(0, max - 1)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > max / 2 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.\-]+$/, '')}…`
+}
+
 // ─── Requests a target session makes of a person ───
 
 export interface ExchangePlan {

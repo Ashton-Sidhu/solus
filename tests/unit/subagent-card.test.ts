@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  runCardDetail,
   seamSegments,
-  stepsFigure,
+  stepsRail,
   subagentFigures,
-  subagentReportPreview,
+  subagentRail,
   subagentTargetPath,
   subagentVerdict,
 } from '@solus/workspace-ui/components/conversation/lib/subagent-card'
@@ -62,32 +63,58 @@ describe('the seam', () => {
   })
 })
 
-describe('the step figure', () => {
+describe('the rail', () => {
   test('the denominator is dropped when the agent kept no plan, leaving a bare count', () => {
-    expect(stepsFigure({ done: 4, total: 0 })).toEqual({ done: '4', total: '' })
+    expect(stepsRail({ done: 4, total: 0 })).toBe('4')
   })
 
-  test('position and total are separate figures, so the rail can set them at two weights', () => {
-    expect(stepsFigure({ done: 3, total: 7 })).toEqual({ done: '3', total: '/7' })
+  test('a plan gives the count a real denominator', () => {
+    expect(stepsRail({ done: 3, total: 7 })).toBe('3/7')
+  })
+
+  test('a plan-less agent with no tool calls prints no bare zero next to its clock', () => {
+    // A zero next to a moving clock reads as a hang.
+    expect(stepsRail({ done: 0, total: 0 })).toBe('')
+    expect(subagentRail({ steps: { done: 0, total: 0 }, elapsedMs: 12_000 })).toBe('12s')
+  })
+
+  test('the rail is counts and then time, never prose', () => {
+    expect(subagentRail({ steps: { done: 2, total: 5 }, elapsedMs: 75_000 })).toBe('2/5 · 1m 15s')
   })
 })
 
 describe('the live target', () => {
-  test('the filename separates from its directory, so the trim stays legible', () => {
+  test('a long path keeps only the segments that place the file', () => {
     expect(
       subagentTargetPath('/Users/sidhu/solus/.git/solus/worktrees/run-4ktpq/src/renderer/panels/HostPicker.svelte'),
-    ).toEqual({ dir: 'renderer/panels/', file: 'HostPicker.svelte' })
+    ).toBe('renderer/panels/HostPicker.svelte')
   })
 
-  test('a bare filename has no directory to set back', () => {
-    expect(subagentTargetPath('host-cache.ts')).toEqual({ dir: '', file: 'host-cache.ts' })
+  test('a bare filename is left as it is', () => {
+    expect(subagentTargetPath('host-cache.ts')).toBe('host-cache.ts')
   })
 
   test('a search pattern is left whole — slicing it into directories would invent a structure', () => {
-    expect(subagentTargetPath('cache key/ttl in renderer')).toEqual({
-      dir: '',
-      file: 'cache key/ttl in renderer',
-    })
+    expect(subagentTargetPath('cache key/ttl in renderer')).toBe('cache key/ttl in renderer')
+  })
+})
+
+describe('the run card line', () => {
+  // WHY: the glyph shows the state (spinner, warning), so the line says only
+  // what the agent is doing, never a status word beside it.
+  test('the step in flight and what it is on read as one line', () => {
+    expect(
+      runCardDetail({ state: 'running', activity: 'Reading', target: '/repo/src/renderer/panels/HostPicker.svelte' }),
+    ).toBe('Reading renderer/panels/HostPicker.svelte')
+  })
+
+  test('an agent’s own step description is kept whole, to truncate at the card’s width', () => {
+    expect(runCardDetail({ state: 'running', activity: 'Reading src/shared/types.ts', target: '' }))
+      .toBe('Reading src/shared/types.ts')
+  })
+
+  test('a failed agent has no line; its reason is left for the body', () => {
+    expect(runCardDetail({ state: 'failed', activity: 'Permission denied for Bash', target: '' })).toBe('')
   })
 })
 
@@ -151,7 +178,7 @@ describe('the verdict', () => {
     expect(verdict).toBe('The cache key included the panel instance.')
   })
 
-  test('a structured report leaves its section findings to the preview', () => {
+  test('a structured report has no lead paragraph, so the card claims no verdict', () => {
     const verdict = subagentVerdict(
       agent({
         id: 'a',
@@ -174,56 +201,5 @@ describe('the verdict', () => {
     expect(
       subagentVerdict(agent({ id: 'a', toolStatus: 'running', report: 'partial thinking' })),
     ).toBe('')
-  })
-})
-
-describe('the report preview', () => {
-  test('it indexes the report by section rather than lifting a sentence out of each one', () => {
-    const preview = subagentReportPreview(
-      agent({
-        id: 'a',
-        report:
-          'Findings below.\n\n## Entry point\n\nThe prompt starts in SessionPicker.\n\n## Transport\n\nThe request crosses the typed RPC boundary.',
-      }),
-    )
-
-    expect(preview).toEqual({ headings: ['Entry point', 'Transport'], more: 0 })
-  })
-
-  test('a section that opens on a list is indexed exactly like one that opens on prose', () => {
-    const preview = subagentReportPreview(
-      agent({
-        id: 'a',
-        report: '## Bottom line\n\n- it cannot\n- not today\n\n## Entry point\n\nIt starts here.',
-      }),
-    )
-
-    // The ragged card came from these two rows differing. They must not.
-    expect(preview.headings).toEqual(['Bottom line', 'Entry point'])
-  })
-
-  test('a heading arrives as text, so its markdown and its own numbering do not print', () => {
-    const preview = subagentReportPreview(
-      agent({
-        id: 'a',
-        report: '## 1. Hidden `BrowserWindow`\n\nFound three.\n\n## 2. **Chromium** at runtime\n\nNone.',
-      }),
-    )
-
-    expect(preview.headings).toEqual(['Hidden BrowserWindow', 'Chromium at runtime'])
-  })
-
-  test('it caps the index at six sections and says how many it left in the report', () => {
-    const preview = subagentReportPreview(
-      agent({
-        id: 'a',
-        report: ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight']
-          .map((heading) => `## ${heading}\n\nBody.`)
-          .join('\n\n'),
-      }),
-    )
-
-    expect(preview.headings).toHaveLength(6)
-    expect(preview.more).toBe(2)
   })
 })

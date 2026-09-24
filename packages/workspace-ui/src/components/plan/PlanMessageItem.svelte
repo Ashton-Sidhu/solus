@@ -1,12 +1,17 @@
 <script lang="ts">
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import MarkdownLink from "../conversation/MarkdownLink.svelte";
-  import { FileText as FileTextIcon } from "@lucide/svelte";
+  import {
+    AppWindow as AppWindowIcon,
+    Check as CheckIcon,
+    FileText as FileTextIcon,
+    List as ListIcon,
+    Presentation as PresentationIcon,
+    Workflow as WorkflowIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
-  import TranscriptChip from "../conversation/TranscriptChip.svelte";
+  import TranscriptCard from "../conversation/TranscriptCard.svelte";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
   import { summarizeDiagram, parseDiagram } from "@solus/contracts/diagram-types";
   import type { PlanMessageRef } from "@solus/contracts/types";
@@ -26,40 +31,27 @@
   let { ref, linkTarget, linkContext, skipMotion = false }: Props = $props();
 
   const session = getWorkspaceContext();
-  const content = $derived(ref.content || "");
   const comments = $derived(ref.comments || []);
   const planStatus = $derived(ref.status ?? "pending");
   const isPending = $derived(planStatus === "pending");
-  const previewLines = $derived(content.split("\n").slice(0, 6).join("\n"));
-  const hasMore = $derived(content.split("\n").length > 6);
 
-  // The kicker already says "Plan", so the chip carries state and nothing else.
-  const statusChip = $derived(
+  // The type word carries the state; the glyph repeats it.
+  const planType = $derived(
     planStatus === "accepted"
-      ? { label: "Accepted", state: "positive" as const }
+      ? "plan accepted"
       : planStatus === "rejected"
-        ? { label: "Rejected", state: "destructive" as const }
-        : { label: "Proposed", state: "neutral" as const },
-  );
-
-  // Render enough lines to fill the page frame; the preview is clipped by height
-  // (overflow + fade), not by line count, so this just needs to overflow it.
-  const workPreviewLines = $derived(
-    ref.content ? ref.content.split("\n").slice(0, 14).join("\n") : null,
+        ? "plan rejected"
+        : "plan",
   );
 
   const isDiagram = $derived(ref.workType === "diagram");
   const isStreaming = $derived(ref.streaming ?? false);
-  // One word, never two, never abbreviated — it states the type so the chip is
-  // free to carry state and the header needs no colour at all.
-  const workKicker = $derived(
+  const workType = $derived(
     ref.workType === "slides"
-      ? "Slides"
+      ? "slides"
       : ref.workType === "artifact"
-        ? "Artifact"
-        : isDiagram
-          ? "Diagram"
-          : "Document",
+        ? "artifact"
+        : "doc",
   );
   const diagramSummary = $derived(
     isDiagram && ref.content
@@ -73,16 +65,16 @@
       : "",
   );
   const documentMeta = $derived(
-    compactMeta(ref.updatedAt ? `Edited ${formatDate(ref.updatedAt)}` : ""),
+    compactMeta(ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
   );
   const planMeta = $derived(
-    compactMeta(
-      ref.timestamp ? formatDate(ref.timestamp) : "",
-      comments.length > 0
-        ? `${comments.length} comment${comments.length === 1 ? "" : "s"}`
-        : "",
-    ),
+    comments.length > 0
+      ? `${comments.length} comment${comments.length === 1 ? "" : "s"}`
+      : undefined,
   );
+
+  const isWorkOpen = $derived(!!ref.id && session.router.params("work")?.workId === ref.id);
+  const isPlanOpen = $derived(!!ref.id && session.router.params("plan")?.planId === ref.id);
 
   function openWork() {
     void session.openWorkModal(ref.id!, ref.title);
@@ -116,118 +108,90 @@
 </script>
 
 {#if ref.kind === "document" && isStreaming}
-  <WorkGeneratingSkeleton workType={ref.workType} />
+  <WorkGeneratingSkeleton title={ref.title} workType={ref.workType} content={ref.content} />
 {:else if ref.kind === "document" && isDiagram}
-  <ConversationRefCard
-    kicker="Diagram"
+  <TranscriptCard
     title={ref.title ?? "Untitled diagram"}
-    subtitle={compactMeta(
-      ref.updatedAt ? `Updated ${formatDate(ref.updatedAt)}` : "",
-      diagramSummary,
-    )}
+    type="diagram"
     actionLabel="Open"
     ariaLabel={`Open diagram: ${ref.title ?? "Untitled diagram"}`}
     onOpen={openWork}
     onOpenSecondary={openWorkSecondary}
     secondaryActionLabel="Open diagram in side pane"
+    open={isWorkOpen}
+    bodyLayout="media"
     data-testid="diagram-card"
-    bleedBody
     {skipMotion}
   >
-    {#if ref.content}
-      <div class="diagram-ref-preview">
-        {#await import("../diagram/DiagramThumbnail.svelte")}
-          <ContentSkeleton label="Loading diagram preview" preview />
-        {:then diagramThumbnailModule}
-          {@const DiagramThumbnail = diagramThumbnailModule.default}
-          <DiagramThumbnail content={ref.content} />
-        {/await}
-      </div>
-    {/if}
-
-    {#snippet footer()}
-      <button
-        type="button"
-        class="ref-card-rail-action"
-        onclick={(e) => {
-          e.stopPropagation();
-          openWorkSecondary();
-        }}
-      >
-        Open in split
-      </button>
-      <span class="flex-1"></span>
-      {@render taskLink()}
+    {#snippet glyph()}<WorkflowIcon />{/snippet}
+    {#snippet rail()}{diagramSummary}{/snippet}
+    {#snippet menu()}{@render taskLink()}{/snippet}
+    {#snippet body()}
+      {#if ref.content}
+        <div class="h-[9.375rem] overflow-hidden">
+          {#await import("../diagram/DiagramThumbnail.svelte")}
+            <ContentSkeleton label="Loading diagram preview" preview />
+          {:then diagramThumbnailModule}
+            {@const DiagramThumbnail = diagramThumbnailModule.default}
+            <DiagramThumbnail content={ref.content} />
+          {/await}
+        </div>
+      {/if}
     {/snippet}
-  </ConversationRefCard>
+  </TranscriptCard>
 {:else if ref.kind === "document"}
-  <ConversationRefCard
-    kicker={workKicker}
+  <TranscriptCard
     title={ref.title ?? "Untitled document"}
-    subtitle={documentMeta}
+    type={workType}
     actionLabel="Open"
     ariaLabel={`Open document: ${ref.title ?? "Untitled document"}`}
     onOpen={openWork}
     onOpenSecondary={openWorkSecondary}
     secondaryActionLabel="Open document in side pane"
+    open={isWorkOpen}
+    glyphClass={ref.workType === "artifact" ? "is-artifact" : ""}
     data-testid="document-card"
     {skipMotion}
   >
-    {#snippet footer()}
-      <button
-        type="button"
-        class="ref-card-rail-action"
-        onclick={(e) => {
-          e.stopPropagation();
-          openWorkSecondary();
-        }}
-      >
-        Open in split
-      </button>
+    {#snippet glyph()}
+      {#if ref.workType === "slides"}<PresentationIcon />{:else if ref.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
+    {/snippet}
+    {#snippet rail()}{documentMeta}{/snippet}
+    {#snippet menu()}
       {#if ref.id}
         <WorkPublishMenu workId={ref.id} triggerVariant="conversation-card" />
       {/if}
-      <span class="flex-1"></span>
       {@render taskLink()}
     {/snippet}
-  </ConversationRefCard>
+  </TranscriptCard>
 {:else}
-  <ConversationRefCard
-    kicker="Plan"
+  <TranscriptCard
     title={ref.title ?? "Plan"}
-    subtitle={planMeta}
+    type={planType}
     actionLabel={isPending ? "Review" : "Open"}
+    actionFilled={isPending}
     ariaLabel={ref.id ? `Open plan: ${ref.title ?? "Plan"}` : "Plan"}
     onOpen={openPlan}
     onOpenSecondary={openPlanSecondary}
     secondaryActionLabel="Open plan in side pane"
+    open={isPlanOpen}
+    glyphClass={planStatus === "accepted" ? "is-done" : ""}
     data-testid="plan-card"
     {skipMotion}
   >
-    {#snippet chip()}
-      <TranscriptChip state={statusChip.state}
-        >{statusChip.label}</TranscriptChip
-      >
+    {#snippet glyph()}
+      {#if planStatus === "accepted"}<CheckIcon />{:else if planStatus === "rejected"}<XIcon />{:else}<ListIcon />{/if}
     {/snippet}
-
-    {#snippet footer()}
-      <button
-        type="button"
-        class="ref-card-rail-action"
-        onclick={(e) => {
-          e.stopPropagation();
-          openPlanSecondary();
-        }}
-      >
-        Open in split
-      </button>
-      <span class="flex-1"></span>
+    {#snippet rail()}{planMeta}{/snippet}
+    {#snippet menu()}
       {@render taskLink()}
       {#if ref.id}
-        <span class="ref-card-rail-id">{ref.id.slice(0, 8)}</span>
+        <TranscriptCardAction kind="item" onclick={() => void navigator.clipboard.writeText(ref.id ?? "")}>
+          Copy id <span class="ml-auto font-mono opacity-60">{ref.id.slice(0, 8)}</span>
+        </TranscriptCardAction>
       {/if}
     {/snippet}
-  </ConversationRefCard>
+  </TranscriptCard>
 {/if}
 
 <!-- The rail's Link control: present once the card has a stable identity to
@@ -243,37 +207,3 @@
     />
   {/if}
 {/snippet}
-
-<style>
-  /* Ghost buttons on the card's meta rung, mono id at 60% pushed right. The
-     rail annotates the card, so it follows the display exactly as the meta
-     line above it does rather than pinning a size the laptop cannot step. */
-  .ref-card-rail-action {
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    padding: 0.3125rem 0.5rem;
-    color: var(--muted-foreground);
-    font-size: var(--text-transcript-meta);
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-
-  .ref-card-rail-action:hover {
-    background: color-mix(in oklch, var(--foreground) 5%, transparent);
-  }
-
-  .ref-card-rail-id {
-    padding-right: 0.25rem;
-    color: var(--muted-foreground);
-    font-family: var(--solus-code-font-family);
-    font-size: var(--text-transcript-meta);
-    opacity: 0.6;
-  }
-
-  .diagram-ref-preview {
-    height: 12rem;
-    overflow: hidden;
-  }
-
-</style>

@@ -17,7 +17,7 @@
   const cards = $derived(messages.filter((message) => message.agentConversationRef));
 </script>
 
-<div class="flex flex-col gap-2 py-2">
+<div class="flex flex-col py-1">
   {#each cards as message, index (message.id)}
     <AgentConversationCard ref={message.agentConversationRef!} {tabId} {skipMotion} accentIndex={index} />
   {/each}

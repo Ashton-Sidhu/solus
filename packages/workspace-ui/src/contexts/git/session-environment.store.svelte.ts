@@ -538,9 +538,13 @@ export class SessionEnvironmentStore {
         const refs = answer?.refs
         const plainStatus = answer ? withoutRefs(answer) : null
         // A watcher push that landed while this request ran is newer.
-        if ((this.versions.get(key) ?? 0) === version) this.applyStatus(serverId, cwd, plainStatus, includeDetails)
+        const superseded = (this.versions.get(key) ?? 0) !== version
+        const applied = !superseded && this.applyStatus(serverId, cwd, plainStatus, includeDetails)
         this.lastRefresh.set(key, Date.now())
-        if (includeDetails) this.detailsLastRefresh.set(key, Date.now())
+        // Details count as current only once they reach the store. A read a
+        // push superseded is read again for a surface that still shows them.
+        if (includeDetails && applied) this.detailsLastRefresh.set(key, Date.now())
+        else if (includeDetails && superseded) this.scheduleDetailsRefresh(serverId, cwd)
         if (plainStatus && refs) {
           const refsKey = hostKey(serverId, plainStatus.repoRoot)
           this.refsByRoot[refsKey] = refs
@@ -612,7 +616,8 @@ export class SessionEnvironmentStore {
     }
   }
 
-  private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): void {
+  /** Whether the answer landed; a details answer for another checkout does not. */
+  private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): boolean {
     const key = hostKey(serverId, cwd)
     const current = this.byCwd[key]
     if (includeDetails) {
@@ -621,10 +626,10 @@ export class SessionEnvironmentStore {
       // leaving the panel on its `undefined` (loading) sentinel forever.
       if (!status) {
         if (current === undefined) this.byCwd[key] = null
-        return
+        return true
       }
-      if (current === null) return
-      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return
+      if (current === null) return false
+      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return false
       const next = current
         ? {
             ...current,
@@ -638,12 +643,13 @@ export class SessionEnvironmentStore {
           }
         : status
       if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[key] = next
-      return
+      return true
     }
     const next = this.statusWithVisibleDetails(serverId, cwd, status)
-    if (JSON.stringify(this.byCwd[key]) === JSON.stringify(next)) return
+    if (JSON.stringify(this.byCwd[key]) === JSON.stringify(next)) return true
     this.byCwd[key] = next
     this.onStatusChanged(serverId, cwd)
+    return true
   }
 
   private statusWithVisibleDetails(serverId: string, cwd: string, status: GitState | null): GitState | null {

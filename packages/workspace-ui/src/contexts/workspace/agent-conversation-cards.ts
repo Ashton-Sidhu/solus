@@ -1,6 +1,6 @@
 import type { AgentConversationRef, AgentConversationUpdate, AgentExchange, AgentExchangeStatus, AgentId, Message, Session } from '@solus/contracts/types'
 import type { AgentConversationResultProjection } from '@solus/contracts/session-history'
-import { parseOrchestrationItems, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
+import { parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
 import { z } from 'zod'
 import { isAgentNotice, nextMsgId } from './session.utils'
 
@@ -117,7 +117,7 @@ class CardIndex {
         // Unknown until the tool row or the host names it; the status store's
         // index hydration corrects it before the card is read.
         provider: opening.provider ?? 'claude-code',
-        title: opening.title || (opening.prompt ? truncateTitle(opening.prompt) : agentSessionId.slice(0, 8)),
+        title: opening.title || (opening.prompt ? promptTitle(opening.prompt) : agentSessionId.slice(0, 8)),
         cwd: opening.cwd,
         model: opening.model,
         reasoningEffort: opening.reasoningEffort,
@@ -420,9 +420,4 @@ export class TranscriptAgentConversations {
     settle(exchange, report)
     exchange.settledAt = timestamp
   }
-}
-
-function truncateTitle(prompt: string): string {
-  const oneLine = prompt.replace(/\s+/g, ' ').trim()
-  return oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine
 }

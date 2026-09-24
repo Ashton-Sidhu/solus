@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_LIMITS,
   clip,
   permissionRequestFrom,
+  promptTitle,
   questionRequestFrom,
   type ExchangeOutcome,
   type ExchangePlan,
@@ -213,7 +214,7 @@ export class SessionOrchestrator {
         origin: 'created',
         prompt: order.prompt,
         provider: order.provider,
-        title: order.prompt.length > 80 ? order.prompt.slice(0, 80) : order.prompt,
+        title: promptTitle(order.prompt),
         cwd: order.cwd,
         model: order.modelId,
         reasoningEffort: order.reasoningEffort,
@@ -828,7 +829,7 @@ function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, message: {
 }
 
 function sessionTitle(meta: SessionMeta): string {
-  return meta.slug || meta.firstMessage?.replace(/\s+/g, ' ').trim().slice(0, 80) || meta.sessionId.slice(0, 8)
+  return meta.slug || (meta.firstMessage ? promptTitle(meta.firstMessage) : '') || meta.sessionId.slice(0, 8)
 }
 
 function exchangeRequestFrom(event: NormalizedEvent): ExchangeRequest | null {

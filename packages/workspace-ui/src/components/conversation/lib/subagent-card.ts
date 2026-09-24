@@ -1,13 +1,13 @@
 import type { Message } from '@solus/contracts/types'
-import type { SubagentRowState, SubagentSteps } from './subagent-group'
+import { formatActivityDuration } from './activity-summary'
+import type { SubagentRow, SubagentRowState, SubagentSteps } from './subagent-group'
 import { leadParagraph, reportSections, reportText, subagentFilePaths } from './subagent-view'
 
 /**
- * §3 — the subagent's two faces in the thread. While it runs it is a row on a
- * chassis: a task, the step in flight, and a hairline seam across the bottom edge
- * that is the step meter. When it lands the chassis becomes a card, because now
- * there is something to read — the report's own first paragraph, a compact
- * outline of its findings, the files it changed, and a receipt.
+ * §3 — the subagent's two faces in the thread. While it runs it is one card
+ * line: the task, the step in flight, and a seam across the bottom edge that is
+ * the step meter. When it lands the card opens a body, because now there is
+ * something to read: the report's own first paragraph and the files it wrote.
  *
  * Everything either face prints is derived here, so the markup stays geometry.
  * The card claims no field the system doesn't have: no line deltas, no open-question
@@ -40,47 +40,48 @@ export function seamSegments(steps: SubagentSteps, state: SubagentRowState): Sea
   })
 }
 
-export interface StepsFigure {
-  /** Position, at full weight. */
-  done: string
-  /** `/7`, at half weight. Empty when the agent wrote no plan to count against. */
-  total: string
+/**
+ * The step figure the rail prints. An agent that kept a plan gives a real
+ * denominator (`3/7`); one without has only its tool calls, so the count prints
+ * bare. A plan-less agent that has not called a tool yet prints nothing: a bare
+ * zero next to a moving clock reads as a hang.
+ */
+export function stepsRail(steps: SubagentSteps): string {
+  if (steps.total > 0) return `${Math.max(steps.done, 0)}/${steps.total}`
+  return steps.done > 0 ? String(steps.done) : ''
 }
 
-/** `3/7` as two weights: the numerator is the position a reader acts on, the
- *  denominator is context. Set as one figure they read it as a ratio to compute. */
-export function stepsFigure(steps: SubagentSteps): StepsFigure {
-  return {
-    done: String(Math.max(steps.done, 0)),
-    total: steps.total > 0 ? `/${steps.total}` : '',
-  }
-}
-
-export interface TargetPath {
-  /** Directory prefix including its trailing slash, shown at reduced weight.
-   *  Empty when the target isn't a path. */
-  dir: string
-  /** The filename — or the whole target, when it isn't a path. */
-  file: string
+/** The card and row rail: counts and time only, in that order. */
+export function subagentRail(row: Pick<SubagentRow, 'steps' | 'elapsedMs'>): string {
+  return [stepsRail(row.steps), formatActivityDuration(row.elapsedMs)].filter(Boolean).join(' · ')
 }
 
 /** Three segments places a file. The worktree prefix above it is identical for
- *  every row in the session, and the finished card states it once at the bottom. */
+ *  every row in the session. */
 const PATH_SEGMENTS = 3
 
 /**
- * The live target, split so the filename can carry full weight and the directory
- * sit back — legible trimmed, without a tooltip. A Grep pattern or a Bash command
- * is left whole: slicing it into directories would invent a structure it doesn't
- * have.
+ * The live target, trimmed to the segments that place the file. A Grep pattern
+ * or a Bash command is left whole: slicing it into directories would invent a
+ * structure it doesn't have.
  */
-export function subagentTargetPath(target: string): TargetPath {
+export function subagentTargetPath(target: string): string {
   const trimmed = target.trim()
-  if (!trimmed.includes('/') || /\s/.test(trimmed)) return { dir: '', file: trimmed }
+  if (!trimmed.includes('/') || /\s/.test(trimmed)) return trimmed
+  return trimmed.split('/').filter(Boolean).slice(-PATH_SEGMENTS).join('/')
+}
 
-  const segments = trimmed.split('/').filter(Boolean).slice(-PATH_SEGMENTS)
-  const file = segments.pop() ?? ''
-  return { dir: segments.length > 0 ? `${segments.join('/')}/` : '', file }
+/**
+ * What a running agent is doing, as one truncating line: the step in flight and
+ * what it is on, "Reading renderer/panels/HostPicker.svelte". The card's glyph
+ * carries the state, so there is no status word. A failed agent says nothing
+ * here; its reason goes in the body, where there is room to read it.
+ */
+export function runCardDetail(row: Pick<SubagentRow, 'state' | 'activity' | 'target'>): string {
+  if (row.state === 'failed') return ''
+  const activity = row.activity.trim()
+  const target = row.target ? subagentTargetPath(row.target) : ''
+  return [activity, target].filter(Boolean).join(' ')
 }
 
 /** Past this the names stop being evidence and start being a directory listing. */
@@ -148,34 +149,4 @@ export function subagentVerdict(message: Message): string {
     return leadParagraph(trimmed)
   }
   return ''
-}
-
-/**
- * Past this the index stops being a glance and becomes the report. Six one-line
- * rows are the most a laptop display can spend here without the receipt leaving
- * the reading column, and the same six keep the card one shape on both displays.
- */
-const REPORT_HEADINGS = 6
-
-export interface SubagentReportPreview {
-  /** One row per top-level section, in the report's own order. */
-  headings: string[]
-  more: number
-}
-
-/**
- * The report's table of contents. Headings only: the card leads with the report's
- * own first paragraph and then says where the rest of the answer is. Lifting a
- * sentence out of each section as well would claim that line represents the
- * section, and would print prose under only those sections whose markdown happens
- * to open on a short paragraph.
- */
-export function subagentReportPreview(message: Message): SubagentReportPreview {
-  const outline = reportSections(reportText(message))
-  if (!outline) return { headings: [], more: 0 }
-
-  return {
-    headings: outline.sections.slice(0, REPORT_HEADINGS).map((section) => section.heading),
-    more: Math.max(outline.sections.length - REPORT_HEADINGS, 0),
-  }
 }

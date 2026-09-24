@@ -111,7 +111,9 @@
 
   /** The row stays marked for as long as the pane still shows that file. */
   const openFilePath = $derived(
-    router.overlay?.name === "diff" ? (router.overlay.params.filePath ?? null) : null,
+    router.overlay?.name === "review" && router.overlay.params.view === "diff"
+      ? (router.overlay.params.filePath ?? null)
+      : null,
   );
 </script>
 
@@ -367,9 +369,9 @@
   .diff-file-row:focus-within {
     background: color-mix(in oklch, var(--foreground) 4%, transparent);
   }
+  /* The composer's focus ring, inset, as on every open transcript row. */
   .diff-file-row.is-open {
-    background: color-mix(in oklch, var(--primary) 6%, transparent);
-    box-shadow: inset 0 0 0 0.03125rem color-mix(in oklch, var(--primary) 32%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklch, var(--solus-accent) 34%, transparent);
   }
   .diff-file-row .diff-row:hover {
     background: transparent;

@@ -79,8 +79,8 @@ export function snapshotFacts(snapshot: BrowserSnapshotRef): SnapshotFacts {
  *
  * The image says what the page looked like; this says what it *was* — the device
  * it was taken as, and how much of it the agent could actually reach. Neither is
- * legible from the pixels. Where it came from is stated once, in the footer's
- * address, rather than twice on one card.
+ * legible from the pixels. Where it came from is stated once, in the stamp on
+ * the frame, rather than twice on one card.
  */
 export function snapshotCaption(snapshot: BrowserSnapshotRef): string {
   const facts = snapshotFacts(snapshot)
@@ -89,7 +89,7 @@ export function snapshotCaption(snapshot: BrowserSnapshotRef): string {
 }
 
 /**
- * The address, as the card's footer states it.
+ * The address, as the frame's stamp states it.
  *
  * Two worktrees serving the same app produce identical screenshots and differ
  * only by port, so the host is the one thing that says which of them this is.
@@ -112,7 +112,8 @@ export function snapshotAddress(snapshot: BrowserSnapshotRef): string {
  * A frame is evidence, and evidence with no provenance is decoration: the size
  * and the colour scheme are the two facts a reader cannot recover from the
  * pixels a day later. `system` is deliberately not stated — it is a mode, not a
- * rendering, and the picture already shows which way it resolved.
+ * rendering, and the picture already shows which way it resolved. The card
+ * puts the address in front of it, as the card has no footer.
  */
 export function snapshotStamp(snapshot: BrowserSnapshotRef): string {
   const size = snapshotFacts(snapshot).size || snapshot.viewport

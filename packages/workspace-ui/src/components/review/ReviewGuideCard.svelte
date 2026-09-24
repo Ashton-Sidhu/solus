@@ -3,8 +3,8 @@
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { getAgentContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
-  import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
-  import TranscriptChip from "../conversation/TranscriptChip.svelte";
+  import { Check as CheckIcon, CircleAlert as WarningCircleIcon, Map as MapIcon } from "@lucide/svelte";
+  import TranscriptCard from "../conversation/TranscriptCard.svelte";
   import { reviewGuideStore, type ReviewGuideIdentity } from "./review-guide.store.svelte";
   import { reviewGuideCardPresentation, reviewGuideCardSubtitle } from "./lib/review-guide-card";
   import { reviewGuideTargetLabel } from "./lib/review-guide-reference";
@@ -43,6 +43,21 @@
   const subtitle = $derived(
     reviewGuideCardSubtitle(presentation.subtitle, modelLabel, ref.reasoningEffort),
   );
+  const isWorking = $derived(status?.status === "queued" || status?.status === "generating");
+  const isReady = $derived(status?.status === "ready");
+  // A stopped guide says why in the type slot; a live one says what it does.
+  const typeWord = $derived(
+    isReady
+      ? "review guide"
+      : presentation.canRetry && status
+        ? presentation.subtitle.toLowerCase()
+        : presentation.statusLabel.toLowerCase(),
+  );
+
+  const isOpen = $derived.by(() => {
+    const review = workspace.router.params("review");
+    return review?.view === "guide" && review.sourceTabId === tabId;
+  });
 
   function open() {
     if (!conversation || !identity) return;
@@ -79,17 +94,25 @@
   }
 </script>
 
-<ConversationRefCard
-  kicker="Review guide"
+<TranscriptCard
   title={targetLabel}
-  {subtitle}
+  type={typeWord}
   actionLabel={presentation.canRetry ? "Retry" : "Open"}
   ariaLabel={`${status?.status === "ready" ? "Open" : "Review"} ${targetLabel.toLowerCase()} guide`}
   onOpen={open}
+  open={isOpen}
+  failed={status?.status === "failed"}
+  glyphClass={isReady ? "is-done" : status?.status === "failed" ? "is-failed" : ""}
   data-testid="review-guide-card"
   {skipMotion}
 >
-  {#snippet chip()}
-    <TranscriptChip>{presentation.statusLabel}</TranscriptChip>
+  {#snippet glyph()}
+    {#if isWorking}<span class="activity-spinner"></span>
+    {:else if isReady}<CheckIcon />
+    {:else if presentation.canRetry && status}<WarningCircleIcon />
+    {:else}<MapIcon />{/if}
   {/snippet}
-</ConversationRefCard>
+  {#snippet menu()}
+    <span class="px-2.5 py-1.5 text-transcript-meta text-muted-foreground">{subtitle}</span>
+  {/snippet}
+</TranscriptCard>

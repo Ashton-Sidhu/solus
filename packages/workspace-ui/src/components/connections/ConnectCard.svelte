@@ -2,16 +2,18 @@
   /**
    * An agent asked for an external account mid-turn. That is an interrupt like
    * any other — something stopped and only the user can restart it — so it takes
-   * the interrupt chassis and stands at the tail of the transcript beside the
-   * permission and question cards, not in a chrome banner of its own.
+   * the attention shell and stands at the tail of the transcript beside the
+   * permission and question cards, not in a chrome banner of its own. Once the
+   * account is connected, it collapses to a quiet line that offers Continue.
    *
    * One card for every provider. What genuinely differs is the body and the
    * completion signal: Cloudflare is a token pasted here, and the rest are
-   * browser sign-ins whose answer arrives on a host event. The chassis, the
+   * browser sign-ins whose answer arrives on a host event. The shell, the
    * dismissal, and the continue are the same either way.
    */
   import { localApi } from "@solus/client-core/local-api";
-  import { X as XIcon, CircleCheck as CheckCircleIcon } from "@lucide/svelte";
+  import Icon from "@iconify/svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import {
     atlassianStore,
     cloudflareStore,
@@ -20,8 +22,10 @@
     getWorkspaceContext,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import InterruptCard from "../conversation/InterruptCard.svelte";
-  import TranscriptChip from "../conversation/TranscriptChip.svelte";
+  import AttentionCard from "../conversation/AttentionCard.svelte";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
+  import { ensureIconCollections } from "../diagram/iconify";
+  import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
   import GitHubConnectForm from "./GitHubConnectForm.svelte";
@@ -32,6 +36,8 @@
   }
 
   let { tabId }: Props = $props();
+
+  ensureIconCollections();
 
   const session = getWorkspaceContext();
   const request = $derived(connectRequestStore.request);
@@ -62,7 +68,7 @@
   // The turn is still waiting on the agent's side, so the way back in is a
   // prompt, not a silent resume.
   function continueRun() {
-    if (copy) session.dispatch.sendMessage(`${copy.eyebrow} connected — continue`, undefined, tabId);
+    if (copy) session.dispatch.sendMessage(`${copy.providerLabel} connected — continue`, undefined, tabId);
     connectRequestStore.dismiss();
     requestInputFocus();
   }
@@ -81,84 +87,62 @@
 
 {#if request && copy}
   <div bind:this={cardEl}>
-    <InterruptCard
-      eyebrow={copy.eyebrow}
-      title={copy.title}
+    <AttentionCard
+      title={connected ? `${copy.providerLabel} connected` : copy.title}
+      type={connected ? "continue the turn" : copy.reason}
+      resolved={connected}
       testId="connection-connect-card"
     >
-      {#snippet chip()}
-        {#if connected}
-          <TranscriptChip state="positive">Connected</TranscriptChip>
-        {/if}
+      {#snippet icon()}
+        <span class="inline-flex size-5 items-center justify-center rounded-md bg-card shadow-[shadow:var(--solus-tx-hairline)]">
+          <Icon icon={PROVIDER_LOGOS[request.provider]} aria-hidden="true" />
+        </span>
       {/snippet}
 
-      {#snippet headerAside()}
-        <button
-          type="button"
-          class="-mr-1 -mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
-          aria-label="Dismiss"
-          onclick={dismiss}
-        >
-          <XIcon size={12} weight="bold" />
-        </button>
-      {/snippet}
-
-      <div class="flex flex-col gap-3 px-[1.125rem] py-[0.875rem]">
+      {#snippet actions()}
         {#if connected}
-          <div class="flex items-center gap-2 text-sm">
-            <CheckCircleIcon
-              size={15}
-              weight="fill"
-              class="shrink-0 text-(--solus-status-complete)"
-            />
-            <span>Connected.</span>
-          </div>
+          <TranscriptCardAction kind="ghost" onclick={dismiss}>Done</TranscriptCardAction>
+          <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
         {:else}
-          <p class="text-sm text-muted-foreground">{copy.purpose}</p>
+          <TranscriptCardAction kind="icon" label="Dismiss" onclick={dismiss}>
+            <XIcon size={13} />
+          </TranscriptCardAction>
+        {/if}
+      {/snippet}
 
-          {#if serverId}
-            {#if request.accountConnectionsUrl}
-              <button type="button" class="interrupt-btn" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>Open account connections</button>
-              <p class="text-sm text-muted-foreground">Connect your account, then return here and continue.</p>
-            {:else if request.provider === "cloudflare"}
-              <CloudflareConnectForm {serverId} autofocus />
-            {:else if request.provider === "atlassian"}
-              <AtlassianConnectForm {serverId} />
-            {:else if request.provider === "github"}
-              <GitHubConnectForm {serverId} />
-            {:else}
-              <p class="text-sm text-muted-foreground">
-                Connect this account in Settings, then continue.
-              </p>
-            {/if}
-          {/if}
+      <p class="m-0 text-(--muted-foreground)">{copy.purpose}</p>
 
-          {#if copy.note}
-            <p class="text-xs text-muted-foreground opacity-80">{copy.note}</p>
-          {/if}
-          {#if request.provider === "cloudflare"}
-            <p class="text-xs text-muted-foreground opacity-80">
-              Paste the token here, not into the chat.
-            </p>
+      <div class="flex flex-wrap items-start gap-2">
+        {#if serverId}
+          {#if request.accountConnectionsUrl}
+            <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>
+              Open account connections
+            </TranscriptCardAction>
+            <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
+          {:else if request.provider === "cloudflare"}
+            <div class="min-w-0 flex-1"><CloudflareConnectForm {serverId} autofocus /></div>
+          {:else if request.provider === "atlassian"}
+            <AtlassianConnectForm {serverId} />
+          {:else if request.provider === "github"}
+            <GitHubConnectForm {serverId} />
           {/if}
         {/if}
+        <TranscriptCardAction kind="ghost" onclick={dismiss}>Not now</TranscriptCardAction>
       </div>
 
-      {#snippet footer()}
-        <button type="button" class="interrupt-btn" onclick={dismiss}>
-          Not now
-        </button>
-        <div class="flex-1"></div>
-        {#if connected || request.accountConnectionsUrl}
-          <button
-            type="button"
-            class="interrupt-btn interrupt-btn--primary"
-            onclick={continueRun}
-          >
-            Continue
-          </button>
-        {/if}
-      {/snippet}
-    </InterruptCard>
+      {#if request.accountConnectionsUrl}
+        <p class="m-0 text-xs text-(--muted-foreground)">Connect your account, then return here and continue.</p>
+      {:else if serverId && request.provider === "google"}
+        <p class="m-0 text-xs text-(--muted-foreground)">Connect this account in Settings, then continue.</p>
+      {/if}
+      {#if copy.note}
+        <p class="m-0 text-xs text-(--muted-foreground) opacity-80">{copy.note}</p>
+      {/if}
+      {#if request.provider === "cloudflare"}
+        <p class="m-0 text-xs text-(--muted-foreground) opacity-80">
+          Paste the token here, not into the chat.
+        </p>
+      {/if}
+    </AttentionCard>
   </div>
 {/if}

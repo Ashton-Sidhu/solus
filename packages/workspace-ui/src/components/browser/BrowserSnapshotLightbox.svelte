@@ -188,6 +188,27 @@
     if (event.target === event.currentTarget) onClose();
   }}
 >
+  {#snippet stepButton(direction: "prev" | "next")}
+    <button
+      type="button"
+      class="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--solus-tx-card-bg) text-(--solus-text-secondary) shadow-[shadow:var(--solus-tx-quiet-shadow)] transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium)"
+      aria-label={direction === "prev" ? "Previous capture" : "Next capture"}
+      onclick={() => (direction === "prev" ? api?.scrollPrev() : api?.scrollNext())}
+    >
+      {#if direction === "prev"}<ChevronLeftIcon size={16} />{:else}<ChevronRightIcon size={16} />{/if}
+    </button>
+  {/snippet}
+  <!-- The arrows sit outside the card, on the backdrop either side of it, so
+       they never cover the capture. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="flex max-w-full items-center gap-3"
+    onclick={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}
+  >
+  {#if snapshots.length > 1}{@render stepButton("prev")}{/if}
   <!-- Cut to the capture, bounded by the window: the width follows the frame's
        own proportion until the display runs out, and the height follows from
        it, so the card never letterboxes and never scales a page past its size. -->
@@ -213,7 +234,7 @@
         {title}
       </span>
       <span
-        class="@max-[32rem]:hidden min-w-0 flex-1 truncate font-mono text-(--solus-text-tertiary)"
+        class="@max-[32rem]:hidden min-w-0 flex-1 truncate text-(--solus-text-tertiary)"
       >
         {address}
       </span>
@@ -229,26 +250,10 @@
       {/if}
 
       <span
-        class="@max-[24rem]:hidden shrink-0 font-mono text-(--solus-text-tertiary) tabular-nums opacity-70"
+        class="@max-[24rem]:hidden shrink-0 text-(--solus-text-tertiary) tabular-nums opacity-70"
       >
         {selected + 1} / {snapshots.length}
       </span>
-      <button
-        type="button"
-        class="flex size-6 shrink-0 items-center justify-center rounded-md text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary)"
-        aria-label="Previous capture"
-        onclick={() => api?.scrollPrev()}
-      >
-        <ChevronLeftIcon size={13} />
-      </button>
-      <button
-        type="button"
-        class="flex size-6 shrink-0 items-center justify-center rounded-md text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary)"
-        aria-label="Next capture"
-        onclick={() => api?.scrollNext()}
-      >
-        <ChevronRightIcon size={13} />
-      </button>
 
       <span
         class="mx-1 h-4 w-px shrink-0 bg-[var(--hairline-strong)]"
@@ -313,17 +318,10 @@
         {#each snapshots as frame, index (index)}
           <Carousel.Item class="h-full">
             <!-- Every slide is the card's width, so any of them answers what
-                 the frame is wide enough for.
-
-                 The ground is deliberately deeper than the card. The card is cut
-                 to the pass's shape and a mixed pass has frames of other shapes,
-                 so a short capture in a tall frame leaves real empty ground. At
-                 `--wash-1` that ground was the same value as the card and the
-                 picture read as the container, which made every frame look like
-                 a differently sized card. A matte the reader can see is what
-                 makes the leftover space read as leftover space. -->
+                 the frame is wide enough for. No ground of its own: space a
+                 frame does not fill is the card surface. -->
             <div
-              class="relative h-full overflow-hidden bg-[var(--wash-3)]"
+              class="relative h-full overflow-hidden"
               data-frame={index}
               bind:clientWidth={frameWidth}
             >
@@ -353,7 +351,7 @@
               <!-- The stamp rides the frame, not the picture: it has to stay
                    readable at any scroll position of a page many screens long. -->
               <span
-                class="text-review-meta pointer-events-none absolute bottom-2 left-2 rounded-full bg-[color-mix(in_oklch,var(--foreground)_72%,transparent)] px-1.5 py-0.5 text-[color:var(--background)] tabular-nums"
+                class="text-review-meta pointer-events-none absolute bottom-2 left-2 rounded-full bg-(--solus-tx-card-bg) px-2 py-0.5 text-(--muted-foreground) tabular-nums shadow-[shadow:var(--solus-tx-quiet-ring)]"
               >
                 {snapshotStamp(frame)}
               </span>
@@ -378,7 +376,7 @@
           data-strip-frame
           aria-current={index === selected}
           aria-label="Capture {index + 1}, {snapshotTitle(frame)}"
-          class="browser-snapshot-strip__frame relative shrink-0 overflow-hidden rounded-md bg-[var(--wash-1)] transition-opacity duration-150 hover:opacity-100 focus-visible:outline-none {index ===
+          class="browser-snapshot-strip__frame relative shrink-0 overflow-hidden rounded-md transition-opacity duration-150 hover:opacity-100 focus-visible:outline-none {index ===
           selected
             ? 'opacity-100 shadow-[shadow:0_0_0_2px_var(--primary)]'
             : 'opacity-60 shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)]'}"
@@ -396,11 +394,13 @@
       {/each}
       <span class="flex-1"></span>
       <span
-        class="@max-[26rem]:hidden shrink-0 font-mono text-(--solus-text-tertiary) opacity-70"
+        class="@max-[26rem]:hidden shrink-0 text-(--solus-text-tertiary) opacity-70"
       >
         ← → step · Esc close
       </span>
     </div>
+  </div>
+  {#if snapshots.length > 1}{@render stepButton("next")}{/if}
   </div>
 </div>
 
@@ -414,8 +414,9 @@
      looking at its contents, and a content-sized container resolves to zero. So
      the width lives here and the frame fills it. */
   .browser-snapshot-reel {
+    /* 6rem leaves the backdrop room for the step arrows either side. */
     --frame-width: min(
-      88dvw,
+      calc(88dvw - 6rem),
       64rem,
       calc((88dvh - 9.5rem) * var(--frame-aspect))
     );

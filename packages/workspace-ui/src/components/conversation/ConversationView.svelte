@@ -222,6 +222,7 @@
 
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
+  let readingColumnEl: HTMLDivElement | null = $state(null);
   let responseScroll: ReturnType<typeof createResponseScroll> | undefined;
   $effect(() => {
     if (!scrollEl || !isVisible) return;
@@ -660,11 +661,14 @@
       window.removeEventListener("solus:scroll-conversation-bottom", handler);
   });
 
-  // Re-anchor when either the input dock or message content changes the list
-  // height. ResizeObserver runs after layout and avoids a forced layout read.
+  // Re-anchor when either the input dock or the reading column changes height.
+  // Observe the whole column, not only the message list: the turn's diff
+  // summary and the action-row spacer mount below the list when a turn ends,
+  // and without a re-pin the action row covers them.
+  // ResizeObserver runs after layout and avoids a forced layout read.
   $effect(() => {
     const el = scrollEl;
-    const content = messagesEl;
+    const content = readingColumnEl;
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
       if (
@@ -796,6 +800,7 @@
              share one fluid column (scales with the conversation pane via
              --solus-reading-max) so everything lines up. -->
         <div
+          bind:this={readingColumnEl}
           class="w-full"
           style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`

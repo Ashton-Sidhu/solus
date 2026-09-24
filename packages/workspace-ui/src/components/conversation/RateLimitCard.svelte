@@ -17,7 +17,8 @@
     formatLimitWindow,
     formatReleaseTime,
   } from "./lib/queued-prompts";
-  import InterruptCard from "./InterruptCard.svelte";
+  import AttentionCard from "./AttentionCard.svelte";
+  import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
@@ -84,134 +85,54 @@
 </script>
 
 {#if isVisible}
-  <!-- §11 — nothing has been decided yet, so this gets the card chassis: what
-       stopped, until when, and the three ways out. -->
-  <InterruptCard
-    eyebrow="Rate limited"
+  <!-- §11 — nothing has been decided yet, so this gets the attention shell:
+       what stopped, until when, and the three ways out. The card leaves once
+       the user decides, so it has no resolved line. -->
+  <AttentionCard
     title="Reached the {limitWindow || 'usage'} limit"
+    type={hasReopened ? "window open" : "rate limited"}
     testId="rate-limit-card"
-    footerClass="rate-limit-footer"
   >
-    {#snippet meta()}
+    {#snippet icon()}<ClockIcon />{/snippet}
+
+    <!-- No reset means no countdown. A clock reading 00:00 would say the window
+         opens now, which is the one thing we do not know. -->
+    {#snippet rail()}
       {#if releaseClock}
-        <span class="shrink-0">{hasReopened ? "Reset at" : "Resets at"}</span>
-        <span class="text-transcript-meta font-medium text-(--foreground)"
-          >{releaseClock}</span
-        >
-      {:else}
-        <span class="shrink-0">Reset time unknown</span>
+        <span>{releaseClock}</span>
+        {#if !hasReopened}<span class="tabular-nums">{clockFace}</span>{/if}
       {/if}
     {/snippet}
 
-    <!-- No reset means no countdown to draw. A clock reading 00:00 would say
-         the window opens now, which is the one thing we do not know. -->
-    {#snippet headerAside()}
-      {#if releaseClock}
-        <div class="flex shrink-0 flex-col items-end">
-          <span class="limit-clock">{hasReopened ? "Open" : clockFace}</span>
-          <span class="limit-clock-caption"
-            >{hasReopened ? "Window" : "Until reset"}</span
-          >
-        </div>
-      {/if}
-    {/snippet}
-
-    <div
-      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-transcript-meta text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:py-2.5"
-    >
-      <ClockIcon size={14} class="shrink-0 opacity-50" />
-      <span>
-        {#if hasReopened}
-          The window reopened while this waited. Nothing has run — your prompt
-          is still here, and still yours to send or discard.
-        {:else if releaseClock}
-          Nothing runs until you choose. Queuing sends it the moment the window
-          opens.
-        {:else}
-          Nothing runs until you choose. This provider did not say when the
-          window reopens, so a queued prompt waits for you to send it.
-        {/if}
-      </span>
-    </div>
-
-    {#snippet footer()}
-      <button type="button" class="interrupt-btn" onclick={handleStop}>
-        <StopIcon size={13} weight="bold" />
-        Stop &amp; discard
-      </button>
-      <div class="flex-1"></div>
+    {#snippet actions()}
       <!-- Queuing means "send it when the window opens". Once it has, the
            button would be a second Send now under a waiting label. -->
       {#if !hasReopened}
-        <button
-          type="button"
-          class="interrupt-btn interrupt-btn--secondary"
-          onclick={handleQueueIt}
-        >
-          Queue prompt
-        </button>
+        <TranscriptCardAction kind="ghost" onclick={handleQueueIt}>Queue prompt</TranscriptCardAction>
       {/if}
-      <button
-        type="button"
-        class="interrupt-btn interrupt-btn--primary"
-        onclick={handleSendNow}
-      >
-        <ArrowUpIcon size={13} weight="bold" />
+      <TranscriptCardAction kind="filled" onclick={handleSendNow}>
+        <ArrowUpIcon size={13} />
         Send now
-      </button>
+      </TranscriptCardAction>
     {/snippet}
-  </InterruptCard>
+
+    <p class="m-0 text-(--muted-foreground)">
+      {#if hasReopened}
+        The window reopened while this waited. Nothing has run — your prompt
+        is still here, and still yours to send or discard.
+      {:else if releaseClock}
+        Nothing runs until you choose. Queuing sends it the moment the window
+        opens at {releaseClock}.
+      {:else}
+        Nothing runs until you choose. This provider did not say when the
+        window reopens, so a queued prompt waits for you to send it.
+      {/if}
+    </p>
+    <div>
+      <TranscriptCardAction kind="ghost" class="-ml-2.5" onclick={handleStop}>
+        <StopIcon size={13} />
+        Stop &amp; discard
+      </TranscriptCardAction>
+    </div>
+  </AttentionCard>
 {/if}
-
-<style>
-  /* Set in type, not drawn. */
-  .limit-clock {
-    font-size: var(--text-2xl);
-    line-height: 1.05;
-    font-variant-numeric: tabular-nums;
-  }
-  .limit-clock-caption {
-    margin-top: 0.1875rem;
-    font-size: var(--text-transcript-meta);
-    font-weight: 500;
-
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    opacity: 0.65;
-  }
-
-  :global(.rate-limit-footer) {
-    gap: 0.375rem;
-    padding-top: 0.5rem;
-    padding-right: 0.75rem;
-    padding-bottom: 0.5rem;
-    padding-left: 0.875rem;
-  }
-  :global(.rate-limit-footer .interrupt-btn) {
-    height: 1.75rem;
-    gap: 0.3125rem;
-    padding-right: 0.4375rem;
-    padding-left: 0.4375rem;
-    font-size: var(--text-transcript-meta);
-  }
-  :global(.rate-limit-footer .interrupt-btn--secondary) {
-    padding-right: 0.5625rem;
-    padding-left: 0.5625rem;
-  }
-  :global(.rate-limit-footer .interrupt-btn--primary) {
-    padding-right: 0.625rem;
-    padding-left: 0.625rem;
-  }
-
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .limit-clock {
-      font-size: var(--text-xl);
-    }
-    :global(html.is-laptop-display .rate-limit-footer) {
-      padding: 0.375rem 0.625rem 0.375rem 0.75rem;
-    }
-    :global(html.is-laptop-display .rate-limit-footer .interrupt-btn) {
-      height: 1.5rem;
-    }
-  }
-</style>

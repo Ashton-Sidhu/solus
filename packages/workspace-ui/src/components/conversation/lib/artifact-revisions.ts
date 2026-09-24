@@ -1,6 +1,6 @@
 import { marked } from 'marked'
 import type { Message } from '@solus/contracts/types'
-import { resolveArtifactTitle } from '@solus/contracts/work-preview'
+import { artifactTitle } from '@solus/contracts/work-preview'
 import { fenceIsSettled, fenceRenderMode, isHtmlFence } from './html-block'
 
 export interface ArtifactRevision {
@@ -18,6 +18,13 @@ const fenceCache = new WeakMap<Message, { content: string; artifacts: FenceArtif
 /** Explicit and case-sensitive within a conversation. Never guess from titles. */
 export function fenceArtifactIdentity(info: string | undefined): string | undefined {
   return info?.match(/(?:^|\s)artifact=([a-zA-Z0-9][a-zA-Z0-9_-]{0,79})(?=\s|$)/)?.[1]
+}
+
+/** A fence without a `<title>` is still named by its author: `chart-token-uplift`
+ *  reads as "Chart token uplift" rather than "Untitled artifact". */
+function identityTitle(identity: string): string {
+  const words = identity.replace(/[-_]+/g, ' ').trim()
+  return words[0].toUpperCase() + words.slice(1)
 }
 
 function fenceArtifacts(message: Message): FenceArtifact[] {
@@ -54,7 +61,7 @@ export function artifactRevisionIndex(messages: Message[]): Map<string, Artifact
     } else if (message.role === 'assistant' && !artifact) {
       for (const fence of fenceArtifacts(message)) append({
         identity: `fence:${fence.identity}`, messageId: message.id,
-        html: fence.html, title: resolveArtifactTitle(undefined, fence.html),
+        html: fence.html, title: artifactTitle(fence.html) || identityTitle(fence.identity),
       })
     }
   }

@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
+  import {
+    Check as CheckIcon,
+    TriangleAlert as WarningIcon,
+  } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import type { StatusCardState } from "@solus/contracts/types";
-  import TranscriptChip from "./TranscriptChip.svelte";
+  import TranscriptCard from "./TranscriptCard.svelte";
+  import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";
+  import { statusCardLine } from "./lib/status-card";
 
   interface Props {
     card: StatusCardState;
@@ -19,96 +24,52 @@
   // the user wait" is derivable from the current payload alone.
   $effect(() => timing.observe(card, Date.now()));
 
-  const doneCount = $derived(card.steps.filter((s) => s.status === "done").length);
-  const total = $derived(card.steps.length);
-  const activeStep = $derived(card.steps.find((s) => s.status === "active"));
   const isDone = $derived(card.status === "done");
   const isError = $derived(card.status === "error");
+  const line = $derived(statusCardLine(card, timing.totalMs));
 
-  // Once everything has finished the card collapses to its header.
-  let expandedAfterDone = $state(false);
-  const collapsed = $derived(isDone && !expandedAfterDone);
-
-  const meta = $derived.by(() => {
-    if (isError) return card.steps.find((s) => s.status === "error")?.detail || "Setup failed";
-    if (isDone) {
-      const elapsed = formatStepDuration(timing.totalMs);
-      return [`${total} step${total === 1 ? "" : "s"}`, elapsed].filter(Boolean).join(" · ");
-    }
-    return [activeStep?.label ?? "Preparing the environment", `step ${Math.min(doneCount + 1, total)} of ${total}`]
-      .filter(Boolean)
-      .join(" · ");
-  });
-
-  const chip = $derived(
-    isError
-      ? { label: "Failed", state: "destructive" as const }
-      : isDone
-        ? { label: "Ready", state: "positive" as const }
-        : { label: "Setting up", state: "active" as const },
-  );
-
-  const progressPercent = $derived(total > 0 ? Math.round((doneCount / total) * 100) : 0);
+  // The steps show while setup runs or fails. Once everything has finished the
+  // card collapses to its line, unless the user chose otherwise.
+  let userExpanded = $state<boolean | null>(null);
+  const expanded = $derived(userExpanded ?? !isDone);
 </script>
 
-{#snippet check()}
-  <svg
-    width="12"
-    height="12"
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="color-mix(in oklch, var(--chart-3) 62%, var(--foreground))"
-    stroke-width="1.7"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    class="shrink-0"
-    aria-hidden="true"
-  >
-    <path d="M2 6.3l2.7 2.7L10 3.4" />
-  </svg>
-{/snippet}
-
-<div class="mx-auto w-[88%] py-2 pointer-fine:[.is-laptop-display_&]:py-1.5 {skipMotion ? '' : 'animate-msg-in-side'}">
-  <div
-    class="setup-card overflow-hidden rounded-2xl pointer-fine:[.is-laptop-display_&]:rounded-xl"
-    class:is-error={isError}
-    role="status"
-    aria-live="polite"
+<div role="status" aria-live="polite">
+  <TranscriptCard
+    title={card.title}
+    type={line.type}
+    {expanded}
+    failed={isError}
+    glyphClass={isError ? "is-failed" : isDone ? "is-done" : ""}
+    bodyLayout="rows"
+    ariaLabel={expanded ? "Hide setup steps" : "Show setup steps"}
     data-testid="status-card"
+    {skipMotion}
+    onOpen={() => (userExpanded = !expanded)}
   >
-    <div
-      class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-2"
-    >
-      <div class="min-w-0 flex-1">
-        <div class="setup-kicker">Setup</div>
-        <div class="truncate text-transcript-card leading-tight font-medium ">
-          {card.title}
-        </div>
-        <div class="mt-0.5 truncate text-transcript-meta text-(--muted-foreground)">{meta}</div>
-      </div>
-      <TranscriptChip state={chip.state}>{chip.label}</TranscriptChip>
-      {#if isDone}
-        <button
-          type="button"
-          class="setup-disclosure"
-          aria-expanded={expandedAfterDone}
-          aria-label={expandedAfterDone ? "Hide setup steps" : "Show setup steps"}
-          onclick={() => (expandedAfterDone = !expandedAfterDone)}
-        >
-          <CaretDownIcon size={10} weight="bold" class={expandedAfterDone ? "rotate-180" : ""} />
-        </button>
+    {#snippet glyph()}
+      {#if isError}
+        <WarningIcon />
+      {:else if isDone}
+        <CheckIcon />
+      {:else}
+        <span class="activity-spinner"></span>
       {/if}
-    </div>
-
-    {#if !collapsed}
-      <!-- The progress bar reads as the card's own state, so it sits as a rule
-           directly under the header rather than floating in it. -->
-      <div class="mx-3.5 pointer-fine:[.is-laptop-display_&]:mx-3 h-[0.1875rem] overflow-hidden rounded-full setup-track">
-        <div class="h-full rounded-full setup-track-fill" style="width:{progressPercent}%"></div>
-      </div>
-
-      <!-- 28px rows on an 8px inset; no dividers, no filled discs. -->
-      <ul class="flex flex-col px-2 py-2.5 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:py-1.5" role="list">
+    {/snippet}
+    {#snippet rail()}{line.rail}{/snippet}
+    {#snippet actions()}
+      {#if isError && card.recovery === "connect-github" && card.recoveryUrl}
+        {@const connectUrl = card.recoveryUrl}
+        <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</TranscriptCardAction>
+      {/if}
+      {#if isError && card.recovery === "worktree"}
+        {#if onWorkLocally}<TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}
+        {#if onRetry}<TranscriptCardAction kind="primary" onclick={onRetry}>Retry setup</TranscriptCardAction>{/if}
+      {/if}
+    {/snippet}
+    {#snippet body()}
+      <!-- Compact rows, no dividers, no filled discs. -->
+      <ul class="flex flex-col" role="list">
         {#each card.steps as step (step.id)}
           {@const stepMs = timing.msFor(step.id)}
           <li
@@ -116,7 +77,7 @@
             class:is-active={step.status === "active"}
           >
             {#if step.status === "done"}
-              {@render check()}
+              <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
             {:else if step.status === "error"}
               <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
             {:else if step.status === "active"}
@@ -150,92 +111,23 @@
           {/if}
         {/each}
       </ul>
-      {#if isError && card.recovery === "connect-github" && card.recoveryUrl}
-        {@const connectUrl = card.recoveryUrl}
-        <div class="flex gap-3 px-4 pb-3 text-workspace-chrome">
-          <button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</button>
-        </div>
+    {/snippet}
+    {#snippet seam()}
+      <!-- Progress is the card's own state, so it runs along its bottom edge
+           until setup is done. -->
+      {#if !isDone}
+        <span
+          class="h-full transition-[width] duration-350 ease-(--ease-premium) motion-reduce:transition-none {isError
+            ? 'bg-destructive'
+            : 'bg-primary'}"
+          style="width:{line.progressPercent}%"
+        ></span>
       {/if}
-      {#if isError && card.recovery === "worktree"}
-        <div class="flex gap-3 px-4 pb-3 text-workspace-chrome">
-          {#if onRetry}<button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={onRetry}>Retry setup</button>{/if}
-          {#if onWorkLocally}<button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={onWorkLocally}>Work locally</button>{/if}
-        </div>
-      {/if}
-    {/if}
-  </div>
+    {/snippet}
+  </TranscriptCard>
 </div>
 
 <style>
-  .setup-card {
-    background: var(--solus-tx-card-bg);
-    box-shadow: var(--solus-tx-card-shadow);
-  }
-
-  .setup-card.is-error {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--destructive) 26%, transparent),
-      inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
-      var(--solus-tx-card-lift);
-  }
-
-  .setup-kicker {
-    margin-bottom: 0.3125rem;
-    font-size: var(--text-transcript-meta);
-    font-weight: 500;
-
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    opacity: 0.7;
-  }
-
-  /* The kicker sits above a two-line stack, so its lead is the header's tallest
-     compressible gap on a laptop. Coarse-pointer clients keep the open spacing,
-     the same guard the responsive type rungs use. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .setup-kicker {
-      margin-bottom: 0.125rem;
-    }
-  }
-
-  .setup-disclosure {
-    display: inline-flex;
-    width: 1.25rem;
-    height: 1.25rem;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--muted-foreground);
-    cursor: pointer;
-    opacity: 0.5;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  /* Only where a precise pointer can hit it — touch keeps the larger target. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .setup-disclosure {
-      width: 1.125rem;
-      height: 1.125rem;
-    }
-  }
-  .setup-disclosure:hover {
-    background: color-mix(in oklch, var(--foreground) 7%, transparent);
-    opacity: 1;
-  }
-
-  .setup-track {
-    background: color-mix(in oklch, var(--foreground) 7%, transparent);
-  }
-  .setup-track-fill {
-    background: var(--primary);
-    transition: width 0.35s var(--ease-premium);
-  }
-  .setup-card.is-error .setup-track-fill {
-    background: var(--destructive);
-  }
-
   .setup-step.is-active {
     background: color-mix(in oklch, var(--primary) 7%, transparent);
   }
@@ -315,9 +207,6 @@
     .setup-indet > span {
       animation: none;
       width: 100%;
-    }
-    .setup-track-fill {
-      transition: none;
     }
   }
 </style>

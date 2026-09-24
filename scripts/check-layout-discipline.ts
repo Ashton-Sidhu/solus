@@ -48,7 +48,7 @@ const VIEWPORT_ANCHORED = [
   'plan/PlanModal.css',
 ]
 
-type Rule = 'spill' | 'viewport-unit' | 'window-read' | 'laptop-outranks-touch'
+type Rule = 'spill' | 'viewport-unit' | 'window-read' | 'laptop-outranks-touch' | 'card-percent-width'
 
 type Failure = {
   path: string
@@ -318,6 +318,29 @@ export function findLaptopOverTouch(source: string, path: string): Failure[] {
 }
 
 // ---------------------------------------------------------------------------
+// A transcript card narrower than the column
+//
+// Transcript cards used to be centred at 88% or 75% of the column, so the
+// reading column lost its left edge. Every card is now full column width, flush
+// with the prose (`docs/transcript-cards.md`). A centred percentage width brings
+// the ragged edge back. Inner bars and bones may still size in percent.
+// ---------------------------------------------------------------------------
+
+const PERCENT_WIDTH_CLASS = /(?<![\w:-])w-\[\d+(?:\.\d+)?%\]/u
+
+export function findCardPercentWidths(source: string, path: string): Failure[] {
+  if (!path.endsWith('.svelte')) return []
+  return scanTags(source)
+    .filter((tag) => !tag.closing && hasClass(tag.attributes, 'mx-auto') && PERCENT_WIDTH_CLASS.test(tag.attributes))
+    .map((tag): Failure => ({
+      path,
+      line: lineOf(source, tag.start),
+      rule: 'card-percent-width',
+      detail: 'a centred percentage width breaks the column edge; transcript cards are full column width',
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Window reads
 // ---------------------------------------------------------------------------
 
@@ -378,6 +401,7 @@ export function collect(root: string): Failure[] {
       ...findViewportUnits(code, path),
       ...findWindowReads(code, path),
       ...findLaptopOverTouch(code, path),
+      ...findCardPercentWidths(code, path),
     )
   }
   return failures.sort((a, b) =>

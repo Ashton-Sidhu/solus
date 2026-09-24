@@ -771,26 +771,41 @@
     0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 16%, transparent),
     inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
     var(--solus-tx-card-lift-hover);
-  /* An interrupt card is a raised object on the canvas, not a flush message —
-     it is the one transcript surface that lifts. Routed through --foreground so
-     the lift reads the same in dark mode. */
+  /* The question card is a raised object on the canvas, not a flush message.
+     Routed through --foreground so the lift reads the same in dark mode. */
   --solus-tx-raised-shadow:
     0 0.0625rem 0.125rem color-mix(in oklch, var(--foreground) 6%, transparent),
     0 0.75rem 2rem -0.75rem color-mix(in oklch, var(--foreground) 20%, transparent);
   --solus-tx-rule: color-mix(in oklch, var(--foreground) 6%, transparent);
   --solus-tx-rule-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
-  /* Agent exchange card (the "Agent exchange" spec, § card shell). Not the
-     transcript card shell above: its edge is an *inset* hairline, so the ring
-     reads at the same weight on all four sides instead of the top edge losing
-     to a lift that only darkens the other three. The lift is one short shadow.
-     Split from the shadow so a state ring — 1px of chart-2 or destructive —
-     swaps the hairline for colour without changing the card's height. */
-  --solus-agent-card-lift: 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05);
-  --solus-agent-card-shadow:
-    inset 0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
-    var(--solus-agent-card-lift);
-  /* Every rule inside an exchange card — header, message block, footer. */
-  --solus-agent-card-rule: color-mix(in oklch, var(--foreground) 9%, transparent);
+  /* Transcript card shells (docs/transcript-cards.md). A card is one 40px
+     line at full column width. The quiet shell is the ring and the first layer
+     of the lift; only a card that blocks the turn takes the attention shell. */
+  --solus-tx-quiet-ring: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+  --solus-tx-quiet-shadow:
+    var(--solus-tx-quiet-ring),
+    0 0.0625rem 0.125rem rgba(60, 45, 30, 0.04);
+  --solus-tx-quiet-shadow-hover:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 18%, transparent),
+    0 0.125rem 0.375rem -0.125rem rgba(60, 45, 30, 0.08);
+  --solus-tx-attention-shadow:
+    0 0 0 0.0625rem color-mix(in oklch, var(--chart-2) 38%, transparent),
+    0 0.0625rem 0.1875rem rgba(60, 45, 30, 0.05),
+    0 0.5rem 1.125rem -0.5rem rgba(60, 45, 30, 0.12);
+  --solus-tx-divider: color-mix(in oklch, var(--foreground) 10%, transparent);
+  --tx-card-radius: 0.75rem;
+  --tx-card-head: 2.5rem;
+  --tx-card-row: 2.125rem;
+  --tx-card-row-radius: 0.5rem;
+  --tx-card-pad-l: 0.75rem;
+  /* 6px when the line ends in a button, else the left pad. */
+  --tx-card-pad-r: 0.375rem;
+  --tx-card-gap: 0.625rem;
+  /* The same 22px slot as .activity-glyph, so cards and rows line up. */
+  --tx-card-glyph: 1.375rem;
+  /* pad-l + glyph + gap: body text aligns with the title, not the glyph. */
+  --tx-card-body-indent: 2.75rem;
 }
 
 /* List-page surface (the "List pages — Tasks & Pull requests" spec, Part A).
@@ -897,6 +912,8 @@
   --solus-tx-card-lift-hover:
     0 0.125rem 0.1875rem rgba(0, 0, 0, 0.28),
     0 0.625rem 1.25rem -0.5rem rgba(0, 0, 0, 0.4);
+  /* The fill does the lifting here; a lift would muddy it. */
+  --solus-tx-quiet-shadow: var(--solus-tx-quiet-ring);
   /* Real black on a dark page: there is nothing there for a shadow to shade. */
   --insights-card-shadow:
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
@@ -1212,6 +1229,12 @@ html, body, #root {
     --text-description-prose: calc(0.875rem * var(--solus-font-scale, 1));
     --text-pr-prose-compact: calc(0.75rem * var(--solus-font-scale, 1));
     --text-tool-step: 0.625rem;
+    /* Transcript card geometry. Touch keeps the 40px line. */
+    --tx-card-head: 2.25rem;
+    --tx-card-row: 1.875rem;
+    --tx-card-radius: 0.625rem;
+    --tx-card-pad-l: 0.625rem;
+    --tx-card-body-indent: 2.5rem;
   }
 }
 
@@ -4189,65 +4212,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .agent-typing-dot:nth-child(2) { animation-delay: 0.16s; }
 .agent-typing-dot:nth-child(3) { animation-delay: 0.32s; }
 
-/* The header's direction dot travels toward whoever the in-flight message is
-   going to: leftward while the agent is replying to you, rightward while your
-   prompt is on its way out. */
-@keyframes flowL {
-  0% { transform: translateX(2.0625rem); opacity: 0; }
-  18%, 82% { opacity: 1; }
-  100% { transform: translateX(0); opacity: 0; }
-}
-@keyframes flowR {
-  0% { transform: translateX(0); opacity: 0; }
-  18%, 82% { opacity: 1; }
-  100% { transform: translateX(2.0625rem); opacity: 0; }
-}
-.agent-flow-dot--to-you {
-  animation: flowL 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-.agent-flow-dot--to-agent {
-  animation: flowR 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-
-/* Folding the body away. A grid track rather than max-height: the body's real
-   height is whatever the reply is, and a max-height guess either clips a long
-   one or spends the first half of the animation travelling through empty space.
-   0fr → 1fr measures it, so every card folds at the same speed regardless of
-   how much it holds.
-
-   The body stays mounted while folded — it is the transcript this card exists
-   to keep, and unmounting it would re-run the markdown parse on every open. */
-.agent-card-fold {
-  display: grid;
-  grid-template-rows: 1fr;
-  /* Decelerating: the fold leaves quickly and arrives gently, which is what
-     makes it read as the card settling rather than as a panel being driven. */
-  transition:
-    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 140ms ease-out;
-}
-.agent-card-fold--closed {
-  grid-template-rows: 0fr;
-  /* Faster out than in, so the words are gone before the height finishes
-     closing and nothing is caught mid-crush. */
-  opacity: 0;
-  transition:
-    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 90ms ease-in;
-}
-
-/* Dots, the direction dot and the fold are the only motion this component has,
-   so this is the whole of its reduced-motion contract. */
+/* The typing dots are the only motion the agent exchange card has, so this is
+   the whole of its reduced-motion contract. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-typing-dot,
-  .agent-flow-dot--to-you,
-  .agent-flow-dot--to-agent {
+  .agent-typing-dot {
     animation: none;
     opacity: 0.7;
-  }
-  .agent-card-fold,
-  .agent-card-fold--closed {
-    transition: none;
   }
 }
 

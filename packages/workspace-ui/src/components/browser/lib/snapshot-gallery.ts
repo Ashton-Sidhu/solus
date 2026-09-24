@@ -9,19 +9,15 @@ import { snapshotAddress, snapshotFacts, snapshotTitle } from './snapshot-card'
  * footer, and each pushing the agent's own sentence about them further away. The
  * pass was one act of looking; the transcript said it was four.
  *
- * So from two frames up the cards become one plate: one header, one grid of
- * equal tiles, one footer. Everything here is the arithmetic that turns a list
- * of captures into that plate — how many columns it takes, what each tile is
- * captioned with, and what the header and footer can say once for all of them.
+ * So from two frames up the cards become one plate: one card line and one grid
+ * of equal tiles. Everything here is the arithmetic that turns a list of
+ * captures into that plate — how many columns it takes, what each tile is
+ * captioned with, and what the card line can say once for all of them.
  */
 
 /** The plate never grows past two rows of three. Past that the transcript is
  *  being used as a filesystem, and the rest belongs in the lightbox. */
 export const GALLERY_MAX_CELLS = 6
-
-/** Below this a capture is not a gallery: one frame keeps the single-frame card
- *  with its full-width picture and its viewport stamp. */
-export const GALLERY_MIN_FRAMES = 2
 
 export interface GalleryLayout {
   /**
@@ -96,10 +92,15 @@ const NARROWEST_FRAME = 0.4
 const WIDEST_FRAME = 3
 
 export function galleryAspect(snapshots: BrowserSnapshotRef[]): number {
-  const facts = snapshotFacts(snapshots[0])
-  const [width, height] = facts.size.split('×').map((part) => Number.parseInt(part, 10))
-  if (!width || !height) return Number.parseFloat(facts.aspectRatio)
-  return Math.min(Math.max(width / height, NARROWEST_FRAME), WIDEST_FRAME)
+  const aspect = frameAspect(snapshots[0])
+  if (aspect === null) return Number.parseFloat(snapshotFacts(snapshots[0]).aspectRatio)
+  return Math.min(Math.max(aspect, NARROWEST_FRAME), WIDEST_FRAME)
+}
+
+/** Width over height of the captured viewport, or null when its size is unknown. */
+function frameAspect(snapshot: BrowserSnapshotRef): number | null {
+  const [width, height] = snapshotFacts(snapshot).size.split('×').map((part) => Number.parseInt(part, 10))
+  return width && height ? width / height : null
 }
 
 /**
@@ -134,6 +135,9 @@ export interface GalleryTile {
   overflow: number
   /** What a reader of the tile is told they are opening. */
   alt: string
+  /** A frame taller than it is wide: in a wide grid cell it fits the cell's
+   *  height rather than its width, so a phone is not blown up to fill it. */
+  portrait: boolean
 }
 
 export function galleryTiles(snapshots: BrowserSnapshotRef[]): GalleryTile[] {
@@ -151,6 +155,7 @@ export function galleryTiles(snapshots: BrowserSnapshotRef[]): GalleryTile[] {
       ? snapshots.length - lastCellIndex
       : 0,
     alt: snapshotTitle(snapshot),
+    portrait: (frameAspect(snapshot) ?? 1) < 1,
   }))
 }
 
@@ -194,7 +199,7 @@ export function gallerySubject(snapshots: BrowserSnapshotRef[]): string {
 }
 
 /**
- * The footer's address line.
+ * Where the pass looked, for the card line.
  *
  * Two worktrees serving the same app differ only by port, so the host is the one
  * thing that says which of them the agent was looking at. Past that the reader
@@ -207,6 +212,14 @@ export function galleryAddress(snapshots: BrowserSnapshotRef[]): string {
   const hosts = new Set(snapshots.map((snapshot) => hostOf(snapshot.url)))
   const extent = `${pages.size} pages`
   return hosts.size === 1 ? `${[...hosts][0]} · ${extent}` : extent
+}
+
+/**
+ * The card line's target: where the pass looked, then what it shares. The two
+ * sit in one slot so the line truncates them together, from the end.
+ */
+export function galleryTarget(snapshots: BrowserSnapshotRef[]): string {
+  return [galleryAddress(snapshots), gallerySubject(snapshots)].filter(Boolean).join(' · ')
 }
 
 function hostOf(url: string): string {
@@ -263,7 +276,7 @@ export function isStripFrameNear(index: number, selected: number, total: number)
 }
 
 /**
- * Whether the plate's footer can act.
+ * Whether the card line can offer Annotate and Open.
  *
  * Annotate and Open in pane name one page. A plate spanning several pages has no
  * single page to name, and a button that silently picks the first frame is worse

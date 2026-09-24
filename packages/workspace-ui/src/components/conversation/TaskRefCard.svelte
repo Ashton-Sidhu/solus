@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
-  import ConversationRefCard from "./ConversationRefCard.svelte";
+  import { Square as SquareIcon } from "@lucide/svelte";
+  import TranscriptCard from "./TranscriptCard.svelte";
 
   interface Props {
     ref: {
@@ -13,17 +14,22 @@
 
   let { ref, skipMotion = false }: Props = $props();
   const session = getWorkspaceContext();
+  const isOpen = $derived(session.router.params("task")?.taskId === ref.taskId);
 
   function open() {
     session.goToTask(ref.taskId);
   }
 </script>
 
-<ConversationRefCard
-  kicker="Task"
+<TranscriptCard
   title={ref.title}
-  subtitle={ref.taskId}
+  type="task"
+  actionLabel="Open"
   ariaLabel={`Open task: ${ref.title}`}
   onOpen={open}
+  open={isOpen}
   {skipMotion}
-/>
+>
+  {#snippet glyph()}<SquareIcon />{/snippet}
+  {#snippet rail()}{ref.taskId}{/snippet}
+</TranscriptCard>

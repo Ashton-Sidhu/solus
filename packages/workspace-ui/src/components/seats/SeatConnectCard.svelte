@@ -3,15 +3,16 @@
    * The host refused a prompt because its author has no seat for this provider
    * (Step 2 plan §3.3, exit criterion 2). That is an interrupt like any other:
    * the turn did not start and only the member can make it possible, so it takes
-   * the interrupt chassis at the tail of the transcript and offers the same
-   * connect flow as Settings. Once the seat is connected, the message is sent
-   * again from the failed bubble.
+   * the attention shell at the tail of the transcript and offers the same
+   * connect flow as Settings. Once the seat is connected, the card collapses to
+   * a quiet line, and the message is sent again from the failed bubble.
    */
-  import { X as XIcon, CircleCheck as CheckCircleIcon } from "@lucide/svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import { seatsStore } from "../../contexts/seats/seats.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import InterruptCard from "../conversation/InterruptCard.svelte";
-  import TranscriptChip from "../conversation/TranscriptChip.svelte";
+  import AttentionCard from "../conversation/AttentionCard.svelte";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import SeatConnectPanel from "./SeatConnectPanel.svelte";
   import { seatDescription, seatLabel } from "./lib/seat-copy";
 
@@ -38,48 +39,35 @@
 
 {#if request}
   <div bind:this={cardEl}>
-    <InterruptCard
-      eyebrow={seatLabel(request.provider)}
-      title={connected ? "Your seat is connected" : `Connect your ${seatLabel(request.provider)} account to run this turn`}
+    <AttentionCard
+      title={connected ? `${seatLabel(request.provider)} seat connected` : `Connect your ${seatLabel(request.provider)} seat`}
+      type={connected ? "send your message again" : "to run this turn"}
+      resolved={connected}
       testId="seat-connect-card"
     >
-      {#snippet chip()}
-        {#if connected}
-          <TranscriptChip state="positive">Connected</TranscriptChip>
-        {/if}
+      {#snippet icon()}
+        <span class="inline-flex size-5 items-center justify-center rounded-md bg-card shadow-[shadow:var(--solus-tx-hairline)]">
+          <ProviderMark mark={request.provider === "claude-code" ? "claude" : "codex"} transparent />
+        </span>
       {/snippet}
 
-      {#snippet headerAside()}
-        <button
-          type="button"
-          class="-mr-1 -mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
-          aria-label="Dismiss"
-          onclick={dismiss}
-        >
-          <XIcon size={12} weight="bold" />
-        </button>
-      {/snippet}
-
-      <div class="flex flex-col gap-3 px-[1.125rem] py-[0.875rem]">
+      {#snippet actions()}
         {#if connected}
-          <div class="flex items-center gap-2 text-sm">
-            <CheckCircleIcon size={15} weight="fill" class="shrink-0 text-(--solus-status-complete)" />
-            <span>Connected. Send your message again to run it on your own login.</span>
-          </div>
+          <TranscriptCardAction onclick={dismiss}>Done</TranscriptCardAction>
         {:else}
-          <p class="text-sm text-muted-foreground">
-            Turns on a shared host run on the seat of whoever wrote the prompt. {seatDescription(status, seatsStore.errorFor(request.serverId, request.provider))}
-          </p>
-          <SeatConnectPanel serverId={request.serverId} provider={request.provider} autofocus />
+          <TranscriptCardAction kind="icon" label="Dismiss" onclick={dismiss}>
+            <XIcon size={13} />
+          </TranscriptCardAction>
         {/if}
-      </div>
-
-      {#snippet footer()}
-        <button type="button" class="interrupt-btn" onclick={dismiss}>
-          {connected ? "Done" : "Not now"}
-        </button>
-        <div class="flex-1"></div>
       {/snippet}
-    </InterruptCard>
+
+      <p class="m-0 text-(--muted-foreground)">
+        Turns on a shared host run on the seat of whoever wrote the prompt. {seatDescription(status, seatsStore.errorFor(request.serverId, request.provider))}
+      </p>
+      <SeatConnectPanel serverId={request.serverId} provider={request.provider} autofocus />
+      <div>
+        <TranscriptCardAction kind="ghost" class="-ml-2.5" onclick={dismiss}>Not now</TranscriptCardAction>
+      </div>
+    </AttentionCard>
   </div>
 {/if}

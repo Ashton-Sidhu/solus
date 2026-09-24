@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  subagentGroupRail,
   subagentGroupSummary,
+  subagentGroupType,
   subagentRow,
 } from '@solus/workspace-ui/components/conversation/lib/subagent-group'
 import type { Message } from '@solus/contracts/types'
@@ -29,12 +31,11 @@ function todo(content: string, status: 'completed' | 'in_progress' | 'pending') 
 const FALLBACK = { model: 'Sonnet 5', effort: 'medium' }
 
 /** The group derives its rows once and counts those — mirror that here. */
-function summarize(messages: Message[], now = NOW, worktree = '') {
+function summarize(messages: Message[], now = NOW) {
   return subagentGroupSummary(
     messages,
     messages.map((message) => subagentRow(message, now, FALLBACK)),
     now,
-    worktree,
   )
 }
 
@@ -131,7 +132,7 @@ describe('subagent row', () => {
 
   // Agents in one fan-out are routinely dispatched with different models, so the
   // dispatch belongs to the row — the header may only carry what they share.
-  test('the row carries the dispatch: named type, model and effort', () => {
+  test('the row carries the dispatch: model and effort', () => {
     const asked = subagentRow(
       agent({
         id: 'a',
@@ -141,11 +142,11 @@ describe('subagent row', () => {
       NOW,
       FALLBACK,
     )
-    expect(asked.meta).toBe('Explore · Haiku 4.5 · Low')
+    expect(asked).toMatchObject({ modelLabel: 'Haiku 4.5', effortLabel: 'Low' })
 
     // Nothing asked for: the parent session's own dispatch is what ran.
     const inherited = subagentRow(agent({ id: 'b', subagentType: 'general-purpose' }), NOW, FALLBACK)
-    expect(inherited.meta).toBe('Sonnet 5 · Medium')
+    expect(inherited).toMatchObject({ modelLabel: 'Sonnet 5', effortLabel: 'Medium' })
   })
 
   // A reloaded transcript replays no events, so the todos have to come back off
@@ -224,37 +225,36 @@ describe('subagent group summary', () => {
     expect(settled.elapsedMs).toBe(30_000)
   })
 
-  // The header may only carry what the agents genuinely share — never a summed
-  // step count, which means nothing across agents doing different work.
-  test('the header carries the count, the shared checkout, and the state tally', () => {
-    const summary = summarize(
-      [
-        agent({ id: 'a', toolStatus: 'running' }),
-        agent({ id: 'b', toolStatus: 'running' }),
-        agent({ id: 'c', toolStatus: 'completed', toolCompletedAt: NOW }),
-      ],
-      NOW,
-      'font-secondary',
-    )
-
-    expect(summary.meta).toEqual(['3 agents', 'worktree font-secondary', '1 done, 2 running'])
-  })
-
-  test('a session that is not isolated says nothing about a worktree', () => {
-    const summary = summarize([agent({ id: 'a', toolStatus: 'running' })])
-    expect(summary.meta).toEqual(['1 agent'])
-  })
-
-  // The tally exists to spell out mixed states; when they all match, the chip has
-  // already said it and repeating it in the meta line only adds noise.
-  test('the tally is dropped when every agent is in the same state', () => {
+  test('a group where every agent landed reports the count once', () => {
     const summary = summarize([
       agent({ id: 'a', toolStatus: 'completed', toolCompletedAt: NOW }),
       agent({ id: 'b', toolStatus: 'completed', toolCompletedAt: NOW }),
     ])
 
     expect(summary.chip).toBe('2 done')
-    expect(summary.meta).toEqual(['2 agents'])
+  })
+
+  // The rail is counts and time only. A summed step count means nothing across
+  // agents doing different work, so the group never prints one.
+  test('the group rail counts landed agents, then failures, then time', () => {
+    const summary = summarize([
+      agent({ id: 'a', toolStatus: 'running' }),
+      agent({ id: 'b', toolStatus: 'error', toolCompletedAt: NOW }),
+      agent({ id: 'c', toolStatus: 'completed', toolCompletedAt: NOW }),
+    ])
+
+    expect(subagentGroupRail(summary)).toBe('1 done · 1 failed · 1m 0s')
+  })
+
+  test('a group with no failures does not print a zero failure count', () => {
+    const summary = summarize([agent({ id: 'a', toolStatus: 'running' })])
+    expect(subagentGroupRail(summary)).toBe('0 done · 1m 0s')
+  })
+
+  test('the count is the type word, so the title does not repeat it', () => {
+    const summary = summarize([agent({ id: 'a' }), agent({ id: 'b' })])
+    expect(subagentGroupType(summary)).toBe('2 sub-agents')
+    expect(summary.title).not.toContain('2')
   })
 
   test('the title names the shared agent type, and never repeats a generic one', () => {
@@ -262,18 +262,46 @@ describe('subagent group summary', () => {
       agent({ id: 'a', subagentType: 'Explore' }),
       agent({ id: 'b', subagentType: 'Explore' }),
     ])
-    expect(typed.title).toBe('2 Explore agents in parallel')
+    expect(typed.title).toBe('Explore agents in parallel')
 
     const generic = summarize([
       agent({ id: 'a', subagentType: 'general-purpose' }),
       agent({ id: 'b', subagentType: 'general-purpose' }),
     ])
-    expect(generic.title).toBe('2 agents in parallel')
+    expect(generic.title).toBe('Agents in parallel')
 
     const mixed = summarize([
       agent({ id: 'a', subagentType: 'Explore' }),
       agent({ id: 'b', subagentType: 'Plan' }),
     ])
-    expect(mixed.title).toBe('2 agents in parallel')
+    expect(mixed.title).toBe('Agents in parallel')
+  })
+})
+
+describe('which backend and model a sub-agent card names', () => {
+  // WHY: the card line shows the provider's mark and the model, because a
+  // reader cannot tell a Codex agent from a Claude one by its task alone.
+  const PARENT = { model: 'claude-opus-5-5', effort: 'medium' }
+
+  test('an agent with no model of its own runs on the parent’s model, under Claude', () => {
+    expect(subagentRow(agent({ id: 'a' }), NOW, PARENT)).toMatchObject({
+      provider: 'claude-code',
+      modelLabel: 'Opus 5.5',
+    })
+  })
+
+  test('a Codex agent is named Codex, with its backend’s default model', () => {
+    const row = subagentRow(agent({ id: 'b', subagentType: 'codex' }), NOW, PARENT)
+    expect(row.provider).toBe('codex')
+    expect(row.modelLabel).not.toBe('')
+  })
+
+  test('a model id that only Codex serves marks the agent as Codex', () => {
+    const row = subagentRow(
+      agent({ id: 'c', toolInput: JSON.stringify({ description: 'x', prompt: 'y', model: 'gpt-6-astra' }) }),
+      NOW,
+      PARENT,
+    )
+    expect(row).toMatchObject({ provider: 'codex', modelLabel: 'Gpt 6 Astra' })
   })
 })
