@@ -7,8 +7,8 @@ import type { NormalizedEvent, PermissionOption } from '@solus/contracts/types'
  * Claude and Codex (option ids, whether a plan blocks a run) is resolved from
  * the event itself rather than hardcoded per provider.
  *
- * This is deliberately NOT `formatPendingInputReport` — that is prose for the
- * model's turn input. Tools answering a pause need ids and labels.
+ * `formatPendingInputReport` below renders the same events as prose for an
+ * agent reading another session.
  */
 
 export interface PendingQuestion {
@@ -97,4 +97,36 @@ function pickOptionIds(options: readonly PermissionOption[]): PendingOptionIds {
   if (allow) ids.allowOptionId = allow.id
   if (deny) ids.denyOptionId = deny.id
   return ids
+}
+
+/** The same pending input as prose, for an agent reading another session with `read_session`. */
+export function formatPendingInputReport(events: readonly NormalizedEvent[]): string | null {
+  const reports = events.flatMap((event): string[] => {
+    if (event.type === 'question_request') {
+      return event.questions.map((question) => {
+        const options = question.options
+          .map((option) => `- ${option.label}${option.description ? ` — ${option.description}` : ''}`)
+          .join('\n')
+        return [
+          question.header ? `${question.header}: ${question.question}` : question.question,
+          options,
+        ].filter(Boolean).join('\n')
+      })
+    }
+
+    if (event.type === 'permission_request') {
+      const input = event.toolInput && Object.keys(event.toolInput).length
+        ? `\nInput: ${JSON.stringify(event.toolInput)}`
+        : ''
+      return [`Permission requested for ${event.toolName}${event.toolDescription ? ` — ${event.toolDescription}` : ''}${input}`]
+    }
+
+    if (event.type === 'plan') {
+      return [`Plan awaiting approval:\n${event.planContent}`]
+    }
+
+    return []
+  })
+
+  return reports.length ? reports.join('\n\n') : null
 }

@@ -5,8 +5,9 @@
    *  bright profile picture does not pull the eye), and its menu holds the account and organization pages and
    *  sign-out. Signed out it is a small "Sign in" button — the desktop app is
    *  free without an account, so it reads as a quiet control, never a pitch.
-   *  Web and mobile cannot hold an account yet (`accountStore.isAvailable`), so
-   *  their row has the icon buttons alone. */
+   *  Web and mobile cannot start a sign-in (`accountStore.isAvailable`); served
+   *  by the account origin they show the cookie's account and its menu, and
+   *  anywhere else their row has the icon buttons alone. */
   import { localApi } from "@solus/client-core/local-api";
   import {
     Settings as GearIcon,
@@ -154,7 +155,7 @@
               <ExternalIcon class="ml-auto text-muted-foreground" />
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              onSelect={() => void localApi.openExternal(consolePageUrl(consoleUrl, "teams"))}
+              onSelect={() => void localApi.openExternal(consolePageUrl(consoleUrl, "organizations"))}
             >
               <OrganizationIcon />
               Organization settings

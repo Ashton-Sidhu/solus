@@ -38,16 +38,16 @@
     /** Dots only render while the exchange is genuinely in flight; a settle that
      *  never arrived (app restart) must read as a quiet fact instead. */
     live: boolean;
-    /** Height a completed reply is allowed before it folds behind "Show all".
-     *  The switchboard clamps harder — its body is fixed. */
-    clampPx?: number;
     /** Where an oversized artefact hands off to. */
     onOpen?: () => void;
     /** The top rule separates blocks; the first one in the body has nothing
      *  above it to separate from. */
     first?: boolean;
   }
-  let { message, agentName, live, clampPx = 262, onOpen, first = false }: Props = $props();
+  let { message, agentName, live, onOpen, first = false }: Props = $props();
+
+  /** Height a completed reply is allowed before it folds behind "Show all". */
+  const CLAMP_PX = 262;
 
   const label = $derived(
     message.from === "you"
@@ -67,7 +67,7 @@
 
   let expanded = $state(false);
   let bodyHeight = $state(0);
-  const overflows = $derived(bodyHeight > clampPx);
+  const overflows = $derived(bodyHeight > CLAMP_PX);
   const clamped = $derived(!expanded && overflows);
 </script>
 
@@ -92,9 +92,8 @@
 
   {#if message.pending}
     {#if live}
-      <!-- Named rather than bare dots: the spec has the dots stand alone, but a
-           reply slot with no label is the one place the card stops saying who
-           is speaking, and the switchboard's tabs make that ambiguous. -->
+      <!-- Named rather than bare dots: a reply slot with no label is the one
+           place the card would stop saying who is speaking. -->
       <span class="flex items-center gap-2">
         <span
           class="text-transcript-meta font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
@@ -130,7 +129,7 @@
       {/if}
     </div>
   {:else}
-    <div class="relative overflow-hidden" style:max-height={clamped ? `${clampPx}px` : "none"}>
+    <div class="relative overflow-hidden" style:max-height={clamped ? `${CLAMP_PX}px` : "none"}>
       {#if message.from === "you"}
         <p
           bind:clientHeight={bodyHeight}

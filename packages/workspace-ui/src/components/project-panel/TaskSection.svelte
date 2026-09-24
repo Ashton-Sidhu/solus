@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -34,21 +35,11 @@
   // so the rail overlays it from the shared store the task page and the picker
   // also read. Until that lands the row still renders from its snapshot.
   const prs = pullRequests.projects;
-  const prScope = $derived({
-    serverId: store.get(task.id).serverId,
-    projectDirectory: projectCwd ?? task.projectKey,
-  });
+  const taskServerId = $derived(store.get(task.id).serverId);
+  const taskProjectDirectory = $derived(projectCwd ?? task.projectKey ?? null);
+  // Each link owns its repository; PR numbers are not unique across links.
   function prTitleFor(link: TaskLink): string | undefined {
-    const target = linkedPrNavigationTarget({
-      taskServerId: prScope.serverId,
-      taskProjectDirectory: prScope.projectDirectory,
-      linkProjectDirectory: link.targetScope,
-    });
-    // The target scope is one repository, so the number alone identifies the
-    // pull request — no base-repo comparison needed.
-    return prs.at(target.serverId, target.projectDirectory)?.prFor(
-      Number(link.targetKey),
-    )?.title || undefined;
+    return prs.linkedPr(taskServerId, link, taskProjectDirectory)?.pullRequest?.title || undefined;
   }
 
   const linkList = $derived(
@@ -60,23 +51,20 @@
     ),
   );
 
-  // The store asks each project's list once and each unknown PR at most once,
-  // so this is safe on every render — but a rail that is not on screen has
-  // nothing to name, and must not spend a host round trip saying so.
+  // The same link watch the task page and the sidebar use: it batches each
+  // repository's PRs into one shared list read. A rail that is not on screen
+  // has nothing to name, and must not spend a host round trip saying so.
   $effect(() => {
-    const { serverId, projectDirectory } = prScope;
-    const numbers = links
-      .filter((link) => link.kind === "pr")
-      .map((link) => Number(link.targetKey))
-      .filter((number) => Number.isSafeInteger(number));
-    if (!active || !serverId || !projectDirectory || !numbers.length) return;
-    prs
-      .get(
-        serverConnections.apiFor(serverId),
-        serverId,
-        session.ctxForDirectory(projectDirectory),
-      )
-      .ensureNumbers(numbers);
+    const serverId = taskServerId;
+    const root = taskProjectDirectory;
+    const prLinks = links.filter((link) => link.kind === "pr");
+    if (!active || !serverId || !prLinks.length) return;
+    return untrack(() => prs.watchLinkedPrs(
+      serverConnections.apiFor(serverId),
+      serverId,
+      session.ctxForDirectory(root ?? "~"),
+      prLinks,
+    ));
   });
 
   /** A linked row opens wherever that kind lives — the same routing the task

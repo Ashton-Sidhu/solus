@@ -6,7 +6,8 @@ import { appendFile, mkdir, stat } from 'fs/promises'
 import { dirname, join } from 'path'
 import { createLogger } from './logger'
 import { captureServerEvent } from './analytics'
-import { createWorktree } from './git/worktree-manager'
+import { createWorktree, renameWorktreeBranch } from './git/worktree-manager'
+import { isTemporaryWorktreeBranch } from './git/worktree-branch-name'
 import { generateWorktreeName } from './git/worktree-name'
 import { computeGitState } from './git/git-helpers'
 import { checkoutWithLiveIdentity } from './git/git-context'
@@ -52,13 +53,8 @@ import {
   replaceSessionLineageThread,
   stableSessionIdForProviderThread,
 } from './sessions/session-lineage'
-import {
-  buildSessionAwaitingInputReport,
-  buildSessionSettledReport,
-  formatPendingInputReport,
-  agentConversationQuestionFromPendingInput,
-} from './sessions/session-report'
-import type { AgentConversationWatchRequest } from './sessions/session-tools'
+import { ANSWERING_ANOTHER_SESSION, type CreateSessionOrder, type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
+import type { ResolvedInput } from './orchestration/session-outputs'
 import { ClaudeGoalStore } from './sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
 import type {
@@ -85,6 +81,7 @@ import type {
   SessionDescription,
   SessionLineageResolution,
   SessionProviderSwitchResult,
+  SessionRecordStatus,
   StatusCardState,
   StatusCardStep,
   ThreadGoal,
@@ -98,9 +95,8 @@ import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
-import { SeatRequiredError, type SeatStore, type TurnSeat } from './seats/seat-manager'
+import { SeatRequiredError, type SeatStore, type TurnActor, type TurnSeat } from './seats/seat-manager'
 import { withCredentialScope } from './vault/credential-scope'
-import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
 import { activeTurnFor, turnAuthorOf } from './presence/presence-manager'
@@ -168,18 +164,16 @@ interface AgentTransportInfo {
   opencode?: string
 }
 
-interface CreateSessionRequest {
-  prompt: string
-  provider: AgentId
+interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'> {
+  /** Null for a headless session a client starts on the provider's default. */
   modelId: string | null
-  reasoningEffort: ReasoningEffort
-  contextWindow: number | null
-  cwd: string
-  worktreeBaseBranch?: string | null
-  taskId?: string | null
-  parentTaskId?: string | null
   skipTaskCreation?: boolean
 }
+
+/** The hooks the session orchestrator takes run facts through. */
+type OrchestrationHooks = Pick<SessionOrchestrator,
+  | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
+  | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'>
 
 function startedSession(agentSessionId: string, taskId?: string): Parameters<PendingStart['resolve']>[0] {
   const result: Parameters<PendingStart['resolve']>[0] = { agentSessionId }
@@ -199,18 +193,22 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
   return options
 }
 
-function eventHasQuestionId(event: NormalizedEvent, questionId: string): boolean {
-  return 'questionId' in event && event.questionId === questionId
+/** What a person's answer to a permission or a plan was, for the senders waiting on it. */
+function permissionAnswer(
+  pendingEvent: NormalizedEvent | undefined,
+  toolName: string | undefined,
+  optionId: string,
+  updatedPlan: string | undefined,
+): ResolvedInput {
+  const options = pendingEvent?.type === 'permission_request' || pendingEvent?.type === 'plan' ? pendingEvent.options : []
+  const allowed = options.find((option) => option.id === optionId)?.kind === 'allow'
+  return toolName === 'ExitPlanMode' || pendingEvent?.type === 'plan'
+    ? { kind: 'plan', allowed, edited: !!updatedPlan }
+    : { kind: 'permission', toolName, allowed }
 }
 
-/** One completion route owned by the exact run that must settle it. Provider
- *  identities are captured when the route is armed, before run teardown can
- *  remove live session records. */
-interface AgentCompletionRoute extends AgentConversationWatchRequest {
-  awaitingReported: boolean
-  callerSessionId: string
-  callerAgentSessionId: string
-  targetAgentSessionId: string
+function eventHasQuestionId(event: NormalizedEvent, questionId: string): boolean {
+  return 'questionId' in event && event.questionId === questionId
 }
 
 export interface SessionRunLifecycle {
@@ -242,16 +240,20 @@ export interface SessionRunRequest {
   servedQueueId?: string
   /** Dispatch timestamp of the drained queue entry. */
   servedEnqueuedAt?: number
-  /** Agent exchanges waiting on this exact run. Routes move with a queued retry
-   *  and settle before this request is released. */
-  completionRoutes?: AgentCompletionRoute[]
+  /** Names this logical prompt across the copies setup, queueing and retries
+   *  make of it, so the orchestrator can tell a stale result from a current one. */
+  runId?: string
+  /** The orchestrator's exchanges this run answers. Opaque here: they arrive
+   *  with the prompt, move with a queued retry or a steer, and are reported
+   *  once when the run settles. Every copy of a run shares this one array. */
+  exchangeIds?: string[]
+  /** The session that created this one, recorded with the new thread's first
+   *  index row so the child is never indexed without its parent. */
+  delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
   /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
    *  for the host's own work: automations, agent follow-ups, and local prompts. */
   actor?: TurnActor
 }
-
-/** The host's own work: the owner asked, and the host's login runs it. */
-const HOST_ACTOR: TurnActor = { userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID }
 
 /**
  * A member's turn calls GitHub, Google, and Atlassian as that member
@@ -318,6 +320,14 @@ export class ControlPlane extends EventEmitter {
   /** Client-generated prompt ids this plane already accepted, insertion-ordered
    *  so the oldest fall off first (outbox replay dedupe, dispatch-client step 6). */
   private acceptedClientPromptIds = new Set<string>()
+  /** Provider thread id → the session record status this process last wrote for it. */
+  private recordStatusWritten = new Map<string, SessionRecordStatus>()
+  /** Provider threads whose lineage this process has registered; later inits of the same thread skip the transaction. */
+  private registeredLineageThreads = new Set<string>()
+  /** Provider threads whose start this process has indexed, with the model and effort it recorded. */
+  private indexedThreadStarts = new Map<string, string>()
+  /** Sessions whose durable lineage showed no provisional handoff. Only this plane begins one, and it records it in `pendingHandoffs` first. */
+  private sessionsWithoutPendingHandoff = new Set<string>()
   private hadActiveWork = false
   private requestQueue = new Map<string, QueuedRequest[]>()
   private activeRunRequests = new Map<string, SessionRunRequest>()
@@ -353,6 +363,8 @@ export class ControlPlane extends EventEmitter {
   readonly usageLimits = new UsageLimitsStore()
   /** questionId → sessionId index so we can resolve which backend owns a question without iterating all backends. */
   private questionIdToSession = new Map<string, string>()
+  /** Owns every exchange between sessions; wired once the host boots. */
+  private orchestration: OrchestrationHooks | null = null
 
   /** Server-side per-session needs-attention state; outlives connected clients
    *  and persists across restarts. Fed by `_setStatus` transitions; read by the
@@ -374,9 +386,8 @@ export class ControlPlane extends EventEmitter {
   private deferredGitWatchCwds = new Set<string>()
   private readonly handoffBuilder: typeof buildHandoff
   private readonly sessionTaskPreparer: typeof prepareSessionTask
-  /** Provider seats and the turn ledger, once the host has opened its database. */
+  /** Provider seats, once the host has opened its database. */
   private seats: SeatStore | null = null
-  private turnLedger: TurnLedger | null = null
 
   constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
     super()
@@ -443,10 +454,14 @@ export class ControlPlane extends EventEmitter {
   private _pendingHandoffFor(sessionId: string): PendingSessionHandoff | undefined {
     const inMemory = this.pendingHandoffs.get(sessionId)
     if (inMemory) return inMemory
+    if (this.sessionsWithoutPendingHandoff.has(sessionId)) return undefined
     const handoff = resolveSessionLineageById(sessionId)
     const activeMember = handoff?.active
     const previousMember = handoff?.members.at(-2)
-    if (activeMember?.providerSessionId !== null || !previousMember?.providerSessionId) return undefined
+    if (activeMember?.providerSessionId !== null || !previousMember?.providerSessionId) {
+      this.sessionsWithoutPendingHandoff.add(sessionId)
+      return undefined
+    }
     const restored = {
       fromProvider: previousMember.provider,
       fromSessionId: previousMember.providerSessionId,
@@ -504,31 +519,38 @@ export class ControlPlane extends EventEmitter {
         // a restart — the registered id comes back and the proposed one is dropped.
         // Everything below routes by the registered id, so two clients cannot end up
         // holding two names for one conversation.
-        const registered = registerSessionLineage({
-          sessionId: initSessionId,
-          provider: backend.id,
-          providerSessionId: event.sessionId,
-          cwd: pendingStart?.run.input.workingDirectory
-            ?? this.activeSessions.get(initSessionId)?.runInput?.workingDirectory
-            ?? getIndexedSession(event.sessionId)?.cwd
-            ?? '~',
-        })
-        if (registered.sessionId !== initSessionId) {
-          log.warn('session_init_id_already_registered', {
-            sessionId: registered.sessionId,
-            proposedSessionId: initSessionId,
-            agentSessionId: event.sessionId,
+        // Claude reports init on every turn. A thread this process already
+        // registered under the same id has nothing new to write.
+        const alreadyRegistered = this.registeredLineageThreads.has(event.sessionId)
+          && this.agentSessionToSession.get(event.sessionId) === initSessionId
+        if (!alreadyRegistered) {
+          const registered = registerSessionLineage({
+            sessionId: initSessionId,
             provider: backend.id,
+            providerSessionId: event.sessionId,
+            cwd: pendingStart?.run.input.workingDirectory
+              ?? this.activeSessions.get(initSessionId)?.runInput?.workingDirectory
+              ?? getIndexedSession(event.sessionId)?.cwd
+              ?? '~',
           })
-        }
-        const sourceRun = pendingStart?.run ?? this.activeRunRequests.get(initSessionId)
-        if (sourceRun?.input.forked && sourceRun.input.agentSessionId
-          && registered.active.providerSessionId === sourceRun.input.agentSessionId) {
-          replaceSessionLineageThread({
-            sessionId: initSessionId, provider: backend.id,
-            sourceThreadId: sourceRun.input.agentSessionId,
-            providerSessionId: event.sessionId, cwd: sourceRun.input.workingDirectory,
-          })
+          if (registered.sessionId !== initSessionId) {
+            log.warn('session_init_id_already_registered', {
+              sessionId: registered.sessionId,
+              proposedSessionId: initSessionId,
+              agentSessionId: event.sessionId,
+              provider: backend.id,
+            })
+          }
+          const sourceRun = pendingStart?.run ?? this.activeRunRequests.get(initSessionId)
+          if (sourceRun?.input.forked && sourceRun.input.agentSessionId
+            && registered.active.providerSessionId === sourceRun.input.agentSessionId) {
+            replaceSessionLineageThread({
+              sessionId: initSessionId, provider: backend.id,
+              sourceThreadId: sourceRun.input.agentSessionId,
+              providerSessionId: event.sessionId, cwd: sourceRun.input.workingDirectory,
+            })
+          }
+          this.registeredLineageThreads.add(event.sessionId)
         }
         this.agentSessionToSession.set(event.sessionId, initSessionId)
         const pendingHandoff = this.pendingHandoffs.get(initSessionId)
@@ -563,6 +585,10 @@ export class ControlPlane extends EventEmitter {
               },
             }
             this.activeRunRequests.set(initSessionId, initializedRun)
+            // A created child's card knew it by its pending message; from here
+            // its updates name the real thread.
+            const startedRun = this._runExchanges(initializedRun, event.sessionId)
+            if (startedRun) this.orchestration?.sessionStarted(startedRun, event.sessionId, initializedRun.input.workingDirectory)
             const started: Parameters<PendingStart['resolve']>[0] = { agentSessionId: event.sessionId }
             if (pendingStart.run.options.taskId) started.taskId = pendingStart.run.options.taskId
             pendingStart.resolve(started)
@@ -575,7 +601,13 @@ export class ControlPlane extends EventEmitter {
         // no runInput and bind returns null, leaving the session stuck at idle.
         const existingSession = this.activeSessions.get(initSessionId)
         const runReqInput = this.activeRunRequests.get(initSessionId)?.input ?? initializedRun?.input
-        if (runReqInput) {
+        // Every column the index row fills is COALESCE-guarded, and status has its
+        // own writer, so a later init of the same thread only matters when the
+        // model or effort the record shows has changed.
+        const indexedStart = runReqInput ? `${runReqInput.model}\u0000${runReqInput.reasoningEffort}` : null
+        if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
+          this.indexedThreadStarts.set(event.sessionId, indexedStart)
+          this.recordStatusWritten.set(event.sessionId, 'running')
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,
@@ -585,6 +617,7 @@ export class ControlPlane extends EventEmitter {
             runReqInput.reasoningEffort,
             firstDispatchRun?.options.displayPrompt ?? firstDispatchRun?.options.prompt ?? null,
             runReqInput.gitContext?.branch ?? null,
+            firstDispatchRun?.delegation,
           )
         }
         if (existingSession) {
@@ -647,12 +680,13 @@ export class ControlPlane extends EventEmitter {
           if (session.runInput) session.runInput.sessionChangedFiles = [...event.paths]
           const activeRequest = this.activeRunRequests.get(session.sessionId)
           if (activeRequest) activeRequest.input.sessionChangedFiles = [...event.paths]
+          this._reportToActiveRun(session.sessionId, (run) => this.orchestration?.runEvent(run, event))
         } else if (event.type === 'permission_request' || event.type === 'question_request') {
           session.hasPendingInput = true
           session.pendingInputEvents.push(event)
           this.questionIdToSession.set(event.questionId, session.sessionId)
           this._setStatus(session.sessionId, 'awaiting_input')
-          this._fireAwaitingInputWatchers(session.sessionId, 'awaiting_input')
+          this._reportToActiveRun(session.sessionId, (run) => this.orchestration?.inputRequested(run, event))
         } else if (event.type === 'plan') {
           const cwd = session.runInput?.workingDirectory ?? getIndexedSession(agentSessionId)?.cwd ?? '~'
           if (event.planToolUseId && event.planContent.trim()) {
@@ -690,9 +724,10 @@ export class ControlPlane extends EventEmitter {
           this.questionIdToSession.set(event.questionId, session.sessionId)
           const status = this._pendingInputStatus(session)
           this._setStatus(session.sessionId, status)
-          if (status === 'awaiting_input' || status === 'awaiting_plan') {
-            this._fireAwaitingInputWatchers(session.sessionId, status)
-          }
+          this._reportToActiveRun(session.sessionId, (run) => {
+            this.orchestration?.runEvent(run, event)
+            if (status === 'awaiting_input' || status === 'awaiting_plan') this.orchestration?.inputRequested(run, event)
+          })
         } else if (event.type === 'permission_resolved') {
           session.pendingInputEvents = session.pendingInputEvents.filter(
             (pendingEvent) => !eventHasQuestionId(pendingEvent, event.questionId),
@@ -700,6 +735,11 @@ export class ControlPlane extends EventEmitter {
           this.questionIdToSession.delete(event.questionId)
           session.hasPendingInput = session.pendingInputEvents.length > 0
           this._setStatus(session.sessionId, this._pendingInputStatus(session))
+        }
+
+        // A work the turn made is part of what it answers its senders with.
+        if (event.type === 'work_created' || event.type === 'artifact_created') {
+          this._reportToActiveRun(session.sessionId, (run) => this.orchestration?.runEvent(run, event))
         }
 
         // Both task lifecycle events fall through to delivery below: an async
@@ -728,7 +768,7 @@ export class ControlPlane extends EventEmitter {
           // tasks run and emits exit only once they settle. A task that never
           // ends (a log tail, a dev server) would otherwise hold 'running' for
           // the life of the query, so the turn settles into 'background'.
-          if (this._awaitingAgentReply(session.sessionId)) {
+          if (this.orchestration?.isAwaitingReplies(session.sessionId)) {
             log.info('turn_complete_awaiting_agent_reply', { sessionId: session.sessionId, holdingRunning: true })
           } else if (session.backgroundTaskIds?.size) {
             log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size })
@@ -757,7 +797,11 @@ export class ControlPlane extends EventEmitter {
           }
 
           this.sessionEmitter.acceptRateLimit(session.sessionId, event.rateLimitType)
-          if (run && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation') {
+          // A run that answers another session's message has nobody at its
+          // keyboard, even after the queue relabelled it `queued`: it keeps the
+          // queue behaviour it was built with and resumes on its own.
+          const answersASession = !!run?.exchangeIds?.length
+          if (run && !answersASession && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation') {
             // Host settings can change while a user turn is running. Read the
             // current preference here; an old client snapshot is not the policy.
             run.input.rateLimitBehavior = getHostConfig().config.rateLimitBehavior
@@ -768,6 +812,11 @@ export class ControlPlane extends EventEmitter {
           // Publish the queue before the status so clients cannot briefly show
           // a decision card for a retry the host already chose to queue.
           this._setStatus(session.sessionId, 'rate_limited')
+          // The run keeps its exchanges whether it waits in the queue for the
+          // reset or on a person's decision; its senders hear it is parked.
+          const parked = run ? this._runExchanges(run, agentSessionId) : null
+          // The event counts seconds; the orchestrator's readers count milliseconds.
+          if (parked) this.orchestration?.runRateLimited(parked, { resetsAt: event.resetsAt === null ? undefined : event.resetsAt * 1000, limitType: event.rateLimitType })
         }
       }
 
@@ -824,7 +873,7 @@ export class ControlPlane extends EventEmitter {
             )]
 
       // No early return when nobody is watching: a headless agent (created via
-      // create_session, card not yet opened) still needs its exit lifecycle —
+      // start_session, card not yet opened) still needs its exit lifecycle —
       // status broadcast, cleanup, and above all the queue drain, or prompts
       // relayed into it while busy would hang forever.
       for (const handle of backend.getPendingHandles()) {
@@ -856,7 +905,7 @@ export class ControlPlane extends EventEmitter {
               ? 'dead'
               : 'failed'
         const newStatus: SessionStatus = settledStatus === 'completed'
-          && this._awaitingAgentReply(sessionId)
+          && this.orchestration?.isAwaitingReplies(sessionId)
           ? 'running'
           : settledStatus
         this.sessionEmitter.recordTerminal(
@@ -1522,119 +1571,89 @@ export class ControlPlane extends EventEmitter {
     return [...(this.activeSessions.get(sessionId)?.pendingInputEvents ?? [])]
   }
 
-  /** Both ids arrive from the agent-tool surface. Normalize them once, then put
-   *  the completion route on the exact active or queued run it belongs to. */
-  watchSessionSettled(targetAgentSessionId: string, callerAgentSessionId: string, watch: AgentConversationWatchRequest): void {
-    if (targetAgentSessionId === callerAgentSessionId) {
-      throw new Error('Cannot watch your own session.')
-    }
-    const targetSessionId = this._sessionIdFor(targetAgentSessionId)
-    const callerSessionId = this._sessionIdFor(callerAgentSessionId)
-    if (!targetSessionId || !callerSessionId) {
-      throw new Error(`Session ${!targetSessionId ? targetAgentSessionId : callerAgentSessionId} is not live`)
-    }
-    if (targetSessionId === callerSessionId) throw new Error('Cannot watch your own session.')
+  /** Hands every exchange between sessions to the orchestrator. */
+  useOrchestration(orchestration: OrchestrationHooks): void {
+    this.orchestration = orchestration
+  }
 
-    const run = watch.runKey === 'active'
-      ? this.activeRunRequests.get(targetSessionId)
-      : this.requestQueue.get(targetSessionId)?.find((request) => request.queueId === watch.runKey)?.run
-    if (!run) throw new Error(`Session ${targetAgentSessionId} has no ${watch.runKey} run to watch`)
-
-    const armed: AgentCompletionRoute = {
-      ...watch,
-      awaitingReported: false,
-      callerSessionId,
-      callerAgentSessionId,
-      targetAgentSessionId,
+  /** What a run tells the orchestrator: which exchanges it answers. Null when
+   *  it answers none, so an ordinary turn never reaches the orchestrator. */
+  private _runExchanges(run: SessionRunRequest, agentSessionId?: string | null): RunExchanges | null {
+    if (!run.exchangeIds?.length || !run.runId) return null
+    return {
+      runId: run.runId,
+      sessionId: run.sessionId,
+      agentSessionId: agentSessionId ?? this.activeSessions.get(run.sessionId)?.agentSessionId ?? run.input.agentSessionId,
+      exchangeIds: run.exchangeIds,
     }
-    const routes = run.completionRoutes ??= []
-    routes.push(armed)
-    log.info('agent_conversation_watch_armed', {
-      targetSessionId,
-      targetAgentSessionId,
-      callerSessionId,
-      callerAgentSessionId,
-      exchangeId: watch.exchangeId,
-      notifyModel: watch.notifyModel,
-      runKey: watch.runKey,
-      watchCount: routes.length,
+  }
+
+  /** Something happened in a session's live turn that its senders hear about. */
+  private _reportToActiveRun(sessionId: string, report: (run: RunExchanges) => void): void {
+    const active = this.activeRunRequests.get(sessionId)
+    const run = active ? this._runExchanges(active) : null
+    if (run) report(run)
+  }
+
+  /** A run that will never reach a turn: its exchanges end without a reply. */
+  private _cancelRunExchanges(run: SessionRunRequest | undefined, outcome: 'interrupted' | 'failed' = 'interrupted'): void {
+    const exchanges = run ? this._runExchanges(run) : null
+    if (!exchanges) return
+    const cancelled = { ...exchanges, exchangeIds: run!.exchangeIds!.splice(0) }
+    this.orchestration?.runCancelled(cancelled, outcome)
+  }
+
+  /** The run's turn ended. Reported once: the ids leave the run as they go. */
+  private _settleRunExchanges(
+    run: SessionRunRequest,
+    outcome: 'completed' | 'interrupted' | 'failed',
+    handle: RunHandle,
+    runMeta: { durationMs?: number; toolCallCount?: number },
+  ): void {
+    const exchanges = this._runExchanges(run, handle.agentSessionId)
+    if (!exchanges || !this.orchestration) return
+    const session = this.activeSessions.get(run.sessionId)
+    this.orchestration.runSettled({
+      ...exchanges,
+      exchangeIds: run.exchangeIds!.splice(0),
+      outcome,
+      resultText: handle.resultText,
+      durationMs: runMeta.durationMs,
+      toolCallCount: runMeta.toolCallCount,
+      provider: run.input.provider,
+      projectScope: projectScopeOf(run.input),
+      gitContext: session?.gitContext ?? run.input.gitContext,
     })
-
-    // Catch-up scoped to the new watch only — earlier watchers already heard
-    // about the current pause.
-    const status = this.liveSessionStatus(targetAgentSessionId)
-    if (status === 'awaiting_input' || status === 'awaiting_plan') {
-      this._fireAwaitingInputWatchers(targetSessionId, status, armed)
-    }
   }
 
-  private *_completionRouteRuns(): Iterable<SessionRunRequest> {
-    const seen = new Set<SessionRunRequest>()
-    for (const run of this.activeRunRequests.values()) {
-      seen.add(run)
-      yield run
-    }
-    for (const queue of this.requestQueue.values()) {
-      for (const request of queue) {
-        if (seen.has(request.run)) continue
-        seen.add(request.run)
-        yield request.run
-      }
-    }
+  /** Solus's id for a session named by either id, while this process knows it. */
+  sessionIdFor(id: string): string | undefined {
+    return this._sessionIdFor(id)
   }
 
-  private _awaitingAgentReply(callerSessionId: string): boolean {
-    for (const run of this._completionRouteRuns()) {
-      if (run.completionRoutes?.some((route) => route.callerSessionId === callerSessionId && route.notifyModel)) return true
-    }
-    return false
+  agentSessionIdFor(sessionId: string): string | undefined {
+    return this._agentSessionIdFor(sessionId) ?? undefined
   }
 
-  private _cancelPendingAgentReplies(callerSessionId: string): boolean {
-    let cancelled = false
-    for (const run of this._completionRouteRuns()) {
-      const routes = run.completionRoutes
-      if (!routes?.length) continue
-      for (let index = routes.length - 1; index >= 0; index--) {
-        const route = routes[index]
-        if (route.callerSessionId !== callerSessionId) continue
-        routes.splice(index, 1)
-        cancelled = true
-        this._emit(callerSessionId, {
-          type: 'agent_conversation_update',
-          update: {
-            phase: 'settled',
-            agentSessionId: route.targetAgentSessionId,
-            exchangeId: route.exchangeId,
-            status: 'interrupted',
-            replyText: '',
-            settledAt: Date.now(),
-          },
-        })
-      }
-    }
-    return cancelled
+  /** Publish an event to every client watching a session. */
+  publish(sessionId: string, event: NormalizedEvent): void {
+    this._emit(sessionId, event)
   }
 
-  private _cancelAgentConversationRunWatches(targetSessionId: string, runKey: string): boolean {
-    const run = runKey === 'active'
-      ? this.activeRunRequests.get(targetSessionId)
-      : this.requestQueue.get(targetSessionId)?.find((request) => request.queueId === runKey)?.run
-    const routes = run?.completionRoutes?.splice(0) ?? []
-    for (const route of routes) {
-      this._emit(route.callerSessionId, {
-        type: 'agent_conversation_update',
-        update: {
-          phase: 'settled',
-          agentSessionId: route.targetAgentSessionId,
-          exchangeId: route.exchangeId,
-          status: 'interrupted',
-          replyText: '',
-          settledAt: Date.now(),
-        },
-      })
-    }
-    return routes.length > 0
+  /** Holds a host update until orchestration work outside any run settles. */
+  trackUpdateWork<T>(work: Promise<T>): Promise<T> {
+    this.updateWorkCount++
+    return work.finally(() => { this.updateWorkCount-- })
+  }
+
+  hasQueuedPrompt(sessionId: string, queueId: string): boolean {
+    return this.requestQueue.get(sessionId)?.some((request) => request.queueId === queueId) ?? false
+  }
+
+  /** Rewrite a queued prompt this host sent itself, such as a report that later
+   *  reports merge into. Same effect as a person editing it in the queue. */
+  replaceQueuedPrompt(sessionId: string, queueId: string, text: string): boolean {
+    return this._editQueuedPrompt(sessionId, queueId, text)
   }
 
   loadSessionPreview(agentId: AgentId, sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {
@@ -1754,9 +1773,8 @@ export class ControlPlane extends EventEmitter {
    * Provider seats (Step 2 plan §3.3). Every turn with an actor resolves its seat
    * before anything is spawned; the host's own work runs on the host's login.
    */
-  useSeats(seats: SeatStore, turnLedger: TurnLedger): void {
+  useSeats(seats: SeatStore): void {
     this.seats = seats
-    this.turnLedger = turnLedger
   }
 
   /**
@@ -1814,6 +1832,7 @@ export class ControlPlane extends EventEmitter {
     // Existing automation runs and agent follow-ups drain with their parent
     // work. User submissions and new automation triggers are gated separately.
     if (request.options.promptSource !== 'automation' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
+    request.runId ??= crypto.randomUUID()
     // Count before the first await: a concurrent update must see setup and
     // accepted queued work, not just an already-running provider process.
     this.updateWorkCount++
@@ -1927,7 +1946,7 @@ export class ControlPlane extends EventEmitter {
     }
     if (options.agentSessionId) {
       event.agentSessionId = options.agentSessionId
-      event.agentExchangeId = options.agentExchangeId
+      event.agentMessageId = options.agentMessageId
     }
     return event
   }
@@ -1943,6 +1962,27 @@ export class ControlPlane extends EventEmitter {
       imageAttachments: await resolvePromptImages(request.options),
     })
     if (!handle) return null
+    // A steer is answered by the turn that accepted it. Its exchanges join that
+    // turn now, in the same microtask the acceptance resolved in, before any
+    // event of that turn's end can be handled, so they settle with it and hear
+    // its questions.
+    const steeredIds = request.exchangeIds?.splice(0) ?? []
+    if (steeredIds.length) {
+      const activeRun = this.activeRunRequests.get(request.sessionId)
+      if (activeRun?.runId) {
+        (activeRun.exchangeIds ??= []).push(...steeredIds)
+        this.orchestration?.runStarted({ runId: activeRun.runId, sessionId: request.sessionId, agentSessionId, exchangeIds: steeredIds })
+      } else {
+        // A backgrounded turn has already released its run record.
+        request.exchangeIds = steeredIds
+        const steered = this._runExchanges(request, agentSessionId)
+        if (steered) this.orchestration?.runStarted(steered)
+        void handle.runPromise.then(
+          () => this._settleRunExchanges(request, handle.abortController.signal.aborted ? 'interrupted' : 'completed', handle, {}),
+          () => this._settleRunExchanges(request, handle.abortController.signal.aborted ? 'interrupted' : 'failed', handle, {}),
+        )
+      }
+    }
 
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
@@ -2127,17 +2167,20 @@ export class ControlPlane extends EventEmitter {
     agentSessionId: string,
     prompt: string,
     delivery: PromptDelivery = 'queue',
-    origin?: Pick<PromptOptions, 'via' | 'agentSessionId' | 'agentExchangeId'> & {
+    origin?: Pick<PromptOptions, 'via' | 'agentSessionId' | 'agentMessageId'> & {
       /** Replaces the session's stored run mode for this prompt and every later
        *  one. A peer that just planned is still in 'plan' mode: prompting it as
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
        *  approving a plan by prompt has to take it out of plan mode. */
       permissionMode?: SessionRunInput['permissionMode']
-      /** The person behind an agent-card prompt; an agent's own follow-up has none. */
+      /** The person behind a shared prompt; an agent's own follow-up has none. */
       actor?: TurnActor
+      /** The orchestrator's exchanges this prompt answers. On the run before the
+       *  run is accepted, so a reply that comes back at once is never lost. */
+      exchangeIds?: string[]
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
-    const { permissionMode, actor, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor, exchangeIds, ...promptOrigin } = origin ?? {}
     const requestedMeta = getIndexedSession(agentSessionId)
     const handoff = resolveSessionLineageById(agentSessionId) ?? (requestedMeta
       ? resolveSessionLineage(requestedMeta.provider, agentSessionId)
@@ -2184,12 +2227,12 @@ export class ControlPlane extends EventEmitter {
     }
     if (permissionMode) input.permissionMode = permissionMode
     await this.seatForTurn(actor, input.provider)
-
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId },
       sessionId,
       actor,
+      exchangeIds,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2209,6 +2252,26 @@ export class ControlPlane extends EventEmitter {
   }
 
   /**
+   * Stop the background tasks a session's agent left running, and nothing else:
+   * the agent's turn is already settled, so this is not an interrupt. Each task
+   * settles through the provider's own events, and the session leaves
+   * 'background' through the usual turn that follows.
+   */
+  async stopBackgroundTasks(id: string): Promise<boolean> {
+    const sessionId = this._sessionIdFor(id)
+    const session = sessionId ? this.activeSessions.get(sessionId) : undefined
+    const agentSessionId = session?.agentSessionId
+    const taskIds = [...(session?.backgroundTaskIds ?? [])]
+    if (!session || !agentSessionId || taskIds.length === 0) return false
+    const backend = this._backendFor(session.backendId)
+    const stopBackgroundTask = backend.stopBackgroundTask?.bind(backend)
+    if (!stopBackgroundTask) return false
+    log.info('background_tasks_stop_requested', { sessionId, taskIds })
+    const stopped = await Promise.all(taskIds.map((taskId) => stopBackgroundTask(agentSessionId, taskId)))
+    return stopped.some(Boolean)
+  }
+
+  /**
    * Interrupt a session, whichever id the caller holds: the renderer's Stop
    * passes Solus's, an MCP `stop_session` passes the provider thread it read off
    * disk. Covers every phase — a queue waiting its turn, a worktree still being
@@ -2218,6 +2281,7 @@ export class ControlPlane extends EventEmitter {
     const sessionId = this._sessionIdFor(id)
     if (!sessionId) return false
 
+    this.orchestration?.targetStopped(sessionId)
     this._drainQueue(sessionId)
     this.failedSetupPrompts.delete(sessionId)
 
@@ -2254,7 +2318,9 @@ export class ControlPlane extends EventEmitter {
       return true
     }
 
-    if (this._cancelPendingAgentReplies(sessionId)) {
+    // Nothing of its own is running: a session held open only by waiting on
+    // the sessions it sent work to stops waiting.
+    if (this.orchestration?.cancelSentBy(sessionId)) {
       this._setStatus(sessionId, 'interrupted')
       return true
     }
@@ -2264,7 +2330,7 @@ export class ControlPlane extends EventEmitter {
 
   /**
    * Start a fresh background session running `prompt` on the given agent/model —
-   * the entry for the `create_session` MCP tool. Builds a plain run input with no
+   * the entry for the `start_session` MCP tool. Builds a plain run input with no
    * client watching it and routes through `runTurn`, resolving once the new
    * session has initialized and returning its id. The caller renders a card,
    * which watches the session when a user opens it.
@@ -2292,11 +2358,23 @@ export class ControlPlane extends EventEmitter {
       rateLimitBehavior: 'queue',
       ...hostInstructionsFor(model),
     }
+    const sessionId = crypto.randomUUID()
+    const delegation = req.delegation
+      ? {
+          // The index keys sessions by provider thread; so does the parent link.
+          parentSessionId: req.delegation.parentAgentSessionId,
+          messageId: req.delegation.messageId,
+          intent: req.delegation.intent,
+          createdAt: req.delegation.createdAt,
+        }
+      : undefined
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'new-session' },
-      sessionId: crypto.randomUUID(),
+      sessionId,
       actor,
+      exchangeIds: req.exchangeIds,
+      delegation,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2401,9 +2479,13 @@ export class ControlPlane extends EventEmitter {
   }
 
   private async _startRunLifecycle(request: SessionRunRequest): Promise<SessionRunLifecycle> {
-    // Every prepared/initialized view of a run shares this one route array. The
-    // request is copied while setup resolves, but completion ownership must not be.
-    request.completionRoutes ??= []
+    // Every prepared/initialized view of a run shares this one exchange array.
+    // The request is copied while setup resolves, but ownership must not be.
+    request.exchangeIds ??= []
+    request.runId ??= crypto.randomUUID()
+    // Before launch: the provider can report this turn's own plan before the
+    // launch step returns, and that plan must survive.
+    this.orchestration?.sessionTurnStarted(request.sessionId)
     const runStartedAt = Date.now()
     const promptSource = request.options.promptSource ?? 'typed'
     // Read before dispatch: Auto routing overwrites the model with the one it
@@ -2435,17 +2517,15 @@ export class ControlPlane extends EventEmitter {
     } catch (error) {
       const interrupted = error instanceof Error && error.message === 'Interrupted'
       this.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)
+      this._cancelRunExchanges(request, interrupted ? 'interrupted' : 'failed')
       throw error
     }
     const { handle, run } = startedRun
-    this.turnLedger?.start({
-      turnId: turnTraceId,
-      promptId: run.options.clientPromptId ?? request.servedQueueId ?? crypto.randomUUID(),
-      sessionId: request.sessionId,
-      actor: run.actor ?? HOST_ACTOR,
-      provider: run.input.provider,
-      startedAt: runStartedAt,
-    })
+    const startedExchanges = this._runExchanges(request, handle.agentSessionId)
+    // The provider can refuse the turn on a limit before its launch finishes
+    // reporting; a parked run has not started, and its release starts it again.
+    const parkedBeforeStart = this.activeSessions.get(request.sessionId)?.status === 'rate_limited'
+    if (startedExchanges && !parkedBeforeStart) this.orchestration?.runStarted(startedExchanges)
     // Its own scope: this runs after `launch_run` resolved, so there is no
     // ambient step left to nest under — but it is still inside the setup
     // window, being awaited before setup is closed below.
@@ -2516,32 +2596,36 @@ export class ControlPlane extends EventEmitter {
         permission_denial_count: handle.permissionDenials.length,
       })
     }
+    // A provider limit ends this attempt, but the prompt is still owned by Solus
+    // while it waits for a reset or a user decision. Its senders are not told it
+    // ended: the exchanges move with the parked queue entry, which shares their
+    // ids, or stay open until the user chooses what to do. Codex ends such a
+    // turn normally and Claude with an error, so both endings ask. A limit that
+    // defers to the next send leaves this turn to finish, like the exit handler.
+    const isParkedRateLimit = (): boolean => {
+      const limit = this._currentRateLimitEvent(settledSessionId)
+      return !!limit && limit.deferCurrentRun !== true
+        && (request.input.rateLimitBehavior === 'ask' || request.input.rateLimitBehavior === 'queue')
+    }
     const done = handle.runPromise.then(
       () => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'completed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
-        void this._settleCompletionRoutes(request, status, handle.resultText, {
-          durationMs: Date.now() - runStartedAt,
-          toolCallCount: handle.toolCallCount,
-        })
+        if (!isParkedRateLimit()) {
+          this._settleRunExchanges(request, status, handle, {
+            durationMs: Date.now() - runStartedAt,
+            toolCallCount: handle.toolCallCount,
+          })
+        }
         return handle.resultText ? { output: handle.resultText } : {}
       },
       (error) => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'failed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
-        // A provider limit rejects this attempt, but the prompt is still owned
-        // by Solus while it waits for a reset or a user decision. Do not tell a
-        // caller that its peer failed; the watch is moved to the parked queue
-        // entry below, or remains armed until the user chooses what to do.
-        const pendingRateLimit = this._currentRateLimitEvent(settledSessionId)
-        const isParkedRateLimit = pendingRateLimit
-          && (request.input.rateLimitBehavior === 'ask' || request.input.rateLimitBehavior === 'queue')
-        if (!isParkedRateLimit) {
-          void this._settleCompletionRoutes(request, status, handle.resultText, {
+        if (!isParkedRateLimit()) {
+          this._settleRunExchanges(request, status, handle, {
             durationMs: Date.now() - runStartedAt,
             toolCallCount: handle.toolCallCount,
           })
@@ -2558,160 +2642,6 @@ export class ControlPlane extends EventEmitter {
         handle.abortController.abort()
       },
       disposition: 'started',
-    }
-  }
-
-  private _dispatchSessionReport(callerAgentSessionId: string, prompt: string, agent: { agentSessionId: string; exchangeId: string }): void {
-    // Keep the update drain open until this report has started or queued.
-    this.updateWorkCount++
-    // promptSession addresses its target the way the agent-tool surface does.
-    log.info('session_report_dispatch_started', {
-      callerAgentSessionId,
-      targetAgentSessionId: agent.agentSessionId,
-      exchangeId: agent.exchangeId,
-    })
-    void this.promptSession(callerAgentSessionId, prompt, 'queue', {
-      via: 'session-report',
-      agentSessionId: agent.agentSessionId,
-      agentExchangeId: agent.exchangeId,
-    }).then((result) => {
-      log.info('session_report_dispatched', {
-        callerAgentSessionId,
-        targetAgentSessionId: agent.agentSessionId,
-        exchangeId: agent.exchangeId,
-        disposition: result.disposition,
-        queueId: result.queueId,
-      })
-    }).catch((error) => {
-      log.warn('session_report_failed', {
-        callerAgentSessionId,
-        targetAgentSessionId: agent.agentSessionId,
-        exchangeId: agent.exchangeId,
-        error: String(error),
-      })
-    }).finally(() => { this.updateWorkCount-- })
-  }
-
-  /** A watched agent paused for human input. Surfaces the question on the OLDEST
-   *  armed exchange in every caller's agent-conversation card — the paused run belongs to
-   *  it; newer exchanges are still queued — and injects the prose report once
-   *  per watch, WITHOUT consuming the watch, so the eventual settle still lands
-   *  in the same exchange (waiting → answered → replying → done). Pass `only`
-   *  to scope a registration-time catch-up to the newly armed watch. */
-  private _fireAwaitingInputWatchers(
-    targetSessionId: string,
-    status: 'awaiting_input' | 'awaiting_plan',
-    only?: AgentCompletionRoute,
-  ): void {
-    const session = this.activeSessions.get(targetSessionId)
-    if (!session?.agentSessionId) return
-    const routes = only
-      ? [only]
-      : this.activeRunRequests.get(targetSessionId)?.completionRoutes ?? []
-    if (!routes.length) return
-    const question = agentConversationQuestionFromPendingInput(session.pendingInputEvents)
-    const pendingInput = formatPendingInputReport(session.pendingInputEvents)
-    const oldestByCaller = new Map<string, AgentCompletionRoute>()
-    for (const route of routes) {
-      if (!oldestByCaller.has(route.callerSessionId)) oldestByCaller.set(route.callerSessionId, route)
-    }
-    for (const route of oldestByCaller.values()) {
-      if (question) {
-        this._emit(route.callerSessionId, {
-          type: 'agent_conversation_update',
-          update: { phase: 'awaiting_input', agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId, ...question },
-        })
-      }
-      if (pendingInput && route.notifyModel && !route.awaitingReported) {
-        route.awaitingReported = true
-        this._dispatchSessionReport(
-          route.callerAgentSessionId,
-          buildSessionAwaitingInputReport(route.targetAgentSessionId, status, pendingInput),
-          { agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId },
-        )
-      }
-    }
-  }
-
-  private _settleCompletionRoutes(
-    run: SessionRunRequest,
-    status: 'completed' | 'interrupted' | 'failed',
-    resultText: string | undefined,
-    runMeta?: { durationMs?: number; toolCallCount?: number },
-  ): Promise<void> {
-    // Reading a finished agent's transcript can outlive its provider process.
-    // An update must wait until the resulting report has been delivered too.
-    this.updateWorkCount++
-    return this._deliverCompletionRoutes(run, status, resultText, runMeta)
-      .finally(() => { this.updateWorkCount-- })
-  }
-
-  private async _deliverCompletionRoutes(
-    run: SessionRunRequest,
-    status: 'completed' | 'interrupted' | 'failed',
-    resultText: string | undefined,
-    runMeta?: { durationMs?: number; toolCallCount?: number },
-  ): Promise<void> {
-    const routes = run.completionRoutes?.splice(0) ?? []
-    if (!routes.length) {
-      log.debug('agent_conversation_watch_settle_no_callers', {
-        targetSessionId: run.sessionId,
-        status,
-      })
-      return
-    }
-
-    log.info('agent_conversation_watch_settle_started', {
-      targetSessionId: run.sessionId,
-      status,
-      callerCount: new Set(routes.map((route) => route.callerSessionId)).size,
-      watchCount: routes.length,
-    })
-
-    const targetAgentSessionId = routes[0].targetAgentSessionId
-
-    log.info('agent_conversation_watch_settle_resolved', {
-      targetSessionId: run.sessionId,
-      targetAgentSessionId,
-      status,
-      resolvedCount: routes.length,
-      notifyModelCount: routes.filter((route) => route.notifyModel).length,
-    })
-
-    let finalText = resultText?.trim()
-    if (!finalText) {
-      const messages = await this.loadSession(
-        run.input.provider,
-        targetAgentSessionId,
-        projectScopeOf(run.input),
-      ).catch(() => [])
-      finalText = [...messages].reverse().find(
-        (message) => message.role === 'assistant' && !message.parentToolUseId && message.content,
-      )?.content?.trim()
-    }
-
-    const settledAt = Date.now()
-    for (const route of routes) {
-      this._emit(route.callerSessionId, {
-        type: 'agent_conversation_update',
-        update: {
-          phase: 'settled',
-          agentSessionId: route.targetAgentSessionId,
-          exchangeId: route.exchangeId,
-          status,
-          replyText: finalText ?? '',
-          durationMs: runMeta?.durationMs,
-          toolCallCount: runMeta?.toolCallCount,
-          settledAt,
-        },
-      })
-      if (route.notifyModel) {
-        this._dispatchSessionReport(
-          route.callerAgentSessionId,
-          buildSessionSettledReport(route.targetAgentSessionId, status, finalText || '(no final assistant reply available)'),
-          { agentSessionId: route.targetAgentSessionId, exchangeId: route.exchangeId },
-        )
-      }
     }
   }
 
@@ -2803,6 +2733,9 @@ export class ControlPlane extends EventEmitter {
       reject: rejectDone,
       enqueuedAt,
     })
+
+    const queuedExchanges = this._runExchanges(run)
+    if (queuedExchanges) this.orchestration?.runQueued(queuedExchanges)
 
     const done = queuedDone.then(() => ({}))
     void done.catch(() => {})
@@ -2966,15 +2899,10 @@ export class ControlPlane extends EventEmitter {
           async (annotate) => {
             // `createWorktree` records its own git commands under this step
             // through the ambient context — it takes no telemetry argument.
-            const generatedName = await generateWorktreeName(
-              this,
-              options.prompt,
-              resolvedProjectPath,
-              setupController.signal,
-            )
-            const created = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
+            // It starts on a temporary branch; `nameWorktreeBranch` names it
+            // while the agent works, so the prompt never waits on a model.
+            const created = await createWorktree(resolvedProjectPath, worktreeBaseBranch, {
               signal: setupController.signal,
-              generatedName,
             })
             annotate({ branch: created.branch, targetBranch: created.targetBranch, worktreePath: created.worktreePath })
             return created
@@ -2985,6 +2913,7 @@ export class ControlPlane extends EventEmitter {
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
         captureServerEvent('worktree_created', {})
         this._emit(sessionId, { type: 'git_context', gitContext })
+        void this.nameWorktreeBranch(sessionId, gitContext, options.prompt)
         // Worktree done → advance to "Linking thread workspace".
         this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(1) })
       } catch (e) {
@@ -3178,6 +3107,11 @@ export class ControlPlane extends EventEmitter {
       }
     } else {
       setForeignTaskSnapshot(sessionId, null)
+    }
+    // A turn that answers another session's message ends with what that session
+    // needs to act on, since its last message is what comes back.
+    if (request.exchangeIds?.length) {
+      options.systemPrompt = [options.systemPrompt, ANSWERING_ANOTHER_SESSION].filter(Boolean).join('\n\n')
     }
 
     // Confirm identified prompts to the sender too: its busy state can differ
@@ -3409,8 +3343,8 @@ export class ControlPlane extends EventEmitter {
       const req = queue[i]
       queue.splice(i, 1)
       // A queued prompt never reaches the normal settlement path when Stop
-      // drains it, so its caller would otherwise stay held forever.
-      this._cancelAgentConversationRunWatches(sessionId, req.queueId)
+      // drains it, so its sender would otherwise stay held forever.
+      this._cancelRunExchanges(req.run)
       req.reject(reason)
       this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
       if (req.rateLimitSessionId) this._cleanupRateLimitTimerIfUnused(req.rateLimitSessionId)
@@ -3437,7 +3371,7 @@ export class ControlPlane extends EventEmitter {
     if (!queue) return false
     const idx = queue.findIndex((r) => r.queueId === queueId)
     if (idx === -1) return false
-    this._cancelAgentConversationRunWatches(sessionId, queueId)
+    this._cancelRunExchanges(queue[idx]!.run)
     const [req] = queue.splice(idx, 1)
     req.reject(new Error('Cancelled by user'))
     this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
@@ -3450,10 +3384,13 @@ export class ControlPlane extends EventEmitter {
   /** Rewrite a prompt that is still waiting its turn. Both fields matter: the
    *  queue displays `displayPrompt ?? prompt`, the run sends `prompt`. */
   editQueuedPrompt(ctx: IpcContext, queueId: string, text: string): boolean {
+    const sessionId = this._sessionIdForCtx(ctx)
+    return sessionId ? this._editQueuedPrompt(sessionId, queueId, text) : false
+  }
+
+  private _editQueuedPrompt(sessionId: string, queueId: string, text: string): boolean {
     const trimmed = text.trim()
     if (!trimmed) return false
-    const sessionId = this._sessionIdForCtx(ctx)
-    if (!sessionId) return false
     const req = this.requestQueue.get(sessionId)?.find((r) => r.queueId === queueId)
     if (!req) return false
 
@@ -3516,71 +3453,75 @@ export class ControlPlane extends EventEmitter {
     await lifecycle.agentSessionId
   }
 
-  /** Answers a pending permission by questionId alone — the question already
-   *  knows which session it belongs to, so this is callable from the RPC handler
-   *  and from an agent tool acting on a peer session alike. */
-  respondToPermission(questionId: string, optionId: string, updatedPlan?: string): boolean {
-    const backend = this._backendForQuestion(questionId)
-    const backends = backend ? [backend] : Array.from(this.backends.values())
-    for (const b of backends) {
-      const pendingInfo = b.permissions.getPendingInfo(questionId)
-      if (b.permissions.respondToPermission(questionId, optionId, updatedPlan)) {
-        const sessionId = this.questionIdToSession.get(questionId)
-          ?? (pendingInfo?.sessionId ? this.agentSessionToSession.get(pendingInfo.sessionId) : undefined)
-        if (sessionId) this.sessionEmitter.resolvePermission(sessionId, questionId, optionId)
-        this._clearPendingInputEvent(questionId)
-        this.questionIdToSession.delete(questionId)
-        const analytics = { decision: optionId, tool_name: pendingInfo?.toolName }
-        captureServerEvent('permission_responded', analytics)
-        if (pendingInfo?.toolName === 'ExitPlanMode') {
-          captureServerEvent('plan_responded', { approved: optionId === 'allow' })
-        }
-        if (pendingInfo?.toolName === 'ExitPlanMode' && optionId === 'deny') {
-          // The permission responder only knows the provider's thread id.
-          const agentSessionId = pendingInfo.sessionId
-          const sessionId = agentSessionId ? this.agentSessionToSession.get(agentSessionId) : undefined
-          if (agentSessionId) b.cancelSession(agentSessionId)
-          if (sessionId) this._setStatus(sessionId, 'interrupted')
-        }
-        return true
-      }
+  /** Answers a permission `askingSessionId` is waiting on. The answer goes to
+   *  that session only: a question id that session is not waiting on — another
+   *  session's, one already answered, or one from a turn that ended — is refused. */
+  respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean {
+    const pending = this._pendingQuestion(askingSessionId, questionId)
+    if (!pending) return false
+    const { sessionId, backend: b, event: pendingEvent } = pending
+    const pendingInfo = b.permissions.getPendingInfo(questionId)
+    if (!b.permissions.respondToPermission(questionId, optionId, updatedPlan)) return false
+    this.sessionEmitter.resolvePermission(sessionId, questionId, optionId)
+    // Before a rejection cancels the run and its exchanges settle.
+    const resolved = permissionAnswer(pendingEvent, pendingInfo?.toolName, optionId, updatedPlan)
+    this._reportToActiveRun(sessionId, (run) => this.orchestration?.inputResolved(run, resolved))
+    this._clearPendingInputEvent(questionId)
+    this.questionIdToSession.delete(questionId)
+    const analytics = { decision: optionId, tool_name: pendingInfo?.toolName }
+    captureServerEvent('permission_responded', analytics)
+    if (pendingInfo?.toolName === 'ExitPlanMode') {
+      captureServerEvent('plan_responded', { approved: optionId === 'allow' })
     }
-    return false
+    if (pendingInfo?.toolName === 'ExitPlanMode' && optionId === 'deny') {
+      // The permission responder only knows the provider's thread id.
+      const agentSessionId = pendingInfo.sessionId
+      if (agentSessionId) b.cancelSession(agentSessionId)
+      this._setStatus(sessionId, 'interrupted')
+    }
+    return true
   }
 
-  respondToQuestion(questionId: string, answers: Record<string, string>): boolean {
-    const backend = this._backendForQuestion(questionId)
-    const backends = backend ? [backend] : Array.from(this.backends.values())
-    for (const b of backends) {
-      const sessionId = this.questionIdToSession.get(questionId)
-      const question = sessionId ? this.activeSessions.get(sessionId)?.pendingInputEvents.find(
-        (event) => event.type === 'question_request' && event.questionId === questionId,
-      ) : undefined
-      if (b.permissions.respondToQuestion(questionId, answers)) {
-        if (sessionId) {
-          this.sessionEmitter.resolveQuestion(sessionId, questionId)
-          if (question?.type === 'question_request' && (!question.kind || question.kind === 'standard')) {
-            this._emit(sessionId, {
-              type: 'question_answered',
-              answer: { questionId, questions: question.questions, answers },
-              timestamp: Date.now(),
-            })
-          }
-        }
-        this._clearPendingInputEvent(questionId)
-        this.questionIdToSession.delete(questionId)
-        return true
-      }
+  /** Answers a question `askingSessionId` is waiting on; refused like a permission. */
+  respondToQuestion(askingSessionId: string, questionId: string, answers: Record<string, string>): boolean {
+    const pending = this._pendingQuestion(askingSessionId, questionId)
+    if (!pending || pending.event.type !== 'question_request') return false
+    const { sessionId, backend: b, event: question } = pending
+    if (!b.permissions.respondToQuestion(questionId, answers)) return false
+    this._reportToActiveRun(sessionId, (run) => this.orchestration?.inputResolved(run, { kind: 'question', questions: question.questions, answers }))
+    this.sessionEmitter.resolveQuestion(sessionId, questionId)
+    if (!question.kind || question.kind === 'standard') {
+      this._emit(sessionId, {
+        type: 'question_answered',
+        answer: { questionId, questions: question.questions, answers },
+        timestamp: Date.now(),
+      })
     }
-    return false
+    this._clearPendingInputEvent(questionId)
+    this.questionIdToSession.delete(questionId)
+    return true
   }
 
-  private _backendForQuestion(questionId: string): AgentBackend | undefined {
-    const sessionId = this.questionIdToSession.get(questionId)
-    if (!sessionId) return undefined
+  /** The request `askingSessionId` is waiting on under `questionId`, with the
+   *  backend that answers it. Null unless that live session holds it now. */
+  private _pendingQuestion(
+    askingSessionId: string,
+    questionId: string,
+  ): { sessionId: string; backend: AgentBackend; event: NormalizedEvent } | null {
+    const sessionId = this._sessionIdFor(askingSessionId)
+    const owner = this.questionIdToSession.get(questionId)
+    if (!sessionId || owner !== sessionId) {
+      log.warn('answer_refused', { askingSessionId, questionId, ownerSessionId: owner ?? null, reason: owner ? 'other_session' : 'not_pending' })
+      return null
+    }
     const session = this.activeSessions.get(sessionId)
-    if (!session) return undefined
-    return this.backends.get(session.backendId)
+    const event = session?.pendingInputEvents.find((pendingEvent) => eventHasQuestionId(pendingEvent, questionId))
+    const backend = session ? this.backends.get(session.backendId) : undefined
+    if (!event || !backend) {
+      log.warn('answer_refused', { askingSessionId, questionId, ownerSessionId: owner, reason: 'not_pending' })
+      return null
+    }
+    return { sessionId, backend, event }
   }
 
   resolveRateLimit(ctx: IpcContext, action: RateLimitDecisionAction): boolean {
@@ -3600,7 +3541,7 @@ export class ControlPlane extends EventEmitter {
       this._clearRateLimitTimer(sessionId)
       this.rateLimits.clear(sessionId)
       this._setStatus(sessionId, 'idle')
-      this._cancelAgentConversationRunWatches(sessionId, 'active')
+      this._cancelRunExchanges(this.activeRunRequests.get(sessionId))
       this._rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
       this._broadcastRateLimitResolved(sessionId, action)
       this._dropParkedSession(sessionId)
@@ -3661,6 +3602,37 @@ export class ControlPlane extends EventEmitter {
   }
 
   // ─── Worktree registry helpers (used by main's worktree IPC handlers) ───
+
+  /**
+   * Replace a new worktree's temporary branch with a name generated from the
+   * prompt. It runs beside the agent's first turn and only logs a failure:
+   * the temporary branch is a correct branch, only a less readable one.
+   */
+  async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string): Promise<void> {
+    const { worktreePath, branch: temporaryBranch } = checkout
+    if (!worktreePath || !temporaryBranch || !isTemporaryWorktreeBranch(temporaryBranch)) return
+    try {
+      const generatedName = await generateWorktreeName(this, prompt, worktreePath)
+      if (!generatedName) return
+      const branch = await renameWorktreeBranch(worktreePath, temporaryBranch, generatedName)
+      if (!branch) return
+      log.info('worktree_branch_renamed', { sessionId, from: temporaryBranch, branch })
+      // The run input, the live session, and the watched environment can hold
+      // the same checkout. Rename it in each place that still names the
+      // temporary branch, so the index row written at session init and every
+      // later prompt see the final name.
+      const session = this.activeSessions.get(sessionId)
+      const holders = [session?.gitContext, session?.runInput?.gitContext, this.sessionGitEnvironments.get(sessionId)?.gitContext]
+      for (const holder of holders) {
+        if (holder?.worktreePath === worktreePath && holder.branch === temporaryBranch) holder.branch = branch
+      }
+      setSessionBranch(sessionId, branch)
+      const gitContext = session?.gitContext?.worktreePath === worktreePath ? session.gitContext : { ...checkout, branch }
+      this._emit(sessionId, { type: 'git_context', gitContext })
+    } catch (error) {
+      log.warn('worktree_branch_rename_failed', { sessionId, branch: temporaryBranch, error: String(error) })
+    }
+  }
 
   setSessionGitCheckout(sessionId: string, gitContext: GitCheckout | undefined): void {
     const existing = this.sessionGitEnvironments.get(sessionId)
@@ -3967,7 +3939,7 @@ export class ControlPlane extends EventEmitter {
       const req = queue[i]
       if (req.rateLimitSessionId !== sessionId) continue
       queue.splice(i, 1)
-      this._cancelAgentConversationRunWatches(sessionId, req.queueId)
+      this._cancelRunExchanges(req.run)
       req.reject(reason)
       this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
     }
@@ -4240,6 +4212,16 @@ export class ControlPlane extends EventEmitter {
     })
   }
 
+  private _writeSessionRecordStatus(sessionId: string, agentSessionId: string, status: SessionRecordStatus): void {
+    if (this.recordStatusWritten.get(agentSessionId) === status) return
+    this.recordStatusWritten.set(agentSessionId, status)
+    void setSessionRecordStatus(LOCAL_ORGANIZATION_ID, agentSessionId, status).catch((error) => {
+      // Unknown outcome: the next transition writes again.
+      this.recordStatusWritten.delete(agentSessionId)
+      log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
+    })
+  }
+
   private _applyStatus(sessionId: string, newStatus: SessionStatus): void {
     const session = this.activeSessions.get(sessionId)
     // Attention persists across restarts and is correlated with rows read off
@@ -4274,12 +4256,10 @@ export class ControlPlane extends EventEmitter {
     }
 
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
-    // The collaboration plane's record keeps one fact of this: a turn open or not.
-    if (agentSessionId) {
-      void setSessionRecordStatus(LOCAL_ORGANIZATION_ID, agentSessionId, sessionRecordStatusOf(newStatus)).catch((error) => {
-        log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
-      })
-    }
+    // The collaboration plane's record keeps one fact of this: a turn open or
+    // not. Most transitions (connecting, awaiting input, rate limited) keep that
+    // fact, so write only when it changes.
+    if (agentSessionId) this._writeSessionRecordStatus(sessionId, agentSessionId, sessionRecordStatusOf(newStatus))
     this._emit(sessionId, { type: 'status_change', status: newStatus, oldStatus })
     if (
       session &&
@@ -4379,13 +4359,6 @@ export class ControlPlane extends EventEmitter {
       session.hasPendingInput = session.pendingInputEvents.length > 0
 
       if (session.pendingInputEvents.length !== before) {
-        // The pause a watcher already reported has been answered — by a human
-        // looking at this session or by a peer agent's answer tool. Re-arm the prose
-        // report so a SECOND pause in the same exchange still surfaces to the
-        // caller instead of going silent.
-        for (const route of this.activeRunRequests.get(session.sessionId)?.completionRoutes ?? []) {
-          route.awaitingReported = false
-        }
         this._setStatus(session.sessionId, this._pendingInputStatus(session))
         this._emit(session.sessionId, {
           type: 'pending_input_sync',

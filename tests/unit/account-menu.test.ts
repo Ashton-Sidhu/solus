@@ -14,6 +14,6 @@ describe('the sidebar account menu', () => {
 
   test('account and organization links follow the session origin', () => {
     expect(consolePageUrl('https://app.solus.sh', 'account')).toBe('https://app.solus.sh/account')
-    expect(consolePageUrl('http://localhost:5173/', 'teams')).toBe('http://localhost:5173/teams')
+    expect(consolePageUrl('http://localhost:5173/', 'organizations')).toBe('http://localhost:5173/organizations')
   })
 })

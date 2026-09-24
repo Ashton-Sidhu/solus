@@ -40,6 +40,7 @@ async function main(): Promise<void> {
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
     writeLaunchers(staging)
+    if (target.platform === 'linux') copyManagedBoot(staging)
     writeNativeNote(staging)
     mkdirSync(join(staging, 'docs'), { recursive: true })
     cpSync(join(repoRoot, 'docs', 'linux-browser.md'), join(staging, 'docs', 'linux-browser.md'))
@@ -238,6 +239,15 @@ case "\${1-}" in
   *) exec "$ROOT/bin/node" "$ROOT/libexec/cli/solus.js" start "$@" ;;
 esac
 `)
+}
+
+/** A managed host's boot on its Sprite (packaging/managed-host/sprite-boot.sh), run from the release it ships in. */
+function copyManagedBoot(staging: string): void {
+  const managedDir = join(staging, 'libexec', 'managed')
+  mkdirSync(managedDir, { recursive: true })
+  const boot = join(managedDir, 'sprite-boot.sh')
+  cpSync(join(repoRoot, 'packaging', 'managed-host', 'sprite-boot.sh'), boot)
+  chmodSync(boot, 0o755)
 }
 
 function writeNativeNote(staging: string): void {

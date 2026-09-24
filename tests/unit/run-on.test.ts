@@ -2,28 +2,25 @@ import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import {
-  hostsToRunOn,
   isRunOnHostLocked,
-  isNewWorktreeStartSelected,
   projectHostId,
   repoKeyForPath,
   returnsToProjectHome,
   shouldShowRunOnPicker,
-  withLocalStart,
+  withCheckoutOnHost,
   withRemoteDispatch,
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig } from '@solus/contracts/types'
-import { runTarget } from '@solus/workspace-ui/components/servers/lib/run-target'
+import { orderRunOnHosts, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
+import { projectChipOptions } from '@solus/workspace-ui/components/input/lib/project-chip-options'
 import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
-import { startsWorktree, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from '@solus/workspace-ui/contexts/workspace/run-config'
+import { withDispatchBaseBranch, withDispatchWorktree } from '@solus/workspace-ui/contexts/workspace/run-config'
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 
 function visibility(overrides: Partial<VisibilityInput> = {}): VisibilityInput {
   return {
-    variant: 'header',
-    isGitRepo: false,
     connectedRemoteCount: 0,
     onRemoteHost: false,
     selectedHostId: LOCAL_SERVER_ID,
@@ -53,13 +50,6 @@ describe('run-on host selection', () => {
     const repoKey = repoKeyForPath(identities, '/work/solus')
 
     expect(repoKey).toBe('github.com/openai/solus')
-  })
-
-  test('marks only the remote host when its default is a new worktree', () => {
-    // WHY: host and checkout shape are shown in one menu. The remote host is the
-    // selected destination, so its default worktree must not show a second check.
-    expect(isNewWorktreeStartSelected(true, true)).toBe(false)
-    expect(isNewWorktreeStartSelected(false, true)).toBe(true)
   })
 })
 
@@ -104,65 +94,140 @@ describe('managed hosts in the picker', () => {
 })
 
 describe('run-on picker visibility', () => {
-  test('a git checkout always earns the header — it is the only worktree control', () => {
-    // WHY: the header combines "where it runs" with "does it get a worktree".
-    // A single-machine user with no remotes still needs the worktree choice, so
-    // git alone is enough — this is the one case a bare host count would drop.
-    expect(shouldShowRunOnPicker(visibility({ variant: 'header', isGitRepo: true }))).toBe(true)
+  test('one machine shows no picker, git checkout or not', () => {
+    // WHY: the picker only chooses a machine. The checkout type moved to the
+    // branch chip, so with nowhere else to run the chip is an empty gesture.
+    expect(shouldShowRunOnPicker(visibility())).toBe(false)
   })
 
-  test('a plain local folder with no reachable remote hides the picker', () => {
-    // WHY: nothing to choose. No worktree to branch (not git) and nowhere else
-    // to run (no connected remote), so the chip would be an empty gesture.
-    expect(shouldShowRunOnPicker(visibility({ variant: 'header', isGitRepo: false }))).toBe(false)
-    expect(shouldShowRunOnPicker(visibility({ variant: 'chip', isGitRepo: true }))).toBe(false)
-  })
-
-  test('a reachable remote reveals the picker even without a git repo', () => {
-    // WHY: opening a plain folder on another machine is a first-class state —
-    // the picker must name that machine and let the user pick it, git or not.
-    expect(shouldShowRunOnPicker(visibility({ variant: 'header', connectedRemoteCount: 1 }))).toBe(true)
-    expect(shouldShowRunOnPicker(visibility({ variant: 'chip', connectedRemoteCount: 1 }))).toBe(true)
-  })
-
-  test('a saved-but-offline remote does not count — only reachable ones do', () => {
-    // WHY: the count is pre-filtered to connected hosts, so this asserts the
-    // contract the picker relies on: an unreachable saved host is not a choice.
-    expect(shouldShowRunOnPicker(visibility({ variant: 'chip', connectedRemoteCount: 0 }))).toBe(false)
+  test('a reachable remote reveals the picker', () => {
+    expect(shouldShowRunOnPicker(visibility({ connectedRemoteCount: 1 }))).toBe(true)
   })
 
   test('a session already on a remote host shows the picker, even a forgotten one', () => {
     // WHY: the badge must never silently read as local. A run pointed at a
     // remote id names it whether or not that host is still in the saved list.
-    expect(shouldShowRunOnPicker(visibility({ variant: 'chip', onRemoteHost: true }))).toBe(true)
-    expect(
-      shouldShowRunOnPicker(visibility({ variant: 'chip', onRemoteHost: false, selectedHostId: 'studio-forgotten' })),
-    ).toBe(true)
+    expect(shouldShowRunOnPicker(visibility({ onRemoteHost: true }))).toBe(true)
+    expect(shouldShowRunOnPicker(visibility({ selectedHostId: 'studio-forgotten' }))).toBe(true)
   })
 })
 
-describe('the hosts offered as "another host"', () => {
-  const local = { id: LOCAL_SERVER_ID, local: true }
-  const studio = { id: 'studio', local: false }
-  const mini = { id: 'mini', local: false }
+describe('what each Run on row does for the project', () => {
+  // WHY: one click on a host used to do one of four things chosen by state the
+  // person could not see. Each row now says what it will do, and does it.
+  const run = {
+    serverId: 'local',
+    taskServerId: 'local',
+    projectGroupPath: null,
+    workingDirectory: '/home/dev/solus',
+    pendingHostDispatch: null,
+  } as RunConfig
+  const checkouts = [
+    { serverId: 'studio', projectRoot: '/srv/solus' },
+    { serverId: 'local', projectRoot: '/home/dev/solus' },
+  ]
+  const action = (hostId: string, overrides: { run?: RunConfig; cloneRepoKey?: string | null } = {}) =>
+    runOnHostAction({
+      hostId,
+      selectedHostId: 'local',
+      run: overrides.run ?? run,
+      checkouts,
+      cloneRepoKey: overrides.cloneRepoKey === undefined ? 'github.com/openai/solus' : overrides.cloneRepoKey,
+    })
 
-  test('a web client never offers the host it is already connected to', () => {
-    // WHY: the bug. On web nothing is flagged local — the connected host is an
-    // ordinary remote row — so "Start in" named it and this group listed it
-    // again, showing one machine twice with the check on the duplicate.
-    expect(hostsToRunOn([mini, studio], 'mini')).toEqual([studio])
+  test('the host the run is on is current', () => {
+    expect(action('local')).toEqual({ kind: 'current' })
   })
 
-  test('desktop still drops its local host and keeps every remote', () => {
-    // WHY: the run sits on LOCAL_SERVER_ID there, so excluding the run's host
-    // must not start dropping the remotes that are the point of the group.
-    expect(hostsToRunOn([local, studio, mini], LOCAL_SERVER_ID)).toEqual([studio, mini])
+  test('a host with a checkout of the project runs in it instead of cloning again', () => {
+    expect(action('studio')).toEqual({ kind: 'checkout', path: '/srv/solus' })
   })
 
-  test('a run dispatched to a remote offers the hosts it is not on', () => {
-    // WHY: a dispatched run's own host is the checked "Start in" row, so it is
-    // the duplicate — but its home host is a real destination to return to.
-    expect(hostsToRunOn([local, studio, mini], 'studio')).toEqual([mini])
+  test('a host without a checkout copies the repository', () => {
+    expect(action('mini')).toEqual({ kind: 'clone' })
+  })
+
+  test('with no remote to copy, the person picks a folder on that host', () => {
+    expect(action('mini', { cloneRepoKey: null })).toEqual({ kind: 'choose-folder' })
+  })
+
+  test('a dispatched run offers its home checkout, which the catalog does not list', () => {
+    const dispatched = { ...run, serverId: 'mini', taskServerId: 'home', projectGroupPath: '/Users/me/solus' } as RunConfig
+    expect(runOnHostAction({ hostId: 'home', selectedHostId: 'mini', run: dispatched, checkouts: [], cloneRepoKey: 'k' }))
+      .toEqual({ kind: 'checkout', path: '/Users/me/solus' })
+  })
+
+  test('hosts list as current, then hosts with a checkout, then the rest', () => {
+    const hosts = ['mini', 'studio', 'local']
+    expect(orderRunOnHosts(hosts, (hostId) => action(hostId))).toEqual(['local', 'studio', 'mini'])
+  })
+})
+
+describe('moving a run into an existing checkout', () => {
+  const run = {
+    serverId: 'local',
+    taskServerId: 'local',
+    projectGroupPath: '/home/dev/solus',
+    workingDirectory: '/home/dev/solus',
+    gitContext: null,
+    worktree: null,
+    pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
+  } as RunConfig
+
+  test('another host is recorded as intent, with the checkout to open there', () => {
+    // WHY: nothing connects before Send. The checkout path is the host's own.
+    const next = withCheckoutOnHost(run, 'studio', '/srv/solus', { immediate: false, isolate: false })
+    expect(next.pendingHostDispatch).toEqual({ serverId: 'studio', intent: 'open-project' })
+    expect(next.workingDirectory).toBe('/srv/solus')
+    expect(next.serverId).toBe('local')
+  })
+
+  test('your own machine switches at once and drops a queued dispatch', () => {
+    const next = withCheckoutOnHost({ ...run, serverId: 'studio' }, 'local', '/home/dev/solus', { immediate: true, isolate: false })
+    expect(next.serverId).toBe('local')
+    expect(next.pendingHostDispatch).toBeNull()
+    expect(next.projectGroupPath).toBeNull()
+    expect(next.workingDirectory).toBe('/home/dev/solus')
+  })
+})
+
+describe('the project chip lists projects, not checkouts', () => {
+  const project = (key: string, checkouts: { serverId: string; projectRoot: string }[]) => ({
+    key,
+    label: key.split('/').at(-1)!,
+    cloudProject: null,
+    checkouts: checkouts.map((checkout, index) => ({ ...checkout, label: 'solus', lastSeenAt: 10 - index })),
+  })
+  const online = (serverId: string) => serverId !== 'offline'
+  const label = (serverId: string) => serverId.toUpperCase()
+
+  test('one row for a repository with checkouts on several hosts, opened on the run host', () => {
+    // WHY: the same repository on two machines is one project. The row opens
+    // where the run already is, so choosing it never moves the run by surprise.
+    const options = projectChipOptions(
+      [project('github.com/openai/solus', [{ serverId: 'studio', projectRoot: '/srv/solus' }, { serverId: 'local', projectRoot: '/home/dev/solus' }])],
+      'local', online, label,
+    )
+    expect(options).toEqual([{
+      key: 'github.com/openai/solus',
+      label: 'solus',
+      checkout: { serverId: 'local', projectRoot: '/home/dev/solus' },
+      hostLabel: null,
+    }])
+  })
+
+  test('a project only another host holds opens there and names that host', () => {
+    const [option] = projectChipOptions(
+      [project('github.com/openai/solus', [{ serverId: 'offline', projectRoot: '/a' }, { serverId: 'studio', projectRoot: '/srv/solus' }])],
+      'local', online, label,
+    )
+    expect(option!.checkout).toEqual({ serverId: 'studio', projectRoot: '/srv/solus' })
+    expect(option!.hostLabel).toBe('STUDIO')
+  })
+
+  test('a project whose hosts are all offline stays listed with nothing to open', () => {
+    const [option] = projectChipOptions([project('k', [{ serverId: 'offline', projectRoot: '/a' }])], 'local', online, label)
+    expect(option!.checkout).toBeNull()
   })
 })
 
@@ -204,81 +269,6 @@ describe('returning a dispatched run to its project home', () => {
   })
 })
 
-describe('choosing a local checkout', () => {
-  test('returning from another host applies Local on the first selection', () => {
-    // WHY: moving hosts and disabling worktree mode are one picker action. If the
-    // host move returns early, the retained preference selects New worktree and
-    // makes the user choose Local a second time.
-    const next = withLocalStart(
-      {
-        serverId: 'studio',
-        taskServerId: 'studio',
-        projectGroupPath: '/home/dev/solus',
-        workingDirectory: '/srv/projects/solus',
-        gitContext: null,
-        worktree: { baseBranch: null },
-        pendingHostDispatch: null,
-      } as RunConfig,
-      'local',
-      '/home/dev/fallback',
-      false,
-    )
-
-    expect(next.serverId).toBe('local')
-    expect(next.taskServerId).toBe('local')
-    expect(next.workingDirectory).toBe('/home/dev/solus')
-    expect(next.worktree).toBeNull()
-    expect(next.projectGroupPath).toBeNull()
-  })
-
-  test('staying local clears a queued host and applies the checkout shape together', () => {
-    // WHY: two onRun calls built from the stale prop can restore either half of
-    // the old selection. The picker must emit one complete next run instead.
-    const next = withLocalStart(
-      {
-        serverId: 'local',
-        taskServerId: 'local',
-        projectGroupPath: null,
-        workingDirectory: '/home/dev/solus',
-        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-        worktree: { baseBranch: 'main' },
-        pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
-      } as RunConfig,
-      'local',
-      '/home/dev/fallback',
-      false,
-    )
-
-    expect(next.pendingHostDispatch).toBeNull()
-    expect(next.worktree).toBeNull()
-  })
-
-  test('the picker row and the worktree shortcut land on the same run', () => {
-    // WHY: with no app-level worktree default left, "New worktree" in the Run on
-    // picker and ⌥⇧B are the only two ways to ask for isolation — one for the
-    // pointer, one for the keyboard. They must be the same answer, or a client
-    // that can only reach one of them gets a different session than the other.
-    const composing = {
-      serverId: 'local',
-      taskServerId: 'local',
-      projectGroupPath: null,
-      workingDirectory: '/home/dev/solus',
-      gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-      worktree: null,
-      pendingHostDispatch: null,
-    } as RunConfig
-
-    const viaPicker = withLocalStart(composing, 'local', '/home/dev/fallback', true)
-    const viaShortcut = withWorktreeToggled(composing)
-
-    expect(viaPicker.worktree).toEqual({ baseBranch: 'main' })
-    expect(viaShortcut.worktree).toEqual(viaPicker.worktree)
-    expect(viaShortcut.workingDirectory).toBe(viaPicker.workingDirectory)
-    // And the picker agrees about what it is showing a checkmark against.
-    expect(isNewWorktreeStartSelected(false, startsWorktree(viaShortcut))).toBe(true)
-  })
-})
-
 describe('choosing a remote host', () => {
   test('selects a fresh worktree with the pending dispatch', () => {
     // WHY: a remote dispatch runs in an unattended clone. The host choice must
@@ -302,18 +292,6 @@ describe('choosing a remote host', () => {
       repoKey: 'github.com/openai/solus',
     })
     expect(next.worktree).toEqual({ baseBranch: 'main' })
-
-    const target = runTarget({
-      run: next,
-      hostLabel: 'Studio',
-      taskHostLabel: 'Local',
-      stayLabel: 'Local',
-      hostIsLocal: false,
-      canBranchWorktree: true,
-    })
-    expect(target.kind).toBe('dispatched')
-    expect(target.startsWorktree).toBeTrue()
-    expect(target.worktreeForced).toBeTrue()
   })
 
   test('records an exact remote worktree without changing the local checkout', () => {
@@ -349,17 +327,6 @@ describe('choosing a remote host', () => {
         branch: 'release',
       },
     })
-    const target = runTarget({
-      run: next,
-      hostLabel: 'Studio',
-      taskHostLabel: 'Local',
-      stayLabel: 'Local',
-      hostIsLocal: false,
-      canBranchWorktree: true,
-    })
-    expect(target.startsWorktree).toBeFalse()
-    expect(target.worktreeForced).toBeFalse()
-
     expect(withDispatchWorktree(next, null).worktree).toEqual({ baseBranch: null })
   })
 
@@ -428,9 +395,8 @@ describe('which host the project chip lists', () => {
   })
 
   test('opening a project elsewhere lists that host, before Send moves the ids', () => {
-    // WHY: the whole point of the new flow — pick the host in the run-on picker,
-    // then pick the project on it. The pending target names that host while the
-    // run's own ids still read local.
+    // WHY: a checkout chosen on another host is pending until Send. The
+    // pending target names that host while the run's own ids still read local.
     expect(
       projectHostId(run({ pendingHostDispatch: { serverId: 'studio', intent: 'open-project' } })),
     ).toBe('studio')

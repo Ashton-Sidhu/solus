@@ -4,9 +4,8 @@
    * its reply will occupy — never beside a status sentence, a spinner or an
    * elapsed clock, because the dots replace all three.
    *
-   * `pill` is the body treatment; `chip` is the smaller, unpilled form that
-   * lives inside a switchboard tab, where several agents may be writing at once
-   * and stacking indicators in the body would be unreadable.
+   * `pill` is the standalone treatment; `chip` is the smaller, unpilled form
+   * that sits inline beside a label.
    */
   interface Props {
     variant?: "pill" | "chip";

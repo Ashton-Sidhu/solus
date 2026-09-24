@@ -142,6 +142,22 @@ export class TasksStore {
     return [...(this.byRepository.get(projectKey) ?? []), ...upstream.values()]
   }
 
+  /** Every task of these projects, each once, and every task that belongs to
+   *  no project — the every-project list has no other page to leave those on. */
+  tasksInProjects(projectKeys: ReadonlySet<string>): Task[] {
+    const tasks = new Map<string, Task>()
+    for (const task of this.tasks) {
+      const projectKey = this.projectKeyOf(task)
+      if (!projectKey || projectKeys.has(projectKey)) tasks.set(task.id, task)
+    }
+    for (const projectKey of projectKeys) {
+      for (const checkout of projectsStore.checkoutsOf(projectKey)) {
+        for (const task of this.upstreamTasksByProject.get(checkout.projectRoot) ?? []) tasks.set(task.id, task)
+      }
+    }
+    return [...tasks.values()]
+  }
+
   byParent: Map<string, Task[]> = $derived.by(() => {
     const grouped = new Map<string, Task[]>()
     for (const task of this.tasks) {

@@ -11,6 +11,7 @@ import {
   enrollmentTicketResponseSchema,
   uplinkStatusSchema,
   type UplinkEnrollmentTicket,
+  type UplinkLinkRequest,
   type UplinkStatus,
 } from '@solus/contracts/uplink'
 import { hostForUrl } from '@solus/contracts/entrypoint'
@@ -30,6 +31,8 @@ export interface ConnectOptions {
   dataDir: string
   cloudUrl?: string
   noOpen: boolean
+  /** A link code a signed-in client already issued; skips the device sign-in. */
+  code?: string
 }
 
 export interface ConnectReporter {
@@ -57,6 +60,8 @@ export async function connectHost(options: ConnectOptions, reporter: ConnectRepo
   if (current.linked) return current
 
   const cloudOrigin = resolveCloudOrigin(options.cloudUrl)
+  const code = options.code
+  if (code) return withLocalHost(paths, (api) => api.uplinkLink({ ticket: code, directoryUrl: cloudOrigin }))
   const sessionToken = await authorizeCli(cloudOrigin, options.noOpen, reporter)
   try {
     const ticket = await issueEnrollmentTicket(cloudOrigin, sessionToken)
@@ -124,7 +129,7 @@ async function signOutCloudSession(cloudOrigin: string, sessionToken: string): P
 
 interface LocalHostApi {
   uplinkStatus(): Promise<UplinkStatus>
-  uplinkLink(request: UplinkEnrollmentTicket): Promise<UplinkStatus>
+  uplinkLink(request: UplinkLinkRequest): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>
 }
 

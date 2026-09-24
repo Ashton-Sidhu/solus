@@ -3,17 +3,19 @@
   import type { TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry } from "./lib/turns";
-  import { agentsAwaitingReply } from "./agent-conversation/lib/agent-conversation";
-  import { describeBackgroundWait } from "./lib/activity-summary";
+  import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
+  import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import TurnActivityRow from "./TurnActivityRow.svelte";
   import TurnBody from "./TurnBody.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   let { turn, index, total, expanded, isAwaitingInput, activityLabel, turnStart, attempt,
-    history, onToggle, onRetry, transcriptItem }: {
+    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem }: {
     turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
-    activityLabel?: string; turnStart: TurnStartKind | null; attempt: number; history: ToolHistoryStore;
+    activityLabel?: string; turnStart: TurnStartKind | null; attempt: number;
+    /** The session's turn ended, but a task it launched is still running. */
+    hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
     onToggle: (expanded: boolean) => void; onRetry: () => void;
     transcriptItem: Snippet<[GroupedItem, boolean]>;
   } = $props();
@@ -81,9 +83,6 @@
             working={working && itemIdx === turn.body.length - 1}
             {activityLabel}
             turnStart={working ? turnStart : null}
-            waitingOn={working
-              ? agentsAwaitingReply(turn.body)
-              : []}
             backgroundWait={working
               ? describeBackgroundWait(turn.body)
               : null}
@@ -118,6 +117,12 @@
     onRetry={isLastTurn ? onRetry : undefined}
     {skipMotion}
   />
+{/if}
+<!-- Background work is the session's state, not this turn's: the last
+   turn states it, where the live row would be, even when an earlier turn
+   launched the task. -->
+{#if hasBackgroundWork && isLastTurn && !live}
+  <BackgroundWorkRow wait={settledBackgroundWait(turn.body)} onStop={onStopBackgroundWork} />
 {/if}
 <!-- Only when nothing else is reporting the run: a tool group at
    the tail already carries the spinner. -->

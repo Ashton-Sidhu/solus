@@ -6,6 +6,7 @@ import {
   getToolDescriptionFromParsed,
   liveActivityLabel,
   parseToolInput,
+  settledBackgroundWait,
 } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
 import type { GroupedItem } from '@solus/workspace-ui/components/conversation/lib/turns'
 import type { Message } from '@solus/contracts/types'
@@ -69,6 +70,17 @@ describe('describeBackgroundWait', () => {
     const wait = describeBackgroundWait(turn(backgroundBash()))
     expect(wait?.label).toBe('Running in the background…')
     expect(wait?.target).toBe(POLL_DESCRIPTION)
+  })
+
+  test('a turn that ended in the background state still names the work', () => {
+    // WHY: once the turn settles into `background` it folds into its summary
+    // row. That row must say the task still runs — with the task's own intent
+    // when this turn launched it, and in general words when an earlier turn did.
+    expect(settledBackgroundWait(turn(backgroundBash()))).toEqual({
+      label: 'Running in the background',
+      target: POLL_DESCRIPTION,
+    })
+    expect(settledBackgroundWait([])).toEqual({ label: 'Running in the background', target: '' })
   })
 
   test('stops naming the command once its task settles', () => {
@@ -143,6 +155,53 @@ describe('describeBackgroundWait', () => {
     const items: GroupedItem[] = [{ kind: 'subagent-group', messages: [subagent({ toolStatus: 'completed' })] }]
     expect(describeBackgroundWait(items)).toBeNull()
   })
+
+  function watchedPeer(reply?: string): Message {
+    return {
+      id: 'peer-card',
+      role: 'assistant',
+      content: '',
+      timestamp: LAUNCHED_AT,
+      agentConversationRef: {
+        agentSessionId: '48964886-a22b-4cda-96f6-b416ed8f32bf',
+        provider: 'claude-code',
+        title: 'Worker',
+        cwd: '',
+        origin: 'watched',
+        exchanges: [{
+          messageId: 'watch-1',
+          index: 1,
+          prompt: '',
+          dispatchedAt: LAUNCHED_AT,
+          status: reply === undefined ? 'dispatched' : 'done',
+          reply,
+        }],
+      },
+    } as Message
+  }
+
+  test('names the watched session when the turn ended in prose', () => {
+    // WHY: after wait_for_session the agent writes a closing line and the host
+    // holds the turn running until the report lands. The row under that prose
+    // said "Planning the next step…" while nothing was being planned.
+    const items: GroupedItem[] = [
+      { kind: 'tool-group', messages: [backgroundBash({ id: 'read', toolName: 'mcp__solus__read_session', backgroundTaskId: undefined })] },
+      { kind: 'agent-conversation-group', messages: [watchedPeer()] },
+      { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'I will start when it reports.', timestamp: LAUNCHED_AT + 1 } as Message },
+    ]
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on Claude Code…', target: '' })
+  })
+
+  test('puts another session ahead of a sub-agent, and drops it once it replies', () => {
+    const running: GroupedItem[] = [
+      { kind: 'subagent-group', messages: [subagent()] },
+      { kind: 'agent-conversation-group', messages: [watchedPeer()] },
+    ]
+    expect(describeBackgroundWait(running)?.label).toBe('Waiting on Claude Code…')
+
+    const replied: GroupedItem[] = [{ kind: 'agent-conversation-group', messages: [watchedPeer('Done.')] }]
+    expect(describeBackgroundWait(replied)).toBeNull()
+  })
 })
 
 describe('activityDurationMs', () => {
@@ -168,11 +227,11 @@ describe('getToolDescription', () => {
     // when their query or target is hidden.
     expect(
       getToolDescription(
-        'find_sessions',
+        'search_sessions',
         JSON.stringify({ query: 'host selection', role: 'any', limit: 10 }),
         { truncate: false },
       ),
-    ).toBe('find_sessions: {"query":"host selection","role":"any","limit":10}')
+    ).toBe('search_sessions: {"query":"host selection","role":"any","limit":10}')
   })
 
   test('shows the same arguments for Claude-prefixed Solus tools', () => {
@@ -200,7 +259,7 @@ describe('getToolDescription', () => {
   })
 
   test('keeps argument-free Solus tools concise', () => {
-    expect(getToolDescription('find_sessions', '{}', { truncate: false })).toBe('find_sessions')
+    expect(getToolDescription('search_sessions', '{}', { truncate: false })).toBe('search_sessions')
   })
 })
 
@@ -212,7 +271,7 @@ describe('parseToolInput', () => {
     const parsed = parseToolInput('{"query":"host selection"}')
     expect(parsed?.sourceJson).toBe('{"query":"host selection"}')
     expect(
-      getToolDescriptionFromParsed('mcp__solus__find_sessions', parsed!, { truncate: false }),
-    ).toBe('find_sessions: {"query":"host selection"}')
+      getToolDescriptionFromParsed('mcp__solus__search_sessions', parsed!, { truncate: false }),
+    ).toBe('search_sessions: {"query":"host selection"}')
   })
 })

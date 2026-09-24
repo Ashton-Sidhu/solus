@@ -33,15 +33,14 @@ import Icon from "@iconify/svelte";
 
   const setup = $derived(store.setup);
   const readiness = $derived(setup?.readiness ?? null);
-  // Guarded per field: an older host answers with an older readiness shape.
-  const gitMissing = $derived(!!readiness && !readiness.git?.installed);
-  const githubMissing = $derived(!!readiness && !readiness.github?.solusToken);
+  const gitMissing = $derived(!!readiness && !readiness.git.installed);
+  const githubMissing = $derived(!!readiness && !readiness.github.solusToken);
   const agentMissing = $derived(
     !!store.capabilities &&
       !store.capabilities.agents?.claude &&
       !store.capabilities.agents?.codex,
   );
-  const identityMissing = $derived(!!readiness && !readiness.git?.identity);
+  const identityMissing = $derived(!!readiness && !readiness.git.identity);
   const installGit = $derived(readiness?.installGit ?? null);
 
   /**

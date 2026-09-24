@@ -54,19 +54,26 @@ function opFromRow(row: OutboxOpRow): OutboxOp {
   return op
 }
 
-type OutboxChangedListener = () => void
+export interface OutboxChange {
+  /** What `listOutboxOps` returns changed. Only then does a client courier have
+   *  anything new to drain; the runner's cloud ops and session reports never
+   *  reach one. */
+  courierListChanged: boolean
+}
+
+type OutboxChangedListener = (change: OutboxChange) => void
 const changedListeners = new Set<OutboxChangedListener>()
 
-/** Subscribe to any outbox mutation on this host (record, ack, dead-letter). */
+/** Subscribe to any outbox mutation on this host (record, ack, dead-letter, session report). */
 export function onOutboxChanged(listener: OutboxChangedListener): () => void {
   changedListeners.add(listener)
   return () => changedListeners.delete(listener)
 }
 
-function emitChanged(): void {
+function emitChanged(change: OutboxChange): void {
   for (const listener of changedListeners) {
     try {
-      listener()
+      listener(change)
     } catch (error) {
       log.error('outbox_changed_listener_failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -133,7 +140,7 @@ export function recordOutboxOp(input: {
     `).run(op.id, op.domain, op.resourceId, op.name, JSON.stringify(op.payload), op.sessionId ?? null, now, nextDeliverySeq(), destination)
   })
   log.info('outbox_op_recorded', { opId: op.id, domain: op.domain, resourceId: op.resourceId, name: op.name, destination })
-  emitChanged()
+  emitChanged({ courierListChanged: destination === 'host' })
   return op
 }
 
@@ -168,7 +175,7 @@ export function ackCloudOutboxOpsThrough(seq: number): number {
   const result = getDb().prepare(`
     DELETE FROM outbox_ops WHERE destination = 'cloud' AND state = 'pending' AND seq IS NOT NULL AND seq <= ?
   `).run(seq)
-  if (Number(result.changes) > 0) emitChanged()
+  if (Number(result.changes) > 0) emitChanged({ courierListChanged: false })
   return Number(result.changes)
 }
 
@@ -205,7 +212,7 @@ export function ackOutboxOps(opIds: string[]): void {
     for (const opId of opIds) remove.run(opId)
   })
   log.info('outbox_ops_acked', { count: opIds.length })
-  emitChanged()
+  emitChanged({ courierListChanged: true })
 }
 
 /** Dead-letter ops whose apply can never succeed. They stay listed (visible),
@@ -217,7 +224,8 @@ export function markOutboxOpsFailed(failures: Array<{ id: string; error: string 
     for (const failure of failures) update.run(failure.error, failure.id)
   })
   log.warn('outbox_ops_dead_lettered', { count: failures.length, opIds: failures.map((f) => f.id) })
-  emitChanged()
+  // A dead-lettered op is listed whatever its destination, so its failure stays visible.
+  emitChanged({ courierListChanged: true })
 }
 
 /**
@@ -302,7 +310,7 @@ export function queueSessionReport(record: SessionRecordUpsert): void {
       ON CONFLICT(session_id) DO UPDATE SET seq = excluded.seq, payload = excluded.payload
     `).run(record.sessionId, nextDeliverySeq(), JSON.stringify(merged))
   })
-  emitChanged()
+  emitChanged({ courierListChanged: false })
 }
 
 /** The queued session reports in delivery order, oldest first. */

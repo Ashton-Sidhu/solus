@@ -8,9 +8,9 @@ no tunnel, no pairing, and a grant minted for `solus-workspace` as the only
 credential. It runs no agent and holds no checkout; a runner linked to an
 organization delivers its writes here (§16).
 
-The image is the same one a managed host runs. Nothing in it is parameterized for
-this role: `fly.toml` overrides the baked `SOLUS_MANAGED=1` with `0` and sets the
-workspace variables; the entrypoint's volume layout lands on the machine's own
+The image is built from `packaging/managed-host/Dockerfile`, which managed hosts
+no longer use (they run on Sprites). `fly.toml` sets the workspace variables, and
+`SOLUS_MANAGED=0` explicitly; the entrypoint's volume layout lands on the machine's own
 disk, which holds nothing worth keeping (the SQLite file it creates carries only
 runner-local tables that stay empty here).
 

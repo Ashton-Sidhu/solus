@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1.7
 #
-# The Linux image for a managed host (docs/plans/managed-hosts.md §1–§3, §5, §6).
-# The server and every agent run as the one non-root user `solus` (§5).
+# The Linux image the workspace service runs (packaging/workspace-service). Managed
+# hosts no longer use it: they run on Sprites and boot with sprite-boot.sh, which is
+# why there is no cloudflared and no Litestream here. The server runs as the one
+# non-root user `solus`.
 # Build it from the repository root: `bun scripts/managed-image.ts` or
 #   docker build --platform linux/amd64 -f packaging/managed-host/Dockerfile -t registry.fly.io/solus-managed:<version> .
 #
 # Stage 1 runs natively on the build machine and produces the same standalone
 # server tarball a personal host installs (scripts/package-server.ts), for
-# linux-x64. Stage 2 is the runtime: Node, git, the latest agent CLIs, the pinned
-# `cloudflared` and `litestream`, and that tarball under /opt/solus. The image is
-# replaceable; everything that must survive a restart lives on the volume at /data.
+# linux-x64. Stage 2 is the runtime: Node, git, the latest agent CLIs, and that
+# tarball under /opt/solus. The image is replaceable; the workspace service keeps
+# every durable record in Postgres.
 
 FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS build
 RUN apt-get update \
@@ -38,11 +40,6 @@ RUN bun run package:server --platform linux --arch x64
 
 FROM node:24.18.0-bookworm-slim
 
-ARG CLOUDFLARED_VERSION=2026.5.2
-# apps/cli/src/lib/cloudflared.ts pins the same release and checksum for linux-x64.
-ARG CLOUDFLARED_SHA256=5286698547f03df745adb2355f04c12dde52ef425491e81f433642d695521886
-ARG LITESTREAM_VERSION=0.5.17
-ARG LITESTREAM_SHA256=cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
 # scripts/managed-image.ts passes the exact latest versions, so a new release
 # changes the arg and invalidates the cached install layer below.
 ARG CLAUDE_CODE_VERSION=latest
@@ -57,23 +54,11 @@ RUN apt-get update \
 RUN npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
   && npm cache clean --force
 
-# Pinned binaries live in the image, never on the volume (§3). The connector reads
-# SOLUS_CLOUDFLARED before it looks under the data directory or on PATH, so it
-# finds this one without ever downloading.
-RUN mkdir -p /opt/solus/bin \
-  && curl -fsSL -o /opt/solus/bin/cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
-  && echo "${CLOUDFLARED_SHA256}  /opt/solus/bin/cloudflared" | sha256sum -c - \
-  && chmod 0755 /opt/solus/bin/cloudflared \
-  && curl -fsSL -o /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-x86_64.tar.gz" \
-  && echo "${LITESTREAM_SHA256}  /tmp/litestream.tar.gz" | sha256sum -c - \
-  && tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin litestream \
-  && chmod 0755 /usr/local/bin/litestream \
-  && rm /tmp/litestream.tar.gz
-
 # The server tarball, extracted where SOLUS_INSTALL_DIR points. Its bundled Node
 # is replaced by the image's own so there is one runtime for the server and the agents.
 COPY --from=build /src/release/solus-server-linux-x64.tar.gz /tmp/solus-server.tar.gz
-RUN tar -xzf /tmp/solus-server.tar.gz -C /opt/solus \
+RUN mkdir -p /opt/solus \
+  && tar -xzf /tmp/solus-server.tar.gz -C /opt/solus \
   && rm /tmp/solus-server.tar.gz \
   && ln -sf /usr/local/bin/node /opt/solus/bin/node
 
@@ -84,22 +69,18 @@ RUN node /opt/solus/libexec/server/node_modules/playwright-core/cli.js install -
   && chmod -R a+rX /opt/solus/browsers \
   && rm -rf /var/lib/apt/lists/*
 
-# The one user the server and every agent run as (§5). Its home is on the volume,
-# so nothing is created here; the entrypoint lays the volume out and drops to it.
+# The one user the server runs as. Its home is under /data, so nothing is created
+# here; the entrypoint lays /data out and drops to it.
 RUN useradd --system --no-create-home --home-dir /data/home --shell /usr/sbin/nologin solus
 
 COPY packaging/managed-host/entrypoint.sh /opt/solus/entrypoint.sh
-COPY packaging/managed-host/litestream.yml /etc/litestream.yml
 RUN chmod 0755 /opt/solus/entrypoint.sh
 
 ENV HOME=/data/home \
   SOLUS_DATA_DIR=/data/state \
   SOLUS_INSTALL_DIR=/opt/solus \
   SOLUS_NO_LAN_DISCOVERY=1 \
-  SOLUS_MANAGED=1 \
-  SOLUS_TUNNEL_PORT=34118 \
-  SOLUS_PROJECTS_ROOT=/data/projects \
-  SOLUS_CLOUDFLARED=/opt/solus/bin/cloudflared
+  SOLUS_PROJECTS_ROOT=/data/projects
 
 VOLUME ["/data"]
 ENTRYPOINT ["/opt/solus/entrypoint.sh"]

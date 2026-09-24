@@ -1,4 +1,5 @@
 import type { AgentId } from './types'
+import type { SessionReport } from './session-exchange'
 
 /** Opaque host cursor. Pages contain complete turns so tool results never
  * arrive without their calls. The limit is a target, not a hard row cap. */
@@ -52,9 +53,15 @@ export interface SessionLoadMessage {
   timestamp: number
 }
 
+/** The exchange an orchestration tool result opened, read by the shared codec. */
 export interface AgentConversationResultProjection {
   agentSessionId?: string
-  watcherRegistered?: boolean
+  /** The exchange the tool opened; live updates and reports name the same id. */
+  messageId?: string
+  provider?: AgentId
+  /** The report a waiting tool call returned: the exchange settled inside the
+   *  call, so no report turn follows in the transcript. */
+  report?: SessionReport
 }
 
 /** History row shape allowed across the host-to-client boundary. */

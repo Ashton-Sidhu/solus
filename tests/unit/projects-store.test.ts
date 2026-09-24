@@ -60,7 +60,8 @@ describe('shared host project state', () => {
     const reply = deferred<RecentProject[]>()
     const store = new ProjectsStore(empty(), () => reply.promise)
     const loading = store.loadRecentProjects('a')
-    store.recordProject('a', '/chosen')
+    // The host is still recording it, so the device's own record must lead.
+    store.addProject('a', { trackRecentProject: () => new Promise<void>(() => {}) }, '/chosen')
     expect(store.recentProjectsFor('a').map((entry) => entry.path)).toEqual(['/chosen'])
     reply.resolve([project('/old')])
     await loading
@@ -75,7 +76,7 @@ describe('shared host project state', () => {
       if (++calls === 1) throw new Error('offline')
       return [project('/after-reconnect')]
     })
-    store.recordProject('a', '/known')
+    store.addProject('a', { trackRecentProject: () => new Promise<void>(() => {}) }, '/known')
     await store.loadRecentProjects('a')
     expect(store.recentProjectsFor('a').map((entry) => entry.path)).toEqual(['/known'])
     expect(store.recentProjectsLoadingFor('a')).toBe(false)
@@ -119,6 +120,54 @@ describe('checkout repository keys', () => {
     const web = store.entries.find((entry) => entry.projectRoot === '/Users/me/web')
     expect(web).toMatchObject({ repositoryKey: 'github.com/acme/web', lastSeenAt: touchedAt })
     expect(store.entries.find((entry) => entry.projectRoot === '/Users/me/scratch')?.repositoryKey).toBeNull()
+    store.flush()
+  })
+})
+
+describe('dispatch checkouts stay out of the project list', () => {
+  // WHY: a dispatch clone is where a host keeps one device's copy of a project
+  // sent to it. Listed as a project, every "Run on" choice would add a second
+  // entry for the same repository under the target host.
+  const clone = '/home/me/solus-remote/device-1/github.com/acme/web'
+
+  test('a session in a dispatch clone does not add a project', () => {
+    const store = new ProjectsStore(empty(), () => Promise.resolve([]))
+    store.record({ serverId: 'build', projectRoot: clone }, 'web')
+    store.recordDiscovered({ serverId: 'build', projectRoot: `${clone}/.git/solus/worktrees/solus-0a1b2c3d` }, 'web')
+    expect(store.entries).toEqual([])
+    store.record({ serverId: 'build', projectRoot: '/home/me/web' }, 'web')
+    expect(store.entries.map((entry) => entry.projectRoot)).toEqual(['/home/me/web'])
+    store.flush()
+  })
+})
+
+describe('only opening a folder makes it a project', () => {
+  // WHY: a session can run in any folder — a scratch directory, a subfolder,
+  // a clone a host keeps for dispatch. Only a person opening, cloning, or
+  // adding a folder should put it in every project list.
+  test('a session in an unknown folder adds nothing', () => {
+    const store = new ProjectsStore(empty(), () => Promise.resolve([]))
+    store.touch({ serverId: 'a', projectRoot: '/tmp/scratch' })
+    expect(store.entries).toEqual([])
+    store.flush()
+  })
+
+  test('a session in a known project moves it to the top', () => {
+    const tracked: string[] = []
+    const api = { trackRecentProject: async (path: string) => { tracked.push(path) } }
+    const store = new ProjectsStore({
+      entries: [
+        { serverId: 'a', projectRoot: '/repos/web', label: 'web', lastSeenAt: 2 },
+        { serverId: 'a', projectRoot: '/repos/api', label: 'api', lastSeenAt: 1 },
+      ],
+      ignoredDiscoveryKeys: [],
+    }, () => Promise.resolve([]))
+    store.touch({ serverId: 'a', projectRoot: '/repos/api' })
+    expect(store.entries.map((entry) => entry.projectRoot)).toEqual(['/repos/api', '/repos/web'])
+    expect(tracked).toEqual([])
+    const opened = store.addProject('a', api, '/repos/new')
+    expect(opened).toEqual({ serverId: 'a', projectRoot: '/repos/new' })
+    expect(tracked).toEqual(['/repos/new'])
     store.flush()
   })
 })

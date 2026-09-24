@@ -12,8 +12,6 @@ import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTa
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { projectsStore } from '../projects/projects.store.svelte'
-import { projectDirLabel } from '../../lib/paths'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 
@@ -266,7 +264,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       if (watched) ctx.adoptSessionId(tabId, watched.sessionId)
 
       // Registration needs the watch above, hence not earlier.
-      const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status' }).catch(() => null)
+      const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status', force: false }).catch(() => null)
 
       if (session.agentSessionId) {
         const info = watched?.runtime ?? null
@@ -346,13 +344,6 @@ function _materializeTabs(
         permissionMode: permissionModeSchema.parse(snapTab.permissionMode),
       }
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
-      const catalogRoot = run.gitContext?.repoRoot ?? run.workingDirectory
-      if (serverId && catalogRoot && catalogRoot !== '~') {
-        projectsStore.record(
-          { serverId, projectRoot: catalogRoot },
-          projectDirLabel(catalogRoot, ctx.staticInfo?.workspacePath),
-        )
-      }
       const overrides: NonNullable<Parameters<typeof makeSession>[1]> = {
         // Keep the id the snapshot carried: the persisted location names chats
         // by session, so a restored split pane has to find the same one back.
@@ -547,7 +538,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // Secondary reads run after the transcript can paint and never gate live attachment.
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
-    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
+    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, force: false }).catch(() => null)
     const taskSessionId = handoff?.sessionId ?? session.id
     const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
     const taskHydration = taskSessionId

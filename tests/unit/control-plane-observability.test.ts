@@ -10,18 +10,21 @@ import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput, WireNormalizedEvent } from '@solus/contracts/types'
 import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
+import { parseOrchestrationItems } from '@solus/contracts/session-exchange'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type ControlPlaneModule = typeof import('@solus/server/control-plane')
 type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
 type DbModule = typeof import('@solus/server/db')
+type RuntimeModule = typeof import('@solus/server/orchestration/control-plane-runtime')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let controlPlaneModule: ControlPlaneModule
 let metricsDb: MetricsDbModule
 let db: DbModule
+let runtime: RuntimeModule
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-observability-'))
@@ -29,6 +32,7 @@ beforeAll(async () => {
   controlPlaneModule = await import('@solus/server/control-plane')
   metricsDb = await import('@solus/server/observability/metrics-db')
   db = await import('@solus/server/db')
+  runtime = await import('@solus/server/orchestration/control-plane-runtime')
 })
 
 beforeEach(() => {
@@ -152,6 +156,11 @@ function input(agentSessionId: string | null): SessionRunInput {
   }
 }
 
+/** A started session, as the start_session tool orders it. */
+function spawnOrder() {
+  return { prompt: 'target', provider: 'codex' as const, modelId: 'gpt-requested', reasoningEffort: 'medium' as const, contextWindow: null, cwd: process.cwd() }
+}
+
 function turnRows(sessionId: string): Array<{ status: string; origin: string; attrs: string }> {
   return metricsDb.getMetricsDb().prepare("SELECT status, origin, attrs FROM spans WHERE kind = 'turn' AND session_id = ? ORDER BY started_at").all(sessionId) as Array<{ status: string; origin: string; attrs: string }>
 }
@@ -241,10 +250,10 @@ describe.serial('ControlPlane observability hooks', () => {
       await lifecycle.agentSessionId
       const questions = [{ id: 'branch', question: 'Which branch?', options: [{ label: 'main' }], multiSelect: false }]
       backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
-      expect(plane.respondToQuestion('q1', { branch: 'main' })).toBe(false)
+      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' })).toBe(false)
       expect(receipts).toHaveLength(0)
       accepted = true
-      expect(plane.respondToQuestion('q1', { branch: 'main' })).toBe(true)
+      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' })).toBe(true)
       expect(receipts).toHaveLength(1)
       expect(receipts[0].event).toMatchObject({ type: 'question_answered', answer: { questionId: 'q1', questions, answers: { branch: 'main' } } })
       expect(receipts[0].to).toBeUndefined()
@@ -446,13 +455,14 @@ describe.serial('ControlPlane observability hooks', () => {
     plane.shutdown()
   })
 
-  test('settles a created-session completion route after live identity teardown', async () => {
-    // WHY: a created run starts with no provider thread in its input. The route
-    // must retain the thread learned at registration instead of looking it up
-    // after the backend exit has removed the live session record.
+  test('settles a created session\'s message after its live identity is torn down', async () => {
+    // WHY: a created run starts with no provider thread in its input. Its
+    // message must keep the thread learned when the session started, not look
+    // it up after the backend exit has removed the live session record.
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
+    const orchestrator = runtime.orchestrateSessions(plane)
     const delivered: Array<{ sessionId: string; event: NormalizedEvent }> = []
     plane.on('event', (sessionId, event: NormalizedEvent) => delivered.push({ sessionId, event }))
 
@@ -461,33 +471,29 @@ describe.serial('ControlPlane observability hooks', () => {
       options: { prompt: 'caller', promptSource: 'typed', skipTaskCreation: true },
     })
     await caller.agentSessionId
-    const target = await plane.runTurn({
-      target: { kind: 'new-session' }, sessionId: 'solus-target', input: input(null), tools: [],
-      options: { prompt: 'target', promptSource: 'agent', skipTaskCreation: true },
-    })
-    await target.agentSessionId
-
-    plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'created-exchange',
-      dispatchedAt: Date.now(),
-      notifyModel: false,
-      runKey: 'active',
-    })
+    const created = await orchestrator.spawn('thread-1', spawnOrder(), false)
+    expect(created.agentSessionId).toBe('thread-2')
+    const settled = new Promise<void>((resolve) => plane.on('event', (_sessionId, event: NormalizedEvent) => {
+      if (event.type === 'agent_conversation_update' && event.update.phase === 'settled') resolve()
+    }))
     backend.complete('thread-2', 0)
-    await target.done
+    await settled
 
-    expect(delivered).toContainEqual({
-      sessionId: 'solus-caller',
-      event: {
-        type: 'agent_conversation_update',
-        update: expect.objectContaining({
-          phase: 'settled',
-          agentSessionId: 'thread-2',
-          exchangeId: 'created-exchange',
-          status: 'completed',
-          replyText: 'done',
-        }),
-      },
+    const updates = delivered.filter(({ sessionId, event }) => sessionId === 'solus-caller' && event.type === 'agent_conversation_update')
+    const phases = updates.map(({ event }) => event.type === 'agent_conversation_update' && event.update.phase)
+    // Accepted and attached race with the provider; the card is bound before its reply lands.
+    expect(phases[0]).toBe('dispatched')
+    expect(phases.indexOf('attached')).toBeGreaterThan(0)
+    expect(phases.indexOf('attached')).toBeLessThan(phases.indexOf('settled'))
+    expect(updates.at(-1)?.event).toEqual({
+      type: 'agent_conversation_update',
+      update: expect.objectContaining({
+        phase: 'settled',
+        agentSessionId: 'thread-2',
+        messageId: created.exchangeId,
+        status: 'completed',
+        replyText: 'done',
+      }),
     })
 
     backend.complete('thread-1', 0)
@@ -495,39 +501,32 @@ describe.serial('ControlPlane observability hooks', () => {
     plane.shutdown()
   })
 
-  test('reports a created-session completion back to an idle caller', async () => {
+  test('reports a delegated session\'s result back to an idle caller', async () => {
     // WHY: card settlement alone is not enough for delegation. The completed
     // target must resume the caller with a hidden session-report prompt after
     // both runs have released their live provider mappings.
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
+    const orchestrator = runtime.orchestrateSessions(plane)
 
     const caller = await plane.runTurn({
       target: { kind: 'new-session' }, sessionId: 'solus-caller', input: input(null), tools: [],
       options: { prompt: 'caller', promptSource: 'typed', skipTaskCreation: true },
     })
     await caller.agentSessionId
-    const target = await plane.runTurn({
-      target: { kind: 'new-session' }, sessionId: 'solus-target', input: input(null), tools: [],
-      options: { prompt: 'target', promptSource: 'agent', skipTaskCreation: true },
-    })
-    await target.agentSessionId
-
-    plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'report-exchange',
-      dispatchedAt: Date.now(),
-      notifyModel: true,
-      runKey: 'active',
-    })
+    const created = await orchestrator.spawn('thread-1', spawnOrder(), true)
+    // The caller's own turn ends while it waits: it is held running, not idle.
     backend.complete('thread-1', 0)
     await caller.done
+    expect(orchestrator.isAwaitingReplies('solus-caller')).toBe(true)
     const reportStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
     backend.complete('thread-2', 0)
-    await target.done
     await reportStarted
     expect(backend.requests[2]?.conversation).toEqual({ kind: 'resume', threadId: 'thread-1' })
-    expect(backend.requests[2]?.prompt).toContain('[session report]')
+    expect(parseOrchestrationItems(backend.requests[2]?.prompt ?? '')).toEqual([{ type: 'report', report: expect.objectContaining({
+      messageId: created.exchangeId, agentSessionId: 'thread-2', taskId: created.taskId, provider: 'codex', status: 'completed', reply: 'done',
+    }) }])
 
     await Promise.resolve()
     backend.complete('thread-1', 0)
@@ -553,25 +552,27 @@ describe.serial('ControlPlane observability hooks', () => {
       options: { prompt: 'first', promptSource: 'typed', skipTaskCreation: true },
     })
     await first.agentSessionId
-    const queued = await plane.runTurn({
-      target: { kind: 'session', sessionId: 'solus-target' }, sessionId: 'solus-target', input: input('thread-2'), tools: [],
-      options: { prompt: 'second', promptSource: 'agent', delivery: 'queue', skipTaskCreation: true },
-    })
-    if (!queued.queueId) throw new Error('Expected a queued run')
-    plane.watchSessionSettled('thread-2', 'thread-1', {
-      exchangeId: 'queued-exchange',
-      dispatchedAt: Date.now(),
-      notifyModel: false,
-      runKey: queued.queueId,
-    })
+    const orchestrator = runtime.orchestrateSessions(plane)
+    const queued = await orchestrator.send('thread-1', 'thread-2', { prompt: 'second', delivery: 'queue', notify: false })
+    expect(queued.disposition).toBe('queued')
+    const settledFor = (messageId: string) => delivered.some(({ event }) => (
+      event.type === 'agent_conversation_update' && event.update.phase === 'settled' && event.update.messageId === messageId
+    ))
 
     const secondStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
     backend.complete('thread-2', 0)
     await first.done
     await secondStarted
     await Promise.resolve()
+    // The first run's end is not the queued message's reply.
+    expect(settledFor(queued.exchangeId)).toBe(false)
+    const secondSettled = new Promise<void>((resolve) => {
+      plane.on('event', (_sessionId, event: NormalizedEvent) => {
+        if (event.type === 'agent_conversation_update' && event.update.phase === 'settled') resolve()
+      })
+    })
     backend.complete('thread-2', 0)
-    await queued.done
+    await secondSettled
 
     expect(delivered).toContainEqual({
       sessionId: 'solus-caller',
@@ -580,7 +581,7 @@ describe.serial('ControlPlane observability hooks', () => {
         update: expect.objectContaining({
           phase: 'settled',
           agentSessionId: 'thread-2',
-          exchangeId: 'queued-exchange',
+          messageId: queued.exchangeId,
           status: 'completed',
           replyText: 'done',
         }),

@@ -1,9 +1,11 @@
 <script lang="ts">
-  import AgentConversationComposer from "./AgentConversationComposer.svelte";
-
   /**
    * Live only, and where every action lives. At rest the footer is removed
    * entirely — a settled exchange has nothing left to do but be read.
+   *
+   * Messages to the other agent come from this conversation's agent, never from
+   * the card; when the other agent needs a person, its request renders above
+   * with the same card it would have in its own session.
    *
    * Open session and Split are two explicit controls rather than a menu: Split
    * puts the other side beside this conversation and leaves focus here, so a
@@ -11,30 +13,17 @@
    */
   interface Props {
     agentName: string;
-    draftKey: string;
-    /** The agent asked you something — the footer becomes the answer field. */
+    /** The agent's turn is waiting on a person, and its request is above. */
     needsYou?: boolean;
-    /** A permission or a plan can't be answered by typing at it. */
-    answerInSessionOnly?: boolean;
-    onSend: (
-      text: string,
-      scope: "one" | "all",
-    ) => Promise<"sent" | "queued" | "failed">;
+    /** The agent's turn is parked on its provider's rate limit. */
+    limited?: boolean;
+    /** When the limit resets, if the provider said. */
+    resumesAt?: string;
     onOpen: (opts: { split?: boolean; background?: boolean }) => void;
     /** Absent once the agent has stopped writing. */
     onStop?: () => void;
-    broadcastLabel?: string;
   }
-  let {
-    agentName,
-    draftKey,
-    needsYou = false,
-    answerInSessionOnly = false,
-    onSend,
-    onOpen,
-    onStop,
-    broadcastLabel,
-  }: Props = $props();
+  let { agentName, needsYou = false, limited = false, resumesAt, onOpen, onStop }: Props = $props();
 </script>
 
 <div
@@ -42,22 +31,14 @@
     ? 'bg-[color-mix(in_oklch,var(--chart-2)_7%,transparent)]'
     : 'bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)]'}"
 >
-  {#if needsYou && answerInSessionOnly}
-    <span class="text-muted-foreground">
-      {agentName} needs an answer in its own session
-    </span>
-    <span class="flex-1"></span>
-  {:else}
-    <AgentConversationComposer
-      {draftKey}
-      placeholder={needsYou
-        ? `Answer ${agentName}…`
-        : `Say something to ${agentName}…`}
-      emphasis={needsYou}
-      {broadcastLabel}
-      {onSend}
-    />
-  {/if}
+  <span class="min-w-0 truncate text-muted-foreground">
+    {needsYou
+      ? `${agentName} is waiting on you`
+      : limited
+        ? `${agentName} is rate limited${resumesAt ? ` until ${resumesAt}` : ""} · resumes on its own`
+        : `${agentName} is working`}
+  </span>
+  <span class="flex-1"></span>
 
   {#if onStop}
     <button

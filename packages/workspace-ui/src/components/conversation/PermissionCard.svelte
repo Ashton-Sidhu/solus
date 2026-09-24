@@ -29,9 +29,17 @@
     tabId: string
     permission: PermissionRequest
     queueLength?: number
+    /** Answers for another session — a child this conversation sent work to.
+     *  Unset, the answer goes to this tab's own session. */
+    respond?: (questionId: string, optionId: string) => void
+    /** The other session's directory, where the request runs. */
+    cwd?: string
+    /** Whether the card's global keys act. Off while the tab holds a request of
+     *  its own, so one keystroke never answers two cards. */
+    shortcuts?: boolean
   }
 
-  let { tabId, permission, queueLength = 1 }: Props = $props()
+  let { tabId, permission, queueLength = 1, respond, cwd: runCwd, shortcuts = true }: Props = $props()
 
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
@@ -68,7 +76,7 @@
   // can't fully read is the failure mode this card exists to prevent.
   const argv = $derived(permissionArgv(permission))
   const kicker = $derived(permissionKicker(permission))
-  const cwd = $derived(permissionCwd(permission, sess))
+  const cwd = $derived(runCwd || permissionCwd(permission, sess))
   // The head can lose its middle; the worktree name never can.
   const cwdParts = $derived.by(() => {
     if (!cwd) return null
@@ -82,7 +90,8 @@
   function handleOption(optionId: string) {
     if (responded) return
     responded = true
-    session.controls.respondPermission(tabId, permission.questionId, optionId)
+    if (respond) respond(permission.questionId, optionId)
+    else session.controls.respondPermission(tabId, permission.questionId, optionId)
   }
 
   function classFor(option: PermissionOption): string {
@@ -95,7 +104,7 @@
 
   /** The key hints are the card's contract, so they act rather than decorate. */
   function handleKeydown(e: KeyboardEvent) {
-    if (tabId !== session.activeTabId || responded) return
+    if (!shortcuts || tabId !== session.activeTabId || responded) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const target = e.target
     if (target instanceof HTMLElement) {

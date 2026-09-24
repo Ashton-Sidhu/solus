@@ -998,7 +998,7 @@ export class WorkspaceContext implements SurfaceContext {
       this.resetOverlays({ closeArtifact: true })
     }
     if (options.gitInitialization !== 'skip') {
-      const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested })
+      const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested, force: false })
       if (options.gitInitialization === 'background') void gitInitialization
       else await gitInitialization
     }

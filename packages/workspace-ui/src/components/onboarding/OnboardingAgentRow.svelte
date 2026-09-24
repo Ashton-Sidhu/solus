@@ -6,8 +6,8 @@
    * never disagree about where an agent stands.
    */
   import { onboardingStore as store } from "./onboarding.store.svelte";
-  import { AGENT_PRESENTATION } from "./lib/onboarding-model";
   import OnboardingRow from "./OnboardingRow.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import DevicePrompt from "../servers/DevicePrompt.svelte";
   import type { ProviderRow } from "../servers/lib/host-onboarding";
   import type { SetupAgent } from "@solus/contracts/types";
@@ -50,13 +50,14 @@
   name={row.label}
   detail={row.detail}
   {delay}
-  tint={AGENT_PRESENTATION[agent].tint}
-  abbr={AGENT_PRESENTATION[agent].abbr}
   state={row.state}
   actionLabel={row.actionLabel}
   onaction={row.run}
   expanded={!!verification || !!failure}
 >
+  {#snippet mark()}
+    <ProviderMark mark={agent} size={24} transparent />
+  {/snippet}
   {#snippet expansion()}
     {#if verification}
       <!-- The same prompt Settings shows: the one-time code some CLIs want

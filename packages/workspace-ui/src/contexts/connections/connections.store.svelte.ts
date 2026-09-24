@@ -156,13 +156,13 @@ export class ConnectionsStore {
     return this.capabilities?.desktopHandlers !== false
   }
 
-  /** Where this host's folder picker starts. Empty clears it back to the home folder. */
+  /** Where this host's new projects and clones land. Empty clears it back to the host default. */
   async setProjectsBaseDirectory(serverId: string, path: string): Promise<void> {
     const result = await serverConnections.apiFor(serverId).setProjectsBaseDirectory(path)
     const hostCapabilities = this.capabilitiesByServer.get(serverId)
-    if (hostCapabilities) hostCapabilities.projectsBaseDirectory = result.projectsBaseDirectory
+    if (hostCapabilities) Object.assign(hostCapabilities, result)
     if (this.capabilities && serverId === serverConnections.defaultServerId()) {
-      this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
+      Object.assign(this.capabilities, result)
     }
   }
 

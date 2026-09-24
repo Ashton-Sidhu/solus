@@ -78,6 +78,13 @@ export function isGithubCredentialAccessFailure<Failure>(error: Failure): boolea
     || graphqlCredentialAccessFailureSchema.safeParse(error).success
 }
 
+const notFoundSchema = z.object({ status: z.literal(404) })
+
+/** A REST 404: a missing resource, or a repository this credential cannot see. */
+export function isGithubNotFound<Failure>(error: Failure): boolean {
+  return notFoundSchema.safeParse(error).success
+}
+
 // One client per token for the process lifetime: concurrent reads share one
 // instance, and a token that GitHub rejects is dropped so the next request
 // rebuilds against whatever credential replaces it.

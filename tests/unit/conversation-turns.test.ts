@@ -322,12 +322,12 @@ describe('turn collapse', () => {
   test('a turn\'s agent-conversation cards stack at the first dispatch despite interleaved tool rows', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'brief all three' }),
-      tool('mcp__solus__prompt_session', '{"session_id":"a"}'),
+      tool('mcp__solus__send_session', '{"session_id":"a"}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
       }),
-      tool('mcp__solus__prompt_session', '{"session_id":"b"}'),
+      tool('mcp__solus__send_session', '{"session_id":"b"}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
@@ -335,7 +335,7 @@ describe('turn collapse', () => {
       msg({ role: 'assistant', content: 'Briefed both.' }),
     ])
 
-    // WHY: several agents dispatched by one decision are one roster, not two
+    // WHY: several agents dispatched by one decision are one stack, not two
     // cards separated by their own plumbing rows — the stack anchors where the
     // first dispatch happened and later dispatches join it in place.
     const agentConversationGroups = turn.body.filter((item) => item.kind === 'agent-conversation-group')

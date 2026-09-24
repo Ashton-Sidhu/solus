@@ -2,9 +2,21 @@ import { cloudAccount, startupAccountRead } from '@solus/client-core/cloud-accou
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { ProviderRepository } from '@solus/contracts/providers'
-import type { AccountOrganization, AccountResponse, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
+import type {
+  AccountOrganization,
+  AccountResponse,
+  ManagedHostCatalog,
+  ManagedHostSpecRequest,
+  UplinkEnrollmentTicket,
+} from '@solus/contracts/uplink'
 import { connectionsStore, serversStore, workspaceProjectsStore } from '../../contexts'
-import { computeChoices, createHostFailureMessage, defaultComputeHost, type ComputeChoices } from './lib/cloud-compute'
+import {
+  computeChoices,
+  createHostFailureMessage,
+  defaultComputeHost,
+  newCloudHostLabel,
+  type ComputeChoices,
+} from './lib/cloud-compute'
 import { managedHostNeedsStart } from '@solus/client-core/server-registry'
 import type { ServerItem } from '../../contexts/connections/servers.store.svelte'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
@@ -78,6 +90,11 @@ class CloudOnboardingStore {
     const account = this.account
     if (!account) return null
     return account.organizations.find((entry) => entry.organizationId === account.activeOrganizationId) ?? null
+  }
+
+  /** What "Runs on" and "Size" offer for a new cloud host; absent from an older Solus Cloud. */
+  get managedHostCatalog(): ManagedHostCatalog | undefined {
+    return this.account?.managedHostCatalog
   }
 
   get choices(): ComputeChoices<ServerItem> {
@@ -157,14 +174,18 @@ class CloudOnboardingStore {
     this.chosenServerId = serverId
   }
 
-  async createCloudHost(): Promise<void> {
+  /**
+   * Creates the organization's cloud host, named for the organization so the picker
+   * reads "Cloud · Acme", with the size picked; none picked is the default.
+   */
+  async createCloudHost(spec?: ManagedHostSpecRequest): Promise<void> {
     const organizationId = this.organization?.organizationId
     const account = cloudAccount()
     if (!organizationId || !account || this.hostBusy) return
     this.hostBusy = 'creating'
     this.hostError = null
     try {
-      const outcome = await account.createManagedHost(organizationId)
+      const outcome = await account.createManagedHost(organizationId, { label: newCloudHostLabel(this.organization), spec })
       // Read both again whatever the answer: a create that did not answer may still have
       // made the host, and `managed_host_limit` means one exists. Either way the row
       // must show that host, not Create again.

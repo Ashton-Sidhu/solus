@@ -15,17 +15,15 @@ import type { SolusServer } from '../server'
 import { organizationOf } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
-import { generateWorktreeName } from '../../git/worktree-name'
 import { getHostConfig, resolveSourceControlWriterModel } from '../settings'
 
 const log = createLogger('main', 'worktree-handlers')
 
 /**
- * `continueInWorktree` setups in flight, per session. The RPC awaits a model
- * call with a 30s ceiling, so without a signal a user who asks twice waits out
- * the first run before the second starts. A superseding request aborts the
- * whole setup it replaces — naming *and* worktree creation, since a worktree
- * for a superseded request is one the user never asked for.
+ * `continueInWorktree` setups in flight, per session. A superseding request
+ * aborts the worktree creation it replaces, since a worktree for a superseded
+ * request is one the user never asked for. Branch naming runs after the
+ * worktree exists and is not part of the setup.
  *
  * Known gap: this is a second registry beside `ControlPlane.pendingSetupControllers`,
  * which is what `stopSession` aborts. Stopping a session therefore does not
@@ -296,17 +294,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     pendingWorktreeSetups.get(sessionId)?.abort(new Error('Superseded'))
     pendingWorktreeSetups.set(sessionId, setup)
     try {
-      const prompt = namePrompt || ''
-      // The generated name is an enrichment: `createWorktree` derives one from
-      // the prompt when this is null. Abort it rather than let it hold the
-      // worktree, and keep going on the fallback name.
-      const generatedName = await generateWorktreeName(controlPlane, prompt, repoRoot, setup.signal)
-        .catch(() => null)
-      const gitContext = await createWorktree(repoRoot, prompt, ctx.session.gitContext?.targetBranch, {
-        generatedName,
+      const gitContext = await createWorktree(repoRoot, ctx.session.gitContext?.targetBranch, {
         signal: setup.signal,
       })
       controlPlane.setSessionGitEnvironment(sessionId, gitContext.worktreePath ?? cwd, gitContext)
+      if (namePrompt) void controlPlane.nameWorktreeBranch(sessionId, gitContext, namePrompt)
       return { success: true, gitContext }
     } catch (err) {
       log.error('continue_in_worktree_failed', { error: err instanceof Error ? err.message : String(err) })

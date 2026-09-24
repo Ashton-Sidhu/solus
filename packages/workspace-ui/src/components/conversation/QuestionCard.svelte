@@ -30,9 +30,17 @@
     tabId: string;
     request: QuestionRequest;
     provider?: AgentId | null;
+    /** Answers for another session — a child this conversation sent work to.
+     *  Unset, the answer goes to this tab's own session. */
+    respond?: (questionId: string, answers: Record<string, string>) => void;
+    /** Whether the card's global keys act. Off while the tab holds a question of
+     *  its own, so one keystroke never answers two cards. */
+    shortcuts?: boolean;
+    /** The session asking, when it is not this tab's own. */
+    askingSessionId?: string;
   }
 
-  let { tabId, request, provider = null }: Props = $props();
+  let { tabId, request, provider = null, respond, shortcuts = true, askingSessionId }: Props = $props();
 
   // §11 — the body is the assistant's own renderer, so a fenced block keeps its
   // chrome strip and its Copy. `breaks` keeps a hand-drawn question's line
@@ -88,7 +96,7 @@
     request.kind === "mcp_url" ? "Open" : isLast ? "Send answer" : "Next"
   );
   const waiting = $derived(formatWaiting(now - askedAt));
-  const sessionId = $derived(sess?.agentSessionId?.slice(0, 8) ?? "");
+  const sessionId = $derived((askingSessionId ?? sess?.agentSessionId)?.slice(0, 8) ?? "");
 
   /**
    * §11 — questions are a conversation, not a modal: an answered one collapses to
@@ -189,7 +197,7 @@
         answers[questionKey(q)] = answerFor(q);
       }
     }
-    session.controls.respondQuestion(tabId, request.questionId, answers);
+    sendAnswers(answers);
   }
 
   /** Hand the decision back rather than abandoning the card: every answer goes
@@ -200,11 +208,19 @@
     const answers: Record<string, string> = {};
     if (isMcpRequest) answers.__action = "accept";
     for (const q of request.questions) answers[questionKey(q)] = "";
-    session.controls.respondQuestion(tabId, request.questionId, answers);
+    sendAnswers(answers);
   }
 
+  function sendAnswers(answers: Record<string, string>) {
+    if (respond) respond(request.questionId, answers);
+    else session.controls.respondQuestion(tabId, request.questionId, answers);
+  }
+
+  // The card's keys act only in the active tab, and only when it owns them.
+  const keysActive = $derived(shortcuts && tabId === session.activeTabId);
+
   function handleKeydown(e: KeyboardEvent) {
-    if (tabId !== session.activeTabId || responded || !request) return;
+    if (!keysActive || responded || !request) return;
     const target = e.target instanceof HTMLElement ? e.target : null;
     const tag = target?.tagName;
     const typing =

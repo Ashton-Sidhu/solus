@@ -7,12 +7,18 @@
    * every stage reports its own state as it goes.
    *
    * The surface holds an exclusive keybinding scope for as long as it is up, so
-   * nothing behind it can fire while the shortcuts stage is inviting the user
-   * to press real keys.
+   * no shortcut can act on the workspace behind it.
    */
   import { onMount } from "svelte";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { Moon as MoonIcon, Sun as SunIcon } from "@lucide/svelte";
-  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
+  import {
+    getSettingsContext,
+    getWorkspaceContext,
+    projectsStore,
+    serversStore,
+  } from "../../contexts";
+  import { withProjectHost } from "../../contexts/workspace/run-config";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import OnboardingMark from "./OnboardingMark.svelte";
@@ -21,11 +27,13 @@
   import OnboardingGesturesStage from "./OnboardingGesturesStage.svelte";
   import OnboardingHostStage from "./OnboardingHostStage.svelte";
   import OnboardingProvidersStage from "./OnboardingProvidersStage.svelte";
-  import OnboardingShortcutsStage from "./OnboardingShortcutsStage.svelte";
   import OnboardingStartStage from "./OnboardingStartStage.svelte";
   import OnboardingComputeStage from "./OnboardingComputeStage.svelte";
   import OnboardingAccountGithubStage from "./OnboardingAccountGithubStage.svelte";
   import OnboardingProjectStage from "./OnboardingProjectStage.svelte";
+  import OnboardingNameProjectStage from "./OnboardingNameProjectStage.svelte";
+  import OnboardingOpenProjectStage from "./OnboardingOpenProjectStage.svelte";
+  import OnboardingCloudConnectStage from "./OnboardingCloudConnectStage.svelte";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import type { OnboardingMode } from "./lib/onboarding-model";
 
@@ -45,26 +53,21 @@
   });
 
   /**
-   * Ends the flow. Both modes land on the workspace's new-tab home, which is
-   * what an unstarted tab already renders — so chat has nothing to open. A
-   * project opens the folder picker over it, through the same window event the
-   * home itself uses, which is why this works identically on desktop and web.
+   * Ends the flow with a chat, which is also what Skip setup does. It lands on
+   * the workspace's new-tab home — what an unstarted tab already renders — so
+   * there is nothing to open.
    */
-  function finish(mode: OnboardingMode) {
+  function finishWithChat() {
     if (store.flow === "cloud") {
-      void finishCloud(mode === "project");
+      void finishCloud(false);
       return;
     }
-    store.chooseMode(mode);
+    store.chooseMode("chat");
     settings.update({ onboardingCompleted: true });
     // The boot-time start() probed agent binaries before onboarding had a
     // chance to install or repair anything, and a stale "Not installed" would
     // otherwise survive into the agent picker until the next launch.
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    if (mode === "project") {
-      window.dispatchEvent(new CustomEvent("solus:open-directory-picker"));
-      return;
-    }
     requestInputFocus();
   }
 
@@ -82,6 +85,34 @@
     requestInputFocus();
   }
 
+  /**
+   * Ends either flow once the project exists — named new, or chosen from
+   * existing code: a draft opens in it on its host with the composer focused,
+   * because the next thing to do is say what to build.
+   */
+  function finishWithProject(
+    mode: Exclude<OnboardingMode, "chat">,
+    project: { serverId: string; path: string },
+  ) {
+    if (store.flow === "cloud") {
+      void cloud.complete();
+    } else {
+      store.chooseMode(mode);
+      settings.update({ onboardingCompleted: true });
+    }
+    void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
+    projectsStore.addProject(project.serverId, serverConnections.apiFor(project.serverId), project.path);
+    const draft = workspace.drafts.openSessionDraft(
+      { freshTask: true, target: workspace.router.leadingPane.id },
+      project.path,
+    );
+    draft.run = withProjectHost(draft.run, project.serverId, {
+      path: project.path,
+      isolate: serversStore.isolatesSessions(project.serverId),
+    });
+    requestInputFocus();
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (stage === "intro") {
       event.preventDefault();
@@ -90,7 +121,10 @@
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      finish("chat");
+      // Naming a project or choosing its folder is a step into the start
+      // stage, so Escape steps back out.
+      if (stage === "name-project" || stage === "open-project") store.back();
+      else finishWithChat();
       return;
     }
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -105,8 +139,12 @@
     // shortcut at all.
     if (stage === "start") {
       event.preventDefault();
-      finish("project");
-    } else if (stage === "shortcuts" || stage === "getting-around") {
+      store.nameNewProject();
+    } else if (stage === "cloud-connect" && target?.tagName !== "BUTTON") {
+      // A focused Connect button keeps Enter, so connecting stays keyboard-reachable.
+      event.preventDefault();
+      store.advance();
+    } else if (stage === "getting-around") {
       event.preventDefault();
       store.advance();
     }
@@ -142,7 +180,7 @@
     <button
       type="button"
       class="no-drag h-6.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
-      onclick={() => finish("chat")}
+      onclick={finishWithChat}
     >
       Skip setup
     </button>
@@ -181,14 +219,12 @@
       <OnboardingAgentsStage />
     {:else if stage === "providers"}
       <OnboardingProvidersStage />
-    {:else if stage === "shortcuts"}
-      <OnboardingShortcutsStage />
     {:else if stage === "getting-around"}
       <OnboardingGesturesStage />
     {:else if stage === "host"}
       <OnboardingHostStage />
     {:else if stage === "start"}
-      <OnboardingStartStage onchoose={finish} />
+      <OnboardingStartStage onchat={finishWithChat} />
     {:else if stage === "compute"}
       <OnboardingComputeStage />
     {:else if stage === "github"}
@@ -197,7 +233,22 @@
       <OnboardingProjectStage
         onstart={() => void finishCloud(true)}
         onskip={() => void finishCloud(false)}
+        onnew={() => store.nameNewProject()}
       />
+    {:else if stage === "name-project"}
+      <OnboardingNameProjectStage
+        serverId={store.serverId}
+        oncreated={(project) => finishWithProject("new-project", project)}
+        onskip={finishWithChat}
+      />
+    {:else if stage === "open-project"}
+      <OnboardingOpenProjectStage
+        serverId={store.serverId}
+        onopened={(project) => finishWithProject("project", project)}
+        onskip={finishWithChat}
+      />
+    {:else if stage === "cloud-connect"}
+      <OnboardingCloudConnectStage />
     {/if}
   </div>
 </div>

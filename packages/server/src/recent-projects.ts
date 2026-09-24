@@ -65,6 +65,5 @@ export async function listRecentProjects(): Promise<RecentProject[]> {
   `).all())
   return rows
     .map(fromRow)
-    // Drop rows already written before dispatch checkouts were excluded.
-    .filter((project) => !isRemoteDispatchCheckoutPath(project.path) && existsSync(project.path))
+    .filter((project) => existsSync(project.path))
 }

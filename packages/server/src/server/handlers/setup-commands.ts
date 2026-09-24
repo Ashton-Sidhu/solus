@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync } from 'fs'
 import { basename, dirname, join, sep } from 'path'
 import { homedir } from 'os'
 import type { CloneProtocol, PackageInstallCommand, SetupAgent } from '@solus/contracts/types'
+import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { getCliEnv } from '../../cli-env'
 
 /**
@@ -336,16 +337,6 @@ export function resolveCloneDestination(opts: CloneDestinationOptions): string {
   if (explicit) return explicit
   const dirName = safeProjectDirName(opts.name?.trim() || opts.repoName)
   return uniqueProjectPath(opts.projectsRoot, dirName, opts.exists)
-}
-
-export function safeProjectDirName(raw: string): string {
-  const base = raw.trim().replace(/\.git$/i, '')
-  const cleaned = base
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80)
-  if (!cleaned || /^\.+$/.test(cleaned)) return 'project'
-  return cleaned.startsWith('.') ? `project-${cleaned.slice(1)}` : cleaned
 }
 
 function parseHttpsCloneUrl(cloneUrl: string): CloneUrlInfo | null {

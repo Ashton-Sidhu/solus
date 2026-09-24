@@ -15,7 +15,6 @@ import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@so
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { projectDirLabel } from '../../lib/paths'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
@@ -464,13 +463,13 @@ export class PromptDispatch {
     if (resolvedPath !== session.run.workingDirectory) {
       session.run.workingDirectory = resolvedPath
     }
+    // A session does not add its folder as a project: only opening, cloning,
+    // or adding one does (`ProjectsStore.addProject`). It moves a known one up.
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
-      void this.workspace.apiFor(targetTabId).trackRecentProject(resolvedPath)
-      const catalogRoot = session.run.gitContext?.repoRoot ?? resolvedPath
-      projectsStore.record(
-        { serverId: session.run.serverId, projectRoot: catalogRoot },
-        projectDirLabel(catalogRoot, this.workspace.staticInfo?.workspacePath),
-      )
+      projectsStore.touch({
+        serverId: session.run.serverId,
+        projectRoot: session.run.gitContext?.repoRoot ?? resolvedPath,
+      })
     }
 
     session.run.provider = session.run.provider ?? this.workspace.settings.activeAgent

@@ -28,7 +28,6 @@
   "packages/workspace-ui/src/components/insights/TurnTranscript.svelte",
   "packages/workspace-ui/src/components/insights/VolumeChart.svelte",
   "packages/workspace-ui/src/components/onboarding/OnboardingGesturesStage.svelte",
-  "packages/workspace-ui/src/components/onboarding/OnboardingShortcutsStage.svelte",
   "packages/workspace-ui/src/components/pickers/DirectoryPicker.svelte",
   "packages/workspace-ui/src/components/pickers/SessionChip.svelte",
   "packages/workspace-ui/src/components/plan/PlanApproveButton.svelte",

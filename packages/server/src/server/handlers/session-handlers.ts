@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import { z } from 'zod'
 import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
+import type { SessionOrchestrator } from '../../orchestration/session-orchestrator'
 import { activityLeases } from '../activity-leases'
 import type { AgentId, AgentMetadata, IpcContext } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
@@ -24,6 +25,8 @@ const execFileAsync = promisify(execFile)
 
 export interface SessionDeps {
   controlPlane: ControlPlane
+  /** Decides whether a conversation may answer a question another session asked. */
+  orchestrator: Pick<SessionOrchestrator, 'mayAnswer'>
   agentIdFromContext(ctx?: IpcContext): AgentId
   /** Records who started a session; the first caller to name a new session owns it. */
   shares?: ShareManager
@@ -266,16 +269,21 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return controlPlane.retry(ctx, options, handlerCtx.clientId, turnActorFor(handlerCtx.principal))
   })
 
+  // A conversation answers its own requests, and the requests of a session it
+  // sent work to — the card that shows a child's question answers it for the
+  // child. Access to the conversation itself is checked by the access policy.
   server.register('respondPermission', (args) => {
-    const [ctx, questionId, optionId, updatedPlan] = args
-    log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
-    return controlPlane.respondToPermission(questionId, optionId, updatedPlan)
+    const [ctx, askingSessionId, questionId, optionId, updatedPlan] = args
+    log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, askingSessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
+    if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
+    return controlPlane.respondToPermission(askingSessionId, questionId, optionId, updatedPlan)
   })
 
   server.register('respondQuestion', (args) => {
-    const [ctx, questionId, answers] = args
-    log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, questionId })
-    return controlPlane.respondToQuestion(questionId, answers)
+    const [ctx, askingSessionId, questionId, answers] = args
+    log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, askingSessionId, questionId })
+    if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
+    return controlPlane.respondToQuestion(askingSessionId, questionId, answers)
   })
 
   server.register('rateLimitDecision', (args) => {

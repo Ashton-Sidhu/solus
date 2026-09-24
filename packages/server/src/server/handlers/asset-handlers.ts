@@ -1,4 +1,4 @@
-import { createAssetUrl, writeAssetUpload } from '../assets'
+import { createAssetUrl, findAssetUrl, writeAssetUpload } from '../assets'
 import type { SolusServer } from '../server'
 
 export function registerAssetHandlers(server: SolusServer): void {
@@ -6,5 +6,9 @@ export function registerAssetHandlers(server: SolusServer): void {
   server.register('assetCreateUrl', async (args) => {
     const [ctx, request] = args
     return createAssetUrl(ctx, request)
+  })
+  server.register('assetFindUrl', async (args) => {
+    const [ctx, request] = args
+    return findAssetUrl(ctx, request)
   })
 }

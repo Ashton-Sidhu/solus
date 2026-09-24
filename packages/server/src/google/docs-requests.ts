@@ -58,7 +58,7 @@ const INK = rgb('#343022')
 const MUTED = rgb('#7d7a6e')
 /** `--solus-art-border`, the rule that opens and closes a table and runs down
  *  the side of a code block. */
-const RULE = rgb('#ece2cf')
+const RULE = rgb('#ebe5d8')
 /** `--solus-doc-rule`: the same warm sand, faded, resolved against the white
  *  page a Google Doc is printed on. */
 const ROW_RULE_COLOR = rgb('#f3ecdf')

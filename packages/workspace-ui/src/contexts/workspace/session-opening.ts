@@ -178,7 +178,7 @@ export class SessionOpening {
       this.workspace.setActiveTab(forkTab.id)
       this.workspace.resetOverlays()
     }
-    void this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId }).catch(() => null)
+    void this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, force: false }).catch(() => null)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
@@ -221,16 +221,17 @@ export class SessionOpening {
     const namePrompt = firstUser?.content.slice(0, 200) ?? ''
 
     this.workspace.ui.beginContinueInWorktree(tabId)
-    // Live status card while the (eager, ~1-2s) worktree setup runs — branch-name
-    // generation + `git worktree add` — mirroring the backend's new-session card
-    // so the wait shows progress instead of a bare "Creating Worktree…" label.
+    // Live status card while the (eager, ~1-2s) `git worktree add` runs,
+    // mirroring the backend's new-session card so the wait shows progress
+    // instead of a bare "Creating Worktree…" label. The host names the branch
+    // afterwards and sends the new name as a `git_context` event.
     session.statusCard = {
       id: `continue-worktree-${tabId}`,
       title: 'Moving into a new worktree…',
       icon: 'git-branch',
       status: 'active',
       steps: [
-        { id: 'worktree', label: 'Naming & creating the worktree', status: 'active' },
+        { id: 'worktree', label: 'Creating the worktree', status: 'active' },
         { id: 'session', label: 'Moving this.workspace session in', status: 'pending' },
       ],
     }
@@ -511,7 +512,7 @@ export class SessionOpening {
             restoredSession.run.gitContext = null
             restoredSession.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
           } else {
-            environmentRefresh = this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, level: 'full' })
+            environmentRefresh = this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, level: 'full', force: false })
           }
 
           void this.workspace.lifecycle.refreshPluginCommands(workingDirectory, tabId)

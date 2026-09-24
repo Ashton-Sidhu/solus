@@ -88,7 +88,23 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     } });
     let scrollTop = 0;
     Object.defineProperty(scroll, 'scrollTop', { get: () => scrollTop, set(value) { scrollTop = Math.max(0, Math.min(value, scroll.scrollHeight - viewportHeight)); } });
-    HTMLElement.prototype.getBoundingClientRect = function() { return { top: this === scroll ? 0 : -scrollTop, height: 800 }; };
+    // A small layout model: rows stack at their heights, spacers at their
+    // style heights, and anything inside a row starts at the row's top. The
+    // virtualizer holds the view by DOM position, so the stub must move
+    // elements the way a browser would.
+    const heightOf = (node) => node.dataset.transcriptTurnId
+      ? heights.get(node.dataset.transcriptTurnId) ?? 240 : parseFloat(node.style.height) || 0;
+    HTMLElement.prototype.getBoundingClientRect = function() {
+      if (this === scroll) return { top: 0, bottom: viewportHeight, height: viewportHeight };
+      const list = scroll.querySelector('.messages-list');
+      let child = this;
+      while (child && child.parentElement !== list) child = child.parentElement;
+      if (!child) return { top: -scrollTop, bottom: -scrollTop, height: 0 };
+      let y = 0;
+      for (const node of list.children) { if (node === child) break; y += heightOf(node); }
+      const height = this === child ? heightOf(child) : Math.min(20, heightOf(child));
+      return { top: y - scrollTop, bottom: y - scrollTop + height, height };
+    };
     const app = mount(Fixture, { target: scroll, props: { scrollElement: scroll, virtualizer } });
     flushSync(); await tick(); flushSync();
     const drain = async () => {

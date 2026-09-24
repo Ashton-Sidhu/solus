@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { formatExchangeTag } from '@solus/contracts/session-exchange'
 import {
   ERROR_HEAD_MAX_BYTES,
   projectSessionEvent,
@@ -94,10 +95,10 @@ describe('session result projection', () => {
   test('extracts agent-conversation correlation without shipping result text', () => {
     const agentSessionId = '11111111-1111-1111-1111-111111111111'
     const projected = projectSessionHistory([
-      { role: 'tool', content: '', toolName: 'create_session', toolId: 'create-1', timestamp: 1 },
+      { role: 'tool', content: '', toolName: 'start_session', toolId: 'create-1', timestamp: 1 },
       {
         role: 'tool_result',
-        content: `Created sessionId=${agentSessionId} with private provider output`,
+        content: `Created a session with private provider output.\n${formatExchangeTag({ messageId: 'm1', agentSessionId, provider: 'codex' })}`,
         toolResultForId: 'create-1',
         timestamp: 2,
       },
@@ -105,7 +106,7 @@ describe('session result projection', () => {
 
     expect(projected[1]).toMatchObject({
       content: '',
-      agentConversationResult: { agentSessionId },
+      agentConversationResult: { agentSessionId, messageId: 'm1', provider: 'codex' },
     })
   })
 })

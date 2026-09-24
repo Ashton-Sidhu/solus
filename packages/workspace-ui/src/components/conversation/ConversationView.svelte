@@ -64,6 +64,7 @@
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { toasts } from "../../lib/toasts";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { setMarkdownImageContext } from "./lib/markdown-image";
@@ -499,6 +500,19 @@
     await findBarRef?.focusInput();
   }
 
+  /** Ends only what the agent left running; its finished turn is untouched. */
+  async function stopBackgroundWork(): Promise<void> {
+    try {
+      const stopped = await session
+        .apiFor(tabId)
+        .stopBackgroundTasks(session.ctxFor(tabId).session.sessionId);
+      if (!stopped) toasts.error("The background task could not be stopped");
+    } catch {
+      toasts.error("The background task could not be stopped");
+    }
+    requestInputFocus({ tabId });
+  }
+
   function closeFind() {
     findOpen = false;
     findQuery = "";
@@ -618,9 +632,7 @@
     {
       enabled: () =>
         tabId === session.focusedChatTabId &&
-        (sess?.status === "running" ||
-          sess?.status === "connecting" ||
-          sess?.status === "background"),
+        (sess?.status === "running" || sess?.status === "connecting"),
     },
   );
 
@@ -822,6 +834,8 @@
                 <ConversationTurn {turn} index={turnIdx} total={turns.length}
                   expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
                   {isAwaitingInput} {activityLabel} turnStart={sess.currentTurnStart}
+                  hasBackgroundWork={sess.status === "background"}
+                  onStopBackgroundWork={stopBackgroundWork}
                   attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
                   onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
                   {transcriptItem} />

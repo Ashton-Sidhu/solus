@@ -20,6 +20,12 @@
 #   SOLUS_RUNTIME_DIR       overrides ~/.local/share/solus
 #   SOLUS_BIN_DIR           overrides ~/.local/bin
 #   SOLUS_RELEASE_REPO      overrides Ashton-Sidhu/solus
+#
+# Flags, for one-line setup (`curl -fsSL <url> | sh -s -- --link CODE`):
+#   --setup                 run `solus setup` after installing
+#   --link CODE             run `solus setup --link CODE`: start the service and
+#                           link this host to Solus Cloud with a code from onboarding
+#   --cloud-url URL         the Solus Cloud origin that issued the code
 
 set -eu
 
@@ -94,12 +100,47 @@ verify_sha256() {
   [ "$actual" = "$expected" ] || die "Checksum mismatch for $3 (expected $expected, got $actual)"
 }
 
+parse_args() {
+  RUN_SETUP=""
+  LINK_CODE=""
+  CLOUD_URL=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --setup) RUN_SETUP=1 ;;
+      --link)
+        [ $# -ge 2 ] && [ -n "$2" ] || die "--link requires a code"
+        LINK_CODE="$2"; RUN_SETUP=1; shift ;;
+      --cloud-url)
+        [ $# -ge 2 ] && [ -n "$2" ] || die "--cloud-url requires a URL"
+        CLOUD_URL="$2"; shift ;;
+      *) die "Unknown option: $1" ;;
+    esac
+    shift
+  done
+}
+
+run_setup() {
+  set -- setup
+  [ -z "$LINK_CODE" ] || set -- "$@" --link "$LINK_CODE"
+  [ -z "$CLOUD_URL" ] || set -- "$@" --cloud-url "$CLOUD_URL"
+  log ""
+  # Under `curl | sh` stdin is the rest of this script: keep it from the child.
+  "$BIN_DIR/solus" "$@" </dev/null
+  exit 0
+}
+
 main() {
+  parse_args "$@"
+  if [ -e "$RUNTIME_DIR/current" ]; then
+    # A second run with a link code still links: the code is the point.
+    [ -n "$RUN_SETUP" ] || die 'Solus is already installed. Use solus update.'
+    log "Solus is already installed."
+    run_setup
+  fi
   target=$(detect_target)
   version=$(resolve_version)
   [ -n "$version" ] || die "Could not determine a version to install. Set SOLUS_VERSION."
   printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die 'Invalid release version'
-  [ ! -e "$RUNTIME_DIR/current" ] || die 'Solus is already installed. Use solus update.'
   artifact="solus-server-$target.tar.gz"
 
   work_dir=$(mktemp -d "${TMPDIR:-/tmp}/solus-install.XXXXXX")
@@ -162,6 +203,7 @@ NODE
     *":$BIN_DIR:"*) : ;;
     *) log "" ; log "Add $BIN_DIR to your PATH, e.g.: export PATH=\"$BIN_DIR:\$PATH\"" ;;
   esac
+  [ -z "$RUN_SETUP" ] || run_setup
   log ""
   log "Next: run \`solus setup\` to install the background service, or \`solus start\` to run it in the foreground."
 }

@@ -8,6 +8,8 @@ import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   type AssetCreateUrlRequest,
   type AssetCreateUrlResult,
+  type AssetFindUrlRequest,
+  type AssetFindUrlResult,
   type AssetUploadRequest,
   type AssetUploadResult,
 } from '@solus/contracts/rpc'
@@ -20,6 +22,8 @@ import { uploadBucketId, uploadFolderName } from './handlers/attachment-handlers
 import { isInsideRoot } from '../paths'
 
 export const ASSET_URL_TTL_MS = 60 * 60 * 1000
+/** Bounds the file-system work one `assetFindUrl` request can ask for. */
+const MAX_ASSET_FIND_CANDIDATES = 16
 
 const IMAGE_EXTENSION = new Map<string, string>([
   ['image/png', 'png'],
@@ -246,6 +250,22 @@ export async function createAssetUrl(
     options.secret ?? getAssetSigningSecret(),
   )
   return { relativeUrl: `/api/assets/${token}`, expiresAt }
+}
+
+/** Serve the first candidate that `createAssetUrl` accepts, in one round trip.
+ *  A client probing conventional locations (a project favicon) would otherwise
+ *  pay one host request per miss. */
+export async function findAssetUrl(
+  ctx: IpcContext | undefined,
+  request: AssetFindUrlRequest,
+  options: Parameters<typeof createAssetUrl>[2] = {},
+): Promise<AssetFindUrlResult | null> {
+  for (const path of request.paths.slice(0, MAX_ASSET_FIND_CANDIDATES)) {
+    try {
+      return { ...(await createAssetUrl(ctx, { path }, options)), path }
+    } catch {}
+  }
+  return null
 }
 
 /** Verify an asset capability and stream its file without session cookies. */

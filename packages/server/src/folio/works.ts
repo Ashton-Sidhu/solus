@@ -30,6 +30,13 @@ const workExtraSchema = z.object({
   sessionIds: z.array(z.string()).optional(),
   mirroredDoc: workExternalLinkSchema.optional(),
 })
+const workRefRowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  type: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+  session_id: z.string(),
+})
+
 const workRowSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
@@ -352,6 +359,21 @@ export async function listWorks(organizationId: string): Promise<(WorkMeta & { i
     log.error('works_list_failed', { error: err instanceof Error ? err.message : String(err) })
     return []
   }
+}
+
+/** The works these sessions made, newest first: id, title and type only. */
+export async function listWorkRefsForSessions(
+  organizationId: string,
+  sessionIds: readonly string[],
+): Promise<Array<{ id: string; title: string; type: WorkType; sessionId: string }>> {
+  if (!sessionIds.length) return []
+  const rows = workRefRowSchema.array().parse(await database().all(sql`
+    SELECT id, title, type, session_id FROM ${works}
+    WHERE organization_id = ${organizationId}
+      AND session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
+    ORDER BY created_at DESC, id
+  `))
+  return rows.map((row) => ({ id: row.id, title: row.title, type: row.type, sessionId: row.session_id }))
 }
 
 export async function setWorkPinned(organizationId: string, id: string, pinned: boolean): Promise<void> {

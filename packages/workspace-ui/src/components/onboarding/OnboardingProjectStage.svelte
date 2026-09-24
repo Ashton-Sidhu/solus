@@ -5,10 +5,15 @@
    * member of the organization sees its tasks and pull requests. Start opens a
    * new session in it; the run-on rule picks the machine, and the cloud host
    * clones the repository on the first send when no machine holds it.
+   *
+   * A new project is the other way to end here: an empty folder on the chosen
+   * machine, in the person's own projects folder. It is not a Solus Cloud
+   * project until it is published to GitHub, so only its creator sees it.
    */
   import {
     Check as CheckIcon,
     FolderGit2 as RepositoryIcon,
+    FolderPlus as FolderPlusIcon,
     LoaderCircle as LoaderIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
@@ -24,9 +29,11 @@
   interface Props {
     onstart: () => void;
     onskip: () => void;
+    /** Asks for the new project's name, on the chosen machine. */
+    onnew: () => void;
   }
 
-  let { onstart, onskip }: Props = $props();
+  let { onstart, onskip, onnew }: Props = $props();
 
   let query = $state("");
   const projects = $derived(workspaceProjectsStore.projectsFor(cloud.workspaceServerId));
@@ -50,6 +57,21 @@
   </p>
 
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">
+    <!-- A new project needs a machine to hold its folder. -->
+    {#if cloud.chosenHost}
+      <OnboardingRow
+        name="Start a new project"
+        detail="An empty project on {cloud.chosenHost.label}. Only you see it until you publish it to GitHub."
+        tint="var(--chart-2)"
+        state="available"
+        onpick={onnew}
+      >
+        {#snippet mark()}
+          <FolderPlusIcon size={18} />
+        {/snippet}
+      </OnboardingRow>
+    {/if}
+
     <Input placeholder="Search repositories" aria-label="Search repositories" bind:value={query} />
 
     {#if cloud.repositoriesError}

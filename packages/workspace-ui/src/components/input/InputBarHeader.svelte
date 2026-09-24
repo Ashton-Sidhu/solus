@@ -21,10 +21,15 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import {
     isDispatch,
-    withCheckout,
-    withPendingHost,
+    startsWorktree,
+    withWorktreeToggled,
   } from "../../contexts/workspace/run-config";
-  import { projectHostId } from "../servers/run-on";
+  import type { ProjectRef } from "../../contexts";
+  import {
+    projectHostId,
+    withCheckoutOnHost,
+    worktreeBlockedReason,
+  } from "../servers/run-on";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
@@ -160,12 +165,6 @@
     environmentStore.refsFor(gitServerId, gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
-  // Keep branch data live for the header even when the status row is hidden.
-  $effect(() => {
-    const cwd = gitStatusCwd;
-    if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(gitServerId, cwd);
-  });
 
   let gitOpen = $state(false);
   let branchTooltipOpen = $state(false);
@@ -259,35 +258,51 @@
     requestInputFocus(focusTarget);
   }
 
-  // Which host the chosen project lives on — the run-on picker's answer, read
-  // back so a project picked from the chip lands on the host it belongs to.
+  // Which host the run's project lives on, so "New project" browses that host.
   const projectHost = $derived(projectHostId(run ?? session.defaultRunConfig));
   const projectHostIsLocal = $derived(
     serversStore.hostFor(projectHost)?.local ?? true,
   );
 
-  function selectProject(path: string) {
-    // A project on another host is that host's project — recorded as an open and
-    // resolved over there on Send, exactly as the run-on picker used to do it.
-    // This is a pre-start move only: a started session moves through
-    // `setBaseDirectory`, which resets the live provider thread on its own host.
-    if (draft && !projectHostIsLocal) {
-      applyRun(
-        withCheckout(
-          withPendingHost(draft.run, {
-            serverId: projectHost,
-            intent: "open-project",
-          }),
-          path,
-          null,
-        ),
+  /** Open a project in one of its checkouts. A checkout on the run's own host
+   *  is a folder change; one on another host moves the run there too, which a
+   *  started conversation cannot do — its strip is gone by then. */
+  function selectProject(checkout: ProjectRef) {
+    const current = run ?? session.defaultRunConfig;
+    if (checkout.serverId === current.serverId && !current.pendingHostDispatch) {
+      void session.config.setBaseDirectory(checkout.projectRoot, source).then(
+        () => requestInputFocus(focusTarget),
+        () => {},
       );
-      requestInputFocus(focusTarget);
       return;
     }
-    void session.config.setBaseDirectory(path, source).then(
-      () => requestInputFocus(focusTarget),
-      () => {},
+    applyRun(
+      withCheckoutOnHost(current, checkout.serverId, checkout.projectRoot, {
+        immediate: serversStore.hostFor(checkout.serverId)?.local ?? false,
+        isolate: serversStore.isolatesSessions(checkout.serverId),
+      }),
+    );
+    settleOnDestination();
+  }
+
+  /** The checkout type of the next session, chosen in the branch menu. */
+  function selectStartIn(worktree: boolean) {
+    const current = run ?? session.defaultRunConfig;
+    if (startsWorktree(current) !== worktree) applyRun(withWorktreeToggled(current));
+    requestInputFocus(focusTarget);
+  }
+
+  /** A project with no remote to copy opens on another host through a folder
+   *  that person picks there. */
+  function chooseFolderOn(serverId: string) {
+    window.dispatchEvent(
+      new CustomEvent("solus:open-directory-picker", {
+        detail: {
+          ...(draft ? { draftId: source } : { tabId: source }),
+          serverId,
+          intent: "open-project",
+        },
+      }),
     );
   }
 
@@ -320,6 +335,14 @@
     );
   }
 
+  /** The Open project flow on its New project screen, bound to this run's host.
+   *  A draft is re-aimed at the new folder, so a prompt already typed stays. */
+  function newProject() {
+    window.dispatchEvent(
+      new CustomEvent("solus:open-project", { detail: { tabId: source, source: "new" } }),
+    );
+  }
+
   function selectTask(next: TaskTarget) {
     // A tab's session or a draft — both own the task the started session files
     // under, so the choice lands on whichever this source is.
@@ -343,8 +366,9 @@
 </script>
 
 <!--
-  Destination strip: where the next session will run, as three chips that each
-  answer one question — which project, what it starts in, which branch. Sits
+  Destination strip: where the next session will run, as chips that each
+  answer one question — which project, which machine, which branch and
+  checkout, which task. Sits
   above the composer card and only while the session has not started, because
   that is exactly how long any of it is editable.
 -->
@@ -356,29 +380,32 @@
   narrow companion pane on desktop.
 -->
 <div class="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
-  <!-- The picker decides its own visibility from the connected hosts and the
-       checkout, so it renders regardless of git: a folder opened on a remote
-       machine still names the machine it runs on. It comes first: it chooses the
-       host, and the project chip beside it lists that host's projects. -->
-  <RunOnPicker
-    run={run ?? session.defaultRunConfig}
-    requesterId={source}
-    locked={hasSessionStarted(sess)}
-    onRun={applyRun}
-    onDismiss={() => requestInputFocus(focusTarget)}
-    variant="header"
-    {paneId}
-  />
-
+  <!-- A sentence read left to right: which project, on which machine, from
+       which branch, filed under which task. The project chip lists projects
+       from every host; the Run on picker then says what each machine would use
+       for the chosen one, and decides its own visibility from the connected
+       hosts. -->
   <ProjectChip
     run={run ?? session.defaultRunConfig}
     projectDir={gitHome.projectRoot ?? projectDir}
     label={projectLabel}
     onSelect={selectProject}
     onBrowse={browseProjects}
+    onNewProject={newProject}
     onDismiss={() => requestInputFocus(focusTarget)}
     anchor={projectPickerAnchor}
     bind:open={projectPickerOpen}
+  />
+
+  <RunOnPicker
+    run={run ?? session.defaultRunConfig}
+    requesterId={source}
+    locked={hasSessionStarted(sess)}
+    onRun={applyRun}
+    onChooseFolder={chooseFolderOn}
+    onDismiss={() => requestInputFocus(focusTarget)}
+    variant="header"
+    {paneId}
   />
 
   {#if hasGitRepository}
@@ -452,6 +479,9 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
+    {startsNewWorktree}
+    worktreeBlockedNote={worktreeBlockedReason(gitHome.canToggleWorktree)}
+    onSelectStartIn={selectStartIn}
     onDismiss={() => requestInputFocus(focusTarget)}
   />
 {/if}

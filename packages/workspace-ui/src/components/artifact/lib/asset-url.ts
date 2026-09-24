@@ -1,5 +1,6 @@
 import { hostKey } from '@solus/client-core/host-key'
 import type { HostApi } from '@solus/client-core/host-api'
+import type { AssetCreateUrlResult } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 
 export const ASSET_URL_REFRESH_WINDOW_MS = 60_000
@@ -19,6 +20,15 @@ export interface SignedAssetUrlRequest {
   ctx?: IpcContext
 }
 
+export interface SignedAssetFindRequest {
+  serverId: string
+  /** Host paths in preference order. */
+  paths: string[]
+  origin: string
+  api: Pick<HostApi, 'assetFindUrl'>
+  ctx?: IpcContext
+}
+
 export class AssetUrlCache {
   private readonly entries = new Map<string, CachedAssetUrl>()
 
@@ -34,7 +44,20 @@ export class AssetUrlCache {
       request.ctx,
       request.assetId ? { assetId: request.assetId, name: request.name } : { path: request.path },
     )
-    const url = new URL(minted.relativeUrl, `${request.origin.replace(/\/+$/, '')}/`).toString()
+    return this.remember(key, request.origin, minted)
+  }
+
+  /** The first candidate the host can serve, in one round trip, or null when
+   *  none exists. */
+  async find(request: SignedAssetFindRequest): Promise<{ path: string; url: string } | null> {
+    const found = await request.api.assetFindUrl(request.ctx, { paths: request.paths })
+    if (!found) return null
+    const key = hostKey(request.serverId, `path:${found.path}`)
+    return { path: found.path, url: this.remember(key, request.origin, found) }
+  }
+
+  private remember(key: string, origin: string, minted: AssetCreateUrlResult): string {
+    const url = new URL(minted.relativeUrl, `${origin.replace(/\/+$/, '')}/`).toString()
     this.entries.set(key, { url, expiresAt: minted.expiresAt })
     return url
   }

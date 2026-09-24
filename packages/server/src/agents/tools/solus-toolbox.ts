@@ -17,15 +17,14 @@ import {
   updateAutomationAgentTool,
 } from '../../automations/automation-tools'
 import {
-  createSessionAgentTool,
-  findSessionsAgentTool,
   listAgentTargetsAgentTool,
-  promptSessionAgentTool,
   readSessionAgentTool,
+  readTaskSessionsAgentTool,
+  searchSessionsAgentTool,
+  sendSessionAgentTool,
+  startSessionAgentTool,
   stopSessionAgentTool,
-  waitForSessionAgentTool,
 } from '../../sessions/session-tools'
-import { answerSessionAgentTool, reviewPlanAgentTool } from '../../sessions/session-review-tools'
 import {
   commentDocumentAgentTool,
   readPlanAgentTool,
@@ -130,14 +129,12 @@ export const solusToolbox = {
   },
   sessions: {
     targets: listAgentTargetsAgentTool,
-    find: findSessionsAgentTool,
+    search: searchSessionsAgentTool,
     read: readSessionAgentTool,
-    create: createSessionAgentTool,
-    prompt: promptSessionAgentTool,
-    wait: waitForSessionAgentTool,
+    readTask: readTaskSessionsAgentTool,
+    start: startSessionAgentTool,
+    send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
-    answer: answerSessionAgentTool,
-    reviewPlan: reviewPlanAgentTool,
   },
   tasks: {
     list: listTasksAgentTool,

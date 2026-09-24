@@ -17,6 +17,7 @@
   import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
+  import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
 
@@ -195,23 +196,17 @@
     ui.directoryPickerNewTab ||
       (!ui.directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
-  // Borrowed by the Open project flow, where the folder being chosen is a place
-  // to put a clone rather than a project to open — so it gets its own wording.
+  // Borrowed by the Open project flow, where the folder being chosen may be a
+  // place to put a clone or a new project — so the flow supplies the wording.
   const directoryPickerTitle = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) {
-      return openProjectStore.source === "local"
-        ? "Open a folder"
-        : "Choose where to clone";
-    }
+    if (ui.directoryPickerForOpenProject) return openProjectStore.browseTitle;
     if (ui.directoryPickerForAddProject) return "Add a project";
     return directoryPickerCreatesTab
       ? "Open project in a new tab"
       : "Change project folder";
   });
   const directoryPickerAction = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) {
-      return openProjectStore.source === "local" ? "Open" : "Clone here";
-    }
+    if (ui.directoryPickerForOpenProject) return openProjectStore.browseAction;
     if (ui.directoryPickerForAddProject) return "Add project";
     return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
   });
@@ -301,8 +296,8 @@
     };
     const openProjectHandler = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
-      const detail: { tabId?: string } | undefined = event.detail;
-      startOpenProject({ sourceId: detail?.tabId });
+      const detail: { tabId?: string; source?: ProjectSource; serverId?: string } | undefined = event.detail;
+      startOpenProject({ sourceId: detail?.tabId, source: detail?.source, serverId: detail?.serverId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
@@ -635,7 +630,7 @@
         {@const OpenProjectDialog = openProjectModule.default}
         <OpenProjectDialog
           onOpenProject={(path) =>
-            void openProjectAtPath(path, openProjectStore.source !== "local")}
+            void openProjectAtPath(path, openProjectStore.source)}
           onBrowse={browseForOpenProject}
           onBackgroundCloneFailure={(failure) =>
             toasts.error(failure.title, { description: failure.detail })}

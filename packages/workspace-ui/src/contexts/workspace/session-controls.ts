@@ -30,7 +30,8 @@ export class SessionControls {
   }
 
   respondPermission(tabId: string, questionId: string, optionId: string): void {
-    this.workspace.apiFor(tabId).respondPermission(this.workspace.ctxFor(tabId), questionId, optionId)
+    const ctx = this.workspace.ctxFor(tabId)
+    this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId)
     track('permission_responded', { decision: optionId })
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
@@ -39,7 +40,8 @@ export class SessionControls {
   }
 
   respondQuestion(tabId: string, questionId: string, answers: Record<string, string>): void {
-    this.workspace.apiFor(tabId).respondQuestion(this.workspace.ctxFor(tabId), questionId, answers)
+    const ctx = this.workspace.ctxFor(tabId)
+    this.workspace.apiFor(tabId).respondQuestion(ctx, ctx.session.sessionId, questionId, answers)
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
     const idx = session.questionQueue.findIndex((q) => q.questionId === questionId)

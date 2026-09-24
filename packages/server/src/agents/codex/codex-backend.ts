@@ -70,6 +70,7 @@ import type {
 } from './codex-protocol'
 import {
   CodexPermissionResponder,
+  codexQuestionId,
   autoApprovalResponse,
   denialResponse,
   normalizeMcpElicitationRequest,
@@ -240,12 +241,25 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /** Set once if `thread/start` rejects dynamicTools — we then drop them and
    *  the agent loses work create/read/update for the run (experimental API). */
   private dynamicToolsUnavailable = false
+  /** Each app-server's number, so its request ids cannot collide with another's. */
+  private readonly clientNumbers = new WeakMap<CodexAppServerClient, number>()
+  private nextClientNumber = 0
 
   constructor() {
     super()
     // A pending request is answered on the app-server it came from.
-    this.permissions = new CodexPermissionResponder((sessionId) => this.clientForSession(sessionId))
+    this.permissions = new CodexPermissionResponder()
     this.attachClient(this.client)
+  }
+
+  /** The question id for a request `client` sent: unique across every app-server on the host. */
+  private questionIdFor(client: CodexAppServerClient, requestId: string | number): string {
+    let clientNumber = this.clientNumbers.get(client)
+    if (clientNumber === undefined) {
+      clientNumber = this.nextClientNumber++
+      this.clientNumbers.set(client, clientNumber)
+    }
+    return codexQuestionId(clientNumber, requestId)
   }
 
   /** Every app-server, the host's and each seat's, reports through the same handlers; a failure reaches only its own runs. */
@@ -269,10 +283,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         this.emit('error', handle.agentSessionId, exitErr)
       }
     })
-  }
-
-  private clientForSession(sessionId: string | null): CodexAppServerClient {
-    return (sessionId ? this.activeRuns.get(sessionId)?.client : undefined) ?? this.client
   }
 
   /**
@@ -953,7 +963,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (msg.method === 'serverRequest/resolved') {
-      const resolved = this.permissionResponder().resolveServerRequest(params?.requestId || params?.id)
+      const requestId = params?.requestId ?? params?.id
+      const resolved = requestId === undefined || requestId === null
+        ? null
+        : this.permissionResponder().resolveServerRequest(this.questionIdFor(client, requestId))
       if (resolved) {
         this.emit('normalized', resolved.sessionId, {
           type: 'permission_resolved',
@@ -1130,8 +1143,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       if (handle.permissionMode === 'auto') { void respondWithResult(true); return }
 
       handle.sawPermissionRequest = true
-      const questionId = `codex-${String(msg.id)}`
-      this.permissionResponder().add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
+      const questionId = this.questionIdFor(client, msg.id)
+      this.permissionResponder().add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult }, client)
       const parsedToolInput = z.record(z.string(), z.json()).safeParse(args)
       const toolRequest: Extract<NormalizedEvent, { type: 'permission_request' }> = {
         type: 'permission_request',
@@ -1152,8 +1165,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (msg.method === 'item/tool/requestUserInput' || msg.method === 'mcpServer/elicitation/request') {
-      const questionId = `codex-${String(msg.id)}`
-      this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId })
+      const questionId = this.questionIdFor(client, msg.id)
+      this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId }, client)
       const elicitation = msg.method === 'mcpServer/elicitation/request'
         ? normalizeMcpElicitationRequest(params)
         : null
@@ -1180,8 +1193,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (handle) handle.sawPermissionRequest = true
 
-    const questionId = `codex-${String(msg.id)}`
-    this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId })
+    const questionId = this.questionIdFor(client, msg.id)
+    this.permissionResponder().add(questionId, { id: msg.id, method: msg.method, params, sessionId }, client)
     const request: Extract<NormalizedEvent, { type: 'permission_request' }> = {
       type: 'permission_request',
       questionId,

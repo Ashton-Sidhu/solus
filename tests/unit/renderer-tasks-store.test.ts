@@ -1448,3 +1448,38 @@ describe('conversation-card reverse links', () => {
     expect(store.linkedTasksFor(target)).toEqual([])
   })
 })
+
+describe('the every-project task list', () => {
+  test('lists every task of the given projects in any status, and tasks with no project', async () => {
+    // WHY: "All projects" on the tasks page once showed only tasks still in
+    // the `inbox` status, so projects full of open work read as "Inbox zero".
+    // It is the same list as one project's, over each project the session
+    // sidebar shows; the page's status filter is what hides finished work.
+    installStateRune()
+    const api = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [
+          { ...task(), id: 'todo', status: 'todo', projectKey: 'github.com/acme/app' },
+          { ...task(), id: 'done', status: 'done', projectKey: 'github.com/acme/app' },
+          { ...task(), id: 'elsewhere', status: 'todo', projectKey: 'github.com/acme/other' },
+          { ...task(), id: 'loose', status: 'inbox' },
+        ],
+        sessionsByTask: {},
+      }),
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, writable: true, value: { solus: api },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    const ids = (projectKeys: string[]) =>
+      store.tasksInProjects(new Set(projectKeys)).map(({ id }) => id).sort()
+    expect(ids(['github.com/acme/app'])).toEqual(['done', 'loose', 'todo'])
+    expect(ids(['github.com/acme/app', 'github.com/acme/other'])).toContain('elsewhere')
+    expect(ids([])).toEqual(['loose'])
+  })
+})

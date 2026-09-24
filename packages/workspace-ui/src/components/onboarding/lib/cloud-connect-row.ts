@@ -2,11 +2,11 @@ import type { AccountState } from '@solus/contracts/account-types'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 
 /**
- * The optional "Connect to Solus Cloud" row at the end of desktop onboarding
- * (docs/plans/cloud-onboarding.md §4). One action does both halves: sign this
- * app in to a Solus account (the browser approves it), then link this Mac so
- * it is reachable from any browser signed in to that account. Optional,
- * because the desktop app is local by default; the row never blocks Start.
+ * The "Connect to Solus Cloud" row on the optional last stage of desktop
+ * onboarding. One action does both halves: sign this app in to a Solus account
+ * (the browser approves it), then link this Mac so it is reachable from any
+ * browser signed in to that account. Optional, because the desktop app is
+ * local by default; the row never blocks the landing.
  */
 
 export interface CloudConnectRow {

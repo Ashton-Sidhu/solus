@@ -1,10 +1,9 @@
 import { isQuestionTool } from '@solus/contracts/question-history'
+import { parseExchangeTag, parseOrchestrationItems } from '@solus/contracts/session-exchange'
 import type { NormalizedEvent, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AgentConversationResultProjection, SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 
 export const ERROR_HEAD_MAX_BYTES = 2 * 1024
-
-const AGENT_SESSION_ID = /sessionId=([0-9a-f-]{36})/
 
 interface AgentConversationProjection {
   agentConversationResult?: AgentConversationResultProjection
@@ -115,19 +114,25 @@ function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolNa
     || name === 'claude_subagent' || name === 'codex_subagent'
 }
 
+/** The exchange a start_session or send_session result opened, read with
+ *  the one codec the host writes it with. */
 function agentConversationProjection(
   toolName: string | undefined,
   content: string,
 ): AgentConversationProjection {
-  if (!toolName) return {}
-  if (toolName.endsWith('create_session')) {
-    const agentSessionId = content.match(AGENT_SESSION_ID)?.[1]
-    return agentSessionId ? { agentConversationResult: { agentSessionId } } : {}
-  }
-  if (toolName.endsWith('wait_for_session') && content.includes('no watcher was registered')) {
-    return { agentConversationResult: { watcherRegistered: false } }
-  }
-  return {}
+  if (!toolName?.endsWith('start_session') && !toolName?.endsWith('send_session')) return {}
+  const tag = parseExchangeTag(content)
+  if (!tag) return {}
+  // A created session's card needs the session the tool started; a prompt names it in its input.
+  if (toolName.endsWith('start_session') && !tag.agentSessionId) return {}
+  const agentConversationResult: AgentConversationResultProjection = {}
+  if (tag.agentSessionId) agentConversationResult.agentSessionId = tag.agentSessionId
+  if (tag.messageId) agentConversationResult.messageId = tag.messageId
+  if (tag.provider) agentConversationResult.provider = tag.provider
+  // A call that waited may carry the exchange's report: no report turn follows.
+  const report = parseOrchestrationItems(content)?.find((item) => item.type === 'report' && item.report.messageId === tag.messageId)
+  if (report?.type === 'report') agentConversationResult.report = report.report
+  return { agentConversationResult }
 }
 
 function utf8Head(content: string): string {

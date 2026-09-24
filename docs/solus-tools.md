@@ -25,7 +25,15 @@ is required by review runs and is not a user-configurable tool.
 The shared catalog lives in `packages/contracts/src/agent-tools.ts`. Host config
 stores a sparse `solusTools` map: a missing entry means enabled. Patches merge
 individual entries so changes from two clients to different tools do not replace
-each other. Agents cannot change this map through `update_config`.
+each other. Agents cannot change this map through `update_config`. A saved
+entry for a removed tool (`wait_for_session`, `answer_session`, `review_plan`,
+`create_session`, `prompt_session`, `find_sessions`) is dropped when the host
+reads its settings; any other unknown name is refused.
+
+The Sessions group holds the orchestration tools: `start_session`,
+`send_session`, `stop_session`, `read_session`, `read_task_sessions`,
+`search_sessions` and `list_agent_targets`. See
+[Session orchestration](session-orchestration.md).
 
 Ask Jev requires a TypeSafe API key. Add or remove the saved host key under
 Settings → Tools → Intelligence. Without a saved key or TYPESAFE_API_KEY in the

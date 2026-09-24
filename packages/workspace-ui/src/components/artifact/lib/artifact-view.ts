@@ -7,6 +7,33 @@ export const artifactHeightMessageSchema = z.object({
   h: z.number(),
 });
 
+/** The last height each render reported, keyed by its markup. A transcript row
+ *  unmounts off screen and remounts on the way back; a frame that restarted
+ *  from a guess grew under the reader and made the scroll jump. Bounded so a
+ *  long-lived client does not keep every render it ever showed. */
+const reportedHeights = new Map<string, number>();
+const REPORTED_HEIGHT_LIMIT = 256;
+
+export function lastReportedHeight(html: string): number | undefined {
+  return reportedHeights.get(html);
+}
+
+export function rememberReportedHeight(html: string, height: number): void {
+  reportedHeights.delete(html);
+  reportedHeights.set(html, height);
+  if (reportedHeights.size > REPORTED_HEIGHT_LIMIT) {
+    reportedHeights.delete(reportedHeights.keys().next().value!);
+  }
+}
+
+/** The nearest ancestor that scrolls vertically, or null for the page. */
+export function scrollContainerOf(element: Element): Element | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
 /** Markup that only renders faithfully inside the sandbox frame: it carries its
  *  own stylesheet, its own behaviour, a vector canvas, or a whole document. The
  *  frame is the one place `<style>` and `<script>` run.

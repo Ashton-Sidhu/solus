@@ -12,17 +12,20 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type ControlPlaneModule = typeof import('@solus/server/control-plane')
 type DbModule = typeof import('@solus/server/db')
+type RuntimeModule = typeof import('@solus/server/orchestration/control-plane-runtime')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let controlPlaneModule: ControlPlaneModule
 let db: DbModule
+let runtime: RuntimeModule
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-prompt-session-cold-start-'))
   process.env.SOLUS_DATA_DIR = dataDir
   controlPlaneModule = await import('@solus/server/control-plane')
   db = await import('@solus/server/db')
+  runtime = await import('@solus/server/orchestration/control-plane-runtime')
 })
 
 afterEach(() => {
@@ -52,7 +55,14 @@ class Backend extends EventEmitter implements AgentBackend {
   readonly handles = new Map<string, RunHandle>()
   readonly pending = new Set<RunHandle>()
   readonly requests: AgentRunRequest[] = []
+  private startWaiters: Array<{ count: number; resolve: () => void }> = []
   starts = 0
+
+  /** Resolves once the backend has been asked for `count` runs and the last one has a thread. */
+  started(count: number): Promise<void> {
+    if (this.requests.length >= count && this.pending.size === 0) return Promise.resolve()
+    return new Promise((resolve) => this.startWaiters.push({ count, resolve }))
+  }
 
   startRun(request: AgentRunRequest): RunHandle {
     this.requests.push(request)
@@ -81,6 +91,7 @@ class Backend extends EventEmitter implements AgentBackend {
       this.emit('normalized', threadId, {
         type: 'session_init', sessionId: threadId, model: 'gpt-executed', skills: [],
       } satisfies NormalizedEvent)
+      for (const waiter of this.startWaiters.filter((candidate) => this.requests.length >= candidate.count)) waiter.resolve()
     })
     return handle
   }
@@ -140,6 +151,7 @@ describe.serial('ControlPlane.promptSession cold start', () => {
       const resumedBackend = new Backend()
       const resumed = new controlPlaneModule.ControlPlane(new Map([['codex', resumedBackend]]))
       resumed.on('error', () => {})
+      const orchestrator = runtime.orchestrateSessions(resumed)
       try {
         await resumed.promptSession(targetId, 'continue')
         expect(resumedBackend.requests).toHaveLength(1)
@@ -156,23 +168,30 @@ describe.serial('ControlPlane.promptSession cold start', () => {
               && event.update.phase === 'settled') resolve(event)
           })
         })
-        resumed.watchSessionSettled(targetId, 'thread-2', {
-          exchangeId: 'cold-exchange', dispatchedAt: Date.now(), notifyModel: false, runKey: 'active',
-        })
+        // A follow-up addressed the same way waits behind the resumed turn and
+        // settles on the sender's card under the id the sender named.
+        const sent = await orchestrator.send('thread-2', targetId, { prompt: 'and then', delivery: 'queue', notify: false })
+        expect(sent.disposition).toBe('queued')
+        resumedBackend.complete('thread-1')
+        // Event-loop turns, not wall-clock time: the follow-up starts once the first turn has exited.
+        // The caller's own turn is the second run; the follow-up is the third.
+        await resumedBackend.started(3)
+        expect(resumedBackend.requests[2]?.conversation).toEqual({ kind: 'resume', threadId: 'thread-1' })
         resumedBackend.complete('thread-1')
         expect(await settled).toMatchObject({
           type: 'agent_conversation_update',
-          update: { phase: 'settled', agentSessionId: targetId, status: 'completed', replyText: 'done' },
+          update: { phase: 'settled', agentSessionId: targetId, messageId: sent.exchangeId, status: 'completed', replyText: 'done' },
         })
       } finally {
         resumed.shutdown()
       }
     })
 
-    test(`queues on the active session and attaches its completion watcher using ${targetId}`, async () => {
+    test(`queues on the active session with its reply route using ${targetId}`, async () => {
       const backend = new Backend()
       const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
       plane.on('error', () => {})
+      const orchestrator = runtime.orchestrateSessions(plane)
       try {
         const target = await plane.runTurn({
           target: { kind: 'new-session' }, sessionId: 'solus-target', input: input(), tools: [],
@@ -185,16 +204,11 @@ describe.serial('ControlPlane.promptSession cold start', () => {
         })
         await caller.agentSessionId
 
-        const result = await plane.promptSession(targetId, 'follow up', 'queue')
+        const result = await orchestrator.send('thread-2', targetId, { prompt: 'follow up', delivery: 'queue', notify: false })
         expect(result.disposition).toBe('queued')
         expect(backend.requests).toHaveLength(2)
-        expect(result.queueId).toBeDefined()
-        expect(() => plane.watchSessionSettled(targetId, 'solus-caller', {
-          exchangeId: 'exchange', dispatchedAt: Date.now(), notifyModel: false, runKey: result.queueId!,
-        })).not.toThrow()
-        expect(() => plane.watchSessionSettled('solus-target', 'thread-1', {
-          exchangeId: 'self', dispatchedAt: Date.now(), notifyModel: false, runKey: 'active',
-        })).toThrow('Cannot watch your own session.')
+        await expect(orchestrator.send('thread-1', 'solus-target', { prompt: 'self', delivery: 'queue', notify: false }))
+          .rejects.toThrow('Cannot message your own session.')
       } finally {
         plane.shutdown()
       }

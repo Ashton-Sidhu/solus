@@ -35,6 +35,16 @@ export interface AssetCreateUrlResult {
   expiresAt: number
 }
 
+export interface AssetFindUrlRequest {
+  /** Existing host paths in preference order. The first servable file wins. */
+  paths: string[]
+}
+
+export interface AssetFindUrlResult extends AssetCreateUrlResult {
+  /** The candidate that was served. */
+  path: string
+}
+
 export type AssetUploadRequest = AttachmentUploadRequest
 
 export interface AssetUploadResult {
@@ -59,12 +69,14 @@ export const RPC_INVOKE_METHODS = [
   'prompt',
   'retry',
   'stopSession',
+  'stopBackgroundTasks',
   'resetSession',
   'switchSessionAgent',
 
   // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
-  'promptSession',
+  'sessionMessagesSentBy',
+  'decideSessionPlan',
 
   // Permission / interaction
   'respondPermission',
@@ -86,6 +98,7 @@ export const RPC_INVOKE_METHODS = [
   'attachUpload',
   'assetUpload',
   'assetCreateUrl',
+  'assetFindUrl',
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
@@ -256,6 +269,7 @@ export const RPC_INVOKE_METHODS = [
   'setupCloneProject',
   'setupSyncProject',
   'setupAdoptProject',
+  'setupCreateProject',
   'setupHostReadiness',
   'setupInstallGit',
   'setupInstallGh',

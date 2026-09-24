@@ -109,7 +109,7 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * and are read back via the run-result tools.
  *
  * Recursion guard: the spawned run gets the full `solus` tool suite (works,
- * tasks, artifacts, create_session) EXCEPT the automation
+ * tasks, artifacts, start_session) EXCEPT the automation
  * CRUD/run tools, on both providers — so an automation cannot create or trigger
  * more automations. This is the fork-bomb guard; everything else is available.
  */
@@ -207,13 +207,13 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // When the automation opts into a worktree, branch off `cwd` and run there
     // so unattended changes land on an isolated branch instead of the working
     // directory. A failure here surfaces as a failed run rather than silently
-    // mutating the user's tree. No model-backed namer is available in the
-    // headless runner, so the branch name falls back to a prompt slug.
+    // mutating the user's tree. Nobody waits on an unattended run, so the
+    // name is generated first; without one the branch keeps its temporary name.
     const cwd = expandHome(action.cwd)
     let gitContext: GitCheckout | null = null
     if (action.useWorktree) {
       const generatedName = await worktreeNameGenerator?.(action.prompt, cwd, entry.abort.signal) ?? null
-      gitContext = await createWorktree(cwd, action.prompt, undefined, {
+      gitContext = await createWorktree(cwd, undefined, {
         signal: entry.abort.signal,
         generatedName,
       })

@@ -73,11 +73,6 @@ export class HostSetupSession {
     return hostOnboardingSteps({ readiness: this.readiness })
   }
 
-  /**
-   * `installGh` was added with the matching RPC method. Older hosts omit both,
-   * so the readiness field is also the capability signal across that version
-   * boundary.
-   */
   get canInstallGh(): boolean {
     return this.readiness?.installGh?.autoRunnable === true
   }

@@ -1,22 +1,25 @@
 <script lang="ts">
   /**
    * The last thing onboarding asks, and the only stage that decides where the
-   * user lands. Answering it ends the flow: both answers open the workspace's
-   * new-tab home, and a project also opens the folder picker on top of it, so
-   * the first thing on screen is the choice that was just made.
+   * user lands. A new project and existing code each ask one more question —
+   * the project's name, or its folder — inside the flow. "Just chat" ends the
+   * flow on the workspace's new-tab home.
    */
-  import { MessageCircle as ChatCircleIcon, Code as CodeIcon } from "@lucide/svelte";
+  import {
+    MessageCircle as ChatCircleIcon,
+    Code as CodeIcon,
+    FolderPlus as FolderPlusIcon,
+  } from "@lucide/svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
-  import OnboardingCloudConnectRow from "./OnboardingCloudConnectRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
-  import type { OnboardingMode } from "./lib/onboarding-model";
 
   interface Props {
-    onchoose: (mode: OnboardingMode) => void;
+    /** Ends the flow with a chat. */
+    onchat: () => void;
   }
 
-  let { onchoose }: Props = $props();
+  let { onchat }: Props = $props();
 </script>
 
 <div
@@ -30,12 +33,25 @@
 
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">
     <OnboardingRow
-      name="Start in a project"
-      detail="Run agents against a codebase and review the diff"
+      name="Start something new"
+      detail="Name a new project and let an agent build it"
       delay={0.14}
+      tint="var(--chart-2)"
+      state="available"
+      onpick={() => store.nameNewProject()}
+    >
+      {#snippet mark()}
+        <FolderPlusIcon size={18} />
+      {/snippet}
+    </OnboardingRow>
+
+    <OnboardingRow
+      name="Open existing code"
+      detail="Run agents against a codebase and review the diff"
+      delay={0.22}
       tint="var(--chart-1)"
       state="available"
-      onpick={() => onchoose("project")}
+      onpick={() => store.openExistingCode()}
     >
       {#snippet mark()}
         <CodeIcon size={18} />
@@ -45,26 +61,23 @@
     <OnboardingRow
       name="Just chat"
       detail="Ask questions and sketch approaches, no repository needed"
-      delay={0.22}
+      delay={0.3}
       tint="var(--chart-3)"
       state="available"
-      onpick={() => onchoose("chat")}
+      onpick={onchat}
     >
       {#snippet mark()}
         <ChatCircleIcon size={18} />
       {/snippet}
     </OnboardingRow>
-
-    <!-- Optional, desktop only: absent where the shell holds no account. -->
-    <OnboardingCloudConnectRow delay={0.3} />
   </div>
 
   <OnboardingStageActions
-    continueLabel="Start in a project"
+    continueLabel="Start something new"
     continueEnabled
-    oncontinue={() => onchoose("project")}
+    oncontinue={() => store.nameNewProject()}
     onback={() => store.back()}
-    onskip={() => onchoose("chat")}
+    onskip={onchat}
     skipLabel="Just chat"
   />
 </div>

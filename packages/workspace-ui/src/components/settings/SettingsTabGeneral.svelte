@@ -145,9 +145,13 @@
 
   let projectsBasePickerOpen = $state(false);
 
-  // Per-host, not per-client: the folder picker on this server starts here.
+  // Per-host, not per-client: the folder this host really uses — the setting,
+  // the managed host's volume, or ~/projects.
   const projectsBaseDirectory = $derived(
     connectionsStore.capabilities?.projectsBaseDirectory ?? "",
+  );
+  const projectsBaseDirectoryIsSet = $derived(
+    connectionsStore.capabilities?.projectsBaseDirectoryIsSet === true,
   );
 
   async function commitProjectsBaseDirectory(next: string) {
@@ -701,7 +705,7 @@
 <SettingsSection label="Projects" visible={isVisible("projects-base")}>
   <SettingsRow
     label="Projects folder"
-    description="Where “Open project” looks, and where clones land. Leave empty to use your home folder."
+    description="Where new projects are created and clones land."
     visible={isVisible("projects-base")}
   >
     {#snippet control()}
@@ -712,9 +716,9 @@
           variant="ghost"
           size="icon-sm"
           class="text-(--solus-text-tertiary) disabled:opacity-0"
-          disabled={!projectsBaseDirectory}
-          aria-label="Reset projects start folder"
-          title="Reset to home folder"
+          disabled={!projectsBaseDirectoryIsSet}
+          aria-label="Reset projects folder"
+          title="Reset to the default folder"
           onclick={() => commitProjectsBaseDirectory("")}
         >
           <ArrowCounterClockwiseIcon size={14} />
@@ -722,8 +726,8 @@
         <Button
           variant="outline"
           size="sm"
-          aria-label="Projects start in"
-          class="w-56 justify-between text-xs font-normal shadow-xs {projectsBaseDirectory
+          aria-label="Projects folder"
+          class="w-56 justify-between text-xs font-normal shadow-xs {projectsBaseDirectoryIsSet
             ? ''
             : 'text-muted-foreground'}"
           onclick={() => (projectsBasePickerOpen = true)}
@@ -736,7 +740,7 @@
           <span class="flex-1 truncate text-left"
             >{projectsBaseDirectory
               ? abbreviateHome(projectsBaseDirectory)
-              : "~/"}</span
+              : "~/projects"}</span
           >
           <CaretRightIcon size={11} style="opacity:0.6" />
         </Button>

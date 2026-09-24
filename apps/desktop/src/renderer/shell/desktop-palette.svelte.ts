@@ -29,6 +29,7 @@ import {
 } from "@lucide/svelte";
 
 import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
+import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
 import {
@@ -63,7 +64,7 @@ import type { DesktopDialogs } from "./desktop-dialogs.svelte";
 export function createDesktopPalette(
   core: DesktopAppCore,
   ui: DesktopDialogs,
-  startOpenProject: (options?: { sourceId?: string }) => void,
+  startOpenProject: (options?: { sourceId?: string; source?: ProjectSource }) => void,
 ) {
   const {
     settings,
@@ -187,7 +188,6 @@ export function createDesktopPalette(
       icon: FolderOpenIcon,
       hint: comboHint("global.select-project"),
       keywords: [
-        "new project",
         "clone",
         "repository",
         "git",
@@ -199,6 +199,15 @@ export function createDesktopPalette(
       ],
       run: () =>
         startOpenProject({ sourceId: session.focusedSourceId ?? undefined }),
+    },
+    {
+      id: "new-project",
+      label: "New project…",
+      group: "General",
+      icon: PlusIcon,
+      keywords: ["create", "folder", "start", "empty", "git init", "website", "app"],
+      run: () =>
+        startOpenProject({ sourceId: session.focusedSourceId ?? undefined, source: "new" }),
     },
     {
       id: "go-to-file",

@@ -35,11 +35,14 @@ describe('the cloud account source', () => {
 
     expect(await source.completeOnboarding()).toBe(true)
     expect(await source.createManagedHost('org_acme')).toEqual({ ok: true, hostId: 'h_new' })
+    expect(await source.createManagedHost('org_acme', { label: 'Acme', spec: { size: 'standard' } }))
+      .toEqual({ ok: true, hostId: 'h_new' })
     expect(await source.shareHost('h_laptop', 'org_acme')).toBe(true)
     expect(await source.shareHost('h_laptop', null)).toBe(true)
     expect(calls.map((call) => [call.method, call.url.slice(ORIGIN.length), call.body])).toEqual([
       ['POST', '/v1/account/onboarding', null],
       ['POST', '/v1/hosts', JSON.stringify({ organizationId: 'org_acme' })],
+      ['POST', '/v1/hosts', JSON.stringify({ organizationId: 'org_acme', label: 'Acme', spec: { size: 'standard' } })],
       ['PUT', '/v1/hosts/h_laptop/organization', JSON.stringify({ organizationId: 'org_acme' })],
       ['PUT', '/v1/hosts/h_laptop/organization', JSON.stringify({ organizationId: null })],
     ])
@@ -52,6 +55,27 @@ describe('the cloud account source', () => {
       .toEqual({ ok: false, code: 'managed_host_limit', message: null })
     const unreachable = cookieCloudAccount(ORIGIN, recordingFetch(() => { throw new TypeError('offline') }).fetchImpl)
     expect(await unreachable.createManagedHost('org_acme')).toEqual({ ok: false, code: null, message: null })
+  })
+
+  test('the cookie names who is signed in, so the sidebar shows the account on a cloud host', async () => {
+    const me = { id: 'u_ada', email: 'ada@example.com', name: 'Ada', avatarUrl: null }
+    const { calls, fetchImpl } = recordingFetch((url) => url.endsWith('/api/account/me')
+      ? Response.json(me)
+      : new Response(null, { status: 200 }))
+    const source = cookieCloudAccount(ORIGIN, fetchImpl)
+    expect(await source.readProfile()).toEqual(me)
+    expect(await source.signOut()).toBe(true)
+    expect(calls.map((call) => [call.method, call.url.slice(ORIGIN.length)])).toEqual([
+      ['GET', '/api/account/me'],
+      ['POST', '/api/auth/sign-out'],
+    ])
+    expect(source.consoleUrl).toBe(ORIGIN)
+
+    // A signed-out cookie or a malformed answer is no account, never a blank one.
+    const signedOut = recordingFetch(() => new Response(null, { status: 401 }))
+    expect(await cookieCloudAccount(ORIGIN, signedOut.fetchImpl).readProfile()).toBeNull()
+    const malformed = recordingFetch(() => Response.json({ id: 'u_ada' }))
+    expect(await cookieCloudAccount(ORIGIN, malformed.fetchImpl).readProfile()).toBeNull()
   })
 
   test('boot starts one account read that the workspace reuses, so onboarding is known before it paints', async () => {

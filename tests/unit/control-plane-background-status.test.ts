@@ -60,6 +60,7 @@ class Backend extends EventEmitter implements AgentBackend {
   starts = 0
   steered: string[] = []
   cancelled: string[] = []
+  stoppedTasks: string[] = []
 
   startRun(_request: AgentRunRequest): RunHandle {
     let resolve!: () => void
@@ -106,6 +107,10 @@ class Backend extends EventEmitter implements AgentBackend {
   getPendingHandles(): RunHandle[] { return [] }
   cancelSession(sessionId: string): boolean {
     this.cancelled.push(sessionId)
+    return this.handles.has(sessionId)
+  }
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+    this.stoppedTasks.push(taskId)
     return this.handles.has(sessionId)
   }
   isSessionRunning(sessionId: string): boolean { return this.handles.has(sessionId) }
@@ -204,6 +209,31 @@ describe.serial('ControlPlane background status', () => {
       const [first, second] = settlements(events)
       expect(second?.outcome).toBe('completed')
       expect(second?.turnId).not.toBe(first?.turnId)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('stopping the background work ends the task, not the finished turn', async () => {
+    // WHY: the session Stop interrupts a turn. This turn already finished, so
+    // using it here reported "Stopped by you" and offered a retry for work that
+    // was never stopped.
+    const { backend, plane, events } = await endTurnWithTaskRunning()
+    try {
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(true)
+      expect(backend.stoppedTasks).toEqual(['tail'])
+      expect(backend.cancelled).toEqual([])
+      expect(statuses(events)).not.toContain('interrupted')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+
+      // The provider settles the task and resumes the agent with it.
+      backend.settleTask('tail')
+      backend.init()
+      backend.result()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('completed')
+      // Nothing is left to stop.
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(false)
     } finally {
       plane.shutdown()
     }

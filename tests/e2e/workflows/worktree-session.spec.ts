@@ -31,10 +31,10 @@ test.describe('Worktree sessions', () => {
   test('starting a new session with worktrees creates an isolated worktree context', async () => {
     repo = makeRepo()
 
-    const gitContext = await createWorktree(repo, 'make a focused test change', 'main')
+    const gitContext = await createWorktree(repo, 'main')
 
     expect(gitContext.targetBranch).toBe('main')
-    expect(gitContext.branch).toMatch(/^solus\/make-a-focused-test-change-/)
+    expect(gitContext.branch).toMatch(/^solus\/[0-9a-f]{8}$/)
     expect(gitContext.worktreePath).toContain(join(repo, '.git', 'solus', 'worktrees'))
     expect(realpathSync(git(gitContext.worktreePath!, ['rev-parse', '--show-toplevel']))).toBe(realpathSync(gitContext.worktreePath!))
     expect(git(gitContext.worktreePath!, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(gitContext.branch)
@@ -66,7 +66,7 @@ test.describe('Worktree sessions', () => {
     const localMain = git(repo, ['rev-parse', 'main'])
     expect(localMain).not.toBe(remoteMain)
 
-    const gitContext = await createWorktree(repo, 'use remote main', 'main')
+    const gitContext = await createWorktree(repo, 'main')
 
     expect(git(gitContext.worktreePath!, ['rev-parse', 'HEAD'])).toBe(remoteMain)
     expect(readFileSync(join(gitContext.worktreePath!, 'README.md'), 'utf-8')).toBe('# Remote base\n')
@@ -87,7 +87,7 @@ test.describe('Worktree sessions', () => {
     mkdirSync(join(repo, 'config'))
     writeFileSync(join(repo, 'config/secrets.json'), '{"token":"local"}\n')
 
-    const gitContext = await createWorktree(repo, 'copy include files', 'main')
+    const gitContext = await createWorktree(repo, 'main')
     const worktreePath = gitContext.worktreePath!
 
     expect(readFileSync(join(worktreePath, '.env'), 'utf-8')).toBe('API_KEY=local\n')
@@ -96,52 +96,6 @@ test.describe('Worktree sessions', () => {
     expect(existsSync(join(worktreePath, 'not-ignored.txt'))).toBe(false)
     expect(existsSync(join(worktreePath, 'ignored-but-not-included.txt'))).toBe(false)
     expect(readFileSync(join(worktreePath, 'README.md'), 'utf-8')).toBe('# Worktree session\n')
-  })
-
-  test('names the branch from the model summary, not the generic prompt lead-in', async () => {
-    repo = makeRepo()
-
-    // Plans routinely start with boilerplate ("implement this plan…"); the
-    // distinctive part is buried. WHY: branches must stay searchable instead of
-    // all collapsing into solus/implement-this-plan-*.
-    const prompt = 'implement this plan: add a dark mode toggle to the settings screen'
-    const gitContext = await createWorktree(repo, prompt, 'main', {
-      generateName: async () => '"Dark Mode Toggle"',
-    })
-
-    expect(gitContext.branch).toMatch(/^solus\/dark-mode-toggle-/)
-    expect(gitContext.branch).not.toContain('implement-this-plan')
-    expect(gitContext.repoRoot).toBe(repo)
-    expect(git(gitContext.worktreePath!, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(gitContext.branch)
-  })
-
-  test('ignores model preamble when extracting a generated branch name', async () => {
-    repo = makeRepo()
-
-    // WHY: small naming calls must tolerate agent-style preamble without
-    // turning it into branches like solus/sure-here-is-*.
-    const gitContext = await createWorktree(repo, 'fix automatic worktree naming', 'main', {
-      generateName: async () => [
-        'Sure, here is a concise branch name:',
-        'worktree-name-generation',
-      ].join('\n'),
-    })
-
-    expect(gitContext.branch).toMatch(/^solus\/worktree-name-generation-/)
-    expect(gitContext.branch).not.toContain('sure-here')
-  })
-
-  test('falls back to a prompt slug when name generation fails', async () => {
-    repo = makeRepo()
-
-    // WHY: a slow or failing model call must never block worktree creation.
-    const gitContext = await createWorktree(repo, 'make a focused test change', 'main', {
-      generateName: async () => {
-        throw new Error('model unavailable')
-      },
-    })
-
-    expect(gitContext.branch).toMatch(/^solus\/make-a-focused-test-change-/)
   })
 
   test('resuming a worktree session restores git context and keeps the project path at the repo root', () => {

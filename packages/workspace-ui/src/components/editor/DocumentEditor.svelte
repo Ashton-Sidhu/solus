@@ -7,6 +7,7 @@
   import StarterKit from "@tiptap/starter-kit";
   import { Markdown } from "@tiptap/markdown";
   import { createMarkdownParser } from "./markdownParser";
+  import { FrontMatterExtension } from "./frontMatterExtension";
   import Placeholder from "@tiptap/extension-placeholder";
   import Typography from "@tiptap/extension-typography";
   import TaskList from "@tiptap/extension-task-list";
@@ -260,6 +261,7 @@
           },
         }),
         Markdown.configure({ marked: createMarkdownParser() }),
+        FrontMatterExtension,
         DocCodeBlock.configure({ lowlight }),
         // Whole-doc placeholder when empty, otherwise a "/" command hint on the
         // current empty line so the slash menu is discoverable.

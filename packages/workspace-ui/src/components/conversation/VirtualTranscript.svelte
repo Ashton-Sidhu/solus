@@ -35,6 +35,13 @@
   $effect(() => {
     if (active && slots.length) return observeStartupTranscriptPaint(tabId);
   });
+  // Runs after the slots reach the DOM, before paint: a row that mounted or
+  // unmounted above the reader is corrected in the same frame.
+  $effect(() => {
+    void slots;
+    void trailingSpace;
+    untrack(() => virtualizer.rendered());
+  });
 </script>
 
 <div bind:this={element} class="relative messages-list cv-list" style="overflow-anchor:none">

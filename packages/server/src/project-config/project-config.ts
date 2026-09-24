@@ -4,8 +4,6 @@ import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
-import { createLogger } from '../logger'
-import { getDb } from '../db'
 import { git } from '../git/exec'
 
 /**
@@ -23,14 +21,10 @@ import { git } from '../git/exec'
  * directory.
  */
 
-const log = createLogger('main', 'project-config')
-
 const PROJECT_CONFIG_DIR = '.solus'
 const PROJECT_CONFIG_FILE = 'config.json'
 
 const rootByCwd = new Map<string, string>()
-
-const projectConfigRowSchema = z.object({ config: z.string() })
 
 const projectConfigInputSchema = z.object({
   taskProvider: z.enum(['github', 'jira', 'local']).optional(),
@@ -110,34 +104,9 @@ function parseConfig(text: string): ProjectConfig | null {
   }
 }
 
-/** The pre-file row for this project, if the host still holds one. */
-function legacyRowConfig(cwd: string): ProjectConfig | null {
-  const key = createHash('sha256').update(resolveProjectRoot(cwd)).digest('hex')
-  const row = projectConfigRowSchema.safeParse(
-    getDb().prepare('SELECT config FROM project_config WHERE project_key = ?').get(key),
-  )
-  return row.success ? parseConfig(row.data.config) : null
-}
-
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | null> {
   const path = projectConfigPath(cwd)
-  if (existsSync(path)) return parseConfig(readFileSync(path, 'utf-8'))
-
-  // Read-through migration. The row is left in place: a host that rolls back to
-  // a build without the file must still find its project config.
-  const legacy = legacyRowConfig(cwd)
-  if (!legacy) return null
-  try {
-    writeConfigFile(path, legacy)
-    log.info('project_config_migrated_to_file', { path })
-  } catch (err) {
-    // A read-only checkout still gets its config; it just does not gain the file.
-    log.warn('project_config_migration_failed', {
-      path,
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-  return legacy
+  return existsSync(path) ? parseConfig(readFileSync(path, 'utf-8')) : null
 }
 
 export async function saveProjectConfig(cwd: string, config: ProjectConfig): Promise<ProjectConfig> {

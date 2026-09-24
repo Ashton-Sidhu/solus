@@ -11,22 +11,15 @@ import {
   absoluteTime,
   compactRelativeTime,
   personFrom,
-  type InboxGroupSpec,
   type ListChipSpec,
   type ListGroupSpec,
   type ListPerson,
+  type ListRowPlace,
   type ListRowSource,
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
 import { PROVIDER_NAMES, ticketRef } from '../task-page/lib/task-upstream'
 import { visibleLabels } from './tasks-api'
-
-const SOLUS_FALLBACK: ListPerson = {
-  id: 'solus',
-  initials: 'S',
-  name: 'Solus',
-  fallback: 'solus',
-}
 
 /**
  * Lifecycle state is carried by the section a row sits in, so it costs no row
@@ -106,6 +99,10 @@ function sourceFor(task: Task): ListRowSource {
 /** Where a record lives, when that is not this machine: "Solus Cloud" for the workspace service. */
 export type TaskHomeLabel = (taskId: string) => string | null
 
+/** The list row's place column. Undefined when the page draws no such column,
+ *  so every row of one list either has the cell or does not. */
+export type TaskPlaceFor = (taskId: string) => ListRowPlace | undefined
+
 function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpec[] {
   const chips: ListChipSpec[] = []
   const home = homeFor?.(task.id)
@@ -143,13 +140,16 @@ function metaFor(task: Task, activeSessions: number): string {
   return ''
 }
 
-export function taskRow(task: Task, activeSessions: number, now: number, homeFor?: TaskHomeLabel): ListRowSpec {
+/** A list row names where the task lives in its own column, so its chips keep
+ *  only the label and the state that needs colour. */
+export function taskRow(task: Task, activeSessions: number, now: number, placeFor?: TaskPlaceFor): ListRowSpec {
   return {
     key: task.id,
     ident: identFor(task),
     source: sourceFor(task),
     title: task.title,
-    chips: chipsFor(task, now, homeFor),
+    chips: chipsFor(task, now),
+    place: placeFor?.(task.id),
     meta: metaFor(task, activeSessions),
     people: task.assignee
       ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)]
@@ -211,14 +211,14 @@ export function taskGroups(
   tasks: Task[],
   runningSessionsFor: (taskId: string) => number,
   now: number,
-  homeFor?: TaskHomeLabel,
+  placeFor?: TaskPlaceFor,
 ): ListGroupSpec[] {
   return TASK_STATUS_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
     rows: tasks
       .filter((task) => group.statuses.includes(task.status))
-      .map((task) => taskRow(task, runningSessionsFor(task.id), now, homeFor)),
+      .map((task) => taskRow(task, runningSessionsFor(task.id), now, placeFor)),
   })).filter((group) => group.rows.length > 0)
 }
 
@@ -226,163 +226,4 @@ export function taskGroups(
  *  line calls both "closed"; only the filter tells them apart. */
 export function isDone(task: Task): boolean {
   return task.status === 'done' || task.status === 'dropped'
-}
-
-/**
- * Native tasks belong to the one Solus user, so all of them can enter the
- * personal inbox. Provider-owned issues enter only when their assignee matches
- * the connected account for that project; an unassigned team backlog is not a
- * personal inbox.
- */
-export function personalInboxTasks(
-  tasks: Task[],
-  viewerLoginForProject: (projectKey: string) => string | undefined,
-): Task[] {
-  return tasks.filter((task) => {
-    if (task.providerId === 'local') return true
-    if (!task.projectKey || !task.assignee) return false
-    const viewerLogin = viewerLoginForProject(task.projectKey)
-    return !!viewerLogin && task.assignee.toLowerCase() === viewerLogin.toLowerCase()
-  })
-}
-
-interface TaskInboxActions {
-  open: (task: Task) => void
-  start: (task: Task) => void
-  resume: (task: Task) => void
-  markDone: (task: Task) => void
-}
-
-/**
- * The personal inbox. The global list is for looking; this is for finishing, so
- * every row that can be cleared carries the one verb that clears it.
- *
- * Tasks are local records with a single viewer, so "needs you" is derived from
- * lifecycle rather than from an assignee identity: work that has reached review,
- * then work that is assigned and idle, then what is running. There is no
- * mentions group, because local tasks have no mention feed to read.
- *
- * Every group is a status, so the page's status filter reaches in here too and
- * the queue holds only the states asked for. Closed work is a group like any
- * other, and off by default — an inbox is a list of decisions, and finished
- * work is not one.
- */
-export function taskInboxGroups(
-  tasks: Task[],
-  runningSessionsFor: (taskId: string) => number,
-  now: number,
-  actions: TaskInboxActions,
-  statuses: Set<TaskStatus>,
-  keyFor: (task: Task) => string = (task) => task.id,
-): InboxGroupSpec[] {
-  const groups: InboxGroupSpec[] = []
-  const shown = tasks.filter((task) => statuses.has(task.status))
-
-  const needsYou = shown.filter((task) => task.status === 'in_review')
-  if (needsYou.length > 0) {
-    groups.push({
-      key: 'needs',
-      label: 'Needs you',
-      note: 'oldest first',
-      accent: true,
-      rows: [...needsYou]
-        .sort((a, b) => a.updatedAt - b.updatedAt)
-        .map((task) => ({
-          ...inboxRowBase(task, now, keyFor),
-          title: `Review requested: ${task.title}`,
-          context: reviewContext(task, runningSessionsFor(task.id)),
-          unread: true,
-          primary: { label: 'Review', shortcut: '⏎', run: () => actions.open(task) },
-          secondary: { label: 'Mark done', run: () => actions.markDone(task) },
-        })),
-    })
-  }
-
-  // Not done, not in review, and nothing running — the agent is not going to
-  // move these on its own, so they are waiting on a person. Work in progress
-  // whose agent went idle is here too: its turn ended and the next is yours.
-  const waiting = shown.filter(
-    (task) =>
-      (task.status === 'todo' || task.status === 'inbox' || task.status === 'in_progress') &&
-      runningSessionsFor(task.id) === 0,
-  )
-  if (waiting.length > 0) {
-    groups.push({
-      key: 'waiting',
-      label: 'Waiting on you',
-      note: 'no agent running',
-      rows: [...waiting]
-        .sort((a, b) => a.updatedAt - b.updatedAt)
-        .map((task) => {
-          const started = task.status === 'in_progress'
-          const state = started ? 'agent idle' : 'no agent running'
-          return {
-            ...inboxRowBase(task, now, keyFor),
-            context: task.assignee
-              ? `Assigned to ${task.assignee} · ${state}`
-              : state.charAt(0).toUpperCase() + state.slice(1),
-            unread: false,
-            primary: started
-              ? { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) }
-              : { label: 'Start agent', shortcut: '⏎', run: () => actions.start(task) },
-          }
-        }),
-    })
-  }
-
-  const running = shown.filter((task) => task.status === 'in_progress' && runningSessionsFor(task.id) > 0)
-  if (running.length > 0) {
-    groups.push({
-      key: 'running',
-      label: 'Agent running',
-      rows: [...running]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map((task) => ({
-          ...inboxRowBase(task, now, keyFor),
-          context: `${runningSessionsFor(task.id)} live session${runningSessionsFor(task.id) === 1 ? '' : 's'}`,
-          unread: false,
-          primary: { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) },
-        })),
-    })
-  }
-
-  const closed = shown.filter(isDone)
-  if (closed.length > 0) {
-    groups.push({
-      key: 'done',
-      label: 'Done',
-      note: 'newest first',
-      rows: [...closed]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map((task) => ({
-          ...inboxRowBase(task, now, keyFor),
-          context: task.pr ? `Closed · PR #${task.pr.number}` : 'Closed',
-          unread: false,
-        })),
-    })
-  }
-
-  return groups
-}
-
-function inboxRowBase(task: Task, now: number, keyFor: (task: Task) => string) {
-  return {
-    key: keyFor(task),
-    ident: identFor(task),
-    title: task.title,
-    context: '',
-    actor: task.assignee
-      ? personFrom(task.assignee, undefined, task.assigneeAvatarUrl)
-      : SOLUS_FALLBACK,
-    time: compactRelativeTime(task.updatedAt, now),
-    timeTitle: absoluteTime(task.updatedAt),
-    unread: false,
-  }
-}
-
-function reviewContext(task: Task, activeSessions: number): string {
-  const parts: string[] = []
-  if (activeSessions > 0) parts.push(`${activeSessions} session${activeSessions === 1 ? '' : 's'}`)
-  if (task.pr) parts.push(`PR #${task.pr.number}`)
-  return parts.length > 0 ? parts.join(' · ') : 'Ready for your review'
 }

@@ -6,7 +6,7 @@
 // they share an answer with whoever asks next and inherit the `gh` CLI
 // fallback.
 
-import type { RepoRef } from '@solus/contracts/providers'
+import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import { resolveRepoRef } from '../git/git-helpers'
 import { providerForRepo } from '../providers/registry'
 import type { Provider } from '../providers/types'
@@ -32,6 +32,12 @@ export async function codeHostFor(projectScope: string): Promise<CodeHost | null
   if (!repo) return null
   const provider = providerForRepo(repo)
   return provider ? { repo, provider } : null
+}
+
+/** The pull request opened from this branch, if the code host has one. */
+export async function pullRequestForBranch(host: CodeHost, branch: string): Promise<PullRequest | undefined> {
+  const page = await prIndex.list(host.repo, host.provider, '', { state: 'all', head: branch }, 1)
+  return page.items.find((candidate) => candidate.headRef === branch)
 }
 
 /**

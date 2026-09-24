@@ -18,7 +18,7 @@
 
 import { z } from 'zod'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema, type ModelRouting } from './model-routing'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, withoutRetiredSolusTools, type SolusToolPreferences } from './agent-tools'
 import type {
   AgentId,
   AgentTaskLifecyclePolicy,
@@ -285,7 +285,7 @@ function field<const Value, Patch>(
 }
 
 export const HOST_CONFIG_FIELDS = {
-  solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()), {}, false),
+  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())), {}, false),
   themeMode: field(z.enum(['system', 'light', 'dark']).catch('system'), 'system', true),
   voiceModeEnabled: field(z.boolean().catch(false), false, true),
   autoSendVoiceTranscripts: field(z.boolean().catch(false), false, true),

@@ -202,7 +202,7 @@ export async function callerAgent(ctx: SessionToolCtx | undefined): Promise<Comm
   const meta = await findSession(ctx.sessionId)
   const author: CommentAgentAuthor = {
     sessionId: ctx.sessionId,
-    // The slug only — never `peerTitle`'s first-message fallback. A session is
+    // The slug only — never a first-message fallback. A session is
     // usually still unnamed when its agent writes the first comment, and that
     // fallback would sign the thread with the user's raw prompt. No slug, no
     // session to name: the thread signs as plain "Solus".
@@ -248,7 +248,7 @@ const resolveCommentFields = {
 }
 
 const READ_PLAN_DESC =
-  'Read a plan a Solus session wrote, plus every open comment thread on it. Use it before reviewing a plan (review_plan rules on one that is still awaiting approval) or before commenting on it. Returns the plan id you pass to comment_document.'
+  'Read a plan a Solus session wrote, plus every open comment thread on it. Use it before reviewing a plan or commenting on it. Returns the plan id you pass to comment_document.'
 const COMMENT_DOCUMENT_DESC =
   "Leave anchored comment threads on a plan or a work, exactly where the user leaves theirs — they appear in the document's margin, attributed to you. Anchor each one by quoting the passage verbatim as it reads on screen; a quote that is not found, or found more than once, is refused rather than left floating. Use this to review a document instead of describing your notes in chat."
 const REPLY_COMMENT_DESC =

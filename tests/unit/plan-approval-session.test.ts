@@ -109,6 +109,7 @@ function revisionContext(status: Session['status']) {
     prompts: [] as string[],
     permissionModeTabIds: [] as Array<string | undefined>,
     promptTabIds: [] as Array<string | undefined>,
+    answeredFor: [] as string[],
   }
 
   Object.defineProperty(globalThis, 'window', {
@@ -129,10 +130,13 @@ function revisionContext(status: Session['status']) {
     router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
-      respondPermission: async (_c: unknown, _q: string, optionId: string) => { calls.denied.push(optionId) },
+      respondPermission: async (_c: unknown, askingSessionId: string, _q: string, optionId: string) => {
+        calls.denied.push(optionId)
+        calls.answeredFor.push(askingSessionId)
+      },
       stopSession: async () => { calls.stops++ },
     }),
-    ctxFor: () => ({ session: { sessionId: session.id } }),
+    ctxFor: () => ({ session: { sessionId: 'renderer-session-1' } }),
     controls: { interruptTabSession: () => { calls.interrupts++ } },
     setPermissionMode: (_mode: string, tabId?: string) => { calls.permissionModeTabIds.push(tabId) },
     dispatch: { sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
@@ -155,6 +159,8 @@ describe('plan revision', () => {
     // "Stopped by you" across the transcript and folded the planning work away —
     // the revise note then read as a thread that had forgotten everything.
     expect(calls.denied).toEqual(['opt-deny'])
+    // The tab answers its own session's plan, never another session's.
+    expect(calls.answeredFor).toEqual(['renderer-session-1'])
     expect(calls.stops).toBe(0)
     expect(calls.interrupts).toBe(0)
     expect(plan.status).toBe('rejected')

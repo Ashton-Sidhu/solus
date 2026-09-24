@@ -35,7 +35,7 @@
     reviewGuideStore,
   } from "../review/review-guide.store.svelte";
   import { showBranchReviewGuide } from "../review/lib/branch-guide-tracker.svelte";
-  import * as Popover from "../ui/popover";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import MenuRow, {
     type ActionRowIcon,
     type ActionRowItem,
@@ -703,49 +703,35 @@
   }
 </script>
 
-<!-- 5b's popover vocabulary: 28px rows, 13px labels, no icons — the row you
-     opened from already carried the glyph. -->
-{#snippet popRow(
+{#snippet menuItem(
   label: string,
   opts: {
     onclick: () => void;
     trail?: string;
-    icon?: ActionRowIcon;
-    /** Kept clickable-looking but inert: `aria-disabled` still shows `title`,
-     *  which is where the step's reason lives. */
+    icon: ActionRowIcon;
+    /** Inert but still hoverable: the primitive's `disabled` sets
+     *  `pointer-events: none`, which would hide `title` — where the step's
+     *  reason lives. */
     disabled?: boolean;
     title?: string;
   },
 )}
-  <button
-    type="button"
+  {@const RowIcon = opts.icon}
+  <DropdownMenu.Item
     aria-disabled={opts.disabled || undefined}
     title={opts.title}
-    onclick={() => {
-      if (!opts.disabled) opts.onclick();
+    class={opts.disabled ? "opacity-50" : undefined}
+    onSelect={(event) => {
+      if (opts.disabled) event.preventDefault();
+      else opts.onclick();
     }}
-    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs lg:text-xs font-normal focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) {opts.disabled
-      ? 'cursor-default text-(--solus-text-tertiary) opacity-60'
-      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
   >
-    {#if opts.icon}
-      {@const RowIcon = opts.icon}
-      <span class="flex shrink-0 items-center"><RowIcon size={13} /></span>
-    {/if}
+    <RowIcon />
     <span class="min-w-0 flex-1 truncate">{label}</span>
     {#if opts.trail}
-      <span class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
-        >{opts.trail}</span
-      >
+      <DropdownMenu.Shortcut class="tabular-nums">{opts.trail}</DropdownMenu.Shortcut>
     {/if}
-  </button>
-{/snippet}
-
-{#snippet popDivider()}
-  <div
-    class="mx-2 my-[0.3125rem] h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-    aria-hidden="true"
-  ></div>
+  </DropdownMenu.Item>
 {/snippet}
 
 <div class="menu-list">
@@ -815,8 +801,8 @@
     />
   {/if}
 </div>
-<Popover.Root bind:open={rowMenuOpen}>
-  <Popover.Content
+<DropdownMenu.Root bind:open={rowMenuOpen}>
+  <DropdownMenu.Content
     customAnchor={openRowEl}
     side="left"
     align="start"
@@ -824,16 +810,21 @@
     alignOffset={-6}
     collisionPadding={8}
     onInteractOutside={(event) => {
-      // The row is its own trigger — let its click toggle the menu rather
+      // The caret is the menu's trigger — let its click toggle the menu rather
       // than closing here and immediately reopening.
-      if ((event.target as Element | null)?.closest?.(".menu-row"))
+      if ((event.target as Element | null)?.closest?.(".split-caret"))
         event.preventDefault();
     }}
-    class="menu-surface z-[10002] w-[264px] gap-0 rounded-lg bg-(--solus-menu-bg) p-1.5 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+    onCloseAutoFocus={(event) => {
+      // No bits-ui trigger to return to; the prompt is the next natural stop.
+      event.preventDefault();
+      requestInputFocus();
+    }}
+    class="w-[min(16.5rem,calc(100vw-2rem))]"
   >
     {#if openMenuKey === "commit"}
       {#each model.commit.steps as step (step.key)}
-        {@render popRow(step.label, {
+        {@render menuItem(step.label, {
           icon: MENU_STEP_ICON[step.key],
           onclick: () => {
             closeRowMenu();
@@ -850,7 +841,7 @@
       <!-- This branch's pull request: the steps its primary action bundles,
            then the ways to reach the pull request it already has. -->
       {#each model.pullRequest.steps as step (step.key)}
-        {@render popRow(step.label, {
+        {@render menuItem(step.label, {
           icon: MENU_STEP_ICON[step.key],
           onclick: () => {
             closeRowMenu();
@@ -861,28 +852,28 @@
         })}
       {/each}
       {#if prUrl}
-        {@render popRow("Copy link", {
+        {@render menuItem("Copy link", {
           icon: LinkIcon,
           onclick: () => {
             closeRowMenu();
             void copyPrLink(prUrl);
           },
         })}
-        {@render popDivider()}
+        <DropdownMenu.Separator />
       {/if}
       {#if openPrs.length > 0}
         {#each openPrs.slice(0, 5) as pr (pr.number)}
           <!-- The list entries carry the glyph too: without it their labels
                would sit in a different column from every row around them. -->
-          {@render popRow(pr.title, {
+          {@render menuItem(pr.title, {
             icon: GitPullRequestIcon,
             onclick: () => openPr(pr),
             trail: `#${pr.number}`,
           })}
         {/each}
-        {@render popDivider()}
+        <DropdownMenu.Separator />
       {/if}
-      {@render popRow("Review a PR…", {
+      {@render menuItem("Review a PR…", {
         icon: MagnifyingGlassIcon,
         onclick: () => {
           closeRowMenu();
@@ -898,11 +889,11 @@
         },
       })}
     {:else if openMenuKey === "review"}
-      {@render popRow("Open map", {
+      {@render menuItem("Open map", {
         icon: MapIcon,
         onclick: () => openReviewView("map"),
       })}
-      {@render popRow(
+      {@render menuItem(
         reviewing
           ? "Cancel guide generation"
           : reviewKey
@@ -917,13 +908,13 @@
           },
         },
       )}
-      {@render popRow("Open diff", {
+      {@render menuItem("Open diff", {
         icon: FileDiffIcon,
         onclick: () => openReviewView("diff"),
       })}
     {/if}
-  </Popover.Content>
-</Popover.Root>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>
 
 {#if commitComposerOpen}
   <CommitComposer

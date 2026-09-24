@@ -324,8 +324,12 @@ export async function taskIdForSession(organizationId: string, sessionId: string
  * starting any sibling sessions. */
 export async function tasksForSession(organizationId: string, sessionId: string): Promise<TaskForSessionResult | null> {
   const taskId = await taskIdForSession(organizationId, sessionId)
-  if (!taskId) return null
+  return taskId ? taskTree(organizationId, taskId) : null
+}
 
+/** The two-level tree `taskId` belongs to: the task, its root, the root's
+ *  subtasks, and every session attempt on any of them. */
+export async function taskTree(organizationId: string, taskId: string): Promise<TaskForSessionResult | null> {
   const task = await loadTaskRecord(organizationId, taskId)
   if (!task) return null
   const parent = task.parentId ? await loadTaskRecord(organizationId, task.parentId) : null

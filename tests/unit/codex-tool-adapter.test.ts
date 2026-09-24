@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import type { AgentTool, AgentToolContext } from '@solus/server/agents/tools/agent-tool'
-import { CodexToolDispatcher } from '@solus/server/agents/codex/codex-tool-adapter'
+import { CodexToolDispatcher, adaptCodexTools } from '@solus/server/agents/codex/codex-tool-adapter'
 
 describe('Codex dynamic tool adapter', () => {
   test('returns a terminal failure when a tool throws', async () => {
@@ -29,5 +29,22 @@ describe('Codex dynamic tool adapter', () => {
       ok: false,
       text: 'The review target could not be prepared.',
     })
+  })
+})
+
+// WHY: Codex reads the tool's JSON schema. Written for the output side, it
+// marked a field with a default as required, so the model was asked for a
+// value it need not send. The input side leaves it optional.
+describe('the schema Codex reads', () => {
+  test('marks a field with a default as optional', () => {
+    const tool: AgentTool = {
+      name: 'schema_tool',
+      description: 'For the test.',
+      inputFields: { prompt: z.string(), report: z.boolean().default(true) },
+      requiresApproval: false,
+      execute: async () => ({ ok: true, text: '' }),
+    }
+    const [adapted] = adaptCodexTools([tool])
+    expect(adapted!.inputSchema).toMatchObject({ required: ['prompt'] })
   })
 })

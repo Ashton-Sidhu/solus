@@ -1,7 +1,8 @@
 import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-types'
 import { createLogger } from '@solus/server/logger'
 import { formatUserCode } from './user-code-format'
-import { AccountStore, profileFromResponse, type StoredAccount } from './account-store'
+import { profileFromResponse } from '@solus/client-core/cloud-account'
+import { AccountStore, type StoredAccount } from './account-store'
 import {
   requestDeviceCode,
   waitForDeviceApproval,

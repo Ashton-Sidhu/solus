@@ -241,7 +241,8 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
     const denyOption = plan.options!.find((o: PermissionOption) => o.kind === 'deny') ?? plan.options![plan.options!.length - 1]
     // Awaited so the deny lands before the note, otherwise the note can steer
     // into a turn that is still blocked on the unanswered plan permission.
-    await ctx.apiFor(tabId).respondPermission(ctx.ctxFor(tabId), plan.questionId!, denyOption.id)
+    const ipc = ctx.ctxFor(tabId)
+    await ctx.apiFor(tabId).respondPermission(ipc, ipc.session.sessionId, plan.questionId!, denyOption.id)
   } else {
     // Only a run that was actually cancelled was stopped. Revising a plan whose
     // run has already exited cancels nothing, so it must not claim otherwise.

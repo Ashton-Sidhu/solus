@@ -1,10 +1,10 @@
 #!/bin/sh
-# The managed host's process 1 (docs/plans/managed-hosts.md §3, §5, §6).
+# The image's process 1 (the workspace service; a managed host boots with
+# sprite-boot.sh instead).
 #
-# Runs as root only long enough to lay out the volume, then drops to the `solus`
-# user and hands the process over to the server — or to `litestream replicate
-# -exec`, which forwards SIGTERM to the server and exits when it does, so the
-# machine's stop signal reaches Node either way.
+# Runs as root only long enough to lay out /data, then drops to the `solus` user
+# and hands the process over to the server, so the machine's stop signal reaches
+# Node directly.
 set -eu
 
 # Gives one directory and its immediate children to `solus`, without walking the
@@ -37,13 +37,5 @@ mkdir -p /data/projects
 own /data/projects
 chmod 0755 /data/projects
 
-SERVER="node /opt/solus/libexec/server/standalone.js --data-dir /data/state"
-
-if [ -n "${LITESTREAM_REPLICA_URL:-}" ]; then
-  # Continuous replication of the SQLite file to the per-host object-storage
-  # prefix (§6). The server runs as litestream's child; signals pass through.
-  exec setpriv --reuid=solus --regid=solus --init-groups \
-    litestream replicate -config /etc/litestream.yml -exec "$SERVER"
-fi
-
-exec setpriv --reuid=solus --regid=solus --init-groups $SERVER
+exec setpriv --reuid=solus --regid=solus --init-groups \
+  node /opt/solus/libexec/server/standalone.js --data-dir /data/state

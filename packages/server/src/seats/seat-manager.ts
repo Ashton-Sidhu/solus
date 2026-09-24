@@ -9,7 +9,6 @@ import { SEAT_PROVIDERS, SEAT_REQUIRED_CODE, seatProviderSchema, type SeatChange
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
-import type { TurnActor } from '../sessions/turn-ledger'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 
 const log = createLogger('main', 'seat-manager')
@@ -66,6 +65,10 @@ const seatRowSchema = z.object({
   updated_at: z.number(),
 })
 type SeatRow = z.infer<typeof seatRowSchema>
+
+function rowKey(userId: string, provider: SeatProvider): string {
+  return `${userId}\u0000${provider}`
+}
 
 /** A Better Auth user id, or the host owner sentinel; nothing that could walk the filesystem. */
 const seatUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
@@ -144,7 +147,18 @@ export function seatUserFor(principal: Principal): string {
   }
 }
 
-/** The ledger's view of a prompt: its author, whose seat it runs on, and how the author is named to others. */
+/** Who a turn is for: the prompt's author and the member whose seat runs it. */
+export interface TurnActor {
+  /** Account identity for integration tools, distinct from host-local ownership. */
+  credentialUserId?: string | null
+  userId: string
+  seatUserId: string
+  /** How the author is shown to other people on the transcript and in the room; absent for the host's own work. */
+  displayName?: string
+  avatarUrl?: string
+}
+
+/** A prompt's actor: its author, whose seat it runs on, and how the author is named to others. */
 export function turnActorFor(principal: Principal): TurnActor {
   const actor: TurnActor = { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, seatUserId: seatUserFor(principal) }
   actor.credentialUserId = integrationUserFor(principal)
@@ -176,6 +190,10 @@ export class SeatManager implements SeatStore {
   private readonly hostCodexHome: string
   private readonly hostLoginConnected: (provider: SeatProvider) => Promise<boolean>
   private readonly listeners = new Set<(event: SeatChangedEvent) => void>()
+  /** `userId:provider` → its row, or null for none. Every turn resolves a seat
+   *  at least twice, and this manager is the table's only writer, so a row is
+   *  read once until this manager changes it. */
+  private readonly rows = new Map<string, SeatRow | null>()
   constructor(private readonly deps: SeatManagerDeps) {
     deps.db.exec(SCHEMA)
     this.seatsRoot = deps.seatsRoot ?? `${solusDir()}-seats`
@@ -236,7 +254,9 @@ export class SeatManager implements SeatStore {
     if (row.state !== 'connected') throw new SeatRequiredError(provider, row.state)
     const seat = this.connectedSeat(seatUserId, provider)
     if (!seat) throw new SeatRequiredError(provider, 'none')
-    this.deps.db.prepare('UPDATE provider_seat SET last_used_at = ? WHERE user_id = ? AND provider = ?').run(this.now(), seatUserId, provider)
+    const usedAt = this.now()
+    this.deps.db.prepare('UPDATE provider_seat SET last_used_at = ? WHERE user_id = ? AND provider = ?').run(usedAt, seatUserId, provider)
+    this.rows.set(rowKey(seatUserId, provider), { ...row, last_used_at: usedAt })
     return seat
   }
 
@@ -394,13 +414,19 @@ export class SeatManager implements SeatStore {
   }
 
   private row(userId: string, provider: SeatProvider): SeatRow | null {
-    return seatRowSchema.nullish().parse(
+    const key = rowKey(userId, provider)
+    const cached = this.rows.get(key)
+    if (cached !== undefined) return cached
+    const row = seatRowSchema.nullish().parse(
       this.deps.db.prepare('SELECT * FROM provider_seat WHERE user_id = ? AND provider = ?').get(userId, provider),
     ) ?? null
+    this.rows.set(key, row)
+    return row
   }
 
   private deleteRow(userId: string, provider: SeatProvider): void {
     this.deps.db.prepare('DELETE FROM provider_seat WHERE user_id = ? AND provider = ?').run(userId, provider)
+    this.rows.set(rowKey(userId, provider), null)
   }
 
   private upsert(userId: string, provider: SeatProvider, next: { state: SeatRow['state']; method?: 'login' | 'token'; error: string | null; connectedAt?: number }): void {
@@ -417,6 +443,8 @@ export class SeatManager implements SeatStore {
         last_used_at = excluded.last_used_at,
         updated_at = excluded.updated_at
     `).run(userId, provider, next.state, next.method ?? null, next.error, next.connectedAt ?? null, now, now)
+    // The upsert keeps a stored connected_at; read the row back on next use.
+    this.rows.delete(rowKey(userId, provider))
   }
 
   private async announce(userId: string, provider: SeatProvider, error?: string): Promise<SeatStatus> {

@@ -13,17 +13,28 @@
     agentConversationElapsedMs,
     agentConversationTitle,
     agentMessages,
+    awaitsHostWord,
+    cardOutputs,
+    cardTaskId,
     directionFlow,
     formatAgentConversationDuration,
+    formatResetTime,
     hostLabelFor,
     isLiveAgentConversationState,
     isPendingAgent,
     openAgentSession,
+    pendingRequest,
+    planAwaitingDecision,
     provenanceLine,
+    rateLimitedUntil,
   } from "./lib/agent-conversation";
-  import { agentConversationStatus } from "./agent-conversation-status.store.svelte";
+  import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
+  import { sentMessages } from "./sent-messages.store.svelte";
+  import AgentOutputs from "./AgentOutputs.svelte";
   import AgentDialogue from "./AgentDialogue.svelte";
   import AgentExchangeFooter from "./AgentExchangeFooter.svelte";
+  import AgentPlanDecision from "./AgentPlanDecision.svelte";
+  import AgentRequestCard from "./AgentRequestCard.svelte";
   import { liveActivityClock } from "../../../lib/shared-clock";
 
   /**
@@ -49,21 +60,30 @@
   const api = $derived(session.apiFor(tabId));
   const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
 
-  /** No real session id yet (create_session still starting, or it failed) —
+  /** No real session id yet (start_session still starting, or it failed) —
    *  nothing to open, prompt, or track. */
   const neverStarted = $derived(isPendingAgent(ref));
 
   $effect(() => {
     if (neverStarted) return;
-    return agentConversationStatus.retain(ref.agentSessionId, api, serverId);
+    return agentConversationMeta.retain(ref.agentSessionId, api, serverId);
   });
 
-  const meta = $derived(agentConversationStatus.metaFor(ref.agentSessionId));
-  const agentStatus = $derived(
-    agentConversationStatus.statusFor(ref.agentSessionId),
+  const meta = $derived(agentConversationMeta.metaFor(ref.agentSessionId));
+  const senderSessionId = $derived(session.sessionFor(tabId)?.id);
+  // A message rebuilt from the transcript asks the host whether it is still live.
+  $effect(() => {
+    if (neverStarted || !senderSessionId || !awaitsHostWord(ref)) return;
+    return sentMessages.retain(senderSessionId, api, serverId);
+  });
+  const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
+  const carried = $derived(
+    lastExchange?.restored && senderSessionId
+      ? sentMessages.lookup(senderSessionId, serverId, lastExchange.messageId)
+      : undefined,
   );
   let now = $state(Date.now());
-  const cardState = $derived(agentConversationCardState(ref, agentStatus, now));
+  const cardState = $derived(agentConversationCardState(ref, carried));
   const live = $derived(isLiveAgentConversationState(cardState));
   // Reloaded transcripts default the provider; the index knows the truth.
   const provider = $derived(meta?.provider ?? ref.provider);
@@ -85,14 +105,15 @@
     agentMessages(ref).filter((message) => live || !message.pending).length,
   );
   const flow = $derived(directionFlow(cardState));
-  const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
-  // A permission or a plan can't be answered by typing at it — that one has to
-  // be taken in the agent's own session.
-  const answerInSessionOnly = $derived(
-    cardState === "waiting" &&
-      !!lastExchange?.question &&
-      lastExchange.question.kind !== "question",
-  );
+  // What the other agent's turn waits on a person for; answered right here.
+  const request = $derived(cardState === "waiting" ? pendingRequest(ref, carried) : null);
+  const resumesAt = $derived.by(() => {
+    const until = cardState === "limited" ? rateLimitedUntil(ref, carried) : undefined;
+    return until ? formatResetTime(until) : undefined;
+  });
+  const outputs = $derived(cardOutputs(ref));
+  const taskId = $derived(cardTaskId(ref));
+  const planToDecide = $derived(live ? null : planAwaitingDecision(ref));
 
   // Every card folds to its header, which is already the whole summary. Only the
   // starting position differs: a launched session owes this conversation nothing,
@@ -100,9 +121,9 @@
   // blocked on a human unfolds itself — that is the one thing the header can't
   // say, and the answer field lives in the body — until the reader rules on it.
   const disclosure = getTranscriptDisclosure();
-  const view = $derived(disclosure.forKey(`agent:${ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}`));
+  const view = $derived(disclosure.forKey(`agent:${ref.exchanges[0]?.messageId ?? ref.agentSessionId}`));
   const bodyOpen = $derived(
-    view.openedByUser ?? (cardState === "waiting" || !ref.fireAndForget),
+    view.openedByUser ?? (cardState === "waiting" || !!planToDecide || !ref.fireAndForget),
   );
 
   function open(options: { split?: boolean; background?: boolean } = {}) {
@@ -118,23 +139,21 @@
     );
   }
 
+  /** A session the other session started opens the same way the card's own does. */
+  function openStarted(sessionId: string) {
+    void openAgentSession(
+      { agentSessionId: sessionId, cwd: ref.cwd },
+      provider,
+      serverId,
+      {
+        resume: (resumed, opts) => session.opening.resumeSession(resumed, opts),
+        openInSplit: (openedTabId) => session.openTabInSplit(openedTabId),
+      },
+    );
+  }
+
   function stop() {
     void api.stopSession(ref.agentSessionId);
-  }
-
-  /** Retry resumes the same session, never a new one. */
-  function retry() {
-    if (!lastExchange?.prompt) return open();
-    void api.promptSession(ref.agentSessionId, lastExchange.prompt, "queue");
-  }
-
-  async function send(text: string): Promise<"sent" | "queued" | "failed"> {
-    try {
-      const result = await api.promptSession(ref.agentSessionId, text, "queue");
-      return result.disposition === "queued" ? "queued" : "sent";
-    } catch {
-      return "failed";
-    }
   }
 
   // A cardState ring is a full pixel of colour where the resting card carries a
@@ -262,14 +281,11 @@
         {messageCount}
         {messageCount === 1 ? "message" : "messages"} kept
       </span>
-      {#if !neverStarted}
-        <button
-          class="shrink-0 rounded-md px-2 py-0.5 text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-          onclick={retry}
-        >
-          Retry
-        </button>
-      {/if}
+    {:else if cardState === "lost"}
+      <!-- A host restart took the reply. The session is still there to read. -->
+      <span class="shrink-0 text-muted-foreground">
+        reply lost in a restart · open the session to read it
+      </span>
     {:else}
       {#if cardState === "closed"}
         <span class="shrink-0 text-muted-foreground">
@@ -329,6 +345,11 @@
           <DropdownMenu.Item onclick={() => open({ split: true })}>
             Open in split view
           </DropdownMenu.Item>
+          {#if taskId}
+            <DropdownMenu.Item onclick={() => session.goToTask(taskId, "click")}>
+              Open its task
+            </DropdownMenu.Item>
+          {/if}
           <DropdownMenu.Item
             onclick={() => navigator.clipboard.writeText(ref.agentSessionId)}
           >
@@ -348,15 +369,32 @@
           {live}
           onOpen={neverStarted ? undefined : () => open()}
         />
+        {#if outputs.length}
+          <AgentOutputs
+            {outputs}
+            onOpenSession={neverStarted ? undefined : () => open()}
+            onOpenStartedSession={(sessionId) => openStarted(sessionId)}
+          />
+        {/if}
+        {#if planToDecide}
+          <div class="pt-2 pb-2.5">
+            <AgentPlanDecision {tabId} targetAgentSessionId={ref.agentSessionId} />
+          </div>
+        {/if}
       </div>
+
+      {#if request}
+        <div class="px-2.5 pt-2">
+          <AgentRequestCard {ref} {request} {tabId} />
+        </div>
+      {/if}
 
       {#if live && !neverStarted}
         <AgentExchangeFooter
-          draftKey={ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}
           {agentName}
           needsYou={cardState === "waiting"}
-          {answerInSessionOnly}
-          onSend={send}
+          limited={cardState === "limited"}
+          {resumesAt}
           onOpen={open}
           onStop={cardState === "waiting" ? undefined : stop}
         />

@@ -38,7 +38,6 @@ export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
 export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
-export { inboxStore } from './tasks/inbox.store.svelte'
 
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
@@ -49,17 +48,14 @@ export { getPullRequestsContext } from './prs/pull-requests.context.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
 export { getOtelSettingsStore } from './projects/otel-settings.store.svelte'
 
-/** Shared project identity and page-picker option helpers. */
+/** Shared project identity helpers. */
 export {
-  mergeProjectOptions,
   normalizeProjectRoot,
   projectRefKey,
 } from './projects/project-catalog'
 export type {
   LogicalProject,
   ProjectCatalogEntry,
-  ProjectOptionSource,
-  ProjectPickerOption,
   ProjectRef,
 } from './projects/project-catalog'
 

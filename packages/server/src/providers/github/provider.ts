@@ -1,5 +1,5 @@
 import { GitHubAuth } from './auth'
-import { GitHubReauthRequiredError, type GitHubClient } from './octokit'
+import { GitHubReauthRequiredError, isGithubNotFound, type GitHubClient } from './octokit'
 import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
@@ -1308,6 +1308,16 @@ export class GitHubProvider implements ReviewProvider {
         owner: repo.owner,
         repo: repo.repo,
         pull_number: number,
+      }).catch(async (error) => {
+        // GitHub also answers 404 for a repository this credential cannot see,
+        // which is why a 404 moves to the next credential. When this credential
+        // reads the repository, the pull request itself is missing, and no other
+        // credential will find it. The repository read is memoised per client,
+        // so a list page has usually paid for it already.
+        if (!isGithubNotFound(error)) throw error
+        const repositoryVisible = await githubPullRequestAccessFor(client, repo, '', '').then(() => true, () => false)
+        if (repositoryVisible) throw new Error(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`)
+        throw error
       })
       const [access, requiredApprovingReviewCount] = await Promise.all([
         accessFor(client, repo, pr.user?.login ?? ''),

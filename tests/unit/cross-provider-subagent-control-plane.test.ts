@@ -66,7 +66,7 @@ describe('cross-provider subagent control-plane dispatch', () => {
     expect(names).not.toContain('claude_subagent')
     expect(names).not.toContain('codex_subagent')
     expect(names).toContain('find_works')
-    expect(names).toContain('find_sessions')
+    expect(names).toContain('search_sessions')
   })
 
   // Plan mode makes Claude answer with a plan and makes Codex refuse to touch

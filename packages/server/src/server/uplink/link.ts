@@ -44,7 +44,8 @@ const persistedLinkSchema = z.object({
   link: uplinkLinkConfigSchema,
 }).strict()
 const tokensSchema = z.object({
-  connectorToken: z.string().min(1),
+  /** Absent for a directly reached link (a managed host): there is no tunnel to run. */
+  connectorToken: z.string().min(1).optional(),
   hostToken: z.string().min(1),
 })
 
@@ -148,7 +149,7 @@ export class UplinkLinkManager {
     secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken: enrolled.connectorToken, hostToken: enrolled.hostToken })
     this.setPersisted({ version: 1, desired: 'linked', link: enrolled.link })
     this.setObservation({ observed: 'offline' })
-    this.deps.connector.start(enrolled.connectorToken)
+    this.startReach(enrolled.connectorToken)
     log.info(event, { hostId: enrolled.link.hostId, hostname: enrolled.link.hostname, generation: enrolled.link.connectionGeneration })
     return this.status()
   }
@@ -202,10 +203,20 @@ export class UplinkLinkManager {
       return
     }
     const verdict = await this.checkGeneration(tokens)
-    if (verdict === 'current') this.deps.connector.start(tokens.connectorToken)
+    if (verdict === 'current') this.startReach(tokens.connectorToken)
     else if (verdict === 'unknown') {
       this.setObservation({ observed: 'error', error: 'Solus cloud could not verify this link. Restart Solus to try again.' })
     }
+  }
+
+  /**
+   * The tunnel's connector when the link has one. Without one the host is reached
+   * directly — its platform proxy forwards to the proxied listener — so there is
+   * nothing to run and nothing to observe: a current link is online.
+   */
+  private startReach(connectorToken: string | undefined): void {
+    if (connectorToken) this.deps.connector.start(connectorToken)
+    else this.setObservation({ observed: 'online' })
   }
 
   handleConnectorObservation(observation: ConnectorObservation): void {

@@ -5,11 +5,12 @@
    * and the Atlassian site form — so anything connected here is connected
    * everywhere, and Settings shows it without a second round trip.
    */
-  import { Cloud as CloudIcon, LayoutGrid as AtlassianIcon } from "@lucide/svelte";
+  import Icon from "@iconify/svelte";
   import { onMount } from "svelte";
   import { atlassianStore, cloudflareStore, connectionsStore } from "../../contexts";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
   import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";
+  import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingGithubRow from "./OnboardingGithubRow.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
@@ -65,7 +66,6 @@
       name="Cloudflare"
       detail={cloudflareDetail}
       delay={0.07}
-      tint="var(--chart-2)"
       state={cloudflareConnected ? "done" : "available"}
       actionLabel={cloudflareConnected
         ? undefined
@@ -76,7 +76,7 @@
       expanded={cloudflareFormOpen && !cloudflareConnected}
     >
       {#snippet mark()}
-        <CloudIcon size={18} />
+        <Icon icon={PROVIDER_LOGOS.cloudflare} width={28} height={28} />
       {/snippet}
       {#snippet expansion()}
         <!-- Cloudflare has no browser handshake to hand off to: it wants a
@@ -106,14 +106,13 @@
       name="Atlassian"
       detail={atlassianDetail}
       delay={0.14}
-      tint="var(--chart-1)"
       state={atlassianConnected ? "done" : "available"}
       actionLabel={atlassianConnected || atlassianFormOpen ? undefined : "Connect"}
       onaction={() => (atlassianFormOpen = true)}
       expanded={atlassianFormOpen && !atlassianConnected}
     >
       {#snippet mark()}
-        <AtlassianIcon size={18} />
+        <Icon icon={PROVIDER_LOGOS.atlassian} width={22} height={22} />
       {/snippet}
       {#snippet expansion()}
         <!-- Unlike Cloudflare, Atlassian does hand off to a browser, so this

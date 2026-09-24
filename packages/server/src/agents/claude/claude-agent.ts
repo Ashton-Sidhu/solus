@@ -1,5 +1,5 @@
 import { homedir } from 'os'
-import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
+import { Options, PermissionMode, query, type Query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
@@ -207,6 +207,10 @@ export interface ClaudeRunResult {
 export interface ClaudeRunExecution {
   events: AsyncIterable<NormalizedEvent>
   result: Promise<ClaudeRunResult>
+  /** Stop one background task on the open query without ending the turn.
+   *  False before the query exists; the SDK settles the task through its
+   *  usual `task_updated` / `task_notification` events. */
+  stopTask(taskId: string): Promise<boolean>
 }
 
 const autoAllow: CanUseTool = async (_toolName, input) => ({ behavior: 'allow', updatedInput: input })
@@ -274,6 +278,7 @@ export class ClaudeAgent {
     const input = opts.prompt instanceof TurnInputChannel ? opts.prompt : null
     const promptInput = opts.prompt instanceof TurnInputChannel ? opts.prompt.stream : opts.prompt
     const userMessagePreview = (input?.previewText ?? String(opts.prompt)).slice(0, 200)
+    let activeQuery: Query | null = null
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
       // A turn is over once its result lands, but the SDK keeps the query open
@@ -292,6 +297,7 @@ export class ClaudeAgent {
           prompt: promptInput,
           options: { ...claudeOptions, pathToClaudeCodeExecutable: executable },
         })
+        activeQuery = cquery
 
         for await (const msg of cquery) {
           const initMessage = initMessageSchema.safeParse(msg)
@@ -389,7 +395,13 @@ export class ClaudeAgent {
       }
     })()
 
-    return { events, result }
+    const stopTask = async (taskId: string): Promise<boolean> => {
+      if (!activeQuery) return false
+      await activeQuery.stopTask(taskId)
+      return true
+    }
+
+    return { events, result, stopTask }
   }
 
   /**

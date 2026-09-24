@@ -1,28 +1,37 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  ONBOARDING_KEYS,
-  onboardingKeysFor,
   nextStage,
   previousStage,
   stagesFor,
   surfaceFor,
   type OnboardingSurface,
 } from '@solus/workspace-ui/components/onboarding/lib/onboarding-model'
-import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 const SURFACES: OnboardingSurface[] = ['pointer', 'touch']
 
 
 describe('first-run onboarding stages', () => {
+  test('naming a new project and choosing existing code are steps inside the flow, never stages the order walks into', () => {
+    // WHY: "Start something new" asks for a name, and "Open existing code" for
+    // a folder, before the flow ends. Continue on the last listed stage must
+    // still end the flow, and no Continue may land on either step without the
+    // start choice that opens it.
+    for (const surface of SURFACES) {
+      for (const flow of ['host', 'cloud'] as const) {
+        expect(stagesFor(surface, flow)).not.toContain('name-project')
+        expect(stagesFor(surface, flow)).not.toContain('open-project')
+      }
+    }
+  })
+
   test('the greeting leads into the first question and is never returned to', () => {
-    expect(nextStage('intro', 'pointer')).toBe('shortcuts')
-    expect(previousStage('shortcuts', 'pointer')).toBeNull()
+    expect(nextStage('intro', 'pointer')).toBe('agents')
+    expect(previousStage('agents', 'pointer')).toBeNull()
     // 'intro' is not an asking stage, so it has no position to step back from.
     expect(previousStage('intro', 'pointer')).toBeNull()
   })
 
   test('every stage runs forward into the next one', () => {
-    expect(nextStage('shortcuts', 'pointer')).toBe('agents')
     expect(nextStage('agents', 'pointer')).toBe('providers')
     expect(nextStage('providers', 'pointer')).toBe('start')
     expect(nextStage('intro', 'touch')).toBe('getting-around')
@@ -34,28 +43,53 @@ describe('first-run onboarding stages', () => {
     // The surface finishes on null. Returning a stage here would loop the user
     // back into onboarding after they had already chosen where to land.
     for (const surface of SURFACES) {
-      expect(stagesFor(surface).at(-1)).toBe('start')
-      expect(nextStage('start', surface)).toBeNull()
+      for (const offersCloudConnect of [true, false]) {
+        expect(stagesFor(surface).at(-1)).toBe('start')
+        expect(nextStage('start', surface, 'host', { offersCloudConnect })).toBeNull()
+      }
+    }
+  })
+
+  test('where the shell holds an account, the Solus Cloud offer comes just before the choice of where to start', () => {
+    // WHY: the flow must end on "How do you want to start?", because that
+    // answer opens the workspace. An account step after it would hold the user
+    // on onboarding after they had chosen where to work.
+    const withCloud = { offersCloudConnect: true }
+    expect(nextStage('providers', 'pointer', 'host', withCloud)).toBe('cloud-connect')
+    expect(nextStage('cloud-connect', 'pointer', 'host', withCloud)).toBe('start')
+    expect(previousStage('start', 'pointer', 'host', withCloud)).toBe('cloud-connect')
+    expect(nextStage('host', 'touch', 'host', withCloud)).toBe('cloud-connect')
+  })
+
+  test('without an account to connect, the Solus Cloud offer is never shown', () => {
+    // The web and mobile shells hold no account: the offer would be a dead end.
+    for (const surface of SURFACES) {
+      const beforeStart = surface === 'touch' ? 'host' : 'providers'
+      expect(nextStage(beforeStart, surface)).toBe('start')
+      expect(previousStage('start', surface)).toBe(beforeStart)
     }
   })
 
   test('back and forward are inverses across every asking stage', () => {
     for (const surface of SURFACES) {
-      for (const stage of stagesFor(surface)) {
-        const next = nextStage(stage, surface)
-        if (!next) continue
-        expect(previousStage(next, surface)).toBe(stage)
+      for (const offersCloudConnect of [true, false]) {
+        const conditions = { offersCloudConnect }
+        const shown = stagesFor(surface).filter((stage) => offersCloudConnect || stage !== 'cloud-connect')
+        for (const stage of shown) {
+          const next = nextStage(stage, surface, 'host', conditions)
+          if (!next) continue
+          expect(previousStage(next, surface, 'host', conditions)).toBe(stage)
+        }
+        // The greeting is not a place to return to, on either flow.
+        expect(previousStage(shown[0], surface, 'host', conditions)).toBeNull()
       }
-      // The greeting is not a place to return to, on either flow.
-      expect(previousStage(stagesFor(surface)[0], surface)).toBeNull()
     }
   })
 })
 
 describe('cloud onboarding stages', () => {
   test('a cloud account asks for a machine, its agents, GitHub, then a project', () => {
-    expect(nextStage('intro', 'pointer', 'cloud')).toBe('shortcuts')
-    expect(nextStage('shortcuts', 'pointer', 'cloud')).toBe('compute')
+    expect(nextStage('intro', 'pointer', 'cloud')).toBe('compute')
     expect(nextStage('compute', 'pointer', 'cloud')).toBe('agents')
     expect(nextStage('agents', 'pointer', 'cloud')).toBe('github')
     expect(nextStage('github', 'pointer', 'cloud')).toBe('project')
@@ -67,8 +101,8 @@ describe('cloud onboarding stages', () => {
   test('with no machine chosen there are no agents to ask about, in either direction', () => {
     // The workspace service runs no agents; asking it is what failed before.
     for (const surface of SURFACES) {
-      expect(nextStage('compute', surface, 'cloud', true)).toBe('github')
-      expect(previousStage('github', surface, 'cloud', true)).toBe('compute')
+      expect(nextStage('compute', surface, 'cloud', { skipsAgents: true })).toBe('github')
+      expect(previousStage('github', surface, 'cloud', { skipsAgents: true })).toBe('compute')
     }
   })
 
@@ -79,51 +113,23 @@ describe('cloud onboarding stages', () => {
       }
     }
   })
+
+  test('the cloud flow never offers to connect to Solus Cloud', () => {
+    // It is already signed in to Solus Cloud.
+    for (const surface of SURFACES) {
+      expect(stagesFor(surface, 'cloud')).not.toContain('cloud-connect')
+    }
+  })
 })
 
 describe('choosing a surface', () => {
   test('only a device with no precise pointer gets the touch flow', () => {
     // Not desktop-versus-web. A browser on a laptop has the same keyboard and
-    // the same room as the desktop app, so it keeps the keys; an iPad with a
-    // Magic Keyboard reports a fine pointer and keeps them too. What the flow
-    // branches on is whether there is anything to press.
+    // the same room as the desktop app, so it gets the pointer flow; an iPad
+    // with a Magic Keyboard reports a fine pointer and gets it too. What the
+    // flow branches on is whether there is anything to press.
     expect(surfaceFor({ isTouchDevice: true, hasKeyboardPointer: false })).toBe('touch')
     expect(surfaceFor({ isTouchDevice: true, hasKeyboardPointer: true })).toBe('pointer')
     expect(surfaceFor({ isTouchDevice: false, hasKeyboardPointer: true })).toBe('pointer')
-  })
-})
-
-describe('the shortcuts stage', () => {
-  test('every key it teaches is a binding the app actually answers to', () => {
-    // A card printing a combo with no binding behind it is a lie the user only
-    // discovers after onboarding is gone.
-    expect(ONBOARDING_KEYS.length).toBeGreaterThan(0)
-    for (const key of ONBOARDING_KEYS) {
-      expect(KEYBINDINGS[key.id]).toBeDefined()
-      expect(KEYBINDINGS[key.id].scope).toBe('global')
-    }
-  })
-
-  test('web teaches browser-safe task and session actions it implements', () => {
-    // WHY: first-run web users need the actual task workflow, not desktop-only
-    // mobile layout or command-palette guidance.
-    const keys = onboardingKeysFor(true)
-    expect(keys.length).toBeGreaterThan(0)
-
-    for (const key of keys) {
-      expect(KEYBINDINGS[key.id].scope).toBe('global')
-      const binding = KEYBINDINGS[key.id]
-      const webCombo = 'web' in binding ? binding.web : binding.combo
-      expect(webCombo).not.toBeNull()
-      expect(webCombo).not.toHaveProperty('mod', true)
-      expect(webCombo).not.toHaveProperty('meta', true)
-      expect(webCombo).not.toHaveProperty('ctrl', true)
-    }
-
-    const combos = keys.map((key) => {
-      const binding = KEYBINDINGS[key.id]
-      return JSON.stringify('web' in binding ? binding.web : binding.combo)
-    })
-    expect(new Set(combos).size).toBe(combos.length)
   })
 })

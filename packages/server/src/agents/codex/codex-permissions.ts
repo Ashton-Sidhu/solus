@@ -86,38 +86,43 @@ function parsedString<Value>(value: Value): string | undefined {
   return parsed.success ? parsed.data : undefined
 }
 
+/** A pending request and the app-server that asked it. */
+interface PendingEntry {
+  req: CodexPendingServerRequest
+  client: CodexAppServerClient
+}
+
+/**
+ * Holds the requests every app-server is waiting on. With seats there is one
+ * app-server per member, and each numbers its requests from the start, so a
+ * question id names the app-server as well as the request (`codexQuestionId`):
+ * two sessions on different seats never share an id, and an answer goes back
+ * on the app-server that asked.
+ */
 export class CodexPermissionResponder implements PermissionResponder {
-  private pending = new Map<string, CodexPendingServerRequest>()
+  private pending = new Map<string, PendingEntry>()
 
-  /** A request is answered on the app-server that asked: with seats there is one per member. */
-  constructor(private readonly clientFor: (sessionId: string | null) => CodexAppServerClient) {}
-
-  private client(req: CodexPendingServerRequest): CodexAppServerClient {
-    return this.clientFor(req.sessionId)
-  }
-
-  add(questionId: string, req: CodexPendingServerRequest): void {
-    this.pending.set(questionId, req)
+  add(questionId: string, req: CodexPendingServerRequest, client: CodexAppServerClient): void {
+    this.pending.set(questionId, { req, client })
   }
 
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined {
-    const req = this.pending.get(questionId)
+    const req = this.pending.get(questionId)?.req
     return req ? { toolName: req.method, sessionId: req.sessionId } : undefined
   }
 
-  resolveServerRequest<RequestId>(serverRequestId: RequestId): { questionId: string; sessionId: string | null } | null {
-    for (const [questionId, req] of this.pending) {
-      if (req.id === serverRequestId || String(req.id) === String(serverRequestId)) {
-        this.pending.delete(questionId)
-        return { questionId, sessionId: req.sessionId }
-      }
-    }
-    return null
+  /** The app-server settled a request itself. `questionId` is `codexQuestionId` for it. */
+  resolveServerRequest(questionId: string): { questionId: string; sessionId: string | null } | null {
+    const entry = this.pending.get(questionId)
+    if (!entry) return null
+    this.pending.delete(questionId)
+    return { questionId, sessionId: entry.req.sessionId }
   }
 
   respondToPermission(questionId: string, decision: string): boolean {
-    const req = this.pending.get(questionId)
-    if (!req) return false
+    const entry = this.pending.get(questionId)
+    if (!entry) return false
+    const { req, client } = entry
     this.pending.delete(questionId)
 
     // Execute-after-approve entry (dynamicTools work-tool call): the handler
@@ -129,7 +134,7 @@ export class CodexPermissionResponder implements PermissionResponder {
 
     if (req.method === 'item/permissions/requestApproval') {
       const normalized = normalizeDecision(decision)
-      this.client(req).respond(req.id, {
+      client.respond(req.id, {
         permissions: isAllowDecision(normalized) ? grantedRequestedPermissions(req.params?.permissions) : {},
         scope: normalized === 'acceptForSession' ? 'session' : 'turn',
       })
@@ -137,32 +142,33 @@ export class CodexPermissionResponder implements PermissionResponder {
     }
 
     const normalized = normalizeDecision(decision)
-    this.client(req).respond(req.id, commandOrFileApprovalResponse(normalized, req.params))
+    client.respond(req.id, commandOrFileApprovalResponse(normalized, req.params))
     return true
   }
 
   respondToQuestion(questionId: string, answers: Record<string, string>): boolean {
-    const req = this.pending.get(questionId)
-    if (!req) return false
+    const entry = this.pending.get(questionId)
+    if (!entry) return false
+    const { req, client } = entry
     this.pending.delete(questionId)
     if (req.method === 'mcpServer/elicitation/request') {
-      this.client(req).respond(req.id, mcpElicitationResponse(req.params, answers))
+      client.respond(req.id, mcpElicitationResponse(req.params, answers))
       return true
     }
     const mapped: Record<string, { answers: string[] }> = {}
     for (const [key, value] of Object.entries(answers)) {
       mapped[key] = { answers: [value] }
     }
-    this.client(req).respond(req.id, { answers: mapped })
+    client.respond(req.id, { answers: mapped })
     return true
   }
 
   clearPendingForSession(sessionId: string): void {
-    for (const [questionId, req] of this.pending) {
+    for (const [questionId, { req, client }] of this.pending) {
       if (req.sessionId === sessionId) {
         this.pending.delete(questionId)
         if (req.execute) { void req.execute(false); continue }
-        this.client(req).respond(req.id, cancellationResponse(req.method))
+        client.respond(req.id, cancellationResponse(req.method))
       }
     }
   }
@@ -539,4 +545,10 @@ function schemaType(prop: McpProperty | undefined): string | undefined {
   const type = prop?.type
   if (Array.isArray(type)) return type.find((item) => item !== 'null')
   return type
+}
+
+/** A question id unique across every app-server: the app-server's number on
+ *  this host, then its own JSON-RPC request id. */
+export function codexQuestionId(clientNumber: number, requestId: string | number): string {
+  return `codex-${clientNumber}-${String(requestId)}`
 }

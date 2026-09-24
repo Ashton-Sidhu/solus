@@ -182,7 +182,8 @@ describe('managed mode', () => {
   test('the projects root follows SOLUS_PROJECTS_ROOT until an administrator sets one (§3)', () => {
     expect(setupProjectsRoot({}, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/projects')
     expect(setupProjectsRoot({ projectsBaseDirectory: '~/work' }, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/home/work')
-    expect(setupProjectsRoot({}, '/data/home', {})).toBe('/data/home')
+    // WHY: a new project must never land loose in the home folder.
+    expect(setupProjectsRoot({}, '/data/home', {})).toBe('/data/home/projects')
   })
 })
 

@@ -6,7 +6,7 @@ import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { connectHost, connectStatus, disconnectHost, type ConnectOptions } from './lib/connect'
 import { renderQrAscii } from './lib/qr'
-import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
+import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type RuntimePaths, type ServerLock } from './lib/runtime'
 import { runUpdate } from './lib/remote-update-client'
 import { runSetup, serviceEnvFor } from './lib/setup'
 import { reportStatus } from './lib/status'
@@ -21,6 +21,12 @@ interface CommonOptions {
 interface StartOptions extends CommonOptions {
   host?: string
   port?: string
+}
+
+interface SetupOptions extends CommonOptions {
+  /** A Solus Cloud link code; links the host once the service is healthy. */
+  link?: string
+  cloudUrl?: string
 }
 
 interface LogsOptions extends CommonOptions {
@@ -81,7 +87,7 @@ async function main(argv: string[]): Promise<void> {
       await update(parseCommonOptions(rest))
       return
     case 'setup':
-      await setup(parseCommonOptions(rest))
+      await setup(parseSetupOptions(rest))
       return
     case 'status':
       await status(parseCommonOptions(rest))
@@ -98,13 +104,13 @@ function printHelp(): void {
   console.log(`solus ${packageJson.version}
 
 Usage:
-  solus setup [--data-dir PATH]
+  solus setup [--data-dir PATH] [--link CODE] [--cloud-url URL]
   solus start [--data-dir PATH] [--host HOST] [--port PORT]
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
   solus pair [--data-dir PATH]
-  solus connect [--data-dir PATH] [--cloud-url URL] [--no-open]
+  solus connect [--data-dir PATH] [--cloud-url URL] [--no-open] [--code CODE]
   solus connect status [--data-dir PATH] [--json]
   solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
@@ -114,8 +120,18 @@ Usage:
   solus --help`)
 }
 
-async function setup(opts: CommonOptions): Promise<void> {
-  await runSetup(runtimePaths(opts.dataDir), (line) => console.log(line))
+/** One command from a fresh install to a reachable host: start the service,
+ *  link it to Solus Cloud when a code was given, else print pairing details. */
+async function setup(opts: SetupOptions): Promise<void> {
+  const paths = runtimePaths(opts.dataDir)
+  await runSetup(paths, (line) => console.log(line))
+  console.log('')
+  if (opts.link) {
+    await linkToCloud({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, noOpen: true, code: opts.link })
+    console.log('\nOpen Solus Cloud: this host is in your list.')
+    return
+  }
+  console.log((await pairLines(paths)).join('\n'))
 }
 
 async function status(opts: CommonOptions): Promise<void> {
@@ -171,8 +187,12 @@ async function connect(args: string[]): Promise<void> {
     throw new Error('Unknown connect command. Expected: solus connect, status, or unlink')
   }
 
+  await linkToCloud(parseConnectOptions(args))
+}
+
+async function linkToCloud(opts: ConnectOptions): Promise<void> {
   console.log('Solus Cloud\n')
-  const status = await connectHost(parseConnectOptions(args), {
+  const status = await connectHost(opts, {
     stage: (message) => console.log(`✓ ${message}`),
     deviceCode: (grant) => {
       console.log([
@@ -222,7 +242,10 @@ async function logs(opts: LogsOptions): Promise<void> {
 }
 
 async function pair(opts: CommonOptions): Promise<void> {
-  const paths = runtimePaths(opts.dataDir)
+  console.log((await pairLines(runtimePaths(opts.dataDir))).join('\n'))
+}
+
+async function pairLines(paths: RuntimePaths): Promise<string[]> {
   const lock = readLockFile(paths.lockFile)
   if (!lock || !isProcessAlive(lock.pid)) throw new Error('Solus server is not running')
 
@@ -244,12 +267,22 @@ async function pair(opts: CommonOptions): Promise<void> {
   }
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   const pairUrl = `${baseUrl}/pair#token=${body.token}`
-  console.log([
-    'Pair with Solus server',
+  return [
+    'Pair a client with this server',
     ...formatPairBlock(pairUrl, body.code, Number(body.expiresAt), body.fingerprint),
+    ...(isLoopbackHost(endpoint.host)
+      ? ['', 'This address works only on this computer. Run `solus connect` to reach the host from anywhere.']
+      : []),
     '',
     renderQrAscii(pairUrl),
-  ].join('\n'))
+    '',
+    'Run `solus pair` for a new code.',
+  ]
+}
+
+function isLoopbackHost(host: string): boolean {
+  const bare = hostForUrl(host).replace(/^\[|\]$/g, '')
+  return bare === 'localhost' || bare === '::1' || bare.startsWith('127.')
 }
 
 async function auth(args: string[]): Promise<void> {
@@ -322,7 +355,18 @@ function parseConnectOptions(args: string[]): ConnectOptions {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
     '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
     '--no-open': { set: () => { opts.noOpen = true } },
+    '--code': { value: (value) => { opts.code = value.trim() } },
   }, (arg) => new Error(`Unknown connect option: ${arg}`))
+  return opts
+}
+
+function parseSetupOptions(args: string[]): SetupOptions {
+  const opts: SetupOptions = { dataDir: defaultDataDir() }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--link': { value: (value) => { opts.link = value.trim() } },
+    '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
+  }, (arg) => new Error(`Unknown setup option: ${arg}`))
   return opts
 }
 

@@ -31,12 +31,27 @@ function turnTokens(usage: UsageData): number {
 /** Solus-owned persistence for the subset of goals Claude supports. Claude can
  * create and read a goal; mutation controls remain backed by Codex only. */
 export class ClaudeGoalStore {
+  /** Thread id → its goal, or null for a thread with none. Every status change
+   *  asks, and this store is the only writer of these keys, so each thread is
+   *  read from the database once. */
+  private readonly loaded = new Map<string, ThreadGoal | null>()
+
   constructor(
     private readonly database: () => DatabaseSync = getDb,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
   get(threadId: string): ThreadGoal | null {
+    if (this.loaded.has(threadId)) {
+      const goal = this.loaded.get(threadId)
+      return goal ? { ...goal } : null
+    }
+    const goal = this.read(threadId)
+    this.loaded.set(threadId, goal)
+    return goal ? { ...goal } : null
+  }
+
+  private read(threadId: string): ThreadGoal | null {
     const parsedRow = goalRowSchema.safeParse(this.database()
       .prepare('SELECT value FROM kv WHERE key = ?')
       .get(goalKey(threadId)))
@@ -110,5 +125,6 @@ export class ClaudeGoalStore {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `)
       .run(goalKey(goal.threadId), JSON.stringify(goal))
+    this.loaded.set(goal.threadId, { ...goal })
   }
 }

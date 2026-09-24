@@ -154,7 +154,7 @@ export class ReferenceIndex {
   )
 
   sessionItems = $derived.by((): MenuItem[] => {
-    // You can't reference your own conversation (matches prompt_session).
+    // You can't reference your own conversation (matches send_session).
     const tabId = this.deps.tabId?.()
     const currentSessionId = tabId
       ? this.deps.session.sessionFor(tabId)?.agentSessionId

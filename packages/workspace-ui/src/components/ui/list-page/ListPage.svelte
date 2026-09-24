@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { List as ListIcon, Plus as PlusIcon, Archive as TrayIcon } from "@lucide/svelte";
+  import { Plus as PlusIcon } from "@lucide/svelte";
   import type { NavPage } from "../../../lib/page-nav";
-  import type { ListPageView } from "./list-page";
   import PageCrumbLine from "./PageCrumbLine.svelte";
 
   /**
@@ -29,19 +28,8 @@
   interface Props {
     /** Which page the title names. */
     page: NavPage;
-    /** Overrides the page's own name in the title — a page under two scopes
-     *  passes the scope's own name, so the crumb states which one is on screen
-     *  while the switch below it does the switching. */
+    /** Overrides the page's own name in the title. */
     title?: string;
-    /** Which scope the page is reading. Omit the switch entirely by leaving
-     *  `onViewChange` unset. */
-    view?: ListPageView;
-    onViewChange?: (view: ListPageView) => void;
-    globalLabel?: string;
-    inboxLabel?: string;
-    compactViewSwitcherText?: boolean;
-    /** Drives the inbox badge; brand-coloured only while the inbox is active. */
-    unreadCount?: number;
     onRefresh?: () => void;
     refreshing?: boolean;
     /** When the page last finished loading — the refresh chip's own label. */
@@ -97,12 +85,6 @@
   let {
     page,
     title,
-    view = "global",
-    onViewChange,
-    globalLabel = "All",
-    inboxLabel = "My inbox",
-    compactViewSwitcherText = false,
-    unreadCount = 0,
     onRefresh,
     refreshing = false,
     syncedAt = null,
@@ -134,14 +116,6 @@
       ? "pt-[26px] [.is-laptop-display_&]:pt-5"
       : "pt-[42px] [.is-laptop-display_&]:pt-8",
   );
-
-  const isInbox = $derived(view === "inbox");
-  // A segment is either the raised card chip or plain muted text; there is no
-  // third state, so both segments read from one recipe.
-  const segment = (active: boolean) =>
-    active
-      ? "bg-card font-medium text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-      : "bg-transparent text-muted-foreground";
 </script>
 
 <!-- `listpage` is declared only where the narrowing row wraps by it: a
@@ -197,9 +171,9 @@
     {/if}
 
     <!-- ── Row 2: everything that narrows, and the one action that creates ── -->
-    {#if filters || onViewChange || primaryAction}
+    {#if filters || primaryAction}
       <!-- At the record rung this wraps into two lines rather than running off
-           the pane: the view switch and the one creating action keep the first,
+           the pane: the one creating action keeps the first line,
            and the filter bar takes a full-width second, where it splits itself
            into a search field and a scrolling chip row. -->
       <div
@@ -209,50 +183,6 @@
           ? '@max-[32rem]/listpage:h-auto! @max-[32rem]/listpage:flex-wrap'
           : ''} @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
       >
-        {#if onViewChange}
-          <!-- The broadest narrowing there is, so it leads the row: everything
-               after it narrows further inside whichever half is chosen. The
-               crumb above states which half is on screen; this is what moves
-               between them. -->
-          <div
-            class="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)] {compactViewSwitcherText
-              ? 'text-xs'
-              : ''}"
-            role="group"
-            aria-label="View"
-          >
-            <button
-              type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] transition-colors duration-150 {segment(
- !isInbox,
- )}"
-              onclick={() => onViewChange?.("global")}
-              aria-pressed={!isInbox}
-            >
-              <ListIcon size={12} class="shrink-0" />
-              {globalLabel}
-            </button>
-            <button
-              type="button"
-              class="flex h-[26px] cursor-pointer items-center gap-[7px] rounded-full border-0 px-[13px] transition-colors duration-150 {segment(
- isInbox,
- )}"
-              onclick={() => onViewChange?.("inbox")}
-              aria-pressed={isInbox}
-            >
-              <TrayIcon size={12} class="shrink-0" />
-              {inboxLabel}
-              <span
-                class="rounded-full px-[5px] py-px text-xs tabular-nums {isInbox
- ? 'bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
- : 'bg-[var(--wash-3)] text-muted-foreground'}"
-              >
-                {unreadCount}
-              </span>
-            </button>
-          </div>
-        {/if}
-
         {#if filters}{@render filters()}{:else}<span class="flex-1"></span>{/if}
 
         {#if primaryAction}

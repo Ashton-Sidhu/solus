@@ -211,6 +211,63 @@ describe('Git environment registration', () => {
   })
 })
 
+describe('Git environment reuse when a tab opens', () => {
+  test('a tab opened on a checkout another session runs in does not read it again', async () => {
+    // WHY: the host watches every registered checkout and pushes its status, so
+    // a second tab on the same project, worktree, and branch already holds a
+    // live answer. A different directory, or a host that forgot its
+    // registrations, still needs a real read.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const reads: string[] = []
+    const api = asHostApi({
+      gitIdentity: async () => gitState('main'),
+      gitRefreshState: async (cwd: string) => { reads.push(cwd); return gitState('main') },
+      gitRegisterEnvironment: async () => {},
+    })
+    const runs: Record<string, RunConfig> = {
+      first: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+      second: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+      other: { workingDirectory: '/other', gitContext: null, serverId: 'host-a' } as RunConfig,
+      third: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+    }
+    const sessions: Record<string, Session> = {
+      first: { sessionId: 'first' } as Session,
+      second: { sessionId: 'second' } as Session,
+      other: { sessionId: 'other' } as Session,
+      third: { sessionId: 'third' } as Session,
+    }
+    const workspace = {
+      activeTabId: 'first',
+      tabOrder: Object.keys(runs),
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
+      runFor: (tabId: string) => runs[tabId],
+      sessionFor: (tabId: string) => sessions[tabId],
+      ctxFor: (tabId: string) => ({ session: { sessionId: tabId } }) as IpcContext,
+      apiFor: servedBy(api),
+      serverIdFor: () => 'host-a',
+    }
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+
+    await store.refreshEnvironment(workspace, { sourceId: 'first', force: false })
+    const second = await store.refreshEnvironment(workspace, { sourceId: 'second', force: false })
+    await store.refreshEnvironment(workspace, { sourceId: 'other', force: false })
+    // A restarted host watches nothing, so the next open reads once the last
+    // read is older than the store's freshness window.
+    store.invalidateRegistrationsForHost('host-a')
+    const now = Date.now()
+    spyOn(Date, 'now').mockReturnValue(now + 3_000)
+    await store.refreshEnvironment(workspace, { sourceId: 'third', force: false })
+
+    expect(reads).toEqual(['/repo', '/other', '/repo'])
+    expect(second.ok).toBe(true)
+    expect(runs.second.gitContext?.branch).toBe('main')
+  })
+})
+
 describe('Git environment full refresh', () => {
   function fullRefreshFixture(hostAnswersRefs: boolean) {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -275,5 +332,76 @@ describe('Git environment full refresh', () => {
     expect(result.ok).toBe(true)
     expect(fixture.separateRefsReads()).toBe(2)
     expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
+  })
+})
+
+describe('Git environment on a tab switch', () => {
+  function registeredTabFixture() {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const reads: Array<GitStateOptions | undefined> = []
+    const api = asHostApi({
+      gitIdentity: async () => gitState('main'),
+      gitRefreshState: async (_cwd: string, options?: GitStateOptions) => { reads.push(options); return gitState('main') },
+      gitRegisterEnvironment: async () => {},
+    })
+    const run = { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig
+    const session = { sessionId: 'only' } as Session
+    const workspace = {
+      activeTabId: 'only',
+      tabOrder: ['only'],
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
+      runFor: () => run,
+      sessionFor: () => session,
+      ctxFor: () => ({ session: { sessionId: 'only' } }) as IpcContext,
+      apiFor: servedBy(api),
+      serverIdFor: () => 'host-a',
+    }
+    return { workspace, reads }
+  }
+
+  test('a checkout the host watches is read from the store, including by the tab registered on it', async () => {
+    // WHY: every mounted tab surface used to re-read Git when the active tab
+    // changed. The host pushes the status of every registered checkout, so a
+    // tab returning to its own checkout has nothing to ask for.
+    const { workspace, reads } = registeredTabFixture()
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindWorkspace(workspace)
+    await store.refreshEnvironment(workspace, { sourceId: 'only', force: false })
+    const readsAfterOpen = reads.length
+
+    await store.refreshEnvironment(workspace, { sourceId: 'only', force: false })
+    await store.refresh('host-a', '/repo')
+    expect(reads.length).toBe(readsAfterOpen)
+
+    // After a host restart nothing is watched until the tab registers again.
+    store.invalidateRegistrationsForHost('host-a')
+    await store.refresh('host-a', '/repo', { force: true })
+    expect(reads.length).toBe(readsAfterOpen + 1)
+  })
+
+  test('details are read again only after a status change nobody watched', async () => {
+    // WHY: the host pushes status but not line counts, ahead counts, or the pull
+    // request URL. A surface that mounts on a tab switch must not re-read them
+    // while they are current, and must re-read them once a change made them stale.
+    const { workspace, reads } = registeredTabFixture()
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindWorkspace(workspace)
+    await store.refreshEnvironment(workspace, { sourceId: 'only', level: 'details', force: false })
+    const detailReads = () => reads.filter((options) => options?.includeDetails).length
+    expect(detailReads()).toBe(1)
+
+    store.watchDetails('host-a', '/repo')()
+    await Bun.sleep(0)
+    expect(detailReads()).toBe(1)
+
+    store.set('host-a', '/repo', gitState('feature'))
+    store.watchDetails('host-a', '/repo')()
+    await Bun.sleep(0)
+    expect(detailReads()).toBe(2)
   })
 })

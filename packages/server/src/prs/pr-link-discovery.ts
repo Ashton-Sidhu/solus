@@ -4,7 +4,7 @@ import { listTasks, emitChanged } from '../tasks/task-store'
 import { taskSessions } from '../tasks/task-sessions'
 import { Task } from '../tasks/task'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
-import { codeHostFor, type CodeHost } from './code-host'
+import { codeHostFor, pullRequestForBranch, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 import { createLogger } from '../logger'
 
@@ -66,8 +66,7 @@ export class PrLinkDiscovery {
   }
 
   private async refresh({ host, branch, owners }: BranchInterest): Promise<void> {
-    const page = await prIndex.list(host.repo, host.provider, '', { state: 'all', head: branch }, 1)
-    const pr = page.items.find((candidate) => candidate.headRef === branch)
+    const pr = await pullRequestForBranch(host, branch)
     if (!pr) return
     prIndex.pullRequest(host.repo, host.provider, pr.number).seed(pr)
     emitChanged()

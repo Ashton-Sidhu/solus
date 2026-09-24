@@ -9,11 +9,11 @@ primary_region = "iad"
   # same tarball a personal host installs, so one release serves every role.
   # The digest is the one Fly's registry reports for the machine after the deploy
   # (`fly machine list --json`), not the one `docker push` prints: Fly stores its
-  # own manifest for a pushed image. Tag: solus-managed:0.32.2-20260923-2.
-  image = "registry.fly.io/solus-managed@sha256:85eb3472cf9dd4aa5a26c0eafe1d3f6328f858105bf46a062dde17a0fef1b892"
+  # own manifest for a pushed image. Tag: solus-managed:0.32.2-20260923-3.
+  image = "registry.fly.io/solus-managed@sha256:da4e7708d4be5c39149dd9cd4e6970f78097a1c441aa13c4f8dc18da211e16fa"
 
 [env]
-  # The image bakes SOLUS_MANAGED=1 for a managed host; a workspace service is nobody's machine.
+  # A workspace service is nobody's machine; said explicitly rather than left to the image.
   SOLUS_MANAGED = "0"
   SOLUS_WORKSPACE = "1"
   SOLUS_ROLES = "collaboration"

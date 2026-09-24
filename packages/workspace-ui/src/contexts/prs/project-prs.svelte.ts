@@ -13,7 +13,7 @@ import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import { prSurfaceError, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { PrMirrors } from './pr-mirror'
 import { PullRequest } from './pull-request.svelte'
@@ -67,11 +67,6 @@ export class ProjectPrs {
   /** Head branch → number, for the git rail and session PR discovery. */
   readonly byBranch = new SvelteMap<string, number>()
 
-  /** Numbers the provider refused — deleted, private, never existed. Without it
-   *  a render-driven lookup asks again every frame, because a failed read leaves
-   *  nothing behind to hit. */
-  readonly missing = new SvelteSet<number>()
-
   // --- Where the list has got to ------------------------------------------
 
   filter = $state<PrFilter>({ state: 'open' })
@@ -91,11 +86,8 @@ export class ProjectPrs {
    *  is the project. */
   readonly mirrors = new PrMirrors()
 
-  /** What `ensure*` has already asked for, so it is safe on a render path. */
-  private allPageRead: Promise<void> | undefined
   private revision = 0
   private readonly backgroundRetryAt = new Map<string, number>()
-  private readonly ensuredNumbers = new Set<number>()
 
   constructor(
     private api: HostApi,
@@ -173,7 +165,6 @@ export class ProjectPrs {
     const pr = this.get(source.number)
     pr.apply(source)
     this.byBranch.set(source.headRef, source.number)
-    this.missing.delete(source.number)
     return pr
   }
 
@@ -365,40 +356,6 @@ export class ProjectPrs {
     }
   }
 
-  /**
-   * Make sure these pull requests are known, then stop asking.
-   *
-   * Cheap by construction and safe on every render: one `state: 'all'` page
-   * answers most numbers at once, only the stragglers cost an individual read,
-   * and a number the provider refuses is remembered rather than re-requested.
-   */
-  ensureNumbers(numbers: number[]): Promise<void> {
-    const wanted = numbers.filter((number) => number > 0)
-    return wanted.length ? this.ensureNumbersAsync(wanted).catch(() => {}) : Promise.resolve()
-  }
-
-  private async ensureNumbersAsync(numbers: number[]): Promise<void> {
-    // Allocating an entity does not load its status. A linked PR remains
-    // unknown until a provider response describes it.
-    const unknown = () => numbers.filter((number) => !this.prFor(number) && !this.missing.has(number))
-    if (!unknown().length) return
-
-    // Every row must wait for the shared page. A boolean set before the read
-    // completes lets later rows race ahead and request each detail separately.
-    this.allPageRead ??= this.query({ state: 'all' }).then(() => {}, () => {})
-    await this.allPageRead
-
-    for (const number of unknown()) {
-      if (this.ensuredNumbers.has(number)) continue
-      this.ensuredNumbers.add(number)
-      try {
-        await this.get(number).loadDetail()
-      } catch {
-        this.missing.add(number)
-      }
-    }
-  }
-
   /** The connected token's user — the identity comment composers post as, with
    *  the avatar they draw. Stable per project, so the short list lifetime costs
    *  at most an occasional refetch of a value the provider caches per token. */
@@ -429,8 +386,6 @@ export class ProjectPrs {
     this.backgroundRetryAt.clear()
     this.mirrors.forgetPrefix('')
     this.mirrors.viewer.delete('viewer')
-    this.allPageRead = undefined
-    this.ensuredNumbers.clear()
   }
 
   private listKey(filter: PrFilter, page = 1): string {

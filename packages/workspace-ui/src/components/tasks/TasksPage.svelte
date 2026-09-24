@@ -27,19 +27,16 @@
     type TaskPriority,
   } from "@solus/contracts/task-types";
   import type { ProjectConfig } from "@solus/contracts/types";
-  import type { InboxInvolvement } from "@solus/contracts/inbox-types";
   import TaskProviderPicker from "./provider/TaskProviderPicker.svelte";
   import type { TaskProviderChoice } from "./provider/lib/task-provider";
   import {
     atlassianStore,
-    getClientShellContext,
     getSurfaceContext,
     getProjectConfigStore,
     getSessionSidebarStore,
     runtime,
     projectsStore,
     serversStore,
-    inboxStore,
     workspaceProjectsStore,
   } from "../../contexts";
   import { isRepositoryKey } from "@solus/contracts/repository-key";
@@ -59,7 +56,6 @@
     STATUS_META,
     BOARD_COLUMNS,
     DEFAULT_TASK_SORT,
-    relativeTime,
     sortTasks,
     type TaskSort,
   } from "./lib/tasks-api";
@@ -67,12 +63,10 @@
     OPEN_TASK_STATUS_KEYS,
     TASK_STATUS_GROUPS,
     taskGroups,
-    taskInboxGroups,
     taskStatusesFor,
   } from "./lib/tasks-list-view";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
-    InboxRow,
     ListEmpty,
     ListFilterBar,
     ListProjectFilter,
@@ -85,13 +79,11 @@
     ListSkeleton,
     VirtualList,
     LIST_GROUP_HEADER_HEIGHT,
-    inboxRowHeight,
     listRowHeight,
-    inInboxScope,
     virtualGroupItems,
     type ListFilterSpec,
-    type ListPageView,
     type ListProjectOption,
+    type ListRowPlace,
     type ListStatusOption,
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
@@ -102,12 +94,6 @@
   import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
   import TaskPage from "./task-page/TaskPage.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
-  import InboxImportHomeDialog from "./InboxImportHomeDialog.svelte";
-  import type {
-    InboxRowLocation,
-    MergedInboxPullRequest,
-  } from "./lib/inbox-merge";
-  import { inboxScopeOptions } from "./lib/inbox-scope";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
 
@@ -118,9 +104,13 @@
   // (docs/plans/cloud-console-native-pages.md §9). Starting a session from a
   // row, the sidebar's live projects, and the page's close need a workspace.
   const workspace = session.workspace;
-  const shell = getClientShellContext();
-  /** A task whose home is the workspace service says so on its row and card. */
-  const homeFor = (taskId: string) => serversStore.cloudHomeLabel(session.tasksStore.get(taskId).serverId);
+  /** A task held anywhere but this machine names its host on its row and card:
+   *  "Solus Cloud" for the workspace service, the host's own name otherwise. */
+  function homeFor(taskId: string): string | null {
+    const serverId = session.tasksStore.get(taskId).serverId;
+    const host = serversStore.hostFor(serverId);
+    return serversStore.cloudHomeLabel(serverId) ?? (host && !host.local ? host.label : null);
+  }
   const pane = paneActions(() => paneId);
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
@@ -140,8 +130,8 @@
   const pageProject = $derived(
     session.projectPageScope.kind === "project" ? session.projectPageScope.checkout : null,
   );
-  // With no page scope the inbox shows; a task made from it files where the
-  // input bar's project would.
+  // With no page scope every project's tasks show; a task made there files
+  // where the input bar's project would.
   const taskContext = $derived(
     pageKey
       ? session.taskContextForProject(pageKey, pageProject)
@@ -154,71 +144,35 @@
   // One row per project, never one per host.
   const projectOptions = $derived<ListProjectOption[]>(session.projectScopeOptions);
   const activeProjectOptionKey = $derived(pageKey ?? "");
-  // A project's tasks: its cloud tasks and the host tasks of every checkout of
-  // it, on any host.
-  const projectTasks = $derived(store.tasksInProject(pageKey));
-  const inboxTasksSource = $derived([
-    ...store.tasks.filter(
-      (task) => task.providerId === "local" && task.status === "inbox",
+  // "All projects" is the projects the session sidebar shows. A surface with
+  // no sidebar — the workspace service alone — has every known project.
+  const sidebarProjectKeys = $derived(
+    new Set(
+      sessionSidebar
+        ? sessionSidebar.projectFilterChoices.map((choice) => choice.projectKey)
+        : session.logicalProjects.map((project) => project.key),
     ),
-    ...inboxStore.tickets.map((entry) => entry.task),
-  ]);
-  const inboxTicketByTask = $derived(
-    new Map(inboxStore.tickets.map((entry) => [entry.task, entry])),
   );
-  function inboxTaskKey(task: Task): string {
-    return inboxTicketByTask.get(task)?.key ??
-      `${task.projectKey ?? "~"}\0${task.providerId}\0${task.id}`;
-  }
-  const inboxTaskByKey = $derived(
-    new Map(inboxTasksSource.map((task) => [inboxTaskKey(task), task])),
+  // A project's tasks: its cloud tasks and the host tasks of every checkout of
+  // it, on any host. Across every project, the same list for each of them.
+  const projectTasks = $derived(
+    pageKey ? store.tasksInProject(pageKey) : store.tasksInProjects(sidebarProjectKeys),
   );
   const projectLabels = $derived(
-    new Map(
-      session.logicalProjects.flatMap((project) =>
-        project.checkouts.map((checkout) => [checkout.projectRoot, project.label] as const),
-      ),
-    ),
+    new Map([
+      ...(sessionSidebar?.projectFilterChoices.map((choice) => [choice.projectKey, choice.label] as const) ?? []),
+      ...session.logicalProjects.map((project) => [project.key, project.label] as const),
+    ]),
   );
-  // Narrowing the cross-project inbox to a few repos is a filter, not a move:
-  // the page is still the cross-project one, so this lives on the narrowing row
-  // and the crumb keeps saying "All projects". Empty is every project.
-  let inboxProjectKeys = $state<string[]>([]);
-  // Every project a row can be attributed to. One upstream ticket merged from
-  // two clones of the same repo belongs to both.
-  function inboxProjectKeysFor(task: Task): string[] {
-    const locations = inboxTicketByTask.get(task)?.locations;
-    if (locations?.length)
-      return locations.map((location) => location.projectKey);
-    return task.projectKey ? [task.projectKey] : [];
+  function projectLabelFor(taskId: string): string | null {
+    if (pageKey) return null;
+    const projectKey = store.projectKeyOf(store.get(taskId));
+    return projectKey ? (projectLabels.get(projectKey) ?? null) : null;
   }
-  const inboxScopeChoices = $derived(
-    inboxScopeOptions(
-      [
-        ...inboxTasksSource.map((task) => ({
-          projectKeys: inboxProjectKeysFor(task),
-        })),
-        ...inboxStore.pullRequests.map((entry) => ({
-          projectKeys: entry.locations.map((location) => location.projectKey),
-        })),
-      ],
-      (projectKey) => projectLabels.get(projectKey) ?? projectKey,
-      inboxProjectKeys,
-    ),
-  );
-  const scopedInboxTasks = $derived(
-    inboxTasksSource.filter((task) =>
-      inInboxScope(inboxProjectKeysFor(task), inboxProjectKeys),
-    ),
-  );
-  const scopedInboxPullRequests = $derived(
-    inboxStore.pullRequests.filter((entry) =>
-      inInboxScope(
-        entry.locations.map((location) => location.projectKey),
-        inboxProjectKeys,
-      ),
-    ),
-  );
+  // Across every project a card names its project, beside where it lives.
+  function rowHomeFor(taskId: string): string | null {
+    return [projectLabelFor(taskId), homeFor(taskId)].filter(Boolean).join(" · ") || null;
+  }
   // The host of the checkout host-side facts are read through; never the
   // default host, which a bare path would have fallen back to.
   const projectServerId = $derived(hostCheckout?.serverId ?? null);
@@ -305,9 +259,8 @@
   );
 
   // ── View state ──
-  // The page's two views (spec Part A): the grouped global list, and the
-  // personal inbox. `layout` re-plots either view as a kanban board.
-  let view = $state<ListPageView>("global");
+  // One grouped list, for one project or every project. `layout` re-plots it
+  // as a kanban board.
   let layout = $state<"list" | "board">("list");
   const boardLayout = $derived(layout === "board");
   let query = $state("");
@@ -315,7 +268,7 @@
   let runningOnly = $state(false);
   let overdueOnly = $state(false);
   let assignedOnly = $state(false);
-  // Which lifecycle states the list and the inbox are showing. Opens on live
+  // Which lifecycle states the list is showing. Opens on live
   // work only, so finished and dropped tasks stay out of the way until asked
   // for. The board is exempt — its columns *are* this filter, and a kanban
   // whose last column is always empty reads as broken.
@@ -334,10 +287,6 @@
     x: number;
     y: number;
   } | null>(null);
-  let pendingInboxHome = $state<{
-    task: Task;
-    locations: InboxRowLocation[];
-  } | null>(null);
 
   function clearFilters() {
     query = "";
@@ -354,23 +303,12 @@
     { value: "due", label: "Due" },
   ];
 
-  const INVOLVEMENT_OPTIONS: { value: InboxInvolvement; label: string }[] = [
-    { value: "assigned", label: "Assigned to me" },
-    { value: "review_requested", label: "Review requested" },
-    { value: "mentioned", label: "Mentioned" },
-    { value: "authored", label: "Authored by me" },
-    { value: "all", label: "All in bound scopes" },
-  ];
-
   const providerStatus = $derived(store.providerStatus(cwd));
   const upstreamError = $derived(
     cwd ? (store.upstreamErrorByProject.get(cwd) ?? null) : null,
   );
   const refreshing = $derived(
-    store.loading ||
-      (view === "inbox"
-        ? inboxStore.loading
-        : !!(cwd && store.upstreamLoadingByProject.get(cwd))),
+    store.loading || !!(cwd && store.upstreamLoadingByProject.get(cwd)),
   );
   const upstreamRefreshedAt = $derived(
     cwd ? (store.upstreamRefreshedAtByProject.get(cwd) ?? null) : null,
@@ -390,18 +328,12 @@
   // text to the provider instead — and keep doing so until the search is
   // cleared, or clearing it would leave the search results on screen.
   $effect(() => {
-    if (!open || view !== "global" || !cwd) return;
+    if (!open || !cwd) return;
     if (!upstreamTruncated && !upstreamQuery) return;
     if (projectServerId) store.searchUpstream(projectServerId, cwd, query);
   });
   const displayError = $derived(
-    (store.error ?? upstreamError ??
-      (view === "inbox"
-        ? (inboxStore.hostErrors.values().next().value ??
-          inboxStore.scopes.find((scope) => scope.ticketError || scope.pullRequestError)?.ticketError ??
-          inboxStore.scopes.find((scope) => scope.ticketError || scope.pullRequestError)?.pullRequestError)
-        : null))?.replace(TASKS_AUTH_ERROR_PREFIX, "") ??
-      null,
+    (store.error ?? upstreamError)?.replace(TASKS_AUTH_ERROR_PREFIX, "") ?? null,
   );
 
   // Tick the clock so relative row times ("12m") age instead of freezing at the
@@ -411,19 +343,6 @@
     if (!open) return;
     const interval = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(interval);
-  });
-
-  const reachableInboxProjectsKey = $derived(
-    serverConnections.connectedServerIds()
-      .filter((serverId) => serverConnections.phaseFor(serverId) === "connected")
-      .join("\n"),
-  );
-
-  // One RPC per connected host performs the project/scope fan-out. The client
-  // only merges hosts; it never issues one provider read per project.
-  $effect(() => {
-    if (!open || view !== "inbox" || !reachableInboxProjectsKey) return;
-    void inboxStore.load();
   });
 
   // Running, not linked: a link outlives the agent that worked on it.
@@ -471,90 +390,23 @@
     !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
   );
 
-  const groups = $derived(taskGroups(visibleTasks, runningSessionsFor, now, homeFor));
-  const inboxGroups = $derived.by(() => {
-    const ticketGroups = taskInboxGroups(
-      scopedInboxTasks,
-      runningSessionsFor,
-      now,
-      {
-        open: onOpen,
-        start: onStart,
-        resume: onResume,
-        markDone: (task) => void onSetStatus(task, "done"),
-      },
-      statuses,
-      inboxTaskKey,
-    );
-    const groups = ticketGroups.map((group) => ({
-      ...group,
-      rows: group.rows.map((row) => {
-        const task = inboxTaskByKey.get(row.key);
-        const projectLabel = task?.projectKey
-          ? projectLabels.get(task.projectKey)
-          : undefined;
-        return projectLabel
-          ? { ...row, context: `${projectLabel} · ${row.context}` }
-          : row;
-      }),
-    }));
-    if (statuses.has("in_review") && scopedInboxPullRequests.length > 0) {
-      groups.unshift({
-        key: "pull-requests",
-        label: "Pull requests",
-        note: "live upstream",
-        accent: true,
-        rows: scopedInboxPullRequests.map((entry) => ({
-          key: entry.key,
-          ident: `PR #${entry.pullRequest.number}`,
-          title: entry.pullRequest.title,
-          context: entry.locations.length === 1
-            ? entry.locations[0].projectLabel
-            : `${entry.locations[0]?.projectLabel ?? entry.pullRequest.externalKey} · ${entry.locations.length} homes`,
-          actor: {
-            id: entry.pullRequest.author,
-            initials: entry.pullRequest.author.slice(0, 2).toUpperCase(),
-            name: entry.pullRequest.author,
-            avatarUrl: entry.pullRequest.authorAvatarUrl,
-          },
-          time: relativeTime(Date.parse(entry.pullRequest.updatedAt), now),
-          timeTitle: new Date(entry.pullRequest.updatedAt).toLocaleString(),
-          unread: true,
-          primary: {
-            label: "Review",
-            shortcut: "⏎",
-            run: () => openInboxPullRequest(entry),
-          },
-        })),
-      });
-    }
-    return groups;
-  });
-  const inboxTasks = $derived.by(() => {
-    const inboxTaskIds = new Set(
-      inboxGroups.flatMap((group) => group.rows.map((row) => row.key)),
-    );
-    return inboxTasksSource.filter((task) => inboxTaskIds.has(inboxTaskKey(task)));
-  });
-  const boardTasks = $derived(view === "inbox" ? inboxTasks : visibleTasks);
-  const inboxVirtualItems = $derived(
-    virtualGroupItems(
-      inboxGroups,
-      (row) => row.key,
-      (group) => !collapsedGroups[`inbox:${group.key}`],
-    ),
+  // The list is a table: project and host take one column of their own. The
+  // column is drawn only when some row has something to put in it, and then on
+  // every row, so the cells stay on one x.
+  const showPlaceColumn = $derived(
+    !pageKey || visibleTasks.some((task) => homeFor(task.id) !== null),
   );
+  function rowPlaceFor(taskId: string): ListRowPlace | undefined {
+    if (!showPlaceColumn) return undefined;
+    return { project: projectLabelFor(taskId), host: homeFor(taskId) };
+  }
+  const groups = $derived(taskGroups(visibleTasks, runningSessionsFor, now, rowPlaceFor));
   const globalVirtualItems = $derived(
     virtualGroupItems(
       groups,
       (row) => row.key,
       (group) => !collapsedGroups[group.key],
     ),
-  );
-  const inboxActiveKey = $derived(
-    inboxVirtualItems.find(
-      (item) => item.kind === "row" && item.row.key === selectedKey,
-    )?.key ?? null,
   );
   const globalActiveKey = $derived(
     globalVirtualItems.find(
@@ -596,7 +448,7 @@
     TASK_STATUS_GROUPS.map((group) => ({
       value: group.key,
       label: group.label,
-      count: (view === "global" ? searched : inboxTasksSource).filter((task) =>
+      count: searched.filter((task) =>
         group.statuses.includes(task.status),
       ).length,
     })),
@@ -606,27 +458,18 @@
   // section headers already say all three and are clickable, so the counts kept
   // their filtering job and lost only the duplicate. What the headers cannot
   // say is that the answer behind these rows is incomplete — that note stays,
-  // on the narrowing row, beside the search it explains. The inbox reads a set
-  // of scopes rather than one list, so it names how many fell short.
+  // on the narrowing row, beside the search it explains.
   const truncationNote = $derived.by(() => {
-    if (view === "inbox") {
-      const stale = inboxStore.scopes.filter((scope) => scope.fromCache).length;
-      if (stale > 0) return `${stale} stale scope${stale === 1 ? "" : "s"}`;
-      const partial = inboxStore.scopes.filter(
-        (scope) => scope.ticketError || scope.pullRequestError,
-      ).length + inboxStore.hostErrors.size;
-      return partial > 0 ? `${partial} partial scope${partial === 1 ? "" : "s"}` : null;
-    }
     // Says where the rows came from: these are the provider's matches for the
     // search, not the slice of the list that happens to be loaded.
     if (upstreamQuery) return `searched ${providerStatus?.scopeLabel ?? "upstream"}`;
     return upstreamTruncated ? `most recent ${projectTasks.length}` : null;
   });
 
-  // The selectable rows in the active view's render order, for Shift
-  // range-select, arrow navigation, and detail-panel stepping.
+  // The selectable rows in render order, for Shift range-select, arrow
+  // navigation, and detail-panel stepping.
   const flatVisibleIds = $derived(
-    (view === "inbox" ? inboxGroups : groups)
+    groups
       .flatMap((group) => group.rows)
       .map((row) => row.key),
   );
@@ -635,9 +478,6 @@
   });
 
   function taskById(id: string): Task | undefined {
-    if (view === "inbox") {
-      return inboxTaskByKey.get(id) ?? inboxTasksSource.find((task) => task.id === id);
-    }
     return projectTasks.find((task) => task.id === id);
   }
 
@@ -685,9 +525,9 @@
 
   // ── Data loading ──
   $effect(() => {
-    if (open && pageKey && !hostCheckout) {
-      // A cloud project no known host holds: no host has its configuration,
-      // and its cloud tasks are the whole list.
+    if (open && !hostCheckout) {
+      // Every project, or a cloud project no known host holds: no one host's
+      // configuration applies, and the tasks already held are the whole list.
       configReady = true;
       void store.load();
       return;
@@ -765,25 +605,8 @@
   // was being read survives the switch. The load effect keys off `cwd` and
   // refetches on its own. Picking the input bar's own project unpins, so the
   // list goes back to following it.
-  // Moving between the project list and the inbox is a move, so nothing about
-  // how the old scope was being read survives it. The board plots one project's
-  // statuses as columns, which the inbox has no notion of.
-  function setView(next: ListPageView) {
-    if (next === view) return;
-    selection.clear();
-    view = next;
-    if (next === "inbox") {
-      layout = "list";
-      session.setProjectPageScope({ kind: "all" });
-    }
-    selectedKey = null;
-    openTaskId = null;
-  }
-
   function selectProject(option: ListProjectOption) {
     if (!option.available) return;
-    // A picked project is that project's task list, never a narrowed inbox.
-    setView("global");
     session.scopePageToProject(option.key);
     clearFilters();
     selection.clear();
@@ -800,8 +623,6 @@
     const nextKey = pageKey ?? "all";
     if (observedPageScopeKey === nextKey) return;
     observedPageScopeKey = nextKey;
-    view = pageKey ? "global" : "inbox";
-    if (!pageKey) layout = "list";
     clearFilters();
     selection.clear();
     selectedKey = null;
@@ -815,15 +636,9 @@
     projectsStore.removeProject(option.key);
   }
 
-  // Re-read native tasks and explicitly poll the active scope. The inbox fans
-  // the same refresh across every reachable project.
+  // Re-read native tasks and explicitly poll the active scope.
   function refresh() {
     if (refreshing) return;
-    if (view === "inbox") {
-      void store.load();
-      void inboxStore.load();
-      return;
-    }
     if (!cwd || !projectServerId) {
       void store.load();
       return;
@@ -834,31 +649,6 @@
       store.load(),
       store.loadUpstream(currentCwd, { serverId: projectServerId }),
     ]);
-  }
-
-  function changeInvolvement(involvement: InboxInvolvement) {
-    inboxStore.setInvolvement(involvement);
-    void inboxStore.load();
-  }
-
-  function openInboxPullRequest(entry: MergedInboxPullRequest) {
-    const location = entry.locations[0];
-    if (!location) {
-      void localApi.openExternal(entry.pullRequest.url);
-      return;
-    }
-    const [owner, repo] = entry.pullRequest.externalKey.split("/");
-    shell.openResource({
-      kind: "pull-request",
-      target: {
-        number: entry.pullRequest.number,
-        title: entry.pullRequest.title,
-        url: entry.pullRequest.url,
-        baseRepo: owner && repo ? { host: "github.com", owner, repo } : undefined,
-      },
-      projectDirectory: location.projectKey,
-      serverId: location.serverId,
-    });
   }
 
   async function switchTaskProvider(choice: TaskProviderChoice) {
@@ -906,50 +696,22 @@
   }
 
   function onOpen(task: Task) {
-    const key = view === "inbox" ? inboxTaskKey(task) : task.id;
-    if (view === "inbox" && task.providerId !== "local") {
-      const entry = inboxTicketByTask.get(task);
-      const location = entry?.locations[0];
-      if (location) {
-        task = store.get(task.id).hydrate(task, location.serverId).placeIn(location);
-      }
-    }
-    selectedKey = key;
-    openTaskId = key;
+    selectedKey = task.id;
+    openTaskId = task.id;
   }
 
-  async function startInboxTaskAt(task: Task, location: InboxRowLocation) {
-    pendingInboxHome = null;
+  // A provider ticket becomes a native task before a session can be bound to
+  // it, the same as the input bar's task picker does.
+  async function onStart(task: Task) {
     if (!workspace) return;
     try {
-      const promoted = await store
-        .get(task.id)
-        .hydrate(task, location.serverId)
-        .placeIn(location)
-        .promote();
-      await workspace.opening.openTaskSession(promoted);
-      void inboxStore.load();
+      const native = task.providerId === "local"
+        ? task
+        : await store.get(task.id, task.projectKey ?? undefined).promote();
+      await workspace.opening.openTaskSession(native);
     } catch (error) {
       toastTaskError("start task", error);
     }
-  }
-
-  function onStart(task: Task) {
-    if (!workspace) return;
-    if (task.providerId === "local") {
-      void workspace.opening.openTaskSession(task);
-      return;
-    }
-    const entry = inboxTicketByTask.get(task);
-    if (!entry || entry.locations.length === 0) {
-      toastTaskError("start task", "No reachable project owns this ticket.");
-      return;
-    }
-    if (entry.locations.length === 1) {
-      void startInboxTaskAt(task, entry.locations[0]);
-      return;
-    }
-    pendingInboxHome = { task, locations: entry.locations };
   }
 
   function onResume(task: Task) {
@@ -968,7 +730,7 @@
   function openTaskContextMenu(event: MouseEvent, task: Task) {
     event.preventDefault();
     event.stopPropagation();
-    selectedKey = view === "inbox" ? inboxTaskKey(task) : task.id;
+    selectedKey = task.id;
     taskContextMenu = { task, x: event.clientX, y: event.clientY };
   }
 
@@ -979,19 +741,7 @@
 
   async function onSetStatus(task: Task, status: TaskStatus) {
     try {
-      if (view === "inbox" && task.providerId !== "local") {
-        const entry = inboxTicketByTask.get(task);
-        const location = entry?.locations[0];
-        if (!location) throw new Error("No reachable host can update this ticket.");
-        await store
-          .get(task.id)
-          .hydrate(task, location.serverId)
-          .placeIn(location)
-          .update({ status });
-        await inboxStore.load();
-      } else {
-        await store.get(task.id, task.projectKey ?? undefined).setStatus(status);
-      }
+      await store.get(task.id, task.projectKey ?? undefined).setStatus(status);
     } catch (err) {
       toastTaskError("update status", err);
     }
@@ -1178,40 +928,29 @@
     bind:query
     bind:searchEl
     compactText
-    placeholder={view === "global"
-      ? splitList
-        ? "Search tasks…"
-        : "Search tasks, labels, assignees…"
-      : "Search your inbox…"}
-    filters={view === "global" ? filters : []}
-    activeCount={Number(!boardLayout && statusKeys.length !== statusOptions.length) + Number(view === "inbox" && inboxProjectKeys.length > 0) + Number(view === "inbox" && inboxStore.involvement !== "all") + Number(view === "global" && !splitList && !!activeProjectOptionKey)}
+    placeholder={splitList ? "Search tasks…" : "Search tasks, labels, assignees…"}
+    {filters}
+    activeCount={Number(!boardLayout && statusKeys.length !== statusOptions.length) + Number(!splitList && !!activeProjectOptionKey)}
   >
     {#snippet filterContent()}
-      <!-- The project list reads one project; "All projects" is the
-           cross-project inbox. The split rail leaves this out: changing project
-           there would replace the queue the reader is navigating from. -->
-      {#if view === "global" && !splitList}
+      <!-- The project list reads one project; "All projects" reads every
+           project the session sidebar shows. The split rail leaves this out:
+           changing project there would replace the queue the reader is
+           navigating from. -->
+      {#if !splitList}
         <ListProjectFilter
           projects={projectOptions}
           activeKey={activeProjectOptionKey}
           onSelect={selectProject}
-          onSelectAll={() => setView("inbox")}
+          onSelectAll={() => session.setProjectPageScope({ kind: "all" })}
           onSelectCurrent={() => session.scopePageToCurrentProject()}
           onRemoveHistory={workspace ? removeProjectHistory : undefined}
         />
-      {/if}
-      {#if view === "inbox"}
-        <!-- Wanting "just these two repos" narrows the inbox without moving the
-             page, so it is a filter and sits with the others. -->
-        <ListFilterGroup label="Project" options={inboxScopeChoices} selected={inboxProjectKeys} onChange={(next) => (inboxProjectKeys = next)} multiple />
       {/if}
       <!-- The board plots every status as a column of its own, so a status
            filter there would only ever empty one. -->
       {#if !boardLayout}
         <ListFilterGroup label="Status" icon={CircleDashedIcon} options={statusOptions} selected={statusKeys} onChange={(next) => (statusKeys = next)} multiple showAll emptyLabel="None" />
-      {/if}
-      {#if view === "inbox"}
-        <ListFilterGroup label="Involvement" options={INVOLVEMENT_OPTIONS} selected={[inboxStore.involvement]} onChange={(next) => changeInvolvement(next[0])} />
       {/if}
     {/snippet}
     {#snippet trailing()}
@@ -1223,7 +962,7 @@
         >
       {/if}
       {@render layoutToggle()}
-      {#if view === "global" && !splitList}
+      {#if !splitList}
         <ListSortMenu
           bind:value={sort}
           options={SORT_OPTIONS}
@@ -1270,9 +1009,7 @@
       split={splitList}
       hideHeader={splitList}
       page="tasks"
-      title={view === "inbox" ? "Inbox" : undefined}
       actions={providerControl}
-      {view}
       onRefresh={refresh}
       {refreshing}
       syncedAt={upstreamRefreshedAt}
@@ -1301,7 +1038,7 @@
         onkeydown={onBodyKeydown}
         role="presentation"
       >
-        {#if view === "global" && offlineCheckoutHosts.length > 0}
+        {#if offlineCheckoutHosts.length > 0}
           <p class="px-4 pt-2 text-workspace-chrome text-muted-foreground" role="status">
             {offlineCheckoutHosts.join(", ")}
             {offlineCheckoutHosts.length === 1 ? "is" : "are"} offline. Tasks kept only on
@@ -1309,21 +1046,13 @@
             {offlineCheckoutHosts.length === 1 ? "it reconnects" : "they reconnect"}.
           </p>
         {/if}
-        {#if view === "global" && !pageKey}
-          <PageEmpty
-            icon={ListChecksIcon}
-            title="Open a project to see its tasks."
-          >
-            Tasks are per-project records. Open a project and its list appears
-            here.
-          </PageEmpty>
-        {:else if (view === "global" && !configReady) || (!store.loaded && store.loading) || (refreshing && (view === "inbox" ? inboxTasksSource.length === 0 : projectTasks.length === 0))}
+        {#if !configReady || (!store.loaded && store.loading) || (refreshing && projectTasks.length === 0)}
           {#if boardLayout}
             <TaskBoardSkeleton />
           {:else}
             <ListSkeleton identWidth={62} />
           {/if}
-        {:else if (displayError && (view === "inbox" ? inboxGroups.length === 0 : projectTasks.length === 0)) || (view === "global" && upstreamError && projectTasks.length === 0)}
+        {:else if displayError && projectTasks.length === 0}
           <PageEmpty
             icon={WarningCircleIcon}
             tone="muted"
@@ -1341,9 +1070,11 @@
               </button>
             {/snippet}
           </PageEmpty>
-        {:else if view === "global" && projectTasks.length === 0}
+        {:else if projectTasks.length === 0}
           <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
-            {#if !hostCheckout}
+            {#if !pageKey}
+              Tasks in the projects your session sidebar shows appear here.
+            {:else if !hostCheckout}
               A task made in the workspace, or by an agent on a machine linked to
               this organization, appears here for everyone.
             {:else}
@@ -1369,10 +1100,10 @@
           </PageEmpty>
         {:else if boardLayout}
           <TaskBoard
-            tasks={boardTasks}
-            {homeFor}
+            tasks={visibleTasks}
+            homeFor={rowHomeFor}
             projectKey={cwd}
-            canReorder={view === "global" && boardUnfiltered}
+            canReorder={!!pageKey && boardUnfiltered}
             {selectedKey}
             onOpen={(task) => {
               selectedKey = task.id;
@@ -1386,67 +1117,6 @@
               ? (status) => beginComposing({ status })
               : undefined}
           />
-        {:else if view === "inbox"}
-          {#if inboxGroups.length === 0}
-            <ListEmpty title="Inbox zero."
-              >Nothing is waiting on you right now.</ListEmpty
-            >
-          {:else}
-            <VirtualList
-              items={inboxVirtualItems}
-              height={contentHeight}
-              itemSize={(index) =>
-                inboxVirtualItems[index].kind === "header"
-                  ? LIST_GROUP_HEADER_HEIGHT
-                  : inboxRowHeight(recordRows)}
-              keyOf={(item) => item.key}
-              activeKey={inboxActiveKey}
-            >
-              {#snippet children(item, _index, style)}
-                <div {style}>
-                  {#if item.kind === "header"}
-                    <ListGroup
-                      label={item.group.label}
-                      count={item.group.rows.length}
-                      open={!collapsedGroups[`inbox:${item.group.key}`]}
-                      onToggle={() => {
-                        const groupKey = `inbox:${item.group.key}`;
-                        collapsedGroups[groupKey] = !collapsedGroups[groupKey];
-                      }}
-                      note={item.group.note}
-                      accent={item.group.accent}
-                    >
-                      {#snippet children()}{/snippet}
-                    </ListGroup>
-                  {:else}
-                    <InboxRow
-                      row={item.row}
-                      hot={!!item.group.accent}
-                      responsiveTitle
-                      selected={selectedKey === item.row.key ||
-                        selection.has(item.row.key)}
-                      onSelect={() => {
-                        selectedKey = item.row.key;
-                        const task = taskById(item.row.key);
-                        if (task) onOpen(task);
-                        else item.row.primary?.run();
-                      }}
-                      onContextMenu={(event) => {
-                        const task = taskById(item.row.key);
-                        if (task) openTaskContextMenu(event, task);
-                      }}
-                    >
-                      {#snippet leading()}
-                        {#if taskById(item.row.key)}
-                          {@render rowCheckbox(item.row.key)}
-                        {/if}
-                      {/snippet}
-                    </InboxRow>
-                  {/if}
-                </div>
-              {/snippet}
-            </VirtualList>
-          {/if}
         {:else if groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.
@@ -1772,14 +1442,6 @@
           ? () => onDelete(menuTask)
           : undefined}
         onClose={() => (taskContextMenu = null)}
-      />
-    {/if}
-    {#if pendingInboxHome}
-      <InboxImportHomeDialog
-        title={pendingInboxHome.task.title}
-        locations={pendingInboxHome.locations}
-        onChoose={(location) => void startInboxTaskAt(pendingInboxHome!.task, location)}
-        onCancel={() => (pendingInboxHome = null)}
       />
     {/if}
   </div>

@@ -9,9 +9,9 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 /**
  * One name per question.
  *
- * `list_works`/`search_works` and `list_sessions`/`search_sessions` were two
- * tools each for one question — find the thing — and the model picks a tool by
- * name before it can read either description. `link_task_session` was `link_task`
+ * `list_works`/`search_works` were two tools for one question — find the
+ * thing — and the model picks a tool by name before it can read either
+ * description. `link_task_session` was `link_task`
  * with one more kind. These tests pin that the merged tools still answer both
  * ways, because a merge that quietly drops the listing half is the failure this
  * change could actually cause.
@@ -87,42 +87,19 @@ describe('find_works answers with or without a query', () => {
   })
 })
 
-describe('find_sessions answers with or without a query', () => {
-  test('no query asks the controller for the roster; a query never does', async () => {
-    // WHY: the two halves take disjoint parameters and only one of them needs a
-    // wired controller. Dispatching on the wrong one turns a history search
-    // into "no session controller is wired" — or, worse, silently lists.
+describe('search_sessions only searches', () => {
+  test('a query goes to the index; without one the call is refused, never turned into a listing', async () => {
+    // WHY: listing the sessions at work moved to the task view. A search tool
+    // that quietly lists when its query is empty hands the model a roster it
+    // did not ask for and cannot tell from a result.
     const sessionTools = await import('@solus/server/sessions/session-tools')
-    let rosterRequests = 0
-    sessionTools.setSessionController({
-      listSessions: async () => {
-        rosterRequests++
-        return [{
-          sessionId: 'peer-1',
-          provider: 'claude-code',
-          cwd: '/p',
-          status: 'running',
-          firstMessage: 'Draining the outbox',
-          lastTimestamp: '2026-09-01T00:00:00Z',
-        }]
-      },
-      liveStatus: () => 'running',
-    } as never)
-
-    const listed = await sessionTools.executeSessionTool('find_sessions', {}, {
-      ctx: { agentProvider: 'claude-code', cwd: '/p', sessionId: 'me' },
-    })
-    expect(listed.ok).toBe(true)
-    expect(listed.text).toContain('peer-1')
-    expect(rosterRequests).toBe(1)
-
-    const searched = await sessionTools.executeSessionTool('find_sessions', { query: 'outbox' }, {
-      ctx: { agentProvider: 'claude-code', cwd: '/p', sessionId: 'me' },
-    })
+    const deps = { ctx: { agentProvider: 'claude-code' as const, cwd: '/p', sessionId: 'me' } }
+    const searched = await sessionTools.executeSessionTool('search_sessions', { query: 'outbox' }, deps)
     expect(searched.ok).toBe(true)
-    // The index is empty in this data dir; what matters is that searching went
-    // to the index rather than to the roster.
-    expect(rosterRequests).toBe(1)
+    // The index is empty in this data dir; the search ran against it.
+    expect(searched.text).toContain('No matching sessions.')
+    expect(await sessionTools.executeSessionTool('search_sessions', { query: '  ' }, deps)).toEqual({ ok: false, text: 'search_sessions requires a non-empty query.' })
+    expect(await sessionTools.executeSessionTool('search_sessions', {}, deps)).toEqual({ ok: false, text: 'search_sessions requires a non-empty query.' })
   })
 })
 

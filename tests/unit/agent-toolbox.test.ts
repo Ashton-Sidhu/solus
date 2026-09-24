@@ -43,7 +43,7 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.insights.query.requiresApproval).toBe(false)
     expect(solusToolbox.intelligence.askJev.requiresApproval).toBe(false)
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
-    expect(solusToolbox.sessions.prompt.requiresApproval).toBe(false)
+    expect(solusToolbox.sessions.send.requiresApproval).toBe(false)
     expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)
     // Reading config is free; changing it is a thing the user must see happen.
     expect(solusToolbox.config.read.requiresApproval).toBe(false)

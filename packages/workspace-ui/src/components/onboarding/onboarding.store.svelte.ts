@@ -1,6 +1,6 @@
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { runtime, serversStore } from '../../contexts'
+import { accountStore, runtime, serversStore } from '../../contexts'
 import { hostSetupStore, type HostSetupSession } from '../servers/host-setup.store.svelte'
 import { cloudOnboardingStore } from './cloud-onboarding.store.svelte'
 import {
@@ -12,6 +12,7 @@ import {
   type OnboardingMode,
   type OnboardingStage,
   type OnboardingSurface,
+  type StageConditions,
 } from './lib/onboarding-model'
 
 /** The greeting is the mark arriving, then a line that types itself. */
@@ -28,8 +29,8 @@ const LEAVE_MS = 560
  * The one place first-run onboarding keeps its own state: which stage is open,
  * how the greeting is doing, and what the last stage decided.
  *
- * Everything the stages report — agent installs, GitHub and Cloudflare, the
- * keybinding table — is read off the stores that already own it, so onboarding
+ * Everything the stages report — agent installs, GitHub and Cloudflare — is
+ * read off the stores that already own it, so onboarding
  * can never disagree with Settings about where the client stands. Completion
  * itself is a client preference and lives in settings, not here.
  */
@@ -50,6 +51,9 @@ class OnboardingStore {
   /** True for the one fade that carries the greeting off the first stage. */
   introLeaving = $state(false)
 
+  /** The stage that opened `name-project`, which its Back returns to. */
+  private nameProjectFrom: OnboardingStage = 'start'
+
   private timers: ReturnType<typeof setTimeout>[] = []
   private greetingTimer: ReturnType<typeof setInterval> | null = null
 
@@ -69,9 +73,15 @@ class OnboardingStore {
     return hostSetupStore.sessionFor(this.serverId)
   }
 
-  /** The cloud flow passes over `agents` when there is no machine to ask. */
-  private get skipsAgents(): boolean {
-    return this.flow === 'cloud' && !cloudOnboardingStore.chosenServerId
+  /**
+   * The cloud flow passes over `agents` when there is no machine to ask, and
+   * `cloud-connect` shows only where the shell holds an account (desktop).
+   */
+  private get conditions(): StageConditions {
+    return {
+      skipsAgents: this.flow === 'cloud' && !cloudOnboardingStore.chosenServerId,
+      offersCloudConnect: accountStore.isAvailable,
+    }
   }
 
   start(): void {
@@ -122,8 +132,8 @@ class OnboardingStore {
    * Leaves the greeting. The first stage is put up first and the greeting fades
    * over it, so the stage is already laid out behind the fade rather than
    * appearing empty once it clears. The host readiness probe kicked off in
-   * `start()` runs behind the shortcuts stage, so the agents stage usually
-   * arrives already answered.
+   * `start()` runs behind the greeting, so the agents stage usually arrives
+   * already answered.
    */
   endIntro(): void {
     if (this.stage !== 'intro' || this.introLeaving) return
@@ -144,15 +154,35 @@ class OnboardingStore {
 
   /** Moves on, or reports that the flow is over so the caller can finish it. */
   advance(): boolean {
-    const next = nextStage(this.stage, this.surface, this.flow, this.skipsAgents)
+    const next = nextStage(this.stage, this.surface, this.flow, this.conditions)
     if (!next) return false
     this.go(next)
     return true
   }
 
   back(): void {
-    const previous = previousStage(this.stage, this.surface, this.flow, this.skipsAgents)
+    if (this.stage === 'name-project') {
+      this.go(this.nameProjectFrom)
+      return
+    }
+    if (this.stage === 'open-project') {
+      this.go('start')
+      return
+    }
+    const previous = previousStage(this.stage, this.surface, this.flow, this.conditions)
     if (previous) this.go(previous)
+  }
+
+  /** Starting from nothing is one more question — the name — not the end of the flow. */
+  nameNewProject(): void {
+    if (this.stage === 'name-project') return
+    this.nameProjectFrom = this.stage
+    this.go('name-project')
+  }
+
+  /** Existing code is one more question too — which folder — asked inside the flow. */
+  openExistingCode(): void {
+    this.go('open-project')
   }
 
   chooseMode(mode: OnboardingMode): void {

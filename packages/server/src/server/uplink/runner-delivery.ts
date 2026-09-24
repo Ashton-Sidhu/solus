@@ -106,6 +106,7 @@ export class RunnerDelivery {
   private attempts = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private unsubscribes: Array<() => void> = []
+  private unfollowRecords: (() => void) | null = null
   private stopped = false
   private readonly grantListeners = new Set<(info: RunnerGrantInfo | null) => void>()
   private readonly cycleListeners = new Set<() => Promise<void> | void>()
@@ -145,13 +146,14 @@ export class RunnerDelivery {
     this.stopped = false
     this.unsubscribes.push(onOutboxChanged(() => this.kick()))
     this.unsubscribes.push(onMirrorChanged(() => this.kick()))
-    this.unsubscribes.push(onSessionRecordChanged((record) => this.reportSession(record)))
+    this.followRecords()
     this.kick()
   }
 
   async stop(): Promise<void> {
     this.stopped = true
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe()
+    this.followRecords()
     this.clearTimer()
     this.setGrant(null)
   }
@@ -160,7 +162,23 @@ export class RunnerDelivery {
   linkChanged(): void {
     this.setGrant(null)
     this.attempts = 0
+    this.followRecords()
     this.kick()
+  }
+
+  /**
+   * Hear record changes only while there is a link to report them to. A
+   * listener makes every record write read the row back, several times a turn,
+   * and an unlinked host would drop the report anyway.
+   */
+  private followRecords(): void {
+    const wanted = !this.stopped && this.deps.link() !== null
+    if (wanted && !this.unfollowRecords) {
+      this.unfollowRecords = onSessionRecordChanged((record) => this.reportSession(record))
+    } else if (!wanted && this.unfollowRecords) {
+      this.unfollowRecords()
+      this.unfollowRecords = null
+    }
   }
 
   /** Runs a cycle soon, once, however many times it is asked while one runs. */

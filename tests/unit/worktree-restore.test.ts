@@ -44,7 +44,7 @@ test('restoring a worktree answers its checkout without a synchronous spawn', as
   git(directory, ['config', 'user.name', 'Test'])
   git(directory, ['config', 'user.email', 'test@example.invalid'])
   git(directory, ['commit', '--allow-empty', '-m', 'Initial'])
-  const created = await createWorktree(directory, 'restore-me', 'main')
+  const created = await createWorktree(directory, 'main')
 
   syncSpawns = 0
   const restored = await restoreWorktree(created.worktreePath!)

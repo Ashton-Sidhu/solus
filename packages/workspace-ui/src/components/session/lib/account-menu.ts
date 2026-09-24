@@ -7,7 +7,7 @@ export function accountInitial(profile: AccountProfile): string {
 }
 
 /** The account website pages the account menu links out to. */
-export type ConsolePage = 'account' | 'teams'
+export type ConsolePage = 'account' | 'organizations'
 
 export function consolePageUrl(consoleUrl: string, page: ConsolePage): string {
   return new URL(`/${page}`, consoleUrl).toString()

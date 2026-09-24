@@ -27,7 +27,6 @@
   import type { ProjectPageScope } from "../../contexts/projects/project-catalog";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import { projectDirLabel } from "../../lib/paths";
   import { liveSessionTitle } from "../../lib/sessionUtils";
   import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
   import {
@@ -265,12 +264,6 @@
     untrack(() => {
       scopeKeyAtOpen = sharedScopeKey;
       hasChosenScope = false;
-      if (projectScope && workspace) {
-        projectsStore.record(
-          projectScope,
-          projectDirLabel(projectScope.projectRoot, session.staticInfo?.workspacePath),
-        );
-      }
       refreshRecentProjects();
       clearFilters();
       resetLedgerSelection();

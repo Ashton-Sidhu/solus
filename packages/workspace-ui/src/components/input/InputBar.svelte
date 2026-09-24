@@ -380,12 +380,7 @@
   // do", and with an empty composer during a turn that is stopping it — the
   // instant anything is typed the button is a Send (or a Steer) again, so
   // nothing is taken away.
-  const stopsRun = $derived(
-    isTouch &&
-      !hasKeyboard &&
-      (isBusy || sess?.status === "background") &&
-      !hasContent,
-  );
+  const stopsRun = $derived(isTouch && !hasKeyboard && isBusy && !hasContent);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {

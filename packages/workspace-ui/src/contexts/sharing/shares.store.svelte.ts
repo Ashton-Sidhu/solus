@@ -14,6 +14,8 @@ import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { grantsFor, guestLinkContext, linkRoleFor, sameScope, scopeOf, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
 import { uplinkStore } from '../connections/uplink.store.svelte'
+import { hostWebsiteUrl } from '../connections/host-routes'
+import { localApi } from '@solus/client-core/local-api'
 
 /**
  * Share lists per host (docs/plans/multiplayer-sharing.md §4). The host owns every
@@ -186,7 +188,10 @@ class SharesStore {
     let cloudServerId = target.serverId
     if (saved?.uplink?.kind !== 'cloud') {
       const identity = await this.identityFor(target.serverId)
-      if (!identity.organizationId) throw new Error('Sign in and connect this host to an organization before sharing.')
+      if (!identity.organizationId) {
+        this.explainNoOrganization(target.serverId)
+        return
+      }
       cloudServerId = workspaceHostId(identity.organizationId)
       if (target.resource.kind === 'work') {
         if (!this.works) throw new Error('The workspace is still loading.')
@@ -198,6 +203,26 @@ class SharesStore {
     if (!list) throw new Error('This resource has not reached Solus cloud yet. Open its cloud copy before sharing.')
     this.dialog = { ...target, serverId: cloudServerId }
     await this.reloadDirectory(cloudServerId)
+  }
+
+  /**
+   * A share lives in the organization's cloud workspace, so a host linked to an
+   * account but not shared with a team has nowhere to put it. The owner fixes
+   * that on the host's website page, so the toast opens it.
+   */
+  private explainNoOrganization(serverId: string): void {
+    const link = this.linkContext(serverId)
+    if (link.kind !== 'linked') {
+      toasts.error('Link this host to Solus cloud before sharing.', {
+        description: 'Sign in and link this host in Settings, then share it with a team on the Solus cloud website.',
+      })
+      return
+    }
+    const websiteUrl = hostWebsiteUrl(link.directoryUrl, link.hostId)
+    toasts.error('Share this host with a team before sharing.', {
+      description: 'Shares live in your team\'s Solus cloud workspace. This host is linked to your account, but it is not shared with a team yet.',
+      action: { label: 'Share host', onAction: () => void localApi.openExternal(websiteUrl) },
+    })
   }
 
   /**

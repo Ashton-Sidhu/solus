@@ -1,13 +1,11 @@
 <script lang="ts">
   import type { Message } from "@solus/contracts/types";
-  import { agentConversationLayout } from "./lib/agent-conversation";
   import AgentConversationCard from "./AgentConversationCard.svelte";
-  import AgentConversationSwitchboard from "./AgentConversationSwitchboard.svelte";
 
   /**
-   * The turn's exchanges with other agents. One agent is a two-voice card; two
-   * or more share one card with a tab row. Either way it sits in the agent's
-   * message flow at full column width, never inside a user bubble.
+   * The turn's exchanges with other agents: one two-voice card per agent,
+   * stacked in dispatch order. It sits in the agent's message flow at full
+   * column width, never inside a user bubble.
    */
   interface Props {
     messages: Message[];
@@ -17,15 +15,10 @@
   let { messages, tabId, skipMotion = false }: Props = $props();
 
   const cards = $derived(messages.filter((message) => message.agentConversationRef));
-  const refs = $derived(cards.map((message) => message.agentConversationRef!));
 </script>
 
-<div class="py-2">
-  {#if agentConversationLayout(refs) === "single"}
-    {#each cards as message (message.id)}
-      <AgentConversationCard ref={message.agentConversationRef!} {tabId} {skipMotion} />
-    {/each}
-  {:else}
-    <AgentConversationSwitchboard {refs} {tabId} {skipMotion} />
-  {/if}
+<div class="flex flex-col gap-2 py-2">
+  {#each cards as message, index (message.id)}
+    <AgentConversationCard ref={message.agentConversationRef!} {tabId} {skipMotion} accentIndex={index} />
+  {/each}
 </div>

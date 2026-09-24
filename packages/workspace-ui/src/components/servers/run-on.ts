@@ -5,6 +5,7 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import {
   startsWorktree,
+  withCheckout,
   withHost,
   withPendingHost,
   withProjectHost,
@@ -125,9 +126,6 @@ export function isRunOnHostLocked(session: Session | undefined): boolean {
 }
 
 export interface RunOnPickerVisibility {
-  variant: 'chip' | 'header'
-  /** True when the run sits in (or on the way into) a git checkout. */
-  isGitRepo: boolean
   /** Remotes reachable right now — a saved-but-offline host does not count, so
    *  the picker only appears when there is a real machine to run on. */
   connectedRemoteCount: number
@@ -138,17 +136,11 @@ export interface RunOnPickerVisibility {
 }
 
 /**
- * Whether the run-on picker is worth showing at all.
- *
- * It earns its place the moment there is a real choice about where work runs:
- * a reachable remote to send it to, or a git checkout the header can branch a
- * worktree from. A plain local folder on a single machine has neither, so the
- * picker stays out of the way until a host is connected.
+ * Whether the run-on picker is worth showing at all: only when there is a real
+ * choice about which machine runs the work. The checkout type is the branch
+ * chip's question, so one machine never shows this picker.
  */
 export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
-  // The header is the only control for worktree mode, so a git checkout always
-  // earns it — even on a machine that has never seen another host.
-  if (input.variant === 'header' && input.isGitRepo) return true
   // A reachable remote is a genuine choice: run here, or run on that machine.
   // Saved-but-offline hosts are filtered out before they reach this count.
   if (input.connectedRemoteCount > 0) return true
@@ -158,29 +150,6 @@ export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
     input.onRemoteHost ||
     (!!input.selectedHostId && input.selectedHostId !== LOCAL_SERVER_ID)
   )
-}
-
-/**
- * The hosts the header's "Run on another host" group offers.
- *
- * "Another" means another machine than the one this run is already on, which is
- * not the same question as `local`. Only an Electron-hosted server is flagged
- * local, so on web the connected host is an ordinary remote row — and naming it
- * in the "Start in" row *and* leaving it in this group listed one machine twice.
- * Excluding the run's own host says the intended thing on every client, and is
- * a no-op on desktop, where that host is the filtered-out local one.
- */
-export function hostsToRunOn<Host extends { id: string; local: boolean }>(
-  servers: readonly Host[],
-  currentHostId: string,
-): Host[] {
-  return servers.filter((server) => !server.local && server.id !== currentHostId)
-}
-
-/** The combined menu has one selected destination row. A remote host owns that
- * selection, so its default new-worktree shape must not add a second check. */
-export function isNewWorktreeStartSelected(onRemoteHost: boolean, startsNewWorktree: boolean): boolean {
-  return !onRemoteHost && startsNewWorktree
 }
 
 /** Explains why this checkout cannot create a worktree. */
@@ -205,28 +174,20 @@ export function returnsToProjectHome(run: RunConfig, serverId: string): boolean 
 }
 
 /**
- * Apply one of the local checkout rows in the Run on picker.
- *
- * Returning from another host and choosing the checkout shape are one user
- * action. Build both changes from the same run so the first click cannot stop
- * after the host move and leave "New worktree" selected.
+ * Point a run at a checkout that already exists on `serverId`. Your own
+ * machine and a dispatched run's home switch at once: the checkout is there
+ * and nothing needs a connection. Any other host is recorded as intent, and
+ * Send connects to it before the run moves.
  */
-export function withLocalStart(
+export function withCheckoutOnHost(
   run: RunConfig,
-  localServerId: string,
-  fallbackPath: string,
-  worktree: boolean,
+  serverId: string,
+  path: string,
+  opts: { immediate: boolean; isolate: boolean },
 ): RunConfig {
-  let next = withPendingHost(run, null)
-  if (run.serverId !== localServerId) {
-    // This machine is never a shared host; `worktree` below is the choice.
-    next = withProjectHost(next, localServerId, {
-      path: run.projectGroupPath ?? fallbackPath,
-      isolate: false,
-    })
-    next.projectGroupPath = null
-  }
-  if (startsWorktree(next) !== worktree) next = withWorktreeToggled(next)
+  if (!opts.immediate) return withCheckout(withPendingHost(run, { serverId, intent: 'open-project' }), path, null)
+  const next = withProjectHost(withPendingHost(run, null), serverId, { path, isolate: opts.isolate })
+  next.projectGroupPath = null
   return next
 }
 

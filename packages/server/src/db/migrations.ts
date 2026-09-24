@@ -397,6 +397,12 @@ CREATE TABLE transcript_mirror_rows (
   `
 DELETE FROM transcript_mirror_rows;
 `,
+
+  // Project configuration lives in a file in the checkout; the rows it was
+  // read from before are no longer read.
+  `
+DROP TABLE project_config;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

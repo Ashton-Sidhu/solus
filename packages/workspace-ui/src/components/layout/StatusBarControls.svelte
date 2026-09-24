@@ -62,12 +62,6 @@
   // The run's host holds this checkout; a path alone names no machine.
   const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
   const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
-  $effect(() => {
-    if (!showDestination) return;
-    const cwd = gitStatusCwd;
-    if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(gitServerId, cwd);
-  });
 
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
   // One environment model drives the pill echo. displayBranch stays the raw

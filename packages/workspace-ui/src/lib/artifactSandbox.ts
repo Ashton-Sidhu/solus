@@ -21,7 +21,7 @@ const THEME_VARS = [
   '--solus-accent-border-medium',
   '--solus-tool-border',
   '--solus-font-family',
-  // Warm artifact palette — parchment neutrals + brand-coherent categorical
+  // Artifact palette — ivory neutrals + brand-coherent categorical
   // data colours, so renders never fall back to generic grey/rainbow.
   '--solus-art-surface',
   '--solus-art-raised',
@@ -64,23 +64,31 @@ const RESIZE_REPORTER = `<script>(function(){
     if (theme) theme.textContent = event.data.css;
   });
   function measure(){
-    var b = d.body;
-    return b ? Math.max(b.scrollHeight, b.offsetHeight)
-             : (d.documentElement ? d.documentElement.scrollHeight : 0);
+    var b = d.body, root = d.documentElement;
+    if (!b) return root ? root.scrollHeight : 0;
+    // A first or last child's margin collapses through body, so body's own
+    // height misses it; the root box holds it. Body's top offset plus its
+    // scrollHeight still counts content that overflows a root pinned to 100%.
+    var top = b.getBoundingClientRect().top + (window.scrollY || 0);
+    return Math.max(root.getBoundingClientRect().height,
+                    top + Math.max(b.scrollHeight, b.offsetHeight));
   }
   function report(){
     try { parent.postMessage({ type: "solus-artifact-height", h: measure() }, "*"); } catch (e) {}
   }
+  // Nothing reports before the document is parsed: this script runs ahead
+  // of the render's own markup, and a render whose <script src> blocks the
+  // parser would report a half-built page, then grow once it finished.
   function start(){
     var target = d.body || d.documentElement;
     if (typeof ResizeObserver !== "undefined") new ResizeObserver(report).observe(target);
     report();
+    setTimeout(report, 50);
+    window.addEventListener("resize", report);
   }
   if (d.readyState !== "loading") start();
   else d.addEventListener("DOMContentLoaded", start);
   window.addEventListener("load", report);
-  window.addEventListener("resize", report);
-  setTimeout(report, 50);
 })();</script>`;
 
 /** Read the host palette for initial injection and live theme messages. */
@@ -99,7 +107,10 @@ export function buildSandboxThemeCss(isDark: boolean): string {
     `color:var(--solus-text-primary);` +
     `font-family:var(--solus-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif);` +
     `font-size: var(--text-sm);line-height:1.5;-webkit-font-smoothing:antialiased;` +
-    `scrollbar-width:none;` +
+    // The frame grows to the document, so the document never scrolls. Hidden
+    // overflow keeps a wheel over the render from latching onto an invisible
+    // inner scroller instead of moving the transcript.
+    `overflow:hidden;scrollbar-width:none;` +
     `text-rendering:optimizeLegibility}` +
     `body{margin:0;background:transparent;color:inherit;font:inherit;}` +
     // A render that caps its own width — a card with a max-width — sat against

@@ -79,7 +79,8 @@ test('a linked row menu acts on its link before the rail drops the menu', async 
             ctxForDirectory: () => ({}),
             openWorkModal: (key) => { globalThis.__opened = key; return Promise.resolve(); },
           });
-          const getPullRequestsContext = () => ({ projects: { at: () => undefined, get: () => ({ ensureNumbers: () => {} }) } });
+          const getPullRequestsContext = () => ({ projects: { linkedPr: () => null, watchLinkedPrs: () => () => {} } });
+          const untrack = (read) => read();
           const serverConnections = { apiFor: () => ({}) };
           const TooltipUI = { Root: Pass, Trigger: ChildSlot, Content: Stub };
           const requestInputFocus = () => {};

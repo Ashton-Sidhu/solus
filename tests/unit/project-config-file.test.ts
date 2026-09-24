@@ -1,24 +1,16 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
-
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 /**
  * Project config lives at `.solus/config.json` in the repository. These pin the
  * property the sha256 key used to provide — one config per repo, reachable from
- * any directory inside it — plus the migration off the database row.
+ * any directory inside it.
  */
 
 type ProjectConfigModule = typeof import('@solus/server/project-config/project-config')
-
-const db = new Database(':memory:')
-db.run('CREATE TABLE project_config (project_key TEXT PRIMARY KEY, config TEXT, updated_at INTEGER)')
-mock.module('@solus/server/db', () => ({ getDb: () => db, withTx: (fn: () => void) => fn() }))
 
 let projectConfig: ProjectConfigModule
 let repo: string
@@ -111,46 +103,6 @@ describe('project config in the repository', () => {
       expect(await projectConfig.loadProjectConfig(broken)).toBeNull()
     } finally {
       rmSync(broken, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('migration off the database row', () => {
-  test('a project configured before the move keeps its provider', async () => {
-    // Losing this silently would point a project's task sync at the wrong
-    // provider — or at none — with nothing to tell the user why.
-    const legacy = mkdtempSync(join(tmpdir(), 'solus-legacy-'))
-    try {
-      db.prepare('INSERT INTO project_config (project_key, config, updated_at) VALUES (?, ?, ?)').run(
-        createHash('sha256').update(legacy).digest('hex'),
-        JSON.stringify({ version: 1, taskProvider: 'github', tasksAutoPushComments: true }),
-        Date.now(),
-      )
-
-      const migrated = await projectConfig.loadProjectConfig(legacy)
-
-      expect(migrated?.taskProvider).toBe('github')
-      expect(migrated?.tasksAutoPushComments).toBe(true)
-      // Written through, so the next read comes from the file.
-      expect(existsSync(join(legacy, '.solus', 'config.json'))).toBe(true)
-    } finally {
-      rmSync(legacy, { recursive: true, force: true })
-    }
-  })
-
-  test('the file wins once it exists, so an edit is not undone by the old row', async () => {
-    const both = mkdtempSync(join(tmpdir(), 'solus-both-'))
-    try {
-      db.prepare('INSERT INTO project_config (project_key, config, updated_at) VALUES (?, ?, ?)').run(
-        createHash('sha256').update(both).digest('hex'),
-        JSON.stringify({ version: 1, taskProvider: 'github' }),
-        Date.now(),
-      )
-      await projectConfig.saveProjectConfig(both, { version: 1, taskProvider: 'jira' })
-
-      expect((await projectConfig.loadProjectConfig(both))?.taskProvider).toBe('jira')
-    } finally {
-      rmSync(both, { recursive: true, force: true })
     }
   })
 })

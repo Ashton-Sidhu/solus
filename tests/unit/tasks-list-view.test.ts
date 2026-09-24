@@ -3,9 +3,7 @@ import type { Task, TaskStatus } from '@solus/contracts/task-types'
 import {
   OPEN_TASK_STATUS_KEYS,
   TASK_STATUS_GROUPS,
-  personalInboxTasks,
   taskGroups,
-  taskInboxGroups,
   taskRow,
   taskStatusesFor,
 } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
@@ -29,26 +27,8 @@ function task(id: string, status: TaskStatus): Task {
 }
 
 const noSessions = () => 0
-const actions = { open() {}, start() {}, resume() {}, markDone() {} }
 
 describe('task status filter', () => {
-  test('the personal inbox keeps native work and only provider issues assigned to the viewer', () => {
-    // WHY: the inbox spans projects, but it must not turn into every connected
-    // repository's team backlog. Provider-owned issues belong here only when
-    // the connected account is their assignee.
-    const native = task('native', 'todo')
-    const mine = { ...task('mine', 'todo'), providerId: 'github' as const, assignee: 'Sidhu' }
-    const teammate = { ...task('teammate', 'todo'), providerId: 'github' as const, assignee: 'alex' }
-    const unassigned = { ...task('unassigned', 'todo'), providerId: 'github' as const }
-
-    expect(
-      personalInboxTasks(
-        [native, mine, teammate, unassigned],
-        () => 'sidhu',
-      ).map((row) => row.id),
-    ).toEqual(['native', 'mine'])
-  })
-
   test('opens on live work only, and reaches finished work in one pick', () => {
     // WHY: a list that leads with everything ever closed buries the handful of
     // things still moving. Closed work stays reachable — it is the record of
@@ -75,49 +55,22 @@ describe('task status filter', () => {
     expect(groups.map((group) => group.label)).toEqual(['Done', 'Closed'])
     expect(TASK_STATUS_GROUPS.map((group) => group.key)).toContain('dropped')
   })
+})
 
-  test('the inbox only queues the statuses asked for', () => {
-    // WHY: the inbox is a list of decisions. Each of its groups is a lifecycle
-    // state, so the one filter has to govern both views or the same task is
-    // hidden on one page and waiting on the other.
-    const rows = [task('a', 'in_review'), task('b', 'done')]
-    const live = taskInboxGroups(rows, noSessions, NOW, actions, taskStatusesFor(OPEN_TASK_STATUS_KEYS))
-    expect(live.map((group) => group.key)).toEqual(['needs'])
-
-    const withDone = taskInboxGroups(rows, noSessions, NOW, actions, taskStatusesFor([...OPEN_TASK_STATUS_KEYS, 'done']))
-    expect(withDone.find((group) => group.key === 'done')?.rows).toHaveLength(1)
+describe('where a task row says it lives', () => {
+  test('project and host take the place column, not a chip after the title', () => {
+    // WHY: the list is a table. A project chip trailing each title sat at a
+    // different x on every row and could not be scanned down; a column can.
+    const placeFor = () => ({ project: 'acme/app', host: 'Solus Cloud' })
+    const row = taskRow({ ...task('t1', 'todo'), labels: ['design'] }, 0, NOW, placeFor)
+    expect(row.place).toEqual({ project: 'acme/app', host: 'Solus Cloud' })
+    expect(row.chips.map((chip) => chip.label)).toEqual(['design'])
   })
 
-  test('work in progress whose agent went idle waits on you, not under Agent running', () => {
-    // WHY: "Agent running" once meant "has a linked session", so a task whose
-    // agent stopped hours ago sat there looking busy. Idle work in progress is
-    // the user's turn: it must say so and offer to resume the session it has.
-    const rows = [task('live', 'in_progress'), task('idle', 'in_progress'), task('new', 'todo')]
-    const runningSessionsFor = (taskId: string) => taskId === 'live' ? 1 : 0
-    const groups = taskInboxGroups(rows, runningSessionsFor, NOW, actions, taskStatusesFor(OPEN_TASK_STATUS_KEYS))
-
-    expect(groups.find((group) => group.key === 'running')?.rows.map((row) => row.key)).toEqual(['live'])
-    const waiting = groups.find((group) => group.key === 'waiting')?.rows ?? []
-    expect(waiting.map((row) => [row.key, row.context, row.primary?.label])).toEqual([
-      ['idle', 'Agent idle', 'Resume'],
-      ['new', 'No agent running', 'Start agent'],
-    ])
-  })
-
-  test('inbox rows keep the right edge clear of status chips', () => {
-    // WHY: the inbox group and context line already explain why each task is
-    // present. Repeating that state in a chip crowds the time and row actions.
-    const rows = [task('a', 'in_review'), task('b', 'in_progress'), task('c', 'todo')]
-    const sessionsFor = (taskId: string) => taskId === 'b' ? 1 : 0
-    const groups = taskInboxGroups(
-      rows,
-      sessionsFor,
-      NOW,
-      actions,
-      taskStatusesFor(OPEN_TASK_STATUS_KEYS),
-    )
-
-    expect(groups.flatMap((group) => group.rows).every((row) => row.chips === undefined)).toBe(true)
+  test('a page that draws no place column gives no row the cell', () => {
+    // WHY: every row of one list must agree on the column, or the cells drift.
+    const groups = taskGroups([task('a', 'todo'), task('b', 'todo')], noSessions, NOW, () => undefined)
+    expect(groups[0].rows.every((row) => row.place === undefined)).toBe(true)
   })
 })
 

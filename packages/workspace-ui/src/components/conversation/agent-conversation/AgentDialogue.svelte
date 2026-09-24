@@ -4,8 +4,7 @@
   import AgentMessageBlock from "./AgentMessageBlock.svelte";
 
   /**
-   * The message stream of one agent — the same body in the single-agent card and
-   * in a switchboard tab. Height is earned: live keeps the last two messages
+   * The message stream of one agent. Height is earned: live keeps the last two messages
    * open, at rest only the final reply, and everything older folds behind one
    * row carrying the agent's own first clauses.
    */
@@ -13,11 +12,9 @@
     ref: AgentConversationRef;
     agentName: string;
     live: boolean;
-    /** The switchboard clamps harder — its body height is fixed. */
-    clampPx?: number;
     onOpen?: () => void;
   }
-  let { ref, agentName, live, clampPx = 262, onOpen }: Props = $props();
+  let { ref, agentName, live, onOpen }: Props = $props();
 
   // A pending slot is the typing indicator; once the exchange stops being live
   // it is a settle that never arrived, and the block says so instead.
@@ -65,7 +62,6 @@
       {message}
       {agentName}
       {live}
-      {clampPx}
       {onOpen}
       first={index === 0 && fold.folded.length === 0}
     />

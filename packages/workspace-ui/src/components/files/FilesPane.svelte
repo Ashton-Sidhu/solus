@@ -157,7 +157,6 @@
   let treeLoadGeneration = 0;
   let selectedPath = $state<string | null>(null);
   let selectedContents = $state<string | null>(null);
-  let selectedSize = $state<number | null>(null);
   let selectedReadOnly = $state(false);
   let selectedTruncated = $state(false);
   let fileLoading = $state(false);
@@ -208,7 +207,7 @@
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
-    return selectedSize == null ? "" : `${Math.ceil(selectedSize / 1024)} KB`;
+    return "";
   });
 
   const statusClass = $derived(
@@ -319,7 +318,6 @@
     htmlViewMode = initialHtmlFileViewMode(path);
     syncTreeSelection(path);
     selectedContents = null;
-    selectedSize = null;
     selectedReadOnly = false;
     selectedTruncated = false;
     fileError = null;
@@ -335,7 +333,6 @@
       selectedImageDataUrl = result.imageDataUrl ?? null;
       htmlContents = result.contents;
       htmlSourceMounted = htmlViewMode === "source";
-      selectedSize = result.size;
       // A file too large to load whole is served as a prefix; editing it would
       // save the truncation back over the original.
       selectedReadOnly = result.isReadOnly;

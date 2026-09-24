@@ -22,6 +22,7 @@ import {
 import { classifyCloneFailure, pushCapabilityNote, type CloneFailure } from './lib/clone-outcome'
 import {
   joinHostPath,
+  newProjectPath,
   type HostOption,
   type OpenProjectStep,
   type ProjectSource,
@@ -105,6 +106,13 @@ export class OpenProjectStore {
   /** How the last clone authenticated — the only thing that says whether this host can also push. */
   cloneAuth = $state<CloneAuth | null>(null)
   adoptingProject = $state(false)
+
+  /** The name typed on the New project screen; the host makes it a safe folder name. */
+  newProjectName = $state('')
+  /** A folder picked with "Change…"; null means the host's projects folder. */
+  newProjectParent = $state<string | null>(null)
+  creatingProject = $state(false)
+  createError = $state<string | null>(null)
 
   sshAccess = $state<SetupSshAccessResult | null>(null)
 
@@ -199,6 +207,31 @@ export class OpenProjectStore {
     return name ? joinHostPath(this.projectsRoot, name, this.platform) : null
   }
 
+  /** Where "Create" makes the new project, as the host will name it; null until a name is typed. */
+  get newProjectPath(): string | null {
+    return newProjectPath(this.newProjectParent ?? this.projectsRoot, this.newProjectName, this.platform)
+  }
+
+  /** What the current step's one field holds; empty lets Backspace step back out. */
+  get stepField(): string {
+    return this.source === 'new' ? this.newProjectName : this.query
+  }
+
+  get canCreate(): boolean {
+    return !this.creatingProject && !!this.newProjectPath
+  }
+
+  /** The folder browser's heading and button while this flow owns it. */
+  get browseTitle(): string {
+    if (this.source === 'local') return 'Open a folder'
+    return this.source === 'new' ? 'Choose where to create it' : 'Choose where to clone'
+  }
+
+  get browseAction(): string {
+    if (this.source === 'local') return 'Open'
+    return this.source === 'new' ? 'Create here' : 'Clone here'
+  }
+
   /** The repo list, narrowed by the filter box. */
   get filteredRepos(): SetupGithubRepo[] {
     return this.repos.filter((repo) => matchesRepoQuery(repo.fullName, this.query))
@@ -278,6 +311,7 @@ export class OpenProjectStore {
     }
 
     if (options.source === 'local') this.browseFolder()
+    else if (options.source === 'new') this.chooseNewProject()
     else if (options.source === 'github') this.chooseGithub()
     else if (options.source === 'clone') this.chooseCloneUrl(options.seed)
   }
@@ -299,6 +333,15 @@ export class OpenProjectStore {
   /** Records that home opened an existing folder before the caller adopts it. */
   openRecent(): void {
     this.source = 'local'
+  }
+
+  /** A project from nothing: the user names it, the host makes the folder and runs `git init`. */
+  chooseNewProject(): void {
+    this.source = 'new'
+    this.newProjectName = ''
+    this.newProjectParent = null
+    this.createError = null
+    this.step = 'destination'
   }
 
   chooseGithub(): void {
@@ -397,6 +440,27 @@ export class OpenProjectStore {
   }
 
   // ── Committing ──────────────────────────────────────────────────────────────
+
+  /** Resolves to the host-absolute path of the new project, or null with `createError` set. */
+  async createProject(): Promise<string | null> {
+    const api = this.api()
+    const name = this.newProjectName.trim()
+    if (!api || !name || this.creatingProject) return null
+    const issuedAt = this.hostEpoch
+    this.creatingProject = true
+    this.createError = null
+    try {
+      const result = await api.setupCreateProject({ name, parent: this.newProjectParent ?? undefined })
+      if (this.hostEpoch !== issuedAt) return null
+      return result.path
+    } catch (err) {
+      if (this.hostEpoch !== issuedAt) return null
+      this.createError = messageFor(err)
+      return null
+    } finally {
+      if (this.hostEpoch === issuedAt) this.creatingProject = false
+    }
+  }
 
   /** The secondary action's follow-through: clone into the folder that was picked. */
   cloneInto(parentDirectory: string): Promise<string | null> {
@@ -533,6 +597,10 @@ export class OpenProjectStore {
     this.partialPath = null
     this.adoptingProject = false
     this.lastCloneDestination = undefined
+    // A parent folder is a path on the old host; the typed name carries over.
+    this.newProjectParent = null
+    this.creatingProject = false
+    this.createError = null
   }
 
   private reset(): void {

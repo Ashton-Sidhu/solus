@@ -9,7 +9,7 @@ import { git, gitCommitExists, runAsync } from './exec'
 // helpers. Both sides only reach across inside function bodies, so the cycle
 // resolves at call time.
 import { resolveRepoRef } from './git-helpers'
-import { worktreeBranchName } from './worktree-branch-name'
+import { generatedWorktreeBranchName, isTemporaryWorktreeBranch, temporaryWorktreeBranchName } from './worktree-branch-name'
 import { worktreePathFor } from './worktree-path'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
@@ -103,7 +103,9 @@ export function getWorkingBranch(cwd: string): Promise<string | null> {
 export interface CreateWorktreeOptions {
   /** Cancels branch discovery and worktree creation with the owning setup. */
   signal?: AbortSignal
-  /** Semantic name produced by the configured text-generation model. */
+  /** Semantic name produced by the configured text-generation model. Without
+   *  one the worktree starts on a temporary branch that `renameWorktreeBranch`
+   *  replaces later. */
   generatedName?: string | null
 }
 
@@ -221,7 +223,6 @@ async function resolveWorktreeStartPoint(
 
 export async function createWorktree(
   projectPath: string,
-  prompt: string,
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<GitCheckout> {
@@ -261,7 +262,10 @@ export async function createWorktree(
     throwIfAborted(options.signal)
     throw new Error(`Cannot create a worktree: ${startPoint} has no commit. Create an initial commit or select an existing branch.`, { cause: error })
   }
-  const branch = worktreeBranchName(prompt, options.generatedName)
+  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName) : null
+  const branch = generatedBranch
+    ? await availableBranchName(projectPath, generatedBranch)
+    : temporaryWorktreeBranchName()
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
@@ -324,6 +328,38 @@ export async function createWorktree(
     }
     throw error
   }
+}
+
+/** The first of `branch`, `branch-2`, `branch-3`… that no local branch holds. */
+async function availableBranchName(cwd: string, branch: string): Promise<string> {
+  for (let suffix = 1; suffix <= 100; suffix++) {
+    const candidate = suffix === 1 ? branch : `${branch}-${suffix}`
+    const taken = await runAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`], cwd).then(() => true, () => false)
+    if (!taken) return candidate
+  }
+  throw new Error(`No free branch name for ${branch}`)
+}
+
+/**
+ * Give a worktree's temporary branch its generated name. Returns the new
+ * branch, or null when the branch is no longer the worktree's temporary one:
+ * someone switched, renamed, or pushed it, and that choice wins.
+ */
+export async function renameWorktreeBranch(
+  worktreePath: string,
+  temporaryBranch: string,
+  generatedName: string,
+): Promise<string | null> {
+  if (!isTemporaryWorktreeBranch(temporaryBranch)) return null
+  const target = generatedWorktreeBranchName(generatedName)
+  if (!target) return null
+  if (await getWorkingBranch(worktreePath) !== temporaryBranch) return null
+  const hasUpstream = await runAsync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], worktreePath)
+    .then(() => true, () => false)
+  if (hasUpstream) return null
+  const branch = await availableBranchName(worktreePath, target)
+  await runAsync('git', ['branch', '-m', temporaryBranch, branch], worktreePath)
+  return branch
 }
 
 /** Returns how many files were copied — the one fact that explains why this

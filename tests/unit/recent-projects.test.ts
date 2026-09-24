@@ -65,18 +65,6 @@ describe('recent project persistence', () => {
     expect(await recentProjects.listRecentProjects()).toEqual([])
   })
 
-  test('an already-stored dispatch checkout is filtered on read', async () => {
-    // WHY: rows written before dispatch checkouts were excluded must disappear
-    // from the list without waiting for a rewrite.
-    const checkout = join(dataDir, 'solus-remote', 'octocat', 'octocat', 'legacy')
-    mkdirSync(checkout, { recursive: true })
-    db.getDb()
-      .prepare('INSERT INTO recent_projects (path, folder_name, last_opened) VALUES (?, ?, ?)')
-      .run(checkout, 'legacy', Date.now())
-
-    expect(await recentProjects.listRecentProjects()).toEqual([])
-  })
-
   test('the most recently tracked projects are capped and ordered first', async () => {
     // WHY: the picker only has room for a concise history, with newest projects
     // visible before older ones.

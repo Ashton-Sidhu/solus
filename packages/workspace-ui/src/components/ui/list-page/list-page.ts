@@ -1,8 +1,8 @@
 /**
  * The shared vocabulary for Solus's two list surfaces — Tasks and Pull requests
  * ("List pages" spec, Part A). Both pages are the same shell over a different
- * dataset, so the row grammar, group grammar and inbox grammar are declared
- * once here and each page only maps its own records into these shapes.
+ * dataset, so the row grammar and group grammar are declared once here and
+ * each page only maps its own records into these shapes.
  *
  * Nothing in here renders. The components in this folder do; the pages own the
  * mapping from `Task` / `PullRequest` into these specs.
@@ -15,15 +15,6 @@ import {
   CircleX as CircleXIcon,
 } from '@lucide/svelte'
 import { z } from 'zod'
-
-/**
- * The two scopes every list page stands in: the project-scoped grouped list,
- * and the cross-project inbox. The inbox is the same page under a wider scope,
- * not a sixth destination, so `page-nav.ts` does not list it — the crumb names
- * whichever scope is on screen and the switch at the head of the narrowing row
- * moves between them.
- */
-export type ListPageView = 'global' | 'inbox'
 
 /** One project in a page's project selector (docs/plans/project-model.md §5). */
 export interface ListProjectOption {
@@ -107,7 +98,7 @@ export interface ListChecksSpec {
 
 /**
  * The chip a check state draws as — one glyph and one tint per state, so the
- * wide row's slot 5 and an inbox row's chip strip say the same thing the same
+ * wide row's slot 5 and the rail row's chip strip say the same thing the same
  * way. Null for `none`, which draws nothing.
  */
 export function checksChip(checks: ListChecksSpec): ListChipSpec | null {
@@ -142,6 +133,14 @@ export interface ListRowSource {
   title: string
 }
 
+/** Where a row's record lives: its project, where the list spans several, and
+ *  the host that holds it, where that is not this machine ("Solus Cloud", a
+ *  remote host's name). Null where the fact goes without saying. */
+export interface ListRowPlace {
+  project: string | null
+  host: string | null
+}
+
 /** One line of the global list — slots 1–8 of the row anatomy, in order. */
 export interface ListRowSpec {
   /** Stable key for `{#each}` and for selection. */
@@ -156,6 +155,9 @@ export interface ListRowSpec {
   /** Slot 4 — a few chips: the lifecycle state first where the page states it
    *  per row, then a fact that needs colour (a merge conflict, a running job). */
   chips: ListChipSpec[]
+  /** Slot 5a — where the record lives, drawn as a fixed column so it reads down
+   *  the list instead of trailing each title at a different x. */
+  place?: ListRowPlace
   /** Slot 4 — the hover-revealed fact, in place of a chip that would spend the
    *  same width on every row of the list. */
   reveal?: ListRevealSpec
@@ -182,39 +184,6 @@ export interface ListGroupSpec<Row extends ListRowSpec = ListRowSpec> {
   rows: Row[]
 }
 
-/** One line of the inbox — two lines of text, and a right end that swaps
- *  metadata for verbs on hover or selection. */
-export interface InboxRowSpec {
-  key: string
-  ident: string
-  title: string
-  /** Second line: why this is on your list. */
-  context: string
-  /** Who caused it. */
-  actor: ListPerson
-  time: string
-  timeTitle?: string
-  /** Drives title weight and colour. No dot, no fill. */
-  unread: boolean
-  /** The one verb that clears this row. Omit for rows that are only news. */
-  primary?: { label: string; shortcut?: string; run: () => void }
-  /** The escape hatch beside it (Snooze, View log). */
-  secondary?: { label: string; run: () => void }
-  /** Chips shown at rest, in place of the verbs. */
-  chips?: ListChipSpec[]
-}
-
-export interface InboxGroupSpec {
-  key: string
-  label: string
-  /** Right-aligned note in place of a bare rule ("oldest first"). */
-  note?: string
-  /** "Needs you" only — takes the brand label colour, and its rows get the
-   *  filled primary button rather than the cool one. */
-  accent?: boolean
-  rows: InboxRowSpec[]
-}
-
 /** A statistic in the title block's summary line. The first one is the lead and
  *  is the only coloured text in the header. */
 export interface ListSummaryStat {
@@ -238,15 +207,6 @@ export interface ListScopeOption {
   count: number
 }
 
-/** Whether a row survives the inbox's project narrowing. An empty selection is
- *  every project — the inbox's resting scope, and what the crumb keeps saying. */
-export function inInboxScope(
-  projectKeys: readonly string[],
-  selected: readonly string[],
-): boolean {
-  if (selected.length === 0) return true
-  return projectKeys.some((projectKey) => selected.includes(projectKey))
-}
 
 export interface ListFilterSpec {
   key: string
@@ -525,19 +485,6 @@ export function listRowHeight(rung: {
     return rung.drawerRow ? TASK_RECORD_ROW_HEIGHT : LIST_RECORD_ROW_HEIGHT
   }
   return rung.split ? 52 : 44
-}
-
-/** The inbox record: 20 padding + 39 for the title-over-context column + 6 +
- *  34 for the line the verbs sit on. That last line is *always* 34, whichever
- *  of the two ends renders into it — a row with no verb shows its chips and
- *  time there instead, at the same height, because a row that measured one
- *  thing when it could be acted on and another when it could not would put the
- *  virtualiser back where it started. */
-export const INBOX_RECORD_ROW_HEIGHT = 99
-
-/** The inbox row carries one more line than a list row at every rung. */
-export function inboxRowHeight(record: boolean): number {
-  return record ? INBOX_RECORD_ROW_HEIGHT : 55
 }
 
 /** A segment between the page and the leaf in a sub page's crumb line. */

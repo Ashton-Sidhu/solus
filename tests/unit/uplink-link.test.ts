@@ -367,6 +367,24 @@ describe('the managed link from the environment', () => {
     expect(readFileSync(join(dataDir, 'secrets', 'uplink-tokens.json'), 'utf8')).toContain('sht_host-token-2')
   })
 
+  test('a link with no connector token is reached directly: no connector, online once stored and after the generation check', async () => {
+    // WHY: a managed host on a Sprite is reached through the Sprite's URL, whose proxy
+    // forwards to the proxied listener. There is no tunnel, so nothing may try to run one.
+    const plane = fakeControlPlane()
+    const direct: EnrollHostResponse = { link: plane.enrolled.link, hostToken: plane.enrolled.hostToken }
+    const first = managedManager(plane, direct)
+    await first.instance.resume()
+    expect(first.connector.events).toEqual([])
+    expect(first.instance.status()).toMatchObject({ linked: true, state: { observed: 'online' } })
+    expect(readFileSync(join(dataDir, 'secrets', 'uplink-tokens.json'), 'utf8')).not.toContain('connectorToken')
+
+    const rebooted = managedManager(plane, direct)
+    await rebooted.instance.resume()
+    expect(plane.calls).toHaveLength(1)
+    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.instance.status()).toMatchObject({ linked: true, state: { observed: 'online' } })
+  })
+
   test('a personal host with nothing in its environment does nothing at boot', async () => {
     const plane = fakeControlPlane()
     const { instance } = managedManager(plane, null)

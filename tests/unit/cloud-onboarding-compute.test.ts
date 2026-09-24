@@ -3,7 +3,13 @@ import {
   computeChoices,
   createHostFailureMessage,
   defaultComputeHost,
+  defaultRunsOn,
+  defaultSize,
+  newCloudHostLabel,
   machineDetail,
+  runsOnOptions,
+  serverIdOf,
+  sizeSummary,
   type ComputeHost,
 } from '@solus/workspace-ui/components/onboarding/lib/cloud-compute'
 import { managedHostNeedsStart } from '@solus/client-core/server-registry'
@@ -93,5 +99,65 @@ describe('a create Solus Cloud refused', () => {
 
   test('says "no answer" apart from a refusal, since no answer does not prove no host was made', () => {
     expect(createHostFailureMessage(null, null)).toBe('Solus Cloud did not answer. Check your connection and try again.')
+  })
+})
+
+describe('cloud onboarding: the "Runs on" picker', () => {
+  const catalog = {
+    sizes: [{ id: 'standard', label: 'Standard', detail: '8 vCPUs; memory grows as the work needs it.' }],
+    defaultSize: 'standard',
+    supportsPackages: true,
+    supportsSetupScript: true,
+  }
+  const mayCreate = { name: 'Acme', mayCreateManagedHost: true }
+  const mayNot = { name: 'Acme', mayCreateManagedHost: false }
+
+  test('an invitee starts on the organization’s cloud host, shown as "Cloud · <its name>", and can still pick a computer', () => {
+    const choices = computeChoices([adaLaptop, { ...cloudHost, label: 'Acme' }, bobServer], ACCOUNT)
+    expect(defaultRunsOn(choices, mayNot, catalog)).toBe('host:cloud')
+    expect(runsOnOptions(choices, mayNot, catalog)).toEqual([
+      { value: 'host:cloud', label: 'Cloud · Acme', group: 'Solus Cloud' },
+      { value: 'host:laptop', label: 'Ada’s Mac', group: 'Your computers' },
+      { value: 'host:bob', label: 'Bob’s server', group: 'Shared with Acme' },
+      { value: 'link', label: 'Link a computer', group: 'Your computers' },
+    ])
+  })
+
+  test('a new organization with no machine starts on a new cloud host of the default size', () => {
+    const choices = computeChoices([], ACCOUNT)
+    expect(defaultRunsOn(choices, mayCreate, catalog)).toBe('new-cloud')
+    // WHY: the new host is named for the organization, so the picker already shows the name it will have.
+    expect(runsOnOptions(choices, mayCreate, catalog)[0]).toEqual({ value: 'new-cloud', label: 'Cloud · Acme (new)', group: 'Solus Cloud' })
+    expect(newCloudHostLabel(null)).toBe('Cloud host')
+    expect(defaultSize(catalog)?.id).toBe('standard')
+    expect(sizeSummary(catalog.sizes[0])).toBe('8 vCPUs; memory grows as the work needs it.')
+    expect(sizeSummary({ id: 'l', label: 'Large', detail: '', cpus: 8, memoryGb: 32 })).toBe('8 CPU · 32 GB')
+  })
+
+  test('with no cloud host to use or make, linking a computer is the choice, never an empty picker', () => {
+    const choices = computeChoices([], ACCOUNT)
+    // WHY: an older Solus Cloud sends no catalog, and one that cannot make hosts sends no sizes.
+    for (const [organization, offered] of [[mayNot, catalog], [mayCreate, undefined], [mayCreate, { sizes: [], defaultSize: null, supportsPackages: false, supportsSetupScript: false }]] as const) {
+      expect(defaultRunsOn(choices, organization, offered)).toBe('link')
+      expect(runsOnOptions(choices, organization, offered).map((option) => option.value)).toEqual(['link'])
+    }
+    expect(serverIdOf('host:laptop')).toBe('laptop')
+    expect(serverIdOf('new-cloud')).toBeNull()
+  })
+
+  test('the organization’s host policy removes what its owners turned off', () => {
+    const choices = computeChoices([adaLaptop, { ...cloudHost, label: 'Acme' }, bobServer], ACCOUNT)
+    // WHY: an invitee must not be offered a computer the organization will refuse to share.
+    const cloudOnly = { ...mayNot, allowsOwnMachines: false }
+    expect(runsOnOptions(choices, cloudOnly, catalog).map((option) => option.value)).toEqual(['host:cloud'])
+    const ownOnly = { ...mayNot, allowsCloudHosts: false }
+    expect(runsOnOptions(choices, ownOnly, catalog).map((option) => option.value)).toEqual([
+      'host:laptop',
+      'host:bob',
+      'link',
+    ])
+    expect(defaultRunsOn(choices, ownOnly, catalog)).toBe('host:laptop')
+    // Cloud only, and no cloud host yet that this member may make: nothing to pick.
+    expect(defaultRunsOn(computeChoices([], ACCOUNT), cloudOnly, catalog)).toBeNull()
   })
 })

@@ -10,6 +10,7 @@ import Icon from "@iconify/svelte";
   import { ExternalLink as ArrowSquareOutIcon, Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { connectionsStore, getWorkspaceContext } from "../../contexts";
+  import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import { Button } from "../ui/button";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
@@ -58,7 +59,6 @@ import Icon from "@iconify/svelte";
   name="GitHub"
   {detail}
   {delay}
-  tint="var(--chart-5)"
   state={status?.connected
     ? "done"
     : connectionsStore.providerConnecting
@@ -71,7 +71,7 @@ import Icon from "@iconify/svelte";
   expanded={!!connectionsStore.providerPrompt}
 >
   {#snippet mark()}
-    <Icon icon="logos:github-icon" size={18} weight="fill" />
+    <Icon icon={PROVIDER_LOGOS.github} width={24} height={24} />
   {/snippet}
   {#snippet expansion()}
     {#if connectionsStore.providerPrompt}

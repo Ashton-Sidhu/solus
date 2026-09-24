@@ -11,7 +11,7 @@ import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
+import { AgentConversationCards } from './agent-conversation-cards'
 import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -67,7 +67,7 @@ export class SessionEventReducer {
    *  retries must not replay unread state, sounds, or final refresh work. */
   private settledTurnIds = new WeakMap<Session, string>()
   /** One card per agent conversation per turn; exchanges keyed for late settles. */
-  private agentConversations = new AgentConversationTracker()
+  private agentConversations = new AgentConversationCards()
 
   constructor(private deps: SessionEventReducerDeps) {}
 

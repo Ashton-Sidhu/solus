@@ -1,14 +1,14 @@
 <script lang="ts">
   /**
-   * The optional last row of desktop onboarding: connect this app to a Solus
-   * Cloud account and link this Mac (docs/plans/cloud-onboarding.md §4). Only
-   * the desktop shell can hold an account (`accountStore.isAvailable`), so the
-   * row is absent everywhere else. It never gates Start.
+   * The row on the optional last stage of desktop onboarding: connect this app
+   * to a Solus Cloud account and link this Mac. Only the desktop shell can hold
+   * an account (`accountStore.isAvailable`), so the row is absent everywhere
+   * else. It never gates the landing.
    */
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
-  import { Cloud as CloudIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { accountStore, uplinkStore } from "../../contexts";
+  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import { cloudConnectRow } from "./lib/cloud-connect-row";
   import OnboardingRow from "./OnboardingRow.svelte";
 
@@ -42,12 +42,11 @@
     name="Connect to Solus Cloud"
     detail={row.detail}
     {delay}
-    tint="var(--chart-2)"
     state={row.state}
     statusText="Waiting…"
     actionLabel={row.actionLabel}
     onaction={() => void connect()}
   >
-    {#snippet mark()}<CloudIcon size={18} />{/snippet}
+    {#snippet mark()}<WorkspaceMark class="size-[18px]" />{/snippet}
   </OnboardingRow>
 {/if}

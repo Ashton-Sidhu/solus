@@ -239,7 +239,8 @@
             On {selectedHost.name}, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
               >Settings → Connections</strong
-            > for the 6-digit code.
+            > for the 6-digit code. On a server without a screen, run
+            <code class="font-mono text-(--solus-text-secondary)">solus pair</code>.
           </p>
           <div
             class="flex items-center gap-3 rounded-lg border border-(--solus-container-border) bg-(--solus-accent-light) px-3 py-2.5"
@@ -269,7 +270,9 @@
             On your computer, open Solus and go to <strong
               class="font-medium text-(--solus-text-secondary)"
               >Settings → Connections</strong
-            >. Scan the QR code, or paste the pairing link or address here.
+            >. On a server without a screen, run
+            <code class="font-mono text-(--solus-text-secondary)">solus pair</code>. Scan the QR code, or paste the
+            pairing link or address here.
           </p>
           <label class="block">
             <span class="text-xs font-medium text-(--solus-text-secondary)"

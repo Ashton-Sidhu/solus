@@ -14,9 +14,12 @@
     detail: string;
     /** Seconds of stagger, so a list of rows arrives in sequence. */
     delay?: number;
-    tint: string;
-    /** Two letters for an agent, or an icon for a provider or a choice. */
-    abbr?: string;
+    /**
+     * The colour of the disc behind an icon. Omit it for a brand logo, which
+     * carries its own colour and reads as a grey blob on a tinted disc.
+     */
+    tint?: string;
+    /** The agent or provider logo, or an icon for a choice. */
     mark?: Snippet;
     state: "available" | "busy" | "done";
     statusText?: string;
@@ -39,7 +42,6 @@
     detail,
     delay = 0,
     tint,
-    abbr,
     mark,
     state,
     statusText,
@@ -65,9 +67,11 @@
   <div class="flex min-h-[4.5rem] items-center gap-3 py-3 pl-4 pr-4 sm:gap-4 sm:pr-5">
     <span
       class="flex size-10 shrink-0 items-center justify-center rounded-full  font-medium transition-colors duration-150"
-      style="background: color-mix(in oklch, {tint} 16%, transparent); color: color-mix(in oklch, {tint} 72%, var(--foreground))"
+      style={tint
+        ? `background: color-mix(in oklch, ${tint} 16%, transparent); color: color-mix(in oklch, ${tint} 72%, var(--foreground))`
+        : undefined}
     >
-      {#if mark}{@render mark()}{:else}{abbr}{/if}
+      {@render mark?.()}
     </span>
 
     <span class="flex min-w-0 flex-col gap-1">

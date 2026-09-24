@@ -22,6 +22,16 @@ export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchem
   return id || undefined
 }
 
+/**
+ * The fields as the caller may send them. The SDK validates a call before we
+ * see it and refuses a field with a default when the call leaves it out, so
+ * such a field is offered as optional here; `executeAgentTool` parses the call
+ * again against the tool's own fields, which fills the default in.
+ */
+export function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'] {
+  return Object.fromEntries(Object.entries(fields ?? {}).map(([name, field]) => [name, field instanceof z.ZodDefault ? field.optional() : field]))
+}
+
 export function adaptClaudeTools(
   tools: AgentTool[],
   context: AgentToolContext,
@@ -33,7 +43,7 @@ export function adaptClaudeTools(
     name: 'solus',
     version: '1.0.0',
     tools: tools.map((agentTool) =>
-      tool(agentTool.name, agentTool.description, agentTool.inputFields, async (input, extra) => {
+      tool(agentTool.name, agentTool.description, callerFields(agentTool.inputFields), async (input, extra) => {
         const parentToolUseId = claudeParentToolUseId(extra)
         const result = permissionMode === 'plan' && agentTool.requiresApproval
           ? {

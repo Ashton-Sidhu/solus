@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
 import { z } from 'zod'
-import type { AccountProfile } from '@solus/contracts/account-types'
 
 /**
  * The one place the account session token is persisted. Encrypted with the OS
@@ -59,24 +58,5 @@ export class AccountStore {
 
   clear(): void {
     if (existsSync(this.filePath)) unlinkSync(this.filePath)
-  }
-}
-
-const meResponseSchema = z.object({
-  id: z.string(),
-  email: z.string(),
-  name: z.string().nullable().optional(),
-  avatarUrl: z.string().nullable().optional(),
-})
-
-/** Parses `GET /api/account/me` at the boundary; anything malformed reads as no profile. */
-export async function profileFromResponse(response: Response): Promise<AccountProfile | null> {
-  const parsed = meResponseSchema.safeParse(await response.json().catch(() => null))
-  if (!parsed.success) return null
-  return {
-    id: parsed.data.id,
-    email: parsed.data.email,
-    name: parsed.data.name ?? null,
-    avatarUrl: parsed.data.avatarUrl ?? null,
   }
 }

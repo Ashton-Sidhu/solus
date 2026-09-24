@@ -574,6 +574,13 @@
       run: () => projectPicker.startOpenProject({ sourceId: composerSourceId }),
     },
     {
+      id: "new-project",
+      label: "New project…",
+      group: "General",
+      keywords: ["create", "folder", "start", "empty", "git init", "website", "app"],
+      run: () => projectPicker.startOpenProject({ sourceId: composerSourceId, source: "new" }),
+    },
+    {
       id: "new-task",
       label: "New task",
       group: "General",
@@ -822,7 +829,7 @@
     {@const OpenProjectDialog = openProjectModule.default}
     <OpenProjectDialog
       onOpenProject={(path) =>
-        void projectPicker.openProjectAtPath(path, openProjectStore.source !== "local")}
+        void projectPicker.openProjectAtPath(path, openProjectStore.source)}
       onBrowse={projectPicker.browseForOpenProject}
       onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
       localIdentity={projectPicker.localGitIdentity}

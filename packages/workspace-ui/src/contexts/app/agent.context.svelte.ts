@@ -3,6 +3,9 @@ import type { AgentMetadata, AgentUsageLimits } from '@solus/contracts/types'
 import type { SettingsContext } from './settings.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 
+/** Well inside the host's 15-minute idle window, so its poll stays awake. */
+const USAGE_REFRESH_INTERVAL_MS = 60_000
+
 /**
  * Frontend store for the backend-provided agent list. Session startup hydrates
  * this once from `start().agents`; UI components only read from this store.
@@ -18,6 +21,7 @@ export class AgentContext {
   )
 
   private settings: SettingsContext
+  private readonly usageReadAtByServerId = new Map<string, number>()
 
   constructor(settings: SettingsContext) {
     this.settings = settings
@@ -39,11 +43,20 @@ export class AgentContext {
 
   /** Also tells the backend someone is watching — its poll self-suspends when
    *  nobody asks for a while. Reads the new-work default host; other hosts'
-   *  snapshots arrive through the `usage.limitsChanged` topic. */
-  async refreshUsage(): Promise<void> {
+   *  snapshots arrive through the `usage.limitsChanged` topic. Every mounted
+   *  project panel asks when its tab becomes active, and the topic already
+   *  delivers changes, so one read per host per minute is enough. */
+  async refreshUsage(now = Date.now()): Promise<void> {
     const serverId = serverConnections.defaultServerId()
     if (!serverId) return
-    this.applyUsage(await serverConnections.apiFor(serverId).usageLimits())
+    if (now - (this.usageReadAtByServerId.get(serverId) ?? -Infinity) < USAGE_REFRESH_INTERVAL_MS) return
+    this.usageReadAtByServerId.set(serverId, now)
+    try {
+      this.applyUsage(await serverConnections.apiFor(serverId).usageLimits())
+    } catch (error) {
+      this.usageReadAtByServerId.delete(serverId)
+      throw error
+    }
   }
 }
 

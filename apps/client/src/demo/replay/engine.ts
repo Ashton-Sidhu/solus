@@ -65,8 +65,8 @@ export function createReplayEngine(
   }
 
   backend.register('respondPermission', (args) => {
-    const questionId = arg<string>(args, 1)
-    const optionId = arg<string>(args, 2)
+    const questionId = arg<string>(args, 2)
+    const optionId = arg<string>(args, 3)
     return resolvePermission(questionId, optionId)
   })
 

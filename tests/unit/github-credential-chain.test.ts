@@ -248,10 +248,28 @@ describe('GitHub requests run down the credential chain', () => {
 
       const pullRequest = await provider.getPullRequest(repo, 65)
 
-      expect(host.calls).toEqual(['pulls.get'])
+      // A 404 first asks whether this credential can see the repository at all.
+      expect(host.calls).toEqual(answer === 'not-found' ? ['pulls.get', 'repos.get'] : ['pulls.get'])
       expect(cli.calls).toContain('pulls.get')
       expect(pullRequest.number).toBe(65)
     }
+  })
+
+  test('a pull request missing from a visible repository is final', async () => {
+    // WHY: linked PR numbers can name a PR that does not exist in the project's
+    // repository. The credential that reads the repository already proves the
+    // 404 is about the PR, so asking the next credential only doubles the
+    // GitHub traffic for an answer that cannot change.
+    const host = scriptedClient('host', 'accepts')
+    host.rest.pulls.get = (async () => {
+      host.calls.push('pulls.get')
+      throw Object.assign(new Error('Not Found'), { status: 404 })
+    }) as unknown as typeof host.rest.pulls.get
+    const cli = scriptedClient('gh-cli', 'accepts')
+    const provider = new ChainedProvider([host, cli])
+
+    await expect(provider.getPullRequest(repo, 99)).rejects.toThrow('Pull request #99 was not found in acme/app.')
+    expect(cli.calls).toEqual([])
   })
 
   test('the pull request list falls through an organization-blocked OAuth token', async () => {

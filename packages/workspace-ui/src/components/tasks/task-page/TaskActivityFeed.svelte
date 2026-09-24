@@ -119,16 +119,17 @@
   }
 </script>
 
-<div class="text-workspace-chrome {stacked ? 'pt-2' : 'pt-7'}">
-  <div class="flex items-center gap-2.5 pb-1">
-    <span
-      class="font-normal text-muted-foreground uppercase {stacked
-        ? 'tracking-[0.12em]'
-        : ''}"
-    >
+<!-- The pull request timeline's grammar (pr-review/ActivityTimeline.svelte):
+     the same dense type, 22px nodes on one hairline spine, events as one
+     muted line, and each comment a bordered card whose author row is its
+     header. A task and a pull request are read side by side, so their
+     histories read the same way. -->
+<div class="text-chrome-dense {stacked ? 'pt-2' : 'pt-10'}">
+  <div class="mb-4 flex items-center gap-2">
+    <h2 class="text-xs font-medium text-muted-foreground uppercase">
       {stacked ? "Newest last" : "Activity"}
-    </span>
-    <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+    </h2>
+    <span class="flex-1"></span>
     <span
       class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
@@ -153,114 +154,94 @@
     </span>
   </div>
 
-  <div class="relative pt-1.5">
-    <div
-      class="absolute top-4 bottom-3.5 left-3 w-px bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)]"
-      aria-hidden="true"
-    ></div>
+  <ol class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4" role="list">
+    <span class="absolute top-2 bottom-2 left-[11px] w-px bg-border" aria-hidden="true"></span>
 
     {#each shown as entry (entry.key)}
       {#if entry.type === "event"}
         {@const line = eventLine(entry.event)}
         {@const artifact = linkedArtifactForEvent(entry.event, links)}
-        <div class="relative flex gap-3 py-[5px]">
+        <li class="relative flex gap-2">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground"
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+            aria-hidden="true"
           >
-            <span
-              class="flex size-[19px] items-center justify-center rounded-full bg-[var(--wash-2)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"><path d={line.icon} /></svg
             >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="opacity-75"
-                aria-hidden="true"><path d={line.icon} /></svg
-              >
-            </span>
           </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span
-              class="flex min-h-[25px] min-w-0 flex-wrap items-center gap-2"
-            >
-              <span class="leading-[1.55] text-muted-foreground"
-                >{line.text}</span
-              >
-              <span
-                class="text-muted-foreground opacity-60"
-              >
-                {relativeTime(entry.at)}
-              </span>
-            </span>
+          <div class="min-w-0 flex-1 pt-1">
+            <p class="text-muted-foreground">
+              {line.text}
+              <span>· {relativeTime(entry.at)}</span>
+            </p>
             {#if artifact}
               <!-- The render the link brought, collapsed where it arrived. -->
-              <ArtifactActivityCard
-                workId={artifact.targetKey}
-                title={artifact.liveTitle || artifact.title}
-                open={openArtifactWorkId === artifact.targetKey}
-                {enabled}
-                onToggle={() => toggleArtifact(artifact.targetKey)}
-              />
+              <div class="mt-2">
+                <ArtifactActivityCard
+                  workId={artifact.targetKey}
+                  title={artifact.liveTitle || artifact.title}
+                  open={openArtifactWorkId === artifact.targetKey}
+                  {enabled}
+                  onToggle={() => toggleArtifact(artifact.targetKey)}
+                />
+              </div>
             {/if}
-          </span>
-        </div>
+          </div>
+        </li>
       {:else}
         {@const comment = entry.comment}
         {@const agent = isAgent(comment)}
         {@const user = isUser(comment)}
         {@const originSessionId = comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
-        <div class="group/comment relative flex gap-3 py-3">
-          <span
-            class="relative z-10 flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
-            style={agent
-              ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
-              : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
-          >
-            {#if user}
-              <UserIcon size={13} strokeWidth={2.2} aria-hidden="true" />
-            {:else if agent}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 32 32"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <circle
-                  cx="16"
-                  cy="16"
-                  r="6.4"
-                  fill="currentColor"
-                  stroke="none"
-                />
-                <path d="M16 5A11 11 0 0127 16" opacity=".55" />
-                <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
-                <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
-              </svg>
-            {:else}
-              {authorInitials(comment.author)}
-            {/if}
+        <li class="relative flex gap-2">
+          <!-- Dropped so the node sits on the card header's centre line. -->
+          <span class="flex shrink-0 self-start pt-[5px]">
+            <span
+              class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full text-xs font-medium shadow-[0_0_0_3px_var(--background)]"
+              style={agent
+                ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
+                : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
+            >
+              {#if user}
+                <UserIcon size={12} strokeWidth={2.2} aria-hidden="true" />
+              {:else if agent}
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 32 32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="16" cy="16" r="6.4" fill="currentColor" stroke="none" />
+                  <path d="M16 5A11 11 0 0127 16" opacity=".55" />
+                  <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
+                  <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
+                </svg>
+              {:else}
+                {authorInitials(comment.author)}
+              {/if}
+            </span>
           </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="font-medium">
-                {authorName(comment)}
+          <div
+            class="group/comment min-w-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
+          >
+            <div class="flex min-h-9 items-center gap-2 py-1 pr-2 pl-4 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]">
+              <span class="min-w-0 flex-1">
+                <span class="font-medium text-foreground">{authorName(comment)}</span>
+                <span class="text-muted-foreground">· {relativeTime(comment.createdAt)}</span>
               </span>
-              <span
-                class="text-muted-foreground opacity-60"
-              >
-                {relativeTime(comment.createdAt)}
-              </span>
-              <span class="flex-1"></span>
               {#if provider}
                 {@const sync = commentSyncState(comment, true)}
                 <!-- Publishing is per comment: a note meant for the team here is
@@ -326,20 +307,22 @@
                   {/if}
                 </button>
               {/if}
-            </span>
-            <div class="github-markdown prose-cloud prose-pr w-full">
-              <GithubMarkdown
-                source={comment.body}
-                policy="local"
-              />
             </div>
-          </span>
-        </div>
+            <div class="px-4 py-3.5">
+              <div class="github-markdown prose-cloud prose-pr prose-pr-activity">
+                <GithubMarkdown source={comment.body} policy="local" />
+              </div>
+            </div>
+          </div>
+        </li>
       {/if}
     {:else}
-      <div class="py-3 pl-9 text-muted-foreground">
-        {filter === "comments" ? "No comments yet." : "No activity yet."}
-      </div>
+      <li class="relative flex gap-2">
+        <span class="size-[22px] shrink-0" aria-hidden="true"></span>
+        <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
+          {filter === "comments" ? "No comments yet." : "No activity yet."}
+        </p>
+      </li>
     {/each}
-  </div>
+  </ol>
 </div>

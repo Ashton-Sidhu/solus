@@ -7,6 +7,7 @@ import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserSnapshotRef } from './browser-types'
 import type { WorkExternalLink } from './docs'
 import type { TurnAuthor } from './presence'
+import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
 import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
@@ -44,8 +45,11 @@ export interface ServerCapabilities {
   gitAuth: {
     github: boolean
   }
-  /** Where this host's folder picker starts when opening a new project. */
+  /** The folder new projects and clones land in for this caller: the setting,
+   *  else `SOLUS_PROJECTS_ROOT`, else `~/projects`; a cloud member's own folder. */
   projectsBaseDirectory?: string
+  /** The owner chose `projectsBaseDirectory` in Settings, so "reset" has a default to return to. */
+  projectsBaseDirectoryIsSet?: boolean
   /** How much control agents have over task lifecycle status. */
   agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
   /** This host's general-purpose workspace — the app's default working directory. */
@@ -1252,7 +1256,7 @@ export interface Message {
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
   /** Agent-conversation card for another agent this thread is driving
-   *  (create_session / prompt_session / wait_for_session). One message per
+   *  (start_session / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
    *  reconstructed from the transcript
    *  on history reload. */
@@ -1567,29 +1571,37 @@ export interface StatusCardState {
 // ─── Agent conversations (one agent talking to another agent) ───
 
 /** How the other agent entered the caller's thread. */
-export type AgentConversationOrigin = 'created' | 'prompted' | 'watched'
+export type AgentConversationOrigin = 'created' | 'prompted'
 
-export type AgentExchangeStatus = 'dispatched' | 'awaiting_input' | 'answered' | 'done' | 'failed' | 'interrupted'
+/** Where one exchange stands. `lost` is a message the transcript opened whose
+ *  reply never arrived and that the host no longer carries — a restart ended it. */
+export type AgentExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'answered' | 'done' | 'failed' | 'interrupted' | 'lost'
 
 /** One prompt→reply round-trip with another agent. `index` is dispatch order
  *  within the agent-conversation card and never renumbers. */
 export interface AgentExchange {
-  exchangeId: string
+  messageId: string
   index: number
   prompt: string
   delivery?: PromptDelivery
   dispatchedAt: number
   status: AgentExchangeStatus
-  /** Rebuilt from persisted tool history rather than observed live. A restored
-   *  dispatch may have lost its in-memory completion watcher across an app
-   *  restart, so the card may eventually stop presenting it as active. */
+  /** Rebuilt from the transcript rather than observed live; the host says
+   *  whether it still carries it. */
   restored?: boolean
-  /** Set while the other agent is waiting on human input mid-exchange. Kept
-   *  after status 'answered' so the card still shows what was asked. */
-  question?: { kind: 'question' | 'permission' | 'plan'; questionId?: string; text: string }
-  /** What this side answered that question with. Only set with status 'answered'. */
-  answer?: string
+  /** What the other agent's turn is waiting on a person for. Kept after it is
+   *  answered so the card still shows what was asked. */
+  request?: ExchangeRequest
+  /** What a person answered, one line each. */
+  answers?: string[]
+  /** While `rate_limited`: when the provider's limit resets and the turn resumes. */
+  rateLimitedUntil?: number
   reply?: string
+  /** References to what the turn produced: answered questions, plans, works,
+   *  changed files, a pull request, sessions it started. */
+  outputs?: SessionOutput[]
+  /** The child's task, from the report. */
+  taskId?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
@@ -1599,7 +1611,7 @@ export interface AgentExchange {
  *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
  *  transcript (tool rows + [session report] user turns) on history reload. */
 export interface AgentConversationRef {
-  /** `pending:<exchangeId>` until a created session reports its real id. */
+  /** `pending:<messageId>` until a created session reports its real id. */
   agentSessionId: string
   provider: AgentId
   /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
@@ -1609,7 +1621,7 @@ export interface AgentConversationRef {
   model?: string
   reasoningEffort?: string
   origin: AgentConversationOrigin
-  /** Launched with create_session's 'fire_and_forget' mode: no reply is owed to
+  /** Started with start_session's `report` off: no reply is owed to
    *  this conversation, so the card rests collapsed to its header. Cleared the
    *  moment this side prompts or watches the session — that is a conversation. */
   fireAndForget?: boolean
@@ -1618,19 +1630,40 @@ export interface AgentConversationRef {
   exchanges: AgentExchange[]
 }
 
-/** Structured agent-conversation lifecycle updates, broadcast to the caller's tabs.
- *  The model-facing [session report] prose is separate and never rendered. */
+/**
+ * A message a session sent that the host still carries: its turn has not
+ * settled (`queued`, `running`, `awaiting_input`), or its reply waits for the
+ * sender (`reply_queued`). Served from host memory, so a message missing from
+ * the list is either finished — its reply is in the sender's transcript — or
+ * was lost to a host restart.
+ */
+export interface SentSessionMessage {
+  messageId: string
+  targetAgentSessionId: string
+  state: 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'reply_queued'
+  request?: ExchangeRequest
+  /** While `rate_limited`: when the turn resumes. */
+  resetsAt?: number
+}
+
+/** Structured agent-conversation lifecycle updates, broadcast to the sender's
+ *  tabs by the host's session orchestrator — the only thing that emits them.
+ *  The model-facing [session report] text is separate and never rendered. */
 export type AgentConversationUpdate =
-  | { phase: 'dispatched'; agentSessionId: string; exchangeId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
-  /** A card dispatched against a not-yet-existing session (create_session) binds
-   *  to its real agent session id once startup resolves. Keyed by exchangeId. */
-  | { phase: 'attached'; exchangeId: string; agentSessionId: string; cwd?: string }
-  | { phase: 'awaiting_input'; agentSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
-  /** This side answered the peer's question or ruled on its plan. No exchangeId
-   *  — the answering tool never learns one; the tracker patches the agent's last
-   *  awaiting exchange in place. */
-  | { phase: 'answered'; agentSessionId: string; answerText: string }
-  | { phase: 'settled'; agentSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'dispatched'; agentSessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  /** A card dispatched against a not-yet-existing session (start_session) binds
+   *  to its real agent session id once startup resolves. Keyed by messageId. */
+  | { phase: 'attached'; messageId: string; agentSessionId: string; cwd?: string }
+  /** The target accepted the message: its turn started, it waits behind the
+   *  target's current turn, or it joined that turn as a steer. */
+  | { phase: 'accepted'; agentSessionId: string; messageId: string; state: 'queued' | 'running' }
+  | { phase: 'awaiting_input'; agentSessionId: string; messageId: string; request: ExchangeRequest }
+  /** A person answered what the message's turn was waiting on, from any surface. */
+  | { phase: 'answered'; agentSessionId: string; messageId: string; answerText: string }
+  /** The target's turn is parked on a provider limit and resumes on its own at
+   *  `resetsAt`; `accepted` with `running` follows when it does. */
+  | { phase: 'rate_limited'; agentSessionId: string; messageId: string; resetsAt?: number; limitType?: string }
+  | { phase: 'settled'; agentSessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; agentSessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -1688,7 +1721,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string; author?: TurnAuthor }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentMessageId?: string; author?: TurnAuthor }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: TurnAuthor }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
@@ -1787,7 +1820,7 @@ export interface PromptOptions {
   /** Present when `via === 'session-report'`: the agent session and exchange the
    *  report settles, so the renderer can correlate without parsing prose. */
   agentSessionId?: string
-  agentExchangeId?: string
+  agentMessageId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
@@ -2191,7 +2224,7 @@ export interface SessionMeta {
 export interface SessionDelegation {
   parentSessionId: string
   rootSessionId: string
-  exchangeId: string
+  messageId: string
   depth: number
   intent: 'delegate' | 'fire_and_forget'
   createdAt: number

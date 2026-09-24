@@ -88,7 +88,7 @@ export interface SessionConfigControllerDeps {
   rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   /** `run` names the host whose checkout the refs describe. */
   refreshGitRefs(run: RunConfig | undefined, projectRoot: string, ctx: IpcContext): void
-  refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
+  refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean; force?: boolean }): Promise<GitRefreshResult>
   /** Bring an already-open tab to the front — the "matching tab" half of
    *  activating a checkout. */
   selectTab?(tabId: string): void
@@ -509,7 +509,6 @@ export class SessionConfigController {
     // at all there is nothing to move.
     if (!owner) {
       this.deps.openSessionDraft(dir, true)
-      void this.deps.apiForRun(undefined).trackRecentProject(dir)
       return
     }
     const api = this.deps.apiForRun(owner.run)
@@ -536,7 +535,6 @@ export class SessionConfigController {
         worktreeRequested: startsWorktree(owner.run),
       }),
     )
-    void api.trackRecentProject(dir)
   }
 
   pendingSessionStartTarget(tabId?: string): Promise<void> | null {
@@ -552,7 +550,9 @@ export class SessionConfigController {
   ): Promise<void> {
     return this.trackSessionStartTargetResolution(
       sourceId,
-      this.deps.refreshGitState({ sourceId, cwd, worktreeRequested }),
+      // Opening a source on a checkout another open session already runs in
+      // takes that live status instead of reading it again.
+      this.deps.refreshGitState({ sourceId, cwd, worktreeRequested, force: false }),
     )
   }
 

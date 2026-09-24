@@ -24,7 +24,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
   let subagentBuf: Message[] = []
   // The turn's agent-conversation cards stack at the position of the FIRST dispatch, in
   // dispatch order, even though tool rows interleave between them in the raw
-  // transcript (each prompt_session is a tool call followed by its agent-conversation
+  // transcript (each send_session is a tool call followed by its agent-conversation
   // message). Tool rows therefore do NOT close the stack — only real prose or
   // a new turn does. The open group's array is grown in place.
   let agentConversationGroup: Message[] | null = null

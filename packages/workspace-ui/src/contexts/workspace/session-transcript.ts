@@ -6,7 +6,7 @@ import type { SessionHistoryPage, AgentConversationResultProjection, WireSession
 import { uuid } from '@solus/contracts/uuid'
 import { artifactUpdateFromHistory } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
-import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
+import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -176,7 +176,7 @@ export function materializeSessionTranscript(
   const pendingMessages: WireSessionLoadMessage[] = []
   // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
   // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
-  const agentConversations = new AgentConversationTranscriptBuilder(messages)
+  const agentConversations = new TranscriptAgentConversations(messages)
 
   const loadedHistory = history
   const resultsByToolId = new Map(history.flatMap((message) =>

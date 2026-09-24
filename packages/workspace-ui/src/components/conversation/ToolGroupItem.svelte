@@ -21,7 +21,6 @@
     type BackgroundWait,
     type ParsedToolInput,
   } from "./lib/activity-summary";
-  import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
   import { clickEndsTextSelection } from "./lib/text-selection";
   import type { Message, TurnStartKind } from "@solus/contracts/types";
 
@@ -35,12 +34,9 @@
     /** Session lifecycle label shown between tool calls while this row owns the spinner. */
     activityLabel?: string;
     turnStart?: TurnStartKind | null;
-    /** Agents this turn has asked and not yet heard back from. A parent that is
-     *  blocked on another agent is not planning anything — it is waiting, and
-     *  the row should say whose reply it is waiting for. */
-    waitingOn?: string[];
-    /** A command this turn launched into the background and is still running.
-     *  Its tool call answered at launch, so nothing else in the row reports it. */
+    /** Another agent, sub-agent or command this turn launched and is still
+     *  waiting on. Its tool call answered at launch, so nothing else in the row
+     *  reports it. */
     backgroundWait?: BackgroundWait | null;
   }
   let {
@@ -50,7 +46,6 @@
     working = false,
     activityLabel,
     turnStart = null,
-    waitingOn = [],
     backgroundWait = null,
   }: Props = $props();
 
@@ -96,11 +91,11 @@
   // group names none, because the summary already counts them.
   const namedTool = $derived(runningTool ?? failedTool);
   // The background wait is the row's last answer, not its first: a running
-  // foreground tool or an awaited sub-agent is the more immediate thing to say.
-  // So a turn that keeps working never names it — it speaks in the gaps, which
-  // is exactly where the row used to claim it was planning.
+  // foreground tool is the more immediate thing to say. So a turn that keeps
+  // working never names it — it speaks in the gaps, which is exactly where the
+  // row used to claim it was planning.
   const showsBackgroundWait = $derived(
-    working && !namedTool && waitingOn.length === 0 && backgroundWait !== null,
+    working && !namedTool && backgroundWait !== null,
   );
   const namedTarget = $derived.by(() => {
     if (showsBackgroundWait) return backgroundWait?.target ?? "";
@@ -181,8 +176,7 @@
         <span class="activity-shimmer">{runningLabel}</span>
       {:else if working && !failedTool}
         <span class="activity-shimmer">
-          {waitingOnLabel(waitingOn) ??
-            backgroundWait?.label ??
+          {backgroundWait?.label ??
             liveActivityLabel(activityLabel, 0, true, turnStart)}
         </span>
       {:else if failedTool}

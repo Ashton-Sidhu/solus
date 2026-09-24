@@ -357,7 +357,7 @@ describe('SessionEventReducer card stream boundaries', () => {
         cwd: '/project',
         origin: 'created',
         exchanges: [{
-          exchangeId: 'x1',
+          messageId: 'x1',
           index: 1,
           prompt: 'Investigate the issue',
           dispatchedAt: 0,
@@ -387,14 +387,14 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x1', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x1', origin: 'prompted',
         prompt: 'First question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 1,
       },
     })
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x2', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x2', origin: 'prompted',
         prompt: 'Second question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 2,
       },
     })
@@ -407,7 +407,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x3', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x3', origin: 'prompted',
         prompt: 'Third question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 3,
       },
     })
@@ -417,7 +417,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'settled', agentSessionId: 'agent-1', exchangeId: 'x1', status: 'completed',
+        phase: 'settled', agentSessionId: 'agent-1', messageId: 'x1', status: 'completed',
         replyText: 'First answer', settledAt: 4,
       },
     })
@@ -435,7 +435,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       text: '[session report] Session abc finished (status: completed). Final reply:\nhello',
       via: 'session-report',
       agentSessionId: 'abc',
-      agentExchangeId: 'x1',
+      agentMessageId: 'x1',
     })
     expect(session.messages).toHaveLength(0)
 

@@ -62,7 +62,6 @@ let controller: SessionController
 
 function installController(): void {
   controller = {
-    listSessions: async () => [],
     getSessionInfo: async (sessionId) => (sessionId === PEER.sessionId ? PEER : { ...PEER, sessionId, slug: 'caller' }),
     loadSessionTail: async () => [],
     liveStatus: () => null,

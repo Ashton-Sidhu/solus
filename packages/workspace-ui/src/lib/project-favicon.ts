@@ -13,8 +13,8 @@ const FAVICON_FILENAMES = [
   'favicon.jpeg',
 ]
 
-/** Common nested locations. Keep this list short: each miss is a host request,
- * and root-level files remain the unambiguous project-owned convention. */
+/** Common nested locations. Keep this list short: root-level files remain the
+ * unambiguous project-owned convention. */
 const NESTED_FAVICON_PATHS = [
   'public/favicon.ico',
   'static/favicon.ico',
@@ -36,7 +36,7 @@ export interface ProjectFaviconRequest {
   serverId: string
   projectRoot: string
   origin: string
-  api: Pick<HostApi, 'assetCreateUrl'>
+  api: Pick<HostApi, 'assetCreateUrl' | 'assetFindUrl'>
   ctx: IpcContext
 }
 
@@ -50,7 +50,7 @@ export class ProjectFaviconResolver {
   private readonly pendingByProject = new Map<string, Promise<string | null>>()
 
   constructor(
-    private readonly assets: Pick<AssetUrlCache, 'resolve'> = assetUrlCache,
+    private readonly assets: Pick<AssetUrlCache, 'resolve' | 'find'> = assetUrlCache,
     private readonly storage: FaviconStorage | undefined = browserSessionStorage(),
     private readonly now: () => number = Date.now,
   ) {}
@@ -115,18 +115,24 @@ export class ProjectFaviconResolver {
     projectKey: string,
     candidates: string[],
   ): Promise<string | null> {
-    for (let index = 0; index < candidates.length; index++) {
-      const path = candidates[index]
-      try {
-        const url = await this.resolvePath(request, path)
-        this.selectedPathByProject.set(projectKey, path)
-        this.storeSelection(projectKey, index)
-        return url
-      } catch {}
+    let found: { path: string; url: string } | null
+    try {
+      found = await this.assets.find({
+        serverId: request.serverId,
+        paths: candidates,
+        origin: request.origin,
+        api: request.api,
+        ctx: request.ctx,
+      })
+    } catch {
+      // The host did not answer, which says nothing about the project: remember
+      // nothing, so the next render asks again.
+      return null
     }
-    this.selectedPathByProject.set(projectKey, null)
-    this.storeSelection(projectKey, -1)
-    return null
+    const index = found ? candidates.indexOf(found.path) : -1
+    this.selectedPathByProject.set(projectKey, found?.path ?? null)
+    if (!found || index >= 0) this.storeSelection(projectKey, index)
+    return found?.url ?? null
   }
 
   private storedSelection(projectKey: string, candidateCount: number): number | undefined {

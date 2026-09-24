@@ -13,17 +13,14 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
 let SeatManager: typeof import('@solus/server/seats/seat-manager')['SeatManager']
-let TurnLedger: typeof import('@solus/server/sessions/turn-ledger')['TurnLedger']
 
 beforeAll(async () => {
   ;({ ControlPlane } = await import('@solus/server/control-plane'))
   ;({ SeatManager } = await import('@solus/server/seats/seat-manager'))
-  ;({ TurnLedger } = await import('@solus/server/sessions/turn-ledger'))
 })
 
 // Step 2 plan §3.3 and exit criterion 2: a member with no seat is refused with
-// SEAT_REQUIRED and no process is spawned; with one, the run request carries it
-// and the ledger names both the author and the seat.
+// SEAT_REQUIRED and no process is spawned; with one, the run request carries it.
 
 function backend() {
   const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown' | 'getEnrichedError' | 'cancelSession'>
@@ -71,10 +68,9 @@ function harness() {
   const root = mkdtempSync(join(tmpdir(), 'plane-seats-'))
   const db = new Database(':memory:') as unknown as DatabaseSync
   const seats = new SeatManager({ db, seatsRoot: join(root, 'seats'), hostClaudeDir: join(root, '.claude'), hostCodexHome: join(root, '.codex') })
-  const ledger = new TurnLedger(db)
-  plane.useSeats(seats, ledger)
+  plane.useSeats(seats)
   cleanups.push(() => { plane.shutdown(); rmSync(root, { recursive: true, force: true }) })
-  return { plane, seats, ledger, started: fake.started }
+  return { plane, seats, started: fake.started }
 }
 
 function ctx(sessionId: string): IpcContext {
@@ -97,8 +93,8 @@ describe('seats at dispatch', () => {
     expect(started).toHaveLength(0)
   })
 
-  test('the host owner runs on the host login; a connected member\'s seat rides the run request and the ledger names both people', async () => {
-    const { plane, seats, ledger, started } = harness()
+  test('the host owner runs on the host login; a connected member\'s seat rides the run request', async () => {
+    const { plane, seats, started } = harness()
     await plane.submitPrompt(ctx('s-owner'), { prompt: 'hello' }, { clientId: 'c1', actor: { userId: 'host-owner', seatUserId: 'host-owner' } })
     expect(started[0]?.seat).toMatchObject({ userId: 'host-owner', isHostLogin: true })
     expect(started[0]?.seat?.envToken).toBeUndefined()
@@ -106,20 +102,15 @@ describe('seats at dispatch', () => {
     seats.storeToken('bob', 'claude-code', 'bob-token')
     await plane.submitPrompt(ctx('s-guest'), { prompt: 'hi from a guest', clientPromptId: 'p-guest' }, { clientId: 'c2', actor: { userId: 'guest:g1', seatUserId: 'bob' } })
     expect(started[1]?.seat).toMatchObject({ userId: 'bob', provider: 'claude-code', envToken: 'bob-token' })
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    const [turn] = ledger.forSession('s-guest')
-    expect(turn).toMatchObject({ prompt_id: 'p-guest', user_id: 'guest:g1', seat_user_id: 'bob', provider: 'claude-code' })
-    expect(turn?.state).not.toBe('running')
   })
 
-  test('a prompt id seen in another session is not a duplicate, even once the ledger holds it', async () => {
+  test('a prompt id seen in another session is not a duplicate', async () => {
     // WHY: a client prompt id is unique only to the client that made it; older
     // clients counted `msg-1`, `msg-2`… from zero on each reload. Matching the id
     // alone against past turns dropped a new session's first prompt as a replay.
-    const { plane, ledger, started } = harness()
+    const { plane, started } = harness()
     const owner = { clientId: 'c1', actor: { userId: 'host-owner', seatUserId: 'host-owner' } }
     expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
-    expect(ledger.forSession('s-first')[0]?.prompt_id).toBe('msg-1')
 
     expect(await plane.submitPrompt(ctx('s-second'), { prompt: 'second', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
     expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toEqual({ disposition: 'duplicate' })

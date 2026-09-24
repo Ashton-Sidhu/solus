@@ -30,13 +30,13 @@ import { taskShareContents, tasksContaining } from '../tasks/task-sharing'
 import { registerSeatHandlers } from './handlers/seat-handlers'
 import { registerPresenceHandlers } from './handlers/presence-handlers'
 import { PresenceManager } from '../presence/presence-manager'
-import { SeatManager, seatUserFor, turnActorFor } from '../seats/seat-manager'
+import { SeatManager, seatUserFor } from '../seats/seat-manager'
 import { SeatConnector } from '../seats/seat-connect'
-import { TurnLedger } from '../sessions/turn-ledger'
 import { eventVisibleTo } from '../sharing/event-audience'
 import { getDb } from '../db'
 import { closeDatabase, getDatabase } from '../db/database'
 import { markOwnRunningSessionRecordsInterrupted } from '../sessions/session-records'
+import { assertRpcAccess } from './access-policy'
 import { LOCAL_ORGANIZATION_ID } from './principal'
 import { resolveRoles, type SolusRole } from './roles'
 import { hostOperatingSystem } from '../platform/host-operating-system'
@@ -71,7 +71,8 @@ import { startAutomationScheduler, stopAutomationScheduler } from '../automation
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher, setAutomationWorktreeNameGenerator } from '../automations/automation-runner'
 import { generateWorktreeName } from '../git/worktree-name'
 import { onAutomationsChanged } from '../automations/automations-store'
-import { setSessionController, setSessionCreator } from '../sessions/session-tools'
+import { setSessionController, setSessionOrchestration } from '../sessions/session-tools'
+import { orchestrateSessions } from '../orchestration/control-plane-runtime'
 import { onAnnotationsChanged } from '../annotations/annotation-events'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerSettingsHandlers } from './handlers/settings-handlers'
@@ -107,7 +108,6 @@ import { registerOutboxHandlers } from './handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from '../tasks/task-applier'
 import { registerWorkOutboxApplier } from '../folio/work-applier'
 import { agentTargetFromMetadata } from '../agents/agent-targets'
-import { recordSessionDelegation } from '../sessions/session-delegations'
 import { registerAttachmentHandlers } from './handlers/attachment-handlers'
 import { registerAssetHandlers } from './handlers/asset-handlers'
 import { registerCapabilityHandlers } from './handlers/capability-handlers'
@@ -354,11 +354,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sessionExists: (sessionId) => opts.controlPlane.isKnownSession(sessionId),
   })
   server.useResourceAccess(shares)
-  // Provider seats and the turn ledger (Step 2 plan): every turn runs on its
-  // author's own login, and the host records whose it was. The workspace service
+  // Provider seats (Step 2 plan): every turn runs on its author's own login.
+  // The workspace service
   // VAULT_NOT_CONFIGURED to every seat call.
   const seats = new SeatManager({ db: getDb() })
-  const turnLedger = new TurnLedger(getDb())
   // A record this host left `running` names a turn the previous process never settled.
   const interruptSweep = markOwnRunningSessionRecordsInterrupted(LOCAL_ORGANIZATION_ID).catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
@@ -374,7 +373,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const source = opts.controlPlane.sessionTranscriptSource(sessionId)
     if (source) transcriptMirror.touch(source.agentSessionId, source)
   }
-  opts.controlPlane.useSeats(seats, turnLedger)
+  opts.controlPlane.useSeats(seats)
   const seatConnector = new SeatConnector({ seats })
   const clientEvents = new ClientEventRegistry((clientId, event) => {
     const principal = ws?.principalOf(clientId)
@@ -409,7 +408,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onTasksChanged(() => events.broadcast('tasks.invalidated', {})),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
-    onOutboxChanged(() => events.broadcast('outbox.changed', {})),
+    onOutboxChanged(({ courierListChanged }) => {
+      if (courierListChanged) events.broadcast('outbox.changed', {})
+    }),
   ]
   // A pull request merged on the code host announces nothing to Solus, so the
   // host asks on the workspace's behalf and turns what it finds into the same
@@ -426,8 +427,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // headless server (no Electron window) skips window/file groups.
   if (opts.windowDeps) registerWindowHandlers(server, opts.windowDeps)
 
+  // Every exchange between sessions — agent tools, a person answering from a
+  // card, delivery of results — goes through the one orchestrator.
+  const orchestrator = orchestrateSessions(opts.controlPlane)
   const sessionDeps: SessionDeps = {
     controlPlane: opts.controlPlane,
+    orchestrator,
     agentIdFromContext: opts.agentIdFromContext,
     shares,
   }
@@ -476,8 +481,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   ))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
-  // Let the create_session tool spawn fresh background sessions via the control plane.
-  setSessionCreator((req) => opts.controlPlane.createSession(req))
+  setSessionOrchestration(orchestrator)
   setSessionController({
     listAgentTargets: async () => Promise.all(
       opts.controlPlane
@@ -486,33 +490,32 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(async (metadata) => agentTargetFromMetadata(await enrichAgentMetadata(metadata))),
     ),
-    listSessions: (providers, projectPath) => opts.controlPlane.listSessionsForProviders(providers, projectPath),
     getSessionInfo: (sessionId) => opts.controlPlane.getSessionInfo(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
     pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
-    promptSession: (sessionId, prompt, delivery, options) => opts.controlPlane.promptSession(sessionId, prompt, delivery, options),
-    watchSessionSettled: (targetSessionId, callerSessionId, watch) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId, watch),
-    stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
-    answerQuestion: (questionId, answers) => opts.controlPlane.respondToQuestion(questionId, answers),
-    respondPermission: (questionId, optionId, revisedPlan) => opts.controlPlane.respondToPermission(questionId, optionId, revisedPlan),
     loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
       opts.controlPlane.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
-    recordSessionDelegation,
   })
-  // Agent-conversation cards drive sessions that have no bound tab in the renderer.
-  server.register('promptSession', async (args, ctx) => {
-    const [sessionId, prompt, delivery] = args
-    if (!sessionId.trim()) throw new Error('promptSession requires a session id')
-    if (!prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
-    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue', { actor: turnActorFor(ctx.principal) })
+  server.register('sessionMessagesSentBy', (args) => orchestrator.exchangesSentBy(args[0]))
+  // A person deciding on a plan a session it sent work to wrote, from that card.
+  // The decision drives the other session, so the caller must be allowed to.
+  server.register('decideSessionPlan', async (args, ctx) => {
+    const [sessionCtx, targetSessionId, decision, comment] = args
+    await assertRpcAccess('stopSession', ctx.principal, [targetSessionId], shares)
+    return orchestrator.decidePlan(sessionCtx.session.sessionId, targetSessionId, decision === 'approve' ? 'approve' : 'request_changes', comment)
   })
   server.register('stopSession', async (args) => {
     const [sessionId] = args
     if (!sessionId.trim()) throw new Error('stopSession requires a session id')
     return opts.controlPlane.stopSession(sessionId)
+  })
+  server.register('stopBackgroundTasks', async (args) => {
+    const [sessionId] = args
+    if (!sessionId.trim()) throw new Error('stopBackgroundTasks requires a session id')
+    return opts.controlPlane.stopBackgroundTasks(sessionId)
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
@@ -580,6 +583,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   phaseDone('update_services_ready')
   startAutomationScheduler()
+  // A parent that delegated to a child the previous process was running is
+  // told the child's turn is gone, rather than waiting for a reply forever.
+  void interruptSweep.then((interrupted) => {
+    if (interrupted) orchestrator.reportChildrenInterruptedByRestart(interrupted)
+  })
   server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))

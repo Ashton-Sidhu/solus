@@ -247,6 +247,23 @@ export async function listIndexedPlans(
   return rowsToDescriptors(rows)
 }
 
+/** The plans these sessions wrote, newest first: ids and title only. */
+export async function listPlanRefsForSessions(
+  organizationId: string,
+  sessionIds: readonly string[],
+): Promise<Array<{ sessionId: string; planToolUseId: string; title: string }>> {
+  if (!sessionIds.length) return []
+  const rows = planRefRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT session_id, plan_tool_use_id, title FROM ${indexedPlans}
+    WHERE organization_id = ${organizationId}
+      AND session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
+    ORDER BY timestamp DESC
+  `))
+  return rows.map((row) => ({ sessionId: row.session_id, planToolUseId: row.plan_tool_use_id, title: row.title }))
+}
+
+const planRefRowSchema = z.object({ session_id: z.string(), plan_tool_use_id: z.string(), title: z.string() })
+
 export async function loadIndexedPlanContent(
   organizationId: string,
   provider: AgentId,

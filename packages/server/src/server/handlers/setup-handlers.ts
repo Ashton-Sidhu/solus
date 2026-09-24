@@ -41,6 +41,8 @@ import {
   resolveCloneDestination,
   validateCloneUrl,
 } from './setup-commands'
+import { safeProjectDirName } from '@solus/contracts/project-folder-name'
+import { initRepository } from '../../git/git-init'
 import { dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import { ensureBranchWorktree } from '../../git/worktree-manager'
 
@@ -81,6 +83,10 @@ const setupSyncProjectSchema = z.object({
 const setupAdoptProjectSchema = z.object({
   path: z.string(),
   cloneUrl: z.string().optional(),
+}).strict()
+const setupCreateProjectSchema = z.object({
+  name: z.string().trim().min(1, 'Name the project.'),
+  parent: z.string().trim().min(1).optional(),
 }).strict()
 
 interface LineBuffer {
@@ -150,8 +156,7 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     gitAuth: {
       github: await hasGithubAuth(),
     },
-    // A member's pickers open on their own workspace; the owner's on the host setting.
-    projectsBaseDirectory: opts.principal?.kind === 'org-member' ? projectsRootFor(opts.principal) : getServerSettings().projectsBaseDirectory,
+    ...projectsBaseDirectoryFor(opts.principal),
     agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
     workspacePath: WORKSPACE_DIR,
   }
@@ -239,11 +244,11 @@ export function coerceSetupAgent(value: string): SetupAgent {
 
 
 /**
- * Where projects land on this host — the root the "Open project" primary action
- * commits to. Settings → General owns the answer; a host that never set one
+ * Where projects land on this host — where "New project" creates a folder and a
+ * clone goes. Settings → General owns the answer; a host that never set one
  * falls back to `SOLUS_PROJECTS_ROOT` (the managed image's volume path,
- * managed-hosts.md §3) and then to its own home folder rather than burying
- * checkouts somewhere the user would never think to look.
+ * managed-hosts.md §3) and then to `~/projects`, so new projects never land
+ * loose in the home folder.
  */
 export function setupProjectsRoot(
   settings: Pick<ReturnType<typeof getServerSettings>, 'projectsBaseDirectory'> = getServerSettings(),
@@ -252,7 +257,26 @@ export function setupProjectsRoot(
 ): string {
   const configured = settings.projectsBaseDirectory?.trim() || env.SOLUS_PROJECTS_ROOT?.trim()
   if (configured) return expandHome(configured, homeDirectory)
-  return homeDirectory
+  return join(homeDirectory, 'projects')
+}
+
+/**
+ * The projects folder as this principal's pickers and Settings see it: the
+ * folder in use, never the raw setting, so a cloud member reads their own
+ * `/data/projects/<userId>` and an unset host reads `~/projects`. The folder is
+ * created here because this is how a client first learns of it, and a picker
+ * that opens on a missing folder shows an error instead of a place.
+ */
+export function projectsBaseDirectoryFor(
+  principal: Principal | undefined,
+): Pick<ServerCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'> {
+  const root = projectsRootFor(principal)
+  // Best effort: an unwritable root still reports, and the picker says why.
+  try { mkdirSync(root, { recursive: true }) } catch {}
+  return {
+    projectsBaseDirectory: root,
+    projectsBaseDirectoryIsSet: principal?.kind !== 'org-member' && !!getServerSettings().projectsBaseDirectory,
+  }
 }
 
 /** A Better Auth user id; nothing that could walk the filesystem. */
@@ -330,10 +354,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return resolveDispatchHistoryRoots(projectsRootOf(ctx), deviceId, repoKeys)
   })
 
-  server.register('setProjectsBaseDirectory', (args) => {
+  server.register('setProjectsBaseDirectory', (args, ctx) => {
     const [path] = args
-    const next = setProjectsBaseDirectory(z.string().parse(path))
-    return { projectsBaseDirectory: next.projectsBaseDirectory }
+    setProjectsBaseDirectory(z.string().parse(path))
+    return projectsBaseDirectoryFor(ctx.principal)
   })
 
   server.register('setupInstallAgentCli', async (args, ctx) => {
@@ -711,6 +735,27 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     }
 
     return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
+  })
+
+  /**
+   * A project from nothing: an empty folder in the caller's projects root (or the
+   * parent they chose), a git repository in it, and the project recorded. A name
+   * already taken is refused rather than suffixed — the user typed it.
+   */
+  server.register('setupCreateProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
+    const [request] = args
+    const { name, parent } = setupCreateProjectSchema.parse(request)
+    const projectPath = join(parent ? expandHome(parent) : projectsRootOf(ctx), safeProjectDirName(name))
+    if (existsSync(projectPath)) throw new Error(`${projectPath} already exists. Choose another name.`)
+    await mkdir(projectPath, { recursive: true })
+    try {
+      await initRepository(projectPath)
+    } catch (err) {
+      // A retry must not find its own half-made folder "already exists".
+      await rm(projectPath, { recursive: true, force: true })
+      throw err
+    }
+    return { path: projectPath, projectKey: await registerProject(projectPath) }
   })
 
   async function runExclusive<T>(step: SetupStreamStep, task: () => Promise<T>): Promise<T> {

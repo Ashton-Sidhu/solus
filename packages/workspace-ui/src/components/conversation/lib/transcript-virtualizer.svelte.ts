@@ -1,6 +1,24 @@
 import { tick } from 'svelte'
 import { TranscriptGeometry, type TranscriptRange } from './transcript-geometry'
 
+/** What the reader is looking at: the element at the viewport top, and where
+ *  it sat in the scroll content when last measured. */
+interface ScrollAnchor { element: Element; top: number }
+
+/**
+ * Mounts the transcript rows near the viewport and keeps what the reader is
+ * looking at still while the rows around it change height.
+ *
+ * Two jobs, kept apart. The geometry — measured row heights, estimates for
+ * rows never mounted — only decides which rows to mount. Holding the view
+ * still is done from the DOM alone, the way native scroll anchoring works: an
+ * anchor element at the viewport top is measured again after every layout
+ * change the virtualizer can see, and the scroll moves by exactly how far the
+ * anchor moved. Estimates never reach the scroll position, and no correction
+ * waits for a later tick, so a render that loads and grows above the reader,
+ * a row that mounts taller than its estimate, and a page of older history all
+ * land in the same frame without a visible jump.
+ */
 export class TranscriptVirtualizer {
   range = $state<TranscriptRange>({ start: 0, end: 0, before: 0, after: 0 })
   revision = $state(0)
@@ -12,37 +30,38 @@ export class TranscriptVirtualizer {
   private nodes = new Map<HTMLElement, string>()
   private frame = 0
   private origin = 0
-  private adjustment = 0
-  private adjustmentScheduled = false
+  private anchor: ScrollAnchor | null = null
+  /** How far the anchor's row moved in the geometry when keys changed, until
+   *  the new rows render and the DOM anchor takes over. Without it the range
+   *  would be chosen at the old position and unmount the anchor's own row. */
+  private pendingShift = 0
 
   connect(scroll: HTMLElement, content: HTMLElement): () => void {
     this.scroll = scroll
     this.content = content
     this.observer = new ResizeObserver((entries) => {
-      const anchor = this.anchor()
       let changed = false
       for (const entry of entries) {
         if (!(entry.target instanceof HTMLElement)) continue
-        const node = entry.target
-        const key = this.nodes.get(node)
-        if (key) changed = this.geometry.measure(key, entry.borderBoxSize[0]?.blockSize ?? node.offsetHeight) || changed
+        const key = this.nodes.get(entry.target)
+        if (key) changed = this.geometry.measure(key, entry.borderBoxSize[0]?.blockSize ?? entry.target.offsetHeight) || changed
       }
       if (changed) {
         this.geometry.rebuild()
-        this.restoreAnchor(anchor)
         this.revision++
       }
+      this.holdAnchor()
       this.refresh()
     })
     for (const node of this.nodes.keys()) this.observer.observe(node)
     this.observer.observe(scroll)
     scroll.addEventListener('scroll', this.schedule, { passive: true })
-    document.addEventListener('selectionchange', this.selectionChanged)
+    document.addEventListener('selectionchange', this.schedule)
     content.addEventListener('focusout', this.schedule)
     this.refresh()
     return () => {
       scroll.removeEventListener('scroll', this.schedule)
-      document.removeEventListener('selectionchange', this.selectionChanged)
+      document.removeEventListener('selectionchange', this.schedule)
       content.removeEventListener('focusout', this.schedule)
       this.observer?.disconnect()
       this.observer = null
@@ -50,60 +69,112 @@ export class TranscriptVirtualizer {
       this.frame = 0
       this.scroll = null
       this.content = null
-      this.adjustment = 0
+      this.anchor = null
+      this.pendingShift = 0
     }
   }
 
   setKeys(keys: string[]): void {
     if (keys.length === this.geometry.keys.length && keys.every((key, index) => key === this.geometry.keys[index])) return
-    const anchor = this.anchor()
+    const anchorKey = this.anchorKey()
+    const before = anchorKey === undefined ? undefined : this.geometry.top(anchorKey)
     this.geometry.setKeys(keys)
-    this.restoreAnchor(anchor)
+    const after = anchorKey === undefined ? undefined : this.geometry.top(anchorKey)
+    if (before !== undefined && after !== undefined) this.pendingShift += after - before
     this.revision++
     this.refresh()
   }
 
-  private anchor(): { key: string; top: number } | null {
-    if (!this.scroll) return null
-    const index = this.geometry.indexAt(this.scroll.scrollTop + this.adjustment - this.origin)
-    const key = this.geometry.keys[index]
-    return key === undefined ? null : { key, top: this.geometry.offsets[index] }
-  }
-
-  private restoreAnchor(anchor: { key: string; top: number } | null): void {
-    if (!anchor || !this.scroll) return
-    const next = this.geometry.top(anchor.key)
-    if (next === undefined || next === anchor.top) return
-    this.adjustment += next - anchor.top
-    if (this.adjustmentScheduled) return
-    this.adjustmentScheduled = true
-    // Apply after the spacers grow; otherwise the browser clamps to the old
-    // scrollHeight and loses the prepended page's anchor adjustment.
-    void tick().then(() => {
-      this.adjustmentScheduled = false
-      if (this.scroll) this.scroll.scrollTop += this.adjustment
-      this.adjustment = 0
-      this.refresh()
-    })
-  }
-
-  private selectionChanged = (): void => {
-    this.schedule()
+  /** The list rendered new slots: mounted or unmounted rows and resized
+   *  spacers may have moved the anchor. The mounted rows are measured here
+   *  rather than waiting for the ResizeObserver: a row unmounts into a spacer
+   *  of its recorded height, and a stale record moved everything below it —
+   *  which moved the anchor, which moved the range, which mounted the row
+   *  again, in a loop. */
+  rendered(): void {
+    this.pendingShift = 0
+    let changed = false
+    for (const [node, key] of this.nodes) changed = this.geometry.measure(key, node.getBoundingClientRect().height) || changed
+    if (changed) {
+      this.geometry.rebuild()
+      this.revision++
+    }
+    this.holdAnchor()
+    this.refresh()
   }
 
   private schedule = (): void => {
     if (this.frame) return
-    this.frame = requestAnimationFrame(() => { this.frame = 0; this.refresh() })
+    this.frame = requestAnimationFrame(() => {
+      this.frame = 0
+      this.holdAnchor()
+      this.refresh()
+    })
+  }
+
+  private contentTop(element: Element): number {
+    return element.getBoundingClientRect().top - this.scroll!.getBoundingClientRect().top + this.scroll!.scrollTop
+  }
+
+  /** Move the scroll by however far the anchor moved in the content. A user
+   *  scroll moves the viewport, not the content, so it never counts. */
+  private holdAnchor(): void {
+    const anchor = this.anchor
+    if (!anchor || !this.scroll) return
+    if (!anchor.element.isConnected) {
+      this.anchor = null
+      return
+    }
+    const top = this.contentTop(anchor.element)
+    if (!Number.isFinite(top)) return
+    const shift = top - anchor.top
+    if (Math.abs(shift) >= 0.5) this.scroll.scrollTop += shift
+    anchor.top = top
+  }
+
+  /** The element the reader is looking at. Descend through the elements the
+   *  viewport top cuts; the first one that starts at or below it is the
+   *  anchor. A cut element with no element children anchors on its own top:
+   *  a render's iframe draws from its top edge, so holding that edge keeps
+   *  the part the reader sees in place. Spacers are never anchors — they
+   *  stand for rows that are not there. */
+  private pickAnchor(): ScrollAnchor | null {
+    if (!this.scroll || !this.content) return null
+    const viewportTop = this.scroll.getBoundingClientRect().top
+    const find = (parent: Element): Element | null => {
+      for (const child of parent.children) {
+        if (parent === this.content && !this.nodes.has(child as HTMLElement)) continue
+        const rect = child.getBoundingClientRect()
+        if (!(rect.bottom > viewportTop)) continue
+        if (rect.top >= viewportTop || !child.children.length) return child
+        // The top can fall in a cut element's trailing padding or between
+        // its children's margins, with nothing inside below it; the next
+        // sibling then holds the first element below the top.
+        const inner = find(child)
+        if (inner) return inner
+      }
+      return null
+    }
+    const element = find(this.content)
+    return element ? this.anchorAt(element) : null
+  }
+
+  private anchorAt(element: Element): ScrollAnchor | null {
+    const top = this.contentTop(element)
+    return Number.isFinite(top) ? { element, top } : null
+  }
+
+  private anchorKey(): string | undefined {
+    const element = this.anchor?.element
+    const row = element?.closest<HTMLElement>('[data-transcript-turn-id]')
+    return row ? this.nodes.get(row) : undefined
   }
 
   private refresh(): void {
     if (!this.scroll || !this.content || this.scroll.clientHeight === 0) return
     // One content rectangle, independent of history length.
     this.origin = this.content.getBoundingClientRect().top - this.scroll.getBoundingClientRect().top + this.scroll.scrollTop
-    // Geometry already includes measured heights, but the DOM scroll correction
-    // waits for the spacers to render. Select rows at that corrected position
-    // now so an overscan measurement cannot recycle the visible turn meanwhile.
-    const next = this.geometry.range(this.scroll.scrollTop + this.adjustment - this.origin, this.scroll.clientHeight)
+    const next = this.geometry.range(this.scroll.scrollTop + this.pendingShift - this.origin, this.scroll.clientHeight)
     // A focused control pins only its own row, not every row between that
     // control and the viewport. Selected text pins its selected range.
     const keyFor = (node: Node | null): string | undefined => {
@@ -127,6 +198,10 @@ export class TranscriptVirtualizer {
         if (key) pins.add(key)
       }
     }
+    // The anchor's row stays mounted until the next render re-picks it, so a
+    // range change cannot recycle the element the view is held by.
+    const anchorKey = this.anchorKey()
+    if (anchorKey) pins.add(anchorKey)
     const pinnedKeys = [...pins]
     if (pinnedKeys.length !== this.pinnedKeys.length || pinnedKeys.some((key, index) => key !== this.pinnedKeys[index])) {
       this.pinnedKeys = pinnedKeys
@@ -134,6 +209,9 @@ export class TranscriptVirtualizer {
     const current = this.range
     if (next.start !== current.start || next.end !== current.end
       || next.before !== current.before || next.after !== current.after) this.range = next
+    // While keys changed and the new rows have not rendered, the DOM is not at
+    // the geometry's position; keep the old anchor until they have.
+    if (!this.pendingShift) this.anchor = this.pickAnchor()
   }
 
   row = (node: HTMLElement, key: string) => {
