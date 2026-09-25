@@ -2,19 +2,20 @@ import { appendFile } from 'fs/promises'
 import path from 'path'
 import type { ControlPlane } from '../../control-plane'
 import { searchSkills, installSkill, listInstalledSkills, removeSkill } from '../../skills/skills-provider'
-import { WORKSPACE_DIR } from '../../workspace'
 import { projectScopeOf } from '@solus/contracts/types'
 import { expandHome } from './lib/host-path'
+import { resolveUnknownFolder } from './setup-handlers'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
+import type { Principal } from '../principal'
 
 const log = createLogger('main', 'skills-handlers')
 const UPDATE_AGENT_FILES_COMMAND = '/update-agent-files'
 
 /** Instruction files need somewhere real to land, so a session with no project
- *  writes to the workspace rather than the host's home directory. */
-function agentFilesDirectory(scope: string): string {
-  return !scope || scope === '~' ? WORKSPACE_DIR : expandHome(scope)
+ *  writes to the caller's chat folder rather than the host's home directory. */
+function agentFilesDirectory(scope: string, principal: Principal): string {
+  return expandHome(resolveUnknownFolder(scope || '~', principal))
 }
 
 async function appendInstructionFile(filePath: string, text: string): Promise<void> {
@@ -45,11 +46,11 @@ export function registerSkillsHandlers(server: SolusServer, deps: { controlPlane
     return result
   })
 
-  server.register('updateAgentFiles', async (args) => {
+  server.register('updateAgentFiles', async (args, handlerCtx) => {
     const [ctx, text] = args
     if (!text) return { success: false, err: 'No content provided' }
 
-    const cwd = agentFilesDirectory(projectScopeOf(ctx.session))
+    const cwd = agentFilesDirectory(projectScopeOf(ctx.session), handlerCtx.principal)
     const targets = [path.join(cwd, 'AGENTS.md')]
     if (deps.controlPlane.getBackendIds().includes('claude-code')) {
       targets.push(path.join(cwd, 'CLAUDE.md'))

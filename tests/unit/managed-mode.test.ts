@@ -19,7 +19,8 @@ const { attachWebSocketTransport } = await import('@solus/server/transports/webs
 const { SolusServer } = await import('@solus/server/server/server')
 const { ClientEventRegistry } = await import('@solus/server/events/client-event-registry')
 const auth = await import('@solus/server/server/auth')
-const { projectsRootFor, projectsVisibleTo, setupProjectsRoot } = await import('@solus/server/server/handlers/setup-handlers')
+const { projectsRootFor, projectsVisibleTo } = await import('@solus/server/server/handlers/setup-handlers')
+const { setupProjectsRoot } = await import('@solus/server/workspace')
 
 // docs/plans/managed-hosts.md §1: on a managed host nothing is trusted by network
 // position, pairing does not exist, the link is system-owned, and the link tokens
