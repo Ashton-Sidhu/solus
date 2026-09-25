@@ -1,4 +1,5 @@
 import {
+  directoryHostsOf,
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
   hostGrantResponseSchema,
@@ -60,7 +61,7 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
       const response = await call('/v1/hosts')
       if (!response?.ok) return null
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
-      return parsed.success ? { directoryUrl: origin, hosts: parsed.data.hosts } : null
+      return parsed.success ? { directoryUrl: origin, hosts: directoryHostsOf(parsed.data) } : null
     },
     async acquireHostGrant(hostId) {
       const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/grant`, { method: 'POST' })
@@ -113,7 +114,7 @@ export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch =
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
       return {
         kind: 'signed-in',
-        directory: parsed.success ? { directoryUrl: origin, hosts: parsed.data.hosts } : null,
+        directory: parsed.success ? { directoryUrl: origin, hosts: directoryHostsOf(parsed.data) } : null,
       }
     }
     if (response.status === 401) return { kind: 'signed-out', directory: null }

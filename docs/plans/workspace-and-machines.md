@@ -1,6 +1,6 @@
 # Record homes and machines — separating where records live from where work runs
 
-Status: proposed, 2026-09-24. Nothing here is implemented.
+Status: steps 1–3 implemented on `refactor/record-homes-and-machines` (2026-09-24); steps 4–6 open.
 
 ## 1. Why
 

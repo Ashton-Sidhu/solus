@@ -1,4 +1,5 @@
 import {
+  directoryHostsOf,
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
   hostGrantResponseSchema,
@@ -39,8 +40,9 @@ export async function listDirectory(client: CloudRequester): Promise<UplinkDirec
     log.warn('uplink_directory_malformed', {})
     return null
   }
-  log.info('uplink_directory_read', { hosts: parsed.data.hosts.length })
-  return { directoryUrl: client.cloudOrigin, hosts: parsed.data.hosts }
+  const hosts = directoryHostsOf(parsed.data)
+  log.info('uplink_directory_read', { hosts: hosts.length, workspaces: parsed.data.workspaces?.length ?? null })
+  return { directoryUrl: client.cloudOrigin, hosts }
 }
 
 export async function acquireHostGrant(client: CloudRequester, hostId: string): Promise<HostGrantResponse | null> {
