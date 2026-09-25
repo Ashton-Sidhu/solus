@@ -55,13 +55,14 @@ interface ClaudeTaskSystemEvent {
  * those accumulate into `pendingToolInputs` (keyed by content-block index) so the
  * complete input can ride out on `tool_call_complete`. `thinkingBlocks` is the
  * same trick for extended thinking: `content_block_stop` carries only an index,
- * so the start has to record which indexes were thinking. Sequencing/routing
+ * so the start has to record which indexes were thinking, and the deltas
+ * accumulate the thought so it can ride out on the span's stop. Sequencing/routing
  * lives in ClaudeAgent.
  */
 function normalize(
   raw: ClaudeEvent,
   pendingToolInputs: Map<number, string>,
-  thinkingBlocks: Set<number>,
+  thinkingBlocks: Map<number, string>,
 ): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
@@ -111,8 +112,9 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // tool_call_complete. Cleared on message_start so indexes never leak.
   private readonly pendingToolInputs = new Map<number, string>()
   // content_block_stop carries only an index, so remember which indexes opened as
-  // thinking blocks to know whose span just closed. Cleared alongside the inputs.
-  private readonly thinkingBlocks = new Set<number>()
+  // thinking blocks to know whose span just closed, with the text their
+  // thinking_delta events carried. Cleared alongside the inputs.
+  private readonly thinkingBlocks = new Map<number, string>()
   // The provider returns every tool result through the same shape. Remember
   // which calls launched subagents so their final answer can be marked before
   // the server projects ordinary output away.
@@ -308,7 +310,7 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
 function normalizeStreamEvent(
   event: StreamEvent,
   pendingToolInputs: Map<number, string>,
-  thinkingBlocks: Set<number>,
+  thinkingBlocks: Map<number, string>,
 ): NormalizedEvent[] {
   const sub = event.event
   if (!sub) return []
@@ -323,12 +325,12 @@ function normalizeStreamEvent(
 function normalizeStreamSub(
   sub: NonNullable<StreamEvent['event']>,
   pendingToolInputs: Map<number, string>,
-  thinkingBlocks: Set<number>,
+  thinkingBlocks: Map<number, string>,
 ): SubagentTranscriptEvent[] {
   switch (sub.type) {
     case 'content_block_start': {
       if (sub.content_block.type === 'thinking') {
-        thinkingBlocks.add(sub.index)
+        thinkingBlocks.set(sub.index, '')
         return [{ type: 'thinking', state: 'start' }]
       }
       if (sub.content_block.type === 'tool_use') {
@@ -362,14 +364,13 @@ function normalizeStreamSub(
         pendingToolInputs.set(sub.index, (pendingToolInputs.get(sub.index) ?? '') + delta.partial_json)
         return []
       }
-      // The thought itself is never surfaced — only its duration is.
+      appendThought(thinkingBlocks, sub.index, delta)
       return []
     }
 
     case 'content_block_stop': {
-      if (thinkingBlocks.delete(sub.index)) {
-        return [{ type: 'thinking', state: 'stop' }]
-      }
+      const thinkingStop = closeThinkingBlock(thinkingBlocks, sub.index)
+      if (thinkingStop) return [thinkingStop]
       const toolInput = pendingToolInputs.get(sub.index)
       pendingToolInputs.delete(sub.index)
       const event: NormalizedEvent = {
@@ -394,6 +395,29 @@ function normalizeStreamSub(
     default:
       return []
   }
+}
+
+/** A thought is delivered whole on content_block_stop, where the transcript
+ *  takes its first line. Redacted or omitted thinking sends no text at all. */
+function appendThought(thinkingBlocks: Map<number, string>, index: number, delta: ContentDelta): void {
+  if (delta.type !== 'thinking_delta') return
+  const thought = thinkingBlocks.get(index)
+  if (thought !== undefined) thinkingBlocks.set(index, thought + delta.thinking)
+}
+
+/** The span's stop, with the thought its deltas carried — or null when the
+ *  block at this index was not a thinking block. */
+function closeThinkingBlock(
+  thinkingBlocks: Map<number, string>,
+  index: number,
+): Extract<NormalizedEvent, { type: 'thinking' }> | null {
+  const thought = thinkingBlocks.get(index)
+  if (thought === undefined) return null
+  thinkingBlocks.delete(index)
+  const event: Extract<NormalizedEvent, { type: 'thinking' }> = { type: 'thinking', state: 'stop' }
+  const text = thought.trim()
+  if (text) event.text = text
+  return event
 }
 
 function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {

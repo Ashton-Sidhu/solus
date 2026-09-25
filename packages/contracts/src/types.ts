@@ -1193,6 +1193,9 @@ export interface Message {
    *  Thinking never gets a row of its own once the tools have finished — it
    *  folds into the block's summary as "Thought for 6s". */
   thinkingMs?: number
+  /** First line of the latest thought before this tool call, as plain text.
+   *  Absent when the provider sent no readable reasoning. */
+  thinkingPreview?: string
   /** Set when this tool launched an async sub-agent. Its settle event carries
    *  only the task id, so this is the sole link back from settle to the card. */
   backgroundTaskId?: string
@@ -1673,9 +1676,10 @@ export type NormalizedEvent =
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
-  /** Extended-thinking span boundaries. The transcript never renders the thought
-   *  itself — only how long it took, folded into the following activity block. */
-  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
+  /** Extended-thinking span boundaries. The transcript renders how long it took
+   *  and the first line of `text`, folded into the following activity block.
+   *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
+  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   /** With an outcome or completedAtMs, the tool execution completed. Without

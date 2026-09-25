@@ -51,6 +51,17 @@ describe('normalizeCodexNotification', () => {
     }])
   })
 
+  test('closes a reasoning span with its summary, and without text when encrypted', () => {
+    // WHY: the activity row shows the first line of the thought. Codex sends
+    // it only on the completed item; encrypted reasoning has no readable text.
+    expect(normalizeCodexNotification('item/completed', {
+      item: { id: 'rs-1', type: 'reasoning', summary: ['**Checking the tests**'], content: ['raw chain'] },
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined, text: '**Checking the tests**' }])
+    expect(normalizeCodexNotification('item/completed', {
+      item: { id: 'rs-2', type: 'reasoning', summary: [], content: [] },
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined }])
+  })
+
   test('passes through MCP and web-search input, provider timestamps, outcomes, and model reroutes', () => {
     expect(normalizeCodexNotification('item/started', {
       startedAtMs: 100,

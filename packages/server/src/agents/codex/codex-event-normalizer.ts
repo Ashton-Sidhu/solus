@@ -4,6 +4,7 @@ import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData, UsageWindowU
 import { normalizeResetNumber } from '../../rate-limits'
 import {
   codexImageArtifactPath,
+  codexReasoningText,
   codexSpawnedThreadLinks,
   codexSubagentActivityInput,
   codexToolNameForItem,
@@ -620,7 +621,8 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     return [event]
   }
 
-  // The transcript prints how long the agent thought, never the thought itself.
+  // The thought's text arrives with the completed item, so the start is only
+  // the span boundary.
   if (item.type === 'reasoning') {
     return [{ type: 'thinking', state: 'start', parentToolUseId: codexParentToolUseId(params) }]
   }
@@ -706,7 +708,16 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     return [event]
   }
   if (item.type === 'reasoning') {
-    return [{ type: 'thinking', state: 'stop', parentToolUseId: codexParentToolUseId(params) }]
+    // The concise summary when the model wrote one, else the raw content.
+    // Encrypted reasoning carries neither, so the span closes without text.
+    const event: Extract<NormalizedEvent, { type: 'thinking' }> = {
+      type: 'thinking',
+      state: 'stop',
+      parentToolUseId: codexParentToolUseId(params),
+    }
+    const text = codexReasoningText(item)
+    if (text) event.text = text
+    return [event]
   }
   const parentToolUseId = codexParentToolUseId(params)
   const toolName = codexToolNameForItem(item)
