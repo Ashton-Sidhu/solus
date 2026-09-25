@@ -102,7 +102,7 @@ describe('a merge indexes what the pull request became', () => {
     const project = await projectPrs(api)
     project.absorb(pullRequestFixture(65, { headSha: 'sha-from-the-index' }))
 
-    await project.get(65).merge('squash')
+    await expect(project.get(65).merge('squash')).rejects.toThrow('refused')
 
     expect(sentHeadSha).toBe('sha-from-the-index')
   })
@@ -125,6 +125,87 @@ describe('a merge indexes what the pull request became', () => {
     // there now, which is the race the token exists to prevent.
     await expect(project.get(65).merge('squash')).rejects.toThrow()
     expect(called).toBe(false)
+  })
+})
+
+describe('a merge shows at once and is taken back on refusal', () => {
+  // WHY: every other lifecycle write shows its outcome on the click. A merge
+  // that waited for the host left the row and the detail open for the whole
+  // round trip, then jumped; a refusal must put back exactly what was there.
+  function pendingMerge() {
+    let answer: (result: PrMergeResult) => void = () => {}
+    let refuse: (error: Error) => void = () => {}
+    const reply = new Promise<PrMergeResult>((resolve, reject) => {
+      answer = resolve
+      refuse = reject
+    })
+    return { reply, answer: (result: PrMergeResult) => answer(result), refuse: (error: Error) => refuse(error) }
+  }
+
+  test('the pull request reads as merged before the host answers', async () => {
+    installStateRune()
+    const host = pendingMerge()
+    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const project = await projectPrs(api)
+    project.absorb(pullRequestFixture(65))
+
+    const merging = project.get(65).merge('squash')
+    expect(project.prFor(65)?.state).toBe('merged')
+
+    host.answer({ merged: true, detail: pullRequestFixture(65, { state: 'merged', title: 'Landed' }) })
+    await merging
+    expect(project.prFor(65)?.state).toBe('merged')
+    expect(project.prFor(65)?.title).toBe('Landed')
+  })
+
+  test('a thrown refusal restores the state the pull request had', async () => {
+    installStateRune()
+    const host = pendingMerge()
+    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const project = await projectPrs(api)
+    project.absorb(pullRequestFixture(65, { title: 'Keep me' }))
+
+    const merging = project.get(65).merge('squash')
+    host.refuse(new Error('This pull request changed. Refresh it before merging.'))
+
+    await expect(merging).rejects.toThrow('This pull request changed')
+    expect(project.prFor(65)?.state).toBe('open')
+    expect(project.prFor(65)?.title).toBe('Keep me')
+  })
+
+  test('an answered refusal restores the state and rejects with the host reason', async () => {
+    installStateRune()
+    const api = asHostApi({
+      prMerge: async (): Promise<PrMergeResult> => ({ merged: false, message: 'Required checks have not passed' }),
+      ...NO_CHECKS,
+    })
+    const project = await projectPrs(api)
+    project.absorb(pullRequestFixture(65))
+
+    await expect(project.get(65).merge('squash')).rejects.toThrow('Required checks have not passed')
+    expect(project.prFor(65)?.state).toBe('open')
+  })
+
+  test('a read that lands before the host answers does not reopen it', async () => {
+    // WHY: a list refresh or detail read that left before the merge still
+    // describes the pull request as open. Taking it would flicker the row back
+    // to open until the merge answer arrived.
+    installStateRune()
+    const host = pendingMerge()
+    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const project = await projectPrs(api)
+    project.absorb(pullRequestFixture(65))
+
+    const merging = project.get(65).merge('squash')
+    project.absorb(pullRequestFixture(65, { state: 'open', title: 'Read in flight' }))
+    expect(project.prFor(65)?.state).toBe('merged')
+    expect(project.prFor(65)?.title).toBe('Read in flight')
+
+    host.answer({ merged: true, detail: pullRequestFixture(65, { state: 'merged' }) })
+    await merging
+    // Once the host has answered, the next read is the authority again.
+    project.absorb(pullRequestFixture(65, { state: 'closed' }))
+    expect(project.prFor(65)?.state).toBe('closed')
   })
 })
 

@@ -587,8 +587,7 @@
   }
 
   async function mergeNow(method: MergeMethod): Promise<void> {
-    const result = await pullRequest(pr.number).merge(method);
-    if (!result.merged) throw new Error(result.message ?? "The code host refused the merge.");
+    await pullRequest(pr.number).merge(method);
   }
 
   async function revertPullRequest(): Promise<void> {
