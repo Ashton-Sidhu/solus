@@ -73,6 +73,16 @@ export class RouterStore {
    */
   leadingHome: () => RouteRef = () => CHAT_ROUTE
 
+  /**
+   * Whether a remembered route can still be shown — a draft that was sent or a
+   * tab that was closed cannot. Routing does not know tabs or drafts, so the
+   * workspace answers; a route it rejects falls back to home.
+   */
+  canReturnTo: (ref: RouteRef) => boolean = () => true
+
+  /** The route a `returnsOnClose` page replaced, and the pane it replaced it
+   *  in. Held only while that pane still shows such a page. */
+  private returnTo: { paneId: PaneId; ref: RouteRef } | null = null
   private history: RouteHistory
   private detachHistory: (() => void) | null = null
   private resolved = new SvelteMap<string, PrReviewTarget>()
@@ -159,7 +169,14 @@ export class RouterStore {
   // ─── Navigating ───
 
   navigate(ref: RouteRef, opts: NavigateOptions = {}): PaneEntry {
+    const bases = new Map(this.location.panes.map((pane) => [pane.id, pane.base]))
     const pane = place(this.location, ref, opts.target ?? 'focused')
+    const replaced = bases.get(pane.id) ?? null
+    // Remember only the step in from the main workspace. Moving between the
+    // page's own tabs replaces it with itself and keeps the first answer.
+    if (ROUTES[ref.name].returnsOnClose && !(replaced && ROUTES[replaced.name].returnsOnClose)) {
+      this.returnTo = replaced ? { paneId: pane.id, ref: replaced } : null
+    }
     this.navigationEpoch += 1
     this.commit(ref, opts)
     return pane
@@ -209,11 +226,17 @@ export class RouterStore {
     this.movePane(this.location.panes[index].id, -index)
   }
 
-  /** Close every pane showing this destination, wherever it lives. */
+  /** Close every pane showing this destination, wherever it lives. A
+   *  `returnsOnClose` page goes back to the route it replaced when that route
+   *  can still be shown. */
   close(name: RouteName): void {
     for (const pane of this.location.panes.slice()) {
       if (pane.overlay?.name === name) closePaneOverlay(this.location, pane.id)
-      else if (pane.base?.name === name) closeLocationPane(this.location, pane.id, this.homeFor(pane.id))
+      else if (pane.base?.name === name) {
+        const remembered = this.returnTo?.paneId === pane.id ? this.returnTo.ref : null
+        const home = remembered && this.canReturnTo(remembered) ? remembered : this.homeFor(pane.id)
+        closeLocationPane(this.location, pane.id, home)
+      }
     }
     this.commit(null, {})
   }
@@ -348,7 +371,16 @@ export class RouterStore {
     return paneId === this.leadingPane.id ? this.leadingHome() : CHAT_ROUTE
   }
 
+  /** Drop the remembered route once its pane no longer shows the page that
+   *  remembered it, so a later visit never returns to an older one. */
+  private forgetStaleReturn(): void {
+    if (!this.returnTo) return
+    const base = this.pane(this.returnTo.paneId)?.base
+    if (!base || !ROUTES[base.name].returnsOnClose) this.returnTo = null
+  }
+
   private commit(ref: RouteRef | null, opts: NavigateOptions): void {
+    this.forgetStaleReturn()
     const serialized = serializeLocation(this.location)
     if (opts.replace) this.history.replace(serialized)
     else this.history.push(serialized)
@@ -365,6 +397,7 @@ export class RouterStore {
     const next = parseLocation(serialized)
     if (serializeLocation(this.location) === serializeLocation(next)) return
     applyLocation(this.location, next)
+    this.forgetStaleReturn()
     const ref = visibleRef(this.focused) ?? CHAT_ROUTE
     track('route_viewed', { route: ref.name })
   }

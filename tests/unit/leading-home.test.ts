@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { leadingHomeRoute } from '@solus/workspace-ui/contexts/workspace/leading-home'
+import { canReturnToRoute, leadingHomeRoute } from '@solus/workspace-ui/contexts/workspace/leading-home'
 import { CHAT_ROUTE, type RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 const TASKS: RouteRef = { name: 'tasks', params: {} }
@@ -95,5 +95,34 @@ describe('where the leading pane lands when a page closes', () => {
     })
 
     expect(home).toEqual(draftRoute('fresh'))
+  })
+})
+
+describe('whether Settings can return to the route it covered', () => {
+  const input = {
+    hasTabs: true,
+    hasTabForSession: (sessionId: string) => sessionId === 'sess_open',
+    drafts: drafts('unsent', 'aside'),
+    composingDraftIds: new Set(['aside']),
+  }
+
+  test('a closed tab or an empty pool cannot be returned to', () => {
+    // WHY: returning there would show a blank conversation, not the one the
+    // user left.
+    expect(canReturnToRoute({ name: 'chat', params: { sessionId: 'sess_open' } }, input)).toBe(true)
+    expect(canReturnToRoute({ name: 'chat', params: { sessionId: 'sess_closed' } }, input)).toBe(false)
+    expect(canReturnToRoute(CHAT_ROUTE, input)).toBe(true)
+    expect(canReturnToRoute(CHAT_ROUTE, { ...input, hasTabs: false })).toBe(false)
+  })
+
+  test('a sent draft, or one another pane composes, cannot be returned to', () => {
+    // WHY: one draft in two panes would let both composers edit it.
+    expect(canReturnToRoute(draftRoute('unsent'), input)).toBe(true)
+    expect(canReturnToRoute(draftRoute('sent'), input)).toBe(false)
+    expect(canReturnToRoute(draftRoute('aside'), input)).toBe(false)
+  })
+
+  test('a main page can always be returned to', () => {
+    expect(canReturnToRoute(TASKS, input)).toBe(true)
   })
 })
