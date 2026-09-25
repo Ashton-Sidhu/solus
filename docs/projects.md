@@ -59,3 +59,48 @@ see. A new project on a cloud host is not a Solus Cloud project. It is in the
 creator's own folder, and other members do not see it. To share it, use
 **Publish to GitHub** in the project panel, then add the repository as a
 project.
+
+## Scratchpad
+
+Scratchpad is the place where a session with no project runs. Use it to ask a
+question or sketch an approach when no repository is necessary. Scratchpad is
+not a project: it does not show in project lists, it has no branch or
+worktree, and it is on every host.
+
+Each host keeps Scratchpad in a folder that the host names. The client does
+not build the path:
+
+| Host | Folder |
+|---|---|
+| Your own machine, or a host you own | `~/.solus/my-workspace` (in the data folder of the host) |
+| A shared or cloud host, as a member of the organization | `/data/projects/<user id>/.chat`, in your own member folder |
+
+Each member has one Scratchpad on each host. All your chats on that host use
+the same folder. When the Scratchpad folder of a host is inside a Git work
+tree, the host does not offer Scratchpad, and Solus does not show it for that
+host.
+
+To start a chat in Scratchpad:
+
+- **Project chip.** The **Scratchpad** row is at the top of the list. It opens
+  Scratchpad on the host the session will run on (the Run on host).
+- **Command palette.** **Just chat** opens a new session in Scratchpad. At a
+  Solus Cloud origin it uses the managed host of your organization. On desktop
+  it uses this computer. In all cases, it uses the host of your last
+  Scratchpad chat first, if that host is up.
+- **New session headline.** When a new session is in a project, **or just chat**
+  below the headline moves it to Scratchpad on the same host.
+- **Onboarding.** **Just chat** and **Start without a project** end in
+  Scratchpad.
+
+To go back to a project before the first prompt, select the project in the
+project chip.
+
+On a managed host, a chat in Scratchpad starts **private**. Private means that
+Solus does not share the session with the organization. It is not a security
+boundary: the members of the organization use one host, and the host is a
+trusted team machine.
+
+On a managed host, each turn runs on the seat of the member who sent it. If you
+have no seat for the agent that you chose, the new session shows **Connect
+Claude** or **Connect Codex** above the composer before you send.
