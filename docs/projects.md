@@ -52,22 +52,6 @@ uses:
 On a cloud host, each member of the organization has their own folder,
 `/data/projects/<user id>`. Settings shows that folder to the member.
 
-## The chat folder
-
-A session with no project runs in a chat folder (Scratchpad). A member of an
-organization has their own chat folder, `.chat` in their member folder, for
-example `/data/projects/<user id>/.chat`. The host owner, and every personal
-host, use `my-workspace` in the Solus data folder (`~/.solus/my-workspace`).
-
-- A chat on an organization space starts private. Only its owner sees it until
-  they share it. A project session starts shared with the organization.
-- When the client does not know the folder yet, it sends `~`. The host reads a
-  bare `~` as the caller's chat folder, not the home folder. `~/x` is still a
-  path in the home folder.
-- If the chat folder is inside a Git work tree, the host does not report it, and
-  the client does not show Scratchpad. This can occur in development, when the
-  Solus data folder is inside a checkout.
-
 ## Cloud projects
 
 A Solus Cloud project is a GitHub repository that the whole organization can
@@ -94,7 +78,12 @@ not build the path:
 Each member has one Scratchpad on each host. All your chats on that host use
 the same folder. When the Scratchpad folder of a host is inside a Git work
 tree, the host does not offer Scratchpad, and Solus does not show it for that
-host.
+host. This can occur in development, when the Solus data folder is inside a
+checkout.
+
+When the client does not know the folder yet, it sends `~`. The host reads a
+bare `~` as the caller's Scratchpad folder, not the home folder. `~/x` is still
+a path in the home folder.
 
 To start a chat in Scratchpad:
 
@@ -112,10 +101,12 @@ To start a chat in Scratchpad:
 To go back to a project before the first prompt, select the project in the
 project chip.
 
-On a managed host, a chat in Scratchpad starts **private**. Private means that
-Solus does not share the session with the organization. It is not a security
-boundary: the members of the organization use one host, and the host is a
-trusted team machine.
+On a host that an organization uses (a managed host, or a personal host shared
+with the organization), a chat in Scratchpad starts **private**: only you see
+it until you share it. A project session on that host starts shared with the
+organization. Private means that Solus does not share the session with the
+organization. It is not a security boundary: the members of the organization
+use one host, and the host is a trusted team machine.
 
 On a managed host, each turn runs on the seat of the member who sent it. If you
 have no seat for the agent that you chose, the new session shows **Connect
