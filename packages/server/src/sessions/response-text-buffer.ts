@@ -3,12 +3,20 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 
 const DELIVERY_INTERVAL_MS = 400
 const MAX_BUFFERED_CHARS = 24_000
+// An ATX heading, or a line of only bold text, which models often use as a heading.
+const SECTION_TITLE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|\*\*(?:[^*]|\*(?!\*))+\*\*:?$)/
+// An unindented ATX heading ends the paragraph above it without a blank line.
+// A bold line would continue that paragraph instead.
+const TOP_LEVEL_HEADING = /^#{1,6}(?:[ \t]|$)/
 
-/** Only terminated lines count. Blank lines inside a fence belong to its code. */
+/** Only terminated lines count. Blank lines inside a fence belong to its code.
+ * A section title holds the boundary until a content line follows it, so a
+ * title never lands alone above a block that is still streaming. */
 export function splitResponseText(text: string) {
   let fence: { marker: string; indent: number } | undefined
   let boundary = 0
   let start = 0
+  let titleAwaitingContent = false
   for (;;) {
     const end = text.indexOf('\n', start)
     if (end < 0) break
@@ -17,14 +25,19 @@ export function splitResponseText(text: string) {
     if (match) {
       const indent = match[1].length
       const marker = match[2]
-      if (!fence) fence = { marker, indent }
-      else if (marker[0] === fence.marker[0] && marker.length >= fence.marker.length &&
+      if (!fence) {
+        fence = { marker, indent }
+        titleAwaitingContent = false
+      } else if (marker[0] === fence.marker[0] && marker.length >= fence.marker.length &&
         indent <= fence.indent + 3 && line.length === indent + marker.length) {
         fence = undefined
         boundary = end + 1
       }
     } else if (!fence && /^[ \t]*$/.test(line) && start > 0) {
-      boundary = end + 1
+      if (!titleAwaitingContent) boundary = end + 1
+    } else if (!fence) {
+      if (start > 0 && !titleAwaitingContent && TOP_LEVEL_HEADING.test(line)) boundary = start
+      titleAwaitingContent = SECTION_TITLE.test(line)
     }
     start = end + 1
   }
