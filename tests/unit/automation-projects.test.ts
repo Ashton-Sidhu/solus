@@ -51,7 +51,7 @@ describe('automation project filter', () => {
     const projects = automationProjects(
       rows,
       [],
-      undefined,
+      () => null,
       (row) => serverIds.get(row.id) ?? null,
       (serverId) => (serverId === 'host-a' ? 'Laptop' : 'Build host'),
     )

@@ -9,7 +9,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
-  import { getAgentContext, getWorkspaceContext } from "../../contexts";
+  import { connectionsStore, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
@@ -168,7 +168,7 @@
           reasoningEffort: "medium",
           cwd:
             (template.runsInWorkspace
-              ? session.staticInfo?.workspacePath
+              ? connectionsStore.chatFolderFor(serverId)
               : null) ?? projectPath,
         },
         template.trigger,

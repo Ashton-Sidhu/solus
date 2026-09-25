@@ -63,7 +63,7 @@
     <GithubConnectionRequired serverId={projectsFailure.serverId} layout="stacked" />
   </PageEmpty>
 {:else if !allProjects && scopeError?.kind === "no-repository"}
-  <!-- A folder with no remote — My Workspace, a plain directory. It has no
+  <!-- A folder with no remote — Scratchpad, a plain directory. It has no
        pull requests, which is a state to state, not a failure. -->
   <PageEmpty icon={GitPullRequestIcon} tone="muted" title="This project has no git remote.">
     Pull requests show up once this folder points at a repository on GitHub.

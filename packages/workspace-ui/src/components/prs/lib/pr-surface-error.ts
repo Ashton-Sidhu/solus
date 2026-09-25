@@ -8,7 +8,7 @@ const GITHUB_AUTH_MESSAGES = [
   'Your GitHub authorization is no longer valid. Reconnect GitHub to continue.',
 ]
 
-/** The server's answer for a folder with no `origin` remote — My Workspace, a
+/** The server's answer for a folder with no `origin` remote — Scratchpad, a
  *  plain directory, a repository that was never pushed. Not a failure: such a
  *  project has no pull requests to load, so no surface reports it as one. */
 const NO_REPOSITORY_MESSAGE = 'no recognizable git remote'

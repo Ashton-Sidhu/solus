@@ -2,6 +2,7 @@
   import { FolderOpen as FolderOpenIcon, GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import {
+    connectionsStore,
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
@@ -52,7 +53,10 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const displayDir = $derived(
-    displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
+    displayDirName(
+      ctx.workingDirectory,
+      connectionsStore.chatFolderFor(run?.serverId ?? session.fallbackServerId),
+    ),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
   const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);

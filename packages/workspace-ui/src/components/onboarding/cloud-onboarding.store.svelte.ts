@@ -300,8 +300,8 @@ class CloudOnboardingStore {
 
   /**
    * Where the workspace opens when the flow ends: a new session in the chosen
-   * repository, or — without one — in the person's workspace (`my-workspace`)
-   * on the chosen machine. With no machine either, the new-tab home stays.
+   * repository, or — without one — in the person's Scratchpad (their chat
+   * folder) on the chosen machine. With no machine either, the new-tab home stays.
    */
   async land(workspace: Pick<WorkspaceContext, 'opening' | 'drafts' | 'router'>, withProject: boolean): Promise<void> {
     const repositoryKey = withProject ? this.chosenRepositoryKey : null

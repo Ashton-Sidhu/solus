@@ -23,6 +23,7 @@
   import { parseGitHubPullRequestUrl } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import {
+    connectionsStore,
     activeSessionShareTarget,
     getWorkspaceContext,
     getPullRequestsContext,
@@ -91,7 +92,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "~",
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(sess?.run.serverId),
     ),
   );
   const host = $derived(serversStore.hostFor(sess?.run.serverId));
