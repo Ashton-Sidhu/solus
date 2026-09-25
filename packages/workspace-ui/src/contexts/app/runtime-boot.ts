@@ -1,12 +1,13 @@
 import { afterPaint } from '../../lib/after-paint'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
-import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
+import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { hasDirectoryAnswered, onDirectoryAnswered } from '@solus/client-core/server-registry'
-import { uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { reconcileMachineReferences } from '../workspace/machine-references'
+import { onDirectoryAnswered } from '@solus/client-core/server-registry'
+import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
+import { hasSessionStarted } from '../../lib/sessionUtils'
+import type { Session } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 
@@ -45,9 +46,16 @@ export function refreshRuntime(
  * this client has no directory to wait for.
  */
 function reconcileGoneMachines(session: WorkspaceContext): void {
-  if (!hasDirectoryAnswered() && uplinkAccountSource()) return
+  if (!savedHostsAreAuthoritative()) return
   reconcileMachineReferences(
-    session,
+    {
+      settings: session.settings,
+      unstartedRuns: () => session.unstartedRuns(),
+      startedSessions: () => session.tabOrder
+        .map((tabId) => session.sessionFor(tabId))
+        .filter((tabSession): tabSession is Session => !!tabSession && hasSessionStarted(tabSession)),
+      get defaultRunConfig() { return session.defaultRunConfig },
+    },
     (serverId) => serverConnections.isKnownServer(serverId),
     () => serverConnections.defaultMachineId() !== null,
   )
@@ -60,7 +68,12 @@ export function initializeRuntime(
   refreshRuntime(session, sidebarStore)
   // Restored tabs and drafts may name a machine a previous load saw deleted.
   reconcileGoneMachines(session)
-  const stopDirectory = onDirectoryAnswered(() => reconcileGoneMachines(session))
+  const stopDirectory = onDirectoryAnswered(() => {
+    reconcileGoneMachines(session)
+    // A tab on a host that was missing before the directory answered waited;
+    // the open one restores now, the rest when they are selected.
+    if (session.activeTabId) prioritizeTabHydration(session, session.activeTabId)
+  })
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
   const stopConnections = serverConnections.onConnectionCreated(() => {

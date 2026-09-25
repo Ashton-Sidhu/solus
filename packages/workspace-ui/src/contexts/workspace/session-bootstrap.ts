@@ -12,6 +12,9 @@ import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTa
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { loadSessionRecordTranscript } from '../sessions/session-record-transcript'
+import { GONE_MACHINE_READ_ONLY_REASON, savedHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 
@@ -437,10 +440,40 @@ function startRestoredMetadataReads(
  * runtime session. The order is fixed: durable history, watch, then bind. Git
  * and task state are independent and run alongside that sequence.
  */
+/**
+ * A restored tab whose machine is gone (docs/plans/workspace-and-machines.md §6):
+ * nothing on that machine can be asked, so the tab is read-only and shows what the
+ * window's own record home mirrored of it, when it holds any. Left pending until
+ * the saved hosts are authoritative: a host missing before the directory answers
+ * may still be listed.
+ */
+async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: PersistedTab, session: Session): Promise<boolean> {
+  if (!savedHostsAreAuthoritative()) return false
+  session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
+  const home = serverConnections.defaultServerId()
+  if (!home || !hostRolesStore.hasCollaboration(home)) return true
+  session.loadingHistory = session.messages.length === 0
+  try {
+    const meta = await readSessionMeta(home, session.id)
+      ?? (snapTab.agentSessionId ? await readSessionMeta(home, snapTab.agentSessionId) : null)
+    if (!meta || ctx.sessionFor(snapTab.tabId) !== session) return true
+    const messages = await loadSessionRecordTranscript(ctx, home, meta)
+    if (ctx.sessionFor(snapTab.tabId) !== session || messages.length === 0) return true
+    replaceHydratedMessages(session, messages)
+    ctx.eventReducer.rebuildAgentConversations(session)
+  } catch {
+    // The mirror may not hold this session; the tab stays read-only and empty.
+  } finally {
+    session.loadingHistory = false
+  }
+  return true
+}
+
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<boolean> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
   if (!tab || !session || session.forked || snapTab.pendingFork) return true
+  if (!serverConnections.isKnownServer(session.run.serverId)) return hydrateTabOnGoneMachine(ctx, snapTab, session)
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent

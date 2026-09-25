@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { RunConfig } from '@solus/contracts/types'
 import { ServerConnections } from '@solus/client-core/server-connections'
-import { reconcileMachineReferences, type MachineReferenceOwner } from '@solus/workspace-ui/contexts/workspace/machine-references'
+import { GONE_MACHINE_READ_ONLY_REASON, reconcileMachineReferences, type MachineReferenceOwner } from '@solus/workspace-ui/contexts/workspace/machine-references'
 
 // docs/plans/workspace-and-machines.md §6. WHY: the organization's managed host
 // was deleted, a remembered project and a draft still named it, and every read
@@ -24,7 +24,13 @@ function run(serverId: string, extra: Partial<RunConfig> = {}): RunConfig {
   }
 }
 
-function owner(lastProject: MachineReferenceOwner['settings']['lastProject'], runs: RunConfig[]): MachineReferenceOwner {
+type StartedSession = ReturnType<MachineReferenceOwner['startedSessions']>[number]
+
+function owner(
+  lastProject: MachineReferenceOwner['settings']['lastProject'],
+  runs: RunConfig[],
+  started: StartedSession[] = [],
+): MachineReferenceOwner {
   const settings = {
     lastProject,
     update(patch: { lastProject: null }) { settings.lastProject = patch.lastProject },
@@ -32,6 +38,7 @@ function owner(lastProject: MachineReferenceOwner['settings']['lastProject'], ru
   return {
     settings,
     unstartedRuns: () => runs,
+    startedSessions: () => started,
     // Once the remembered project is cleared, a new session starts on the default machine.
     get defaultRunConfig() { return run('laptop', { workingDirectory: '/home/me/workspace' }) },
   }
@@ -54,6 +61,22 @@ describe('references to a machine that is gone', () => {
     // A draft opened from a task keeps the task's home: only the machine was deleted.
     expect(fromTask).toMatchObject({ serverId: 'laptop', taskServerId: 'workspace:org-1' })
     expect(onLaptop.workingDirectory).toBe('/on/laptop')
+  })
+
+  test('a started session keeps its machine and becomes read-only; one on a known machine is left alone', () => {
+    // Its conversation lives on the gone machine: moving it would lose it, and a
+    // prompt would go nowhere.
+    const onGone: StartedSession = { run: run('managed:gone'), readOnlyReason: null }
+    const onLaptop: StartedSession = { run: run('laptop'), readOnlyReason: null }
+    const worktreeGone: StartedSession = { run: run('managed:gone'), readOnlyReason: 'This session is read-only because its worktree no longer exists.' }
+
+    reconcileMachineReferences(owner(null, [], [onGone, onLaptop, worktreeGone]), known, () => true)
+
+    expect(onGone.run.serverId).toBe('managed:gone')
+    expect(onGone.readOnlyReason).toBe(GONE_MACHINE_READ_ONLY_REASON)
+    expect(onLaptop.readOnlyReason).toBeNull()
+    // A reason already given is not replaced.
+    expect(worktreeGone.readOnlyReason).toContain('worktree')
   })
 
   test('with no machine to move to, unstarted work stays and the remembered project is still cleared', () => {

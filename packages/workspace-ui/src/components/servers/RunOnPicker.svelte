@@ -210,7 +210,11 @@
    * reads its own name (`hostRowLabel`) and never names its organization.
    */
   function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
-    return !server || server.local ? stayLabel : server.label;
+    if (!server || server.local) return stayLabel;
+    // A run that has not started on a host that was deleted (or never listed
+    // here) still has a choice to make (docs/plans/workspace-and-machines.md §6).
+    if ("unknown" in server && !locked) return "Host removed — choose a machine";
+    return server.label;
   }
 
   /** Every row does what it said it would. Only intent is recorded; Send acts. */

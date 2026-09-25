@@ -11,7 +11,6 @@
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
-    hostRolesStore,
     sharesStore,
   } from "../../../contexts";
   import { attemptServerId } from "../../../lib/sessionUtils";
@@ -163,9 +162,11 @@
     shell.canOpenResource("workspace") ? (taskServerId ?? serverConnections.defaultServerId()) : null,
   );
   const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
-  // A session runs on the task's host. The workspace service serves collaboration
-  // only (docs/plans/cloud-service-model.md §15), so its task page offers no run.
-  const canStartSession = $derived(!!session.workspace && hostRolesStore.hasExecution(taskServerId ?? serverConnections.defaultServerId()));
+  // A session on a machine's task runs on that machine. A cloud task's home runs
+  // nothing (docs/plans/workspace-and-machines.md §5.4), so `openTaskSession`
+  // opens it on a machine the Run-on picker chooses, or asks for one. A guest
+  // shell has no workspace to start from.
+  const canStartSession = $derived(!!session.workspace);
   function openShare(record: Task): void {
     if (!shareServerId) return;
     sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });

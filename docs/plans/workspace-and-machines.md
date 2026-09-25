@@ -225,9 +225,9 @@ sessionless default) fall into two groups:
 - **Records** keep the primary: tasks, works, the automation listing, pins,
   push subscription, notification labels, host discovery.
 
-Left as it is: the task page offers no "start session" for a task whose home is
-the workspace service (its own stated rule), although `openTaskSession` can
-route such a task to a machine. Whether to offer it is a product call.
+The task page offers "start session" for every task (decided 2026-09-25). A
+cloud task's home runs nothing, so `openTaskSession` opens it on a machine the
+Run-on picker chooses; with no machine the draft's chip asks for one.
 
 ### 5.5 Startup facts become machine facts
 
@@ -288,13 +288,13 @@ the client has no directory at all:
 | `settings.lastProject` | cleared; `defaultRunConfig` falls to the default machine |
 | an unstarted draft or tab | moved to where a new session starts (the default machine and its folder), as a fresh draft would be; with no machine, it stays until one connects |
 | a draft opened from a task | moves as above and keeps the task's home, unless that is unknown too |
-| a started tab | kept on its machine: its conversation lives there |
+| a started tab | kept on its machine, since its conversation lives there, and made read-only (`GONE_MACHINE_READ_ONLY_REASON`, the composer's text); a restored one shows what the window's record home mirrored of it (`hydrateTabOnGoneMachine`, `session-bootstrap.ts`), and stays pending until the saved hosts are authoritative |
 
 A live connection to a host the directory dropped is kept (a refresh never cuts
 a working session), and the host stays known while it is connected.
 
-Left for later: the Run-on chip's "Host removed — choose a machine" text, and
-a started tab's read-only "This machine was removed" state.
+A host that is not known reads "Removed host" (`serversStore.hostFor`); an
+unstarted run on one shows "Host removed — choose a machine" on its Run-on chip.
 
 ## 7. What stays the same
 

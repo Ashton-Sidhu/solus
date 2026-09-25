@@ -678,7 +678,8 @@ class ServersStore {
     const host = this.rows.find((server) => server.id === serverId)
     if (host) return host
     if (serverId === LOCAL_SERVER_ID) return null
-    return { id: serverId, label: 'Unknown host', local: false, unknown: true }
+    // Not saved and not connected: the host was deleted, or never listed at this origin.
+    return { id: serverId, label: 'Removed host', local: false, unknown: true }
   }
 
   statusFor(serverId: string): ServerItemStatus {
