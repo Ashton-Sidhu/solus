@@ -1,22 +1,22 @@
 <script lang="ts" generics="T">
-  import type { Snippet } from "svelte";
-  import TinyVirtualList from "svelte-tiny-virtual-list";
-
-  type VirtualItem = { index: number; style: string };
-  type ScrollDetail = { event: Event; offset: number };
+  import { untrack, type Snippet } from "svelte";
+  import { createVirtualizer } from "@tanstack/svelte-virtual";
+  import { startOffset } from "./virtual-list";
 
   interface Props {
     items: T[];
     height: number;
-    itemSize: number | ((index: number) => number);
+    /** Each row's exact height. Rows are never measured after they render. */
+    itemSize: (index: number) => number;
     keyOf: (item: T) => string | number;
     children: Snippet<[T, number, string]>;
     footer?: Snippet;
     overscan?: number;
-    estimatedItemSize?: number;
+    /** List pages scroll without a bar; a picker keeps its bar as a cue. */
+    showScrollbar?: boolean;
     activeKey?: string | number | null;
     scrollOffset?: number;
-    onAfterScroll?: (detail: ScrollDetail) => void;
+    onScroll?: (offset: number) => void;
   }
 
   let {
@@ -25,77 +25,104 @@
     itemSize,
     keyOf,
     children,
-    footer: footerContent,
+    footer,
     overscan = 6,
-    estimatedItemSize,
+    showScrollbar = false,
     activeKey = null,
     scrollOffset,
-    onAfterScroll,
+    onScroll,
   }: Props = $props();
 
-  /** The vendored list caches every item offset and only rebuilds that cache
-   *  when `itemSize` or `itemCount` changes *by identity*. A grouped list
-   *  changes composition without changing length — one row moves between
-   *  groups, a header swaps places with a row — and a plain arrow prop never
-   *  changes identity, so headers end up drawn at row offsets and rows collide.
-   *  Re-wrapping the callback whenever `items` changes forces the rebuild. */
-  const sizeForIndex = $derived.by(() => {
-    void items;
-    return itemSize instanceof Function
-      ? (index: number) => itemSize(index)
-      : itemSize;
+  let scroller = $state<HTMLDivElement | null>(null);
+
+  /** Every row height is known before paint, so each size is exact rather than
+   *  measured. The key reader and the sizes close over this pass's rows: a new
+   *  key reader is how TanStack learns the rows changed, so a regrouped list of
+   *  the same length is laid out again. */
+  function rowOptions() {
+    const rows = items;
+    return {
+      count: rows.length,
+      estimateSize: itemSize,
+      getItemKey: (index: number) => keyOf(rows[index]),
+      overscan,
+    };
+  }
+
+  const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
+    ...untrack(rowOptions),
+    getScrollElement: () => scroller,
+    initialRect: { width: 0, height: untrack(() => height) },
+    // TanStack moves the scroller here itself when it attaches, so the rows
+    // drawn and the scroll position start as one fact.
+    initialOffset: () =>
+      untrack(() => startOffset(scrollOffset ?? 0, items.length, itemSize, height)),
+  });
+
+  // Before the rows render, so the count and keys never lag the rows drawn.
+  $effect.pre(() => {
+    const options = rowOptions();
+    untrack(() => $virtualizer.setOptions(options));
+  });
+
+  // Attach to the scroller when it mounts, and let go when it leaves.
+  $effect(() => {
+    void scroller;
+    untrack(() => $virtualizer.setOptions({}));
+  });
+
+  // An offset set from outside — a reset to the top — moves the list. The
+  // offset this list reported itself is already where it is.
+  $effect(() => {
+    const offset = scrollOffset;
+    if (offset === undefined || !scroller) return;
+    untrack(() => {
+      if (Math.abs(($virtualizer.scrollOffset ?? 0) - offset) > 1) {
+        $virtualizer.scrollToOffset(offset);
+      }
+    });
   });
 
   const activeIndex = $derived(
     activeKey === null || activeKey === undefined
-      ? undefined
+      ? -1
       : items.findIndex((item) => keyOf(item) === activeKey),
   );
+
+  // Keep the active row in view, and bring it back when the rows change under
+  // it. `auto` moves only when the row is out of view.
+  $effect(() => {
+    const index = activeIndex;
+    void items;
+    if (index < 0 || !scroller) return;
+    untrack(() => $virtualizer.scrollToIndex(index, { align: "auto", behavior: "instant" }));
+  });
 </script>
 
 {#if height > 0 && items.length > 0}
-  <div class="virtual-list-host h-full min-h-0">
-    <TinyVirtualList
-      width="100%"
-      {height}
-      itemCount={items.length}
-      itemSize={sizeForIndex}
-      {estimatedItemSize}
-      getKey={(index: number) => {
-        // The library can key its previous visible range before its effect
-        // applies a smaller itemCount. Keep stale keys separate from row keys.
-        const item = items[index];
-        if (item === undefined) return `missing:${index}`;
-        const key = keyOf(item);
-        return `item:${typeof key}:${key}`;
-      }}
-      scrollToIndex={activeIndex !== undefined && activeIndex >= 0 ? activeIndex : undefined}
-      scrollToAlignment="auto"
-      scrollToBehaviour="instant"
-      overscanCount={overscan}
-      {scrollOffset}
-      {onAfterScroll}
-    >
-      {#snippet item({ index, style }: VirtualItem)}
-        {@const row = items[index]}
-        {#if row !== undefined}
-          {@render children(row, index, style)}
+  <div
+    bind:this={scroller}
+    data-virtual-list
+    class="w-full overflow-x-hidden overflow-y-auto overscroll-y-contain {showScrollbar
+      ? ''
+      : '[scrollbar-width:none] [&::-webkit-scrollbar]:w-0'}"
+    style:height="{height}px"
+    onscroll={() => {
+      if (scroller) onScroll?.(scroller.scrollTop);
+    }}
+  >
+    <div class="relative w-full" style:height="{$virtualizer.getTotalSize()}px">
+      {#each $virtualizer.getVirtualItems() as row (row.key)}
+        {@const item = items[row.index]}
+        {#if item !== undefined}
+          {@render children(
+            item,
+            row.index,
+            `position:absolute;top:${row.start}px;left:0;width:100%;height:${row.size}px;`,
+          )}
         {/if}
-      {/snippet}
-      {#snippet footer()}
-        {#if footerContent}{@render footerContent()}{/if}
-      {/snippet}
-    </TinyVirtualList>
+      {/each}
+    </div>
+    {#if footer}{@render footer()}{/if}
   </div>
 {/if}
-
-<style>
-  :global(.virtual-list-host .virtual-list-wrapper) {
-    overscroll-behavior-y: contain;
-    scrollbar-width: none;
-  }
-
-  :global(.virtual-list-host .virtual-list-wrapper::-webkit-scrollbar) {
-    width: 0;
-  }
-</style>

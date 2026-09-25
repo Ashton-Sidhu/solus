@@ -230,8 +230,12 @@
             {/if}
           </div>
         {:else if confirmingPost}
+          {@const refusal = openComment.codeAnchor ? pullRequest.draftRefusal(openComment) : null}
           <div class="flex flex-wrap items-center gap-1.5 text-xs text-(--solus-text-secondary)">
-            <span>Post this publicly on the pull request?</span>
+            <span class="min-w-0">
+              {#if refusal}{refusal}{/if}
+              Post this publicly on the pull request?
+            </span>
             <span class="flex-1"></span>
             <Button variant="ghost" size="xs" onclick={() => (confirmingPost = false)}>Cancel</Button>
             <Button
@@ -244,42 +248,6 @@
             >
               Post
             </Button>
-          </div>
-        {:else}
-          <!-- One action. A comment on a real line in the diff joins the pending
-               review; anything else is a public conversation comment, so that
-               path asks first. While the diff loads, the line cannot be checked. -->
-          {@const refusal = pullRequest.draftRefusal(openComment)}
-          <div class="flex flex-wrap items-center gap-1.5">
-            {#if openComment.codeAnchor && !pullRequest.diffReady}
-              <Button variant="outline" size="xs" disabled title="The diff is still loading.">Post to PR</Button>
-            {:else if refusal === null}
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy || !pullRequest.canPost}
-                title={pullRequest.canPost
-                  ? "Add as a line comment to your pending review. It goes out with Submit review."
-                  : pullRequest.postReason}
-                onclick={() => onAddDraft(openComment.id)}
-              >
-                Post to PR
-              </Button>
-              <span class="text-xs text-(--solus-text-tertiary)">as a line comment in your review</span>
-            {:else}
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy || !pullRequest.canPost}
-                title={pullRequest.canPost ? "Post as a conversation comment" : pullRequest.postReason}
-                onclick={() => (confirmingPost = true)}
-              >
-                Post to PR
-              </Button>
-              {#if openComment.codeAnchor}
-                <span class="min-w-0 text-xs text-(--solus-text-tertiary)">{refusal} It posts as a conversation comment.</span>
-              {/if}
-            {/if}
           </div>
         {/if}
       {/if}
@@ -301,7 +269,7 @@
           <Button
             variant="ghost"
             size="xs"
-            class="ml-auto text-destructive"
+            class="text-destructive"
             disabled={busy || openComment.posted?.kind === "conversation"}
             title={openComment.posted?.kind === "conversation" ? "Retract the pull-request comment first" : undefined}
             onclick={() => {
@@ -311,6 +279,39 @@
           >
             Delete
           </Button>
+          {#if pullRequest && !openComment.posted && !confirmingPost}
+            <!-- One action. A comment on a real line in the diff joins the pending
+                 review; anything else is a public conversation comment, so that
+                 path asks first. While the diff loads, the line cannot be checked. -->
+            {@const refusal = pullRequest.draftRefusal(openComment)}
+            {#if openComment.codeAnchor && !pullRequest.diffReady}
+              <Button variant="outline" size="xs" class="ml-auto" disabled title="The diff is still loading.">Post to PR</Button>
+            {:else if refusal === null}
+              <Button
+                variant="outline"
+                size="xs"
+                class="ml-auto"
+                disabled={busy || !pullRequest.canPost}
+                title={pullRequest.canPost
+                  ? "Add as a line comment to your pending review. It goes out with Submit review."
+                  : pullRequest.postReason}
+                onclick={() => onAddDraft(openComment.id)}
+              >
+                Post to PR
+              </Button>
+            {:else}
+              <Button
+                variant="outline"
+                size="xs"
+                class="ml-auto"
+                disabled={busy || !pullRequest.canPost}
+                title={pullRequest.canPost ? "Post as a conversation comment" : pullRequest.postReason}
+                onclick={() => (confirmingPost = true)}
+              >
+                Post to PR
+              </Button>
+            {/if}
+          {/if}
         </div>
       {/if}
     </div>

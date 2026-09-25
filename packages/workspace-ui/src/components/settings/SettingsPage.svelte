@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import type { Component } from "svelte";
+  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import {
     X as XIcon,
     SlidersHorizontal as SlidersHorizontalIcon,
@@ -315,7 +315,7 @@
  ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'font-medium text-(--muted-foreground) shadow-[shadow:var(--elev-ring)] active:bg-(--wash-1)'}"
       >
-        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
+        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1 text-[0.6875rem] font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
       </button>
     {/each}
   </div>
@@ -548,7 +548,7 @@
                           class="min-w-0 flex-1 overflow-hidden text-left text-workspace-chrome text-ellipsis whitespace-nowrap"
                           >{tab.label}</span
                         >
-                      {#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
+                        {#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1.5 text-xs font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
                       </Sidebar.MenuButton>
                     </Sidebar.MenuItem>
                   {/each}

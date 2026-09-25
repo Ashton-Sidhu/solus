@@ -4,7 +4,7 @@ import { createServer, type Plugin, type ViteDevServer } from 'vite'
 import { JSDOM } from 'jsdom'
 
 function stubs(): Plugin {
-  const names = ['CodeSpan', 'MarkdownLink', 'MarkdownImage']
+  const names = ['CodeSpan', 'MarkdownLink', 'MarkdownImage', 'MermaidBlock']
   return {
     name: 'github-markdown-test-context', enforce: 'pre',
     resolveId(source) {
@@ -19,6 +19,7 @@ function stubs(): Plugin {
       if (id === 'virtual:CodeSpan.svelte') return '<script>let { text } = $props()</script><code>{text}</code>'
       if (id === 'virtual:MarkdownLink.svelte') return '<script>let { href, children } = $props()</script><a {href}>{@render children?.()}</a>'
       if (id === 'virtual:MarkdownImage.svelte') return '<script>let { href, text } = $props()</script><img src={href} alt={text} />'
+      if (id === 'virtual:MermaidBlock.svelte') return '<script>let { text } = $props()</script><figure data-mermaid>{text}</figure>'
     },
   }
 }
@@ -121,6 +122,17 @@ describe('complete GitHub Markdown documents', () => {
     expect(body.textContent).toContain('see a@b.com,')
     // Task and guide text is not code-host text, so it keeps plain `@`.
     expect(renderDocument('@someone', 'local').querySelector('.markdown-mention')).toBeNull()
+  })
+
+  it('draws mermaid fences in PR and task bodies, and leaves other fences as code', () => {
+    // WHY: GitHub draws a ```mermaid fence as a diagram; a PR description or
+    // task written for GitHub must not read as raw source in Solus.
+    for (const policy of ['remote', 'local'] as const) {
+      const body = renderDocument('```mermaid\ngraph TD\n  A --> B\n```\n\n```ts\nconst a = 1\n```', policy)
+      expect(body.querySelector('[data-mermaid]')?.textContent).toBe('graph TD\n  A --> B\n')
+      expect(body.querySelectorAll('pre')).toHaveLength(1)
+      expect(body.querySelector('pre code')?.textContent).toBe('const a = 1\n')
+    }
   })
 
   it('removes executable HTML and remote navigation protocols throughout nested content', () => {

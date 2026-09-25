@@ -7,7 +7,8 @@
   import MarkdownListItem from '../ui/MarkdownListItem.svelte'
   import MarkdownImage from '../conversation/MarkdownImage.svelte'
   import MarkdownLink from '../conversation/MarkdownLink.svelte'
-  import { alertKind, elementAttributes, nodeText, paragraphLocalVideoSource, paragraphMediaSource, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
+  import MermaidBlock from '../conversation/MermaidBlock.svelte'
+  import { alertKind, elementAttributes, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
     node: RootContent
@@ -22,6 +23,7 @@
   // Only a local document can name a file on its host.
   const localVideo = $derived(element && policy === 'local' ? paragraphLocalVideoSource(element) : '')
   const checkbox = $derived(element ? taskCheckbox(element) : undefined)
+  const mermaid = $derived(element ? mermaidFenceSource(element) : null)
 </script>
 
 {#snippet children()}
@@ -37,6 +39,8 @@
 {:else if element}
   {#if alert}
     <MarkdownAlert alertType={alert} content={children} />
+  {:else if mermaid !== null}
+    <MermaidBlock text={mermaid} />
   {:else if media}
     <MarkdownParagraph raw={media} />
   {:else if localVideo}

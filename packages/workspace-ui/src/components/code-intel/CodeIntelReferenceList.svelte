@@ -86,7 +86,7 @@
   <VirtualList
     {items}
     height={REFERENCE_LIST_HEIGHT}
-    itemSize={REFERENCE_ITEM_HEIGHT}
+    itemSize={() => REFERENCE_ITEM_HEIGHT}
     keyOf={(item) => item.key}
   >
     {#snippet children(item, _index, style)}

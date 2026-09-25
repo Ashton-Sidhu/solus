@@ -77,7 +77,7 @@
   keyOf={(item) => item.key}
   {activeKey}
   scrollOffset={scrollTop}
-  onAfterScroll={({ offset }) => (scrollTop = offset)}
+  onScroll={(offset) => (scrollTop = offset)}
 >
   {#snippet children(item, _index, style)}
     <div {style}>

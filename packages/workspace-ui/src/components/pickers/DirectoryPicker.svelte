@@ -16,7 +16,7 @@
     HardDrive as DesktopTowerIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import VirtualList from "svelte-tiny-virtual-list";
+  import VirtualList from "../ui/list-page/VirtualList.svelte";
   import DirectoryRow from "./DirectoryRow.svelte";
   import {
     projectsStore,
@@ -143,6 +143,9 @@
     return nextRows;
   });
   const highlightedRow = $derived(rows[highlightedIndex] ?? null);
+  const rowKey = (row: Row) => (row.kind === "up" ? ".." : row.entry.path);
+  const activeRow = $derived(rows[Math.max(highlightedIndex, 0)]);
+  const activeRowKey = $derived(activeRow ? rowKey(activeRow) : null);
 
   const exactEntry = $derived(
     leaf ? (dirEntries.find((e) => e.name === leaf) ?? null) : null,
@@ -786,17 +789,18 @@
                 {/each}
               </div>
             {:else if listHeight > 0}
+              <!-- With nothing highlighted the first row is the active one, so a
+                   new listing starts at its top. -->
               <VirtualList
-                width="100%"
+                items={rows}
                 height={listHeight}
-                itemCount={rows.length}
-                itemSize={rowHeight}
-                scrollToIndex={Math.max(highlightedIndex, 0)}
-                scrollToAlignment="auto"
-                scrollToBehaviour="instant"
-                overscanCount={5}
+                itemSize={() => rowHeight}
+                keyOf={rowKey}
+                activeKey={activeRowKey}
+                overscan={5}
+                showScrollbar
               >
-                {#snippet item({ index, style }: { index: number; style: string })}
+                {#snippet children(_item, index, style)}
                   {@render row(index, style)}
                 {/snippet}
               </VirtualList>
@@ -896,12 +900,9 @@
 {/if}
 
 <style>
-  /* svelte-tiny-virtual-list renders its scroller outside this component, and
-     sets `overflow: auto` inline — which the row width rounds into a spurious
-     horizontal bar, so the axis is closed off here. */
-  .virtual-scroll :global(.virtual-list-wrapper) {
-    overflow-x: hidden !important;
-    overscroll-behavior-y: contain;
+  /* The virtual list renders its scroller outside this component. A drag on a
+     folder list only ever means scroll. */
+  .virtual-scroll :global([data-virtual-list]) {
     touch-action: pan-y;
   }
 

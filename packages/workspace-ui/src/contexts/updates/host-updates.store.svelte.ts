@@ -150,8 +150,10 @@ export class HostUpdatesStore {
     return status ? Number(status.check.kind === 'available') + status.providers.filter((p) => p.check.kind === 'available').length : 0
   }
 
-  get anyUpdateAvailable(): boolean {
-    return [...this.statuses.keys()].some((serverId) => this.pendingCountFor(serverId) > 0)
+  get pendingCount(): number {
+    let count = 0
+    for (const serverId of this.statuses.keys()) count += this.pendingCountFor(serverId)
+    return count
   }
 
   pendingNoticeFor(serverId: string): HostUpdateNotice | null {

@@ -1,5 +1,22 @@
 import { describe, expect, test } from 'bun:test'
 import { virtualGroupItems } from '@solus/workspace-ui/components/ui/list-page/virtualized-groups'
+import { startOffset } from '@solus/workspace-ui/components/ui/list-page/virtual-list'
+
+describe('the offset a list mounts at', () => {
+  test('never asks for more than the rows can scroll', () => {
+    // WHY: a remembered offset deeper than a list that came back shorter is
+    // clamped by the browser without a scroll event, so the rows drawn would
+    // sit below an empty viewport. Ten 30px rows in a 200px viewport scroll 100px.
+    expect(startOffset(600, 10, () => 30, 200)).toBe(100)
+    expect(startOffset(50, 10, () => 30, 200)).toBe(50)
+    expect(startOffset(600, 3, () => 30, 200)).toBe(0)
+  })
+
+  test('sums per-row sizes for grouped lists', () => {
+    const sizes = [20, 40, 40, 40, 40, 40, 40]
+    expect(startOffset(1000, sizes.length, (index) => sizes[index], 200)).toBe(60)
+  })
+})
 
 describe('virtualized grouped lists', () => {
   test('flattens a thousand rows for the shared virtual-list library', () => {

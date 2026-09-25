@@ -35,6 +35,8 @@
     children?: Snippet;
     /** Extra buttons for the hover action cluster, before Expand. */
     actions?: Snippet;
+    /** Shown in place of the default skeleton until the render loads. */
+    loading?: Snippet;
     /** Let a pane render use all available height while transcript, task, and
      *  document renders continue to size themselves to their content. */
     fillAvailable?: boolean;
@@ -67,6 +69,7 @@
     html,
     children,
     actions,
+    loading,
     fillAvailable = false,
     expandable = true,
     lazy = true,
@@ -273,7 +276,11 @@
     {/key}
     {#if !frameSettled}
       <div class="absolute inset-0 overflow-hidden bg-(--solus-container-bg)">
-        <ContentSkeleton label="Loading artifact" preview />
+        {#if loading}
+          {@render loading()}
+        {:else}
+          <ContentSkeleton label="Loading artifact" preview />
+        {/if}
       </div>
     {:else if frameResult?.failed}
       <div class="absolute inset-0 grid place-items-center text-sm text-destructive" role="alert">

@@ -196,7 +196,8 @@ as a conversation comment.
 - `REVIEW_LENS_MAX_HTML_CHARS` = 500 000.
 
 RPC methods (`rpc.ts`, `rpc-planes.ts`, `host-api.ts`): `readReviewLens`,
-`requestReviewLens`, `editReviewLens`, `cancelReviewLens`, `restoreReviewLens`,
+`prLensRevisions` (the saved-lens revision of many listed PRs, for the PR
+list's lens filter), `requestReviewLens`, `editReviewLens`, `cancelReviewLens`, `restoreReviewLens`,
 `updateReviewLensComments`, `postReviewLensComment`, and
 `retractReviewLensComment`. The preload and the WebSocket client are generic,
 so they needed no change. Posting uses the code host's existing issue-comment

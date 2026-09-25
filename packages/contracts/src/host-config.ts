@@ -70,8 +70,8 @@ export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
 export const DEFAULT_SIDEBAR_MOTION_MS = 150
 export const MAX_SIDEBAR_MOTION_MS = 600
 export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
-export const DEFAULT_REVIEW_MODEL = 'gpt-6-sol'
-export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'medium'
+export const DEFAULT_REVIEW_MODEL = 'gpt-6-luna'
+export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
 export interface HostConfig {
   solusTools: SolusToolPreferences

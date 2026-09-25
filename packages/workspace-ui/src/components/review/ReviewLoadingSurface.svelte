@@ -2,6 +2,7 @@
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
+  import LensSkeleton from "./LensSkeleton.svelte";
   import { Skeleton } from "../ui/skeleton";
 
   let { view }: { view: ReviewView } = $props();
@@ -38,7 +39,7 @@
     {#if view === "guide"}
       <ContentSkeleton label="Loading review guide" />
     {:else if view === "lens"}
-      <ContentSkeleton label="Loading lens" />
+      <LensSkeleton />
     {:else}
       <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} />
     {/if}

@@ -46,9 +46,23 @@ test('a cloud host on an older image never yields a notice, a count, or a provid
   f.store.applyStatus('host', reported)
   expect(f.store.pendingNoticeFor('host')).toBeNull()
   expect(f.store.pendingCountFor('host')).toBe(0)
-  expect(f.store.anyUpdateAvailable).toBe(false)
+  expect(f.store.pendingCount).toBe(0)
   expect(f.store.hostUpdateFor('host')).toMatchObject({ install: 'cloud', check: { kind: 'idle', reason: 'Kept up to date by Solus cloud.' } })
   expect(f.store.providerUpdatesFor('host')).toEqual([{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'idle', reason: null } }])
+})
+
+test('the settings badge counts every pending update on every host', async () => {
+  // WHY: the Connections badge is the only sign in settings that work waits there;
+  // a second host or a provider release must raise the number, and none must hide it.
+  const { store } = await fixture()
+  expect(store.pendingCount).toBe(0)
+  const first = status('2.0.0')
+  first.providers = [{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'available', latestVersion: '1.1.0', checkedAt: 0 } }]
+  store.applyStatus('host', first)
+  store.applyStatus('other', status('3.0.0'))
+  expect(store.pendingCount).toBe(3)
+  store.applyStatus('other', status(null))
+  expect(store.pendingCount).toBe(2)
 })
 
 test('repeated broadcasts never re-arm a notice, but a newer release does', async () => {

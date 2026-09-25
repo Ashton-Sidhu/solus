@@ -62,6 +62,7 @@
 >
   {#each TABS as t (t.id)}
     {@const isActive = active(t.id)}
+    {@const isUnread = t.id === "lens" && lensState === "unread"}
     <button
       type="button"
       role="tab"
@@ -78,7 +79,9 @@
             : undefined}
       class="inline-flex items-center gap-1 h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
-        : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+        : isUnread
+          ? 'bg-transparent font-medium text-(--success)'
+          : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(t.id)}
     >
       {t.label}
@@ -93,8 +96,6 @@
       {:else if t.id === "lens"}
         {#if lensState === "generating"}
           <LoaderCircle size={12} aria-hidden="true" class="animate-spin motion-reduce:animate-none" />
-        {:else if lensState === "unread"}
-          <span class="size-1.5 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
         {:else if lensState === "attention"}
           <TriangleAlert size={10} aria-hidden="true" />
         {/if}

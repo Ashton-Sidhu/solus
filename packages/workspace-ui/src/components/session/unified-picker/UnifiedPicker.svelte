@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import VirtualList from "svelte-tiny-virtual-list";
+  import VirtualList from "../../ui/list-page/VirtualList.svelte";
   import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -791,18 +791,16 @@
           </div>
         {:else if listHeight > 0}
           <VirtualList
-            width="100%"
+            items={list.rows}
             height={listHeight}
-            itemCount={list.rows.length}
-            itemSize={rowSizes}
-            scrollToIndex={scrollTargetIndex}
-            scrollToAlignment="auto"
-            scrollToBehaviour="instant"
-            overscanCount={6}
+            itemSize={(index) => rowSizes[index]}
+            keyOf={(row) => row.key}
+            activeKey={scrollTargetIndex === undefined ? null : (list.rows[scrollTargetIndex]?.key ?? null)}
+            showScrollbar
           >
-            {#snippet item({ index, style }: { index: number; style: string })}
+            {#snippet children(row, _index, style)}
               <UnifiedPickerRow
-                row={list.rows[index]}
+                {row}
                 {style}
                 {selectedIndex}
                 {query}

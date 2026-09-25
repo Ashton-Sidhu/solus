@@ -24,7 +24,6 @@
     disabledReason,
     onGenerate,
     onSavePrompt,
-    onCancel,
   }: {
     savedLenses: SavedLens[];
     /** The title of the lens a new one would replace, or null for none. */
@@ -34,8 +33,6 @@
     onGenerate: (source: ReviewLensSource, agent: ResolvedReviewAgent) => void;
     /** Keep a one-time prompt in Settings as a saved lens. */
     onSavePrompt: (prompt: string) => void;
-    /** Present when there is a lens to go back to. */
-    onCancel?: () => void;
   } = $props();
 
   const settings = getSettingsContext();
@@ -122,7 +119,7 @@
           placeholder="Describe a one-time lens…"
           ariaLabel="One-time lens prompt"
           submitLabel="Generate"
-          cancelLabel={onCancel ? "Back" : "Clear"}
+          cancelLabel="Clear"
           autoFocus={false}
           {disabled}
           onFormValueChange={(value) => (draft = value)}
@@ -130,10 +127,7 @@
             choose({ name: "One-time lens", prompt });
             if (!replacesTitle) composerKey++;
           }}
-          onCancel={() => {
-            if (onCancel) onCancel();
-            else composerKey++;
-          }}
+          onCancel={() => composerKey++}
         >
           {#snippet secondaryActions()}
             <div class="flex min-w-0 items-center gap-1">

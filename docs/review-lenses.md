@@ -42,8 +42,10 @@ Select **Regenerate** to make it again for the current change.
 
 ## Change a lens
 
-Type a request in the bar under the lens, for example "make the diagram
-bigger", and press Enter. The agent changes the lens it has, instead of
+Select the wand button at the bottom right of the lens to open the edit bar.
+The button shows the number of open comments. Type a request, for example
+"make the diagram bigger", and press Enter. **Hide** or Escape folds the bar
+back into the button and keeps your draft. The agent changes the lens it has, instead of
 starting again.
 
 The model chip in that bar sets the agent, model, and reasoning effort for
@@ -51,6 +53,10 @@ edits and for **Regenerate**. It starts at the choice in Settings → Review. A
 change in the chip is for this lens only. The lens header keeps its actions as
 icons: **Regenerate**, **New lens**, **Restore previous**, **Pin a comment**,
 **Show prompt**, **Save as work**, and **Save prompt as a lens**.
+
+**New lens** opens the lens start panel below the header. The header continues
+to show the current lens. To go back to it, select **Back to lens** in the
+header or push Escape.
 
 ## Comment on a lens
 
