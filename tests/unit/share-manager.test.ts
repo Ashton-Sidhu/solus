@@ -108,6 +108,22 @@ describe('ownership', () => {
     expect(await shares.roleFor(member('cara', [], 'member', 'personal'), mine)).toBe('none')
   })
 
+  test('a chat starts private on a managed host; only its owner can give the organization its default grant later', async () => {
+    // WHY: Scratchpad decision S5 — a chat runs in its owner's own chat folder,
+    // so the team does not see it until the owner shares it. A session watched
+    // before its folder is known gets the grant only when its owner's prompt
+    // names a project folder.
+    const { shares } = manager()
+    const chat = { kind: 'session', id: 'chat' } as const
+    await shares.claimOwner(chat, member('bob'), { shareWithOrganization: false })
+    expect(await shares.roleFor(member('cara'), chat)).toBe('none')
+
+    await shares.shareWithOrganization(chat, member('cara'))
+    expect(await shares.roleFor(member('cara'), chat)).toBe('none')
+    await shares.shareWithOrganization(chat, member('bob'))
+    expect(await shares.roleFor(member('cara'), chat)).toBe('editor')
+  })
+
   test('a resource made over a local connection is owned by the host owner, whom a remote owner also is', async () => {
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const

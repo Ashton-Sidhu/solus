@@ -174,9 +174,14 @@ export class ShareManager {
    * A resource made on a managed host or the organization's workspace service
    * starts shared with the organization: the space is the team's, so its work is
    * visible to the team until the owner narrows it. A personal host's resources
-   * start private.
+   * start private. `shareWithOrganization: false` starts one private in every
+   * space: a chat, whose folder is the owner's own (Scratchpad decision S5).
    */
-  async claimOwner(resource: ShareResource, principal: Principal): Promise<string | null> {
+  async claimOwner(
+    resource: ShareResource,
+    principal: Principal,
+    options: { shareWithOrganization?: boolean } = {},
+  ): Promise<string | null> {
     const organizationId = organizationOf(principal)
     const ownerUserId = principalOwnerId(principal)
     if (!ownerUserId) return this.ownerOf(organizationId, resource)
@@ -186,14 +191,27 @@ export class ShareManager {
       VALUES (${canonical.kind}, ${canonical.id}, ${ownerUserId}, ${this.now()}, ${organizationId})
       ON CONFLICT(resource_kind, resource_id) DO NOTHING
     `)
-    if (inserted.changes > 0 && isOrganizationSpace(principal)) {
-      await this.deps.db.run(sql`
-        INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
-        VALUES (${randomUUID()}, ${canonical.kind}, ${canonical.id}, 'organization', ${principal.organizationId}, ${SCOPE_ROLE}, NULL, ${ownerUserId}, ${this.now()}, ${organizationId})
-        ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO NOTHING
-      `)
-    }
+    if (inserted.changes > 0 && options.shareWithOrganization !== false) await this.shareWithOrganization(canonical, principal)
     return this.ownerOf(organizationId, canonical)
+  }
+
+  /**
+   * Give the organization the grant a new resource in its space starts with. For a
+   * resource claimed private before its owner could decide — a session watched
+   * before the prompt that names its folder. Only the owner decides; a personal
+   * host's resources stay private.
+   */
+  async shareWithOrganization(resource: ShareResource, principal: Principal): Promise<void> {
+    const ownerUserId = principalOwnerId(principal)
+    if (!ownerUserId || !isOrganizationSpace(principal)) return
+    const organizationId = organizationOf(principal)
+    const canonical = this.canonical(resource)
+    if (await this.ownerOf(organizationId, canonical) !== ownerUserId) return
+    await this.deps.db.run(sql`
+      INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+      VALUES (${randomUUID()}, ${canonical.kind}, ${canonical.id}, 'organization', ${principal.organizationId}, ${SCOPE_ROLE}, NULL, ${ownerUserId}, ${this.now()}, ${organizationId})
+      ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO NOTHING
+    `)
   }
 
   /**

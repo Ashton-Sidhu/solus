@@ -4,7 +4,6 @@ import { join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { z } from 'zod'
-import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
 import type { SessionOrchestrator } from '../../orchestration/session-orchestrator'
 import { activityLeases } from '../activity-leases'
@@ -18,7 +17,9 @@ import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
 import { turnActorFor } from '../../seats/seat-manager'
-import { projectsRootFor } from './setup-handlers'
+import { isOrganizationSpace, type Principal } from '../principal'
+import { chatFolderFor, projectsRootFor, resolveUnknownFolder } from './setup-handlers'
+import { isChatFolder } from '../../workspace'
 import { recordingRetention } from '../../browser/recording-retention'
 
 const log = createLogger('main', 'session-handlers')
@@ -152,12 +153,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // that bootstrap — doubling the WS calls and flickering the "Syncing…" badge.
     // Genuine reconnect gaps are still covered by the WS resume protocol
     // (handleResume → seq-reset) in transports/websocket.ts.
-    // Ensure the default workspace exists before any session points its cwd at it.
-    try {
-      mkdirSync(WORKSPACE_DIR, { recursive: true })
-    } catch (err) {
-      log.warn('workspace_dir_create_failed', { workspaceDir: WORKSPACE_DIR, error: String(err) })
-    }
+    // Creates the caller's chat folder before any session points its cwd at it.
+    const workspacePath = chatFolderFor(handlerCtx.principal)
     const agents = await Promise.all(
       controlPlane
         .getBackendIds()
@@ -165,10 +162,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(enrichAgentMetadata),
     )
-    // A member's home on a shared host is their workspace (managed-hosts.md §3).
+    // A member's home on a shared host is their member folder (managed-hosts.md §3).
     const projectPath = projectsRootFor(handlerCtx.principal)
     const homePath = handlerCtx.principal.kind === 'org-member' ? projectPath : homedir()
-    return { projectPath, homePath, workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
+    return { projectPath, homePath, workspacePath, version: appVersion(), agents }
   })
 
   function requireClientId(handlerCtx: HandlerCtx): string {
@@ -176,32 +173,69 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return handlerCtx.clientId
   }
 
-  /** The person who started the session owns it (docs/plans/multiplayer-sharing.md §3.4). */
-  async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx): Promise<void> {
-    if (sessionId) await deps.shares?.claimOwner({ kind: 'session', id: sessionId }, handlerCtx.principal)
+  /** A bare `~` in a session context is the caller's chat folder, not the host's home folder. */
+  function resolveUnknownFolders(ctx: IpcContext, principal: Principal): void {
+    ctx.session.workingDirectory = resolveUnknownFolder(ctx.session.workingDirectory, principal)
+    ctx.session.projectPath = resolveUnknownFolder(ctx.session.projectPath, principal)
+  }
+
+  /**
+   * New sessions a client watched before any request named their folder. They
+   * start private; the first request that names the folder decides whether the
+   * organization gets its grant. Lost on restart, so such a session stays private.
+   */
+  const sessionsAwaitingFolder = new Set<string>()
+
+  /**
+   * The person who started the session owns it (docs/plans/multiplayer-sharing.md §3.4).
+   * A session in a chat folder starts private; a project session starts shared
+   * with the organization in an organization space (Scratchpad decision S5).
+   */
+  async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx, workingDirectory: string): Promise<void> {
+    const shares = deps.shares
+    if (!sessionId || !shares) return
+    const resource = { kind: 'session', id: sessionId } as const
+    const shareWithOrganization = !isChatFolder(workingDirectory)
+    if (!sessionsAwaitingFolder.delete(sessionId)) {
+      await shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization })
+    } else if (shareWithOrganization) {
+      await shares.shareWithOrganization(resource, handlerCtx.principal)
+    }
   }
 
   server.register('watchSession', async (args, handlerCtx) => {
     const [input] = args
+    // Asked before the watch, which makes any session known.
+    const startsSession = !input?.agentSessionId && !(input?.sessionId && controlPlane.isKnownSession(input.sessionId))
     const resolved = controlPlane.watchSession(input ?? {}, requireClientId(handlerCtx))
     log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
     // A guest or member can only watch a session that was shared with them, so a
     // claim here never gives them one; it records the owner of a brand-new session.
-    await claimSession(resolved.sessionId, handlerCtx)
+    // The watch does not know the session's folder, so a new session waits for
+    // the prompt that names it before the organization can see it.
+    const resource = { kind: 'session', id: resolved.sessionId } as const
+    if (startsSession && deps.shares && isOrganizationSpace(handlerCtx.principal)) {
+      sessionsAwaitingFolder.add(resolved.sessionId)
+      await deps.shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization: false })
+    } else {
+      await deps.shares?.claimOwner(resource, handlerCtx.principal)
+    }
     return resolved
   })
 
   server.register('unwatchSession', (args, handlerCtx) => {
     const [sessionId] = args
     log.info('rpc_unwatch_session', { sessionId })
+    sessionsAwaitingFolder.delete(sessionId)
     controlPlane.unwatchSession(sessionId, requireClientId(handlerCtx))
   })
 
   server.register('createHeadlessSession', async (args, handlerCtx) => {
     const [request] = args
     log.info('rpc_create_headless_session', { provider: request.provider })
+    request.cwd = resolveUnknownFolder(request.cwd, handlerCtx.principal)
     const created = await controlPlane.createSession(request, turnActorFor(handlerCtx.principal))
-    await claimSession(created.agentSessionId, handlerCtx)
+    await claimSession(created.agentSessionId, handlerCtx, request.cwd)
     return created
   })
 
@@ -211,7 +245,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       sessionId: ctx.session.sessionId,
       agentSessionId: ctx.session.agentSessionId,
     })
-    await claimSession(ctx.session.sessionId, handlerCtx)
+    resolveUnknownFolders(ctx, handlerCtx.principal)
+    await claimSession(ctx.session.sessionId, handlerCtx, ctx.session.workingDirectory)
     return controlPlane.bindRuntimeSession(ctx, requireClientId(handlerCtx))
   })
 
@@ -239,7 +274,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
-    await claimSession(sessionId, handlerCtx)
+    resolveUnknownFolders(ctx, handlerCtx.principal)
+    await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
     // A recording sent to an agent is part of the transcript now, so the
     // retention sweep must not delete it. A failure here must not fail the turn.
     void recordingRetention().keepRecordingsSentIn(options.prompt).catch((error) => {
@@ -272,6 +308,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
+    resolveUnknownFolders(ctx, handlerCtx.principal)
     return controlPlane.retry(ctx, options, handlerCtx.clientId, turnActorFor(handlerCtx.principal))
   })
 

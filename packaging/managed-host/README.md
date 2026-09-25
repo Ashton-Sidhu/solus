@@ -40,8 +40,14 @@ The Sprite's proxy forwards its URL to the server's proxied listener on
 only `/health`, `/auth/ws-ticket`, and signed assets exist there, and every caller
 needs a grant. There is no `cloudflared` and no tunnel.
 
-A running service keeps the Sprite awake. Stopping the host stops the service and the
-Sprite pauses; starting it is the control plane starting the service again.
+A running service does not keep the Sprite awake. Only inbound HTTP work, or a live
+Tasks API hold (one hour at most, renewed), keeps it running; with neither, the Sprite
+pauses. An agent turn makes only outbound calls, so a turn with no client connected
+can pause with the Sprite. The control plane is to hold a task while a turn runs,
+while a permission or question waits, and for scheduled automations
+(`plans/004-shared-host-collaboration.md`, "A pause stops everyone"). That hold is
+not built yet. Stopping the host stops the service; starting it is the control plane
+starting the service again.
 
 ## Layout on the disk (§3)
 

@@ -14,6 +14,7 @@ import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
+import { createLogger } from '../../logger'
 import { runAsync } from '../../git/exec'
 import { createGitAskpassHelper, gitAuthEnv, type GitAuthEnv } from '../../git/git-auth-env'
 import { loadToken as loadGithubToken } from '../../providers/github/token-store'
@@ -23,7 +24,7 @@ import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getHostConfig, getServerSettings, setProjectsBaseDirectory } from '../settings'
-import { WORKSPACE_DIR } from '../../workspace'
+import { MEMBER_CHAT_FOLDER_NAME, memberFolderUserIdSchema, setupProjectsRoot, WORKSPACE_DIR } from '../../workspace'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from './lib/host-path'
@@ -45,6 +46,8 @@ import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { initRepository } from '../../git/git-init'
 import { dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import type { CheckoutService } from '../../git/checkout-service'
+
+const log = createLogger('main', 'setup-handlers')
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
@@ -134,7 +137,7 @@ export interface CapabilityProbeOptions {
   headless: boolean
   desktopHandlers: boolean
   version: string
-  /** Who is asking: a member's pickers open on their own workspace (managed-hosts.md §3). */
+  /** Who is asking: a member's pickers open on their own member folder (managed-hosts.md §3). */
   principal?: Principal
 }
 
@@ -159,8 +162,39 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     },
     ...projectsBaseDirectoryFor(opts.principal),
     agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
-    workspacePath: WORKSPACE_DIR,
+    ...chatFolderCapability(opts.principal),
   }
+}
+
+/**
+ * The caller's chat folder, as capabilities report it. A chat folder inside a Git
+ * work tree (a worktree-local `SOLUS_DATA_DIR` in development) is left out: an
+ * agent there would read and change that repository, so the client hides
+ * Scratchpad instead.
+ */
+export function chatFolderCapability(principal: Principal | undefined, hostRoot = setupProjectsRoot()): Pick<ServerCapabilities, 'workspacePath'> {
+  const chatFolder = chatFolderFor(principal, hostRoot)
+  return isInsideGitWorkTree(chatFolder) ? {} : { workspacePath: chatFolder }
+}
+
+/** Per folder: every capability probe asks, and the answer does not change while the host runs. */
+const gitWorkTreeFolders = new Map<string, boolean>()
+
+/** True when a `.git` entry sits in the folder or above it. No git process: this runs on every probe. */
+function isInsideGitWorkTree(folder: string): boolean {
+  const known = gitWorkTreeFolders.get(folder)
+  if (known !== undefined) return known
+  let inside = false
+  for (let dir = resolve(folder); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, '.git'))) {
+      inside = true
+      break
+    }
+    if (dirname(dir) === dir) break
+  }
+  gitWorkTreeFolders.set(folder, inside)
+  if (inside) log.warn('chat_folder_in_git_worktree', { chatFolder: folder })
+  return inside
 }
 
 /** Capability probes intentionally skip the launcher's cache. Off the main
@@ -245,23 +279,6 @@ export function coerceSetupAgent(value: string): SetupAgent {
 
 
 /**
- * Where projects land on this host — where "New project" creates a folder and a
- * clone goes. Settings → General owns the answer; a host that never set one
- * falls back to `SOLUS_PROJECTS_ROOT` (the managed image's volume path,
- * managed-hosts.md §3) and then to `~/projects`, so new projects never land
- * loose in the home folder.
- */
-export function setupProjectsRoot(
-  settings: Pick<ReturnType<typeof getServerSettings>, 'projectsBaseDirectory'> = getServerSettings(),
-  homeDirectory = homedir(),
-  env: { SOLUS_PROJECTS_ROOT?: string } = process.env,
-): string {
-  const configured = settings.projectsBaseDirectory?.trim() || env.SOLUS_PROJECTS_ROOT?.trim()
-  if (configured) return expandHome(configured, homeDirectory)
-  return join(homeDirectory, 'projects')
-}
-
-/**
  * The projects folder as this principal's pickers and Settings see it: the
  * folder in use, never the raw setting, so a cloud member reads their own
  * `/data/projects/<userId>` and an unset host reads `~/projects`. The folder is
@@ -280,34 +297,55 @@ export function projectsBaseDirectoryFor(
   }
 }
 
-/** A Better Auth user id; nothing that could walk the filesystem. */
-const workspaceUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
-
 /**
  * Where one person's projects land (managed-hosts.md §3). The host's root for its
- * owner and for the host's own work; a member of the organization gets a directory
- * of their own beneath it, named by their account id, so each person clones into a
- * workspace that is theirs and two people never share one main checkout. It is a
- * default and the member's view (`projectsVisibleTo`), not a boundary: a member may
- * still open a path a shared session names.
+ * owner and for the host's own work; a member of the organization gets a member
+ * folder of their own beneath it, named by their account id, so each person clones
+ * into a folder that is theirs and two people never share one main checkout. It is
+ * a default and the member's view (`projectsVisibleTo`), not a boundary: a member
+ * may still open a path a shared session names.
  */
 export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
   if (principal?.kind !== 'org-member') return hostRoot
-  const workspace = join(hostRoot, workspaceUserIdSchema.parse(principal.userId))
-  mkdirSync(workspace, { recursive: true })
-  return workspace
+  const memberFolder = join(hostRoot, memberFolderUserIdSchema.parse(principal.userId))
+  mkdirSync(memberFolder, { recursive: true })
+  return memberFolder
 }
 
 /**
- * The projects a listing shows this principal: a member sees their own workspace
- * only, so another person's checkout is never offered as theirs to open; the owner
- * and the host itself see every project.
+ * Where this principal's sessions with no project run (Scratchpad). A member of an
+ * organization gets a chat folder inside their member folder, so two members never
+ * share one; this also holds on a personal host shared with an organization. The
+ * owner, the host itself, and a personal host keep the owner's chat folder
+ * (`WORKSPACE_DIR`) at its old path, so old sessions still resume.
+ */
+export function chatFolderFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  const chatFolder = principal?.kind === 'org-member'
+    ? join(projectsRootFor(principal, hostRoot), MEMBER_CHAT_FOLDER_NAME)
+    : WORKSPACE_DIR
+  try {
+    mkdirSync(chatFolder, { recursive: true })
+  } catch (err) {
+    log.warn('chat_folder_create_failed', { chatFolder, error: String(err) })
+  }
+  return chatFolder
+}
+
+/** A bare `~` is the client's "no folder known yet": the caller's chat folder. `~/x` is a home path and stays. */
+export function resolveUnknownFolder(path: string, principal: Principal | undefined): string {
+  return path === '~' ? chatFolderFor(principal) : path
+}
+
+/**
+ * The projects a listing shows this principal: a member sees their own member
+ * folder only, so another person's checkout is never offered as theirs to open;
+ * the owner and the host itself see every project.
  */
 export function projectsVisibleTo<T extends { path: string }>(principal: Principal | undefined, projects: T[], hostRoot = setupProjectsRoot()): T[] {
   if (principal?.kind !== 'org-member') return projects
-  const workspace = projectsRootFor(principal, hostRoot)
+  const memberFolder = projectsRootFor(principal, hostRoot)
   return projects.filter((project) => {
-    const inside = relative(workspace, resolve(project.path))
+    const inside = relative(memberFolder, resolve(project.path))
     return inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))
   })
 }
@@ -318,7 +356,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const hasCommand = deps.hasCommand ?? commandExists
   const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
   const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
-  /** The caller's own workspace beneath the host root (managed-hosts.md §3). */
+  /** The caller's own member folder beneath the host root (managed-hosts.md §3). */
   const projectsRootOf = (ctx: HandlerCtx) => projectsRootFor(ctx.principal, projectsRoot())
   /** The last step of both cloning and adopting; returns the key both promise. */
   const registerProject = deps.registerProject ?? (async (path: string) => {
