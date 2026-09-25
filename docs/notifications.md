@@ -48,6 +48,11 @@ The sound covers every event. Toasts and system alerts are driven by attention
 entries, so they cover approvals, questions, failures, and finished turns; the
 page says so in the Delivery section.
 
+A session toast shows the same status glyph and color as the session's sidebar
+row (`attentionStateForKind` into `SessionStatusGlyph`): the needs-input glyph
+for an approval or a question, the error glyph for a failure, and the finished
+check for a finished turn. System alerts keep the platform's own icon.
+
 ## App notices
 
 | Event | Sources |
