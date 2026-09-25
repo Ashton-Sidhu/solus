@@ -168,22 +168,23 @@ export const directoryResponseSchema = z.object({
 socket per endpoint, as today, and exposes the two concepts separately:
 
 ```ts
-workspace(): WorkspaceConnection | null      // the active organization's workspace
-recordHome(record): CollaborationApi         // the home of one record: a workspace or a machine
-isKnownServer(id: string): boolean          // see §6
-defaultMachineId(): string | null            // where new work goes
+defaultServerId(): string | null             // the window's own record home (the primary)
+defaultMachineId(): string | null            // where new work runs; never the workspace service
+isKnownServer(id: string): boolean           // see §6
 ```
 
-- `registerPrimary`, `defaultServerId()`, `setPrimary` and
-  `WorkspaceContext.fallbackServerId` go away. `setPrimary` becomes
-  `setDefaultMachine`.
-- The default machine is, in order: the machine the person chose last (a device
-  setting that replaces the part of `activeServerId` that named a machine), the
-  machine cloud onboarding chose, the organization's managed host, and the first
-  online machine the person owns. It is only ever a host that serves `execution`
-  (`hostRolesStore.hasExecution`), so the workspace service can never be picked.
-- The workspace is the active organization's service, or null when the account
-  is in no organization or signed out. Switching organization swaps it.
+- **The primary is the window's record home.** Boot registers it: the desktop's
+  own machine, the machine that served a web page, or — at the account origin —
+  the organization's workspace service. Records with no narrower home (a new
+  task, a work, an automation listing, pins, push) go there. That is right in
+  every case, so boot is unchanged (revised 2026-09-24: an earlier draft made
+  boot stop registering the workspace service; once machine work stopped
+  reading the primary, that change had nothing left to fix).
+- **The default machine** (`chooseDefaultMachine`, `server-registry.ts`) is the
+  primary when it is a machine, else the desktop's own, else the active
+  organization's managed host, else the first connected machine; null when there
+  is none. It is never a `cloud` row. Every read that means "a machine" uses it
+  (§5.4); `WorkspaceContext.fallbackServerId` is it, then the primary.
 
 ### 5.2 Typed APIs by plane
 
@@ -195,39 +196,38 @@ type CollaborationApi = Pick<SolusAPI, CollaborationMethod>
 type ExecutionApi = Pick<SolusAPI, ExecutionMethod>
 ```
 
-`workspace().api` and `recordHome(record)` are a `CollaborationApi`; a live
-machine's `api` is an `ExecutionApi` (a laptop, the home of its own records,
-hands out both). A call such as
-`workspace().api.start()` is then a compile error, not a runtime
-`PLANE_DISABLED`. `PLANE_DISABLED` remains the server's guard against an older
-client.
+A host's API is a `CollaborationApi` when it serves only that plane (the
+workspace service) and both when it is a machine; `apiFor` answers with the
+narrow type for a `cloud` row. A call such as `start()` on the workspace service
+is then a compile error, not a runtime `PLANE_DISABLED`. `PLANE_DISABLED`
+remains the server's guard against an older client.
 
 ### 5.3 Boot
 
-`bootFromCatalog` has two steps, not one list of candidates:
-
-1. **Workspace.** When the account is signed in, dial the active organization's
-   workspace from the directory's `workspaces`.
-2. **Machines.** Every saved machine gets a supervisor
-   (`startCatalogSupervisors`, unchanged), and the default machine is resolved
-   (§5.1). At a machine's origin that machine is saved as before.
-
-Either one mounts the app: a workspace with no machine, or a machine with no
-workspace. With neither, the page is the hostless home, as today.
+Unchanged (§5.1): boot registers the window's record home as the primary, and
+every saved machine gets a supervisor (`startCatalogSupervisors`). A window at
+the account origin with no machine mounts on the workspace service alone.
 
 ### 5.4 What moves where
 
-The ~85 primary reads fall into four groups:
+The primary reads (`defaultServerId()`, `fallbackServerId`, the workspace's own
+sessionless default) fall into two groups:
 
-- **Execution with no run**: `refreshUsage` → `usageLimits()`, plugin commands
-  for a hostless draft, voice model, browser, attachments. They go to
-  `defaultMachine()` and do nothing when it is null.
-- **Startup facts** (§5.5): `initStaticInfo` → `start()` goes away.
-- **Collaboration**: tasks, works, automations, insights, the task page. They go
-  to the record's home (`recordHome`); boards read every home they show.
-- **Machine chosen by the caller**: pickers, settings' host selector, project
-  favicon, Git dropdown. They already have a machine id from their context and
-  keep it; the fallback becomes `defaultMachine()`.
+- **Machine work** uses `defaultMachineId()` and reads nothing when it is null:
+  `start()`, usage, plugin commands, voice model and transcription, insights
+  (`metrics*` are execution), attachments, the directory picker and its Git
+  identity, project favicons, skills, the capability mirror
+  (`connectionsStore.capabilities`: agents, dictation, desktop handlers), local
+  onboarding, remote history scanning, the Settings host selector (it lists
+  machines only), automation drafting and seeding, and sessionless Git and
+  context calls. Web prompt dispatch asks for a host when the run's host runs no
+  agents.
+- **Records** keep the primary: tasks, works, the automation listing, pins,
+  push subscription, notification labels, host discovery.
+
+Left as it is: the task page offers no "start session" for a task whose home is
+the workspace service (its own stated rule), although `openTaskSession` can
+route such a task to a machine. Whether to offer it is a product call.
 
 ### 5.5 Startup facts become machine facts
 
@@ -324,36 +324,32 @@ Each step ships alone and leaves the tree green.
    host, `defaultStartProject` treating it as down, the Git and saved-prompt
    reads skipping it, `markDirectoryAnswered`, and
    `reconcileMachineReferences` (§6). *Fixes `Unknown Solus server`.*
-3. **Split the primary reads** (client). `serverConnections.workspaceServerId()`
-   for collaboration; every `defaultServerId()` and `fallbackServerId` read
-   (§5.4) moves to it or to `defaultMachineId()`. This comes before boot: while
-   records are reached through "the primary", making a machine the primary
-   would move record reads (works, tasks, automations) off the workspace
-   service.
-4. **Boot in two steps** (client). Workspace first, machines second;
-   `registerPrimary` and `activeServerId` stop naming the workspace.
-5. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field
+3. **Split the primary reads** (client). Machine work moves to
+   `defaultMachineId()`; records keep the primary (§5.4). Boot stays as it is
+   (§5.1). Steps 1–3 are on `refactor/record-homes-and-machines`.
+4. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field
    beside the old rows; the client reads `workspaces` when present and the
    `kind: 'cloud'` rows otherwise.
-6. **Drop the cloud rows** (solus-cloud) once clients from step 5 are the
+5. **Drop the cloud rows** (solus-cloud) once clients from step 4 are the
    oldest supported. Remove `kind: 'cloud'`, `isActiveWorkspace`,
    `isCloudServer`, `cloudConnections`, and `savedCloudServerIds`.
-7. **Typed plane APIs** (client). `CollaborationApi`/`ExecutionApi`; delete
-   `defaultServerId`, `fallbackServerId`, and `defaultHostApi`.
+6. **Typed plane APIs** (client). `CollaborationApi`/`ExecutionApi`, so a
+   machine call on the workspace service does not compile.
 
 ## 9. Proofs
 
-- Unit: `defaultMachine()` never returns a collaboration-only host; the `gone`
-  rule over successful, failed, and missing directory reads; each row of the
-  §6 table.
-- Unit, the regression: a cloud origin whose saved `lastProject` and a draft
-  name a machine the directory no longer lists loads with no
-  `Unknown Solus server` and no `PLANE_DISABLED`.
+- Unit (`tests/unit/default-machine.test.ts`): the default machine is never the
+  workspace service; usage and `start()` read nothing with no machine and read
+  once when one is there.
+- Unit (`tests/unit/machine-references.test.ts`): each row of the §6 table, and
+  which ids are known.
+- Unit (`tests/unit/cloud-origin-startup.test.ts`): only a merged directory
+  marks the saved hosts authoritative.
 - Lab: a workspace-only member (no machine) opens tasks, a mirrored session,
   and a work, and the composer says "Choose a machine".
 - Lab: deleting the organization's managed host while a client is open moves
   its drafts and leaves its started tabs read-only.
-- Type: `workspace().api.start` does not compile (a `@ts-expect-error` test).
+- Type (step 6): `start()` on the workspace service's API does not compile (a `@ts-expect-error` test).
 
 ## 10. Decisions
 
@@ -363,5 +359,7 @@ Each step ships alone and leaves the tree green.
   home (§3).
 - **A machine joining an organization**: nothing moves; records stay local
   first; moving is explicit (§7).
-- **Startup facts**: per machine, in the capability record; every reader names
-  its machine and has a "no machine" state (§5.5).
+- **Startup facts**: the default machine's, read again when it changes; each
+  reader moves to the machine it names later (§5.5).
+- **Boot**: unchanged. The primary is the window's record home; machine work
+  reads the default machine instead (§5.1).
