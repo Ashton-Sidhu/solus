@@ -12,6 +12,7 @@
     PR_DELETIONS_TONE,
     PR_VERDICT_TONE,
   } from "./lib/pr-row-styles";
+  import { TouchLongPress } from "./lib/touch-long-press";
 
   /** One pull request in the list: the lifecycle glyph, then a
    *  two-by-two grid. The title leads line one and the outcome — verdict,
@@ -24,17 +25,22 @@
    *  the row is narrower, not different: it sheds facts by its own width —
    *  the labels first, then the author's name, then the age.
    *
-   *  The line itself is the click target. `leading` is a sibling of that
-   *  button so the page can hang its review checkbox on the row without
-   *  nesting interactive elements inside a button. */
+   *  The line itself is the click target. `leading` and `actions` are
+   *  siblings of that button so the page can hang its review checkbox and
+   *  its Shift quick actions on the row without nesting interactive elements
+   *  inside a button. A touch long-press opens the context menu, which is how
+   *  a phone reaches the same actions. */
   interface Props {
     row: PrRowSpec;
     selected?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
     leading?: Snippet;
+    actions?: Snippet;
   }
-  let { row, selected = false, onSelect, onContextMenu, leading }: Props = $props();
+  let { row, selected = false, onSelect, onContextMenu, leading, actions }: Props = $props();
+
+  const longPress = new TouchLongPress((event) => onContextMenu?.(event));
 
   const glyph = $derived(prStatusGlyph(row.status));
   const checks = $derived(row.checks ? checksChip(row.checks) : null);
@@ -51,6 +57,10 @@
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
   oncontextmenu={onContextMenu}
+  onpointerdown={(event) => longPress.start(event)}
+  onpointerup={() => longPress.cancel()}
+  onpointercancel={() => longPress.cancel()}
+  onpointermove={() => longPress.cancel()}
   role="group"
 >
   {#if leading}{@render leading()}{/if}
@@ -58,7 +68,9 @@
   <button
     type="button"
     class="grid h-full min-w-0 flex-1 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-3 overflow-hidden border-0 bg-transparent p-0 text-left focus-visible:outline-none"
-    onclick={onSelect}
+    onclick={() => {
+      if (!longPress.consumeClick()) onSelect?.();
+    }}
     data-list-row
   >
     <!-- The state as a shape and a tone, not a word: the same glyph the PR
@@ -150,4 +162,6 @@
       </span>
     </span>
   </button>
+
+  {#if actions}{@render actions()}{/if}
 </div>

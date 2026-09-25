@@ -50,6 +50,15 @@
   import PrDetailPanel from "./PrDetailPanel.svelte";
   import PrListBody from "./PrListBody.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
+  import PrActionConfirm from "../pr-review/PrActionConfirm.svelte";
+  import {
+    prMergeConfirmation,
+    prRowActionForKey,
+    prRowActions,
+    runPrRowAction,
+    type PrRowActionKind,
+  } from "./lib/pr-row-actions";
+  import { ShiftHeld } from "./lib/shift-held.svelte";
   import PrsPageSkeleton from "./PrsPageSkeleton.svelte";
   import PrListToolbar from "./PrListToolbar.svelte";
   import PrListStates from "./PrListStates.svelte";
@@ -99,6 +108,18 @@
   let pageWidth = $state(0);
   const viewerLogins = new SvelteMap<string, string>();
   let prContextMenu = $state<{ pr: PullRequest; x: number; y: number } | null>(null);
+
+  // Shift held while this page is open shows every row's quick actions.
+  const shiftHeld = new ShiftHeld();
+  $effect(() => {
+    if (!open) return;
+    return shiftHeld.listen(window);
+  });
+  // A merge cannot be taken back, so every path to it asks first. The row is
+  // held by key and read back, so the dialog describes the pull request as it
+  // is now.
+  let mergeKey = $state<string | null>(null);
+  let mergeConfirmOpen = $state(false);
 
   // Tick the clock so relative row times age instead of freezing at load.
   let now = $state(Date.now());
@@ -387,6 +408,7 @@
   }
 
   const selectedPr = $derived(selectedKey ? (prByKey(selectedKey) ?? null) : null);
+  const mergePr = $derived(mergeKey ? (prByKey(mergeKey) ?? null) : null);
 
   // ── The detail panel ──
   // A pull request comes out from the side of the list rather than replacing it:
@@ -474,6 +496,19 @@
     if (pageScope.allProjects) aggregateSelectedKey = keyOf(pr);
     else listView.selectedNumber = pr.number;
     prContextMenu = { pr, x: event.clientX, y: event.clientY };
+  }
+
+  function requestRowAction(pr: PullRequest, kind: PrRowActionKind) {
+    if (kind === "merge") {
+      mergeKey = keyOf(pr);
+      mergeConfirmOpen = true;
+    } else void runRowAction(pr, kind);
+  }
+
+  async function runRowAction(pr: PullRequest, kind: PrRowActionKind) {
+    const target = targetFor(pr);
+    if (!target) return;
+    await runPrRowAction(store.get(target.api, target.serverId, target.ctx).get(pr.number), kind);
   }
 
   // ── Data loading ──
@@ -753,7 +788,11 @@
 
   // ── List keyboard nav ──
   function onListKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const rowAction = selectedPr ? prRowActionForKey(e, prRowActions(selectedPr)) : null;
+    if (rowAction && selectedPr) {
+      e.preventDefault();
+      requestRowAction(selectedPr, rowAction);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const idx = selectedKey
         ? listNavigationItems.findIndex((p) => keyOf(p) === selectedKey)
@@ -939,12 +978,14 @@
             hasMore={hasMorePullRequests}
             loadingMore={loadingMorePullRequests}
             {loadCapped}
+            showRowActions={shiftHeld.isHeld}
             {prByKey}
             {isSectionOpen}
             onToggleSection={(key) => (listView.collapsedGroups[key] = isSectionOpen(key))}
             onSelect={(pr) => selectPr(pr)}
             onContextMenu={openPrContextMenu}
             onToggleReview={(pr) => reviewSelection.toggle(pr)}
+            onRowAction={requestRowAction}
             onLoadMore={loadMoreAll}
           />
         {/if}
@@ -1008,7 +1049,17 @@
         onOpen={() => selectPr(menuPr)}
         onReview={() => selectPr(menuPr, "diff")}
         onOpenWeb={() => void localApi.openExternal(menuPr.url)}
+        actions={prRowActions(menuPr)}
+        onAction={(kind) => requestRowAction(menuPr, kind)}
         onClose={() => (prContextMenu = null)}
+      />
+    {/if}
+    {#if mergePr}
+      {@const merging = mergePr}
+      <PrActionConfirm
+        bind:open={mergeConfirmOpen}
+        {...prMergeConfirmation(merging)}
+        onConfirm={() => void runRowAction(merging, "merge")}
       />
     {/if}
     {/if}

@@ -72,6 +72,27 @@ narrows; it is not covered, so the queue stays readable and J / K walk it.
 - Rows keep their full layout beside the panel. As a row narrows it drops the
   labels first, then the author's name, then the age.
 
+## Row actions
+
+A row can merge, close, reopen, or mark a draft ready for review without
+opening the pull request. A row shows only the actions that its state and your
+permissions allow: an open pull request offers **Merge** and **Close**, a draft
+offers **Ready** and **Close**, a closed one offers **Reopen**, and a merged one
+offers nothing.
+
+- **Shift** — while you hold Shift on the page, every row shows its actions as
+  compact buttons. Shift in a text field does not show them. They go away when
+  you release Shift or the window loses focus.
+- **Keyboard** — on the highlighted row, press Shift+M (merge), Shift+C
+  (close), Shift+O (reopen), or Shift+R (ready). The row buttons are not in the
+  Tab order, because they exist only while Shift is held.
+- **Context menu** — right-click a row, or press and hold it on a touch
+  screen. The menu has the same actions, so a phone gets them without Shift.
+
+Merge always asks for confirmation first, and merges with the repository's
+default method. Every action changes the row at once. If the host refuses, the
+row goes back to its earlier state and an error message tells you why.
+
 ## Row colours
 
 The state glyph, review verdict, checks mark and diff counts use full-strength
