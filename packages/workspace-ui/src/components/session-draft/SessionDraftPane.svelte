@@ -1,11 +1,13 @@
 <script lang="ts">
   import {
+    connectionsStore,
     getWorkspaceContext,
     getSettingsContext,
     getSessionSidebarStore,
+    getSessionEnvironmentStore,
     runtime,
   } from "../../contexts";
-  import { projectDirLabel } from "../../lib/paths";
+  import { isChatFolder, projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
@@ -22,6 +24,10 @@
   import InputBar from "../input/InputBar.svelte";
   import InputBarHeader from "../input/InputBarHeader.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
+  import { scratchpadCheckout } from "../input/lib/project-chip-options";
+  import { aimRunAtCheckout } from "../input/lib/project-selection";
+  import { projectHostId } from "../servers/run-on";
+  import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
   import { draftPluginCommandScope } from "./lib/plugin-command-scope";
   import { draftModelSelection } from "./lib/draft-selection";
 
@@ -44,6 +50,7 @@
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
   const sidebar = getSessionSidebarStore();
+  const environmentStore = getSessionEnvironmentStore();
 
   // A narrow pane reads top-down with the composer at the bottom, not as a
   // centred hero: the question leads, the destination is checkable beneath it,
@@ -106,12 +113,36 @@
   const projectRoot = $derived(
     gitHome.projectRoot ?? draft?.run.workingDirectory ?? "~",
   );
+  // The host the folder is on — a draft headed for another host names that
+  // host's folder — so a chat there reads "Scratchpad" too.
+  const projectHost = $derived(draft ? projectHostId(draft.run) : null);
   const projectName = $derived(
-    projectDirLabel(projectRoot, session.staticInfo?.workspacePath),
+    projectDirLabel(projectRoot, connectionsStore.chatFolderFor(projectHost)),
   );
   // No project chosen yet — "build in ~?" names nothing, so the question drops
   // its object and only the chip below is left to do the choosing.
   const hasProject = $derived(projectName !== "~");
+  // "or just chat": Scratchpad on the host this draft will run on. Absent in
+  // Scratchpad already — the project chip is the way back — and on a host that
+  // offers none.
+  const scratchpad = $derived(
+    draft ? scratchpadCheckout(draft.run, (serverId) => connectionsStore.chatFolderFor(serverId)) : null,
+  );
+  const offersJustChat = $derived(
+    hasProject &&
+      !!scratchpad &&
+      !isChatFolder(projectRoot, connectionsStore.chatFolderFor(projectHost)),
+  );
+
+  function justChat() {
+    const current = draft;
+    const target = scratchpad;
+    if (!current || !target) return;
+    void aimRunAtCheckout(session, environmentStore, current.id, target).then(
+      () => composerInput?.focus(),
+      () => {},
+    );
+  }
   // Only a headline click sets an external anchor. Closing clears it so the
   // next open from the input header uses the chip's own trigger.
   let projectPickerOpen = $state(false);
@@ -292,6 +323,18 @@
         What should we build?
       {/if}
     </h1>
+    {#if offersJustChat}
+      <button
+        type="button"
+        class={cn(
+          "-mt-3 rounded-sm text-workspace-chrome text-(--solus-text-tertiary) underline-offset-4 transition-colors duration-[var(--duration-quick)] hover:text-(--solus-text-secondary) hover:underline focus-visible:text-(--solus-text-secondary) focus-visible:underline focus-visible:outline-none",
+          isPhone ? "self-start" : "self-center",
+        )}
+        onclick={justChat}
+      >
+        or just chat
+      </button>
+    {/if}
 
     {#if isPhone}
       <!-- One surface for everything under the headline (ADR-0013). -->
@@ -346,6 +389,15 @@
           }
         }
       />
+
+      {#if current.run.serverId}
+        <!-- Before the first send, on a host that runs turns on the member's
+             own seat: the seat this draft's agent still needs there. -->
+        <SeatNeededNotice
+          serverId={current.run.pendingHostDispatch?.serverId ?? current.run.serverId}
+          provider={current.run.provider ?? session.defaultRunConfig.provider ?? theme.activeAgent}
+        />
+      {/if}
 
       <div
         class={cn(

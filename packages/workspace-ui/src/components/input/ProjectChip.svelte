@@ -4,7 +4,6 @@
     Check as CheckIcon,
     CircleAlert as CircleAlertIcon,
     FolderOpen as FolderOpenIcon,
-    House as HouseIcon,
     LoaderCircle as LoaderIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
@@ -12,12 +11,11 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import {
     connectionsStore,
-    getWorkspaceContext,
     serversStore,
     projectsStore,
     type ProjectRef,
   } from "../../contexts";
-  import { isWorkspaceDir } from "../../lib/paths";
+  import { isChatFolder, SCRATCHPAD_LABEL } from "../../lib/paths";
   import { projectHostId } from "../servers/run-on";
   import NewProjectNameField from "../servers/NewProjectNameField.svelte";
   import { newProjectPath } from "../servers/lib/open-project-flow";
@@ -32,7 +30,11 @@
   import ProjectRowAction from "../ui/ProjectRowAction.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { MenuFooter, MenuSearch } from "../ui/menu";
-  import { projectChipOptions, type ProjectChipOption } from "./lib/project-chip-options";
+  import {
+    projectChipOptions,
+    scratchpadCheckout,
+    type ProjectChipOption,
+  } from "./lib/project-chip-options";
 
   interface Props {
     /** Where the next session will run. Read for its host, never written here. */
@@ -67,15 +69,17 @@
     anchor = null,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
-  const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
   // The host the project lives on, and the host the run is headed for. They
   // differ for a dispatch, whose project stays home while the agent moves.
   const hostId = $derived(projectHostId(run));
   const selectedHostId = $derived(run.pendingHostDispatch?.serverId ?? run.serverId);
-  const localHost = $derived(serversStore.servers.find((server) => server.local) ?? null);
-  const onWorkspace = $derived(
-    hostId === localHost?.id && isWorkspaceDir(projectDir, workspacePath),
+  // Scratchpad on the host the run is headed for, on every client; absent
+  // when that host offers none.
+  const scratchpad = $derived(
+    scratchpadCheckout(run, (serverId) => connectionsStore.chatFolderFor(serverId)),
+  );
+  const inScratchpad = $derived(
+    isChatFolder(projectDir, connectionsStore.chatFolderFor(hostId)),
   );
   const currentKey = $derived(projectsStore.projectKeyFor(hostId, projectDir));
   // One row per project across every host. The current folder is offered even
@@ -90,7 +94,7 @@
     const offersCurrent =
       !!projectDir &&
       projectDir !== "~" &&
-      !onWorkspace &&
+      !inScratchpad &&
       !options.some((option) => option.key === currentKey) &&
       !projectsStore.isRemoved({ serverId: hostId, projectRoot: projectDir });
     return offersCurrent
@@ -314,6 +318,25 @@
         >
           No projects match
         </Command.Empty>
+        <!-- Scratchpad leads: the one place that needs no project. -->
+        {#if scratchpad}
+          <Command.Item
+            value="scratchpad just chat"
+            onSelect={() => activate(scratchpad)}
+            data-menu-current={inScratchpad ? "" : undefined}
+          >
+            <ProjectFavicon
+              projectRoot={scratchpad.projectRoot}
+              serverId={scratchpad.serverId}
+              class="size-[13px]"
+            />
+            <span class="min-w-0 flex-1 truncate">{SCRATCHPAD_LABEL}</span>
+            {#if inScratchpad}
+              <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+            {/if}
+          </Command.Item>
+          <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
+        {/if}
         <Command.Group heading="Projects">
           {#each projects as project (project.key)}
             {@const isCurrent = project.key === currentKey}
@@ -356,22 +379,6 @@
           <FolderOpenIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">Open project…</span>
         </Command.Item>
-        {#if workspacePath && localHost}
-          <Command.Item
-            value="my workspace"
-            onSelect={() => activate({ serverId: localHost.id, projectRoot: workspacePath })}
-            data-menu-current={onWorkspace ? "" : undefined}
-          >
-            <HouseIcon
-              size={13}
-              class="shrink-0 text-(--solus-text-tertiary)"
-            />
-            <span class="min-w-0 flex-1 truncate">My Workspace</span>
-            {#if onWorkspace}
-              <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-            {/if}
-          </Command.Item>
-        {/if}
       </Command.List>
     </Command.Root>
     <MenuFooter hints={[["⏎", "open"]]} summary="{projects.length} projects" />

@@ -24,6 +24,7 @@ import type { PrReviewTab } from '../prs/pr-view.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { workspaceProjectsStore } from '../projects/workspace-projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
+import { connectionsStore } from '../connections/connections.store.svelte'
 import { projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
@@ -66,7 +67,7 @@ import { clearPlanWaiting, openPlanModal, closePlanModal, approvePlanWithModel, 
 import { unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { projectDirLabel } from '../../lib/paths'
+import { isChatFolder, projectDirLabel } from '../../lib/paths'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -832,7 +833,7 @@ export class WorkspaceContext implements SurfaceContext {
       const key = sess.run.gitContext?.repoRoot ?? sess.run.workingDirectory ?? '~'
       let project = byKey.get(key)
       if (!project) {
-        project = { key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [] }
+        project = { key, label: projectDirLabel(key, connectionsStore.chatFolderFor(sess.run.serverId)), roots: [] }
         byKey.set(key, project)
       }
       for (const root of [sess.run.gitContext?.repoRoot, sess.run.gitContext?.worktreePath, sess.run.workingDirectory]) {
@@ -842,7 +843,8 @@ export class WorkspaceContext implements SurfaceContext {
     }
     if (byKey.size === 0) {
       const key = this.galleryProjectPath
-      return [{ key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [key] }]
+      const serverId = (this.activeSession?.run ?? this.defaultRunConfig).serverId
+      return [{ key, label: projectDirLabel(key, connectionsStore.chatFolderFor(serverId)), roots: [key] }]
     }
     return [...byKey.values()]
   }
@@ -1079,6 +1081,13 @@ export class WorkspaceContext implements SurfaceContext {
   private rememberLastProject(run: RunConfig): void {
     const directory = projectRootOf(run)
     if (!directory) return
+    // A Scratchpad chat also names the host "Just chat" goes back to.
+    if (
+      isChatFolder(directory, connectionsStore.chatFolderFor(run.serverId))
+      && this.settings.lastChatServerId !== run.serverId
+    ) {
+      this.settings.update({ lastChatServerId: run.serverId })
+    }
     const last = this.settings.lastProject
     if (last?.serverId === run.serverId && last.directory === directory) return
     this.settings.update({ lastProject: { serverId: run.serverId, directory } })

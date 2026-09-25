@@ -2,6 +2,8 @@ import type { SessionSpec } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { SvelteMap } from 'svelte/reactivity'
 import { serversStore } from '../connections/servers.store.svelte'
+import { connectionsStore } from '../connections/connections.store.svelte'
+import { isChatFolder } from '../../lib/paths'
 import { toasts } from '../../lib/toasts'
 import { type NavTarget, type PaneId } from './routing/location'
 import { CHAT_ROUTE } from './routing/route-registry'
@@ -118,8 +120,13 @@ export class SessionDrafts {
       this.workspace.opening.moveToRunOnHost(run)
     }
     // A host several people share starts every new session in its own worktree
-    // (docs/plans/project-model.md §7); a person's own machine does not.
-    if (serversStore.isolatesSessions(run.serverId) && !run.gitContext?.worktreePath) {
+    // (docs/plans/project-model.md §7); a person's own machine does not. A chat
+    // in Scratchpad has no repository to branch.
+    if (
+      serversStore.isolatesSessions(run.serverId)
+      && !run.gitContext?.worktreePath
+      && !isChatFolder(run.workingDirectory, connectionsStore.chatFolderFor(run.serverId))
+    ) {
       run.worktree = run.worktree ?? { baseBranch: null }
     }
     const draft = new SessionDraft(this.workspace.defaultRunConfig, run)
