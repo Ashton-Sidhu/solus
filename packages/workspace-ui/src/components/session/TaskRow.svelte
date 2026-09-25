@@ -36,6 +36,7 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
+  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
     task: SidebarTask;
@@ -253,6 +254,7 @@
         ? 'text-(--solus-status-complete)'
         : 'text-chart-5'}"
       role="img"
+      onanimationstart={alignStatusAnimationPhase}
       aria-label={mark.state === "ready"
         ? "Review guide ready"
         : "Generating review guide"}
@@ -275,6 +277,7 @@
     <span
       class="flex shrink-0 items-center text-chart-5"
       role="img"
+      onanimationstart={alignStatusAnimationPhase}
       aria-label={attentionLabel(task.attention)}
     >
       <SpinnerGapIcon size={14} class="animate-spin" />
