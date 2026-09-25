@@ -37,7 +37,6 @@ import type {
   IpcContext,
   MergeMethod,
   PrInterdiffResult,
-  PrMergeResult,
   PrReviewContext,
 } from '@solus/contracts/types'
 import { detached, type ProjectPrs } from './project-prs.svelte'
@@ -129,6 +128,10 @@ export class PullRequest implements Contracts.PullRequest {
    */
   #described = $state(false)
 
+  /** Each write in flight re-shows its outcome over whatever a read says in
+   *  the meantime: until the host answers the write, the write is newer. */
+  readonly #shownWhileWriting = new Set<() => void>()
+
   constructor(
     private readonly store: ProjectPrs,
     readonly number: number,
@@ -193,6 +196,9 @@ export class PullRequest implements Contracts.PullRequest {
     this.autoMergeEnabled = source.autoMergeEnabled
     this.autoMergeMethod = source.autoMergeMethod
     this.#described = true
+    // A read that left the host before a write it has not yet answered would
+    // otherwise put the write's outcome back the way it was.
+    for (const show of this.#shownWhileWriting) show()
   }
 
   /** The host and context this project reads through. */
@@ -381,20 +387,28 @@ export class PullRequest implements Contracts.PullRequest {
    *
    * Field by field, not a copied object: the fields are `$state` accessors, so
    * a spread of this instance holds none of them.
+   *
+   * A write the host accepts without describing the result keeps what it
+   * showed; the next read replaces it.
    */
   async #writeOptimistically(
     show: () => void,
     stillShown: () => boolean,
     restore: () => void,
-    write: () => Promise<Contracts.PullRequest>,
+    write: () => Promise<Contracts.PullRequest | undefined>,
   ): Promise<PullRequest> {
     show()
+    this.#shownWhileWriting.add(show)
+    let source: Contracts.PullRequest | undefined
     try {
-      return this.store.applyPullRequest(await write())
+      source = await write()
     } catch (error) {
       if (stillShown()) restore()
       throw error
+    } finally {
+      this.#shownWhileWriting.delete(show)
     }
+    return source ? this.store.applyPullRequest(source) : this
   }
 
   /** Close, reopen, mark ready, or return to draft. */
@@ -420,18 +434,32 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   /**
-   * Merge, and index whatever the host says the pull request became.
+   * Merge: show the pull request merged at once, and index whatever the host
+   * says it became. A refusal — thrown, or answered with `merged: false` —
+   * takes the merged state back and rejects with the host's reason.
    *
    * The head this client last saw is the concurrency token, so it is read here
    * rather than passed in: a caller holding an older copy than the index would
    * otherwise send a head the user never actually looked at.
    */
-  async merge(method: MergeMethod): Promise<PrMergeResult> {
+  async merge(method: MergeMethod): Promise<PullRequest> {
     const expectedHeadSha = this.headSha
     if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
-    const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
-    if (result.detail) this.store.applyPullRequest(result.detail)
-    return result
+    const before = this.state
+    return this.#writeOptimistically(
+      () => {
+        this.state = 'merged'
+      },
+      () => this.state === 'merged',
+      () => {
+        this.state = before
+      },
+      async () => {
+        const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
+        if (!result.merged) throw new Error(result.message ?? 'The code host refused the merge.')
+        return result.detail
+      },
+    )
   }
 
   /** Ask the host to merge with `method` once its requirements pass. The head

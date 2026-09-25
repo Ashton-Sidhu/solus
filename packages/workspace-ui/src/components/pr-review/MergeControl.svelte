@@ -62,11 +62,7 @@
     merging = true;
     menuOpen = false;
     try {
-      const result = await pullRequest.merge(selectedMethod);
-      if (!result.merged) {
-        toasts.error(result.message ?? "The code host refused the merge.");
-        return;
-      }
+      await pullRequest.merge(selectedMethod);
       merged = true;
       onMerged?.();
     } catch (err) {

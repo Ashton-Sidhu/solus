@@ -29,7 +29,7 @@ const MAC_DEAD_KEY_CODES = new Set(['KeyE', 'KeyI', 'KeyU', 'KeyN', 'Backquote']
 
 /** True when the keystroke lands in a text field — <input>, <textarea>, or any
  *  contentEditable region (the chat composer's Tiptap editor included). */
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const el = target
   return (
