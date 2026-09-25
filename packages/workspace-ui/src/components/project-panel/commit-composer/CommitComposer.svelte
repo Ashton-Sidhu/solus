@@ -9,6 +9,7 @@
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import { Button } from "../../ui/button";
+  import { MiddleTruncate } from "../../ui/middle-truncate";
   import { SearchField } from "../../ui/search-field";
   import { Textarea } from "../../ui/textarea";
   import { isMac } from "../../../lib/keybindings/match";
@@ -150,7 +151,7 @@
           title={branchName}
         >
           <GitBranchIcon size={11} class="shrink-0" />
-          <span class="truncate font-mono">{branchName}</span>
+          <MiddleTruncate value={branchName} showTitle={false} class="font-mono" />
         </span>
       {/if}
       <Button

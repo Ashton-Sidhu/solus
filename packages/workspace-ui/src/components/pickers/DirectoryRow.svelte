@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CornerLeftUp as ArrowElbowLeftUpIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { worktreeDisplayName } from "../../lib/git-context";
+  import { MiddleTruncate } from "../ui/middle-truncate";
 
   interface Props {
     id: string;
@@ -58,12 +59,12 @@
     {/if}
     <span class="min-w-0 shrink truncate text-[0.8125rem] max-md:text-sm max-md:font-medium max-md:tracking-[-0.005em]">{name}</span>
     {#if branch}
-      <span
-        class="shrink-0 truncate font-mono text-xs text-muted-foreground max-md:text-[0.6875rem]"
+      <MiddleTruncate
+        value={worktreeDisplayName(branch)}
+        showTitle={false}
         title="On branch {worktreeDisplayName(branch)}"
-      >
-        {worktreeDisplayName(branch)}
-      </span>
+        class="max-w-[45%] shrink-0 font-mono text-xs text-muted-foreground max-md:text-[0.6875rem]"
+      />
     {/if}
     {#if isProject}
       <!-- A folder Solus already tracks is a different kind of thing, not a

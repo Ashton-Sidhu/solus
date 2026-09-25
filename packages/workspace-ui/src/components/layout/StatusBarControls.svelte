@@ -15,6 +15,7 @@
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { isRunOnHostLocked } from "../servers/run-on";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
@@ -324,7 +325,7 @@
         {:else}
           <GitBranchIcon size={14} class="shrink-0 opacity-70" />
         {/if}
-        <span class="truncate">{displayBranchLabel}</span>
+        <MiddleTruncate value={displayBranchLabel} showTitle={false} />
         {#if creatingWorktree || worktreeModePending}
           <GitForkIcon
             size={9}

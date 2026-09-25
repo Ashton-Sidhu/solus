@@ -16,6 +16,7 @@
   import { projectsStore, runtime, serversStore } from "../../contexts";
   import { abbreviateHome } from "../../lib/paths";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
@@ -105,7 +106,7 @@
             <RepositoryIcon size={16} class="shrink-0 text-muted-foreground" />
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span class="truncate text-sm font-medium">{project.folderName}</span>
-              <span class="truncate text-xs text-muted-foreground">{abbreviateHome(project.path)}</span>
+              <MiddleTruncate value={abbreviateHome(project.path)} class="text-xs text-muted-foreground" />
             </span>
           </button>
         {/each}

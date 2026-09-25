@@ -8,6 +8,7 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { modelLabelFor, type AgentId } from "@solus/contracts/types";
   import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
@@ -104,7 +105,7 @@
       {#if resolvedBranchLabel}
         <div class="flex min-w-0 items-center gap-2">
           <GitBranchIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
-          <span class="min-w-0 truncate text-(--solus-text-secondary)">{resolvedBranchLabel}</span>
+          <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
       {#if attention}
