@@ -122,20 +122,6 @@ describe('session sidebar subtask rows', () => {
     expect(rows[0].sessionId).toBeUndefined()
   })
 
-  test('a fork belongs to its source task before its own subtask exists', () => {
-    // WHY: a fork's subtask is only minted after its first turn. Until then the
-    // sidebar has to place it by the parent it will hang under, or the fork is
-    // projected as a loose session sitting outside the task it came from.
-    const root = task('root', 'Ship the release')
-    const store = sidebarStore()
-    store.session = { tasksStore: { tasks: [root] } }
-    const resolve = (session: unknown) =>
-      (store as unknown as { pendingTaskFor(session: unknown): Task | undefined }).pendingTaskFor(session)
-
-    expect(resolve({ task: { kind: 'new', parentTaskId: root.id } })).toBe(root)
-    expect(resolve({ task: { kind: 'new' } })).toBeUndefined()
-  })
-
   test('the picker lists a task the sidebar has no row for, dismissals included', () => {
     // WHY: the sidebar column is this client's working set, so most pickable
     // tasks have no row in it. Reading their sessions through one reported them

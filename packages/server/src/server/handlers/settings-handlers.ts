@@ -34,6 +34,7 @@ export function registerSettingsHandlers(
     const [patch] = args
     const parsed = hostConfigPatchSchema.parse(patch ?? {})
     const snapshot = setHostConfig(parsed)
+    if (parsed.rateLimitBehavior === 'queue') deps.controlPlane.queueHeldRateLimitedPrompts()
     // Applied to the running process, not just persisted: an operator who turns
     // export on should see data arrive without restarting the host.
     if (parsed.otel) await configureOtel(snapshot.config.otel)

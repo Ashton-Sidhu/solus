@@ -1,9 +1,10 @@
+import type { CheckoutChange } from './checkout'
 import type { AtlassianOAuthCompleted } from './atlassian'
 import type { HostConfigSnapshot } from './host-config'
 import type { ConnectionConnectNeeded } from './connections'
 import type { AttentionEntry } from './attention-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent } from './review'
+import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent, ReviewLensChangedEvent } from './review'
 import type { PullRequest } from './providers'
 import type {
   AgentUsageLimits,
@@ -28,6 +29,7 @@ import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot } from './presence'
 import type { UplinkStatus } from './uplink'
+import type { WatchChangedEvent } from './watch-types'
 import { z } from 'zod'
 
 /**
@@ -35,6 +37,7 @@ import { z } from 'zod'
  * Commands and queries remain RPC methods; native shell signals stay local.
  */
 export interface HostEventMap {
+  'git.checkoutChanged': CheckoutChange
   'session.eventReceived': { sessionId: string; event: WireNormalizedEvent }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.scanProgressed': SessionScanEvent
@@ -52,10 +55,12 @@ export interface HostEventMap {
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
   'automation.changed': AutomationsChangedEvent
+  'watch.changed': WatchChangedEvent
   'provider.deviceCodeReceived': DeviceCodePrompt
   'git.actionProgressed': GitActionProgressEvent
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
+  'review.lensChanged': ReviewLensChangedEvent
   'tasks.invalidated': Record<string, never>
   'workspaceProjects.changed': Record<string, never>
   /** This host's outbox gained, lost, or failed an op. Connected clients react
@@ -129,6 +134,7 @@ export interface HostEventDefinition {
 
 /** Runtime catalog for boundary validation and human discovery. */
 export const HOST_EVENT_DEFINITIONS = {
+  'git.checkoutChanged': { owner: 'git', category: 'delta', recovery: 'reload', description: 'Checkout identity changed; recover through checkoutSnapshot.' },
   'session.eventReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A normalized provider event arrived for a watched session.' },
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
   'session.scanProgressed': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A requested session scan produced progress.' },
@@ -141,10 +147,12 @@ export const HOST_EVENT_DEFINITIONS = {
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },
   'automation.changed': { owner: 'automations', category: 'delta', recovery: 'reload', description: 'A durable automation or its run state changed.' },
+  'watch.changed': { owner: 'watches', category: 'delta', recovery: 'reload', description: 'A watch changed state: saved, woke its session, or ended.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
+  'review.lensChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review lens, its comments, or its job changed.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },

@@ -18,6 +18,9 @@ export interface SignedAssetUrlRequest {
   origin: string
   api: Pick<HostApi, 'assetCreateUrl'>
   ctx?: IpcContext
+  /** Mint a new URL even when the cached one has time left: the host refused
+   *  it, so the cache's clock is not the one that counts. */
+  refresh?: boolean
 }
 
 export interface SignedAssetFindRequest {
@@ -38,7 +41,7 @@ export class AssetUrlCache {
       : `path:${request.path ?? ''}`
     const key = hostKey(request.serverId, sourceKey)
     const cached = this.entries.get(key)
-    if (cached && cached.expiresAt - now > ASSET_URL_REFRESH_WINDOW_MS) return cached.url
+    if (!request.refresh && cached && cached.expiresAt - now > ASSET_URL_REFRESH_WINDOW_MS) return cached.url
 
     const minted = await request.api.assetCreateUrl(
       request.ctx,

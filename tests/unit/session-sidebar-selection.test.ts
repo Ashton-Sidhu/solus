@@ -40,6 +40,31 @@ function child(partial: Partial<SidebarSessionChild>): SidebarSessionChild {
 }
 
 describe('session sidebar task selection', () => {
+  test('clicking the only active session acknowledges its unread completion', () => {
+    const tab = { id: 'only-tab', sessionId: 'session', hasUnread: true }
+    const selected: string[] = []
+    const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore
+    Object.defineProperty(store, 'session', {
+      value: {
+        activeTabId: tab.id,
+        showsConversation: true,
+        tabs: { [tab.id]: tab },
+        selectTab: (tabId: string) => {
+          selected.push(tabId)
+          tab.hasUnread = false
+        },
+      },
+    })
+
+    store.selectTab(tab.id)
+
+    expect(tab.hasUnread).toBe(false)
+    expect(selected).toEqual([tab.id])
+    // Once read, another click need not run the navigation work again.
+    store.selectTab(tab.id)
+    expect(selected).toEqual([tab.id])
+  })
+
   test('selects the highest-priority session across mounted and remote work', () => {
     const running = child({ tabId: 'running', attention: 'running', lastActivityAt: 30 })
     const asking = child({ sessionId: 'asking', attention: 'awaiting', lastActivityAt: 10 })

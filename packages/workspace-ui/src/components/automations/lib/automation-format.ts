@@ -315,9 +315,8 @@ export interface RunHealth {
 /** How many runs the sparkline looks back over — wide enough to show a rhythm,
  *  narrow enough that one bad run still reads as one bad run. */
 const HEALTH_WINDOW = 17
-/** A run that did what it was asked. `dispatched` counts: the chat thread it was
- *  handed to owns the outcome from there. */
-const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded', 'dispatched']
+/** A run that did what it was asked. */
+const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded']
 
 /** The recent runs as a duration sparkline (oldest → newest) plus how many of
  *  them came back clean — the automation's reliability at a glance. `runs` is
@@ -348,8 +347,6 @@ export const RUN_STATUS_META = {
   succeeded: { label: 'Succeeded', tone: 'success' },
   failed: { label: 'Failed', tone: 'error' },
   cancelled: { label: 'Cancelled', tone: 'cancelled' },
-  // In-session runs: handed to the chat thread, which owns the real outcome.
-  dispatched: { label: 'Sent to chat', tone: 'success' },
 } satisfies Record<AutomationRunStatus, RunStatusMeta>
 
 /** The folder an automation runs in, as the trailing path segment — the list

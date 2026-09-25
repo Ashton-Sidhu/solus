@@ -18,10 +18,10 @@ describe('the task id a session plans before its first prompt', () => {
   test('a copied or restored target never shares the id of the session it came from', () => {
     // WHY: a fork copies its source's target. Two sessions under one id would
     // make the host refuse the second mint, and the two rows share one key.
-    const source = makeSession(settings, { task: { kind: 'new', parentTaskId: 'parent' } })
+    const source = makeSession(settings, { task: { kind: 'new' } })
     const copy = makeSession(settings, { task: { ...source.task } })
     expect(newTaskId(copy.task)).not.toBe(newTaskId(source.task))
-    expect(copy.task).toMatchObject({ kind: 'new', parentTaskId: 'parent' })
+    expect(copy.task).toMatchObject({ kind: 'new' })
   })
 
   test('only a session that will create a task plans an id', () => {

@@ -9,6 +9,7 @@
   import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import SavedLensesSetting from "./SavedLensesSetting.svelte";
 
   interface Props {
     searchQuery?: string;
@@ -101,6 +102,7 @@
     { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
     { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
     { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
+    { id: "review-lenses", keywords: ["review", "lens", "lenses", "artifact", "html", "prompt", "visualize", "custom"] },
   ];
 
   function isVisible(id: string): boolean {
@@ -134,7 +136,7 @@
 
   <SettingsRow
     label="Warm review guides"
-    description="Generate guides and prefetch top PR worktrees for this project."
+    description="Prepare guides and worktrees for top PRs."
     visible={isVisible("review-warming")}
   >
     {#snippet control()}
@@ -153,7 +155,7 @@
 >
   <SettingsRow
     label="Review companion agent"
-    description="Which agent reviews the diff for the code-review companion."
+    description="Agent that reviews the diff."
     visible={isVisible("review-agent")}
   >
     {#snippet control()}
@@ -233,7 +235,7 @@
 <SettingsSection label="Customization" visible={isVisible("review-instructions")}>
   <SettingsRow
     label="Review guide instructions"
-    description="Applied to every review guide, in addition to instructions supplied with a review skill."
+    description="Added to every review guide, with any skill instructions."
     visible={isVisible("review-instructions")}
   >
     {#snippet body()}
@@ -248,6 +250,18 @@
         placeholder="Focus on data flow, call out migration risks, and group tests with the behavior they verify."
         class="rounded-lg border border-border bg-background px-2.5 [--plain-editor-font-size:var(--text-workspace-chrome)] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
       />
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
+
+<SettingsSection label="Lenses" visible={isVisible("review-lenses")}>
+  <SettingsRow
+    label="Saved lenses"
+    description="Prompts the Lens tab offers on every review. Each makes an HTML view of the change."
+    visible={isVisible("review-lenses")}
+  >
+    {#snippet body()}
+      <SavedLensesSetting />
     {/snippet}
   </SettingsRow>
 </SettingsSection>

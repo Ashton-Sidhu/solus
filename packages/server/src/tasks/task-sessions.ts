@@ -75,6 +75,7 @@ const UNINDEXED_SESSION: SessionRecord = {
   session_model: null,
   session_server_id: null,
   branch: null,
+  checkout_path: null,
   session_is_worktree: null,
   session_started_at: null,
   last_activity_at: null,
@@ -100,6 +101,7 @@ function linkFromRow(row: TaskSessionLinkRow, session: SessionRecord = UNINDEXED
     linkedAt: row.linked_at,
   }
   if (session.branch !== null) link.branch = session.branch
+  if (session.checkout_path) link.checkoutPath = session.checkout_path
   if (session.session_is_worktree !== null) link.isolatedCheckout = session.session_is_worktree === 1
   const pr = jsonValue(row.pr, taskPrSchema)
   if (pr) link.pr = pr
@@ -354,8 +356,6 @@ interface PrepareSessionTaskInput {
   existingAgentSessionId?: string | null
   /** Bind this task instead of minting a new one. */
   existingTaskId?: string | null
-  /** Mint the session-born task as a direct child of this task. */
-  parentTaskId?: string | null
   /** Mint the task under this client-minted ULID instead of a fresh one. */
   taskId?: string | null
   sessionId?: string
@@ -393,11 +393,7 @@ export async function prepareSessionTask(organizationId: string, input: PrepareS
   const task = await database().transaction(async (db) => {
     const now = Date.now()
     const existingTaskId = normalizedOptional(input.existingTaskId)
-    const parentTaskId = normalizedOptional(input.parentTaskId)
     const mintedTaskId = normalizedOptional(input.taskId)
-    if (existingTaskId && parentTaskId) {
-      throw new Error('A session cannot bind an existing task and create a subtask at the same time.')
-    }
     if (existingTaskId && mintedTaskId) {
       throw new Error('A session cannot bind an existing task and name a new one at the same time.')
     }
@@ -429,7 +425,6 @@ export async function prepareSessionTask(organizationId: string, input: PrepareS
         id: await clientMintedTaskId(db, organizationId, mintedTaskId),
         title: promptTitle(input.prompt),
         projectKey,
-        parentId: parentTaskId,
         status: 'in_progress',
         source: 'session',
         originSessionId: input.originSessionId ?? input.sessionId,

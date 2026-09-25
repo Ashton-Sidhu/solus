@@ -47,9 +47,7 @@ export function automationMatchesProject(
 
 /**
  * Bucket every project automation by what earns a glance and keep the top N.
- * Running automations include session-bound ("runs in this chat") ones — those
- * are just automations whose run is in flight, so the running bucket covers them
- * without a special case. Each automation lands in exactly one bucket (highest
+ * Each automation lands in exactly one bucket (highest
  * priority wins), so rows never duplicate. Paused / manual / idle automations
  * fall out entirely — they belong on the full Automations page, not the glance.
  */

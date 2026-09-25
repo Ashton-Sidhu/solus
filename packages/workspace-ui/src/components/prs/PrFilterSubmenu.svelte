@@ -16,8 +16,8 @@
 </script>
 
 <DropdownMenu.SubContent
-  class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] flex-col overflow-hidden p-2 {group.searchable
-    ? 'w-96 pointer-fine:[.is-laptop-display_&]:w-80'
+  class="flex max-h-[min(28rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] flex-col overflow-hidden p-2 {group.searchable
+    ? 'w-80 pointer-fine:[.is-laptop-display_&]:w-72'
     : group.key === 'labels'
       ? 'w-80 pointer-fine:[.is-laptop-display_&]:w-72'
       : 'w-72 pointer-fine:[.is-laptop-display_&]:w-60'}"

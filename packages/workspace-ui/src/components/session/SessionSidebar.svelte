@@ -55,6 +55,7 @@
   import { taskPrNavigation } from "./lib/pr-navigation";
   import { openNavPage, type NavPage } from "../../lib/page-nav";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import {
     hasDisclosure,
     filterSidebarTasks,
@@ -382,11 +383,13 @@
 
   async function bulkComplete() {
     const rows = selectedTasks();
-    const wasSelected = rows.some((task) =>
+    const onScreenRow = rows.find((task) =>
       task.tabIds.includes(session.onScreenTabId),
     );
-    const next =
-      searchedTasks.find((task) => !selectedTaskIds.has(task.id)) ?? null;
+    const wasSelected = !!onScreenRow;
+    const next = onScreenRow
+      ? nextTaskAfterLeaving(searchedTasks, onScreenRow.id, selectedTaskIds)
+      : null;
     const blocked = rows.find(
       (task) => completionBlocked(task.attention) || !task.taskId,
     );
@@ -431,7 +434,7 @@
       task.taskId ? [task.taskId] : [],
     );
     selectedTaskIds.clear();
-    const pending = session.tasksStore.softRemove(ids);
+    const pending = sidebarStore.deleteTasks(ids);
     if (!pending.length) return;
     toasts.undo(
       `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
@@ -570,13 +573,6 @@
     snoozeTargets = [target];
   }
 
-  function nextActiveTaskAfter(taskId: string): SidebarTask | null {
-    const tasks = searchedTasks;
-    const index = tasks.findIndex((task) => task.id === taskId);
-    if (index < 0) return null;
-    return tasks[index + 1] ?? tasks[index - 1] ?? null;
-  }
-
   function navigateAfterLifecycleMove(next: SidebarTask | null) {
     if (next) void sidebarStore.selectTask(next);
     else newTask();
@@ -602,7 +598,12 @@
     if (!targets.length) return;
     const row =
       searchedTasks.find((candidate) => candidate.key === targets[0].rowKey) ?? null;
-    const next = row ? nextActiveTaskAfter(row.id) : null;
+    const leavingTaskIds = new Set(
+      searchedTasks
+        .filter((task) => targets.some((target) => target.rowKey === task.key))
+        .map((task) => task.id),
+    );
+    const next = row ? nextTaskAfterLeaving(searchedTasks, row.id, leavingTaskIds) : null;
     const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
     for (const target of targets) sidebarStore.snoozeRow(target.rowKey, until, note);
     toasts.undo(

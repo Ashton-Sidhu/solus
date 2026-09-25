@@ -11,8 +11,10 @@ function userInstructionBlock(title: string, body: string): string | null {
   return `${title}\n${trimmed}`
 }
 
-/** Build only the user-controlled instruction append. Provider behavior stays
- *  with the provider, and capability guidance stays with its tool or skill. */
+/** Build only the user-controlled instruction append. Host runtime facts (the
+ *  harness, inline media, the shared browser) live in `runtime-instructions.ts`,
+ *  provider behavior stays with the provider, and capability guidance stays with
+ *  its tool or skill. */
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const parts: string[] = []
   const extra = userInstructionBlock('User extra instructions:', opts.extraInstructions ?? '')

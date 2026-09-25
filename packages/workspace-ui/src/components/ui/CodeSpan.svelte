@@ -4,6 +4,7 @@
   import { getSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { basename, leadingDirs, parentDir } from "./lib/code-span-path";
+  import { boldTextInCodeSpan } from "../../lib/markdownBoldCode";
 
   interface Props {
     raw?: string;
@@ -20,6 +21,7 @@
   // CommonMark requires it to display as-is. (An older marked escaped codespan
   // tokens, which is what the decode this replaced was compensating for.)
   const copyText = $derived(text ?? raw.replace(/^`+|`+$/g, ""));
+  const boldText = $derived(boldTextInCodeSpan(copyText));
 
   const FILE_PATH_RE = /^(?!@)(?:\.{0,2}\/)?(?:[\w.@~-]+\/)+[\w.@~-]+(?::(\d+))?$/;
   // A bare abbreviated-or-full hex hash — an address rather than a literal you
@@ -51,6 +53,8 @@
   ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(filePath))} /></svg></span><span
       class="solus-token__copy-only">{leadingDirs(filePath)}</span>{#if parentDir(filePath)}<span
       class="solus-token__dir">{parentDir(filePath)}</span>{/if}{basename(filePath)}{fileLine ? `:${fileLine}` : ''}</button>
+{:else if boldText !== null}
+  <strong>{boldText}</strong>
 {:else}
   <code class:markdown-sha={isSha}>{copyText}</code>
 {/if}

@@ -563,3 +563,20 @@ describe('host rate-limit state across client preferences', () => {
     })
   }
 })
+
+describe('browser recordings in the transcript', () => {
+  test('a recording the agent stopped becomes its own message at that moment', async () => {
+    const { reducer, session } = await createReducer([])
+    const recording = {
+      browserPageId: 'page-1', assetId: `${'c'.repeat(64)}.mp4`, hostPath: '/host/recording.mp4',
+      url: 'http://localhost:5173/', title: 'Home', viewport: 'Desktop — 1280×800',
+      durationMs: 12_000, sizeBytes: 900_000, capturedAt: 5,
+    }
+    reducer.apply('session-1', { type: 'browser_recording_captured', recording })
+
+    // WHY: the user must see the recording whatever the agent writes next, so
+    // it is a message of its own and not folded into later prose.
+    expect(session.messages).toHaveLength(1)
+    expect(session.messages[0]).toMatchObject({ role: 'assistant', content: '', browserRecording: recording })
+  })
+})

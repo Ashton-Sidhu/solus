@@ -13,6 +13,11 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     const items = page === 1 ? store.prList() : []
     return { items, page, hasMore: false }
   })
+  backend.register('prListProjects', (args) =>
+    arg<string[]>(args, 1).map((projectRoot) => ({
+      projectRoot,
+      page: { items: store.prList(), page: 1, hasMore: false },
+    })))
   backend.register('prGetOverview', () => store.prOverview())
   backend.register('prGetDetail', () => store.prOverview().pullRequest)
   backend.register('prUpdate', (args) => {
@@ -32,9 +37,9 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('prListCommits', () => store.prOverview().commits)
   backend.register('prListReviewers', () => store.prOverview().reviewers)
   backend.register('prListReviewerCandidates', () => [
-    { login: 'marisol' },
-    { login: 'niko' },
-    { login: 'rowan' },
+    { kind: 'user', login: 'marisol' },
+    { kind: 'user', login: 'niko' },
+    { kind: 'user', login: 'rowan' },
   ])
   backend.register('prRequestReviewers', (args) => {
     const reviewers = store.prOverview().reviewers

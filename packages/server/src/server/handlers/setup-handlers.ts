@@ -44,7 +44,7 @@ import {
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { initRepository } from '../../git/git-init'
 import { dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
-import { ensureBranchWorktree } from '../../git/worktree-manager'
+import type { CheckoutService } from '../../git/checkout-service'
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
@@ -107,6 +107,7 @@ export type SpawnProcess = (
 ) => ChildProcess
 
 export interface SetupHandlerDeps extends AgentAuthProbeDeps {
+  checkouts?: CheckoutService
   events?: HostEventPublisher
   spawnProcess?: SpawnProcess
   hasCommand?: (command: string) => boolean
@@ -312,6 +313,7 @@ export function projectsVisibleTo<T extends { path: string }>(principal: Princip
 }
 
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {
+  const checkouts = deps.checkouts
   const spawnProcess = deps.spawnProcess ?? nodeSpawn
   const hasCommand = deps.hasCommand ?? commandExists
   const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
@@ -526,6 +528,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const deviceId = requireDeviceScopedSetupContext(ctx)
     const [request] = args
     const { cloneUrl, credential: rawCredential, worktreePath, baseBranch } = setupPrepareProjectSchema.parse(request)
+    if (baseBranch && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
     const repoKey = cloneRepoKey(parsed.cloneUrl)
@@ -538,7 +541,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
         configureDelegatedCheckout(checkoutPath, deviceId, credential)
       }
       const path = baseBranch
-        ? (await ensureBranchWorktree(checkoutPath, baseBranch)).worktreePath!
+        ? (await checkouts!.ensureBranch(checkoutPath, baseBranch)).worktreePath!
         : resolveDispatchWorktree(checkoutPath, worktreePath)
       return { ...result, path, action: 'updated' }
     }
@@ -553,7 +556,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       configureDelegatedCheckout(result.path, deviceId, credential)
     }
     const path = baseBranch
-      ? (await ensureBranchWorktree(result.path, baseBranch)).worktreePath!
+      ? (await checkouts!.ensureBranch(result.path, baseBranch)).worktreePath!
       : resolveDispatchWorktree(result.path, worktreePath)
     return {
       path,

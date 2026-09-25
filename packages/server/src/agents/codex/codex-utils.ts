@@ -1009,3 +1009,19 @@ export function extractPlanText<Value>(value: Value): string {
 export function isInterruptedTurnStatus<Status>(status: Status): boolean {
   return status === 'interrupted' || status === 'cancelled' || status === 'canceled' || status === 'aborted'
 }
+
+const BACKGROUND_COMMAND_TEXT_CHARS = 400
+const BACKGROUND_OUTPUT_TAIL_CHARS = 4_000
+
+/** The prompt that wakes a Codex session when a command it left running after
+ *  its turn ends: the command, its exit code, and the end of its output. */
+export function codexBackgroundCommandWake(item: { command: string; exitCode?: number | null; aggregatedOutput?: string | null }): string {
+  const command = item.command.length > BACKGROUND_COMMAND_TEXT_CHARS
+    ? `${item.command.slice(0, BACKGROUND_COMMAND_TEXT_CHARS)}…`
+    : item.command
+  const exit = item.exitCode === null || item.exitCode === undefined ? '' : ` (exit ${item.exitCode})`
+  const output = (item.aggregatedOutput ?? '').trimEnd()
+  const tail = output.length > BACKGROUND_OUTPUT_TAIL_CHARS ? `…${output.slice(-BACKGROUND_OUTPUT_TAIL_CHARS)}` : output
+  const header = `A background command finished after your turn ended${exit}: ${command}`
+  return tail ? `${header}\n\nOutput (last part):\n${tail}` : header
+}

@@ -49,6 +49,11 @@ export const SOLUS_TOOL_GROUPS = [
     'list_automation_runs',
     'read_automation_run',
   ] },
+  { id: 'watches', label: 'Watches', tools: [
+    'watch',
+    'list_watches',
+    'cancel_watch',
+  ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
   ] },
@@ -67,6 +72,8 @@ export const SOLUS_TOOL_GROUPS = [
     'browser_resize',
     'browser_set_appearance',
     'browser_snapshot',
+    'browser_record_start',
+    'browser_record_stop',
     'browser_click',
     'browser_type',
     'browser_press',

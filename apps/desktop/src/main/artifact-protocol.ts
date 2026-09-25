@@ -4,10 +4,12 @@ import { extname } from 'path'
 import { Readable } from 'stream'
 import { createLogger } from '@solus/server/logger'
 import { parseByteRange } from '@solus/server/server/byte-range'
+import { videoMimeType } from '@solus/contracts/video'
 
 const log = createLogger('main', 'artifact-protocol')
 
-/** Image MIME types served over solus-artifact://, keyed by lowercased extension. */
+/** Image MIME types served over solus-artifact://, keyed by lowercased extension.
+ *  Videos are served too, by `videoMimeType`, so a local video plays in place. */
 const ARTIFACT_MIME = new Map([
   ['.ico', 'image/x-icon'],
   ['.png', 'image/png'],
@@ -18,6 +20,10 @@ const ARTIFACT_MIME = new Map([
   ['.svg', 'image/svg+xml'],
 ])
 
+function artifactMimeType(filePath: string): string | null {
+  return ARTIFACT_MIME.get(extname(filePath).toLowerCase()) ?? videoMimeType({ name: filePath })
+}
+
 export async function handleArtifactRequest(request: Request): Promise<Response> {
   try {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -27,7 +33,7 @@ export async function handleArtifactRequest(request: Request): Promise<Response>
     const url = new URL(request.url)
     const filePath = url.searchParams.get('p')
     if (!filePath) return new Response('Missing path', { status: 400 })
-    const mime = ARTIFACT_MIME.get(extname(filePath).toLowerCase())
+    const mime = artifactMimeType(filePath)
     if (!mime) return new Response('Unsupported type', { status: 415 })
 
     let stat
@@ -58,7 +64,7 @@ export async function handleArtifactRequest(request: Request): Promise<Response>
       'Content-Type': mime,
       'Content-Length': String(range ? end - start + 1 : stat.size),
       'Accept-Ranges': 'bytes',
-      'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
+      'Content-Security-Policy': "default-src 'none'; img-src data: *; media-src 'self' *; style-src 'unsafe-inline'",
     }
     if (range) headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`
     if (request.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })

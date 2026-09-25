@@ -116,7 +116,9 @@ export interface ReviewProvider {
   listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
 
   createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void>
-  addIssueComment(repo: RepoRef, number: number, body: string): Promise<void>
+  /** Returns the new comment's node id (what `deleteIssueComment` takes) and
+   *  its page URL. */
+  addIssueComment(repo: RepoRef, number: number, body: string): Promise<{ id: string; url: string }>
   /**
    * Upload one stored asset to the host and return the URL to reference from
    * Markdown.
@@ -139,7 +141,7 @@ export interface ReviewProvider {
     expectedHeadSha: string,
   ): Promise<PullRequest>
   requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]>
-  removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]>
+  removeRequestedReviewer(repo: RepoRef, number: number, reviewerId: string, kind?: 'user' | 'team'): Promise<PrReviewer[]>
 
   /** Merge via the host's merge button. Host refusals are returned as
    *  `merged: false` with a user-facing message. */

@@ -271,6 +271,9 @@ export const KEYBINDINGS = {
   'snapshot-lightbox.previous':   { combo: { code: 'ArrowLeft' },                          scope: 'snapshot-lightbox',  label: 'Previous capture',         group: 'General' },
   'snapshot-lightbox.next':       { combo: { code: 'ArrowRight' },                         scope: 'snapshot-lightbox',  label: 'Next capture',             group: 'General' },
 
+  // ── Browser pane (while it has focus) ─────────────────────────────────────
+  'browser-pane.toggle-recording': { combo: { alt: true, code: 'KeyR' },                   scope: 'browser-pane',       label: 'Start or stop recording',  group: 'Browser' },
+
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },
 

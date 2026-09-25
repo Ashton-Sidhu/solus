@@ -39,12 +39,14 @@
   import TaskSection from "./TaskSection.svelte";
   import SubagentsSection from "./SubagentsSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
+  import WatchesSection from "./WatchesSection.svelte";
   import {
     automationMatchesProject,
     automationProjectRoots,
     buildAutomationBoard,
   } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
+  import { isWatchEnded } from "@solus/contracts/watch-types";
   import { sessionSubagents } from "./lib/rail-subagents";
   import { taskRef } from "../tasks/task-page/lib/task-page";
   import { taskRefTooltip } from "./lib/rail-task-card";
@@ -220,6 +222,20 @@
   const panelSubagents = $derived(
     panelSession ? sessionSubagents(panelSession.messages) : [],
   );
+
+  // The Watches card exists only while the session has a watch that has not
+  // ended. The rail holds the session's watches loaded while it shows them.
+  const panelWatches = $derived(
+    panelSession
+      ? session.watchesStore.forSession(panelSession.id).filter((watch) => !isWatchEnded(watch.status))
+      : [],
+  );
+  $effect(() => {
+    const sessionId = panelSession?.id;
+    const serverId = panelServerId;
+    if (!sessionId || !serverId || !active) return;
+    return untrack(() => session.watchesStore.watchSession(serverId, sessionId));
+  });
 
   // The Task card exists only while the task has something linked, so the read
   // that decides it belongs here rather than in the card it would hide. Links
@@ -588,6 +604,17 @@
         onToggle={() => toggleSection("subagents")}
         onResizePointerDown={startResize}
       />
+    {/if}
+    {#if panelWatches.length > 0}
+      <PanelSection
+        title="Watches"
+        headerDetail={`${panelWatches.length} active`}
+        collapsed={collapsedSections.watches}
+        onToggle={() => toggleSection("watches")}
+        onResizePointerDown={startResize}
+      >
+        <WatchesSection watches={panelWatches} />
+      </PanelSection>
     {/if}
     {#if automationBoard.total > 0}
       <PanelSection

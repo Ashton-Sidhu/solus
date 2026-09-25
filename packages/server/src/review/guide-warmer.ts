@@ -1,3 +1,4 @@
+import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
 import type { PullRequest } from '@solus/contracts/providers'
 import {
@@ -6,7 +7,7 @@ import {
   type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
-import { fetchAndCheckoutPr, listProjectWorktrees } from '../git/worktree-manager'
+import { listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider, RepoRef } from '../providers/types'
 import { prGuideJobs } from './pr-guide-jobs'
@@ -19,6 +20,7 @@ const HEAD_STABLE_MS = 60_000
 const PREFETCH_COUNT = 3
 
 interface GuideWarmerInput {
+  checkouts: CheckoutService
   dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
@@ -45,6 +47,7 @@ const queuedPrefetches = new Set<string>()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
+  checkouts: CheckoutService
   dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
@@ -195,7 +198,7 @@ async function prefetchWorktree(repoRoot: string, number: number, headSha: strin
   const detail = await input.provider.review.getPullRequest(input.repo, number)
   if (detail.state !== 'open' || detail.draft || detail.headSha !== headSha) return
   if (findPrWorktree(repoRoot, detail)) return
-  await fetchAndCheckoutPr(repoRoot, number, detail.baseRef, {
+  await input.checkouts.preparePullRequest(repoRoot, number, detail.baseRef, {
     headRef: detail.headRef,
     isFork: detail.headRepo.isFork,
   })

@@ -4,7 +4,7 @@ import { ConnectCancelledError } from '../../providers/github/auth'
 import { loadToken } from '../../providers/github/token-store'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { repoRootOrScope } from '../../git/ctx-paths'
-import { fetchAndCheckoutPr } from '../../git/worktree-manager'
+import type { CheckoutService } from '../../git/checkout-service'
 import { computePrInterdiff } from '../../git/interdiff'
 import { runAsync } from '../../git/exec'
 import { writeReviewCheckpoint } from '../../review/checkpoints'
@@ -13,9 +13,9 @@ import { PlaneDisabledError } from '../roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import { publishPrGuideStatus } from '../../review/pr-guide-events'
 import type { Provider, RepoRef } from '../../providers/types'
-import type { PrListPage, PrReviewTarget, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectListing, PrReviewTarget, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
-import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
+import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 import { organizationOf } from '../principal'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -30,6 +30,10 @@ import type { PullRequest } from '../../prs/pull-request'
 
 const log = createLogger('main', 'provider-handlers')
 const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
+/** How many projects one every-project read asks its code hosts about at once.
+ *  Each read mostly waits on the network; the bound keeps a large workspace
+ *  from opening a burst of code-host requests. */
+const PROJECT_LIST_CONCURRENCY = 6
 
 /**
  * Resolve the provider for the current repo. Auth (token) is per-host and
@@ -97,7 +101,7 @@ export async function openPrReview(ctx: IpcContext, number: number): Promise<PrR
   return target
 }
 
-export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget): Promise<PrCheckoutContext> {
+export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget, checkouts: CheckoutService): Promise<PrCheckoutContext> {
   const { repo, provider } = await reviewTargetFor(ctx)
   if (repo.host !== target.host || repo.owner !== target.owner || repo.repo !== target.repo) {
     throw new Error('The pull request does not belong to this project.')
@@ -114,7 +118,7 @@ export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget)
       throw new Error('This pull request changed. Refresh it before preparing a checkout.')
     }
     const repoRoot = await repoRootOrScope(ctx)
-    const checkout = await fetchAndCheckoutPr(repoRoot, target.number, detail.baseRef, {
+    const checkout = await checkouts.preparePullRequest(repoRoot, target.number, detail.baseRef, {
       headRef: detail.headRef,
       isFork: detail.headRepo.isFork,
       diffBaseSha: target.baseSha,
@@ -135,6 +139,55 @@ export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget)
 }
 
 export { prepareReviewGuidePrContext } from '../../review/pr-guide-context'
+
+/**
+ * The viewer's own pull requests and the ones waiting on their review, read on
+ * their own rather than found in the first page.
+ *
+ * The list's Authored and Review requested sections are drawn from the rows it
+ * holds, and a first page holds only the most recently updated pull requests.
+ * In a busy repository that page is other people's work, so an older pull
+ * request of the viewer's own never reached its section. These reads find them
+ * wherever they sit in the listing.
+ *
+ * A search, an author or a branch lookup is not the sectioned list, so it gets
+ * nothing extra. A failed read costs only its rows: the page still answers.
+ */
+async function priorityPullRequests(
+  repo: RepoRef,
+  provider: Provider,
+  viewer: string,
+  filter: PrFilter | undefined,
+): Promise<PullRequestDetail[]> {
+  if (filter?.query?.trim() || filter?.author || filter?.head) return []
+  const state = filter?.state ?? 'open'
+  const reads = [prIndex.list(repo, provider, viewer, { state, query: `author:${viewer}` }, 1).then((page) => page.items)]
+  // A review request only stands on an open pull request.
+  if (state !== 'closed') reads.push(prIndex.listNeedsReview(repo, provider, viewer))
+  const settled = await Promise.allSettled(reads)
+  return settled.flatMap((read) => {
+    if (read.status === 'fulfilled') return read.value
+    log.warn('pr_priority_read_failed', {
+      host: repo.host,
+      owner: repo.owner,
+      repo: repo.repo,
+      error: read.reason instanceof Error ? read.reason.message : String(read.reason),
+    })
+    return []
+  })
+}
+
+/** The page's rows, then each priority row the page does not already hold. */
+function withPriorityRows(items: PullRequestDetail[], priority: PullRequestDetail[]): PullRequestDetail[] {
+  const held = new Set(items.map((item) => item.number))
+  const rows = [...items]
+  for (const pullRequest of priority) {
+    if (held.has(pullRequest.number)) continue
+    held.add(pullRequest.number)
+    rows.push(pullRequest)
+  }
+  return rows
+}
 
 
 async function persistReviewCheckpoint(
@@ -169,6 +222,7 @@ async function persistReviewCheckpoint(
 }
 
 export interface ProviderHandlerDeps {
+  checkouts: CheckoutService
   isWorktreeInUse: (path: string) => boolean
   /** Whether a Solus session is still mid-turn; a merge does not finish a task under one. */
   isSessionBusy: (sessionId: string) => boolean
@@ -177,6 +231,7 @@ export interface ProviderHandlerDeps {
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
+  const { checkouts } = deps
   server.register('providerStatus', async (args) => {
     const [ctx] = args
     const provider = await providerForContext(ctx)
@@ -251,15 +306,23 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // ─── PR review mode ─────────────────────────────────────────────────────────
 
-  server.register('prList', async (args, handlerCtx) => {
-    const [ctx, filter, page = 1] = args
+  async function listPullRequests(
+    ctx: IpcContext,
+    filter: PrFilter | undefined,
+    page: number,
+    handlerCtx: HandlerCtx,
+    options: { withPriority?: boolean } = {},
+  ): Promise<PrListPage> {
     const { repo, provider } = await reviewTargetFor(ctx)
     const viewer = await provider.review.getViewer(repo)
-    const page1 = await prIndex.list(repo, provider, viewer, filter, page)
+    const [page1, priority] = await Promise.all([
+      prIndex.list(repo, provider, viewer, filter, page),
+      options.withPriority ? priorityPullRequests(repo, provider, viewer, filter) : [],
+    ])
     // Copied rather than assigned into: `page1` is the index's own object, and
     // decorating it in place would write this viewer's attention flags onto the
     // answer every other reader shares.
-    const result: PrListPage = { ...page1, items: attachReviewAttention(page1.items, viewer) }
+    const result: PrListPage = { ...page1, items: attachReviewAttention(withPriorityRows(page1.items, priority), viewer) }
     const cwd = projectScopeOf(ctx.session)
     const sessionId = ctx.session.agentSessionId
     const branch = ctx.session.gitContext?.branch
@@ -296,6 +359,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       if (!isOpenPage || page !== 1 || result.hasMore) return
       scheduleGuideWarming({
         dispatcher: deps.dispatcher,
+        checkouts,
         ctx,
         repoRoot,
         repo,
@@ -306,6 +370,43 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       })
     }).catch((err) => log.warn('guide_warming_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
     return result
+  }
+
+  server.register('prList', async (args, handlerCtx) => {
+    const [ctx, filter, page = 1] = args
+    return listPullRequests(ctx, filter, page, handlerCtx)
+  })
+
+  // The every-project list asks once per host. The host reads its projects
+  // side by side and answers with all of them, so the client lays the rows out
+  // once instead of reordering them as each project arrives.
+  server.register('prListProjects', async (args, handlerCtx) => {
+    const [ctx, projectRoots, filter] = args
+    // Filled by index, so the answer keeps the order the projects were named in.
+    const listings: PrProjectListing[] = []
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < projectRoots.length) {
+        const index = next++
+        const projectRoot = projectRoots[index]
+        // The project's own scope, with no checkout of its own: a list read is
+        // an observation of the repository, not of any one session's branch.
+        const projectCtx: IpcContext = {
+          ...ctx,
+          session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot, gitContext: null },
+        }
+        try {
+          listings[index] = {
+            projectRoot,
+            page: await listPullRequests(projectCtx, filter, 1, handlerCtx, { withPriority: true }),
+          }
+        } catch (error) {
+          listings[index] = { projectRoot, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PROJECT_LIST_CONCURRENCY, projectRoots.length) }, worker))
+    return listings
   })
 
   server.register('prNeedsReview', async (args) => {
@@ -358,7 +459,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prPrepareCheckout', async (args) => {
     const [ctx, target] = args
-    return preparePrCheckout(ctx, target)
+    return preparePrCheckout(ctx, target, checkouts)
   })
 
   server.register('prMerge', async (args, handlerCtx): Promise<PrMergeResult> => {
@@ -399,7 +500,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       }
 
       const repoRoot = await repoRootOrScope(ctx)
-      const worktree = await fetchAndCheckoutPr(repoRoot, number, detail.baseRef, {
+      const worktree = await checkouts.preparePullRequest(repoRoot, number, detail.baseRef, {
         headRef: detail.headRef,
         isFork: detail.headRepo.isFork,
       })
@@ -549,13 +650,14 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prRemoveRequestedReviewer', async (args) => {
-    const [ctx, number, requestedLogin] = args
-    const login = requestedLogin.trim()
-    if (!login) throw new Error('A reviewer login is required.')
+    const [ctx, number, requestedReviewerId, kind = 'user'] = args
+    const reviewerId = requestedReviewerId.trim()
+    if (!reviewerId) throw new Error('A reviewer is required.')
+    if (kind !== 'user' && kind !== 'team') throw new Error('Invalid reviewer kind.')
     return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
-      return provider.review.removeRequestedReviewer(repo, number, login)
+      return provider.review.removeRequestedReviewer(repo, number, reviewerId, kind)
     })
   })
 
@@ -758,6 +860,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const repoRoot = await repoRootOrScope(ctx)
     requestPrGuides({
       dispatcher: deps.dispatcher,
+      checkouts,
       ctx,
       repoRoot,
       repo,

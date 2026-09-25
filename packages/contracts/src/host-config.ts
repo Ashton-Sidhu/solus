@@ -32,6 +32,7 @@ import type {
   TextGenerationModelSelection,
 } from './types'
 import { DEFAULT_SOURCE_CONTROL_WRITING, EDITOR_IDS, TERMINAL_APP_IDS } from './types'
+import type { SavedLens } from './review'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   mergeNotificationPreferences,
@@ -92,6 +93,8 @@ export interface HostConfig {
   reviewReasoning: ReasoningEffort
   /** User instructions applied only when a review guide is authored. */
   reviewGuideInstructions: string
+  /** Named lens prompts the user can run on any review target. */
+  savedLenses: SavedLens[]
   generatePrGuidesOnOpen: boolean
   /**
    * Keyed by project path. Host config rather than device config because the
@@ -253,7 +256,8 @@ function normalizeSourceControlWriting(
  * Four are deliberately closed:
  *
  * - `analyticsEnabled` is a consent decision. An agent must never move it.
- * - `extraInstructions`, `modelInstructions`, and `reviewGuideInstructions`
+ * - `extraInstructions`, `modelInstructions`, `reviewGuideInstructions`, and
+ *   `savedLenses`
  *   alter future agent runs on this host. An agent reads issues, pages, and
  *   diffs written by other people; text in any of them could ask it to append
  *   a persistent instruction, and the change would outlive the conversation
@@ -301,6 +305,11 @@ export const HOST_CONFIG_FIELDS = {
   reviewModel: field(z.string().catch(DEFAULT_REVIEW_MODEL), DEFAULT_REVIEW_MODEL, true),
   reviewReasoning: field(z.enum(REASONING_EFFORTS).catch(DEFAULT_REVIEW_REASONING), DEFAULT_REVIEW_REASONING, true),
   reviewGuideInstructions: field(z.string().max(20_000).catch(''), '', false),
+  savedLenses: field(z.array(z.object({
+    id: z.string().min(1).max(200),
+    name: z.string().max(200),
+    prompt: z.string().max(20_000),
+  })).max(100).catch([]), [], false),
   generatePrGuidesOnOpen: field(z.boolean().catch(false), false, true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}, false),
   responseStreamingMode: field(z.enum(['buffered', 'paragraph']).catch('paragraph'), 'paragraph', true),

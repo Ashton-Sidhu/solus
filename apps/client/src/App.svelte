@@ -31,6 +31,13 @@
     runtime,
   } from "@solus/workspace-ui/contexts";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
+  import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+  import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
+  import {
+    browserRecordingCommands,
+    focusLeadingComposer,
+    deliverRecording,
+  } from "@solus/workspace-ui/components/browser/lib/recording-actions";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
@@ -294,6 +301,8 @@
           });
         }
       });
+      // Watches wait on a host and change state with no client in the loop.
+      const unsubWatches = subscribeWatchChanges(session.watchesStore);
       const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
         agent.applyUsage(snapshots),
       );
@@ -306,16 +315,24 @@
       const unsubPresence = presenceStore.listen();
       // The tunnel comes up after the host has answered the link; the cloud row follows it.
       const unsubUplink = uplinkStore.listen();
+      // Browser pages are host state; the pane, a recording's running time,
+      // and a recording a limit stopped all follow the host's page events.
+      browserStore.onRecordingSaved = (serverId, result) =>
+        deliverRecording(session.leadingInput, serverId, result);
+      const unsubBrowser = browserStore.subscribe();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
         unsubHostConfig();
         unsubProjectDirectory();
         unsubAutomations();
+        unsubWatches();
         unsubUsage();
         unsubSeats();
         unsubPresence();
         unsubUplink();
+        browserStore.onRecordingSaved = null;
+        unsubBrowser();
       };
     }),
   );
@@ -493,7 +510,7 @@
     session.setPermissionMode(next, composerSourceId, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId, "keybinding");
+    if (activeTabId) sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
   useKeybinding("global.cycle-agent", async () => {
@@ -641,6 +658,7 @@
       keywords: ["web", "viewport", "device"],
       run: () => session.openBrowser(),
     },
+    ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
     {
       id: "settings",
       label: "Settings",

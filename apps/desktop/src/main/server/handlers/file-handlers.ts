@@ -8,6 +8,7 @@ import { execFile, execFileSync } from 'child_process'
 import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
+import { VIDEO_FILE_EXTENSIONS } from '@solus/contracts/video'
 import { expandHome } from '@solus/server/server/handlers/lib/host-path'
 import { transcribeAudio, warmTranscription } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
@@ -160,6 +161,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       filters: [
         { name: 'All Files', extensions: ['*'] },
         { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+        { name: 'Videos', extensions: [...VIDEO_FILE_EXTENSIONS] },
         { name: 'Code', extensions: ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'md', 'json', 'yaml', 'toml'] },
       ],
     }

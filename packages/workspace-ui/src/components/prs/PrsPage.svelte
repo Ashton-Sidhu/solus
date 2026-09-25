@@ -6,6 +6,7 @@
   import type { PrFilter, PullRequest } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import {
+    getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
     runtime,
@@ -73,6 +74,7 @@
   let { paneId }: InlinePageProps = $props();
 
   const session = getSurfaceContext();
+  const shell = getClientShellContext();
   // The board is mounted by the workspace and by the cloud console alike
   // (docs/plans/cloud-console-native-pages.md §9). Review Mode, guide
   // generation, the detail panel (it prepares a worktree), the sidebar's live
@@ -211,9 +213,8 @@
         (project) => (project.filter.query ?? "") === search.typedHostQuery,
       ),
   );
-  // A failed project keeps its last-safe rows, so a failure is only visible if
-  // it is said out loud: a banner when something did load, the page's own
-  // surface when nothing did.
+  // A failed project keeps its last-safe rows. Partial failures use a toast;
+  // when no rows loaded, the error takes the page.
   const projectsFailure = $derived(
     pageScope.allProjects
       ? prInboxFailure(
@@ -402,7 +403,7 @@
     showsPrDetailPanel(openPr !== null, openTarget !== null),
   );
   const roomForSplit = $derived(canSplitPrPanel(pageWidth));
-  // 60% of the page until the reader drags the edge; the drag is remembered.
+  // Half the page until the reader drags the edge; the drag is remembered.
   let savedPanelWidth = $state(readSavedPrPanelWidth());
   const panelWidth = $derived(prPanelWidth(savedPanelWidth, pageWidth));
   const maxPanelWidth = $derived(clampPrPanelWidth(Number.POSITIVE_INFINITY, pageWidth));
@@ -477,6 +478,42 @@
   }
 
   // ── Data loading ──
+
+  // Repeated background reads can report the same failed projects. Notify
+  // once per failure until a successful read clears it.
+  let lastNotifiedPartialFailure = "";
+
+  function notifyPartialFailure(): void {
+    const failure = projectsFailure;
+    if (failure.placement !== "toast") {
+      lastNotifiedPartialFailure = "";
+      return;
+    }
+    const key = failure.kind === "github-auth"
+      ? `auth:${failure.serverId}`
+      : `${failure.summary}\n${failure.detail}`;
+    if (key === lastNotifiedPartialFailure) return;
+    lastNotifiedPartialFailure = key;
+    if (failure.kind === "github-auth") {
+      toasts.error("GitHub is not connected", {
+        action: {
+          label: "Connect GitHub",
+          onAction: () => shell.openResource({ kind: "connections", serverId: failure.serverId }),
+        },
+      });
+    } else {
+      toasts.error(failure.summary, {
+        description: failure.detail,
+        action: {
+          label: "Retry",
+          onAction: () => {
+            lastNotifiedPartialFailure = "";
+            readList(true);
+          },
+        },
+      });
+    }
+  }
 
   // A change of project is the only scope trigger this effect reacts to.
   // `session.ctx` reads reactive git state (gitContext, changedFiles) that the
@@ -561,6 +598,7 @@
   /** Read the list the page is on, then the checks and guides for the rows it holds. */
   function readList(force = false): void {
     const scopes = readTargets();
+    const readKey = listReadKey;
     void store
       .readPage(scopes, { ...listFilter }, {
         memoryKey: pageScope.allProjects ? "all" : pageScope.scopeKey,
@@ -568,6 +606,7 @@
         targets: pageScope.allProjects ? pageScope.projectTargets : undefined,
       })
       .then(() => {
+        if (open && pageScope.allProjects && readKey === listReadKey) notifyPartialFailure();
         for (const scope of scopes) {
           void pullRequests.checks.load(
             scope.hostApi,
@@ -782,7 +821,7 @@
   }
 
   async function loadMore(scope: ProjectPrs): Promise<void> {
-    await scope.list({ page: scope.nextPage });
+    await scope.loadMore();
     void pullRequests.guides.loadListed(scope);
     await pullRequests.checks.load(
       scope.hostApi,
@@ -931,6 +970,7 @@
           <PrListBody
             items={virtualItems}
             height={contentHeight}
+            split={splitList}
             activeKey={activeVirtualKey}
             bind:scrollTop={listView.scrollTop}
             {selectedKey}

@@ -262,6 +262,7 @@ export class SessionOpening {
         content: '',
         timestamp: Date.now(),
         worktreeMovedTo: result.gitContext.branch ?? result.gitContext.detachedHeadSha ?? 'detached HEAD',
+        worktreeMovedToPath: result.gitContext.worktreePath,
       })
       requestInputFocus()
     } finally {

@@ -30,7 +30,7 @@
 >
   <SettingsRow
     label="Auto voice mode"
-    description="Continuously listen and queue voice messages while you work (⌥⇧V)."
+    description="Always listen and queue voice messages (⌥⇧V)."
     visible={isVisible("auto-voice")}
   >
     {#snippet control()}

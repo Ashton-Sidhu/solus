@@ -41,7 +41,7 @@
   import { localApi } from "@solus/client-core/local-api";
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
-  import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-upload";
+  import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { installGlobalDispatcher } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";

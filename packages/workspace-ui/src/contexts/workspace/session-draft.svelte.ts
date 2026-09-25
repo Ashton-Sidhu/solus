@@ -94,41 +94,31 @@ export function taskBindingSessionId(
   return session.handoffId ?? session.id
 }
 
-/** The task a fallback minted after the first turn will hang under. */
-export function parentTaskId(task: TaskTarget): string | null {
-  return task.kind === 'new' ? task.parentTaskId ?? null : null
-}
-
 /** The id the first prompt will mint this session's task under, when it will
  *  mint one. `makeSession` assigns it; a draft's target has none. */
 export function newTaskId(task: TaskTarget): string | null {
   return task.kind === 'new' ? task.taskId ?? null : null
 }
 
-/** Read the three fields a persisted tab still stores back into a target. */
+/** Read the two fields a persisted tab still stores back into a target. */
 export function taskTargetFrom(fields: {
   pendingTaskId?: string | null
-  pendingParentTaskId?: string | null
   taskCreationDisabled?: boolean
 }): TaskTarget {
   if (fields.pendingTaskId) return { kind: 'existing', taskId: fields.pendingTaskId }
   if (fields.taskCreationDisabled) return { kind: 'none' }
-  return fields.pendingParentTaskId
-    ? { kind: 'new', parentTaskId: fields.pendingParentTaskId }
-    : { kind: 'new' }
+  return { kind: 'new' }
 }
 
 /** The pre-`TaskTarget` encoding, for the persisted tab fields that still carry it. */
 export interface TaskTargetFields {
   pendingTaskId: string | null
-  pendingParentTaskId: string | null
   taskCreationDisabled: boolean
 }
 
 export function taskTargetFields(task: TaskTarget): TaskTargetFields {
   return {
     pendingTaskId: task.kind === 'existing' ? task.taskId : null,
-    pendingParentTaskId: task.kind === 'new' ? task.parentTaskId ?? null : null,
     taskCreationDisabled: task.kind === 'none',
   }
 }

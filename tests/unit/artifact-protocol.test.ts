@@ -24,6 +24,17 @@ function artifactRequest(path: string, init?: RequestInit, optional = false): Re
 }
 
 describe('desktop artifact protocol', () => {
+  test('serves a local video with its type and byte ranges, so it plays in place', async () => {
+    // WHY: a desktop with its own host plays a local video from disk, and a
+    // player seeks with range requests. A 415 here is a broken player.
+    const videoPath = join(fixtureDir, 'recording.mov')
+    await writeFile(videoPath, bytes)
+    const response = await handleArtifactRequest(artifactRequest(videoPath, { headers: { range: 'bytes=0-1' } }))
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-type')).toBe('video/quicktime')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 1]))
+  })
+
   test('streams the complete file with bounded response headers', async () => {
     const response = await handleArtifactRequest(artifactRequest(imagePath))
     expect(response.status).toBe(200)

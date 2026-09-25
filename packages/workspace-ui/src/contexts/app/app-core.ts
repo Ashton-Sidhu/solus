@@ -1,3 +1,4 @@
+import { checkoutStore } from '../git/checkout.store.svelte'
 import { sharesStore } from '../sharing/shares.store.svelte'
 import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { onDestroy } from 'svelte'
@@ -63,7 +64,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
-  const sessionEnvironmentStore = new SessionEnvironmentStore()
+  const sessionEnvironmentStore = new SessionEnvironmentStore(checkoutStore)
   const projectConfigStore = new ProjectConfigStore()
   const textGenerationSettingsStore = new TextGenerationSettingsStore()
   const otelSettingsStore = new OtelSettingsStore()

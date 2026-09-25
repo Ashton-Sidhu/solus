@@ -50,6 +50,7 @@ import { hostCapabilitiesStore } from './host-capabilities.store.svelte'
 import { hostRolesStore } from './host-roles.store.svelte'
 import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
+import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
 
@@ -111,6 +112,8 @@ class ServersStore {
   /** What the account's host directory last said about being signed in: null until asked. */
   directorySignedIn = $state<boolean | null>(null)
   private directoryRefreshInFlight = false
+  private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private lastDirectoryReadAt = 0
   private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   probingHosts = $state(false)
@@ -348,13 +351,31 @@ class ServersStore {
     })
 
     // The account's host directory is the fourth source of hosts (C1). It is
-    // read on boot, on sign-in changes, on wake, and when Connections opens;
-    // nothing pushes it. The account store mirrors main's sign-in state
+    // read on boot, on sign-in changes, on wake, when Connections opens, when the
+    // window gets focus, and on a timer while the window is active; nothing
+    // pushes it. The account store mirrors main's sign-in state
     // and has no other subscriber until a sign-in surface lands, so it starts here.
     accountStore.start()
     void this.refreshDirectory()
     onWakeSignal(() => void this.refreshDirectory())
     localApi.onAccountStateChange?.(() => void this.refreshDirectory())
+    // A host added on the account site in a browser is found when the person
+    // comes back to this window, which on desktop is a focus and not a wake.
+    window.addEventListener('focus', () => {
+      if (Date.now() - this.lastDirectoryReadAt >= DIRECTORY_FOCUS_GAP_MS) void this.refreshDirectory()
+    })
+  }
+
+  /** The next timed read, sooner while a managed host settles. An inactive
+   *  window skips its read and waits for the next tick or a focus. */
+  private scheduleDirectoryRefresh(): void {
+    if (!this.initialized) return
+    if (this.directoryRefreshTimer) clearTimeout(this.directoryRefreshTimer)
+    this.directoryRefreshTimer = setTimeout(() => {
+      this.directoryRefreshTimer = null
+      if (!document.hidden && document.hasFocus()) void this.refreshDirectory()
+      else this.scheduleDirectoryRefresh()
+    }, directoryRefreshDelayMs(this.remotes))
   }
 
   /**
@@ -388,6 +409,8 @@ class ServersStore {
       serverConnections.startCatalogSupervisors()
     } finally {
       this.directoryRefreshInFlight = false
+      this.lastDirectoryReadAt = Date.now()
+      this.scheduleDirectoryRefresh()
     }
   }
 

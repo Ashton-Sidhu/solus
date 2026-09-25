@@ -106,7 +106,7 @@
 <SettingsSection label="Per model" visible={isVisible("model-instructions")}>
   <SettingsRow
     label="Per-model instructions"
-    description="Appended only when this model is running, on top of the extra instructions above."
+    description="Added after the instructions above when this model runs."
   >
     {#snippet control()}
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>

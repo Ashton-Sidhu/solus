@@ -1,10 +1,13 @@
+import type { CheckoutService } from '../../git/checkout-service'
 import type { HandlerCtx, SolusServer } from '../server'
 import { BrowserRuntimeInstaller } from '../../browser/browser-runtime'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { initBrowserRegistry, type BrowserRegistry } from '../../browser/browser-registry'
 import type { BrowserFrameChannel } from '../../browser/browser-frame-channel'
 import { discoverBrowserTargets, forgetDiscoveredTargets } from '../../browser/target-scanner'
-import { captureEvidence, evidenceOptions } from '../../browser/browser-evidence'
+import { captureEvidence, evidenceOptions, stopAndFileRecording } from '../../browser/browser-evidence'
+import { initBrowserRecorder } from '../../browser/browser-recorder'
+import { startRecordingSweep } from '../../browser/recording-retention'
 import {
   browserProfiles,
   createBrowserProfile,
@@ -32,7 +35,7 @@ import { endSolusSpan, startSolusSpan } from '../../observability/tracer'
  */
 export function registerBrowserHandlers(
   server: SolusServer,
-  deps: { events: HostEventPublisher; frames: BrowserFrameChannel },
+  deps: { events: HostEventPublisher; frames: BrowserFrameChannel; checkouts?: CheckoutService },
 ): BrowserRegistry {
   const runtimeInstaller = new BrowserRuntimeInstaller()
   server.register('browserRuntimeStatus', () => runtimeInstaller.status())
@@ -41,7 +44,11 @@ export function registerBrowserHandlers(
     pageChanged: (page) => deps.events.broadcast('browser.pageChanged', { page }),
     pageClosed: (browserPageId) => deps.events.broadcast('browser.pageClosed', { browserPageId }),
     surfaceRequested: (browserPageId) => deps.events.broadcast('browser.surfaceRequested', { browserPageId }),
-  }, deps.frames)
+  }, deps.frames, deps.checkouts)
+  const recorder = initBrowserRecorder(registry)
+  // Unfiled recordings are deleted a day after they were made: once at host
+  // start, then every six hours.
+  startRecordingSweep()
 
   // Browser states what happened; the tracer decides where it lands. Wired here
   // because this is the point at which the domain is known to be running on a
@@ -104,6 +111,8 @@ export function registerBrowserHandlers(
   })
   server.register('browserCaptureEvidence', async (args) => captureEvidence(args[0]))
   server.register('browserEvidenceOptions', async (args) => evidenceOptions(args[0]))
+  server.register('browserRecordingStart', async (args) => recorder.start(args[0], 'user'))
+  server.register('browserRecordingStop', async (args) => stopAndFileRecording(recorder, args[0]))
   server.register('browserOpenDevTools', async (args) => registry.openDevTools(args[0]))
   server.register('browserSetAnnotationTool', async (args) => registry.setAnnotationTool(args[0], args[1]))
   server.register('browserAnnotationState', async (args) => registry.annotationState(args[0]))

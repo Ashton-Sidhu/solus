@@ -58,6 +58,9 @@
        callers hand the theme in and ask for plain titles instead. */
     isDark?: boolean;
     tooltips?: boolean;
+    /** HTML someone other than the user can influence (a review lens): no
+     *  network, no popups, no forms, no downloads. */
+    isolated?: boolean;
   }
 
   let {
@@ -72,6 +75,7 @@
     isDark,
     tooltips = true,
     onExpandOnTouch,
+    isolated = false,
   }: Props = $props();
 
   // A caller is either inside the component tree or outside it for its whole
@@ -80,7 +84,7 @@
   // Theme updates are messages: assigning srcdoc would reset live state.
   const dark = $derived(isDark ?? settings!.isDark);
 
-  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark)));
+  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated));
 
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
   const frameSettled = $derived(frameResult?.srcdoc === srcdoc && frameResult?.reloadKey === reloadKey);
@@ -251,7 +255,7 @@
         class:animates-height={frameSettled}
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
-        sandbox="allow-scripts allow-popups allow-forms allow-modals allow-downloads"
+        sandbox={isolated ? "allow-scripts" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
         allow="clipboard-write"
         style="color-scheme:{colorScheme};{expanded
           ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`

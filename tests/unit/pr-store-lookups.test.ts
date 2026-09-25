@@ -3,6 +3,7 @@ import type { PrListPage, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideMetadataRequest, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
+import { listingFrom, readFirstPage } from './__fixtures__/pr-listing'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -107,7 +108,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     const store = new PrsStore()
     const labels = [{ name: 'bug', color: 'd73a4a' }]
     let commentReads = 0
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(65)], page: 1, hasMore: false }),
       prSetLabels: async () => pr(65, { labels }),
       prListComments: async () => {
@@ -115,9 +116,9 @@ describe('PrsStore lookups are scoped to one project', () => {
         return []
       },
       ...NO_CHECKS,
-    })
+    }))
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
-    await project.list()
+    await readFirstPage(store, project)
     const pullRequest = project.get(65)
     const held = project.items[0]
     await pullRequest.loadComments()
@@ -315,7 +316,7 @@ describe('a refresh reaches the code host', () => {
 
     let invalidations = 0
     const order: string[] = []
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prInvalidate: async () => {
         invalidations++
         order.push('invalidate')
@@ -325,14 +326,14 @@ describe('a refresh reaches the code host', () => {
         return { items: [pr(7)], page: 1, hasMore: false }
       },
       ...NO_CHECKS,
-    })
+    }))
 
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list()
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')))
     // An ordinary read shares whatever the host has already fetched; only a
     // person's refresh is allowed to spend a code-host request.
     expect(invalidations).toBe(0)
 
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list({ force: true })
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')), { force: true })
     expect(invalidations).toBe(1)
     // And it has to land before the read, or the read is served the very answer
     // the refresh was asking to replace.
@@ -344,15 +345,15 @@ describe('a refresh reaches the code host', () => {
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prInvalidate: async () => { throw new Error('no repository here') },
       prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
+    }))
 
     // The read that follows owns the error message, so a refused invalidation
     // must not become the one the user sees.
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list({ force: true })
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')), { force: true })
     expect((store.at('host-a', '/repos/a')?.prFor(7) ?? null)?.number).toBe(7)
   })
 })
@@ -371,7 +372,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     const ctx = ctxFor('/repos/a')
     const requests: PrGuideMetadataRequest[] = []
     const target = pr(7)
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [target, pr(8)], page: 1, hasMore: false }),
       prChecks: async () => ({ repo: { host: 'github.com', owner: 'acme', repo: 'a' }, checks: [] }),
       prGuideStatuses: async (_ctx, batch) => batch.map(({ target: request }) => {
@@ -382,9 +383,9 @@ describe('review guide metadata is scoped to one pull request', () => {
           generatedAt: '2026-01-01T00:00:00Z', updatedAt: 1,
         }
       }),
-    })
+    }))
 
-    await store.get(api, 'host-a', ctx).list()
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
     expect(requests).toEqual([])
 
     await guides.loadMetadata(api, 'host-a', ctx, [target])
@@ -404,7 +405,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     let head = 'sha-7'
     let failNext = false
     const probes: string[] = []
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [{ ...pr(7), headSha: head }], page: 1, hasMore: false }),
       ...NO_CHECKS,
       prGuideStatuses: async (_ctx, batch) => {
@@ -415,20 +416,20 @@ describe('review guide metadata is scoped to one pull request', () => {
         }
         return batch.map(() => null)
       },
-    })
+    }))
     const project = store.get(api, 'host-a', ctx)
 
     // Reopening the page, or a refresh with nothing pushed, asks nothing new:
     // a guide's later changes arrive as events, not as answers to a poll.
-    await project.list()
+    await readFirstPage(store, project)
     await guides.loadListed(project)
-    await project.list({ force: true })
+    await readFirstPage(store, project, { force: true })
     await guides.loadListed(project)
     expect(probes).toEqual(['sha-7'])
 
     head = 'sha-7b'
     failNext = true
-    await project.list({ force: true })
+    await readFirstPage(store, project, { force: true })
     await guides.loadListed(project)
     await guides.loadListed(project)
     expect(probes).toEqual(['sha-7', 'sha-7b', 'sha-7b'])
@@ -443,7 +444,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     const guides = new PrGuidesStore(store, new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {}))
     const batches: { number: number; headRef: string }[][] = []
     let singleProbes = 0
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({
         items: [7, 8, 9, 10, 11].map((number) => pr(number, { headRef: `feature/${number}` })),
         page: 1,
@@ -457,10 +458,10 @@ describe('review guide metadata is scoped to one pull request', () => {
         batches.push(batch.map(({ target, headRef }) => ({ number: target.number, headRef })))
         return batch.map(() => null)
       },
-    })
+    }))
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
 
-    await project.list()
+    await readFirstPage(store, project)
     await guides.loadListed(project)
 
     expect(singleProbes).toBe(0)
@@ -476,11 +477,11 @@ describe('review guide metadata is scoped to one pull request', () => {
     const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
     const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7), pr(8)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
-    await store.get(api, 'host-a', ctx).list()
+    }))
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
 
     const event: ReviewGuideStatusEvent = {
       repoRoot: '/repos/a',
@@ -511,11 +512,11 @@ describe('review guide metadata is scoped to one pull request', () => {
     const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
     const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
-    await store.get(api, 'host-a', ctx).list()
+    }))
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
 
     shared.set('host-a', {
       repoRoot: '/repos/a',

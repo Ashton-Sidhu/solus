@@ -246,16 +246,6 @@ describe('native task CRUD', () => {
       prompt: 'Keep one row',
     })
     expect(task?.id).toBe(clientId)
-
-    const parentId = task!.id
-    const subtaskId = ids.ulid()
-    const subtask = await taskSessions.prepareSessionTask('local', {
-      taskId: subtaskId,
-      parentTaskId: parentId,
-      projectKey: '/workspace/solus',
-      prompt: 'Fork it',
-    })
-    expect(subtask).toMatchObject({ id: subtaskId, parentId })
   })
 
   test('refuses a client-minted id that is malformed, taken, or beside a bound task', async () => {
@@ -666,34 +656,6 @@ describe('session minting and durable links', () => {
       expect.objectContaining({ taskId: root.id, sessionId: 'session-first-attempt' }),
       expect.objectContaining({ taskId: root.id, sessionId: 'session-second-attempt' }),
     ])
-  })
-
-  test('can mint a session-born subtask beneath an explicit parent', async () => {
-    // WHY: agent-created worker sessions must carry task hierarchy at first
-    // dispatch so their initial system prompt already names the parent and
-    // sibling work instead of relying on a racy follow-up link.
-    const parent = await taskStore.createTask('local', {
-      title: 'Ship task-aware tools',
-      projectKey: '/workspace/solus',
-    })
-
-    const child = await taskSessions.prepareSessionTask('local', {
-      parentTaskId: parent.id,
-      sessionId: 'session-child-worker',
-      projectKey: '/workspace/solus',
-      prompt: 'Add focused coverage',
-    })
-
-    expect(child).toMatchObject({
-      parentId: parent.id,
-      title: 'Add focused coverage',
-      status: 'in_progress',
-      source: 'session',
-    })
-    expect(await taskSessions.tasksForSession('local', 'session-child-worker')).toMatchObject({
-      task: { id: child!.id, parentId: parent.id },
-      parent: { id: parent.id },
-    })
   })
 
   test('task session links include indexed session chronology and display metadata', async () => {

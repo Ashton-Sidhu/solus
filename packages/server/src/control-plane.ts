@@ -6,12 +6,8 @@ import { appendFile, mkdir, stat } from 'fs/promises'
 import { dirname, join } from 'path'
 import { createLogger } from './logger'
 import { captureServerEvent } from './analytics'
-import { createWorktree, renameWorktreeBranch } from './git/worktree-manager'
-import { isTemporaryWorktreeBranch } from './git/worktree-branch-name'
-import { generateWorktreeName } from './git/worktree-name'
+import { CheckoutService } from './git/checkout-service'
 import { computeGitState } from './git/git-helpers'
-import { checkoutWithLiveIdentity } from './git/git-context'
-import { GitWatcher } from './git/git-watcher'
 import { warmFinder } from './server/file-finder'
 import {
   AgentRunner,
@@ -89,7 +85,7 @@ import type {
   WatchSessionInput,
   WatchSessionResult,
 } from '@solus/contracts/types'
-import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, modelLabelFor, projectScopeOf, sameGitCheckout } from '@solus/contracts/types'
+import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, modelLabelFor, projectScopeOf } from '@solus/contracts/types'
 import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
@@ -188,7 +184,6 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
     displayPrompt: request.prompt,
   }
   if (request.taskId) options.taskId = request.taskId
-  if (request.parentTaskId) options.parentTaskId = request.parentTaskId
   if (request.skipTaskCreation) options.skipTaskCreation = true
   return options
 }
@@ -371,19 +366,9 @@ export class ControlPlane extends EventEmitter {
    *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
   readonly attention = new AttentionService()
 
-  /** Live filesystem watcher per repo, so external git changes mirror into the renderer. */
-  private gitWatcher: GitWatcher
-  /** Git identity for every session, including idle ones with no backend run. */
-  private sessionGitEnvironments = new Map<string, { cwd: string; gitContext: GitCheckout }>()
-  /** sessionId → checkout path currently registered with the watcher, for correct ref-counted teardown. */
-  private gitWatchKeys = new Map<string, string>()
-  /** cwd → last broadcast git_status (serialized), so an unchanged watcher fire
-   *  doesn't re-broadcast identical status to every (possibly hidden) window. */
-  private lastGitStatusByCwd = new Map<string, string>()
-  private gitWatchRefreshes = new Map<string, Promise<void>>()
-  private pendingGitWatchRefreshes = new Set<string>()
-  /** Repo roots that changed while no client held a foreground lease. */
-  private deferredGitWatchCwds = new Set<string>()
+  readonly checkouts = new CheckoutService(() => activityLeases.hasForegroundLease())
+  /** Sessions attach to a checkout path; the Git service owns its identity. */
+  private sessionCheckoutPaths = new Map<string, string>()
   private readonly handoffBuilder: typeof buildHandoff
   private readonly sessionTaskPreparer: typeof prepareSessionTask
   /** Provider seats, once the host has opened its database. */
@@ -398,7 +383,24 @@ export class ControlPlane extends EventEmitter {
     for (const backend of this.backends.values()) {
       this._wireBackend(backend)
     }
-    this.gitWatcher = new GitWatcher((repoRoot) => { void this._onGitWatchFire(repoRoot) })
+    this.checkouts.onChange(({ state }) => {
+      for (const [sessionId, cwd] of this.sessionCheckoutPaths) {
+        if (cwd !== state.cwd) continue
+        const gitContext = this.checkouts.get(cwd)?.checkout ?? undefined
+        const session = this.activeSessions.get(sessionId)
+        if (session) {
+          session.gitContext = gitContext
+          if (session.runInput) session.runInput.gitContext = gitContext ?? null
+        }
+        if (gitContext?.branch) setSessionBranch(sessionId, gitContext.branch)
+        if (gitContext) this._emit(sessionId, { type: 'git_context', gitContext })
+      }
+    })
+    this.checkouts.onStatus((cwd, state) => {
+      for (const [sessionId, path] of this.sessionCheckoutPaths) {
+        if (path === cwd) this._emit(sessionId, { type: 'git_status', cwd, state })
+      }
+    })
     this.runWatchdogTimer = setInterval(() => this._checkActiveRuns(), RUN_WATCHDOG_INTERVAL_MS)
     this.runWatchdogTimer.unref?.()
   }
@@ -801,7 +803,7 @@ export class ControlPlane extends EventEmitter {
           // keyboard, even after the queue relabelled it `queued`: it keeps the
           // queue behaviour it was built with and resumes on its own.
           const answersASession = !!run?.exchangeIds?.length
-          if (run && !answersASession && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation') {
+          if (run && !answersASession && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation' && run.options.promptSource !== 'watch') {
             // Host settings can change while a user turn is running. Read the
             // current preference here; an old client snapshot is not the policy.
             run.input.rateLimitBehavior = getHostConfig().config.rateLimitBehavior
@@ -939,6 +941,12 @@ export class ControlPlane extends EventEmitter {
 
         this._processQueueForSession(sessionId)
       }
+    })
+
+    backend.on('background-command-completed', (agentSessionId: string, prompt: string) => {
+      void this.promptSession(agentSessionId, prompt, 'queue', { via: 'background-command' }).catch((error) => {
+        log.warn('background_command_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
+      })
     })
 
     backend.on('error', (agentSessionId: string | null, err: Error) => {
@@ -1130,6 +1138,8 @@ export class ControlPlane extends EventEmitter {
   private _attachRuntime(sessionId: string, agentSessionId: string, clientId: string): RuntimeSessionInfo | null {
     const session = this.activeSessions.get(sessionId)
     if (!session) return null
+
+    this.queueHeldRateLimitedPrompts(sessionId)
 
     const backend = this._backendFor(session.backendId)
     const pendingRateLimitEvent = this._currentRateLimitEvent(sessionId)
@@ -1829,9 +1839,10 @@ export class ControlPlane extends EventEmitter {
   }
 
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
-    // Existing automation runs and agent follow-ups drain with their parent
-    // work. User submissions and new automation triggers are gated separately.
-    if (request.options.promptSource !== 'automation' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
+    // Existing automation runs, watch wakes, and agent follow-ups drain with
+    // their parent work. User submissions, new automation triggers, and new
+    // watch probes are gated separately.
+    if (request.options.promptSource !== 'automation' && request.options.promptSource !== 'watch' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
     request.runId ??= crypto.randomUUID()
     // Count before the first await: a concurrent update must see setup and
     // accepted queued work, not just an already-running provider process.
@@ -1943,6 +1954,7 @@ export class ControlPlane extends EventEmitter {
       event.via = options.via
       event.automationId = options.automationId
       event.automationName = options.automationName
+      event.watchId = options.watchId
     }
     if (options.agentSessionId) {
       event.agentSessionId = options.agentSessionId
@@ -2063,6 +2075,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
+        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -2081,57 +2094,14 @@ export class ControlPlane extends EventEmitter {
   }
 
   /**
-   * Dispatch an automation's prompt *into* an agent session so it runs in-thread
-   * with full conversation context (the "run in this chat" path). Builds a plain
-   * run input from the session's last run (when resident) or the automation's own
-   * config fallback (when not), so a backgrounded or cold session resumes from
-   * disk rather than failing. No source client is named, so the injected message
-   * reaches every client watching the session. Routes through `runTurn`, so
-   * a busy session queues. Resolves when the run settles.
+   * Wake a session for one of its watches (docs/plans/watches.md): queue the
+   * wake prompt behind any active turn, resuming the session from disk when it
+   * is not resident. No source client is named, so the wake reaches every client
+   * watching the session. Resolves once the turn is accepted; `done` settles
+   * when that turn ends, which is when the watch waits again or ends.
    */
-  async dispatchAutomationRun(opts: {
-    agentSessionId: string
-    prompt: string
-    displayPrompt?: string
-    automationId: string
-    automationName: string
-    fallback?: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; cwd: string }
-  }): Promise<void> {
-    const { prompt, automationId, automationName, fallback } = opts
-    const requestedMeta = getIndexedSession(opts.agentSessionId)
-    const handoff = requestedMeta
-      ? resolveSessionLineage(requestedMeta.provider, opts.agentSessionId)
-      : null
-    const agentSessionId = handoff?.active.providerSessionId ?? opts.agentSessionId
-    const activeProvider = handoff?.active.provider ?? fallback?.provider
-    const activeCwd = handoff?.active.cwd ?? fallback?.cwd
-    // Automations name their target by the provider thread they were attached
-    // to; a cold one has no live session, so it gets an id when it starts.
-    const sessionId = handoff?.sessionId ?? this.agentSessionToSession.get(agentSessionId) ?? crypto.randomUUID()
-    const resident = this.activeSessions.get(sessionId)?.runInput
-    const input: SessionRunInput | undefined = resident
-      ? { ...resident, agentSessionId, forked: false }
-      : fallback && activeProvider && activeCwd
-        ? {
-            provider: activeProvider,
-            agentSessionId,
-            forked: false,
-            workingDirectory: activeCwd,
-            projectPath: activeCwd,
-            additionalDirs: [],
-            gitContext: null,
-            worktreeBaseBranch: null,
-            sessionChangedFiles: [],
-            reasoningEffort: fallback.reasoningEffort,
-            fastMode: false,
-            permissionMode: 'auto',
-            rateLimitBehavior: 'queue',
-            ...hostModelInputFor(activeProvider, fallback.model),
-          }
-        : undefined
-    if (!input) {
-      throw new Error(`Session ${agentSessionId} isn't active and no run config was provided — open the chat to resume its automation.`)
-    }
+  async dispatchWake(wake: { sessionId: string; watchId: string; prompt: string; displayPrompt: string }): Promise<{ done: Promise<unknown> }> {
+    const { sessionId, input } = await this._unattendedRunInput(wake.sessionId)
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId },
@@ -2141,6 +2111,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
+        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -2150,17 +2121,67 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.config,
       ),
       options: {
-        prompt,
-        promptSource: 'automation',
-        displayPrompt: opts.displayPrompt ?? prompt,
+        prompt: wake.prompt,
+        promptSource: 'watch',
+        displayPrompt: wake.displayPrompt,
         skipTaskCreation: true,
         delivery: 'queue',
-        via: 'automation',
-        automationId,
-        automationName,
+        via: 'watch',
+        watchId: wake.watchId,
       },
     })
-    await lifecycle.done
+    return { done: lifecycle.done }
+  }
+
+  /**
+   * The run input for a prompt nobody at the session's keyboard sent: the
+   * resident run's input, or one rebuilt from the session's stored start
+   * configuration. `id` is the stable Solus session or a provider thread.
+   */
+  private async _unattendedRunInput(id: string): Promise<{ sessionId: string; input: SessionRunInput }> {
+    const requestedMeta = getIndexedSession(id)
+    const handoff = resolveSessionLineageById(id) ?? (requestedMeta
+      ? resolveSessionLineage(requestedMeta.provider, id)
+      : null)
+    const agentSessionId = handoff?.active.providerSessionId ?? id
+    // Keep the stable target for dispatch and pass only its thread to the backend.
+    const sessionId = handoff?.sessionId ?? this.agentSessionToSession.get(agentSessionId) ?? crypto.randomUUID()
+    const resident = this.activeSessions.get(sessionId)
+    if (resident?.runInput) return { sessionId, input: { ...resident.runInput, agentSessionId, forked: false } }
+    const meta = await this.getSessionInfo(agentSessionId)
+    if (!meta) throw new Error(`Session ${agentSessionId} not found`)
+    if (!meta.model || !meta.reasoningEffort) {
+      throw new Error(`Session ${agentSessionId} has no persisted starting model configuration`)
+    }
+    const provider = handoff?.active.provider ?? meta.provider
+    const cwd = handoff?.active.cwd ?? meta.cwd
+    return {
+      sessionId,
+      input: {
+        provider,
+        agentSessionId,
+        forked: false,
+        workingDirectory: cwd,
+        projectPath: cwd,
+        additionalDirs: [],
+        gitContext: null,
+        worktreeBaseBranch: null,
+        sessionChangedFiles: [],
+        contextWindow: defaultContextWindowFor(provider, meta.model),
+        model: meta.model,
+        preferredModel: meta.model,
+        reasoningEffort: meta.reasoningEffort,
+        fastMode: false,
+        // A turn settles and its run record — with the mode it started in — is
+        // dropped, so every later unattended prompt rebuilds the input from
+        // scratch. Nobody is at the keyboard of the session being prompted, and
+        // 'ask' parked a session an agent created in auto on permission prompts
+        // it never asked for.
+        permissionMode: 'auto',
+        rateLimitBehavior: 'queue',
+        ...hostInstructionsFor(meta.model),
+      },
+    }
   }
 
   async promptSession(
@@ -2181,50 +2202,7 @@ export class ControlPlane extends EventEmitter {
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
     const { permissionMode, actor, exchangeIds, ...promptOrigin } = origin ?? {}
-    const requestedMeta = getIndexedSession(agentSessionId)
-    const handoff = resolveSessionLineageById(agentSessionId) ?? (requestedMeta
-      ? resolveSessionLineage(requestedMeta.provider, agentSessionId)
-      : null)
-    agentSessionId = handoff?.active.providerSessionId ?? agentSessionId
-    // Tools can name either the stable Solus session or a provider thread.
-    // Keep the stable target for dispatch and pass only its thread to the backend.
-    const sessionId = handoff?.sessionId ?? this.agentSessionToSession.get(agentSessionId) ?? crypto.randomUUID()
-    const resident = this.activeSessions.get(sessionId)
-    let input: SessionRunInput | undefined
-    if (resident?.runInput) {
-      input = { ...resident.runInput, agentSessionId, forked: false }
-    } else {
-      const meta = await this.getSessionInfo(agentSessionId)
-      if (!meta) throw new Error(`Session ${agentSessionId} not found`)
-      if (!meta.model || !meta.reasoningEffort) {
-        throw new Error(`Session ${agentSessionId} has no persisted starting model configuration`)
-      }
-      input = {
-        provider: handoff?.active.provider ?? meta.provider,
-        agentSessionId,
-        forked: false,
-        workingDirectory: handoff?.active.cwd ?? meta.cwd,
-        projectPath: handoff?.active.cwd ?? meta.cwd,
-        additionalDirs: [],
-        gitContext: null,
-        worktreeBaseBranch: null,
-        sessionChangedFiles: [],
-        contextWindow: defaultContextWindowFor(handoff?.active.provider ?? meta.provider, meta.model),
-        model: meta.model,
-        preferredModel: meta.model,
-        reasoningEffort: meta.reasoningEffort,
-        fastMode: false,
-        // A turn settles and its run record — with the mode it started in — is
-        // dropped, so every later agent-driven prompt rebuilds the input from
-        // scratch. This surface is peers prompting peers and session reports:
-        // nobody is at the keyboard of the session being prompted, and 'ask'
-        // parked a session an agent created in auto on permission prompts it
-        // never asked for. Matches the automation resume path above.
-        permissionMode: 'auto',
-        rateLimitBehavior: 'queue',
-        ...hostInstructionsFor(meta.model),
-      }
-    }
+    const { sessionId, input } = await this._unattendedRunInput(agentSessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.seatForTurn(actor, input.provider)
     const lifecycle = await this.runTurn({
@@ -2238,6 +2216,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
+        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -2380,6 +2359,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
+        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -2431,6 +2411,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
+        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -2901,10 +2882,10 @@ export class ControlPlane extends EventEmitter {
             // through the ambient context — it takes no telemetry argument.
             // It starts on a temporary branch; `nameWorktreeBranch` names it
             // while the agent works, so the prompt never waits on a model.
-            const created = await createWorktree(resolvedProjectPath, worktreeBaseBranch, {
+            const created = await this.checkouts.create(resolvedProjectPath, worktreeBaseBranch, {
               signal: setupController.signal,
             })
-            annotate({ branch: created.branch, targetBranch: created.targetBranch, worktreePath: created.worktreePath })
+            annotate({ branch: created.branch ?? '', targetBranch: created.targetBranch, worktreePath: created.worktreePath ?? '' })
             return created
           },
         )
@@ -2938,16 +2919,20 @@ export class ControlPlane extends EventEmitter {
       }
     }
 
+    if (effectiveGitCtx?.worktreePath) {
+      const current = await this.checkouts.refresh(effectiveGitCtx.worktreePath)
+      if (!current.checkout) throw new Error('The session worktree is no longer available')
+      effectiveGitCtx = current.checkout
+    }
     const useWorktree = !!effectiveGitCtx?.worktreePath
     const effectiveCwd = useWorktree ? effectiveGitCtx!.worktreePath! : resolvedProjectPath
 
     // Start mirroring this repo's HEAD/refs/index now that the session's git
     // context is settled, so external branch/commit/stage changes flow back
-    // live. Only worth a filesystem watcher when somebody is listening — a
-    // headless run nobody has opened would just leak one.
-    if (this.watches.has(sessionId)) {
-      this.setSessionGitEnvironment(sessionId, effectiveCwd, effectiveGitCtx)
-    }
+    // live. The checkout service installs filesystem watchers when a client
+    // holds a foreground lease; headless runs still share current identity.
+    this.setSessionGitEnvironment(sessionId, effectiveCwd, effectiveGitCtx)
+    effectiveGitCtx = this.getGitContext(sessionId) ?? effectiveGitCtx
 
     // Prewarm the file index for the exact path the Files view will query
     // (worktree root when present, else the project) so its first open hits a
@@ -3077,7 +3062,6 @@ export class ControlPlane extends EventEmitter {
             ? null
             : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
           existingTaskId: options.taskId,
-          parentTaskId: options.parentTaskId,
           projectKey: resolvedProjectPath,
           prompt: options.displayPrompt ?? options.prompt,
         })
@@ -3422,6 +3406,7 @@ export class ControlPlane extends EventEmitter {
       solusToolbox.docs,
       solusToolbox.artifact,
       solusToolbox.automations,
+      solusToolbox.watches,
       solusToolbox.connections,
       solusToolbox.insights,
       solusToolbox.intelligence,
@@ -3524,6 +3509,23 @@ export class ControlPlane extends EventEmitter {
     return { sessionId, backend, event }
   }
 
+  /** Apply Queue to prompts already held when settings change or a client rejoins.
+   * Unattended runs keep the policy supplied by their owner. */
+  queueHeldRateLimitedPrompts(onlySessionId?: string): void {
+    if (getHostConfig().config.rateLimitBehavior !== 'queue') return
+    for (const [sessionId, run] of this.activeRunRequests) {
+      if (onlySessionId && sessionId !== onlySessionId) continue
+      if (run.exchangeIds?.length || run.options.promptSource === 'agent' || run.options.promptSource === 'automation' || run.options.promptSource === 'watch') continue
+      if (!this._hasUndecidedHeldPrompt(sessionId)) continue
+      const event = this.rateLimits.peek(sessionId)
+      if (!event) continue
+      run.input.rateLimitBehavior = 'queue'
+      if (this._queueActiveRateLimitedRequest(sessionId)) {
+        this._scheduleRateLimitRelease(sessionId, event.resetsAt)
+      }
+    }
+  }
+
   resolveRateLimit(ctx: IpcContext, action: RateLimitDecisionAction): boolean {
     const sessionId = this._sessionIdForCtx(ctx)
     if (!sessionId) return false
@@ -3609,189 +3611,49 @@ export class ControlPlane extends EventEmitter {
    * the temporary branch is a correct branch, only a less readable one.
    */
   async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string): Promise<void> {
-    const { worktreePath, branch: temporaryBranch } = checkout
-    if (!worktreePath || !temporaryBranch || !isTemporaryWorktreeBranch(temporaryBranch)) return
-    try {
-      const generatedName = await generateWorktreeName(this, prompt, worktreePath)
-      if (!generatedName) return
-      const branch = await renameWorktreeBranch(worktreePath, temporaryBranch, generatedName)
-      if (!branch) return
-      log.info('worktree_branch_renamed', { sessionId, from: temporaryBranch, branch })
-      // The run input, the live session, and the watched environment can hold
-      // the same checkout. Rename it in each place that still names the
-      // temporary branch, so the index row written at session init and every
-      // later prompt see the final name.
-      const session = this.activeSessions.get(sessionId)
-      const holders = [session?.gitContext, session?.runInput?.gitContext, this.sessionGitEnvironments.get(sessionId)?.gitContext]
-      for (const holder of holders) {
-        if (holder?.worktreePath === worktreePath && holder.branch === temporaryBranch) holder.branch = branch
-      }
-      setSessionBranch(sessionId, branch)
-      const gitContext = session?.gitContext?.worktreePath === worktreePath ? session.gitContext : { ...checkout, branch }
-      this._emit(sessionId, { type: 'git_context', gitContext })
-    } catch (error) {
-      log.warn('worktree_branch_rename_failed', { sessionId, branch: temporaryBranch, error: String(error) })
-    }
+    if (!checkout.worktreePath) return
+    this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
+    await this.checkouts.name(checkout.worktreePath, prompt, this)
   }
 
   setSessionGitCheckout(sessionId: string, gitContext: GitCheckout | undefined): void {
-    const existing = this.sessionGitEnvironments.get(sessionId)
-    const cwd = gitContext?.worktreePath ?? existing?.cwd ?? gitContext?.repoRoot ?? '~'
+    const cwd = gitContext?.worktreePath ?? this.sessionCheckoutPaths.get(sessionId) ?? gitContext?.repoRoot ?? '~'
     this.setSessionGitEnvironment(sessionId, cwd, gitContext ?? null)
   }
 
-  /** Register the checkout a session currently represents. This deliberately
-   * lives outside BackendSession: an idle session still needs branch/status
-   * events. A source with no session of its own registers nothing. */
   setSessionGitEnvironment(sessionId: string, cwd: string, gitContext: GitCheckout | null): void {
     if (!sessionId) return
     const session = this.activeSessions.get(sessionId)
     if (!gitContext || !cwd || cwd === '~') {
-      if (!this.sessionGitEnvironments.has(sessionId)
-        && !this.gitWatchKeys.has(sessionId)
-        && !session?.gitContext) return
+      this.sessionCheckoutPaths.delete(sessionId)
       if (session) session.gitContext = undefined
-      this.sessionGitEnvironments.delete(sessionId)
-      this._syncGitWatcher(sessionId, null)
       return
     }
     const checkoutCwd = gitContext.worktreePath ?? cwd
-    const existing = this.sessionGitEnvironments.get(sessionId)
-    if (existing?.cwd === checkoutCwd
-      && sameGitCheckout(existing.gitContext, gitContext)
-      && (!session || sameGitCheckout(session.gitContext, gitContext))) return
-
-    if (session) session.gitContext = gitContext
-    this.sessionGitEnvironments.set(sessionId, { cwd: checkoutCwd, gitContext })
-    this._syncGitWatcher(sessionId, checkoutCwd)
-  }
-
-  /**
-   * Register/deregister the live git watcher for a session as its checkout comes
-   * and goes. Keyed by checkout cwd so sessions sharing one checkout share
-   * watchers, while linked worktrees retain their own HEAD/index targets. The
-   * per-session key is tracked so teardown ref-counts correctly even when the
-   * context changes (e.g. branch → worktree).
-   */
-  private _syncGitWatcher(sessionId: string, cwd: string | null): void {
-    const nextKey = cwd && cwd !== '~' ? cwd : null
-    const prevKey = this.gitWatchKeys.get(sessionId) ?? null
-    if (prevKey === nextKey) return
-    if (prevKey) {
-      this.gitWatcher.deregister(prevKey)
-      this.gitWatchKeys.delete(sessionId)
-      // Last watcher for this checkout gone — drop its retained status snapshot
-      // so closed projects do not hold serialized git status for the app's life.
-      let stillWatched = false
-      for (const key of this.gitWatchKeys.values()) {
-        if (key === prevKey) { stillWatched = true; break }
-      }
-      if (!stillWatched) this.lastGitStatusByCwd.delete(prevKey)
-    }
-    if (nextKey) {
-      this.gitWatcher.register(nextKey)
-      this.gitWatchKeys.set(sessionId, nextKey)
+    this.sessionCheckoutPaths.set(sessionId, checkoutCwd)
+    const checkout = this.checkouts.attach(checkoutCwd, gitContext)
+    if (session) {
+      session.gitContext = checkout
+      if (session.runInput) session.runInput.gitContext = checkout
     }
   }
 
-  /**
-   * A watched repo changed on disk. Recompute branch + status for every session
-   * in that repo (deduped by working dir) and broadcast so the renderer mirrors
-   * it without a click. Branch goes out as the already-handled `git_context`
-   * event; dirty files/conflicts as the lightweight `git_status` event. Line
-   * totals and PR discovery are refreshed only while the Git panel is visible.
-   */
-  private async _onGitWatchFire(watchCwd: string): Promise<void> {
-    // No foreground lease means no one is looking: remember the dirt and
-    // recompute when a client returns (dispatch-client step 7). Explicitly
-    // requested status reads are unaffected — this gates only watch freshness.
-    if (!activityLeases.hasForegroundLease()) {
-      this.deferredGitWatchCwds.add(watchCwd)
-      return
-    }
-    const existing = this.gitWatchRefreshes.get(watchCwd)
-    if (existing) {
-      this.pendingGitWatchRefreshes.add(watchCwd)
-      return existing
-    }
-    const refresh = (async () => {
-      do {
-        this.pendingGitWatchRefreshes.delete(watchCwd)
-        await this._refreshWatchedGitState(watchCwd)
-      } while (this.pendingGitWatchRefreshes.has(watchCwd))
-    })().finally(() => this.gitWatchRefreshes.delete(watchCwd))
-    this.gitWatchRefreshes.set(watchCwd, refresh)
-    return refresh
-  }
-
-  /** A foreground lease returned: recompute everything that changed while
-   *  nobody was looking, so the first frame back is honest. */
   flushDeferredGitRefreshes(): void {
-    const deferred = [...this.deferredGitWatchCwds]
-    this.deferredGitWatchCwds.clear()
-    for (const watchCwd of deferred) void this._onGitWatchFire(watchCwd)
+    this.checkouts.flushDeferred()
   }
 
-  private async _refreshWatchedGitState(watchCwd: string): Promise<void> {
-    const sessionIds = [...this.gitWatchKeys.entries()].filter(([, key]) => key === watchCwd).map(([id]) => id)
-    if (!sessionIds.length) return
-
-    const statusByCwd = new Map<string, Awaited<ReturnType<typeof computeGitState>>>()
-    // Whether each cwd's status actually changed since its last broadcast —
-    // decided once per cwd so sessions sharing a cwd all deliver (or all skip) together.
-    const changedByCwd = new Map<string, boolean>()
-    for (const sessionId of sessionIds) {
-      const environment = this.sessionGitEnvironments.get(sessionId)
-      if (!environment) continue
-      const { cwd } = environment
-
-      if (!statusByCwd.has(cwd)) {
-        const computed = await computeGitState(cwd)
-        statusByCwd.set(cwd, computed)
-        const serialized = JSON.stringify(computed)
-        const changed = this.lastGitStatusByCwd.get(cwd) !== serialized
-        if (changed) this.lastGitStatusByCwd.set(cwd, serialized)
-        changedByCwd.set(cwd, changed)
-      }
-      const status = statusByCwd.get(cwd) ?? null
-
-      if (status) {
-        const gitContext = checkoutWithLiveIdentity(environment.gitContext, status)
-        // Only the four fields written above can differ from the stored context,
-        // so compare them directly instead of double-stringifying per session.
-        const previous = environment.gitContext
-        const gitContextChanged =
-          gitContext.branch !== previous.branch ||
-          gitContext.detachedHeadSha !== previous.detachedHeadSha ||
-          gitContext.targetBranch !== previous.targetBranch ||
-          gitContext.repoRoot !== previous.repoRoot
-        if (gitContextChanged) {
-          this.sessionGitEnvironments.set(sessionId, { cwd, gitContext })
-          const session = this.activeSessions.get(sessionId)
-          if (session) session.gitContext = gitContext
-          if (gitContext.branch) setSessionBranch(sessionId, gitContext.branch)
-          this._emit(sessionId, { type: 'git_context', gitContext })
-        }
-      }
-      // Skip the git_status broadcast when nothing changed since the last fire —
-      // belt-and-braces to cut IPC to hidden windows (the renderer diffs too).
-      if (changedByCwd.get(cwd)) {
-        this._emit(sessionId, { type: 'git_status', cwd, state: status })
-      }
-    }
-  }
-
-  /** Only the worktree paths are read; the id they were registered under is not. */
   listGitContexts(): GitCheckout[] {
-    const result: GitCheckout[] = []
-    for (const environment of this.sessionGitEnvironments.values()) {
-      if (environment.gitContext.worktreePath) result.push({ ...environment.gitContext })
+    const contexts: GitCheckout[] = []
+    for (const cwd of new Set(this.sessionCheckoutPaths.values())) {
+      const checkout = this.checkouts.get(cwd)?.checkout
+      if (checkout?.worktreePath) contexts.push({ ...checkout })
     }
-    return result
+    return contexts
   }
 
   getGitContext(sessionId: string): GitCheckout | undefined {
-    return this.sessionGitEnvironments.get(sessionId)?.gitContext
+    const cwd = this.sessionCheckoutPaths.get(sessionId)
+    return cwd ? this.checkouts.get(cwd)?.checkout ?? undefined : undefined
   }
 
   /** Whether the next drain would actually dispatch — the same question
@@ -4236,8 +4098,9 @@ export class ControlPlane extends EventEmitter {
     if (session) {
       session.status = newStatus
       // Leaving 'background' for 'running' is the agent taking a new turn in
-      // the open query — a steered prompt, or its reply to a settled task. The
-      // 'background' turn already settled, so this one needs its own id.
+      // the open query — a steered prompt, or its reply to a settled task. It
+      // settles on its own id; the 'background' span before it never settles,
+      // so a turn left waiting on background work does not notify as finished.
       if (oldStatus === 'background' && newStatus === 'running') session.activeTurnId = crypto.randomUUID()
       if (session.backendId === 'claude-code' && agentSessionId) {
         goalUpdate = this.claudeGoals.applySessionStatus(agentSessionId, newStatus)
@@ -4267,12 +4130,11 @@ export class ControlPlane extends EventEmitter {
     ) {
       this._queueTurnSettlement(sessionId, session, newStatus)
     }
-    // The agent's turn is finished even though its background work is not.
-    if (session && newStatus === 'background') this._queueTurnSettlement(sessionId, session, 'completed')
     if (goalUpdate) this._emit(sessionId, { type: 'goal_updated', goal: goalUpdate })
   }
 
   shutdown(): void {
+    this.checkouts.dispose()
     this.failedSetupPrompts.clear()
     log.info('control_plane_shutdown')
     if (this.runWatchdogTimer) {

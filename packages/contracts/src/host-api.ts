@@ -1,20 +1,22 @@
+import type { CheckoutSnapshot } from './checkout'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { WorkTransfer } from './work-transfer'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, SentSessionMessage, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId } from './types'
-import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrLabel, PrListPage, PrRevertResult, PrStateAction, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
+import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
-import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget } from './review'
+import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
 import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, AssetFindUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
+import type { Watch } from './watch-types'
+import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, AssetFindUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult, SearchSessionsRequest } from './rpc'
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
-import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -87,6 +89,9 @@ export interface SolusAPI {
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
   attachUpload(ctx: IpcContext, request: AttachmentUploadRequest): Promise<string>
+  /** Mint a one-use URL for streaming a large file (a video) into the session's
+   *  upload folder. */
+  attachUploadToken(ctx: IpcContext, request: AttachmentUploadTokenRequest): Promise<AttachmentUploadTokenResult>
   assetUpload(request: AssetUploadRequest): Promise<AssetUploadResult>
   assetCreateUrl(ctx: IpcContext | undefined, request: AssetCreateUrlRequest): Promise<AssetCreateUrlResult>
   /** One round trip for a list of candidate paths; null when none can be served. */
@@ -326,6 +331,9 @@ export interface SolusAPI {
 
   // PR review mode
   prList(ctx: IpcContext, filter?: PrFilter, page?: number): Promise<PrListPage>
+  /** The first page of every named project on this host, in one answer, so the
+   *  every-project list lands at once instead of one project at a time. */
+  prListProjects(ctx: IpcContext, projectRoots: string[], filter?: PrFilter): Promise<PrProjectListing[]>
   prNeedsReview(ctx: IpcContext): Promise<PullRequest[]>
   prGuideMetadata(ctx: IpcContext, request: PrGuideMetadataRequest): Promise<PrGuideMetadata | null>
   /** Resolve the exact host revision without changing local repository state. */
@@ -346,7 +354,7 @@ export interface SolusAPI {
   prListReviewers(ctx: IpcContext, number: number): Promise<PrReviewer[]>
   prListReviewerCandidates(ctx: IpcContext, number: number): Promise<PrReviewerCandidate[]>
   prRequestReviewers(ctx: IpcContext, number: number, logins: string[]): Promise<PrReviewer[]>
-  prRemoveRequestedReviewer(ctx: IpcContext, number: number, login: string): Promise<PrReviewer[]>
+  prRemoveRequestedReviewer(ctx: IpcContext, number: number, reviewerId: string, kind?: PrReviewerKind): Promise<PrReviewer[]>
   prListLabelCandidates(ctx: IpcContext, number: number): Promise<PrLabel[]>
   /** Replace the label set. Answers the whole pull request, the way every
    *  other write does, so one apply path keeps list rows and detail in step. */
@@ -434,6 +442,22 @@ export interface SolusAPI {
   readGuide(ctx: IpcContext, key: string, target?: ReviewTarget): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
   writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
+
+  /** The lens for one target, with its comments and live job. Null when the
+   * target has no checkout the host can resolve. */
+  readReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensSnapshot | null>
+  /** Queue a new lens. It replaces the current lens only when it succeeds. */
+  requestReviewLens(ctx: IpcContext, request: ReviewLensGenerateRequest): Promise<ReviewLensSnapshot | null>
+  /** Queue a lens edit on the current lens. */
+  editReviewLens(ctx: IpcContext, request: ReviewLensEditRequest): Promise<ReviewLensSnapshot | null>
+  cancelReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<boolean>
+  /** Swap the current lens and the previous version. */
+  restoreReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensSnapshot | null>
+  updateReviewLensComments(ctx: IpcContext, target: ReviewTarget, change: ReviewLensCommentChange): Promise<ReviewLensCommentsResult>
+  /** Post a lens comment to its pull request as a conversation comment. */
+  postReviewLensComment(ctx: IpcContext, target: ReviewTarget, commentId: string): Promise<ReviewLensCommentsResult>
+  /** Delete the conversation comment a lens comment posted. */
+  retractReviewLensComment(ctx: IpcContext, target: ReviewTarget, commentId: string): Promise<ReviewLensCommentsResult>
 
   createWork(title: string, type: WorkType, content: string | undefined, preview: string | undefined, sessionId: string | undefined, agentProvider: AgentId, cwd?: string, id?: string): Promise<Work>
   saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, expectedUpdatedAt?: string): Promise<Work>
@@ -549,6 +573,14 @@ export interface SolusAPI {
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
 
+  /** Every watch of one session, newest first, ended watches included. */
+  watchList(sessionId: string): Promise<Watch[]>
+  /** The session is named so access is checked against it; a watch of another
+   *  session is refused. Null when the watch cannot make that change. */
+  watchPause(sessionId: string, watchId: string): Promise<Watch | null>
+  watchResume(sessionId: string, watchId: string): Promise<Watch | null>
+  watchCancel(sessionId: string, watchId: string): Promise<Watch | null>
+
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>
   skillsSearch(query: string): Promise<RemoteSkill[]>
@@ -579,6 +611,7 @@ export interface SolusAPI {
   worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean }): Promise<string[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string): Promise<GitCheckout | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
+  checkoutSnapshot(paths: string[]): Promise<CheckoutSnapshot>
   gitRefreshState(cwd: string, options?: GitStateOptions): Promise<GitState | null>
   gitIdentity(cwd: string): Promise<GitIdentity | null>
   gitRegisterEnvironment(ctx: IpcContext, cwd: string, gitContext: GitCheckout | null): Promise<void>
@@ -662,6 +695,11 @@ export interface SolusAPI {
    * an agent are the same kind of thing.
    */
   browserCaptureEvidence(request: BrowserCaptureRequest): Promise<BrowserEvidence>
+  /** Start recording a page on the host. Idempotent: a page that is already
+   *  recording keeps its recording. */
+  browserRecordingStart(browserPageId: string): Promise<BrowserRecordingState>
+  /** Stop, store as MP4, and optionally file the recording. */
+  browserRecordingStop(request: BrowserRecordingStopRequest): Promise<BrowserRecordingResult>
   /** What this page's capture could be filed against — the worktree it is
    *  serving, and the pull request open on that branch, if any. */
   browserEvidenceOptions(browserPageId: string): Promise<BrowserEvidenceOptions>

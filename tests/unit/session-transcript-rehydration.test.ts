@@ -4,6 +4,8 @@ import type { IpcContext } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 import { parseJsonlLine } from '@solus/server/agents/claude/claude-session-helpers'
+import { codexItemToMessage } from '@solus/server/agents/codex/codex-utils'
+import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
 import { projectSessionHistory } from '@solus/server/server/result-projection'
 import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -484,4 +486,54 @@ test('Claude MCP array receipts restore both versions and keep failed revisions 
   expect(transcript.messages.filter(m => m.artifact).map(m => [m.artifact?.html, m.workRef?.workId])).toEqual([
     ['<p>One</p>', 'work'], ['<p>Two</p>', 'work'],
   ])
+})
+
+// A sent file lives in provider history only as a prompt line. A reload that
+// kept the line and lost the chip showed the user the plumbing instead of the
+// video they attached, and gave the player nothing to play.
+describe('file attachments after a reload', () => {
+  const videoPath = '/data/attachments/session-abc/0-a1b2c3d4e5f6-flicker.mp4'
+  const sentPrompt = `${composeAttachmentContext([
+    { id: 'a1', type: 'file', name: 'flicker.mp4', path: '/Users/me/flicker.mp4', hostPath: videoPath, hostServerId: 'transcript-host', mimeType: 'video/mp4' },
+    { id: 'a2', type: 'file', name: 'notes.txt', path: '/Users/me/notes.txt', hostPath: '/data/attachments/session-abc/1-0123456789ab-notes.txt', hostServerId: 'transcript-host' },
+  ], 'transcript-host')}\n\nThe list flickers on scroll`
+
+  const historyFor = {
+    'claude-code': () => parseJsonlLine(JSON.stringify({ type: 'user', timestamp: '2026-09-24T00:00:00Z', message: { role: 'user', content: [{ type: 'text', text: sentPrompt }] } })),
+    codex: () => codexItemToMessage({ type: 'userMessage', id: 'u1', content: [{ type: 'text', text: sentPrompt }] } as Parameters<typeof codexItemToMessage>[0], 1),
+  }
+
+  for (const provider of ['claude-code', 'codex'] as const) {
+    test(`${provider} restores the chips and shows only the typed text, as the live bubble does`, () => {
+      const row = historyFor[provider]()
+      expect(row).not.toBeNull()
+      connections.registerPrimary('transcript-host', {})
+      const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
+      const transcript = materializeSessionTranscript(ctx, {
+        sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider,
+        ctx: { session: { sessionId: 'tab' } } as IpcContext,
+      }, deferSessionToolInputs(projectSessionHistory([row!])))
+
+      const [message] = transcript.messages
+      expect(message.content).toBe('The list flickers on scroll')
+      expect(message.attachments).toMatchObject([
+        { type: 'file', name: 'flicker.mp4', path: videoPath, hostPath: videoPath, mimeType: 'video/mp4' },
+        { type: 'file', name: 'notes.txt' },
+      ])
+      expect(message.attachments?.[1].mimeType).toBeUndefined()
+    })
+  }
+
+  test('a bracket the user typed is text, not an attachment', () => {
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
+    const content = '[Attached file: /tmp/x.mp4]\nwhy does this line look like that?'
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, deferSessionToolInputs(projectSessionHistory([{ role: 'user', content, timestamp: 1 }])))
+
+    expect(transcript.messages[0].content).toBe(content)
+    expect(transcript.messages[0].attachments).toBeUndefined()
+  })
 })

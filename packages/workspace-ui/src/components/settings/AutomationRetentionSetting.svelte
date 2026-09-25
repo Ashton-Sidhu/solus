@@ -14,7 +14,7 @@
 
 <SettingsRow
   label="Delete archived automations after"
-  description="Days to keep archived automations and their run history on this host. Default: 30 days. Conversations are kept. Shortening this period applies to existing archives."
+  description="Days to keep archived automations and their runs. Conversations are kept."
   {visible}
 >
   {#snippet control()}

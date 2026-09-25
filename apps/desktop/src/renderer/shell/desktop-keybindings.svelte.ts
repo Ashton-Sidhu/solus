@@ -212,7 +212,7 @@ export function installDesktopKeybindings(
     session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId, "keybinding");
+    if (activeTabId) core.sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
     session.config.toggleTabGroupMode();

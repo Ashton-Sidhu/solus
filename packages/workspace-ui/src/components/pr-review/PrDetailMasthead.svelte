@@ -27,6 +27,7 @@
     guideDisabled = false,
     guideStatus,
     guideDisabledReason,
+    lensState,
     tabsDisabled = false,
     onSelect,
   }: {
@@ -36,7 +37,7 @@
     /** Open the pull request on its host. */
     onOpenPage?: () => void;
     /** The content tab showing in this column — Diff is never one of them. */
-    tab: "activity" | "map" | "guide";
+    tab: "activity" | "map" | "guide" | "lens";
     /** Whether the change is open in the pane beside this one. */
     diffOpen: boolean;
     guideDisabled?: boolean;
@@ -44,7 +45,8 @@
     guideDisabledReason?: string;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
-    onSelect: (tab: "activity" | "map" | "guide" | "diff") => void;
+    lensState?: import("../review/lib/lens-surface").LensTabState;
+    onSelect: (tab: "activity" | "map" | "guide" | "lens" | "diff") => void;
   } = $props();
 </script>
 
@@ -62,6 +64,7 @@
     {guideDisabled}
     {guideStatus}
     {guideDisabledReason}
+    {lensState}
     {tabsDisabled}
     diffHint="Open the change beside this review"
     {onSelect}

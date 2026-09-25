@@ -50,7 +50,7 @@ orchestrator in `packages/server/src/orchestration/`.
 
 | Tool | Does |
 | --- | --- |
-| `start_session` | Starts a session. `task` is required: `subtask` (a new subtask under the caller's root task), `attempt` (another session on `task_id`), or `independent`. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
+| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `independent` (a new top-level task). A task holds its sessions directly; a started session never mints a subtask. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |

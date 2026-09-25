@@ -12,6 +12,7 @@ export interface IpcContextBuilderDeps {
   hasDraft(sourceId: string): boolean
   /** The run a source with none of its own stands on — `WorkspaceContext.defaultRunConfig`. */
   defaultRunConfig(): RunConfig
+  checkoutForRun?(run: RunConfig): GitCheckout | null
   settings: SettingsContext
   statusBar: StatusBarContext
 }
@@ -55,7 +56,8 @@ export class IpcContextBuilder {
     // conversation and so only exists once one has started.
     const ownRun = this.deps.runFor(sourceId)
     const run = ownRun ?? this.deps.defaultRunConfig()
-    const { workingDirectory, modelConfig, gitContext } = run
+    const { workingDirectory, modelConfig } = run
+    const gitContext = this.deps.checkoutForRun ? this.deps.checkoutForRun(run) : run.gitContext
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,

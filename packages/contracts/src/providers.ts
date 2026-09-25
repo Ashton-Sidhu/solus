@@ -61,6 +61,12 @@ export interface PrListPage {
   hasMore: boolean
 }
 
+/** One project's first page from a read that covered several projects on one
+ *  host. A project that could not be read says why, and the others still answer. */
+export type PrProjectListing =
+  | { projectRoot: string; page: PrListPage }
+  | { projectRoot: string; error: string }
+
 /**
  * One pull request, as the host reports it.
  *
@@ -182,10 +188,11 @@ export interface PrLabel {
   color: string
 }
 
-export interface PrReviewerCandidate {
-  login: string
-  avatarUrl?: string
-}
+export type PrReviewerKind = 'user' | 'team'
+
+export type PrReviewerCandidate =
+  | { kind: 'user'; login: string; avatarUrl?: string }
+  | { kind: 'team'; slug: string; name: string; avatarUrl?: string }
 
 /** The account the connected provider token belongs to, as a client shows it. */
 export interface ProviderViewer {

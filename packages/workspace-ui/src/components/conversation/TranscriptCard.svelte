@@ -54,7 +54,7 @@
     glyph?: Snippet;
     /** Counts and time only, never prose. */
     rail?: Snippet;
-    /** Ghost buttons, placed before the split icon and the primary button. */
+    /** Actions follow the body, or sit at the right edge of a header-only card. */
     actions?: Snippet;
     /** Everything else, behind ⋯. */
     menu?: Snippet;
@@ -156,67 +156,15 @@
       {#if rail}
         <span class="tx-card__rail">{@render rail()}</span>
       {/if}
-      {#if actions || onOpenSecondary || actionLabel || menu || isDisclosure}
-        <span class="flex shrink-0 items-center gap-1">
-          {#if actions}{@render actions()}{/if}
-          <!-- Always visible, never hover-only: the split has to be found on a
-               static card too. -->
-          {#if onOpenSecondary}
-            <TranscriptCardAction
-              kind="icon"
-              label={secondaryActionLabel}
-              onclick={onOpenSecondary}
-            >
-              <PanelRightIcon size={13} />
-            </TranscriptCardAction>
-          {/if}
-          {#if actionLabel && onOpen}
-            <TranscriptCardAction
-              kind={actionFilled ? "filled" : "primary"}
-              onclick={onOpen}>{actionLabel}</TranscriptCardAction
-            >
-          {/if}
-          {#if menu}
-            <Popover.Root bind:open={menuOpen}>
-              <Popover.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...mergeProps(props, {
-                      onclick: (e: MouseEvent) => e.stopPropagation(),
-                    })}
-                    type="button"
-                    class="tx-card-action is-icon"
-                    aria-label="More actions"
-                    title="More actions"
-                  >
-                    <EllipsisIcon size={13} />
-                  </button>
-                {/snippet}
-              </Popover.Trigger>
-              <Popover.Content
-                align="end"
-                sideOffset={6}
-                class="w-auto min-w-44 gap-0.5 p-1"
-                onCloseAutoFocus={handleMenuCloseAutoFocus}
-              >
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="flex flex-col gap-0.5" onclick={(e) => e.stopPropagation()}>
-                  {@render menu()}
-                </div>
-              </Popover.Content>
-            </Popover.Root>
-          {/if}
-          {#if isDisclosure}
-            <span class="tx-card-action is-icon" aria-hidden="true">
-              <CaretDownIcon
-                size={13}
-                class="transition-transform duration-150 ease-(--ease-premium) {expanded
-                  ? ''
-                  : '-rotate-90'}"
-              />
-            </span>
-          {/if}
+      {#if !showBody}{@render cardActions()}{/if}
+      {#if isDisclosure}
+        <span class="tx-card-action is-icon" aria-hidden="true">
+          <CaretDownIcon
+            size={13}
+            class="transition-transform duration-150 ease-(--ease-premium) {expanded
+              ? ''
+              : '-rotate-90'}"
+          />
         </span>
       {/if}
     </div>
@@ -230,11 +178,72 @@
         {@render body()}
       </div>
     {/if}
+    {#if showBody && (actions || onOpenSecondary || actionLabel || menu)}
+      <div class="flex flex-wrap items-center justify-end gap-1 px-(--tx-card-pad-r) pb-2">
+        {@render cardActions()}
+      </div>
+    {/if}
     {#if seam}
       <div class="tx-card__seam" aria-hidden="true">{@render seam()}</div>
     {/if}
   </div>
 </div>
+
+{#snippet cardActions()}
+  {#if actions || onOpenSecondary || actionLabel || menu}
+    <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
+      {#if actions}{@render actions()}{/if}
+      <!-- Always visible, never hover-only: the split has to be found on a
+           static card too. -->
+      {#if onOpenSecondary}
+        <TranscriptCardAction
+          kind="icon"
+          label={secondaryActionLabel}
+          onclick={onOpenSecondary}
+        >
+          <PanelRightIcon size={13} />
+        </TranscriptCardAction>
+      {/if}
+      {#if menu}
+        <Popover.Root bind:open={menuOpen}>
+          <Popover.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...mergeProps(props, {
+                  onclick: (e: MouseEvent) => e.stopPropagation(),
+                })}
+                type="button"
+                class="tx-card-action is-icon"
+                aria-label="More actions"
+                title="More actions"
+              >
+                <EllipsisIcon size={13} />
+              </button>
+            {/snippet}
+          </Popover.Trigger>
+          <Popover.Content
+            align="end"
+            sideOffset={6}
+            class="w-auto min-w-44 gap-0.5 p-1"
+            onCloseAutoFocus={handleMenuCloseAutoFocus}
+          >
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="flex flex-col gap-0.5" onclick={(e) => e.stopPropagation()}>
+              {@render menu()}
+            </div>
+          </Popover.Content>
+        </Popover.Root>
+      {/if}
+      {#if actionLabel && onOpen}
+        <TranscriptCardAction
+          kind={actionFilled ? "filled" : "primary"}
+          onclick={onOpen}>{actionLabel}</TranscriptCardAction
+        >
+      {/if}
+    </div>
+  {/if}
+{/snippet}
 
 <style>
   .tx-card {

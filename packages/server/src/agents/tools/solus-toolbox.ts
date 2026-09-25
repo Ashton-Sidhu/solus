@@ -16,6 +16,7 @@ import {
   runAutomationAgentTool,
   updateAutomationAgentTool,
 } from '../../automations/automation-tools'
+import { cancelWatchAgentTool, listWatchesAgentTool, watchAgentTool } from '../../watches/watch-tools'
 import {
   listAgentTargetsAgentTool,
   readSessionAgentTool,
@@ -58,6 +59,8 @@ import {
   browserNavigateAgentTool,
   browserOpenAgentTool,
   browserPressAgentTool,
+  browserRecordStartAgentTool,
+  browserRecordStopAgentTool,
   browserResizeAgentTool,
   browserScrollAgentTool,
   browserSnapshotAgentTool,
@@ -106,6 +109,11 @@ export const solusToolbox = {
     listRuns: listAutomationRunsAgentTool,
     readRun: readAutomationRunAgentTool,
   },
+  watches: {
+    watch: watchAgentTool,
+    list: listWatchesAgentTool,
+    cancel: cancelWatchAgentTool,
+  },
   connections: {
     status: connectionStatusAgentTool,
   },
@@ -120,6 +128,8 @@ export const solusToolbox = {
     resize: browserResizeAgentTool,
     setAppearance: browserAppearanceAgentTool,
     snapshot: browserSnapshotAgentTool,
+    recordStart: browserRecordStartAgentTool,
+    recordStop: browserRecordStopAgentTool,
     click: browserClickAgentTool,
     type: browserTypeAgentTool,
     press: browserPressAgentTool,

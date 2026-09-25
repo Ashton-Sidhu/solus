@@ -201,9 +201,36 @@ export interface BrowserHeadlessOpenRequest {
   report(report: BrowserSurfaceReport): void
 }
 
+/**
+ * The Chromium page that turns a recording's JPEG frames into MP4.
+ *
+ * A host capability like the two surface hosts: the desktop registers a hidden
+ * window, a standalone server a Playwright browser. Absent on a host with no
+ * Chromium, where recording says so instead of pretending.
+ */
+export interface BrowserRecordingEncoderHost {
+  open(size: BrowserRecordingSize): Promise<BrowserRecordingEncoder>
+}
+
+/** Canvas size in device pixels. Even, because H.264 needs even dimensions. */
+export interface BrowserRecordingSize {
+  width: number
+  height: number
+}
+
+export interface BrowserRecordingEncoder {
+  /** Draw one JPEG frame. Answers how many MP4 bytes the encoder has produced
+   *  so far, which is how the recorder enforces the size limit. */
+  frame(jpeg: Uint8Array): Promise<{ recordedBytes: number }>
+  /** Stop recording and return the MP4. */
+  finish(): Promise<Uint8Array>
+  dispose(): Promise<void>
+}
+
 let webviewHost: BrowserWebviewHost | null = null
 let headlessHost: BrowserHeadlessHost | null = null
 let profileHost: BrowserProfileHost | null = null
+let recordingEncoderHost: BrowserRecordingEncoderHost | null = null
 
 /** Null is the way back out: a host that cannot render is a real state, and the
  *  registry answers differently for it rather than pretending. */
@@ -231,4 +258,14 @@ export function setBrowserProfileHost(host: BrowserProfileHost | null): void {
 
 export function browserProfileHost(): BrowserProfileHost | null {
   return profileHost
+}
+
+/** Registered by whichever process has a Chromium that can record: a hidden
+ *  window on the desktop, Playwright on a standalone server. */
+export function setBrowserRecordingEncoderHost(host: BrowserRecordingEncoderHost | null): void {
+  recordingEncoderHost = host
+}
+
+export function browserRecordingEncoderHost(): BrowserRecordingEncoderHost | null {
+  return recordingEncoderHost
 }

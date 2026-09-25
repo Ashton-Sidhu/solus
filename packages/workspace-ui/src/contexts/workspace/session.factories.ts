@@ -82,7 +82,7 @@ export function makeSession(
   // (docs/plans/sidebar-motion.md, step 1). Always fresh: a target copied from
   // another session, or restored from disk, must not share that session's id.
   if (session.task.kind === 'new') {
-    session.task = { kind: 'new', parentTaskId: session.task.parentTaskId, taskId: ulid() }
+    session.task = { kind: 'new', taskId: ulid() }
   }
   return session
 }

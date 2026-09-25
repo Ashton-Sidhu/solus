@@ -2,7 +2,7 @@ import type { Automation } from '@solus/contracts/types'
 
 /** An immediate manual check must not make a paused future one-time check
  * look complete. Compare the run to its scheduled instant. */
-export function hasRunOnce(automation: Automation): boolean {
+function hasRunOnce(automation: Automation): boolean {
   return automation.trigger.type === 'once' && !automation.nextRunAt &&
     !!automation.lastRunAt && Date.parse(automation.lastRunAt) >= Date.parse(automation.trigger.runAt)
 }

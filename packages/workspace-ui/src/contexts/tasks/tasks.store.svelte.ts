@@ -940,7 +940,9 @@ export class TasksStore {
       },
     )
     await Promise.all(workers)
-    for (const task of pending) task.restore()
+    // A deleted task stays hidden: restoring it would list it again until the
+    // host's invalidation reload drops it, and a snapshot read before the
+    // delete landed would bring it back outright.
     const failed = pending.filter((_, index) => failureByIndex.has(index))
     if (failed.length) {
       this.restorePending(failed)

@@ -32,6 +32,32 @@ afterEach(() => {
 })
 
 describe('Socket.IO transport', () => {
+  test('an Uplink connection streams video larger than the RPC limit', async () => {
+    const harness = await createHarness(true)
+    let receivedBytes = 0
+    const upload = createServer(async (request, response) => {
+      for await (const chunk of request) receivedBytes += chunk.length
+      response.writeHead(204).end()
+    })
+    await new Promise<void>((resolve) => upload.listen(0, '127.0.0.1', resolve))
+    cleanups.push(() => { upload.close() })
+    const address = upload.address()
+    if (!address || typeof address === 'string') throw new Error('expected TCP address')
+    harness.server.register('attachUploadToken', async () => ({
+      relativeUrl: `http://127.0.0.1:${address.port}/api/uploads/test-video`,
+      hostPath: '/host/uploads/recording.mp4',
+      expiresAt: Date.now() + 60_000,
+    }))
+    const client = createClient(harness.url, { acquireGrant: async () => 'grant:video' })
+    client.start()
+    await waitForStatus(client, 'connected')
+    const api = client.buildSolusApi() as SolusAPI
+    const file = new File([new Uint8Array(11 * 1024 * 1024)], 'recording.mp4', { type: 'video/mp4' })
+    const attachments = await api.uploadFiles([file], { session: { sessionId: 'session-1' } } as IpcContext)
+    expect(attachments?.[0]?.hostPath).toBe('/host/uploads/recording.mp4')
+    expect(receivedBytes).toBe(file.size)
+  })
+
   test('cloud dictation sends compact WAV over the admitted socket and survives reconnect', async () => {
     const harness = await createHarness(true)
     let calls = 0
@@ -236,6 +262,33 @@ describe('Socket.IO transport', () => {
       dataUrl: `data:image/jpeg;base64,${Buffer.from('jpeg-bytes').toString('base64')}`,
     })
     expect(attachments?.[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
+  test('sends a video as a file with its video type when the host cannot take a stream', async () => {
+    // WHY: an older host has no upload URL. A small video must still attach
+    // through the RPC it always had, as a file the agent opens by path, never
+    // as an image, even when the picker reported no type for it.
+    const harness = await createHarness(false)
+    const received: Array<{ name: string; mime: string; dataUrl: string }> = []
+    harness.server.register('attachUpload', async (args) => {
+      received.push(args[1])
+      return `/host/uploads/${args[1].name}`
+    })
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
+    const api = client.buildSolusApi() as SolusAPI
+    Object.defineProperty(globalThis, 'FileReader', { value: DataUrlFileReader, configurable: true })
+    cleanups.push(() => { Reflect.deleteProperty(globalThis, 'FileReader') })
+
+    const clip = new File([Buffer.from('mov-bytes')], 'bug.mov', { type: '' })
+    const attachments = await api.uploadFiles([clip], { session: { sessionId: 'session-1' } } as IpcContext)
+
+    expect(received.map((request) => request.mime)).toEqual(['video/quicktime'])
+    expect(received[0].dataUrl.startsWith('data:video/quicktime;base64,')).toBe(true)
+    expect(attachments?.[0]).toMatchObject({ type: 'file', mimeType: 'video/quicktime', hostPath: '/host/uploads/bug.mov' })
+    expect(attachments?.[0].dataUrl).toBeUndefined()
   })
 
   test('admits a mounted-tab startup burst above the old receipt limit', async () => {

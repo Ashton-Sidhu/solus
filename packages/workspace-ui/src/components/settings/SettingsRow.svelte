@@ -24,6 +24,8 @@
      * reads the same rather than each surface inventing its own apology.
      */
     comingSoon?: boolean;
+    /** A setting that exists but cannot apply yet: dimmed and inert, no badge. */
+    disabled?: boolean;
     /** Hook for e2e selectors that need to scope into a single row. */
     testId?: string;
   }
@@ -37,14 +39,17 @@
     body,
     bodyVisible = true,
     comingSoon = false,
+    disabled = false,
     testId,
   }: Props = $props();
+  const isInert = $derived(comingSoon || disabled);
 </script>
 
 {#if visible}
   <div
     data-testid={testId}
-    class="px-4 py-3 {comingSoon ? 'opacity-55' : ''}"
+    class="px-4 py-3 {isInert ? 'opacity-55' : ''}"
+    aria-disabled={disabled || undefined}
   >
     <div
       class="flex flex-col gap-3 @min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8"
@@ -71,7 +76,7 @@
       {#if control}
         <div
           class="flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
-          inert={comingSoon}
+          inert={isInert}
         >
           {@render control()}
         </div>

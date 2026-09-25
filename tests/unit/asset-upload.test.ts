@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, readFile, readdir, rm } from 'fs/promises'
+import { randomBytes } from 'crypto'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { writeAssetUpload } from '@solus/server/server/assets'
+import type { IpcContext } from '@solus/contracts/types'
+import { createAssetUrl, serveAssetToken, writeAssetBytes, writeAssetUpload } from '@solus/server/server/assets'
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
 
@@ -62,5 +64,77 @@ describe('content-addressed asset uploads', () => {
     }, { assetsDir })
 
     expect(result.id).toMatch(/^[a-f0-9]{64}\.bin$/)
+  })
+})
+
+describe('serving video assets', () => {
+  let assetsDir = ''
+  const secret = randomBytes(32)
+  const MP4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(64, 1)])
+
+  beforeEach(async () => {
+    assetsDir = await mkdtemp(join(tmpdir(), 'solus-video-assets-'))
+  })
+
+  afterEach(async () => {
+    if (assetsDir) await rm(assetsDir, { recursive: true, force: true })
+  })
+
+  const tokenFor = async (request: { assetId?: string; path?: string }, ctx?: IpcContext) => {
+    const { relativeUrl } = await createAssetUrl(ctx, request, { secret, assetsDir })
+    return relativeUrl.slice('/api/assets/'.length)
+  }
+
+  // A recording is stored by the host itself, then published by id: the id must
+  // keep the `.mp4` that GitHub's upload and the player both key on.
+  test('stores host-made bytes under a content address with their extension', async () => {
+    const stored = await writeAssetBytes(MP4, 'mp4', { assetsDir })
+
+    expect(stored.id).toMatch(/^[a-f0-9]{64}\.mp4$/)
+    expect(stored.mime).toBe('video/mp4')
+    expect(await readFile(join(assetsDir, stored.id))).toEqual(MP4)
+    await expect(writeAssetBytes(MP4, '../mp4', { assetsDir })).rejects.toThrow('extension')
+  })
+
+  // A video that downloads instead of playing is the bug this closes; the range
+  // answer is what lets a player seek without fetching the whole file.
+  test('a stored video plays inline and answers range requests', async () => {
+    const { id } = await writeAssetBytes(MP4, 'mp4', { assetsDir })
+    const token = await tokenFor({ assetId: id })
+
+    const full = await serveAssetToken(token, { method: 'GET' }, { secret })
+    expect(full.status).toBe(200)
+    expect(full.headers.get('content-type')).toBe('video/mp4')
+    expect(full.headers.get('content-disposition')).toBeNull()
+    expect(full.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(full.headers.get('content-security-policy')).toContain("media-src 'self'")
+
+    const part = await serveAssetToken(token, { method: 'GET', range: 'bytes=4-11' }, { secret })
+    expect(part.status).toBe(206)
+    expect(part.headers.get('content-range')).toBe(`bytes 4-11/${MP4.length}`)
+    expect(Buffer.from(await part.arrayBuffer()).toString()).toBe('ftypisom')
+  })
+
+  test('an agent-authored video path plays inline with its video type', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'solus-video-project-'))
+    try {
+      await writeFile(join(project, 'demo.mov'), MP4)
+      const ctx = { session: { sessionId: 's', projectPath: project } } as IpcContext
+      const response = await serveAssetToken(await tokenFor({ path: join(project, 'demo.mov') }, ctx), { method: 'GET' }, { secret })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('video/quicktime')
+      expect(response.headers.get('content-disposition')).toBeNull()
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
+  })
+
+  test('an unknown stored binary still downloads', async () => {
+    const { id } = await writeAssetBytes(Buffer.from('opaque'), 'bin', { assetsDir })
+    const response = await serveAssetToken(await tokenFor({ assetId: id }), { method: 'GET' }, { secret })
+
+    expect(response.headers.get('content-type')).toBe('application/octet-stream')
+    expect(response.headers.get('content-disposition')).toStartWith('attachment;')
   })
 })

@@ -67,10 +67,10 @@ export interface PrRowSpec extends ListRowSpec {
   updated: string
 }
 
-/** Two lines at every width: a title, then a line of facts that truncates. A
- *  fixed number because the row sits in a virtualiser, which is told a height
- *  before layout. `PrListRow.svelte` states the same 62. */
+/** Two lines at every width: a title, then a line of facts that truncates.
+ *  Keep these heights in step with `PrListRow.svelte` for the virtualiser. */
 export const PR_LIST_ROW_HEIGHT = 62
+export const PR_LIST_SPLIT_ROW_HEIGHT = 76
 
 /** The most rows the list pages to. Past it the page asks for a
  *  narrower search: a list that long is searched, not scrolled. */

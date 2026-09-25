@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GitCheckout, GitIdentity } from '@solus/contracts/types'
 import { gitCheckoutFromState } from '@solus/contracts/types'
-import { checkoutWithLiveIdentity } from '@solus/server/git/git-context'
 import { prReviewGitCheckout } from '@solus/workspace-ui/contexts/workspace/pr-review-checkout'
 import { inheritRunConfig } from '@solus/workspace-ui/contexts/workspace/run-config'
 
@@ -31,7 +30,7 @@ describe('live Git identity', () => {
       worktreePath: '/projects/solus/.git/solus/worktrees/fix',
     }
 
-    expect(checkoutWithLiveIdentity(checkout, liveIdentity)).toEqual(checkout)
+    expect(gitCheckoutFromState(liveIdentity, checkout.worktreePath, checkout.worktreePath ? checkout.repoRoot : undefined)).toEqual(checkout)
   })
 
   test('updates the repository root for a normal checkout', () => {
@@ -41,7 +40,7 @@ describe('live Git identity', () => {
       targetBranch: 'old-main',
     }
 
-    expect(checkoutWithLiveIdentity(checkout, liveIdentity)).toEqual({
+    expect(gitCheckoutFromState(liveIdentity, checkout.worktreePath, checkout.worktreePath ? checkout.repoRoot : undefined)).toEqual({
       repoRoot: liveIdentity.repoRoot,
       branch: liveIdentity.branch,
       targetBranch: liveIdentity.targetBranch,

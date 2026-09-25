@@ -4,7 +4,6 @@
     Check as CheckIcon,
     Copy as CopyIcon,
     Diff as DiffIcon,
-    File as FileIcon,
     GitBranch as GitBranchIcon,
   } from "@lucide/svelte";
   import type { Snippet } from "svelte";
@@ -13,7 +12,8 @@
 
   /**
    * The facts about the change, under the author: which branch is landing
-   * where, how many files, how much churn. Three captioned rows in one
+   * where and how much churn. The file count is not here: it heads the
+   * Changed files section, beside the files it counts. Captioned rows in one
    * two-column list, each caption led by its glyph, so the eye reads down one
    * edge of labels and across to the facts.
    *
@@ -31,7 +31,6 @@
   let {
     headBranch,
     baseRef,
-    fileCount,
     filesLoading,
     additions,
     deletions,
@@ -39,7 +38,6 @@
   }: {
     headBranch: string;
     baseRef: string;
-    fileCount: number;
     filesLoading: boolean;
     additions: number;
     deletions: number;
@@ -109,19 +107,6 @@
       {/if}
       <span class="sr-only" aria-live="polite">{copied ? "Copied" : ""}</span>
     </button>
-  </dd>
-
-  <dt class="flex items-center gap-2">
-    <FileIcon size={12} class="shrink-0 opacity-80" aria-hidden="true" />
-    Files
-  </dt>
-  <dd class="flex min-h-6 min-w-0 items-center tabular-nums text-foreground">
-    {#if filesLoading}
-      <Skeleton class="h-3 w-12 rounded bg-muted" />
-    {:else}
-      {fileCount}
-      {fileCount === 1 ? "file" : "files"}
-    {/if}
   </dd>
 
   <dt class="flex items-center gap-2">

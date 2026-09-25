@@ -7,6 +7,7 @@
     Image as ImageIcon,
     FileCode as FileCodeIcon,
     File as FileIcon,
+    RotateCw as RotateCwIcon,
   } from "@lucide/svelte";
   import { portal } from '../portal'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
@@ -14,6 +15,12 @@
   import { attachmentLabel } from './lib/attachment-label'
   import { browserMarkChips } from '../../lib/browser-annotation'
   import MarkChip from '../browser/MarkChip.svelte'
+  import VideoAttachmentChip from './VideoAttachmentChip.svelte'
+  import { HostVideoPlayer } from '../ui/video-player'
+  import { isVideoAttachment } from '../../lib/video-attachment'
+  import type { HostMediaRequest } from '../../lib/host-media-url.svelte'
+  import { attachmentUploads } from './lib/attachment-uploads.svelte'
+  import { uploadProgressPercent } from './lib/attachment-upload'
   import type { Attachment } from '@solus/contracts/types'
   import type { Component } from 'svelte'
 
@@ -25,14 +32,27 @@
      *  needs a way to remove a mark that is not "remove everything I marked". */
     onRemoveMark?: (attachmentId: string, markId: string) => void
     onOpen?: (id: string) => void
+    /** The composer's host. Without it a video shows as a plain file chip. */
+    host?: Pick<HostMediaRequest, 'serverId' | 'ctx' | 'canReadLocalFiles'>
   }
 
-  let { attachments, tabId, onRemove, onRemoveMark, onOpen }: Props = $props()
+  let { attachments, tabId, onRemove, onRemoveMark, onOpen, host }: Props = $props()
 
   let previewSrc = $state<string | null>(null)
+  let previewVideo = $state<{ request: HostMediaRequest; label: string } | null>(null)
 
-  useScope('attachment-preview', { exclusive: true, active: () => !!previewSrc });
-  useKeybinding('attachment.close-preview', () => { previewSrc = null; }, { enabled: () => !!previewSrc });
+  function closePreview() {
+    previewSrc = null
+    previewVideo = null
+  }
+
+  function removeAttachment(attachmentId: string) {
+    attachmentUploads.cancel(attachmentId)
+    onRemove(attachmentId)
+  }
+
+  useScope('attachment-preview', { exclusive: true, active: () => !!previewSrc || !!previewVideo });
+  useKeybinding('attachment.close-preview', closePreview, { enabled: () => !!previewSrc || !!previewVideo });
 
   const FILE_ICON_COMPONENTS = {
     'image/png': ImageIcon,
@@ -57,6 +77,8 @@
     {#each attachments as a (a.id)}
       {@const label = attachmentLabel(a)}
       {@const isAnnotation = a.type === 'design-selection'}
+      {@const isVideo = !!host && isVideoAttachment(a)}
+      {@const upload = attachmentUploads.stateFor(a.id)}
       {@const marks = isAnnotation ? browserMarkChips(a) : []}
       <!-- One animated root per item (Svelte requires the `animate:` element to
            be the each's only child); the branch lives inside. A browser
@@ -69,6 +91,8 @@
         out:scale={{ start: 0.85, duration: 120 }}
         class={isAnnotation
           ? "flex min-w-0 flex-wrap items-center gap-1.5"
+          : isVideo
+            ? "flex-shrink-0"
           : a.dataUrl
             ? "relative size-14 flex-shrink-0 pointer-fine:[.is-laptop-display_&]:size-12"
             : "flex h-[1.875rem] max-w-[12.5rem] flex-shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) pr-1.5 pl-2 text-workspace-chrome text-(--solus-text-secondary)"}
@@ -95,16 +119,29 @@
               </span>
             </button>
           {/if}
+        {:else if isVideo && host}
+          <VideoAttachmentChip
+            attachment={a}
+            {label}
+            {host}
+            onRemove={() => onRemove(a.id)}
+            onPlay={(request) => (previewVideo = { request, label })}
+          />
         {:else}
           <button
             type="button"
-            aria-label={a.dataUrl ? `Preview ${label}` : `Open ${label}`}
+            aria-label={upload?.status === 'failed'
+              ? `Retry uploading ${label}: ${upload.message}`
+              : a.dataUrl ? `Preview ${label}` : `Open ${label}`}
+            title={upload?.status === 'failed' ? upload.message : undefined}
             class={a.dataUrl
               ? "size-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent) pointer-fine:[.is-laptop-display_&]:rounded-md"
               : "flex min-w-0 flex-1 items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--solus-accent)"}
             style="cursor:{a.dataUrl ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
             onclick={() => {
-              if (a.dataUrl) previewSrc = a.dataUrl
+              if (upload?.status === 'failed') attachmentUploads.retry(a.id)
+              else if (upload) return
+              else if (a.dataUrl) previewSrc = a.dataUrl
               else if (onOpen) onOpen(a.id)
               else requestFilePreview({ path: a.hostPath ?? a.path, tabId })
             }}
@@ -117,19 +154,24 @@
               />
             {:else}
               {@const IconComponent =
-                FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
-              <span class="flex-shrink-0 text-(--solus-text-tertiary)">
+                upload?.status === 'failed' ? RotateCwIcon : FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
+              <span class="flex-shrink-0 {upload?.status === 'failed' ? 'text-(--destructive)' : 'text-(--solus-text-tertiary)'}">
                 <IconComponent size={14} />
               </span>
               <span class="min-w-0 flex-1 truncate font-normal">
                 {label}
               </span>
+              {#if upload?.status === 'uploading'}
+                <span class="flex-shrink-0 tabular-nums text-(--solus-text-tertiary)">
+                  {uploadProgressPercent(upload.loadedBytes, upload.totalBytes)}%
+                </span>
+              {/if}
             {/if}
           </button>
 
           <button
             type="button"
-            onclick={() => onRemove(a.id)}
+            onclick={() => removeAttachment(a.id)}
             aria-label="Remove {label}"
             class={a.dataUrl
               ? "absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96] pointer-fine:[.is-laptop-display_&]:size-3.5"
@@ -141,6 +183,40 @@
       </div>
     {/each}
   </div>
+
+  {#if previewVideo}
+    <!-- The same lightbox as an image. The player takes its own clicks, so
+         only the backdrop closes it; Esc closes it from the keyboard. -->
+    <div
+      data-solus-ui
+      use:portal={document.body}
+      onclick={closePreview}
+      onkeydown={(e) => { if (e.key === 'Escape') closePreview(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={previewVideo.label}
+      tabindex="-1"
+      class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+      transition:fly={{ duration: 150 }}
+    >
+      <!-- Focus moves into the dialog, so Tab reaches the player's controls. -->
+      <button
+        type="button"
+        {@attach (el) => el.focus()}
+        onclick={(e) => { e.stopPropagation(); closePreview() }}
+        class="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/15 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white pointer-coarse:size-11"
+        title="Close (Esc)"
+        aria-label="Close preview"
+      >
+        <XIcon size={18} />
+      </button>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="w-[min(90vw,64rem)]" onclick={(e) => e.stopPropagation()}>
+        <HostVideoPlayer request={previewVideo.request} label={previewVideo.label} />
+      </div>
+    </div>
+  {/if}
 
   {#if previewSrc}
     <div

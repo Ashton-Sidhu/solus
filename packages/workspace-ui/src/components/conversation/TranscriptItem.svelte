@@ -18,9 +18,11 @@
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
+  import WatchRefCard from "../watches/WatchRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
   import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
+  import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
@@ -34,6 +36,7 @@
   import HtmlBlock from "./HtmlBlock.svelte";
   import { assistantMarkdownOptions, assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import { noticeText } from "./lib/transient";
+  import { worktreeDividerName } from "./lib/worktree-divider";
   import type { DocumentStackEntry } from "../work/lib/document-stack";
 
   let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
@@ -147,6 +150,9 @@
           "session"}"{/snippet}
     </TranscriptDivider>
   {:else if item.message.worktreeMovedTo}
+    {@const movedCheckout = sess && item.message.worktreeMovedToPath
+      ? session.environment.checkouts.get(sess.run.serverId, item.message.worktreeMovedToPath)
+      : undefined}
     <TranscriptDivider
       glyphClass="text-(--solus-accent)"
       titleClass="text-(--solus-accent)"
@@ -155,7 +161,7 @@
     >
       {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
       Continued in worktree
-      {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
+      {#snippet title()}{worktreeDividerName(item.message, movedCheckout ? movedCheckout.checkout : session.environment.environmentFor(sess?.run).checkout)}{/snippet}
     </TranscriptDivider>
   {:else if item.message.agentChangedTo}
     {@const sourceModel = modelLabelFor(
@@ -289,6 +295,13 @@
       {skipMotion}
     />
   {/if}
+{:else if item.kind === "watch" && item.message.watchRef}
+  <WatchRefCard
+    ref={item.message.watchRef}
+    sessionId={sess?.id}
+    serverId={sess ? session.serverIdForSession(sess.id) : linkContext.serverId}
+    {skipMotion}
+  />
 {:else if item.kind === "automation" && item.message.automationRef}
   <AutomationRefCard
     ref={item.message.automationRef}
@@ -316,6 +329,12 @@
       {skipMotion}
     />
   {/if}
+{:else if item.kind === "browser-recording" && item.message.browserRecording}
+  <BrowserRecordingCard
+    recording={item.message.browserRecording}
+    serverId={sess?.run.serverId}
+    {skipMotion}
+  />
 {:else if item.kind === "agent-conversation-group"}
   <AgentConversationGroup
     messages={item.messages}

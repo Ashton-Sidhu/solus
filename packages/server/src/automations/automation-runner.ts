@@ -1,4 +1,3 @@
-import { createWorktree } from '../git/worktree-manager'
 import { expandHome } from '../server/handlers/lib/host-path'
 import { createLogger } from '../logger'
 import { captureServerEvent } from '../analytics'
@@ -7,27 +6,6 @@ import { composeAutomationPrompt } from './compose-prompt'
 import type { Automation, AutomationRun, AgentId, GitCheckout, ReasoningEffort } from '@solus/contracts/types'
 
 const log = createLogger('automations', 'automation-runner.ts')
-
-/**
- * Dispatches an automation prompt into an existing chat session (in-thread,
- * full context). Injected by the server layer so the runner stays decoupled
- * from the ControlPlane. Null until wired (the headless path always works).
- */
-export type AutomationSessionDispatcher = (opts: {
-  agentSessionId: string
-  prompt: string
-  displayPrompt?: string
-  automationId: string
-  automationName: string
-  /** Run config used to resume the session when it isn't resident in memory
-   *  (cold start from disk), taken from the automation's own action. */
-  fallback?: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; cwd: string }
-}) => Promise<void>
-
-let sessionDispatcher: AutomationSessionDispatcher | null = null
-export function setAutomationSessionDispatcher(dispatcher: AutomationSessionDispatcher): void {
-  sessionDispatcher = dispatcher
-}
 
 /** Starts an isolated automation through the normal ControlPlane session
  *  lifecycle. Resolves at session_init with a completion promise that continues
@@ -49,15 +27,10 @@ export function setAutomationBackgroundSessionDispatcher(dispatcher: AutomationB
   backgroundSessionDispatcher = dispatcher
 }
 
-export type AutomationWorktreeNameGenerator = (
-  prompt: string,
-  cwd: string,
-  abortSignal: AbortSignal,
-) => Promise<string | null>
-
-let worktreeNameGenerator: AutomationWorktreeNameGenerator | null = null
-export function setAutomationWorktreeNameGenerator(generator: AutomationWorktreeNameGenerator): void {
-  worktreeNameGenerator = generator
+export type AutomationWorktreeCreator = (prompt: string, cwd: string, signal: AbortSignal) => Promise<GitCheckout>
+let worktreeCreator: AutomationWorktreeCreator | null = null
+export function setAutomationWorktreeCreator(creator: AutomationWorktreeCreator): void {
+  worktreeCreator = creator
 }
 
 // In-flight runs keyed by runId. Each entry holds an aborter (provider-specific)
@@ -163,47 +136,6 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
   let branch: string | undefined
 
   try {
-    // Session-bound ("heartbeat") automation: dispatch the prompt into the live
-    // chat thread it was created in, preserving conversation context, instead of
-    // a headless one-shot. The agent's reply streams into that session's UI; we
-    // only record that the run was handed off (its output lives in the thread).
-    if (action.sessionId) {
-      if (!sessionDispatcher) throw new Error('In-session automations require the app to be running with an active control plane.')
-      agentSessionId = action.sessionId
-      await attachRunSession(automation.id, runId, action.sessionId)
-      const prompt = [
-        'Scheduled follow-up in this conversation.',
-        `Schedule id: ${automation.id}`,
-        'Do the check below using this conversation’s context. If its requested stop condition is met, call update_automation with automation_id set to the schedule id above, archived: true. This stops future checks and keeps the history until the host retention period expires. Do not create another schedule or run this automation again.',
-        '',
-        await composeAutomationPrompt(action),
-      ].join('\n')
-      await sessionDispatcher({
-        agentSessionId: action.sessionId,
-        prompt,
-        displayPrompt: action.prompt,
-        automationId: automation.id,
-        automationName: automation.name,
-        fallback: {
-          provider: action.agentProvider,
-          model: action.modelId,
-          reasoningEffort: action.reasoningEffort,
-          cwd: action.cwd,
-        },
-      })
-      if (entry.cancelled) {
-        await finishRun(automation.id, runId, { status: 'cancelled' })
-        log.info('automation_run_cancelled', { automationId: automation.id, runId })
-        return
-      }
-      // 'dispatched', not 'succeeded': the prompt was handed to the thread, but
-      // the thread's turn owns the real outcome — don't claim a success we
-      // never observed.
-      await finishRun(automation.id, runId, { status: 'dispatched', output: `Dispatched into session ${action.sessionId}; the outcome lives in that chat thread.`, agentSessionId: action.sessionId })
-      log.info('automation_run_dispatched', { automationId: automation.id, runId, sessionId: action.sessionId })
-      return
-    }
-
     // When the automation opts into a worktree, branch off `cwd` and run there
     // so unattended changes land on an isolated branch instead of the working
     // directory. A failure here surfaces as a failed run rather than silently
@@ -212,11 +144,8 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     const cwd = expandHome(action.cwd)
     let gitContext: GitCheckout | null = null
     if (action.useWorktree) {
-      const generatedName = await worktreeNameGenerator?.(action.prompt, cwd, entry.abort.signal) ?? null
-      gitContext = await createWorktree(cwd, undefined, {
-        signal: entry.abort.signal,
-        generatedName,
-      })
+      if (!worktreeCreator) throw new Error('The checkout service is not available')
+      gitContext = await worktreeCreator(action.prompt, cwd, entry.abort.signal)
       if (!gitContext.branch) throw new Error('Created automation worktree has no branch')
       branch = gitContext.branch
     }

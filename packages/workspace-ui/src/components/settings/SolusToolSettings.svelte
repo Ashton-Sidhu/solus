@@ -37,7 +37,7 @@
 
 <SettingsSection
   label="Solus tools"
-  description="Tools agents on this host can call. Turning a tool off blocks new calls immediately. Start a new session after turning a tool on so the agent can see it."
+  description="Tools agents on this host can call. Off applies now; on applies to new sessions."
   visible={groups.length > 0}
 >
   {#snippet action()}

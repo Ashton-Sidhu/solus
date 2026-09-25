@@ -1427,7 +1427,7 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient(
       'list_pull_request_reviewer_candidates',
       repo.host,
-      (client) => listGithubReviewerCandidates(client, repo, pullRequest.author),
+      (client) => listGithubReviewerCandidates(client, repo, pullRequest.number, pullRequest.author),
     )
   }
 
@@ -1461,9 +1461,15 @@ export class GitHubProvider implements ReviewProvider {
     return this.listReviewers(repo, number)
   }
 
-  async removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]> {
+  async removeRequestedReviewer(repo: RepoRef, number: number, reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<PrReviewer[]> {
     await this.withClient('remove_requested_reviewer', repo.host, async ({ rest }) => {
-      await rest.pulls.removeRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: [login] })
+      await rest.pulls.removeRequestedReviewers({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        reviewers: kind === 'team' ? [] : [reviewerId],
+        ...(kind === 'team' ? { team_reviewers: [reviewerId] } : {}),
+      })
     })
     return this.listReviewers(repo, number)
   }
@@ -1721,14 +1727,15 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async addIssueComment(repo: RepoRef, number: number, body: string): Promise<void> {
-    await this.withClient('add_issue_comment', repo.host, async ({ rest }) => {
-      await rest.issues.createComment({
+  async addIssueComment(repo: RepoRef, number: number, body: string): Promise<{ id: string; url: string }> {
+    return this.withClient('add_issue_comment', repo.host, async ({ rest }) => {
+      const { data } = await rest.issues.createComment({
         owner: repo.owner,
         repo: repo.repo,
         issue_number: number,
         body,
       })
+      return { id: data.node_id, url: data.html_url }
     })
   }
 

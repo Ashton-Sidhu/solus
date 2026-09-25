@@ -51,7 +51,6 @@ export interface PersistedTab {
    *  has yet to dispatch — which, now that composers are ordinary tabs, is a tab
    *  that survives a refresh and must come back under the same task. */
   pendingTaskId?: string | null
-  pendingParentTaskId?: string | null
   /** The user's explicit "No task" for this composer, which is a choice and not
    *  an absence — restoring it as "mint one" would silently overrule them. */
   taskCreationDisabled?: boolean

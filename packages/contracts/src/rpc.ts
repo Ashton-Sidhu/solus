@@ -21,6 +21,23 @@ export interface AttachmentUploadRequest {
   dataUrl: string
 }
 
+/** Ask for permission to stream one file to the host over HTTP. The bytes do
+ *  not cross the RPC: base64 in a WebSocket frame cannot carry a 50 MB video. */
+export interface AttachmentUploadTokenRequest {
+  name: string
+  mime: string
+  /** Exact byte count. The upload route refuses a body of any other length. */
+  size: number
+}
+
+export interface AttachmentUploadTokenResult {
+  /** `POST` the raw bytes here, relative to the host origin. No other auth. */
+  relativeUrl: string
+  /** Where the file will be once the upload succeeds. */
+  hostPath: string
+  expiresAt: number
+}
+
 export interface AssetCreateUrlRequest {
   /** Existing host path authored by an agent. Mutually exclusive with assetId. */
   path?: string
@@ -96,6 +113,7 @@ export const RPC_INVOKE_METHODS = [
   'attachFiles',
   'attachFilePaths',
   'attachUpload',
+  'attachUploadToken',
   'assetUpload',
   'assetCreateUrl',
   'assetFindUrl',
@@ -179,6 +197,7 @@ export const RPC_INVOKE_METHODS = [
   'worktreeBranches',
   'worktreeRestore',
   'continueInWorktree',
+  'checkoutSnapshot',
   'gitRefreshState',
   'gitIdentity',
   'gitRegisterEnvironment',
@@ -360,6 +379,7 @@ export const RPC_INVOKE_METHODS = [
 
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
+  'prListProjects',
   'prNeedsReview',
   'prGuideMetadata',
   'prOpenReview',
@@ -408,6 +428,16 @@ export const RPC_INVOKE_METHODS = [
   'readGuide',
   'readReviewState',
   'writeReviewState',
+
+  // Review lens (one generated HTML artifact per review target)
+  'readReviewLens',
+  'requestReviewLens',
+  'editReviewLens',
+  'cancelReviewLens',
+  'restoreReviewLens',
+  'updateReviewLensComments',
+  'postReviewLensComment',
+  'retractReviewLensComment',
 
   // Tasks (global native store plus project-scoped upstream providers)
   'tasksProviderStatus',
@@ -461,6 +491,12 @@ export const RPC_INVOKE_METHODS = [
   'automationListRuns',
   'automationReadRun',
 
+  // Watches (docs/plans/watches.md): list one session's watches and control them
+  'watchList',
+  'watchPause',
+  'watchResume',
+  'watchCancel',
+
 
   // PR checks cache + renderer activity hint
   'prChecks',
@@ -488,6 +524,8 @@ export const RPC_INVOKE_METHODS = [
   'browserSubscribeFrames',
   'browserUnsubscribeFrames',
   'browserCaptureEvidence',
+  'browserRecordingStart',
+  'browserRecordingStop',
   'browserEvidenceOptions',
   'browserOpenDevTools',
   'browserSetAnnotationTool',

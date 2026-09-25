@@ -40,6 +40,7 @@ const hostSideRoots = ['apps/client/src/demo/']
 const prFactRpcs = new Set([
   // Reads the index files.
   'prList',
+  'prListProjects',
   'prNeedsReview',
   'prGetOverview',
   'prGetDetail',

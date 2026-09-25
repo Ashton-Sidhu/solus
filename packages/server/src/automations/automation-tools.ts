@@ -64,12 +64,6 @@ const createAutomationFields = {
   model_id: z.string().nullable().optional().describe('Model id to run with. Omit or null for the default model.'),
   reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning effort for runs. Defaults to 'medium'."),
   enabled: z.boolean().optional().describe('Whether the automation is enabled. Defaults to true.'),
-  run_in_session: z
-    .boolean()
-    .optional()
-    .describe(
-      'When true, the automation runs *inside the current chat thread* — each run resumes this conversation with full context and posts its prompt as an in-thread message badged "Sent via automation", rather than as an isolated background task. Use true for conversational follow-ups such as "check again", "check in 30 minutes", or "check every 30 minutes", even when the user does not say "in this chat". Use false only when the user wants a separate background session. Requires a scheduled trigger.',
-    ),
   trigger: triggerSchema.optional(),
 }
 
@@ -84,10 +78,6 @@ const updateAutomationFields = {
   model_id: z.string().nullable().optional(),
   reasoning_effort: z.enum(REASONING_VALUES).optional(),
   enabled: z.boolean().optional(),
-  run_in_session: z
-    .boolean()
-    .optional()
-    .describe('true binds the automation to the current chat thread (runs in-thread with full context); false unbinds it back to an isolated background run.'),
   trigger: triggerSchema.optional(),
 }
 
@@ -108,14 +98,13 @@ interface AutomationToolArgs {
   model_id?: string | null
   reasoning_effort?: ReasoningEffort
   enabled?: boolean
-  run_in_session?: boolean
   trigger?: z.infer<typeof triggerSchema>
 }
 
 // ─── Descriptions ───
 
 const CREATE_DESC =
-  'For a scheduled follow-up to this conversation, set run_in_session: true. Interpret “in 30 minutes” as a once trigger and “every 30 minutes” as an interval trigger. Put any user-requested stop condition in the prompt. Creating a scheduled automation is sufficient: do not call run_automation as well unless the user asked for an immediate check. Create a new automation — the way recurring, scheduled, and "remind me to…" work is set up in Solus. A saved prompt run against an agent with a frozen agent, model, and reasoning level. Runs execute unattended with auto-approved permissions. An explicit `cwd` is used unchanged; when omitted, it defaults to the active project root. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron) — scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. Omit `trigger` for a manual automation you start with run_automation. Set `run_in_session: true` to run it inside the current chat thread with full conversation context (each run posts its prompt in-thread, badged "Sent via automation"); omit it for an isolated background run. Returns the new automation id.'
+  'Create a new automation — the way recurring, scheduled, and "remind me to…" work that runs in its own session is set up in Solus. To wait for a result and then continue in this conversation ("check again in 30 minutes", "watch CI and fix failures"), use the watch tool instead. Interpret “in 30 minutes” as a once trigger and “every 30 minutes” as an interval trigger. Creating a scheduled automation is sufficient: do not call run_automation as well unless the user asked for an immediate check. A saved prompt run against an agent with a frozen agent, model, and reasoning level. Runs execute unattended with auto-approved permissions. An explicit `cwd` is used unchanged; when omitted, it defaults to the active project root. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron) — scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. Omit `trigger` for a manual automation you start with run_automation. Returns the new automation id.'
 const LIST_DESC =
   'List all automations with their id, name, enabled state, and last run status. Call this to discover an automation_id.'
 const READ_DESC = 'Read the full definition of one automation by id.'
@@ -271,12 +260,6 @@ export async function executeAutomationTool(
       // An explicit cwd is a user choice and must survive unchanged. Only the
       // omitted default collapses the calling session back to its project root.
       const cwd = resolveAutomationCwd(args.cwd, deps.ctx?.cwd)
-      // Bind to the calling chat thread when asked to run in-session. Without a
-      // caller session id (e.g. a headless call) there's no thread to run inside,
-      // so fall back to a normal background run rather than failing.
-      if (args.run_in_session === true && !deps.ctx?.sessionId) {
-        return { ok: false, text: 'create_automation: run_in_session requires being called from within a chat session.' }
-      }
       const action: AutomationAction = {
         prompt,
         // The run executes on the automation's chosen agent — defaults to the
@@ -288,7 +271,6 @@ export async function executeAutomationTool(
         cwd,
       }
       if (args.use_worktree === true) action.useWorktree = true
-      if (args.run_in_session === true && deps.ctx?.sessionId) action.sessionId = deps.ctx.sessionId
       const enabled = args.enabled ?? true
       const triggerResult = toTrigger(args.trigger)
       if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
@@ -301,7 +283,6 @@ export async function executeAutomationTool(
         created.trigger.type === 'manual'
           ? 'Trigger it with run_automation.'
           : `Scheduled (${created.trigger.type})${created.nextRunAt ? `; next run ${created.nextRunAt}` : ''}.`
-      const where = created.action.sessionId ? ' Runs in this chat thread with full context.' : ''
       if (deps.ctx?.sessionId) {
         await Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, deps.ctx.sessionId, {
           kind: 'automation',
@@ -316,7 +297,7 @@ export async function executeAutomationTool(
         })
       }
       deps.onAutomationSaved?.(created)
-      return { ok: true, text: `Created automation "${created.name}" (id: ${created.id}). ${when}${where}` }
+      return { ok: true, text: `Created automation "${created.name}" (id: ${created.id}). ${when}` }
     }
 
     if (name === 'update_automation') {
@@ -340,12 +321,6 @@ export async function executeAutomationTool(
       // default — the old provider's model id would be meaningless on the new one.
       else if (actionPatch.agentProvider && actionPatch.agentProvider !== existing.action.agentProvider) actionPatch.modelId = null
       if (args.reasoning_effort !== undefined) actionPatch.reasoningEffort = reasoning(args.reasoning_effort, existing.action.reasoningEffort)
-      if (args.run_in_session === true) {
-        if (!deps.ctx?.sessionId) return { ok: false, text: 'update_automation: run_in_session requires being called from within a chat session.' }
-        actionPatch.sessionId = deps.ctx.sessionId
-      } else if (args.run_in_session === false) {
-        actionPatch.sessionId = undefined
-      }
 
       let triggerPatch: AutomationTrigger | undefined
       if (args.trigger !== undefined) {

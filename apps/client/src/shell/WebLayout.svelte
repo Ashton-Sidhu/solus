@@ -371,9 +371,9 @@ import {
            one wait rather than a label that swaps into a different placeholder. -->
       <div class="flex h-full min-h-0 flex-col" role="status" aria-label="Loading changes">
         <div class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0" aria-hidden="true"></div>
-        <!-- Matched to the view being opened, and skipped for the guide, which
-             reads none of what this chunk is fetching the panel for. -->
-        {#if reviewView !== "guide"}
+        <!-- Matched to the view being opened, and skipped for the guide and the
+             lens, which read none of what this chunk is fetching the panel for. -->
+        {#if reviewView !== "guide" && reviewView !== "lens"}
           <DiffLoadingSkeleton variant={reviewView === "map" ? "map" : "diff"} />
         {/if}
       </div>

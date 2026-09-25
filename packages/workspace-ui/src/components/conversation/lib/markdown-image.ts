@@ -1,6 +1,7 @@
 import { getContext, setContext } from "svelte";
 import type { IpcContext } from "@solus/contracts/types";
 import type { HostApi } from "@solus/client-core/host-api";
+import { videoMimeType } from "@solus/contracts/video";
 import { localArtifactProtocolUrl } from "../../artifact/lib/asset-url";
 
 const MARKDOWN_IMAGE_CONTEXT = Symbol("markdown-image-context");
@@ -58,4 +59,26 @@ export function markdownImagePath(href: string, cwd: string | undefined): string
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a Markdown image is a video, so it plays instead of breaking in an
+ * `<img>`. Read from the resolved host path or asset id when there is one, and
+ * from the URL's path otherwise; the extension is the only evidence Markdown
+ * carries.
+ */
+export function isMarkdownVideo(
+  href: string,
+  path: string | null,
+  assetId: string | null,
+): boolean {
+  let name = assetId ?? path;
+  if (name === null) {
+    try {
+      name = new URL(href.trim()).pathname;
+    } catch {
+      name = href.trim().split(/[?#]/, 1)[0];
+    }
+  }
+  return videoMimeType({ name }) !== null;
 }

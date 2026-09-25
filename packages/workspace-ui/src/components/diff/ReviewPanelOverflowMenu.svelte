@@ -77,7 +77,7 @@
   /** Names the tab the menu belongs to — this is how the menu declares that it
    *  is contextual rather than a panel-wide "more" list. */
   const heading = $derived(
-    view === "map" ? "Change map" : view === "guide" ? "Walkthrough" : "Diff view",
+    view === "map" ? "Change map" : view === "guide" ? "Walkthrough" : view === "lens" ? "Lens" : "Diff view",
   );
 
   /** The icon says what each layout does to the lines: one column of them, or

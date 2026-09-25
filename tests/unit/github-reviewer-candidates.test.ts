@@ -14,6 +14,9 @@ function fixtureClient(failSecondPage = false) {
       request: {
         fetch: async (input: string | URL | Request) => {
           const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+          if (url.pathname.endsWith('/pulls/17/requested_reviewers')) {
+            return Response.json({ users: [], teams: [{ slug: 'platform', name: 'Platform' }] })
+          }
           const page = Number(url.searchParams.get('page') ?? 1)
           pages.push(page)
           if (page === 2 && failSecondPage) {
@@ -37,15 +40,16 @@ function fixtureClient(failSecondPage = false) {
 describe('reviewer candidates', () => {
   test('includes collaborators beyond the first page and excludes the author on later pages', async () => {
     const { client, pages } = fixtureClient()
-    const candidates = await listGithubReviewerCandidates(client, repo, 'author')
+    const candidates = await listGithubReviewerCandidates(client, repo, 17, 'author')
     expect(pages).toEqual([1, 2])
-    expect(candidates).toHaveLength(101)
-    expect(candidates).toContainEqual({ login: 'late-reviewer', avatarUrl: 'https://example.test/late' })
-    expect(candidates.some(({ login }) => login.toLowerCase() === 'author')).toBe(false)
+    expect(candidates).toHaveLength(102)
+    expect(candidates).toContainEqual({ kind: 'user', login: 'late-reviewer', avatarUrl: 'https://example.test/late' })
+    expect(candidates).toContainEqual({ kind: 'team', slug: 'platform', name: 'Platform' })
+    expect(candidates.some((candidate) => candidate.kind === 'user' && candidate.login.toLowerCase() === 'author')).toBe(false)
   })
 
   test('reports a later page failure instead of returning an incomplete reviewer list', async () => {
     const { client } = fixtureClient(true)
-    await expect(listGithubReviewerCandidates(client, repo, 'author')).rejects.toThrow('Forbidden')
+    await expect(listGithubReviewerCandidates(client, repo, 17, 'author')).rejects.toThrow('Forbidden')
   })
 })

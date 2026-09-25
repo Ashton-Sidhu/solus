@@ -1,6 +1,7 @@
 import { basename, extname } from 'path'
 import { readFileSync, statSync } from 'fs'
 import type { Attachment } from '@solus/contracts/types'
+import { videoMimeType } from '@solus/contracts/video'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
 const MIME_MAP = {
@@ -11,7 +12,7 @@ const MIME_MAP = {
 } satisfies Record<string, string>
 
 export function mimeTypeForExtension(ext: string): string | undefined {
-  return MIME_MAP[ext.toLowerCase()]
+  return MIME_MAP[ext.toLowerCase()] ?? videoMimeType({ name: `file${ext}` }) ?? undefined
 }
 
 export function filePathsToAttachments(filePaths: string[]): Attachment[] {

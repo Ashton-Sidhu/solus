@@ -4,7 +4,6 @@
     Square as StopIcon,
     LoaderCircle as CircleNotchIcon,
     Check as CheckIcon,
-    MessageCircleMore as ChatCircleDotsIcon,
     Pen as PencilSimpleIcon,
   } from "@lucide/svelte";
   import type {
@@ -254,11 +253,6 @@
     label: REASONING_EFFORT_LABELS[r] ?? r,
   }));
   const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
-  // In-session ("heartbeat") automations run inside the chat thread they were
-  // created in. The builder can't create them (agent-only), but it must show
-  // what they are — and hide the worktree toggle, which is ignored for them.
-  const inSession = $derived(!!current?.action.sessionId);
-
   // Run history for the live automation. Keyed on the id (not `current`, which
   // is replaced on every save/push) so history only reloads when the id changes;
   // subsequent run updates arrive through `automation.changed`.
@@ -306,7 +300,6 @@
     const duration = lastRun ? runDuration(lastRun) : "";
     if (status === "running") return `${day} · still running`;
     if (status === "cancelled") return `${day} · cancelled`;
-    if (status === "dispatched") return `${day} · sent to chat`;
     if (status === "failed") return duration ? `${day} · failed after ${duration}` : `${day} · failed`;
     return duration ? `${day} · finished in ${duration}` : day;
   });
@@ -314,7 +307,7 @@
   const metaBits = $derived(
     [
       current?.updatedAt ? `Edited ${relativeTime(current.updatedAt, nowTick)}` : "",
-      inSession ? "Runs in chat thread" : useWorktree ? "Isolated worktree" : "Runs in place",
+      useWorktree ? "Isolated worktree" : "Runs in place",
       `${REASONING_EFFORT_LABELS[reasoningEffort] ?? reasoningEffort} reasoning`,
     ].filter(Boolean),
   );
@@ -853,36 +846,20 @@
           />
         </div>
 
-        {#if inSession}
-          <!-- Agent-created heartbeat automation: runs resume its chat thread
-               (full context) instead of spawning isolated background runs.
-               Worktree doesn't apply — the thread runs where it runs. -->
-          <div class={ROW}>
-            <span class="shrink-0 text-muted-foreground">Runs in</span>
-            <span
-              class="{VALUE} inline-flex items-center gap-1.5"
-              title="Each run resumes the chat thread this automation was created in, with full conversation context"
-            >
-              <ChatCircleDotsIcon size={13} class="shrink-0" />
-              Chat thread
-            </span>
-          </div>
-        {:else}
-          <div class={ROW}>
-            <span class="shrink-0 text-muted-foreground">Worktree</span>
-            <Switch
-              checked={useWorktree}
-              onCheckedChange={(v) => {
-                useWorktree = v;
-                commitAction();
-              }}
-              size="default"
-              class="[.is-laptop-display_&]:h-[14px] [.is-laptop-display_&]:w-6 [.is-laptop-display_&]:[&_[data-slot=switch-thumb]]:size-3"
-              aria-label="Run each fire on an isolated git branch"
-              title="Run each fire on an isolated git branch"
-            />
-          </div>
-        {/if}
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Worktree</span>
+          <Switch
+            checked={useWorktree}
+            onCheckedChange={(v) => {
+              useWorktree = v;
+              commitAction();
+            }}
+            size="default"
+            class="[.is-laptop-display_&]:h-[14px] [.is-laptop-display_&]:w-6 [.is-laptop-display_&]:[&_[data-slot=switch-thumb]]:size-3"
+            aria-label="Run each fire on an isolated git branch"
+            title="Run each fire on an isolated git branch"
+          />
+        </div>
       </div>
     </div>
 

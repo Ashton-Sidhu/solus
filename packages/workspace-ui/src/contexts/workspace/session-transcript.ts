@@ -5,7 +5,7 @@ import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
 import { artifactUpdateFromHistory } from './artifact-history'
-import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
@@ -35,6 +35,11 @@ function isCodexImageGenerationTool(name: string | undefined): boolean {
  *  and Codex (bare name). */
 function isAutomationSaveTool(name: string | undefined): boolean {
   return !!name && (name.endsWith('create_automation') || name.endsWith('update_automation'))
+}
+
+/** Matches the watch tool for both Claude (`mcp__solus__watch`) and Codex. */
+function isWatchTool(name: string | undefined): boolean {
+  return name === 'watch' || name === 'mcp__solus__watch'
 }
 
 /**
@@ -119,6 +124,11 @@ const createWorkInputSchema = z.object({
 const automationInputSchema = z.object({
   automation_id: z.string().optional(),
   name: z.string().optional(),
+})
+
+const watchInputSchema = z.object({
+  reason: z.string().optional(),
+  probe_command: z.string().optional(),
 })
 
 const artifactInputSchema = z.object({
@@ -281,13 +291,20 @@ export function materializeSessionTranscript(
       agentChangedToProvider: m.agentChangedToProvider,
       timestamp: msgTimestamp,
     }
+    if (m.role === 'user') {
+      const attached = splitAttachedFiles(m.content, serverId)
+      if (attached.attachments.length) {
+        msg.content = attached.text
+        msg.attachments = attached.attachments
+      }
+    }
     if (m.role === 'user' && m.imageAttachments?.length) {
-      msg.attachments = m.imageAttachments.map((image) => ({
+      msg.attachments = [...(msg.attachments ?? []), ...m.imageAttachments.map((image) => ({
         name: '',
         dataUrl: image.dataUrl,
         mimeType: image.mimeType,
         type: 'image' as const,
-      }))
+      }))]
     }
     // Only a tool call keeps the figure — the activity block is the one place
     // with somewhere to print it.
@@ -372,6 +389,23 @@ export function materializeSessionTranscript(
           automationRef,
           timestamp: m.timestamp ?? Date.now(),
         })
+      }
+      continue
+    } else if (m.role === 'tool' && isWatchTool(m.toolName)) {
+      // A watch call replays as its tool row and its watch card. The card finds
+      // its watch by reason and command, because the id was in the result.
+      messages.push(msg)
+      let input = watchInputSchema.parse({})
+      try {
+        input = watchInputSchema.parse(JSON.parse(m.toolInput || '{}'))
+      } catch {}
+      // A refused call (bad input, too many watches) made no watch.
+      const result = resultsByToolId.get(m.toolId ?? '') ?? m
+      const refused = result.status === 'error' || m.toolStatus === 'error'
+      if (input.reason && !refused) {
+        const watchRef: NonNullable<Message['watchRef']> = { reason: input.reason.trim() }
+        if (input.probe_command) watchRef.command = input.probe_command.trim()
+        messages.push({ id: nextMsgId(), role: 'assistant' as const, content: '', watchRef, timestamp: m.timestamp ?? Date.now() })
       }
       continue
     } else if (m.role === 'tool' && m.toolName?.endsWith('update_work')) {

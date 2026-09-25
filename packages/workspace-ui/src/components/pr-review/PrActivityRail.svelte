@@ -14,6 +14,7 @@
     LoaderCircle as CircleNotchIcon,
     Pen as PencilSimpleIcon,
     RotateCw as RotateIcon,
+    UserRoundPlus as UserPlusIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
@@ -67,9 +68,9 @@
   //
   // The rail has two homes. Beside the conversation it is a pinned column.
   // Once the reading column is too narrow to keep one, the same rail is drawn
-  // inline under the title instead: the status becomes a row and the sections
-  // start folded, so the pull request's state stays in the first screen
-  // without pushing the description out of it.
+  // inline instead: the status becomes a row under the title, and the
+  // sections start folded under the description, so the pull request's state
+  // stays in the first screen without pushing the description out of it.
   let {
     detail,
     reviewers,
@@ -96,6 +97,7 @@
     actions,
     menu,
     variant = "column",
+    part = "all",
   }: {
     detail: PullRequest | null;
     reviewers: PrReviewer[];
@@ -107,7 +109,7 @@
     reviewerMutation?: string | null;
     onOpenReviewerMenu?: () => void;
     onRequestReviewer?: (login: string) => void;
-    onRemoveReviewer?: (login: string) => void;
+    onRemoveReviewer?: (reviewerId: string, kind?: 'user' | 'team') => void;
     changedFiles: ChangedFileStat[];
     filesLoading: boolean;
     filesLoadFailed?: boolean;
@@ -133,9 +135,15 @@
     menu?: Snippet<[MergeAction | null]>;
     /** A column beside the conversation, or a block inside it. */
     variant?: "column" | "inline";
+    /** Which part to draw. Inline, the status sits under the title and the
+     *  checks and changed files sit under the description, so the page
+     *  draws the rail twice, one part in each place. */
+    part?: "all" | "status" | "sections";
   } = $props();
 
   const inline = $derived(variant === "inline");
+  const showsStatus = $derived(part !== "sections");
+  const showsSections = $derived(part !== "status");
 
   let reviewerMenuOpen = $state(false);
   let reviewerTrigger = $state<HTMLButtonElement | null>(null);
@@ -163,6 +171,15 @@
     showAllChecks ? allChecks : allChecks.slice(0, CHECKS_VISIBLE_ROWS),
   );
   const hiddenCheckCount = $derived(allChecks.length - visibleChecks.length);
+  // A folded section is one line, so the next head sits close under it; the
+  // full section gap is only needed to close off an open list of rows.
+  // Drawn without the status above it, the first section needs no gap at all.
+  const checksGap = $derived(
+    !showsStatus ? "" : !inline && !sectionOpen.reviewers ? "" : "mt-6",
+  );
+  const filesGap = $derived(
+    allChecks.length > 0 ? (sectionOpen.checks ? "mt-6" : "") : checksGap,
+  );
   const approvedReviewers = $derived(
     reviewers.reduce(
       (count, reviewer) => count + (reviewer.state === "APPROVED" ? 1 : 0),
@@ -235,7 +252,7 @@
       <button
         type="button"
         aria-expanded={sectionOpen[key]}
-        class="group/head -mx-2 mb-1 flex min-h-9 w-[calc(100%+1rem)] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-left transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none"
+        class="group/head -mx-2 flex min-h-9 {sectionOpen[key] ? 'mb-1' : ''} w-[calc(100%+1rem)] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-left transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none"
         onclick={() => (sectionOpen[key] = !sectionOpen[key])}
       >
         <span class="shrink-0 font-medium text-foreground">{label}</span>
@@ -359,6 +376,7 @@
          changes it, set straight on the canvas with no card around it — it
          reports a state, it is not a call to action. A hairline under it
          closes it off from the reference sections below. -->
+    {#if showsStatus}
     <section class="shrink-0 border-b border-[var(--hairline)] pb-4">
       {#if !detail || !readiness}
         <div class="flex items-center gap-2.5">
@@ -395,6 +413,7 @@
         </div>
       {/if}
     </section>
+    {/if}
 
     <!-- Reviewers. One row per person: their avatar, login, and the verdict as
          a single lower-case word at the row's far edge. Hovering the row swaps
@@ -413,8 +432,9 @@
           {approvedReviewers} of {reviewers.length} approved
         </span>
       {/snippet}
-      <!-- No one requested and no way to request anyone: the head says so on
-           its own line, with nothing under it to unfold. -->
+      <!-- No one requested: the head says so only when nothing under it says
+           it already. An open section with the request row needs no second
+           "none" above that row. -->
       {#snippet noReviewers()}
         <span class="text-muted-foreground">None requested</span>
       {/snippet}
@@ -424,7 +444,9 @@
         reviewersLoading
           ? undefined
           : reviewersEmpty
-            ? noReviewers
+            ? onRequestReviewer && sectionOpen.reviewers
+              ? undefined
+              : noReviewers
             : reviewerCount,
         !(reviewersEmpty && !onRequestReviewer),
       )}
@@ -528,16 +550,20 @@
                 aria-expanded={reviewerMenuOpen}
                 onclick={() => handleReviewerMenuOpenChange(!reviewerMenuOpen)}
               >
+                <!-- The glyph sits in the avatar column, so the row reads as
+                     the next entry of the list. -->
+                <span class="grid size-5 shrink-0 place-items-center text-muted-foreground">
+                  {#if reviewerCandidatesLoading}
+                    <CircleNotchIcon size={12} class="animate-spin" />
+                  {:else}
+                    <UserPlusIcon size={13} />
+                  {/if}
+                </span>
                 <span class="min-w-0 flex-1 truncate text-left text-muted-foreground">
                   {reviewers.length === 0
                     ? "Request a reviewer"
                     : "Request another reviewer"}
                 </span>
-                {#if reviewerCandidatesLoading}
-                  <CircleNotchIcon size={11} class="shrink-0 animate-spin text-muted-foreground" />
-                {:else}
-                  <span class="shrink-0 text-xs font-medium text-primary">Request</span>
-                {/if}
               </Button>
             </li>
           {/if}
@@ -556,13 +582,15 @@
           mutation={reviewerMutation}
           onOpenChange={handleReviewerMenuOpenChange}
           onRequest={onRequestReviewer}
+          onRemove={onRemoveReviewer}
         />
       {/if}
     </section>
     {/if}
 
+    {#if showsSections}
     {#if allChecks.length > 0}
-      <section class="mt-6">
+      <section class={checksGap}>
         {#snippet checksCount()}
           <!-- The folded section's whole answer: the rows' own status glyph,
                then the words. -->
@@ -681,7 +709,7 @@
       </section>
     {/if}
 
-    <section class="mt-6">
+    <section class={filesGap}>
       {#snippet fileCount()}
         {#if filesLoading}
           <Skeleton class="h-3 w-8 rounded bg-muted" />
@@ -786,5 +814,6 @@
         {/if}
       </div>
     </section>
+    {/if}
   </div>
 </aside>

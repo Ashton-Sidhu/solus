@@ -412,8 +412,8 @@
   <SettingsRow
     label="Default agent and model"
     description={autoNeedsKey
-      ? "Auto needs a TypeSafe key in Tools. Until you add one, new sessions use the General use model."
-      : "The agent and model used for new sessions. Auto picks one from the first prompt."}
+      ? "Auto needs a TypeSafe key in Tools. Until then, it uses General use."
+      : "Agent and model for new sessions. Auto picks from the first prompt."}
     visible={isVisible("agent-model")}
   >
     {#snippet control()}
@@ -425,7 +425,7 @@
         menuSide="bottom"
         ariaLabel="Default agent and model"
         returnFocusOnClose
-        class="min-w-48"
+        class="w-full @min-[30rem]/pane:w-56"
         onSelectionChange={selectDefaultAgentModel}
       />
     {/snippet}
@@ -433,7 +433,7 @@
 
   <SettingsRow
     label="Default permission mode"
-    description="The mode for new sessions. Existing sessions and choices in open drafts stay the same."
+    description="Mode for new sessions. Existing sessions keep theirs."
     visible={isVisible("default-permission")}
   >
     {#snippet control()}
@@ -448,7 +448,7 @@
 
   <SettingsRow
     label="Use tasks"
-    description="File each new session under a task. When off, new sessions start with no task and the task picker is hidden from the composer."
+    description="File new sessions under a task. Off hides the task picker."
     visible={isVisible("use-tasks")}
   >
     {#snippet control()}
@@ -470,7 +470,7 @@
 >
   <SettingsRow
     label="Completed task history"
-    description="Keep completed tasks in the session sidebar for this many days."
+    description="Days to keep completed tasks in the sidebar."
     visible={isVisible("completed-retention")}
   >
     {#snippet control()}
@@ -536,7 +536,7 @@
 >
   <SettingsRow
     label="Sidebar animation"
-    description="How long a task takes to slide or fade into place when the sidebar list changes. 0 turns the animation off."
+    description="Sidebar task animation length. 0 turns it off."
     visible={isVisible("sidebar-motion")}
   >
     {#snippet control()}
@@ -583,7 +583,7 @@
 
   <SettingsRow
     label="Response streaming"
-    description="Show finished paragraphs and code blocks as they arrive, or wait for the current response segment."
+    description="Show paragraphs and code blocks as they finish, or wait for each segment."
     visible={isVisible("response-streaming")}
   >
     {#snippet control()}
@@ -598,7 +598,7 @@
 
   <SettingsRow
     label="Show changed files after turns"
-    description="Render a compact diff summary at the end of completed turns."
+    description="Show a diff summary after each turn."
     visible={isVisible("turn-diff-summary")}
   >
     {#snippet control()}
@@ -614,7 +614,7 @@
 
   <SettingsRow
     label="Collapse the input bar when idle"
-    description="Tuck the toolbar away until the input bar has focus. Attachments and the work chip stay visible."
+    description="Hide the toolbar until the input bar has focus."
     visible={isVisible("collapse-composer")}
   >
     {#snippet control()}
@@ -647,7 +647,7 @@
 
   <SettingsRow
     label="Task lifecycle control"
-    description="None blocks status changes. Moderate reserves Done for you. Autonomous gives agents full control."
+    description="None: no changes. Moderate: Done is yours. Autonomous: full control."
     visible={isVisible("task-lifecycle")}
   >
     {#snippet control()}
@@ -755,7 +755,7 @@
 >
   <SettingsRow
     label="Text-generation model"
-    description="The {hostLabel} host uses this model for session names and short background writing."
+    description="Session names and short background writing on {hostLabel}."
     visible={isVisible("text-generation-model")}
   >
     {#snippet control()}
@@ -767,7 +767,7 @@
           menuSide="bottom"
           ariaLabel="Text-generation model"
           returnFocusOnClose
-          class="min-w-40"
+          class="w-full @min-[30rem]/pane:w-56"
           onSelectionChange={(selection) =>
             void selectTextGenerationModel(selection)}
         />
@@ -776,7 +776,7 @@
           variant="outline"
           size="sm"
           disabled
-          class="min-w-40 text-xs shadow-xs"
+          class="w-full @min-[30rem]/pane:w-56 text-xs shadow-xs"
         >
           <Skeleton class="h-3 w-24" aria-label="Loading settings" />
         </Button>

@@ -88,20 +88,6 @@ export function visibleConversationCount(items: PrConversationItem[]): number {
   )
 }
 
-/**
- * A review verdict worth promoting to a timeline milestone. Non-null only for
- * approvals and change requests — COMMENTED/DISMISSED reviews stay ordinary
- * avatar rows since their state carries no verdict.
- */
-export function reviewMilestone(
-  item: PrCommentActivityItem,
-): { headline: string; tone: 'positive' | 'negative' } | null {
-  if (item.kind !== 'review') return null
-  if (item.reviewState === 'APPROVED') return { headline: 'approved these changes', tone: 'positive' }
-  if (item.reviewState === 'CHANGES_REQUESTED') return { headline: 'requested changes', tone: 'negative' }
-  return null
-}
-
 export const COMMIT_PREVIEW_COUNT = 3
 
 /**

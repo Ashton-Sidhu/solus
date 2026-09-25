@@ -71,8 +71,8 @@
 <SettingsSection
   label="Session events"
   description={noChannelOn
-    ? "Every channel above is off, so no session event notifies until one is turned on."
-    : "What an agent did. Sound covers every event; the toast and the system alert cover approvals, questions, failures, and finished turns."}
+    ? "All channels are off. Session events do not notify you."
+    : "Sound plays for all events. Toasts and alerts: approvals, questions, failures, finished turns."}
   visible={sessionEventRows.length > 0}
 >
   {#each sessionEventRows as row (row.id)}
@@ -93,7 +93,7 @@
 
 <SettingsSection
   label="App notices"
-  description="What happened around the workspace. Always an in-app toast, whether Solus is in front or not."
+  description="Workspace events. Always an in-app toast."
   visible={appNoticeRows.length > 0}
 >
   {#each appNoticeRows as row (row.id)}

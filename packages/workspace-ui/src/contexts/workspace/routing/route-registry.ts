@@ -61,9 +61,9 @@ function isSettingsTab(value: string): value is SettingsTab {
 }
 
 /** Which face of a change the review pane is showing. */
-export type ReviewView = 'map' | 'guide' | 'diff'
+export type ReviewView = 'map' | 'guide' | 'lens' | 'diff'
 
-const REVIEW_VIEWS: ReadonlySet<string> = new Set<ReviewView>(['map', 'guide', 'diff'])
+const REVIEW_VIEWS: ReadonlySet<string> = new Set<ReviewView>(['map', 'guide', 'lens', 'diff'])
 
 function isReviewView(value: string): value is ReviewView {
   return REVIEW_VIEWS.has(value)

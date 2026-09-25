@@ -51,4 +51,20 @@ describe('asset URL cache', () => {
     expect(receivedAssetId).toBe(id)
     expect(url).toBe('https://host.example/api/assets/stored')
   })
+
+  test('a refused URL is minted again even while the cache thinks it is fresh', async () => {
+    // WHY: a video player retries after the host refuses its URL. Handing back
+    // the same cached URL would fail the same way until the cache's own clock
+    // caught up.
+    const cache = new AssetUrlCache()
+    let mintCount = 0
+    const api: SignedAssetUrlRequest['api'] = {
+      assetCreateUrl: async () => ({ relativeUrl: `/api/assets/token-${++mintCount}`, expiresAt: 900_000 }),
+    }
+    const request: SignedAssetUrlRequest = { serverId: 'host-a', assetId: `${'c'.repeat(64)}.mp4`, origin: 'https://host.example', api }
+
+    await cache.resolve(request, 1_000)
+    expect(await cache.resolve({ ...request, refresh: true }, 2_000)).toBe('https://host.example/api/assets/token-2')
+    expect(await cache.resolve(request, 3_000)).toBe('https://host.example/api/assets/token-2')
+  })
 })

@@ -45,7 +45,6 @@ export interface SessionOrchestration {
       cwd: string
       worktreeBaseBranch?: string | null
       taskId?: string | null
-      parentTaskId?: string | null
     },
     report: boolean,
     waitMs?: number,
@@ -144,9 +143,9 @@ const WAIT_FIELD = z
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
   task: z
-    .enum(['subtask', 'attempt', 'independent'])
-    .describe("Required; no default. 'subtask': a new subtask under your task's root task — use this to break your task into parts. 'attempt': another session on the existing task in task_id. 'independent': a new top-level task."),
-  task_id: z.string().optional().describe("The existing task for task='attempt'."),
+    .enum(['attempt', 'independent'])
+    .describe("Required; no default. 'attempt': another session on an existing task — the one in task_id, or your own task when task_id is omitted. Use it to break your task into parts. 'independent': a new top-level task."),
+  task_id: z.string().optional().describe("The existing task for task='attempt'. Defaults to your own task."),
   agent_provider: z
     .string()
     .optional()
@@ -367,22 +366,19 @@ function searchWindow(afterArg: string, beforeArg: string): SearchWindow | { err
   }
 }
 
-/** Where a started session's task goes. A subtask hangs under the caller's
- *  root task: tasks have two levels, so a caller on a subtask gets a sibling. */
+/** Where a started session's task goes. A task holds its sessions directly,
+ *  so an attempt without task_id joins the caller's own task. */
 async function taskPlacement(
-  choice: 'subtask' | 'attempt' | 'independent',
+  choice: 'attempt' | 'independent',
   taskId: string | undefined,
   callerSessionId: string | undefined,
-): Promise<{ taskId?: string; parentTaskId?: string } | { error: string }> {
+): Promise<{ taskId?: string } | { error: string }> {
   if (choice === 'independent') return {}
-  if (choice === 'attempt') {
-    const existing = taskId?.trim()
-    return existing ? { taskId: existing } : { error: "start_session with task='attempt' requires task_id." }
-  }
+  const existing = taskId?.trim()
+  if (existing) return { taskId: existing }
   const callerTask = callerSessionId ? await Task.forSession(LOCAL_ORGANIZATION_ID, callerSessionId) : null
-  if (!callerTask) return { error: "This session has no task to add a subtask to. Use task='independent', or task='attempt' with a task_id." }
-  const record = callerTask.record()
-  return { parentTaskId: record.parentId ?? record.id }
+  if (!callerTask) return { error: "This session has no task to join. Use task='independent', or task='attempt' with a task_id." }
+  return { taskId: callerTask.id }
 }
 
 /** Where the outcome goes, in the call's first line. */
@@ -736,19 +732,12 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
     cwd,
     worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
     taskId: placement.taskId ?? null,
-    parentTaskId: placement.parentTaskId ?? null,
   }, input.report, waitMs)
 
   return {
     ok: true,
-    text: `Started ${sessionLink({ provider, sessionId: created.agentSessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${taskNote(created.taskId, placement.parentTaskId)}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider })}${waitedBlock(created.waited)}`,
+    text: `Started ${sessionLink({ provider, sessionId: created.agentSessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider })}${waitedBlock(created.waited)}`,
   }
-}
-
-/** Which task a started session was filed under. */
-function taskNote(taskId: string | undefined, parentTaskId: string | undefined): string {
-  if (!taskId) return ''
-  return ` Task ${taskId}${parentTaskId ? `, a subtask of ${parentTaskId}` : ''}.`
 }
 
 /** The provider, model and reasoning level a started session runs on. */

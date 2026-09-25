@@ -491,7 +491,7 @@
   }
 
   function deleteTask(task: Task): void {
-    const pending = session.tasksStore.softRemove([task.id]);
+    const pending = sidebarStore.deleteTasks([task.id]);
     if (!pending.length) return;
     toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
       onDismiss: () =>

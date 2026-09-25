@@ -13,17 +13,17 @@ export const tasks = defineTable('tasks', {
   id: text({ primaryKey: true }),
   short_id: integer({ unique: true }),
   project_key: text(),
-  parent_id: text({ references: { table: 'self', column: 'id', onDelete: 'cascade' } }),
   title: text({ notNull: true }),
   title_source: text({ notNull: true, default: 'prompt' }),
   body: text({ notNull: true, default: '' }),
   status: text({ notNull: true, default: 'inbox' }),
-  kind: text({ notNull: true, default: 'task' }),
   assignee: text(),
   due_date: text(),
   priority: text(),
   labels: json({ notNull: true, default: '[]' }),
   pr: json(),
+  /** Upstream epic snapshot (`TaskEpic`), written only by the sync engine. */
+  epic: json(),
   source: text({ notNull: true, default: 'user' }),
   origin_session_id: text(),
   origin_automation_id: text(),
@@ -37,7 +37,6 @@ export const tasks = defineTable('tasks', {
   indexes: [
     { name: 'tasks_by_project', columns: ['project_key', 'status', 'updated_at'], descending: ['updated_at'] },
     { name: 'tasks_by_status', columns: ['status', 'created_at'], descending: ['created_at'] },
-    { name: 'tasks_parent', columns: ['parent_id'] },
   ],
 })
 

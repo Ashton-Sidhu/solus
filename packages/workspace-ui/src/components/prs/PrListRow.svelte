@@ -19,22 +19,22 @@
    *  on the title's own line. Line two is where it lives — number,
    *  repository, author, labels — with the age at its end.
    *
-   *  The row is a fixed 62px so the virtualiser's number is never a guess;
-   *  `PR_LIST_ROW_HEIGHT` is this row's height. Beside an open detail panel
-   *  the row is narrower, not different: it sheds facts by its own width —
-   *  the labels first, then the author's name, then the age.
+   *  The row has a fixed height in each layout so the virtualiser's number
+   *  is never a guess. Beside an open detail panel it gets more vertical room
+   *  and sheds facts by its own width — labels, then author, then age.
    *
    *  The line itself is the click target. `leading` is a sibling of that
    *  button so the page can hang its review checkbox on the row without
    *  nesting interactive elements inside a button. */
   interface Props {
     row: PrRowSpec;
+    split?: boolean;
     selected?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
     leading?: Snippet;
   }
-  let { row, selected = false, onSelect, onContextMenu, leading }: Props = $props();
+  let { row, split = false, selected = false, onSelect, onContextMenu, leading }: Props = $props();
 
   const glyph = $derived(prStatusGlyph(row.status));
   const checks = $derived(row.checks ? checksChip(row.checks) : null);
@@ -46,7 +46,7 @@
 {/snippet}
 
 <div
-  class="group @container/pr-row flex h-[62px] w-full items-center rounded-lg px-3 transition-colors duration-150 {selected
+  class="group @container/pr-row flex w-full items-center rounded-lg px-3 transition-colors duration-150 {split ? 'h-[76px]' : 'h-[62px]'} {selected
     ? 'bg-[var(--wash-2)]'
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
@@ -73,7 +73,7 @@
     </span>
 
     <span class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5">
-      <span class="truncate text-workspace-chrome font-medium text-foreground" title={row.title}>
+      <span class="truncate text-sm font-medium text-foreground" title={row.title}>
         {row.title}
       </span>
 

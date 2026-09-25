@@ -1,13 +1,14 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { Attachment, IpcContext } from '@solus/contracts/types'
+import type { Attachment, HostCapabilities, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
 } from '@solus/contracts/rpc'
+import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/video'
 import { z } from 'zod'
 
-function assertUploadCount(count: number): void {
+export function assertUploadCount(count: number): void {
   if (count > MAX_ATTACHMENT_UPLOAD_COUNT) {
     throw new Error(`Attach up to ${MAX_ATTACHMENT_UPLOAD_COUNT} files at a time.`)
   }
@@ -17,6 +18,81 @@ function assertUploadSize(size: number): void {
   if (size > MAX_ATTACHMENT_UPLOAD_BYTES) {
     throw new Error('Attachments can be up to 10 MB each.')
   }
+}
+
+/** What a picked file is, read the same way on every client: a video is a
+ *  `file` attachment with its video MIME type, never an image. */
+export interface AttachmentKind {
+  type: 'image' | 'file'
+  mimeType: string
+  isVideo: boolean
+}
+
+export function attachmentKind(file: { name: string; mimeType?: string | null }): AttachmentKind {
+  const video = videoMimeType(file)
+  if (video) return { type: 'file', mimeType: video, isVideo: true }
+  const mimeType = file.mimeType || 'application/octet-stream'
+  return { type: isImageMime(mimeType) ? 'image' : 'file', mimeType, isVideo: false }
+}
+
+/**
+ * How one file reaches the host. `rpc` sends base64 through `attachUpload`,
+ * which is limited to 10 MB. `stream` sends the raw bytes over HTTP with a
+ * token from `attachUploadToken`; every video takes it, so a phone does not
+ * hold a base64 copy of a recording in memory. A host that cannot take a
+ * stream keeps the old limit, and the error says what to do about it.
+ */
+export function attachmentUploadRoute(
+  file: { name: string; mimeType?: string | null; size: number },
+  capabilities: Pick<HostCapabilities, 'attachStreamUpload'>,
+): 'rpc' | 'stream' {
+  const { isVideo } = attachmentKind(file)
+  if (isVideo && file.size > MAX_VIDEO_UPLOAD_BYTES) {
+    throw new Error(`Videos can be up to ${MAX_VIDEO_UPLOAD_BYTES / 1024 / 1024} MB.`)
+  }
+  // Only videos may exceed 10 MB; the host refuses any other large file.
+  if (!isVideo && file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+    throw new Error('Files other than videos can be up to 10 MB.')
+  }
+  if (!isVideo) return 'rpc'
+  if (capabilities.attachStreamUpload === true) return 'stream'
+  if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+    throw new Error('Update the host to attach videos larger than 10 MB.')
+  }
+  return 'rpc'
+}
+
+/** Send one file's bytes to a streamed-upload URL. XHR, not fetch: only XHR
+ *  reports upload progress. The token in the URL is the only credential. */
+export function postAttachmentBytes(request: {
+  url: string
+  body: Blob
+  onProgress: (loadedBytes: number) => void
+  signal: AbortSignal
+}): Promise<void> {
+  if (request.signal.aborted) return Promise.reject(new DOMException('The upload was cancelled.', 'AbortError'))
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const abort = () => xhr.abort()
+    request.signal.addEventListener('abort', abort, { once: true })
+    const settle = () => request.signal.removeEventListener('abort', abort)
+    xhr.upload.onprogress = (event) => request.onProgress(event.loaded)
+    xhr.onload = () => {
+      settle()
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(xhr.responseText.trim() || `The upload failed (${xhr.status}).`))
+    }
+    xhr.onerror = () => {
+      settle()
+      reject(new Error('The upload lost its connection to the host.'))
+    }
+    xhr.onabort = () => {
+      settle()
+      reject(new DOMException('The upload was cancelled.', 'AbortError'))
+    }
+    xhr.open('POST', request.url)
+    xhr.send(request.body)
+  })
 }
 
 export function readFileDataUrl(file: Blob): Promise<string> {
@@ -84,20 +160,21 @@ export interface ComposerClipboard {
   files?: Iterable<File> | null
 }
 
-/** Every image on the clipboard, in order. A paste can carry more than one.
+/** Every image and video on the clipboard, in order. A paste can carry more
+ *  than one.
  *  Both lists are read because neither is complete on its own: iOS Safari hands
  *  a screenshot or a photo over in `files` while leaving `items` empty, so a
  *  phone paste attaches nothing when only `items` is consulted. A desktop
  *  browser reports the same image in both, and the repeat is dropped.
  *  `getAsFile` only answers while the event is live, so the blobs are taken
  *  before the first upload awaits. */
-export function clipboardImages(clipboard: ComposerClipboard): File[] {
+export function clipboardMedia(clipboard: ComposerClipboard): File[] {
   const images = Array.from(clipboard.items ?? [])
-    .filter((item) => isImageMime(item.type))
+    .filter((item) => isImageMime(item.type) || item.type.startsWith('video/'))
     .map((item) => item.getAsFile())
     .filter((blob): blob is File => !!blob)
   for (const file of clipboard.files ?? []) {
-    if (!isImageMime(file.type)) continue
+    if (!isImageMime(file.type) && !videoMimeType({ name: file.name, mimeType: file.type })) continue
     const alreadyTaken = images.some(
       (seen) => seen.name === file.name && seen.size === file.size && seen.type === file.type,
     )
@@ -108,66 +185,6 @@ export function clipboardImages(clipboard: ComposerClipboard): File[] {
 
 function isImageMime(mime: string): boolean {
   return mime.startsWith('image/')
-}
-
-export async function uploadFileObjects(
-  api: HostApi,
-  ctx: IpcContext,
-  serverId: string,
-  files: File[],
-): Promise<Attachment[]> {
-  assertUploadCount(files.length)
-  const attachments: Attachment[] = []
-  for (const file of files) {
-    const mime = file.type || 'application/octet-stream'
-    const dataUrl = await readFileDataUrl(file)
-    const hostPath = await api.attachUpload(ctx, { name: file.name, mime, dataUrl })
-    const attachment: Attachment = {
-      id: uuid(),
-      type: isImageMime(mime) ? 'image' : 'file',
-      name: file.name,
-      path: hostPath,
-      hostPath,
-      hostServerId: serverId,
-      mimeType: mime,
-      size: file.size,
-    }
-    if (isImageMime(mime)) attachment.dataUrl = dataUrl
-    attachments.push(attachment)
-  }
-  return attachments
-}
-
-export async function uploadLocalAttachments(
-  api: HostApi,
-  ctx: IpcContext,
-  serverId: string,
-  attachments: Attachment[],
-  readBytes: (path: string, mime: string) => Promise<{ dataUrl: string; size: number }>,
-): Promise<Attachment[]> {
-  assertUploadCount(attachments.length)
-  const uploaded: Attachment[] = []
-  for (const attachment of attachments) {
-    const mime = attachment.mimeType || 'application/octet-stream'
-    const bytes = attachment.dataUrl
-      ? { dataUrl: attachment.dataUrl, size: attachment.size ?? 0 }
-      : await readBytes(attachment.path, mime)
-    assertUploadSize(bytes.size)
-    const hostPath = await api.attachUpload(ctx, {
-      name: attachment.name,
-      mime,
-      dataUrl: bytes.dataUrl,
-    })
-    const uploadedAttachment: Attachment = {
-      ...attachment,
-      hostPath,
-      hostServerId: serverId,
-      size: bytes.size,
-    }
-    if (attachment.type === 'image') uploadedAttachment.dataUrl = bytes.dataUrl
-    uploaded.push(uploadedAttachment)
-  }
-  return uploaded
 }
 
 export async function uploadPastedImage(
@@ -205,4 +222,11 @@ export function pastedImageAttachment(dataUrl: string, serverId: string): Attach
     dataUrl,
     size,
   }
+}
+
+/** Whole percent sent, for the chip. Never 100 before the host has answered:
+ *  the last byte leaving the client is not the file being on the host. */
+export function uploadProgressPercent(loadedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0) return 0
+  return Math.min(99, Math.floor((loadedBytes / totalBytes) * 100))
 }

@@ -67,9 +67,11 @@ import { registerHistoryHandlers } from './handlers/history-handlers'
 import { registerFolioHandlers } from './handlers/folio-handlers'
 import { registerReviewHandlers } from './handlers/review-handlers'
 import { registerAutomationHandlers } from './handlers/automation-handlers'
+import { registerWatchHandlers } from './handlers/watch-handlers'
+import { onWatchesChanged } from '../watches/watches-store'
+import { WatchService } from '../watches/watch-service'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
-import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher, setAutomationWorktreeNameGenerator } from '../automations/automation-runner'
-import { generateWorktreeName } from '../git/worktree-name'
+import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from '../automations/automation-runner'
 import { onAutomationsChanged } from '../automations/automations-store'
 import { setSessionController, setSessionOrchestration } from '../sessions/session-tools'
 import { orchestrateSessions } from '../orchestration/control-plane-runtime'
@@ -405,6 +407,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
+    onWatchesChanged((event) => events.broadcast('watch.changed', event)),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onTasksChanged(() => events.broadcast('tasks.invalidated', {})),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
@@ -470,14 +473,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
-  // Let session-bound automations run their prompt inside the chat thread they
-  // were created in (full conversation context), routed through the control plane.
-  setAutomationSessionDispatcher((o) => opts.controlPlane.dispatchAutomationRun(o))
+  registerWatchHandlers(server)
+  // Watches wait on this host and wake their session through the control plane.
+  const watches = new WatchService({ dispatchWake: (wake) => opts.controlPlane.dispatchWake(wake) })
   // Isolated automations use the same headless ControlPlane lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
   setAutomationBackgroundSessionDispatcher((o) => opts.controlPlane.startAutomationSession(o))
-  setAutomationWorktreeNameGenerator((prompt, cwd, abortSignal) => (
-    generateWorktreeName(opts.controlPlane, prompt, cwd, abortSignal)
+  setAutomationWorktreeCreator((prompt, cwd, abortSignal) => (
+    opts.controlPlane.checkouts.createNamed(cwd, prompt, opts.controlPlane, abortSignal)
   ))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
@@ -537,6 +540,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // way one made in Settings does.
   setHostConfigChangedListener((snapshot) => events.broadcast('config.changed', snapshot))
   registerProviderHandlers(server, {
+    checkouts: opts.controlPlane.checkouts,
     dispatcher: opts.controlPlane,
     events,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
@@ -570,8 +574,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const remoteUpdates = new RemoteUpdateService({
     status: () => hostUpdates.status,
     publish: (support) => hostUpdates.setServerUpdate(support),
-    blockNewTurns: (blocked) => { opts.controlPlane.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked) },
-    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || opts.controlPlane.hasWorkForUpdate(),
+    blockNewTurns: (blocked) => { opts.controlPlane.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked); watches.setPaused(blocked) },
+    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || watches.hasWork() || opts.controlPlane.hasWorkForUpdate(),
     send: (message) => { if (!supervisor) throw new Error('No update supervisor.'); supervisor.send(message) },
   }, supervisor?.support ?? { supported: false, reason: 'Start a supported installation through solus start or solus-server to enable remote updates.', operation: null })
   const stopSupervisor = supervisor?.subscribe((message) => {
@@ -583,6 +587,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   phaseDone('update_services_ready')
   startAutomationScheduler()
+  watches.start()
   // A parent that delegated to a child the previous process was running is
   // told the child's turn is gone, rather than waiting for a reply forever.
   void interruptSweep.then((interrupted) => {
@@ -593,7 +598,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
   server.register('hostCheckForUpdates', () => hostUpdates.check())
   hostUpdates.start()
-  registerSetupHandlers(server, { events,
+  registerSetupHandlers(server, { events, checkouts: opts.controlPlane.checkouts,
     assertNewWorkAllowed: () => opts.controlPlane.assertNewWorkAllowed(),
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
     onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
@@ -603,7 +608,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // sees, and keeps addressing it after the pane closes. A headless host still
   // registers the domain: it can discover targets and hold pages, and reports
   // `no-surface` rather than pretending to drive one.
-  const browserRegistry = registerBrowserHandlers(server, { events, frames: browserFrames })
+  const browserRegistry = registerBrowserHandlers(server, { events, frames: browserFrames, checkouts: opts.controlPlane.checkouts })
+  opts.controlPlane.checkouts.onChange((change) => {
+    void events.broadcast('git.checkoutChanged', change)
+  })
 
   server.register('getServerCapabilities', (_args, ctx) => probeServerCapabilities({
     headless: !opts.windowDeps,
@@ -1055,6 +1063,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         stopAutomationScheduler()
+        watches.stop()
         stopMetricsRollover()
         prReconciler.stop()
         hostUpdates.stop()

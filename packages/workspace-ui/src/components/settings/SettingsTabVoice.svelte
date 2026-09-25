@@ -68,7 +68,7 @@
        selected host above frames only the model-status surface below. -->
   <SettingsRow
     label="Auto-send transcripts"
-    description="Send voice messages as soon as they're transcribed, instead of just filling the composer."
+    description="Send voice messages when transcribed, not just fill the composer."
   >
     {#snippet control()}
       <Switch
@@ -82,7 +82,7 @@
 
   <SettingsRow
     label="Silence threshold"
-    description="How long to wait after you stop speaking before sending."
+    description="Wait after you stop speaking before sending."
   >
     {#snippet control()}
       <SettingsSelect

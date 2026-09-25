@@ -1,3 +1,5 @@
+import { videoMimeType } from "@solus/contracts/video";
+
 export interface MarkdownMediaLink {
   href: string;
   provider: string;
@@ -55,6 +57,21 @@ export function standaloneMarkdownMediaLink(raw: string): MarkdownMediaLink | nu
   } catch {
     return null;
   }
+}
+
+/**
+ * A paragraph that is only a video on the host: an absolute path, a `file:`
+ * URL, or an `asset://` id, bare or in image syntax. Such a paragraph plays in
+ * the same player as an agent's Markdown video. Anything else keeps the
+ * author's words.
+ */
+export function standaloneLocalVideoHref(raw: string): string | null {
+  const paragraph = raw.trim();
+  const image = paragraph.match(/^!\[[^\]\r\n]*\]\(\s*(\S+?)\s*\)$/);
+  const href = image?.[1] ?? paragraph;
+  if (!/^(?:\/|file:\/\/|asset:\/\/)\S+$/i.test(href)) return null;
+  const name = href.split(/[?#]/, 1)[0];
+  return videoMimeType({ name }) ? href : null;
 }
 
 const HTML_ENTITY = /&(?:#\d+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/;

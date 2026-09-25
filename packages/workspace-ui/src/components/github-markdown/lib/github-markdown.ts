@@ -8,7 +8,7 @@ import { visit } from 'unist-util-visit'
 import { find, html } from 'property-information'
 import type { Root as MarkdownRoot } from 'mdast'
 import type { Element, Root, RootContent } from 'hast'
-import { standaloneMarkdownMediaLink } from '../../../lib/githubMarkdown'
+import { standaloneLocalVideoHref, standaloneMarkdownMediaLink } from '../../../lib/githubMarkdown'
 import { isInlineTaskImageUrl } from '../../tasks/task-page/lib/task-image'
 
 export type MarkdownPolicy = 'remote' | 'local'
@@ -142,6 +142,14 @@ export function paragraphMediaSource(node: Element): string {
     : child.type === 'element' && child.tagName === 'a' && nodeText(child) === child.properties.href
       ? child.properties.href : null
   return typeof href === 'string' && standaloneMarkdownMediaLink(href) ? href : ''
+}
+
+/** A paragraph that is only a host video written as text, for a local
+ *  document. An image-syntax video already reaches the image renderer. */
+export function paragraphLocalVideoSource(node: Element): string {
+  if (node.tagName !== 'p' || node.children.length !== 1) return ''
+  const child = node.children[0]
+  return child.type === 'text' ? standaloneLocalVideoHref(child.value) ?? '' : ''
 }
 
 export function taskCheckbox(node: Element): Element | undefined {

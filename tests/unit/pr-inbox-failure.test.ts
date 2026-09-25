@@ -29,10 +29,10 @@ describe('All-projects PR failures', () => {
   // WHY: the inbox keeps a failed project's last-safe rows, so a failure that
   // is not stated reads as "that project has no pull requests". A project that
   // fails beside one that succeeds must still be announced.
-  test('announces a partial failure over the rows that did load', () => {
+  test('sends a partial failure to a toast while keeping loaded rows', () => {
     expect(prInboxFailure([ok, noAuth], true)).toEqual({
       kind: 'github-auth',
-      placement: 'banner',
+      placement: 'toast',
       serverId: 'local',
     })
   })
@@ -73,6 +73,6 @@ describe('All-projects PR failures', () => {
 
   test('counts the projects rather than naming them all', () => {
     const failure = prInboxFailure([broken, { ...broken, label: 'docs' }], true)
-    expect(failure).toMatchObject({ placement: 'banner', summary: 'Couldn’t load pull requests from 2 projects.' })
+    expect(failure).toMatchObject({ placement: 'toast', summary: 'Couldn’t load pull requests from 2 projects.' })
   })
 })

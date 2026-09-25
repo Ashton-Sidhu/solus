@@ -4,7 +4,7 @@ import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type Session, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { existingTaskId, newTaskId, parentTaskId } from './session-draft.svelte'
+import { existingTaskId, newTaskId } from './session-draft.svelte'
 import { firstActivityAt, lastActivityAt, turnStartedAt, withLazyActivity } from './session-activity'
 import {
   buildProjectSummaries,
@@ -48,8 +48,9 @@ import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { PrsStore } from '../prs/prs.store.svelte'
+import type { Via } from '@solus/contracts/analytics-events'
 import {
-  closestOpenSidebarTabAfterClose,
+  nextOpenSidebarTabAfterClose,
   taskSessionTarget,
 } from './session-sidebar-selection'
 import {
@@ -243,11 +244,9 @@ export class SessionSidebarStore {
     return byTaskId
   })
 
-  /** The task an unlinked tab already belongs to: the one it was opened
-   *  for, or — for a fork, whose own subtask is minted after its first turn — the
-   *  parent it will hang under. */
+  /** The task an unlinked tab already belongs to: the one it was opened for. */
   private pendingTaskFor(session: Session | null | undefined): Task | undefined {
-    const taskId = session ? existingTaskId(session.task) ?? parentTaskId(session.task) : undefined
+    const taskId = session ? existingTaskId(session.task) : undefined
     if (!taskId) return undefined
     return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
   }
@@ -1302,11 +1301,12 @@ export class SessionSidebarStore {
         continue
       }
       const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+      const checkout = link.checkoutPath && linkServerId ? this.session.environment.checkouts.get(linkServerId, link.checkoutPath) : undefined
       children.push({
         taskId: record.id,
         sessionId: link.sessionId,
         projectKey,
-        branchName: link.branch ?? null,
+        branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
         label: sessionDisplayName({ link, taskTitle: record.title }),
         attention: liveState?.attention ?? null,
         unread: liveState?.attention === 'error',
@@ -1373,10 +1373,12 @@ export class SessionSidebarStore {
 
   selectTab(tabId: string): void {
     // Sidebar rows are navigation, so selecting the active row reveals it.
-    // Clicking the selected child must therefore be a no-op — unless its
-    // conversation isn't what's on screen (a draft or a page owns the pane),
-    // which is the one case where the row still has somewhere to take you.
-    if (tabId === this.session.activeTabId && this.session.showsConversation) return
+    // A selected, read conversation has nothing to do. An unread one must
+    // still reach the workspace's acknowledgement, even when it is the only
+    // tab and there is no other session to switch through.
+    if (tabId === this.session.activeTabId
+      && this.session.showsConversation
+      && !this.session.tabs[tabId]?.hasUnread) return
     this.session.selectTab(tabId)
   }
 
@@ -1432,8 +1434,12 @@ export class SessionSidebarStore {
     if (meta) await this.session.opening.resumeSession(meta)
   }
 
-  closeTabs(tabIds: string[]): void {
-    const closesActiveTab = tabIds.includes(this.session.activeTabId)
+  /** Close tabs and, when the active one goes, move forward: the next open
+   *  sidebar row below it, wrapping to the top. With none left, a draft in the
+   *  closed conversation's project takes its place. */
+  closeTabs(tabIds: string[], via: Via = 'click'): void {
+    const activeTabId = this.session.activeTabId
+    const closesActiveTab = tabIds.includes(activeTabId)
     const sidebarTasks = [
       ...this.visibleTasks,
       ...this.snoozedTasks,
@@ -1446,24 +1452,20 @@ export class SessionSidebarStore {
       this.sessionsFor(task).flatMap((child) => child.tabId ? [child.tabId] : []),
     )
     const nextTabId = closesActiveTab
-      ? closestOpenSidebarTabAfterClose(
-          sidebarTabIds,
-          openTabIds,
-          tabIds,
-          this.session.activeTabId,
-        )
+      ? nextOpenSidebarTabAfterClose(sidebarTabIds, openTabIds, tabIds, activeTabId)
+      : null
+    // Minted before the close so it inherits the closing conversation's
+    // project; afterwards the source would be whatever tab the close landed on.
+    // A fresh task, so the draft never files under the task being closed.
+    const fallbackDraft = closesActiveTab && !nextTabId && this.session.showsConversation
+      ? this.session.drafts.createSessionDraft({ freshTask: true, sourceId: activeTabId, via })
       : null
 
-    for (const tabId of tabIds) this.session.closeTab(tabId)
+    for (const tabId of tabIds) this.session.closeTab(tabId, via)
 
     if (!closesActiveTab) return
     if (nextTabId && this.session.tabs[nextTabId]) this.session.selectTab(nextTabId)
-    else if (this.session.showsConversation) {
-      this.session.drafts.openSessionDraft({
-        freshTask: this.activeTasks.length === 0,
-        via: 'click',
-      })
-    }
+    else if (fallbackDraft) this.session.drafts.openDraft(fallbackDraft.id, via)
   }
 
   /** Ending the column's last live task must not drop the pane onto a shelved
@@ -1554,6 +1556,18 @@ export class SessionSidebarStore {
     }
     this.closeTabs(tabIdsToClose)
     if (tabIdsToClose.length) this.composeNextPromptIfNoActiveTask(task)
+  }
+
+  /** Hide tasks for their Undo window, and close their mounted conversations
+   *  first so the view moves on instead of staying on deleted work. The
+   *  sessions stay resumable from history, as they do after a close. */
+  deleteTasks(taskIds: string[]) {
+    const deleting = new Set(taskIds)
+    const tabIdsToClose = this.catalogTasks.flatMap((task) =>
+      task.taskId && deleting.has(task.taskId) ? task.tabIds : [],
+    )
+    if (tabIdsToClose.length) this.closeTabs(tabIdsToClose)
+    return this.session.tasksStore.softRemove(taskIds)
   }
 
   /** Close one task-tree child's mounted tab while keeping its durable session. */

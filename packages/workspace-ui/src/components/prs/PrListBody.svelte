@@ -8,7 +8,7 @@
     type ListGroupSpec,
     type VirtualGroupItem,
   } from "../ui/list-page";
-  import { PR_LIST_ROW_HEIGHT, type PrRowSpec } from "./lib/prs-list-view";
+  import { PR_LIST_ROW_HEIGHT, PR_LIST_SPLIT_ROW_HEIGHT, type PrRowSpec } from "./lib/prs-list-view";
   import PrListRow from "./PrListRow.svelte";
   import PrPagination from "./PrPagination.svelte";
 
@@ -18,6 +18,7 @@
   interface Props {
     items: VirtualGroupItem<ListGroupSpec<PrRowSpec>, PrRowSpec>[];
     height: number;
+    split?: boolean;
     activeKey: string | null;
     scrollTop: number;
     selectedKey: string | null;
@@ -40,6 +41,7 @@
   let {
     items,
     height,
+    split = false,
     activeKey,
     scrollTop = $bindable(),
     selectedKey,
@@ -62,7 +64,9 @@
   {items}
   {height}
   itemSize={(index) =>
-    items[index].kind === "header" ? LIST_GROUP_HEADER_HEIGHT : PR_LIST_ROW_HEIGHT}
+    items[index].kind === "header"
+      ? LIST_GROUP_HEADER_HEIGHT
+      : split ? PR_LIST_SPLIT_ROW_HEIGHT : PR_LIST_ROW_HEIGHT}
   keyOf={(item) => item.key}
   {activeKey}
   scrollOffset={scrollTop}
@@ -100,6 +104,7 @@
         {/snippet}
         <PrListRow
           row={item.row}
+          {split}
           selected={rowSelected}
           leading={canReview ? reviewCheckbox : undefined}
           onSelect={() => {

@@ -28,6 +28,8 @@ import { subscribeAllHosts } from "@solus/client-core/host-events";
 import { localApi } from "@solus/client-core/local-api";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
+import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 
 import { connectionState } from "@solus/client-core/connection-state";
 import {
@@ -316,6 +318,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
           }
         },
       );
+      // Watches wait on a host and change state with no client in the loop.
+      const unsubWatches = subscribeWatchChanges(session.watchesStore);
       // An agent left comment threads on a plan or a work. Re-read that target's
       // annotations so the rail updates under the reader, rather than making them
       // close and reopen the document to see the review.
@@ -335,6 +339,10 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       // it, so the request is answered app-wide rather than by a surface that
       // may not be mounted. Explicitly invoked — nothing here auto-opens.
       browserStore.onSurfaceRequested = () => session.openBrowser();
+      // A stopped recording goes to the composer the user is writing in, from
+      // whichever entry point stopped it, and when a limit stopped it.
+      browserStore.onRecordingSaved = (serverId, result) =>
+        deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
       const unsubChecks = pullRequests.checks.subscribe(activePrScope);
       const unsubGuideStatus = pullRequests.guides.subscribe();
@@ -372,8 +380,10 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubSessionStatuses();
         unsubUsage();
         unsubAutomations();
+        unsubWatches();
         unsubAnnotations();
         browserStore.onSurfaceRequested = null;
+        browserStore.onRecordingSaved = null;
         unsubBrowser();
         unsubChecks();
         unsubGuideStatus();

@@ -105,6 +105,10 @@
     {/snippet}
 
     {#snippet actions()}
+      <TranscriptCardAction kind="ghost" onclick={handleStop}>
+        <StopIcon size={13} />
+        Stop &amp; discard
+      </TranscriptCardAction>
       <!-- Queuing means "send it when the window opens". Once it has, the
            button would be a second Send now under a waiting label. -->
       {#if !hasReopened}
@@ -128,11 +132,5 @@
         window reopens, so a queued prompt waits for you to send it.
       {/if}
     </p>
-    <div>
-      <TranscriptCardAction kind="ghost" class="-ml-2.5" onclick={handleStop}>
-        <StopIcon size={13} />
-        Stop &amp; discard
-      </TranscriptCardAction>
-    </div>
   </AttentionCard>
 {/if}

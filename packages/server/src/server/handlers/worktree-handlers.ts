@@ -1,7 +1,7 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { gitCheckoutFromState, projectScopeOf, type IpcContext, type GitCheckoutBranchResult } from '@solus/contracts/types'
-import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { projectScopeOf, type IpcContext, type GitCheckoutBranchResult } from '@solus/contracts/types'
+import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
@@ -68,6 +68,7 @@ async function checkoutRepoRoot(ctx: IpcContext): Promise<string | null> {
 
 export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps): void {
   const { controlPlane } = deps
+  server.register('checkoutSnapshot', ([paths]) => controlPlane.checkouts.snapshot(paths))
   const textGenerator = new TextGenerator(controlPlane)
 
   const generateCommitSubject = async (
@@ -246,7 +247,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         return { success: false, error: `Branch not found: ${branch}` }
       }
       await runAsync('git', ['checkout', branch], cwd)
-      const gitContext = gitCheckoutFromState(await computeGitState(cwd))
+      const gitContext = (await controlPlane.checkouts.refresh(cwd)).checkout
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
       return { success: true, gitContext }
@@ -268,13 +269,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('worktreeRestore', async (args) => {
     const [ctx, worktreePath] = args
     log.info('rpc_worktree_restore', { sessionId: ctx.session.sessionId })
-    if (ctx.session.gitContext?.worktreePath && ctx.session.gitContext.worktreePath === worktreePath) {
-      controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, ctx.session.gitContext)
-      return ctx.session.gitContext
-    }
-    const gitContext = await restoreWorktree(worktreePath)
-    if (gitContext) controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, gitContext)
-    return gitContext
+    const state = await controlPlane.checkouts.refresh(worktreePath)
+    if (state.checkout) controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, state.checkout)
+    return state.checkout
   })
 
   // Create a fresh worktree for a live session so it can "continue" there. The
@@ -294,7 +291,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     pendingWorktreeSetups.get(sessionId)?.abort(new Error('Superseded'))
     pendingWorktreeSetups.set(sessionId, setup)
     try {
-      const gitContext = await createWorktree(repoRoot, ctx.session.gitContext?.targetBranch, {
+      const gitContext = await controlPlane.checkouts.create(repoRoot, ctx.session.gitContext?.targetBranch, {
         signal: setup.signal,
       })
       controlPlane.setSessionGitEnvironment(sessionId, gitContext.worktreePath ?? cwd, gitContext)

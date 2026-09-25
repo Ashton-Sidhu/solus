@@ -7,7 +7,7 @@
   import MarkdownListItem from '../ui/MarkdownListItem.svelte'
   import MarkdownImage from '../conversation/MarkdownImage.svelte'
   import MarkdownLink from '../conversation/MarkdownLink.svelte'
-  import { alertKind, elementAttributes, nodeText, paragraphMediaSource, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
+  import { alertKind, elementAttributes, nodeText, paragraphLocalVideoSource, paragraphMediaSource, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
     node: RootContent
@@ -19,6 +19,8 @@
   const attributes = $derived(element ? elementAttributes(element) : {})
   const alert = $derived(element ? alertKind(element) : null)
   const media = $derived(element ? paragraphMediaSource(element) : '')
+  // Only a local document can name a file on its host.
+  const localVideo = $derived(element && policy === 'local' ? paragraphLocalVideoSource(element) : '')
   const checkbox = $derived(element ? taskCheckbox(element) : undefined)
 </script>
 
@@ -37,6 +39,8 @@
     <MarkdownAlert alertType={alert} content={children} />
   {:else if media}
     <MarkdownParagraph raw={media} />
+  {:else if localVideo}
+    <div class="my-3"><MarkdownImage href={localVideo} /></div>
   {:else if checkbox}
     <MarkdownListItem task checked={!!checkbox.properties.checked}>{@render children()}</MarkdownListItem>
   {:else if hideTaskCheckbox && element.tagName === 'input' && element.properties.type === 'checkbox'}

@@ -4,7 +4,7 @@ import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
-import type { BrowserSnapshotRef } from './browser-types'
+import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { WorkExternalLink } from './docs'
 import type { TurnAuthor } from './presence'
 import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
@@ -82,6 +82,12 @@ export interface HostCapabilities {
    *  hold browser pages. Whether a page can actually be *rendered* is a client
    *  fact (a native surface), not a host one. */
   browser?: boolean
+  /** The host can record browser pages to MP4: it has a Chromium that can run
+   *  the recording encoder. */
+  browserRecording?: boolean
+  /** The host accepts streamed uploads through `attachUploadToken`, so a client
+   *  can send files larger than the RPC limit, such as videos. */
+  attachStreamUpload?: boolean
   atlassianProvider?: boolean
   /** This host checks its own Solus release and its providers' releases. */
   hostUpdates?: boolean
@@ -789,7 +795,7 @@ export type TaskTarget =
   /** `taskId` is the id the first prompt mints the task under. Only a session
    *  carries one — `makeSession` mints it fresh for every session, so a draft
    *  or a copied target never shares an id with another session. */
-  | { kind: 'new'; parentTaskId?: string; taskId?: string }
+  | { kind: 'new'; taskId?: string }
   | { kind: 'none' }
 
 /**
@@ -1249,12 +1255,19 @@ export interface Message {
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  /** Reference to a watch the agent created in this thread, rendered as a card
+   *  that shows the watch's live state and controls. A card rebuilt from
+   *  history has no id: the id was in the tool result, which history drops, so
+   *  the card finds its watch by reason and command. */
+  watchRef?: { watchId?: string; reason: string; command?: string }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
   taskRef?: { taskId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
+  /** A recording the agent made of a browser page, rendered as a player. */
+  browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
    *  (start_session / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
@@ -1283,6 +1296,8 @@ export interface Message {
   /** Set on the divider system message when a session is moved into a worktree;
    *  holds the new worktree branch name. */
   worktreeMovedTo?: string
+  /** Stable checkout path used to resolve the divider's current branch name. */
+  worktreeMovedToPath?: string
   /** Set on the divider system message inserted after a successful agent
    *  handoff. Holds the destination agent's display label. */
   agentChangedTo?: string
@@ -1296,12 +1311,14 @@ export interface Message {
    *  fresh agent session to implement it. Holds the accepted plan's id, so the
    *  divider can name the plan the new session carries over. */
   newSessionForPlanId?: string
-  /** Set on a user message that an automation injected into this thread, so the
-   *  bubble can render a "Sent via automation" badge. Live-only (not persisted to
-   *  the transcript), so it's lost on a history reload. */
+  /** Set on a user message that an automation or a watch injected into this
+   *  thread, so the bubble can render its origin badge. Live-only (not persisted
+   *  to the transcript), so it's lost on a history reload. */
   via?: PromptVia
   automationId?: string
   automationName?: string
+  /** Source watch, present when `via === 'watch'`. */
+  watchId?: string
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
   /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
@@ -1721,7 +1738,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentMessageId?: string; author?: TurnAuthor }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; agentSessionId?: string; agentMessageId?: string; author?: TurnAuthor }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: TurnAuthor }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
@@ -1737,8 +1754,10 @@ export type NormalizedEvent =
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  | { type: 'watch_saved'; watchId: string; reason: string; command?: string }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
+  | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
 
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
@@ -1757,11 +1776,13 @@ export type WireNormalizedEvent =
 
 export type PromptDelivery = 'steer' | 'queue'
 
-export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispatch'
+export type PromptSource = 'typed' | 'queued' | 'automation' | 'watch' | 'agent' | 'dispatch'
 
 /** Non-human origin of an injected prompt. 'session-report' marks another agent's
- *  session's report — turn input for the model, never rendered as a bubble. */
-export type PromptVia = 'automation' | 'session-report'
+ *  session's report — turn input for the model, never rendered as a bubble.
+ *  'background-command' is a command the agent left running that finished
+ *  after its turn ended. */
+export type PromptVia = 'automation' | 'watch' | 'background-command' | 'session-report'
 
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —
@@ -1793,10 +1814,6 @@ export interface PromptOptions {
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
   taskId?: string
-  /** Set on a fresh session when its automatically-created task should be a
-   *  direct child of an existing top-level task. Mutually exclusive with
-   *  `taskId`; task nesting remains limited to one level. */
-  parentTaskId?: string
   /** Explicitly keep a fresh session outside the task system. Without this,
    *  an unbound first dispatch creates a local task from the prompt. */
   skipTaskCreation?: boolean
@@ -1824,6 +1841,8 @@ export interface PromptOptions {
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
+  /** Source watch id, present when `via === 'watch'`. */
+  watchId?: string
 }
 
 // ─── IPC Context ───
@@ -2941,12 +2960,8 @@ export interface GitCheckoutBranchResult {
 // run-now substrate. Scheduling is local-only — triggers fire while Solus is open
 // and catch up missed fires on the next launch.
 
-/**
- * Run outcomes. `dispatched` is the terminal state of an in-session run: the
- * prompt was handed into its chat thread, whose turn owns the real outcome —
- * we deliberately don't claim `succeeded` for work we didn't observe finish.
- */
-export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'dispatched'
+/** Run outcomes. */
+export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 /**
  * What causes an automation to run. Phase 2 ships time-based triggers only
@@ -2974,15 +2989,6 @@ export interface AutomationAction {
   modelId: string | null
   reasoningEffort: ReasoningEffort
   cwd: string
-  /**
-   * When set, the run is dispatched *into this existing agent session* — it
-   * resumes that chat thread with full conversation context and posts its prompt
-   * as an in-thread message (badged "Sent via automation") rather than spawning
-   * an isolated headless run. This is what powers "check every minute in this
-   * chat" heartbeat automations. The id is the originating session's
-   * agentSessionId, captured at create time. `useWorktree` is ignored for these.
-   */
-  sessionId?: string
   /**
    * When true, the run executes in a fresh git worktree branched off `cwd`
    * instead of mutating the working directory directly. Isolates unattended

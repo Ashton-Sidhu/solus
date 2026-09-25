@@ -25,7 +25,7 @@ const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
 const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
-const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled', 'dispatched'])
+const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled'])
 const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('manual') }),
   z.object({ type: z.literal('once'), runAt: z.string() }),
@@ -38,7 +38,6 @@ const automationActionSchema = z.object({
   modelId: z.string().nullable(),
   reasoningEffort: reasoningEffortSchema,
   cwd: z.string(),
-  sessionId: z.string().optional(),
   useWorktree: z.boolean().optional(),
   planRefs: z.array(z.object({
     planId: z.string(),
@@ -527,10 +526,7 @@ export async function finishRun(
     const automation = automationRow ? automationFromRow(automationRow) : null
     if (automation?.lastRunId === runId) {
       automation.lastRunStatus = outcome.status
-      const completed = outcome.status === 'succeeded' || outcome.status === 'dispatched'
-      if (automation.archiveRequested || (completed && automation.action.sessionId &&
-          automation.trigger.type === 'once' && !automation.enabled && !automation.nextRunAt &&
-          finished && Date.parse(finished.startedAt) >= Date.parse(automation.trigger.runAt))) {
+      if (automation.archiveRequested) {
         if (outcome.status !== 'failed') {
           automation.archivedAt = new Date().toISOString()
           automation.enabled = false

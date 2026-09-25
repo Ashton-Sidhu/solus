@@ -126,7 +126,17 @@ async function main(): Promise<void> {
   // optional: without it the server behaves exactly as it did before, and its
   // browser verbs say they have nowhere to render.
   const { registerPlaywrightBrowserHost } = await import('@solus/server/browser/playwright-host')
-  const closeBrowserHost = await registerPlaywrightBrowserHost()
+  const { registerPlaywrightRecordingEncoderHost } = await import('@solus/server/browser/recording-encoder-playwright')
+  const closePageHost = await registerPlaywrightBrowserHost()
+  // Recording uses the same Chromium install, in a browser of its own that
+  // starts with the first recording.
+  const closeRecordingEncoder = await registerPlaywrightRecordingEncoderHost()
+  const closeBrowserHost = closePageHost || closeRecordingEncoder
+    ? async () => {
+      await closeRecordingEncoder?.()
+      await closePageHost?.()
+    }
+    : null
 
   const endpoint = bestEndpoint(await listReachableEndpoints(core.booted.host, core.booted.port))!
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`

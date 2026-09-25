@@ -2,7 +2,6 @@
   import {
     RefreshCw as ArrowsClockwiseIcon,
     ChevronRight as CaretRightIcon,
-    MessageCircleMore as ChatCircleDotsIcon,
     ArrowRight as ArrowRightIcon,
     Play as PlayIcon,
     Pause as PauseIcon,
@@ -111,15 +110,6 @@
             {statusLabel(a)}
           </span>
         </span>
-        {#if a.action.sessionId}
-          <span
-            class="inline-flex shrink-0 text-(--solus-text-tertiary)"
-            title="Runs in this chat thread"
-            aria-label="Runs in this chat thread"
-          >
-            <ChatCircleDotsIcon size={10} />
-          </span>
-        {/if}
         <span
           class="absolute top-1/2 right-2 inline-flex -translate-y-1/2 shrink-0 text-(--solus-text-tertiary) opacity-55 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0"
           aria-hidden="true"

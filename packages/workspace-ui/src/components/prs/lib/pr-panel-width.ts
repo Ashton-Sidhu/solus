@@ -1,6 +1,6 @@
 /**
  * The width of the pull request panel beside the list: the
- * panel opens at 60% of the page, the reader drags its edge, and the width is
+ * panel opens at half the page, the reader drags its edge, and the width is
  * remembered on this device. Both sides keep a floor, so the list stays a
  * readable queue and the panel stays a readable review. A page too narrow for
  * both floors does not split at all; the panel covers the list instead.
@@ -13,7 +13,7 @@ export const PR_PANEL_MIN_WIDTH = 360
 const PR_PANEL_MAX_PERCENT = 70
 
 /** Where the panel opens before the reader drags it. */
-const PR_PANEL_DEFAULT_PERCENT = 60
+const PR_PANEL_DEFAULT_PERCENT = 50
 
 const STORAGE_KEY = 'solus.prs.panel-width'
 
@@ -31,7 +31,7 @@ export function clampPrPanelWidth(width: number, pageWidth: number): number {
   return Math.round(Math.min(max, Math.max(PR_PANEL_MIN_WIDTH, width)))
 }
 
-/** The width in effect: the reader's own choice, else 60% of the page. */
+/** The width in effect: the reader's own choice, else half of the page. */
 export function prPanelWidth(savedWidth: number | null, pageWidth: number): number {
   return clampPrPanelWidth(savedWidth ?? Math.floor((pageWidth * PR_PANEL_DEFAULT_PERCENT) / 100), pageWidth)
 }

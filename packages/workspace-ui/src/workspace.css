@@ -385,7 +385,10 @@
   --solus-diff-gutter-text: rgba(42, 38, 24, 0.42);
   --solus-diff-hunk-bg: rgba(0, 0, 0, 0.025);
   --solus-diff-hunk-text: rgba(42, 38, 24, 0.85);
-  --solus-diff-selection-bg: rgba(138, 92, 28, 0.28);
+  /* Text selection in code uses the host OS highlight colour, so it reads like
+     selection everywhere else on the machine. `Highlight` resolves against the
+     root color-scheme, so this one declaration covers dark mode too. */
+  --solus-diff-selection-bg: Highlight;
   /* Opaque stand-in for the pane surface. Two jobs, both needing opacity that
      --solus-container-bg doesn't have in dark mode: it's the base every diff
      row-tint color-mix() blends against, and it fills the sticky file headers so
@@ -639,7 +642,6 @@
   --solus-diff-gutter-text: rgba(240, 237, 229, 0.40);
   --solus-diff-hunk-bg: rgba(255, 255, 255, 0.03);
   --solus-diff-hunk-text: rgba(240, 237, 229, 0.80);
-  --solus-diff-selection-bg: rgba(190, 135, 52, 0.30);
   /* Opaque twin of --solus-container-bg — see the light
      block. --solus-diff-line-selection-bg is declared there and resolves through
      the mode-aware accent, so it isn't restated here. */
@@ -1100,6 +1102,10 @@ html, body, #root {
      down for its own subtree. */
   --text-chrome-shelf: 0.75rem;
   --text-chrome-shelf--line-height: 1rem;
+  /* The uppercase group heading inside a menu ("Start in"). 12px on desktop and
+     touch, then 10px on a precise-pointer laptop, where the letterspaced caps
+     read as loud as the 14px rows under them. */
+  --text-menu-heading: 0.75rem;
   /* The micro rung: the bottom of the chrome ladder, spent on what annotates a
      row rather than what the row says — keycaps, pill and rail counts, the
      "changed" flag, and the review surface's uppercase letterspaced captions.
@@ -1212,6 +1218,7 @@ html, body, #root {
     --text-insights-table: 0.6875rem;
     --text-insights-summary: calc(0.75rem * var(--solus-font-scale, 1));
     --text-insights-summary-heading: calc(0.875rem * var(--solus-font-scale, 1));
+    --text-menu-heading: 0.625rem;
     /* `--text-menu` and `--text-chrome-shelf` are deliberately absent here. A
        menu is a decision surface, not a band you scan past, so it holds 14px on
        both displays and its shortcut hints hold 12px. Stepping them made a
@@ -3862,6 +3869,21 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
      reference here as it is in a message. */
   font-size: 0.9286em;
 }
+
+/* When a code span is also bold, show the bold treatment. Keep the markup so
+   copying and saving still preserve the author's Markdown. */
+:is(.prose-cloud, .solus-doc-editor .ProseMirror, .task-description-prose .solus-doc-editor .ProseMirror) strong > code {
+  font-family: inherit;
+  font-feature-settings: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin-inline: 0;
+}
 /* The fenced block already is the chip; its inner `code` carries none of it. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre code {
   padding: 0;
@@ -4465,10 +4487,10 @@ html.is-mac-workspace
       padding: 0.375rem 0.5rem 0.25rem;
     }
   }
-  /* The shelf rung, the same one every other heading-above-a-list takes: a
-     group heading has to stay a step under its rows at *both* display sizes,
-     and a flat 12px met the rows once they stepped down to 12px on a laptop. */
-  font-size: var(--text-chrome-shelf);
+  /* A group heading has to stay a step under its rows at *both* display sizes.
+     The menu rows hold 14px on a laptop, but the letterspaced caps still read
+     too loud there at 12px, so the heading takes its own rung that steps down. */
+  font-size: var(--text-menu-heading);
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.09em;

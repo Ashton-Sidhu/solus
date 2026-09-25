@@ -66,6 +66,7 @@ import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { runBounded } from '../../lib/concurrency'
 import { getIndexedSession, listIndexedSessions, sessionIndexComplete } from '../../db/session-indexer'
 import { ClaudeCommandDiscovery } from './claude-command-discovery'
+import { hasBrowserTools, runtimeInstructions } from '../runtime-instructions'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 
@@ -284,7 +285,14 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         additionalDirectories: request.additionalDirectories,
         mcpServers: { solus: adaptedTools.server },
         allowedTools: [...SAFE_TOOLS, ...adaptedTools.allowedTools],
-        systemPromptAppend: request.systemPrompt,
+        // The user's instructions, then the host facts Codex also gets.
+        systemPromptAppend: [
+          request.systemPrompt,
+          runtimeInstructions(
+            { harness: 'Claude Code', model, reasoningEffort: request.reasoningEffort ?? 'default' },
+            hasBrowserTools(request.tools),
+          ),
+        ].filter(Boolean).join('\n\n'),
         maxTurns: request.maxTurns,
         maxBudgetUsd: request.maxBudgetUsd,
         canUseTool,

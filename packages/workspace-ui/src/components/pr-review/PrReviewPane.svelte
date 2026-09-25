@@ -45,6 +45,10 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import LensSurface from "../review/LensSurface.svelte";
+  import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
+  import { lensTabState } from "../review/lib/lens-surface";
+  import { prLensAdapter, prLensSubject, prLensSubjectKey } from "./lib/pr-lens";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import {
     buildPrChecksFixPrompt,
@@ -243,7 +247,7 @@
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrReviewSession.tab).
-  type ContentTab = "activity" | "map" | "guide" | "diff";
+  type ContentTab = "activity" | "map" | "guide" | "lens" | "diff";
   // The host target enables Activity and Diff together. A cached guide can also
   // load then; only generation and other source actions need checkout.
   const sub = $derived(
@@ -336,6 +340,21 @@
   const saveDiffComment = (c: GuideDiffCommentSave) => review.drafts.save(c);
   const removeDraft = (id: string) => review.drafts.remove(id);
 
+  // The lens reads the same revision the guide does (docs/plans/review-lenses.md).
+  const lensSubjectKey = $derived(prLensSubjectKey(serverId, pr));
+  const lensSubject = $derived.by((): LensSubject | null => {
+    if (!lensSubjectKey) return null;
+    return untrack(() => (pr ? prLensSubject(getApi(), serverId, projectCtx(), pr) : null));
+  });
+  $effect(() => {
+    const subject = lensSubject;
+    if (subject) void untrack(() => reviewLensStore.load(subject));
+  });
+  const lensState = $derived(
+    lensTabState(reviewLensStore.entryFor(lensSubject)?.snapshot ?? null, reviewLensStore.isUnread(lensSubject)),
+  );
+  const lensPullRequest = $derived(prLensAdapter(review, reviewDetail ?? null));
+
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
   let refreshingPr = $state(false);
@@ -411,8 +430,10 @@
   let mountedDiff = $state(untrack(() => sub === "diff" && (headless || embedded)));
   let mountedActivity = $state(untrack(() => sub === "activity"));
   let mountedMap = $state(untrack(() => sub === "map"));
+  let mountedLens = $state(untrack(() => sub === "lens"));
   $effect(() => {
-    if (sub === "guide") mountedGuide = true;
+    if (sub === "lens") mountedLens = true;
+    else if (sub === "guide") mountedGuide = true;
     else if (sub === "diff") { if (inlineDiff) mountedDiff = true; }
     else if (sub === "activity") mountedActivity = true;
     else if (sub === "map") mountedMap = true;
@@ -697,9 +718,10 @@
     repo={targetRepo ? `${targetRepo.owner}/${targetRepo.repo}` : null}
     number={target.number}
     onOpenPage={prUrl ? openPr : undefined}
-    tab={sub === "guide" || sub === "map" ? sub : "activity"}
+    tab={sub === "guide" || sub === "map" || sub === "lens" ? sub : "activity"}
     diffOpen={diffPoppedOut}
     guideStatus={visibleGuideStatus}
+    {lensState}
     tabsDisabled={!pr}
     onSelect={select}
   />
@@ -712,6 +734,7 @@
     tab={sub === "diff" ? null : sub}
     diffOpen={sub === "diff"}
     guideStatus={visibleGuideStatus}
+    {lensState}
     tabsDisabled={!pr}
     diffHint="Read the change"
     onSelect={select}
@@ -845,6 +868,25 @@
                 generateGuide();
               }}
         />
+      </div>
+    {/if}
+    {#if mountedLens && pr}
+      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "lens"}>
+        {#if !headless && !embedded}
+          <div
+            class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8cqi,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
+          >
+            {@render detailMasthead()}
+          </div>
+        {/if}
+        <div class="min-h-0 flex-1">
+          <LensSurface
+            subject={lensSubject}
+            active={sub === "lens"}
+            sourceTabId={reviewTabId ?? undefined}
+            pullRequest={lensPullRequest}
+          />
+        </div>
       </div>
     {/if}
     {#if mountedMap && pr}

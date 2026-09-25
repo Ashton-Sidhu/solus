@@ -262,6 +262,32 @@ describe.serial('ControlPlane rate-limit park teardown', () => {
     }
   })
 
+  for (const trigger of ['settings', 'reconnect'] as const) {
+    test(`Queue adopts an already held prompt on ${trigger} without duplicate retries`, async () => {
+      const settings = await import('@solus/server/server/settings')
+      const snapshot = settings.getHostConfig()
+      const config = spyOn(settings, 'getHostConfig').mockReturnValue({
+        ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
+      })
+      const { plane, backend, events } = await park(60_000)
+      try {
+        expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
+        config.mockReturnValue({ ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' } })
+        if (trigger === 'settings') plane.queueHeldRateLimitedPrompts()
+        const watch = () => plane.watchSession(
+          { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
+        ).runtime!
+        expect(watch().queuedPrompts).toHaveLength(1)
+        plane.queueHeldRateLimitedPrompts()
+        expect(watch().queuedPrompts).toHaveLength(1)
+        expect(new Set(events.flatMap((event) => event.type === 'prompt_queued' ? [event.queueId] : []))).toHaveLength(1)
+        expect(backend.starts).toBe(1)
+      } finally {
+        plane.shutdown()
+      }
+    })
+  }
+
   test('an unseeded host uses ask for user runs and preserves unattended queue policies', async () => {
     const settings = await import('@solus/server/server/settings')
     const snapshot = settings.getHostConfig()

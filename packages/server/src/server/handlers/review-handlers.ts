@@ -11,6 +11,7 @@ import { reviewSessionStatus } from '../../review/session-lifecycle'
 import { prGuideJobs } from '../../review/pr-guide-jobs'
 import { readPrGuide } from '../../review/pr-guide-store'
 import { publishPrGuideStatus } from '../../review/pr-guide-events'
+import { ReviewLensJobs } from '../../review/lens-jobs'
 
 export function registerReviewHandlers(
   server: SolusServer,
@@ -148,4 +149,17 @@ export function registerReviewHandlers(
     if (!repoRoot) return false
     return writeReviewState(repoRoot, state)
   })
+
+  // ── Review lens ──
+  const lenses = new ReviewLensJobs(dispatcher)
+  const emitLens = (event: import('@solus/contracts/review').ReviewLensChangedEvent) =>
+    events.broadcast('review.lensChanged', event)
+  server.register('readReviewLens', async ([ctx, target]) => lenses.read(ctx, target))
+  server.register('requestReviewLens', async ([ctx, request]) => lenses.generate(ctx, request, emitLens))
+  server.register('editReviewLens', async ([ctx, request]) => lenses.edit(ctx, request, emitLens))
+  server.register('cancelReviewLens', async ([ctx, target]) => lenses.cancel(ctx, target, emitLens))
+  server.register('restoreReviewLens', async ([ctx, target]) => lenses.restore(ctx, target, emitLens))
+  server.register('updateReviewLensComments', async ([ctx, target, change]) => lenses.changeComments(ctx, target, change, emitLens))
+  server.register('postReviewLensComment', async ([ctx, target, commentId]) => lenses.postComment(ctx, target, commentId, emitLens))
+  server.register('retractReviewLensComment', async ([ctx, target, commentId]) => lenses.retractComment(ctx, target, commentId, emitLens))
 }

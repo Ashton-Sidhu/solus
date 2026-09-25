@@ -88,7 +88,6 @@ export interface CreateSessionOrder {
   cwd: string
   worktreeBaseBranch?: string | null
   taskId?: string | null
-  parentTaskId?: string | null
   exchangeIds?: string[]
   delegation?: { parentAgentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
 }

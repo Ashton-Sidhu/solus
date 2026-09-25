@@ -1,9 +1,10 @@
 <script lang="ts">
-  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
+  import CommentMarkdown from '../../github-markdown/CommentMarkdown.svelte';
   import { SvelteSet } from "svelte/reactivity";
   import {
     ArrowUp as ArrowUpIcon,
     Check as CheckIcon,
+    ChevronDown as CaretDownIcon,
     LoaderCircle as CircleNotchIcon,
     SquareTerminal as TerminalWindowIcon,
     Trash2 as TrashIcon,
@@ -16,6 +17,13 @@
     TaskSessionLink,
   } from "@solus/contracts/task-types";
   import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
+  import * as DropdownMenu from "../../ui/dropdown-menu";
+  import {
+    FILTER_CHIP,
+    FILTER_CHIP_OFF,
+    FILTER_CHIP_ON,
+  } from "../../ui/list-page/filter-styles";
+  import { requestInputFocus } from "../../../lib/inputFocus";
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import {
     activityFeed,
@@ -87,7 +95,24 @@
     }
   }
 
-  let filter = $state<"all" | "comments">("all");
+  type FeedFilter = "all" | "comments";
+  let filter = $state<FeedFilter>("all");
+
+  const filterOptions: { value: FeedFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "comments", label: "Comments" },
+  ];
+
+  const filterLabel = $derived(
+    filterOptions.find((option) => option.value === filter)?.label ?? "All",
+  );
+
+  function selectFilter(value: string) {
+    const option = filterOptions.find((option) => option.value === value);
+    if (!option) return;
+    filter = option.value;
+    requestInputFocus();
+  }
 
   /** One live frame at a time: the artifact card the reader has open. */
   let openArtifactWorkId = $state<string | null>(null);
@@ -121,8 +146,8 @@
 
 <!-- The pull request timeline's grammar (pr-review/ActivityTimeline.svelte):
      the same dense type, 22px nodes on one hairline spine, events as one
-     muted line, and each comment a bordered card whose author row is its
-     header. A task and a pull request are read side by side, so their
+     muted line, and each comment a full-width bordered card whose author row
+     is its header, breaking the spine. A task and a pull request are read side by side, so their
      histories read the same way. -->
 <div class="text-chrome-dense {stacked ? 'pt-2' : 'pt-10'}">
   <div class="mb-4 flex items-center gap-2">
@@ -130,28 +155,35 @@
       {stacked ? "Newest last" : "Activity"}
     </h2>
     <span class="flex-1"></span>
-    <span
-      class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
-    >
-      <button
-        type="button"
-        class="h-[22px] cursor-pointer rounded-full px-2.5 text-xs transition-colors duration-150 {filter === 'all'
-          ? 'bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'text-muted-foreground'}"
-        onclick={() => (filter = "all")}
-      >
-        All
-      </button>
-      <button
-        type="button"
-        class="h-[22px] cursor-pointer rounded-full px-2.5 text-xs transition-colors duration-150 {filter === 'comments'
-          ? 'bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'text-muted-foreground'}"
-        onclick={() => (filter = "comments")}
-      >
-        Comments
-      </button>
-    </span>
+    <!-- The pull request feed's focus control (pr-review/ActivityFeed.svelte):
+         the list pages' filter chip and radio menu, tinted while it narrows
+         the feed. -->
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            class="{FILTER_CHIP} {filter !== 'all'
+              ? FILTER_CHIP_ON
+              : `${FILTER_CHIP_OFF} hover:bg-[var(--wash-2)] hover:text-foreground`}"
+            aria-label="Filter activity: {filterLabel}"
+          >
+            <span>{filterLabel}</span>
+            <CaretDownIcon size={12} class="shrink-0 opacity-70" aria-hidden="true" />
+          </button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-44">
+        <DropdownMenu.RadioGroup value={filter} onValueChange={selectFilter}>
+          {#each filterOptions as option (option.value)}
+            <DropdownMenu.RadioItem value={option.value}>
+              {option.label}
+            </DropdownMenu.RadioItem>
+          {/each}
+        </DropdownMenu.RadioGroup>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   </div>
 
   <ol class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4" role="list">
@@ -202,45 +234,45 @@
         {@const user = isUser(comment)}
         {@const originSessionId = comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
-        <li class="relative flex gap-2">
-          <!-- Dropped so the node sits on the card header's centre line. -->
-          <span class="flex shrink-0 self-start pt-[5px]">
-            <span
-              class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full text-xs font-medium shadow-[0_0_0_3px_var(--background)]"
-              style={agent
-                ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
-                : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
-            >
-              {#if user}
-                <UserIcon size={12} strokeWidth={2.2} aria-hidden="true" />
-              {:else if agent}
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 32 32"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.6"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="16" cy="16" r="6.4" fill="currentColor" stroke="none" />
-                  <path d="M16 5A11 11 0 0127 16" opacity=".55" />
-                  <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
-                  <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
-                </svg>
-              {:else}
-                {authorInitials(comment.author)}
-              {/if}
-            </span>
-          </span>
-          <div
-            class="group/comment min-w-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
+        <!-- A comment leaves the spine, as on the pull request timeline: a
+             full-width card with the author's mark in its tinted header, and
+             the rail broken half a gap above and below it. -->
+        <li class="relative -my-2.5 bg-background py-2.5">
+          <article
+            class="group/comment overflow-hidden rounded-lg border border-border/60 bg-background"
           >
-            <div class="flex min-h-9 items-center gap-2 py-1 pr-2 pl-4 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]">
-              <span class="min-w-0 flex-1">
-                <span class="font-medium text-foreground">{authorName(comment)}</span>
-                <span class="text-muted-foreground">· {relativeTime(comment.createdAt)}</span>
+            <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
+              <span class="flex min-w-0 flex-1 items-center gap-1.5">
+                <span
+                  class="grid size-4 shrink-0 place-items-center rounded-full text-[8px] font-medium"
+                  style={agent
+                    ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
+                    : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
+                >
+                  {#if user}
+                    <UserIcon size={10} strokeWidth={2.2} aria-hidden="true" />
+                  {:else if agent}
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 32 32"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.6"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="16" cy="16" r="6.4" fill="currentColor" stroke="none" />
+                      <path d="M16 5A11 11 0 0127 16" opacity=".55" />
+                      <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
+                      <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
+                    </svg>
+                  {:else}
+                    {authorInitials(comment.author)}
+                  {/if}
+                </span>
+                <span class="truncate font-medium text-foreground">{authorName(comment)}</span>
+                <span class="shrink-0 text-muted-foreground">{relativeTime(comment.createdAt)}</span>
               </span>
               {#if provider}
                 {@const sync = commentSyncState(comment, true)}
@@ -308,12 +340,10 @@
                 </button>
               {/if}
             </div>
-            <div class="px-4 py-3.5">
-              <div class="github-markdown prose-cloud prose-pr prose-pr-activity">
-                <GithubMarkdown source={comment.body} policy="local" />
-              </div>
+            <div class="p-3">
+              <CommentMarkdown source={comment.body} policy="local" />
             </div>
-          </div>
+          </article>
         </li>
       {/if}
     {:else}

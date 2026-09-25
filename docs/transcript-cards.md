@@ -57,7 +57,12 @@ A running sub-agent draws a 2px progress seam on the bottom edge (`seam` snippet
 
 The split icon is always visible, never hover-only. Cmd-click on a card does the
 same. The ⋯ menu holds publish, task link, copy id, provenance, stop, and change.
-Cards have no footer rails.
+Cards with a visible body place actions in a wrapping footer at the bottom-right.
+Header-only cards keep actions at the right edge. Disclosure controls stay in the
+header. This applies to rate limits, setup recovery, connections, and output cards.
+
+The host applies Queue to held user prompts when the setting changes or a client
+rejoins. The decision card disappears only after the host confirms a queued retry.
 
 ## States
 

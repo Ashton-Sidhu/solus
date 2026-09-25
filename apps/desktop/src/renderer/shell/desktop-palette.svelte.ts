@@ -32,6 +32,7 @@ import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host
 import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
+import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 import {
   activeSessionShareTarget,
   projectsStore,
@@ -526,6 +527,8 @@ export function createDesktopPalette(
       ],
       run: () => session.openBrowser(),
     });
+    // Start or stop recording the page the browser pane shows.
+    commands.push(...browserRecordingCommands(() => focusLeadingComposer(session.router)));
 
     commands.push({
       id: "open-plan",

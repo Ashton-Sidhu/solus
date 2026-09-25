@@ -32,6 +32,9 @@
   } from "./review-guide.store.svelte";
   import { guideEmptyHint, saveGuideComment } from "./lib/review-comments";
   import ReviewLoadingSurface from "./ReviewLoadingSurface.svelte";
+  import LensSurface from "./LensSurface.svelte";
+  import { reviewLensStore, type LensSubject } from "./review-lens.store.svelte";
+  import { lensTabState } from "./lib/lens-surface";
 
   /**
    * The review pane: one surface for reading a local change, with the map, the
@@ -352,6 +355,43 @@
           : "absent",
   );
 
+  // ── The lens ──────────────────────────────────────────────────────────────
+  // The same target the guide reads. Keyed by a string so a new ctx object
+  // for the same change does not read the lens again.
+  const lensTarget = $derived<ReviewTarget | null>(
+    target ??
+      (guideScope === "session"
+        ? sourceSession?.agentSessionId
+          ? { kind: "session", sessionId: sourceSession.agentSessionId }
+          : null
+        : { kind: "branch" }),
+  );
+  const lensScopeKey = $derived(
+    checkoutRepoRoot ?? environment.worktreePath ?? environment.repoRoot ?? null,
+  );
+  const lensSubjectKey = $derived(
+    lensTarget && lensScopeKey ? JSON.stringify([getServerId(), lensScopeKey, lensTarget]) : null,
+  );
+  const lensSubject = $derived.by((): LensSubject | null => {
+    if (!lensSubjectKey) return null;
+    return untrack(() =>
+      lensTarget && lensScopeKey
+        ? { api: getApi(), serverId: getServerId(), ctx: getCtx(), target: lensTarget, scopeKey: lensScopeKey }
+        : null,
+    );
+  });
+  // Read once for the tab's own state, before the view is ever opened.
+  $effect(() => {
+    const subject = lensSubject;
+    if (subject) void untrack(() => reviewLensStore.load(subject));
+  });
+  const lensState = $derived(
+    lensTabState(
+      reviewLensStore.entryFor(lensSubject)?.snapshot ?? null,
+      reviewLensStore.isUnread(lensSubject),
+    ),
+  );
+
   // ── Comments ──────────────────────────────────────────────────────────────
   // The guide writes into the same list the diff stream writes to, so one
   // comment set feeds the file tree's counts, the comments popover, and the one
@@ -380,7 +420,7 @@
   useKeybinding("review-pane.next-view", () => cycleView(1));
   useKeybinding("review-pane.prev-view", () => cycleView(-1));
 
-  const VIEW_ORDER: ReviewView[] = ["map", "guide", "diff"];
+  const VIEW_ORDER: ReviewView[] = ["map", "guide", "lens", "diff"];
   function cycleView(direction: 1 | -1) {
     const index = VIEW_ORDER.indexOf(view);
     const next = (index + direction + VIEW_ORDER.length) % VIEW_ORDER.length;
@@ -389,7 +429,7 @@
 </script>
 
 {#snippet viewTabs()}
-  <ReviewViewTabs {view} {guideState} onSelect={selectView} />
+  <ReviewViewTabs {view} {guideState} {lensState} onSelect={selectView} />
 {/snippet}
 
 {#snippet mapView(files: FileDiffMetadata[])}
@@ -418,6 +458,10 @@
     onCancel={cancelGuide}
     onGenerate={generateGuide}
   />
+{/snippet}
+
+{#snippet lensView()}
+  <LensSurface subject={lensSubject} active={view === "lens"} {sourceTabId} />
 {/snippet}
 
 {#if branchScopeError}
@@ -459,6 +503,7 @@
     {viewTabs}
     {mapView}
     {guideView}
+    {lensView}
     {bordered}
     {onToggleMaximize}
     {maximized}

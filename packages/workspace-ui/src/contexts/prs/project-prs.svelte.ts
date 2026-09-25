@@ -1,8 +1,8 @@
 // One project's pull requests, on one host.
 //
-// This *is* the project, so nothing here takes a `serverId` or a context — which
-// is why there is one `list`, and why pagination is a page number handed to it
-// rather than a second function.
+// This *is* the project, so nothing here takes a `serverId` or a context. The
+// first page arrives through `PrsStore`, which asks a host for all its projects
+// at once; `loadMore` continues from it one project at a time.
 //
 // `PrsStore` is a map of these keyed by project; `PullRequest` is one of the
 // pull requests in this one.
@@ -11,7 +11,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
-import type { PrFilter, PrListPage } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectListing } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { prSurfaceError, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
@@ -37,16 +37,6 @@ export function projectPrsKey(serverId: string, ctx: IpcContext): string {
  *  host has already fetched. */
 export interface PrQuery {
   page?: number
-  force?: boolean
-}
-
-/** What one `list` was asked for. A page past the first appends to the rows. */
-export interface PrList {
-  /** Absent means the first page, which replaces the list. */
-  page?: number
-  /** Absent keeps the filter already in use. */
-  filter?: PrFilter
-  /** Ask the code host again rather than sharing what it has already fetched. */
   force?: boolean
 }
 
@@ -87,6 +77,9 @@ export class ProjectPrs {
   readonly mirrors = new PrMirrors()
 
   private revision = 0
+  private listingToken = 0
+  /** `revision` when the current listing began. */
+  private listingRevision = 0
   private readonly backgroundRetryAt = new Map<string, number>()
 
   constructor(
@@ -223,49 +216,81 @@ export class ProjectPrs {
   // --- Reading ------------------------------------------------------------
 
   /**
-   * Read this project's pull requests.
+   * Append this project's next page — what "load more" is. The first page is
+   * `PrsStore`'s to read (`beginListing` / `acceptListing`).
    *
-   * With no page, the first — which replaces the list. With a page, that page is
-   * appended, which is all "load more" is: the same call, further in.
-   *
-   * A response is dropped if the project moved under it: the filter changed, the
-   * page being appended to is no longer the one wanted, or a newer fan-out
-   * replaced the read that started it.
+   * Dropped if the project moved under it: the filter changed, or a newer page
+   * was asked for while this one was on the wire.
    */
-  async list(opts: PrList = {}, isCurrent?: () => boolean): Promise<void> {
-    if (opts.filter) this.filter = structuredClone(opts.filter)
-    const appending = opts.page !== undefined && opts.page > 1
-    if (appending && (!this.hasMore || this.loadingMore)) return
-
+  async loadMore(): Promise<void> {
+    if (!this.hasMore || this.loadingMore) return
     const filter = structuredClone($state.snapshot(this.filter))
-    const page = opts.page ?? 1
+    const page = this.nextPage
     const startedAt = this.listKey(filter)
 
     this.loading = true
-    this.loadingMore = appending
-    if (!appending) this.error = null
-    if (opts.force) {
-      this.mirrors.list.deleteByPrefix(startedAt.slice(0, startedAt.lastIndexOf('::') + 2))
-      await this.forgetHostCache()
-    }
-
+    this.loadingMore = true
     try {
-      const read: PrQuery = { page }
-      if (opts.force !== undefined) read.force = opts.force
-      const result = await this.query(filter, read)
+      const result = await this.query(filter, { page })
       if (!this.mirrors.list.holds(this.listKey(filter, page), result)) return
-      if (this.listKey(this.filter) !== startedAt) return
-      if (appending && this.nextPage !== page) return
-      if (isCurrent && !isCurrent()) return
+      if (this.listKey(this.filter) !== startedAt || this.nextPage !== page) return
 
-      this.acceptPage(result, appending)
+      this.acceptPage(result, true)
     } catch (error) {
-      if (isCurrent && !isCurrent()) return
       this.error = prSurfaceError(error)
     } finally {
       this.loading = false
       this.loadingMore = false
     }
+  }
+
+  /**
+   * Mark the first page as on its way from a read that covers several projects
+   * at once (`PrsStore.listProjects`). Answers a token: only the read that
+   * started last may land its answer or lower the flag.
+   */
+  beginListing(filter: PrFilter): number {
+    this.filter = structuredClone(filter)
+    this.loading = true
+    this.loadingMore = false
+    this.error = null
+    this.listingRevision = this.revision
+    return ++this.listingToken
+  }
+
+  /** Take this project's part of that read. Dropped if a newer read began, the
+   *  filter moved, or a host event or write superseded it while it was on the
+   *  wire — a late page must not bring back a row the event already changed. */
+  acceptListing(token: number, filter: PrFilter, listing: PrProjectListing): void {
+    if (token !== this.listingToken || this.listKey(this.filter) !== this.listKey(filter)) return
+    if (this.revision !== this.listingRevision) return
+    if ('error' in listing) {
+      this.error = prSurfaceError(listing.error)
+      return
+    }
+    // Filed as this project's own first page, so a later `list` or `query` of
+    // the same question shares it rather than asking again.
+    const key = this.listKey(filter)
+    this.mirrors.list.seed(key, listing.page)
+    this.absorbListed(filter, key, listing.page)
+    this.acceptPage(listing.page, false)
+  }
+
+  /** The whole read failed — the host could not answer for any project. */
+  failListing(token: number, error: Parameters<typeof prSurfaceError>[0]): void {
+    if (token === this.listingToken) this.error = prSurfaceError(error)
+  }
+
+  endListing(token: number): void {
+    if (token === this.listingToken) this.loading = false
+  }
+
+  /** Drop this filter's pages here and on the host, so the next read asks the
+   *  code host again. What a person's refresh does before it reads. */
+  async forgetListing(filter: PrFilter): Promise<void> {
+    const key = this.listKey(filter)
+    this.mirrors.list.deleteByPrefix(key.slice(0, key.lastIndexOf('::') + 2))
+    await this.forgetHostCache()
   }
 
   /**
@@ -306,20 +331,19 @@ export class ProjectPrs {
     const ctx = detached(this.ctx)
     const safeFilter = structuredClone(filter)
     const page = opts.page ?? 1
-    const result = await this.mirrors.list.read(
-      this.listKey(safeFilter, page),
-      !!opts.force,
-      () => this.api.prList(ctx, safeFilter, page),
-    )
-    if (this.mirrors.list.holds(this.listKey(safeFilter, page), result)) {
-      this.backgroundRetryAt.delete(`list::${this.listKey(safeFilter, page)}`)
-      // Keep the host's first branch match when several PRs reuse a branch.
-      for (const item of result.items.toReversed()) this.absorb(item)
-      if (safeFilter.head && !result.items.some((item) => item.headRef === safeFilter.head)) {
-        this.byBranch.delete(safeFilter.head)
-      }
-    }
+    const key = this.listKey(safeFilter, page)
+    const result = await this.mirrors.list.read(key, !!opts.force, () => this.api.prList(ctx, safeFilter, page))
+    if (this.mirrors.list.holds(key, result)) this.absorbListed(safeFilter, key, result)
     return result
+  }
+
+  private absorbListed(filter: PrFilter, key: string, result: PrListPage): void {
+    this.backgroundRetryAt.delete(`list::${key}`)
+    // Keep the host's first branch match when several PRs reuse a branch.
+    for (const item of result.items.toReversed()) this.absorb(item)
+    if (filter.head && !result.items.some((item) => item.headRef === filter.head)) {
+      this.byBranch.delete(filter.head)
+    }
   }
 
   /** Share one summary page, then recover linked PRs absent from that page.

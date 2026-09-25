@@ -6,7 +6,7 @@
     ChevronUp as CaretUpIcon,
     CornerUpLeft as ArrowBendUpLeftIcon,
   } from "@lucide/svelte";
-  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
+  import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
   import { CommentComposer } from "../ui/comment-composer";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
@@ -28,6 +28,7 @@
   let {
     thread,
     fullDiffHunk,
+    showResolved = $bindable(false),
     onJump,
     onReply,
     onResolve,
@@ -35,6 +36,11 @@
     thread: ReviewThread;
     /** Complete containing hunk from the PR patch, when it has loaded. */
     fullDiffHunk?: string;
+    /** A resolved thread collapses to a "Marked as resolved" bar (hiding its
+     *  diff hunk + conversation), matching the inline Diff tab. True while the
+     *  reader has re-expanded it; always re-collapses on resolve. Bindable
+     *  because the timeline row takes a different shape for each state. */
+    showResolved?: boolean;
     /** Jump to the thread's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
@@ -44,18 +50,9 @@
   const firstComment = $derived(thread.comments[0]);
   const diffHunk = $derived(fullDiffHunk ?? firstComment?.diffHunk);
 
-  // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
-  // typography as the PR description and the timeline's conversation rows.
-  const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-activity";
-
   let replying = $state(false);
   let replyText = $state("");
   let busy = $state(false);
-  // A resolved thread collapses to a "Marked as resolved" bar (hiding its diff
-  // hunk + conversation), matching the inline Diff tab. This tracks whether the
-  // user re-expanded it; always re-collapses on resolve.
-  let showResolved = $state(false);
   const collapsed = $derived(thread.isResolved && !showResolved);
   let diffOpen = $state(true);
   let diffBeforeExpanded = $state(false);
@@ -146,11 +143,13 @@
     </span>
   </button>
 {:else}
+<!-- The comment card's material (ActivityTimeline): hairline border, page
+     fill, and a lightly tinted header row. -->
 <div
-  class="overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
+  class="overflow-hidden rounded-lg border border-border/60 bg-background"
 >
   <div
-    class="flex items-center gap-2 border-b border-border px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
+    class="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
   >
     {#if diffHunk}
       <Button
@@ -196,7 +195,7 @@
     <!-- The diff GitHub anchored the thread to (first comment's hunk),
          rendered through the same @pierre/diffs engine as the Diff tab. -->
     {#if diffHunk && diffOpen}
-      <div class="border-b border-border">
+      <div class="border-b border-border/60">
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenBeforeLineCount > 0}
           <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
@@ -251,31 +250,22 @@
     <div
       class="flex flex-col px-3 py-2.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
     >
-      {#each thread.comments as comment, ci (comment.id)}
-        <div class="flex gap-2.5">
-          <div class="flex flex-col items-center">
+      <!-- Each reply reads like a timeline comment's header and body: a small
+           avatar, name, and time on one line, the words below. -->
+      {#each thread.comments as comment (comment.id)}
+        <div class="min-w-0 pb-3">
+          <div class="mb-1.5 flex min-w-0 items-center gap-1.5 text-xs">
             <PrAvatar
               name={comment.author}
               url={comment.authorAvatarUrl}
-              size="size-6 "
+              size="size-4 text-[8px]"
             />
-            {#if ci < thread.comments.length - 1}
-              <span class="mt-1 w-px flex-1 bg-border"></span>
-            {/if}
+            <span class="truncate font-medium text-foreground">{comment.author}</span>
+            <span class="shrink-0 text-muted-foreground"
+              >{formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}</span
+            >
           </div>
-          <div class="min-w-0 flex-1 pb-3">
-            <div class="mb-0.5 flex items-baseline gap-1.5 ">
-              <span class="font-medium text-foreground">{comment.author}</span>
-              <span class="text-muted-foreground"
-                >{formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}</span
-              >
-            </div>
-            <div class={bodyProseClass}>
-              <GithubMarkdown
-                source={comment.body}
-              />
-            </div>
-          </div>
+          <CommentMarkdown source={comment.body} />
         </div>
       {/each}
 

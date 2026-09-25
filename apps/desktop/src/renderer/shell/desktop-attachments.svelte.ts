@@ -13,7 +13,8 @@ import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
 
 import { localApi } from "@solus/client-core/local-api";
 
-import { uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-upload";
+import { uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
+import { localArtifactProtocolUrl } from "@solus/workspace-ui/components/artifact/lib/asset-url";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
@@ -32,6 +33,14 @@ export function attachmentTarget(
     run?.serverId ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID;
   const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
   return { targetTabId, serverId, ctx };
+}
+
+/** A video picked on this machine, as a Blob. The artifact protocol streams it
+ *  from disk; the IPC byte read would copy it as base64 and caps at 10 MB. */
+async function readLocalVideo(path: string): Promise<Blob> {
+  const response = await fetch(localArtifactProtocolUrl(path));
+  if (!response.ok) throw new Error("Couldn't read the video.");
+  return response.blob();
 }
 
 export function createDesktopAttachments(
@@ -77,6 +86,7 @@ export function createDesktopAttachments(
         serverId,
         localFiles,
         (path, mime) => localApi.readAttachmentBytes(path, mime),
+        readLocalVideo,
       );
       session.addAttachments(uploaded, targetTabId);
     } catch (error) {

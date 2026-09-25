@@ -148,9 +148,9 @@ on a Lab managed host). On a shared personal host, a member's automation runs
 on the owner's login.
 
 Automations live in each host's own SQLite (`automations` table, no owner
-column). `createdBy` is `{ kind: 'user' | 'agent' }` with no user id. Neither
-`startAutomationSession` nor `dispatchAutomationRun` passes an actor, so
-`seatForTurn` answers the host login and tools use the host's connections.
+column). `createdBy` is `{ kind: 'user' | 'agent' }` with no user id.
+`startAutomationSession` passes no actor, so `seatForTurn` answers the host
+login and tools use the host's connections.
 
 **4a. Run as the creator (D8).**
 

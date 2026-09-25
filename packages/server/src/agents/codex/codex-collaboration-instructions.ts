@@ -1,19 +1,6 @@
-const SOLUS_BROWSER_TOOL_INSTRUCTIONS = `
+import { runtimeInstructions } from '../runtime-instructions'
 
-## Solus collaborative browser
-
-You are running inside Solus. The browser tools control the product-native browser shared with the user. When they are available, prefer them for browser navigation, inspection, interaction, screenshots, and recordings.
-
-For browser work, first call browser_status. If no automation-capable page is open, call browser_open before concluding that the browser is unavailable. Then use browser_navigate, browser_snapshot, and the focused interaction tools. Prefer snapshot-provided element references over coordinates.
-
-Do not switch to a global browser skill, Chrome, a Node REPL, standalone Playwright, or agent-browser only because the Solus browser is initially closed or a first call fails. Use another browser system only when the Solus browser tools are absent, the user explicitly requests another browser, or browser_open returns an explicit unsupported or unavailable error. Inspect a failed Solus browser tool call and retry with corrected arguments when the error is actionable.
-`
-
-function browserToolInstructions(browserToolsAvailable: boolean): string {
-  return browserToolsAvailable ? SOLUS_BROWSER_TOOL_INSTRUCTIONS : ''
-}
-
-function planModeInstructions(browserToolsAvailable: boolean): string {
+function planModeInstructions(): string {
   return `<collaboration_mode># Plan Mode (Conversational)
 
 You work in three phases, and you should chat your way to a good plan before you finalize it. A good plan is decision-complete in intent and implementation. Another engineer or agent can implement it without making further decisions.
@@ -100,11 +87,10 @@ The final plan must be concise by default and include:
 Prefer three to five short sections, usually Summary, Key Changes, Test Plan, and Assumptions. Group changes by subsystem or behavior instead of listing each file. Mention files only when they prevent ambiguity. Do not invent detailed policy that the request does not need.
 
 Do not ask whether you should proceed after the plan. If the user requests revisions, the next <proposed_plan> block must be a complete replacement. Produce at most one <proposed_plan> block per turn.
-${browserToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`
 }
 
-function defaultModeInstructions(browserToolsAvailable: boolean): string {
+function defaultModeInstructions(): string {
   return `<collaboration_mode># Collaboration Mode: Default
 
 Default mode is active. Instructions for other collaboration modes are no longer active. The active mode changes only when developer instructions select another mode; user requests and tool descriptions do not change it.
@@ -114,23 +100,16 @@ Default mode is active. Instructions for other collaboration modes are no longer
 Use request_user_input only when it is available for this turn.
 
 Prefer reasonable assumptions and execution instead of stopping to ask questions. If an important answer cannot be discovered and a reasonable assumption would be risky, ask one concise question. Never write a multiple-choice question as a plain assistant message.
-${browserToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`
 }
 
-function singleLine(value: string): string {
-  return value.replaceAll(/\s+/g, ' ').trim()
-}
-
+/** The Plan and Default collaboration modes are Codex's own feature, so their
+ *  text is Codex-only. The host facts after them are shared with Claude. */
 export function codexCollaborationInstructions(
   mode: 'default' | 'plan',
   runtime: { model: string; reasoningEffort: string },
   browserToolsAvailable = true,
 ): string {
-  const instructions = mode === 'plan'
-    ? planModeInstructions(browserToolsAvailable)
-    : defaultModeInstructions(browserToolsAvailable)
-  return `${instructions}
-
-<runtime_info>In case you are asked: you are running in Solus through the Codex harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.</runtime_info>`
+  const instructions = mode === 'plan' ? planModeInstructions() : defaultModeInstructions()
+  return `${instructions}\n\n${runtimeInstructions({ harness: 'Codex', ...runtime }, browserToolsAvailable)}`
 }

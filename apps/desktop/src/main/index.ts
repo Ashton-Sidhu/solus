@@ -21,6 +21,7 @@ import type { FileDeps } from '@solus/desktop-main/server/handlers/file-handlers
 import { mintPairUrl } from '@solus/desktop-main/pair-url'
 import { destroyAllFinders } from '@solus/server/server/file-finder'
 import { registerBrowserHeadlessHost } from './browser/headless-window'
+import { registerBrowserRecordingEncoderHost } from './browser/recording-encoder-window'
 import { registerBrowserWebviewHost } from './browser/webview-driver'
 import { preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/server/auth'
@@ -903,6 +904,7 @@ if (isPairUrl) {
     // agent can drive a page, as soon as the browser domain answers.
     registerBrowserWebviewHost()
     registerBrowserHeadlessHost()
+    registerBrowserRecordingEncoderHost()
 
     // Resolve the login-shell PATH off the main thread now, so agent-binary
     // lookup is warm. The Codex app-server itself remains lazy: starting it here

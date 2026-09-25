@@ -2,19 +2,23 @@
   /** Model routing: the models Auto routes a new session's first prompt to, one
    *  per category. Lives under General beside the default model, where Auto is chosen. */
   import { untrack } from "svelte";
-  import { ROUTING_CATEGORIES, ROUTING_LABELS, type RoutingCategory } from "@solus/contracts/model-routing";
+  import { ROUTING_CATEGORIES, ROUTING_LABELS, ROUTING_PROVIDERS, type RoutingCategory } from "@solus/contracts/model-routing";
   import { modelRoutingStore, routingModelsFor } from "./model-routing.store.svelte";
+  import type { PickerSelection } from "../pickers/lib/picker-selection";
+  import SessionChip from "../pickers/SessionChip.svelte";
   import { solusToolsStore } from "./solus-tools.store.svelte";
   import { getWorkspaceContext } from "../../contexts";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
-  import SettingsSelect from "./SettingsSelect.svelte";
   import { Button } from "../ui/button";
 
   let { serverId, visible = true }: { serverId: string; visible?: boolean } = $props();
   const workspace = getWorkspaceContext();
   const state = $derived(modelRoutingStore.states.get(serverId));
   const routingModels = $derived(routingModelsFor(state?.agents ?? []));
+  const routingAgents = $derived(state?.agents.filter((agent) =>
+    ROUTING_PROVIDERS.some((provider) => provider === agent.id) && agent.available !== false,
+  ) ?? []);
   // Jev does the routing, so without a TypeSafe key these choices do nothing.
   const keyMissing = $derived(solusToolsStore.isTypeSafeKeyMissing(serverId));
   $effect(() => {
@@ -28,7 +32,7 @@
 
   const categoryHints = {
     ui: "Layout, styling, and interaction work.",
-    general: "Everything else. Also used when Jev can't classify the prompt.",
+    general: "Everything else, and prompts Jev can't classify.",
     exploration: "Research and investigation with no fixed answer.",
     structured: "Clear requirements and a bounded result.",
   } satisfies Record<RoutingCategory, string>;
@@ -43,7 +47,7 @@
     {#if keyMissing}
       <SettingsRow
         label="TypeSafe key required"
-        description="Model routing is off until this host has a TypeSafe key. Until then, Auto uses the General use model."
+        description="Needs a TypeSafe key. Until then, Auto uses General use."
       >
         {#snippet control()}
           <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => workspace.selectSettingsTab("tools")}>Add key</Button>
@@ -53,17 +57,26 @@
     {#each ROUTING_CATEGORIES as category (category)}
       {@const modelId = config[category]}
       {@const isInstalled = routingModels.some((model) => model.value === modelId)}
+      {@const provider = routingAgents.find((agent) => agent.models.some((model) => model.id === modelId))?.id ?? routingAgents[0]?.id ?? "claude-code"}
+      {@const selection = { provider, modelId, reasoningEffort: "high", fastMode: false } satisfies PickerSelection}
       <SettingsRow
         label={ROUTING_LABELS[category]}
-        description={isInstalled ? categoryHints[category] : "Not offered by an installed provider. Auto uses General use."}
+        description={isInstalled ? categoryHints[category] : "No installed provider offers this. Auto uses General use."}
+        disabled={keyMissing}
       >
         {#snippet control()}
-          <SettingsSelect
-            options={isInstalled ? routingModels : [{ value: modelId, label: modelId }, ...routingModels]}
-            value={modelId}
-            onSelect={(value) => modelRoutingStore.save(serverId, { ...config, [category]: value })}
+          <SessionChip
+            {selection}
+            agents={routingAgents}
+            modelOnly
+            menuSide="bottom"
             ariaLabel={`${ROUTING_LABELS[category]} model`}
+            returnFocusOnClose
+            class="w-full @min-[30rem]/pane:w-56"
             disabled={state.saving || keyMissing || routingModels.length === 0}
+            onSelectionChange={(next) => {
+              if (next.modelId) void modelRoutingStore.save(serverId, { ...config, [category]: next.modelId });
+            }}
           />
         {/snippet}
       </SettingsRow>

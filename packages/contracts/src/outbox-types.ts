@@ -71,8 +71,6 @@ export interface TaskCreateOpPayload {
   title: string
   projectKey: string | null
   body: string
-  kind: 'task' | 'epic'
-  parentId: string | null
   priority: string | null
   labels?: string[]
   dueDate: string | null

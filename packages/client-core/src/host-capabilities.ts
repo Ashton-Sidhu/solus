@@ -4,6 +4,8 @@ import { forwardCompatibleArray } from './forward-compat'
 
 export const HOST_BOOLEAN_CAPABILITY_KEYS = [
   'attachUpload',
+  'attachStreamUpload',
+  'browserRecording',
   'promptImageRefs',
   'assetUrls',
   'skillsInstall',
@@ -28,6 +30,8 @@ const hostCapabilitiesSchema = z.object({
   version: z.string().optional().catch(undefined),
   name: z.string().optional().catch(undefined),
   attachUpload: tolerantBoolean,
+  attachStreamUpload: tolerantBoolean,
+  browserRecording: tolerantBoolean,
   promptImageRefs: tolerantBoolean,
   assetUrls: tolerantBoolean,
   skillsInstall: tolerantBoolean,

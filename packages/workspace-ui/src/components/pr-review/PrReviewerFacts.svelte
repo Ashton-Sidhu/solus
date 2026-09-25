@@ -53,7 +53,7 @@
     /** Absent when the viewer may not touch review requests, which hides the
      *  add control and the per-person menus rather than showing dead ones. */
     onRequest?: (login: string) => void;
-    onRemove?: (login: string) => void;
+    onRemove?: (reviewerId: string, kind?: 'user' | 'team') => void;
     onRetry?: () => void;
   } = $props();
 
@@ -195,6 +195,7 @@
         {mutation}
         onOpenChange={handleMenuOpenChange}
         {onRequest}
+        {onRemove}
       />
     {:else if reviewers.length === 0}
       <span>No one requested yet</span>

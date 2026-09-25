@@ -16,7 +16,7 @@ export type BindingOverrides = Record<string, KeyCombo>
 export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[] }[] = [
   { key: 'global', label: 'Global', scopes: ['global'] },
   { key: 'diff-panel', label: 'Diff Panel', scopes: ['diff-panel'] },
-  { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox'] },
+  { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox', 'browser-pane'] },
   { key: 'editors', label: 'Editors', scopes: ['file-editor', 'files-pane', 'plan-modal', 'document-modal'] },
   { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs'] },
   { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review', 'design-annotation'] },
@@ -32,6 +32,7 @@ export const SCOPE_LABELS = {
   workspace: 'Workspace',
   'attachment-preview': 'Attachment preview',
   'snapshot-lightbox': 'Snapshot lightbox',
+  'browser-pane': 'Browser pane',
   'file-editor': 'File editor',
   'files-pane': 'Files pane',
   'plan-modal': 'Plan modal',

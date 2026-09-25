@@ -2,7 +2,9 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 import { serversStore } from '@solus/workspace-ui/contexts/connections/servers.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { unsupportedOnHost } from '@solus/client-core/host-capabilities'
+import { pickFiles } from '@solus/client-core/file-picker'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
+import { uploadFileObjects } from '@solus/workspace-ui/components/input/lib/attachment-uploads.svelte'
 
 export function createWebAttachments(session: WorkspaceContext) {
   async function attach(sourceId: string | undefined, files?: File[]) {
@@ -22,14 +24,10 @@ export function createWebAttachments(session: WorkspaceContext) {
         toasts.info(unsupportedOnHost('File attachments', hostLabel));
         return;
       }
-      const attachments = files ? await api.uploadFiles(files, ctx) : await api.attachFiles(ctx);
-      if (!attachments) {
-        if (files) toasts.error("Couldn't attach files");
-        return;
-      }
-      for (const attachment of attachments) {
-        if (files || attachment.hostPath) attachment.hostServerId = serverId;
-      }
+      // The shared upload path, so a video streams and its chip shows progress.
+      const picked = files ?? await pickFiles();
+      if (picked.length === 0) return;
+      const attachments = await uploadFileObjects(api, ctx, serverId, picked);
       if (draft) draft.prompt.attachments.push(...attachments);
       else session.addAttachments(attachments, targetId);
     } catch (error) {

@@ -40,8 +40,10 @@ export interface GeneratedGuide {
 export type GenerateGuideOptions = ReviewGuideRequestOptions
 
 /** Where a generation reads/writes and what it diffs. Session and stacked
- * walkthroughs suffix their stable key so distinct bases never coalesce. */
-interface GuideTarget {
+ * walkthroughs suffix their stable key so distinct bases never coalesce.
+ * Review lenses resolve the same way, so a lens and a guide for one target
+ * always read the same change. */
+export interface GuideTarget {
   guideKey: string
   scope: 'working-tree' | 'branch' | 'session' | 'pr'
   target: ReviewTarget
@@ -86,7 +88,7 @@ function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext
 /** Resolve the target before dedupe/progress so concurrent base variants key
  * apart instead of coalescing onto one run. Session fallback keeps its requested
  * key; stacked generation resolves the parent/child merge-base once, up front. */
-async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
+export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
   const sessionId = ctx.session.agentSessionId
   const target = normalizedReviewTarget(opts, sessionId)
   if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
@@ -166,7 +168,7 @@ async function changeSnapshotFor(
   }
 }
 
-async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
+export async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
   const target = await resolveTargetBase(ctx, review, opts)
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   return { ...target, ...await changeSnapshotFor(workTree, review, target) }
@@ -572,7 +574,7 @@ async function finishGuide(workTree: string, review: ReviewContext, target: Guid
   return { key: target.guideKey, guide, persisted: ok }
 }
 
-async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {
+export async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {
   if (target.head) return target.head
   return await getHeadCommit(workTree) ?? review.baseSha
 }
@@ -601,7 +603,7 @@ function fallbackGuide(key: string, headSha: string, baseSha: string, message: s
  *  references in the guide). Parsed from the `diff --git a/… b/…` headers, which
  *  every changed file — tracked, untracked, or renamed — produces exactly one
  *  of. (quotepath is off upstream, so paths are unquoted.) */
-function changedFilesFromPatch(patch: string): string[] {
+export function changedFilesFromPatch(patch: string): string[] {
   const files = new Set<string>()
   for (const line of patch.split('\n')) {
     const m = line.match(/^diff --git a\/(.+) b\/(.+)$/)

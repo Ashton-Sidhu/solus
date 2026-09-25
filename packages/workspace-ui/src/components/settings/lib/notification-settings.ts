@@ -29,12 +29,12 @@ export const DELIVERY_SITUATIONS: DeliverySituationGroup[] = [
   {
     id: 'in_front',
     label: 'While Solus is in front',
-    description: 'A session that is not on screen needs you while the window has focus.',
+    description: 'A session off screen needs you while Solus has focus.',
   },
   {
     id: 'in_background',
     label: 'While Solus is in the background',
-    description: 'The window is hidden, minimized, or another app has focus.',
+    description: 'Solus is hidden, minimized, or behind another app.',
   },
 ]
 
@@ -62,7 +62,7 @@ export const NOTIFICATION_CHANNEL_ROWS: NotificationChannelRow[] = [
     id: 'system',
     situation: 'in_background',
     label: 'System alert',
-    description: 'A desktop or browser notification; a push notification on a device that is away.',
+    description: 'A desktop, browser, or push notification.',
     keywords: ['system', 'native', 'alert', 'push', 'desktop', 'browser', 'os', 'background'],
   },
 ]
@@ -102,7 +102,7 @@ export const SESSION_EVENT_ROWS: NotificationSettingRow<SessionNotificationEvent
   {
     id: 'work_created',
     label: 'Work created',
-    description: 'An agent creates a document, slide deck, diagram, or artifact.',
+    description: 'An agent creates a document, deck, diagram, or artifact.',
     keywords: ['work', 'document', 'artifact', 'diagram', 'slides', 'created'],
   },
   {
@@ -136,7 +136,7 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'update_available',
     label: 'Software updates',
-    description: 'A new Solus release is available, or Solus, Claude Code, or Codex can be updated on a host.',
+    description: 'An update is ready for Solus, Claude Code, or Codex.',
     keywords: ['update', 'upgrade', 'release', 'version', 'restart', 'download', 'solus', 'claude', 'codex'],
   },
   {
@@ -148,13 +148,13 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'teammate_presence',
     label: 'Teammates',
-    description: 'A teammate joins a host you are on, or leaves while you follow them.',
+    description: 'A teammate joins your host, or leaves while you follow them.',
     keywords: ['teammate', 'presence', 'joined', 'left', 'follow', 'people'],
   },
   {
     id: 'share_revoked',
     label: 'Sharing',
-    description: 'Someone removes your access to a shared session, task, or work.',
+    description: 'You lose access to a shared session, task, or work.',
     keywords: ['share', 'sharing', 'access', 'removed', 'revoked'],
   },
 ]

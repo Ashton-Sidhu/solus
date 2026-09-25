@@ -503,7 +503,7 @@
         <ProjectFavicon
           projectRoot={task.projectKey}
           serverId={task.serverId}
-          class="size-4 pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3"
+          class="size-4 pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[&_.lucide-folder]:size-[82%] pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-[82%]"
         />
       </span>
       {@render rowTitle()}
@@ -541,7 +541,7 @@
             <ProjectFavicon
               projectRoot={task.projectKey}
               serverId={task.serverId}
-              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3"
+              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[&_.lucide-folder]:size-[82%] pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span

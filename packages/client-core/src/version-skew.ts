@@ -23,6 +23,8 @@ export interface VersionSkewNotice {
  *  broken. Every capability decides, which is what keeps the record exhaustive. */
 const FEATURE_WORDING = {
   attachUpload: 'file attachments',
+  attachStreamUpload: 'video attachments',
+  browserRecording: 'browser recordings',
   promptImageRefs: null,
   assetUrls: 'artifact previews',
   skillsInstall: 'skills',

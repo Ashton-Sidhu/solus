@@ -225,3 +225,97 @@ describe('opening a saved browser capture', () => {
     await expect(new BrowserStore().openSnapshot('host-a', snapshot)).rejects.toThrow('Host disconnected')
   })
 })
+
+describe('BrowserStore recordings', () => {
+  const finished = {
+    browserPageId: 'page-one', assetId: `${'b'.repeat(64)}.mp4`, hostPath: '/host/recording.mp4',
+    url: 'http://localhost:1/', title: 'page-one', viewport: 'Desktop — 1280×800',
+    durationMs: 300_000, sizeBytes: 1_000, stoppedBy: 'duration-limit' as const, capturedAt: 1,
+  }
+  const recordingPage = (startedBy: 'user' | 'agent' = 'user'): BrowserPage => ({
+    ...page('page-one', 1),
+    recording: { startedAt: 1, startedBy },
+  })
+
+  function recordingHost() {
+    const stops: string[] = []
+    connections.registerPrimary('host-a', {
+      browserRecordingStart: async () => ({ startedAt: 1, startedBy: 'user' }),
+      browserRecordingStop: async ({ browserPageId }: { browserPageId: string }) => {
+        stops.push(browserPageId)
+        return { recording: finished }
+      },
+    })
+    const store = new BrowserStore()
+    const saved: string[] = []
+    store.onRecordingSaved = (_serverId, result) => saved.push(result.recording.assetId)
+    const unsubscribe = store.subscribe()
+    return { store, stops, saved, unsubscribe }
+  }
+
+  test('collects a recording this client started when a limit ends it', async () => {
+    const { store, stops, saved, unsubscribe } = recordingHost()
+    await store.startRecording('host-a', 'page-one')
+    connections.emit('host-a', 'browser.pageChanged', { page: recordingPage() })
+    connections.emit('host-a', 'browser.pageChanged', { page: page('page-one', 1) })
+    connections.emit('host-a', 'browser.pageChanged', { page: page('page-one', 1) })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // WHY: the host keeps a limit-ended recording until one stop asks for it.
+    // The user who pressed Record must still get it, and only once.
+    expect(stops).toEqual(['page-one'])
+    expect(saved).toEqual([finished.assetId])
+    unsubscribe()
+  })
+
+  test('a stop the user asked for does not start a second stop', async () => {
+    const { store, stops, saved, unsubscribe } = recordingHost()
+    await store.startRecording('host-a', 'page-one')
+    connections.emit('host-a', 'browser.pageChanged', { page: recordingPage() })
+    const stopping = store.stopRecording('host-a', 'page-one')
+    // The host clears `recording` before it answers the stop.
+    connections.emit('host-a', 'browser.pageChanged', { page: page('page-one', 1) })
+    await stopping
+
+    expect(stops).toEqual(['page-one'])
+    expect(saved).toEqual([finished.assetId])
+    expect(store.recordingRequest(store.keyOf('host-a', 'page-one'))).toBeNull()
+    unsubscribe()
+  })
+
+  test('leaves a recording another client or an agent started to its owner', async () => {
+    const { stops, unsubscribe } = recordingHost()
+    connections.emit('host-a', 'browser.pageChanged', { page: recordingPage('agent') })
+    connections.emit('host-a', 'browser.pageChanged', { page: page('page-one', 1) })
+    await Promise.resolve()
+
+    // WHY: a second client asking for the file would take it from the one
+    // that started the recording.
+    expect(stops).toEqual([])
+    unsubscribe()
+  })
+
+  test('collects the recording when its page closes', async () => {
+    const { store, stops, saved, unsubscribe } = recordingHost()
+    await store.startRecording('host-a', 'page-one')
+    connections.emit('host-a', 'browser.pageChanged', { page: recordingPage() })
+    connections.emit('host-a', 'browser.pageClosed', { browserPageId: 'page-one' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(stops).toEqual(['page-one'])
+    expect(saved).toEqual([finished.assetId])
+    unsubscribe()
+  })
+
+  test('keeps a failed start visible on the page', async () => {
+    connections.registerPrimary('host-a', {
+      browserRecordingStart: async () => { throw new Error('Install the browser runtime') },
+    })
+    const store = new BrowserStore()
+    await expect(store.startRecording('host-a', 'page-one')).rejects.toThrow('Install the browser runtime')
+    expect(store.recordingErrors.get(store.keyOf('host-a', 'page-one'))).toBe('Install the browser runtime')
+    expect(store.recordingRequest(store.keyOf('host-a', 'page-one'))).toBeNull()
+  })
+})

@@ -7,7 +7,7 @@ import { type RepoRef } from '@solus/contracts/providers'
 import { type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
-import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
+import { findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
 import { resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
@@ -15,6 +15,7 @@ import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { type PlanStore } from '../plans/plan.store.svelte'
 import { WorksStore } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
+import { WatchesStore } from '../watches/watches.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
@@ -189,6 +190,7 @@ export class WorkspaceContext implements SurfaceContext {
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
+  watchesStore = new WatchesStore()
   tasksStore = new TasksStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
@@ -361,6 +363,7 @@ export class WorkspaceContext implements SurfaceContext {
     })
     this.promptComposer = new PromptComposer(this.planStore, this.worksStore, this.tasksStore)
     this.ipcContextBuilder = new IpcContextBuilder({
+      checkoutForRun: (run) => this.environment.environmentFor(run).checkout,
       sessionFor: (tabId) => this.sessionFor(tabId),
       runFor: (sourceId) => this.runFor(sourceId),
       hasDraft: (sourceId) => this.drafts.sessionDrafts.has(sourceId),
@@ -1263,18 +1266,6 @@ export class WorkspaceContext implements SurfaceContext {
     if (this.splitChatTabId === tabId) this.closeSplitPane()
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
-    const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
-    const openTabIds = this.tabOrder.filter((id) => this.tabs[id])
-    const displayedTabIds = openTabIds.filter(
-      (id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey,
-    )
-    const visualTabIds = buildTabSections(
-      displayedTabIds,
-      this.config.tabGroupMode,
-      (id) => this.resolveTab(id),
-      this.planStore.plans,
-    ).flatMap((section) => section.tabIds)
-    const adjacentDisplayedTabId = adjacentTabAfterClose(visualTabIds, tabId)
     const closedTabIndex = this.tabOrder.indexOf(tabId)
     const newOrder = this.tabOrder.filter((id) => id !== tabId)
     this.onTabClosing?.(tabId)
@@ -1296,16 +1287,12 @@ export class WorkspaceContext implements SurfaceContext {
       serverConnections.release(serverId)
     }
 
+    // Which conversation comes next is the sidebar's call
+    // (`SessionSidebarStore.closeTabs`); this only keeps the active id valid
+    // until the caller selects it.
     if (this.activeTabId === tabId) {
-      if (newOrder.length === 0) {
-        this.activeTabId = ''
-      } else {
-        // Follow the order the strip actually displayed. In wide layouts this
-        // keeps navigation within the visible branch; if it was the branch's
-        // final tab, fall back to the adjacent tab in the underlying order.
-        const fallbackTabId = adjacentTabAfterClose(this.tabOrder, tabId) ?? newOrder[0]
-        this.setActiveTab(adjacentDisplayedTabId ?? fallbackTabId)
-      }
+      if (newOrder.length === 0) this.activeTabId = ''
+      else this.setActiveTab(newOrder[0])
     }
     // Preserve the reactive array identity so closing one tab only invalidates the
     // removed index instead of rebuilding every tab-strip item.
@@ -1560,16 +1547,15 @@ export class WorkspaceContext implements SurfaceContext {
    *  block itself is ephemeral, so this is the one way it acquires identity.
    *  `sourceTabId` names the conversation it was read in; without one the work
    *  files against the active session, the way a hand-authored work does. */
-  async createArtifact(html: string, sourceTabId?: string): Promise<{ workId: string; title: string } | null> {
+  async createArtifact(html: string, sourceTabId?: string, title?: string): Promise<{ workId: string; title: string } | null> {
     const sessionRun = this.sessionFor(sourceTabId ?? this.activeTabId)?.run
     const run = sessionRun ?? this.defaultRunConfig
     const provider: AgentId = sessionRun?.provider ?? 'claude-code'
     const api = this.apiForRun(run)
     const serverId = this.serverIdForRun(run)
-    const title = resolveArtifactTitle(undefined, html)
     try {
       const work = await api.createWork(
-        title,
+        resolveArtifactTitle(title, html),
         'artifact',
         html,
         workPreview('artifact', html),

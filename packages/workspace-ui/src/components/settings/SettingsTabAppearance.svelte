@@ -204,7 +204,7 @@
 
   <SettingsRow
     label="Prompt font"
-    description="Only the box you write prompts in. Mono works well here."
+    description="The prompt box only. Mono works well."
     visible={showAdvanced && (isVisible("prompt-font-family") || isVisible("prompt-font-size"))}
   >
     {#snippet control()}
@@ -255,7 +255,7 @@
 
   <SettingsRow
     label="Code font"
-    description="Monospace typeface used in diffs and code blocks."
+    description="Diffs and code blocks."
     visible={isVisible("code-font-family") || isVisible("code-font-size")}
   >
     {#snippet control()}
@@ -283,7 +283,7 @@
        inert anywhere else. -->
   <SettingsRow
     label="Font smoothing"
-    description="Use thinner grayscale text smoothing instead of the macOS default."
+    description="Thinner grayscale smoothing than the macOS default."
     visible={showAdvanced && IS_MAC_OS && isVisible("font-smoothing")}
   >
     {#snippet control()}

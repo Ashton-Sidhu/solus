@@ -688,6 +688,7 @@ export class SessionEventReducer {
           message.via = event.via
           message.automationId = event.automationId
           message.automationName = event.automationName
+          if (event.watchId) message.watchId = event.watchId
         }
         // The host names the author; the bubble shows it when it is someone else.
         if (event.author) message.author = event.author
@@ -851,6 +852,13 @@ export class SessionEventReducer {
         break
       }
 
+      case 'watch_saved': {
+        const watchRef: NonNullable<Message['watchRef']> = { watchId: event.watchId, reason: event.reason }
+        if (event.command) watchRef.command = event.command
+        session.messages.push({ id: nextMsgId(), role: 'assistant', content: '', watchRef, timestamp: Date.now() })
+        break
+      }
+
       case 'task_created': {
         session.messages.push({
           id: nextMsgId(),
@@ -875,6 +883,19 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           browserSnapshot: event.snapshot,
+          timestamp: Date.now(),
+        })
+        break
+      }
+
+      case 'browser_recording_captured': {
+        // The same rule as a capture: the user sees the recording when it
+        // stops, whatever the agent writes afterwards.
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          browserRecording: event.recording,
           timestamp: Date.now(),
         })
         break
@@ -1138,6 +1159,7 @@ export class SessionEventReducer {
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
+      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
       ? '\n\n'
       : ''
@@ -1148,6 +1170,7 @@ export class SessionEventReducer {
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
+      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
     ) {
       lastMessage.content += nextText

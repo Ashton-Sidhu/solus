@@ -58,6 +58,7 @@ export const RPC_PLANES = {
   attachFiles: 'execution',
   attachFilePaths: 'execution',
   attachUpload: 'execution',
+  attachUploadToken: 'execution',
   assetUpload: 'execution',
   assetCreateUrl: 'execution',
   assetFindUrl: 'execution',
@@ -141,6 +142,7 @@ export const RPC_PLANES = {
   worktreeBranches: 'execution',
   worktreeRestore: 'execution',
   continueInWorktree: 'execution',
+  checkoutSnapshot: 'execution',
   gitRefreshState: 'execution',
   gitIdentity: 'execution',
   gitRegisterEnvironment: 'execution',
@@ -318,6 +320,7 @@ export const RPC_PLANES = {
 
   // PR records
   prList: 'collaboration',
+  prListProjects: 'collaboration',
   prNeedsReview: 'collaboration',
   prGuideMetadata: 'collaboration',
   // Reading a pull request asks its code host alone, so the workspace service
@@ -368,6 +371,16 @@ export const RPC_PLANES = {
   readGuide: 'execution',
   readReviewState: 'execution',
   writeReviewState: 'execution',
+
+  // Review lens (checkout-bound, like the guide; posting reaches the code host)
+  readReviewLens: 'execution',
+  requestReviewLens: 'execution',
+  editReviewLens: 'execution',
+  cancelReviewLens: 'execution',
+  restoreReviewLens: 'execution',
+  updateReviewLensComments: 'execution',
+  postReviewLensComment: 'collaboration',
+  retractReviewLensComment: 'collaboration',
 
   // Tasks
   tasksProviderStatus: 'collaboration',
@@ -421,6 +434,12 @@ export const RPC_PLANES = {
   automationListRuns: 'collaboration',
   automationReadRun: 'collaboration',
 
+  // Watches: the probe and the session it wakes are on one machine
+  watchList: 'execution',
+  watchPause: 'execution',
+  watchResume: 'execution',
+  watchCancel: 'execution',
+
   // PR checks
   prChecks: 'collaboration',
   prChecksActivity: 'collaboration',
@@ -447,6 +466,8 @@ export const RPC_PLANES = {
   browserSubscribeFrames: 'execution',
   browserUnsubscribeFrames: 'execution',
   browserCaptureEvidence: 'execution',
+  browserRecordingStart: 'execution',
+  browserRecordingStop: 'execution',
   browserEvidenceOptions: 'execution',
   browserOpenDevTools: 'execution',
   browserSetAnnotationTool: 'execution',

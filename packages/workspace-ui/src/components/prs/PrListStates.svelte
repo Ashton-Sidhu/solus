@@ -11,10 +11,8 @@
   import type { PrInboxFailure } from "./lib/pr-inbox-failure";
   import type { PrSurfaceError } from "./lib/pr-surface-error";
 
-  /** Everything the list area says instead of, or above, its rows: no project,
-   *  a GitHub connection to make, a folder with no remote, a failed read, and
-   *  an empty repository. Across every project a failure keeps the rows that
-   *  did load, so it rides as a banner over them. */
+  /** Empty and failed states for the list. Partial failures keep their rows
+   *  visible and notify through a toast from the page. */
   interface Props {
     /** Every project is in view, rather than one. */
     allProjects: boolean;
@@ -50,31 +48,6 @@
   </Button>
 {/snippet}
 
-{#if projectsFailure.placement === "banner"}
-  <!-- Partial failure: the rows that did load stay, and this line carries the
-       part that didn't. -->
-  <div class="px-3 pt-3">
-    <div
-      class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-workspace-chrome"
-      role="alert"
-    >
-      {#if projectsFailure.kind === "github-auth"}
-        <GithubConnectionRequired serverId={projectsFailure.serverId} />
-      {:else if projectsFailure.kind === "generic"}
-        <span class="min-w-0 flex-1 truncate">{projectsFailure.summary}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
-          onclick={onRetry}
-        >
-          <ArrowsClockwiseIcon size={12} class="shrink-0" />
-          Retry
-        </Button>
-      {/if}
-    </div>
-  </div>
-{/if}
 {#if !allProjects && !hasScope}
   <PageEmpty icon={GitPullRequestIcon} title="Open a project to see its pull requests.">
     The project in the input bar sets this list.

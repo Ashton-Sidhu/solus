@@ -112,6 +112,27 @@ describe('turn collapse', () => {
     ).toBe('Claude Code')
   })
 
+  test('keeps task cards outside turn activity, including between work and the answer', () => {
+    const task = msg({
+      role: 'assistant',
+      taskRef: { taskId: 'task-1', title: 'Track the fix', url: null },
+    })
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'Create a task' }),
+      tool('create_task', '{"title":"Track the fix"}'),
+      task,
+      msg({ role: 'assistant', content: 'Task created.' }),
+    ])
+
+    // The card gets its own row and cannot be hidden by either activity fold.
+    expect(turns.map((turn) => turn.lead?.kind ?? null)).toEqual(['user', 'task', null])
+    expect(turns[0].body.map((item) => item.kind)).toEqual(['tool-group'])
+    expect(turns[1].body).toHaveLength(0)
+    expect(turns[1].tail).toHaveLength(0)
+    expect(turns[2].tail.map((item) => item.kind)).toEqual(['assistant'])
+    expect(turns.flatMap((turn) => [...turn.body, ...turn.tail])).not.toContainEqual({ kind: 'task', message: task })
+  })
+
   test('the live row only appears when nothing else is reporting the run', () => {
     const prompt = msg({ role: 'user', content: 'rewrite the call sites' })
 
@@ -146,6 +167,22 @@ describe('turn collapse', () => {
     // away, a tail with no row makes the session look finished.
     const narration = msg({ role: 'assistant', content: 'One report is in.' })
     expect(needsLiveRow(turnsFor([prompt, agent, narration], true)[0])).toBe(true)
+  })
+
+  test('a backgrounded sub-agent card stays on screen until the agent reports', () => {
+    const prompt = msg({ role: 'user', content: 'build the video player' })
+    const running = { ...tool('Agent', '{"description":"Client video UI"}', false), subMessages: [] }
+    const narration = msg({ role: 'assistant', content: 'The subagents are still running.' })
+
+    // WHY: the turn ends while the agent works in the background. Its card is
+    // what the session waits on, so folding it hides the only live progress.
+    const [waiting] = turnsFor([prompt, running, narration])
+    expect(waiting.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['subagent-group'])
+
+    // Once the agent reports, the card is a step like any other and folds away.
+    const done = { ...running, toolStatus: 'completed' as const, toolCompletedAt: running.timestamp + 500 }
+    const [settled] = turnsFor([prompt, done, narration])
+    expect(settled.visibleWhenCollapsed).toHaveLength(0)
   })
 
   test('a turn that only answered has no row to collapse into', () => {

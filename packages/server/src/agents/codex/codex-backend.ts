@@ -5,6 +5,7 @@ import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import type { TurnSeat } from '../../seats/seat-manager'
 import { encodePathAsFolder } from '../utils'
+import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { loadAllAnnotations } from '../../plans/annotations'
@@ -53,6 +54,7 @@ import {
   normalizeThreadGoal,
 } from './codex-event-normalizer'
 import { codexCollaborationInstructions } from './codex-collaboration-instructions'
+import { hasBrowserTools } from '../runtime-instructions'
 import type {
   CodexThreadGoalClearResponse,
   CodexThreadGoalResponse,
@@ -99,6 +101,7 @@ import {
   type CodexThreadSummary,
   type CodexTurnHistory,
   type ScannedCodexPlan,
+  codexBackgroundCommandWake,
 } from './codex-utils'
 import { adaptCodexTools, bareAgentToolName, CodexToolDispatcher } from './codex-tool-adapter'
 import { z } from 'zod'
@@ -227,6 +230,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /** Maps Codex turn/item IDs → sessionId for event routing. */
   private sessionByTurn = new Map<string, string>()
   private sessionByItem = new Map<string, string>()
+  /** Command items still running on a root thread, by item id. A command that
+   *  outlives its turn completes after the run's routing is gone; this is how
+   *  its completion still finds the session to wake. */
+  private readonly runningCommandThreads = new Map<string, string>()
   private sessionByChildThread = new Map<string, string>()
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
@@ -486,7 +493,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const isPlanMode = request.permissionMode === 'plan' && !request.unattended
       const collaborationMode = isPlanMode ? 'plan' : 'default'
       const collaborationReasoningEffort = isPlanMode ? 'medium' : reasoningEffort
-      const browserToolsAvailable = request.tools.some((tool) => tool.name === 'browser_status')
+      const browserToolsAvailable = hasBrowserTools(request.tools)
       const input = await this.buildTurnInput(request.prompt, request.cwd, request.imageAttachments)
       const turnParams: CodexTurnStartParams = {
         threadId,
@@ -772,7 +779,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const lastTimestamp = activityTimestamp
       ? new Date(activityTimestamp).toISOString()
       : toIsoTimestamp(thread.updatedAt ?? thread.createdAt)
-    const preview = thread.preview?.trim() || null
+    const preview = stripAttachedFileLines(thread.preview ?? '').trim() || null
     const name = thread.name?.trim() || preview
     return {
       provider: 'codex',
@@ -976,6 +983,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       return
     }
 
+    if (this.completesBackgroundCommand(msg.method, params)) return
+
     if (!sessionId && msg.method === 'error' && this.activeRuns.size === 1) {
       sessionId = this.activeRuns.keys().next().value || null
     }
@@ -987,6 +996,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle = this.activeRuns.get(sessionId)
     this.rememberSessionRouting(params, sessionId)
+    if (msg.method === 'item/started' && params?.item?.type === 'commandExecution' && optionalString(params?.threadId) === sessionId) {
+      this.runningCommandThreads.set(params.item.id, sessionId)
+    }
 
     if (msg.method === 'thread/started') return
 
@@ -1290,6 +1302,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.clearFileChangesForTurn(turnId)
     this.permissions.clearPendingForSession(sessionId)
     this.emit('exit', sessionId, exitCode, exitSignal)
+  }
+
+  /**
+   * A command the agent started in the background can finish after its turn
+   * has ended. Codex reports it on the settled turn, which no run owns any
+   * more; wake the session with the result instead of dropping it
+   * (docs/plans/watches.md §7). A command that finishes during a turn goes
+   * through the normal path.
+   */
+  private completesBackgroundCommand(method: string, params: any): boolean {
+    if (method !== 'item/completed' || params?.item?.type !== 'commandExecution') return false
+    const threadId = this.runningCommandThreads.get(params.item.id)
+    this.runningCommandThreads.delete(params.item.id)
+    if (!threadId || this.activeRuns.has(threadId)) return false
+    this.emit('background-command-completed', threadId, codexBackgroundCommandWake(params.item))
+    return true
   }
 
   private sessionIdFor(params: any): string | null {

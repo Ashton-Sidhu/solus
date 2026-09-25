@@ -3,7 +3,7 @@
  * If it isn't exported here, it's an internal organ — import it only from within its folder.
  */
 
-/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/router. */
+/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/watchesStore/router. */
 export { getWorkspaceContext, setWorkspaceContext } from './workspace/workspace.context.svelte'
 
 /** Every session this client holds, by id — with or without a tab showing it. */

@@ -53,6 +53,45 @@ const CSP_META =
   `connect-src https:; ` +
   `media-src data: blob: https:">`;
 
+// Strict CSP for HTML that someone other than the user can influence. A review
+// lens is authored by an agent that read a pull request, and a pull request can
+// carry instructions from anyone. No network at all: the render cannot send
+// the diff it describes anywhere. A later <meta> CSP in the render can only
+// narrow this, never widen it. What stays open: the frame can still navigate
+// itself, which no CSP directive closes (docs/plans/review-lenses.md).
+const ISOLATED_CSP_META =
+  `<meta http-equiv="Content-Security-Policy" content="` +
+  `default-src 'none'; ` +
+  `script-src 'unsafe-inline'; ` +
+  `style-src 'unsafe-inline'; ` +
+  `img-src data: blob:; ` +
+  `font-src data:; ` +
+  `media-src data: blob:; ` +
+  `connect-src 'none'; ` +
+  `form-action 'none'; ` +
+  `base-uri 'none'">`;
+
+// Answers "what is under this point?" for the lens comment pin: the nearest
+// element that names a place in the change, and its text for the quote. The
+// render can forge the answer, so the host treats it as untrusted text and
+// checks the path and line against the diff before it drafts anything.
+const ANCHOR_RESPONDER = `<script>(function(){
+  window.addEventListener("message", function(event){
+    var data = event.data;
+    if (event.source !== parent || !data || data.type !== "solus-lens-anchor-query") return;
+    var el = document.elementFromPoint(data.x, data.y);
+    var anchor = el && el.closest ? el.closest("[data-solus-file]") : null;
+    var target = anchor || el;
+    var text = target ? String(target.innerText || target.textContent || "").trim().slice(0, 280) : "";
+    var line = anchor ? parseInt(anchor.getAttribute("data-solus-line") || "", 10) : NaN;
+    parent.postMessage({
+      type: "solus-lens-anchor", id: data.id, text: text,
+      path: anchor ? anchor.getAttribute("data-solus-file") : null,
+      line: isNaN(line) ? null : line
+    }, "*");
+  });
+})();</script>`;
+
 // Reports CONTENT height (document.body, not the viewport) so the host can grow
 // the frame to fit without the documentElement.scrollHeight feedback loop.
 const RESIZE_REPORTER = `<script>(function(){
@@ -127,7 +166,10 @@ export function buildSandboxThemeStyle(isDark: boolean): string {
 }
 
 /** Wrap inner HTML into a full sandbox srcdoc (charset + CSP + theme + resize
- *  reporter). The reporter posts `{ type: "solus-artifact-height", h }`. */
-export function wrapSandboxSrcdoc(inner: string, isDark: boolean): string {
-  return `<meta charset="utf-8">${CSP_META}${buildSandboxThemeStyle(isDark)}${RESIZE_REPORTER}${inner}`;
+ *  reporter). The reporter posts `{ type: "solus-artifact-height", h }`.
+ *  `isolated` swaps in the no-network CSP and adds the lens anchor responder. */
+export function wrapSandboxSrcdoc(inner: string, isDark: boolean, isolated = false): string {
+  const csp = isolated ? ISOLATED_CSP_META : CSP_META;
+  const responder = isolated ? ANCHOR_RESPONDER : "";
+  return `<meta charset="utf-8">${csp}${buildSandboxThemeStyle(isDark)}${RESIZE_REPORTER}${responder}${inner}`;
 }

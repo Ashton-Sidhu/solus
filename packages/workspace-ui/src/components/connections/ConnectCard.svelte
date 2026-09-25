@@ -13,7 +13,6 @@
    */
   import { localApi } from "@solus/client-core/local-api";
   import Icon from "@iconify/svelte";
-  import { X as XIcon } from "@lucide/svelte";
   import {
     atlassianStore,
     cloudflareStore,
@@ -104,31 +103,27 @@
           <TranscriptCardAction kind="ghost" onclick={dismiss}>Done</TranscriptCardAction>
           <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
         {:else}
-          <TranscriptCardAction kind="icon" label="Dismiss" onclick={dismiss}>
-            <XIcon size={13} />
-          </TranscriptCardAction>
+          <div class="flex flex-wrap items-end justify-end gap-2">
+            <TranscriptCardAction kind="ghost" onclick={dismiss}>Not now</TranscriptCardAction>
+            {#if serverId}
+              {#if request.accountConnectionsUrl}
+                <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>
+                  Open account connections
+                </TranscriptCardAction>
+                <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
+              {:else if request.provider === "cloudflare"}
+                <div class="min-w-0 flex-1"><CloudflareConnectForm {serverId} autofocus /></div>
+              {:else if request.provider === "atlassian"}
+                <AtlassianConnectForm {serverId} />
+              {:else if request.provider === "github"}
+                <GitHubConnectForm {serverId} />
+              {/if}
+            {/if}
+          </div>
         {/if}
       {/snippet}
 
       <p class="m-0 text-(--muted-foreground)">{copy.purpose}</p>
-
-      <div class="flex flex-wrap items-start gap-2">
-        {#if serverId}
-          {#if request.accountConnectionsUrl}
-            <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>
-              Open account connections
-            </TranscriptCardAction>
-            <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
-          {:else if request.provider === "cloudflare"}
-            <div class="min-w-0 flex-1"><CloudflareConnectForm {serverId} autofocus /></div>
-          {:else if request.provider === "atlassian"}
-            <AtlassianConnectForm {serverId} />
-          {:else if request.provider === "github"}
-            <GitHubConnectForm {serverId} />
-          {/if}
-        {/if}
-        <TranscriptCardAction kind="ghost" onclick={dismiss}>Not now</TranscriptCardAction>
-      </div>
 
       {#if request.accountConnectionsUrl}
         <p class="m-0 text-xs text-(--muted-foreground)">Connect your account, then return here and continue.</p>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
@@ -15,6 +15,7 @@
   }: RouteSurfaceProps<"chat"> = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
 
   // A pinned chat names the session it shows; the tab rendering that session is
   // the workspace's answer, not the route's — the one place that hop happens.
@@ -44,10 +45,10 @@
   }
 
   // The X takes the whole surface away: the conversation's tab and the pane
-  // showing it. `closeTab` drops the pane too when the workspace can match the
-  // two up, but this pane is the thing the user clicked — it goes either way.
+  // showing it. Closing the tab drops the pane too when the workspace can match
+  // the two up, but this pane is the thing the user clicked — it goes either way.
   function closeConversationTab(conversationTabId: string) {
-    session.closeTab(conversationTabId);
+    sidebarStore.closeTabs([conversationTabId]);
     session.router.closePane(paneId);
     requestInputFocus();
   }

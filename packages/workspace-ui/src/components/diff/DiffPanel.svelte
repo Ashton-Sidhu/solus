@@ -120,6 +120,7 @@
     viewTabs,
     mapView,
     guideView,
+    lensView,
     initialSkeletonVisible = false,
     onToggleMaximize = null,
     maximized = false,
@@ -192,6 +193,8 @@
      *  same change without a second parse of the same patch. */
     mapView?: Snippet<[FileDiffMetadata[]]>;
     guideView?: Snippet<[FileDiffMetadata[]]>;
+    /** The lens, which reads its change on the host rather than this patch. */
+    lensView?: Snippet;
     /** Keep an already-visible route skeleton continuous while this panel
      *  takes ownership of loading. Direct mounts still use the delayed state
      *  below so a cached diff does not flash a placeholder. */
@@ -338,9 +341,11 @@
   // and the map's drill state — all survive switching tabs.
   let hasMountedMap = $state(untrack(() => view === "map"));
   let hasMountedGuide = $state(untrack(() => view === "guide"));
+  let hasMountedLens = $state(untrack(() => view === "lens"));
   $effect(() => {
     if (view === "map") hasMountedMap = true;
     else if (view === "guide") hasMountedGuide = true;
+    else if (view === "lens") hasMountedLens = true;
   });
 
   /** Every file- or line-targeted navigation lands in the diff view. */
@@ -1225,10 +1230,18 @@
       {@render guideView?.(treeFiles)}
     </div>
   {/if}
+  {#if hasMountedLens}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={view !== "lens"}
+    >
+      {@render lensView?.()}
+    </div>
+  {/if}
 
   <div
     class="flex min-h-0 flex-1 flex-col"
-    class:panel-view-hidden={view === "guide"}
+    class:panel-view-hidden={view === "guide" || view === "lens"}
   >
   {#if showLoading}
     <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} {stacked} />
@@ -1352,8 +1365,9 @@
     <!-- One footer for every view: a comment written on a guide's diff card and
          one written in the stream are the same comment, and this is what sends
          them. Feedback targets lines you are reading, and the map has none, so
-         the bar hides there — display:none keeps the typed draft alive. -->
-    <div class="contents" class:panel-view-hidden={view === "map"}>
+         the bar hides there — display:none keeps the typed draft alive. The
+         lens has its own edit bar, so the footer hides there too. -->
+    <div class="contents" class:panel-view-hidden={view === "map" || view === "lens"}>
       <DiffActionBar
         {tabId}
         pendingInlineDraft={pendingFormHasContent}

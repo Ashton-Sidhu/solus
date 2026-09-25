@@ -7,7 +7,7 @@ import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { environmentProjectKey } from '../git/session-environment.store.svelte'
-import { newTaskId, ownedTaskId, parentTaskId } from './session-draft.svelte'
+import { newTaskId, ownedTaskId } from './session-draft.svelte'
 import { isDispatch } from './run-config'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
@@ -79,7 +79,7 @@ export class PromptDispatch {
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
     const sentAt = Date.now()
-    const branch = session.run.gitContext?.branch ?? 'detached'
+    const branch = this.workspace.environment.environmentFor(session.run).branch ?? 'detached'
     const reviewAgent = resolveReviewAgent(this.workspace.settings)
     const reviewGuideRef = {
       target: request.target,
@@ -155,7 +155,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -273,7 +273,7 @@ export class PromptDispatch {
    * off for the send so an unavailable task host cannot create an unrelated
    * duplicate on the execution host.
    */
-  private async resolveTaskOnItsHost<T extends { prompt: string; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; taskSnapshot?: TaskSnapshot }>(
+  private async resolveTaskOnItsHost<T extends { prompt: string; displayPrompt?: string; taskId?: string; skipTaskCreation?: boolean; taskSnapshot?: TaskSnapshot }>(
     tabId: string,
     options: T,
   ): Promise<T> {
@@ -290,12 +290,13 @@ export class PromptDispatch {
     try {
       const { task, snapshot } = await this.workspace.tasksStore.prepareForSession(session.run.taskServerId, {
         existingTaskId: options.taskId ?? null,
-        parentTaskId: options.taskId ? null : options.parentTaskId ?? null,
         // The id this session's row already carries, so the task arrives as
         // the same row rather than a new one.
         taskId: options.taskId ? null : newTaskId(session.task),
         projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
-        prompt: options.prompt,
+        // The typed text names the task. The composed prompt starts with
+        // `[Attached file: …]` lines and context the user never wrote.
+        prompt: options.displayPrompt ?? options.prompt,
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
@@ -325,7 +326,6 @@ export class PromptDispatch {
       const prepared: typeof options = {
         ...options,
         taskId: task.id,
-        parentTaskId: undefined,
         skipTaskCreation: true,
       }
       if (preparedSnapshot) prepared.taskSnapshot = preparedSnapshot
@@ -539,8 +539,6 @@ export class PromptDispatch {
       imageAttachments: imagePayload.inline,
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
-      // An existing task and a request to create a child are mutually exclusive.
-      parentTaskId: promptTaskId ? undefined : parentTaskId(session.task) ?? undefined,
       skipTaskCreation: session.task.kind === 'none' || undefined,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })

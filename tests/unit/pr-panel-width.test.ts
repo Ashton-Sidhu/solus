@@ -9,10 +9,9 @@ import {
 } from '@solus/workspace-ui/components/prs/lib/pr-panel-width'
 
 describe('pull request panel width', () => {
-  test('opens wider than the list until the reader chooses a width', () => {
-    // WHY: the review is what is being read; the list beside it is only the
-    // queue, so the panel starts with the larger share.
-    expect(prPanelWidth(null, 1400)).toBe(840)
+  test('leaves half the page for the PR rows until the reader chooses a width', () => {
+    // WHY: the list must stay wide enough to scan titles when a review opens.
+    expect(prPanelWidth(null, 1400)).toBe(700)
     expect(prPanelWidth(520, 1400)).toBe(520)
   })
 

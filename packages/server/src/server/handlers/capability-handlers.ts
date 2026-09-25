@@ -2,6 +2,7 @@ import type { EditorId, HostCapabilities } from '@solus/contracts/types'
 import { hostDisplayName } from '../../platform/host-display-name'
 import { appVersion } from '../../platform/paths'
 import { INTERNAL_HANDLER_CTX, type SolusServer } from '../server'
+import { browserRecordingEncoderHost } from '../../browser/surface-driver'
 
 /** Advertise only handlers this host actually registered. The editor probe is
  * cached because it can search the host PATH and capabilities are otherwise a
@@ -25,6 +26,7 @@ export function registerCapabilityHandlers(server: SolusServer): void {
       // derive at pairing time; this is the host correcting that record.
       name: hostDisplayName(),
       attachUpload: server.hasHandler('attachUpload'),
+      attachStreamUpload: server.hasHandler('attachUploadToken'),
       // Not a handler: this build reads image refs off a prompt. An older host
       // omits the field, and its clients keep sending the bytes inline.
       promptImageRefs: server.hasHandler('attachUpload'),
@@ -36,6 +38,9 @@ export function registerCapabilityHandlers(server: SolusServer): void {
       automations: server.hasHandler('automationList'),
       githubProvider: server.hasHandler('providerStatus'),
       browser: server.hasHandler('browserListPages'),
+      // An encoder host exists only where a Chromium can record. Whether it
+      // records H.264 is known when the encoder page opens, and says so there.
+      browserRecording: server.hasHandler('browserRecordingStart') && browserRecordingEncoderHost() !== null,
       hostUpdates: server.hasHandler('hostUpdateStatus'),
       atlassianProvider: server.hasHandler('atlassianStatus'),
     }

@@ -23,6 +23,26 @@ function statusBar(
 }
 
 describe('IPC context', () => {
+  test('outbound prompts use current checkout identity and honor removal', () => {
+    const run = {
+      workingDirectory: '/repo/tree',
+      gitContext: { repoRoot: '/repo', worktreePath: '/repo/tree', branch: 'temporary', targetBranch: 'main' },
+      worktree: null, permissionMode: 'auto', provider: 'codex', serverId: 'host',
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+    }
+    const current = { ...run.gitContext, branch: 'renamed' }
+    const deps = {
+      sessionFor: () => undefined, runFor: () => run, hasDraft: () => false,
+      defaultRunConfig: () => run,
+      checkoutForRun: () => current,
+    } as unknown as IpcContextBuilderDeps
+    const builder = new IpcContextBuilder(deps)
+    expect(builder.sessionCtx('draft').gitContext?.branch).toBe('renamed')
+    deps.checkoutForRun = () => null
+    expect(builder.sessionCtx('draft').gitContext).toBeNull()
+    expect(run.gitContext.branch).toBe('temporary')
+  })
+
   test('marks a cross-host run as dispatched in SessionCtx', () => {
     const run = {
       workingDirectory: '/remote/repo',

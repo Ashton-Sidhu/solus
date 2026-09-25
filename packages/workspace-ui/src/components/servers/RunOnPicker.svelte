@@ -288,6 +288,7 @@
     data-menu-current={isSelectedHost ? "" : undefined}
     disabled={!canRunOnHost(server.uplink)}
     onSelect={() => chooseServer(server)}
+    class={subtitle ? "h-auto min-h-8 py-1.5" : undefined}
   >
     {#if affinity}
       {@const HostIcon = affinity.icon}
@@ -303,17 +304,19 @@
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
     {#if subtitle}
-      <span class="flex min-w-0 flex-1 flex-col leading-tight">
+      <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
         <span class="truncate">{hostLabel(server)}</span>
-        <span class="truncate text-xs text-(--solus-text-tertiary)">{subtitle}</span>
+        <span class="truncate text-[0.875em] text-(--solus-text-tertiary)">{subtitle}</span>
       </span>
     {:else}
       <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
     {/if}
     {#if isSelectedHost}
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
-    {:else if affinity && server.status !== "saved"}
-      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
+    {:else if affinity && server.status !== "saved" && server.status !== "online"}
+      <!-- Online is the unmarked case; the glyph already reads it. Only a
+           state worth stopping for is printed. -->
+      <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
     {/if}
   </DropdownMenu.Item>
 {/snippet}

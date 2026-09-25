@@ -2,6 +2,8 @@ import { io, type Socket } from 'socket.io-client'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/video'
+import { pickFiles } from './file-picker'
 import { uuid } from '@solus/contracts/uuid'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
@@ -104,7 +106,7 @@ export function shouldRejectQueuedRequest(
   return !queuedBeforeFirstConnect && now - queuedAt > RECONNECT_QUEUE_MAX_AGE_MS
 }
 
-function readFileDataUrl(file: File): Promise<string> {
+function readFileDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => reader.result instanceof ArrayBuffer
@@ -247,20 +249,10 @@ export class WsTransport {
     })
 
     if (!this.opts.useHostFileDialog) {
-      Reflect.set(api, 'attachFiles', (ctx?: IpcContext): Promise<Attachment[] | null> => {
-        if (!ctx) return Promise.resolve(null)
-        return new Promise((resolve) => {
-          const input = document.createElement('input')
-          input.type = 'file'
-          input.multiple = true
-          input.addEventListener('change', async () => {
-            const files = Array.from(input.files ?? [])
-            if (files.length === 0) { resolve(null); return }
-            resolve(await this.uploadFiles(files, ctx))
-          }, { once: true })
-          input.addEventListener('cancel', () => resolve(null), { once: true })
-          input.click()
-        })
+      Reflect.set(api, 'attachFiles', async (ctx?: IpcContext): Promise<Attachment[] | null> => {
+        if (!ctx) return null
+        const files = await pickFiles()
+        return files.length === 0 ? null : this.uploadFiles(files, ctx)
       })
     }
     Reflect.set(api, 'uploadFiles', (files: File[], ctx: IpcContext): Promise<Attachment[] | null> => this.uploadFiles(files, ctx))
@@ -408,11 +400,16 @@ export class WsTransport {
     try {
       const attachments: Attachment[] = []
       for (const file of files) {
-        if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) return null
-        const mime = file.type || 'application/octet-stream'
-        const dataUrl = await readFileDataUrl(file)
-        const hostPath = await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])
-        const isImage = mime.startsWith('image/')
+        const videoMime = videoMimeType({ name: file.name, mimeType: file.type })
+        if (file.size > (videoMime ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES)) return null
+        const mime = videoMime ?? (file.type || 'application/octet-stream')
+        // The declared type and the bytes' type must agree for the host.
+        const body = file.type === mime ? file : new Blob([file], { type: mime })
+        const isImage = !videoMime && mime.startsWith('image/')
+        const dataUrl = videoMime ? null : await readFileDataUrl(body)
+        const hostPath = dataUrl === null
+          ? await this.streamUpload(file.name, body, ctx)
+          : await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])
         // A phone reaches a LAN host over plain HTTP, where the browser withholds
         // `crypto.randomUUID`; the shared helper falls back instead of throwing.
         const attachment: Attachment = {
@@ -425,13 +422,33 @@ export class WsTransport {
           size: file.size,
         }
         if (this.opts.serverId) attachment.hostServerId = this.opts.serverId
-        if (isImage) attachment.dataUrl = dataUrl
+        if (isImage && dataUrl) attachment.dataUrl = dataUrl
         attachments.push(attachment)
       }
       return attachments
     } catch {
       return null
     }
+  }
+
+  /** Send a video's raw bytes over HTTP. Base64 in a socket frame cannot carry
+   *  one. Signed upload URLs work through Uplink too. A host too old to mint
+   *  the URL still takes a video within the RPC limit. */
+  private async streamUpload(name: string, body: Blob, ctx: IpcContext): Promise<string> {
+    const sendByRpc = async () => this.invoke('attachUpload', [ctx, { name, mime: body.type, dataUrl: await readFileDataUrl(body) }])
+    let token: Awaited<ReturnType<SolusAPI['attachUploadToken']>>
+    try {
+      token = await this.invoke('attachUploadToken', [ctx, { name, mime: body.type, size: body.size }])
+    } catch (error) {
+      if (body.size > MAX_ATTACHMENT_UPLOAD_BYTES) throw error
+      return sendByRpc()
+    }
+    const response = await fetch(new URL(token.relativeUrl, `${this.opts.serverUrl.replace(/\/+$/, '')}/`), {
+      method: 'POST',
+      body,
+    })
+    if (!response.ok) throw new Error(`Upload failed (${response.status}).`)
+    return token.hostPath
   }
 
   private async transcribeAudio(samples: Float32Array, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }> {

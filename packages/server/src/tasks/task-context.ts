@@ -1,6 +1,10 @@
 import type { TaskDetails, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
 
+/** Solus finds a pull request on the session's own branch, but not one the agent
+ *  opened elsewhere (another branch, a stack layer, an existing pull request). */
+const PR_LINKING_LINE = '- Link each pull request that you create or work on for this task with link_task (kind=pr, target_id=the pull request number or URL), including every layer of a stack. Linking an already-linked pull request is safe. If linking fails, report it.'
+
 /** Render the local task packet appended to the system prompt of every run on a
  *  task-backed session. Attempts are passed in rather than read off `details`:
  *  session links have exactly one reader, `taskSessions()`, whose join is what
@@ -68,6 +72,7 @@ export function formatTaskContext(
     lines.push(
       '- Do not change this task\'s status. The user controls its lifecycle.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
+      PR_LINKING_LINE,
       '',
       `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task for durable write-back.`,
     )
@@ -75,6 +80,7 @@ export function formatTaskContext(
     lines.push(
       '- Keep this task in progress while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
+      PR_LINKING_LINE,
       '- Move the task to in_review when a pull request is ready for a human. Do not move it to done; the user closes completed work.',
       '',
       `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task and update_task_status for permitted durable write-back.`,
@@ -83,6 +89,7 @@ export function formatTaskContext(
     lines.push(
       '- Keep this task in progress while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
+      PR_LINKING_LINE,
       '- Move the task to in_review when a pull request is ready for a human, or done when the work is complete without review.',
       '',
       `Call read_task with task_id "${task.id}" to refresh this packet; use comment_task and update_task_status for durable write-back.`,

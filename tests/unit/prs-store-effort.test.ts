@@ -3,6 +3,7 @@ import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { IpcContext } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { listingFrom, readFirstPage } from './__fixtures__/pr-listing'
 
 const serverConnectionsMock = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({
@@ -42,11 +43,11 @@ function installWindow(): void {
     configurable: true,
     writable: true,
     value: {
-      solus: {
+      solus: listingFrom({
         prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
         prChecks: async () => { throw new Error('not relevant') },
         prGuideMetadata: async () => { throw new Error('not relevant') },
-      },
+      }),
     },
   })
 }
@@ -126,7 +127,7 @@ describe('PR list cache', () => {
       configurable: true,
       writable: true,
       value: {
-        solus: {
+        solus: listingFrom({
           prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
           prUpdate: async () => ({
             ...listItem(),
@@ -136,12 +137,12 @@ describe('PR list cache', () => {
           }),
           prChecks: async () => { throw new Error('not relevant') },
           prGuideMetadata: async () => { throw new Error('not relevant') },
-        },
+        }),
       },
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
 
     await store.get(api(), serverId, ctx).get(33).update({
       title: 'Edited title',
@@ -277,15 +278,25 @@ describe('PR mutation results', () => {
     }
   })
 
-  test('applies lifecycle events to the visible row and cached list page', async () => {
+  test('applies lifecycle events to the visible row, and a page already on the wire cannot undo them', async () => {
     // WHY: another connected client can change a PR while this list stays
     // mounted. Applying the delta must not wait for a provider reload, and a
-    // later cache hit must not restore the old draft value.
+    // read that left before the event must not restore the old draft value.
     installStateRune()
     installWindow()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    const project = store.get(api(), serverId, ctx)
+    await readFirstPage(store, project)
+    let answerLateRead: () => void = () => {}
+    const lateRead = new Promise<void>((resolve) => { answerLateRead = resolve })
+    Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {
+      prListProjects: async (_ctx: IpcContext, roots: string[]) => {
+        await lateRead
+        return roots.map((projectRoot) => ({ projectRoot, page: { items: [listItem()], page: 1, hasMore: false } }))
+      },
+    })
+    const refreshing = readFirstPage(store, project)
     const unsubscribe = store.subscribeLifecycleChanges()
     const detail = {
       ...listItem(),
@@ -324,8 +335,10 @@ describe('PR mutation results', () => {
     serverConnectionsMock.emit(serverId, 'pr.lifecycleChanged', { projectRoot: '/repo', detail })
     expect(store.get(api(), serverId, ctx).prFor(33)?.draft).toBe(true)
 
-    await store.get(api(), serverId, ctx).list()
+    answerLateRead()
+    await refreshing
     expect(store.get(api(), serverId, ctx).prFor(33)?.draft).toBe(true)
+    expect(project.loading).toBe(false)
     unsubscribe()
   })
 
@@ -377,7 +390,7 @@ describe('PR mutation results', () => {
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
 
     await store.get(api(), serverId, ctx).get(33).updateLifecycle('close', 'head-33')
 
@@ -386,9 +399,6 @@ describe('PR mutation results', () => {
     // must not reach the host — `prGetDetail` throws if anything does.
     expect((await store.get(api(), serverId, ctx).get(33).loadDetail()).state).toBe('closed')
     expect(detailLoads).toBe(0)
-
-    await store.get(api(), serverId, ctx).list()
-    expect(store.get(api(), serverId, ctx).prFor(33)?.state).toBe('closed')
 
     const mergedDetail = { ...detail, state: 'merged' as const }
     store.at(serverId, ctx.session.projectPath)?.applyPullRequest(mergedDetail)
@@ -410,7 +420,7 @@ describe('PR mutation results', () => {
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
     const pullRequest = store.get(api(), serverId, ctx).get(33)
 
     const arming = pullRequest.enableAutoMerge('squash')

@@ -28,6 +28,7 @@ export const SPAN_SERVICES = {
   sessions: 'solus.sessions',
   textGeneration: 'solus.text-generation',
   reviewGuide: 'solus.review-guide',
+  reviewLens: 'solus.review-lens',
   subagents: 'solus.subagents',
   automations: 'solus.automations',
   indexer: 'solus.indexer',

@@ -1,3 +1,4 @@
+import { CheckoutStore } from './checkout.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
@@ -123,6 +124,7 @@ const PENDING_WORKTREE_NAME = 'New worktree'
 
 /** Renderer authority for session environment identity and live Git state. */
 export class SessionEnvironmentStore {
+  constructor(readonly checkouts = new CheckoutStore()) {}
   byCwd = $state<Record<string, GitState | null>>({})
   refsByRoot = $state<Record<string, GitProjectRefs>>({})
   private workspace: SessionEnvironmentWorkspace | null = null
@@ -161,7 +163,15 @@ export class SessionEnvironmentStore {
   }
 
   private refsForHost(serverId: string, projectRoot: string): GitProjectRefs {
-    return this.refsByRoot[hostKey(serverId, projectRoot)] ?? { worktrees: [], branches: [] }
+    const refs = this.refsByRoot[hostKey(serverId, projectRoot)]
+    if (!refs) return { worktrees: [], branches: [] }
+    return {
+      branches: refs.branches,
+      worktrees: refs.worktrees.map((entry) => {
+        const state = this.checkouts.get(serverId, entry.path)
+        return state ? { ...entry, branch: state.checkout?.branch ?? '' } : entry
+      }),
+    }
   }
 
   /**
@@ -182,7 +192,7 @@ export class SessionEnvironmentStore {
     const worktreeBaseBranch = target.worktree?.baseBranch ?? null
     const cwd = target.gitContext?.worktreePath ?? target.workingDirectory
     const status = this.statusFor(target.serverId, cwd)
-    const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout
+    const checkout = this.checkouts.resolve(target.serverId, cwd, gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout)
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
 
@@ -473,12 +483,13 @@ export class SessionEnvironmentStore {
       if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
     }
 
+    await this.checkouts.ensure(serverId, workingDirectory)
     const status = this.statusForHost(serverId, workingDirectory) ?? null
     const detected = gitCheckoutFromState(status, options.worktreePath, options.fallbackGitContext?.repoRoot)
     // Retain worktree routing while detached instead of treating a valid
     // checkout as a non-repository.
-    const gitContext = detected
-      ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null)
+    const gitContext = this.checkouts.resolve(serverId, workingDirectory, detected
+      ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null))
     return {
       target: {
         workingDirectory,
@@ -681,7 +692,13 @@ export class SessionEnvironmentStore {
 
   statusFor(serverId: string, cwd: string | null | undefined): GitState | null | undefined {
     if (!cwd) return undefined
-    return this.statusForHost(serverId, cwd)
+    const status = this.statusForHost(serverId, cwd)
+    const state = this.checkouts.get(serverId, cwd)
+    if (!state || !status) return status
+    if (!state.checkout) return null
+    const checkout = state.checkout
+    if (status.branch === checkout.branch && (!checkout.detachedHeadSha || status.headSha === checkout.detachedHeadSha)) return status
+    return { ...status, branch: checkout.branch, headSha: checkout.detachedHeadSha ?? status.headSha, targetBranch: checkout.targetBranch, prUrl: undefined }
   }
 
   async refreshRefs(serverId: string, projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {

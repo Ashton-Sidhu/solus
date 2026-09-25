@@ -168,12 +168,14 @@ const settlements = (events: NormalizedEvent[]) =>
   events.flatMap((event) => (event.type === 'turn_settled' ? [event] : []))
 
 describe.serial('ControlPlane background status', () => {
-  test('a turn that ends with a background task running settles instead of holding running', async () => {
+  test('a turn that ends with a background task running releases the session but does not settle', async () => {
     const { plane, events } = await endTurnWithTaskRunning()
     try {
       expect(statuses(events).at(-1)).toBe('background')
-      // The turn is finished for the user: clients mark it unread and notify.
-      expect(settlements(events)).toEqual([expect.objectContaining({ outcome: 'completed' })])
+      // WHY: a settlement is what clients mark unread and notify on. Background
+      // work often starts mid-task and the agent resumes when it settles, so a
+      // "finished" notification here announced work that had not finished.
+      expect(settlements(events)).toEqual([])
       expect(plane.isSessionBusy(SESSION_ID)).toBe(false)
     } finally {
       plane.shutdown()
@@ -196,7 +198,7 @@ describe.serial('ControlPlane background status', () => {
     }
   })
 
-  test('the agent turn that follows a background turn settles on its own', async () => {
+  test('the agent turn that follows a background turn settles once, as completed', async () => {
     const { backend, plane, events } = await endTurnWithTaskRunning()
     try {
       // The SDK resumes the agent in the same query when the task settles.
@@ -206,9 +208,7 @@ describe.serial('ControlPlane background status', () => {
       await flush()
 
       expect(statuses(events).slice(-2)).toEqual(['running', 'completed'])
-      const [first, second] = settlements(events)
-      expect(second?.outcome).toBe('completed')
-      expect(second?.turnId).not.toBe(first?.turnId)
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
     } finally {
       plane.shutdown()
     }
@@ -224,7 +224,7 @@ describe.serial('ControlPlane background status', () => {
       expect(backend.stoppedTasks).toEqual(['tail'])
       expect(backend.cancelled).toEqual([])
       expect(statuses(events)).not.toContain('interrupted')
-      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(settlements(events)).toEqual([])
 
       // The provider settles the task and resumes the agent with it.
       backend.settleTask('tail')
@@ -232,6 +232,7 @@ describe.serial('ControlPlane background status', () => {
       backend.result()
       await flush()
       expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
       // Nothing is left to stop.
       expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(false)
     } finally {

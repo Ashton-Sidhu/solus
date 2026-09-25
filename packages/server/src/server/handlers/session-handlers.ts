@@ -19,6 +19,7 @@ import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
 import { turnActorFor } from '../../seats/seat-manager'
 import { projectsRootFor } from './setup-handlers'
+import { recordingRetention } from '../../browser/recording-retention'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -239,6 +240,11 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
     await claimSession(sessionId, handlerCtx)
+    // A recording sent to an agent is part of the transcript now, so the
+    // retention sweep must not delete it. A failure here must not fail the turn.
+    void recordingRetention().keepRecordingsSentIn(options.prompt).catch((error) => {
+      log.warn('browser_recording_keep_failed', { sessionId, message: error instanceof Error ? error.message : String(error) })
+    })
     try {
       // The turn runs on its author's provider seat (Step 2 plan §3.3).
       return await controlPlane.submitPrompt(ctx, options, {

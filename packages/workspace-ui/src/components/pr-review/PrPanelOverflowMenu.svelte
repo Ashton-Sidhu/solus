@@ -34,7 +34,7 @@
     guide,
     headRef,
   }: {
-    tab: "activity" | "map" | "guide" | "diff";
+    tab: "activity" | "map" | "guide" | "lens" | "diff";
     onRefresh?: () => void;
     refreshing: boolean;
     /** Open the pull request page on its external host. */
@@ -53,9 +53,11 @@
       ? "Change map"
       : tab === "guide"
         ? "Walkthrough"
-        : tab === "diff"
-          ? "Diff view"
-          : "Activity",
+        : tab === "lens"
+          ? "Lens"
+          : tab === "diff"
+            ? "Diff view"
+            : "Activity",
   );
 
   const showsGuideRow = $derived(tab === "guide" && !!guide?.present);

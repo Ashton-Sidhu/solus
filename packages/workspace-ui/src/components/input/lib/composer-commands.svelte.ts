@@ -13,14 +13,15 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
 import { hostPolicy } from '@solus/client-core/host-policy';
 import { serverConnections } from '@solus/client-core/server-connections';
 import {
-  clipboardImages,
+  clipboardMedia,
   isLargePaste,
   pastedImageAttachment,
   pastedTextFile,
   readFileDataUrl,
-  uploadFileObjects,
   uploadPastedImage,
 } from './attachment-upload';
+import { videoMimeType } from '@solus/contracts/video';
+import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
 
 interface ComposerCommandOptions {
   isReadOnly: boolean;
@@ -252,6 +253,12 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     )
       return false;
     if (isConnecting) return false;
+    const uploadBlocker = attachmentUploads.sendBlocker(attachments);
+    if (uploadBlocker) {
+      toasts.info(uploadBlocker);
+      refocusComposer();
+      return false;
+    }
 
     if (/^\/goal(?:\s|$)/.test(text)) {
       void handleGoalCommand(text.slice("/goal".length));
@@ -432,7 +439,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     if (isReadOnly) return;
     const clipboard = e.clipboardData;
     if (!clipboard) return;
-    const blobs = clipboardImages(clipboard);
+    const blobs = clipboardMedia(clipboard);
     const foldable = foldableText(clipboard, blobs.length > 0);
     if (foldable) {
       e.preventDefault();
@@ -456,6 +463,15 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     // so each is attached on its own and reports its own error.
     for (const blob of blobs) {
       try {
+        // A video is a file, never pasted image content: it streams to the
+        // host and its chip shows the upload.
+        if (videoMimeType({ name: blob.name, mimeType: blob.type })) {
+          if ((await serverConnections.capabilitiesFor(serverId)).attachUpload !== true) {
+            throw new Error("Update the host to attach videos.");
+          }
+          prompt.attachments.push(...await uploadFileObjects(api, ctx, serverId, [blob]));
+          continue;
+        }
         const dataUrl = await readFileDataUrl(blob);
         const capabilities = await serverConnections.capabilitiesFor(serverId);
         const attachment = clientShell.supportsLocalAttachments && hostPolicy.isClientMachine(serverId)

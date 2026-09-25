@@ -14,6 +14,7 @@ afterEach(() => {
 /** The workspace's surface for its one source. Git reads go to the host's own
  *  connection, so that connection serves the same fake. */
 function servedBy(api: HostApi): () => HostApi {
+  api.checkoutSnapshot ??= async () => ({ generation: 'test-host', revision: 0, states: [] })
   spyOn(serverConnections, 'apiFor').mockReturnValue(api)
   return () => api
 }
@@ -38,6 +39,46 @@ function gitState(branch: string): GitState {
 }
 
 describe('Git environment registration', () => {
+  test('a rename supersedes cached status and a status request already in flight on its host', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    let finish!: (state: GitState) => void
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const cwd = '/repo/.git/solus/worktrees/solus-12345678'
+    store.set('host-a', cwd, gitState('solus/12345678'))
+    store.set('host-b', cwd, gitState('solus/12345678'))
+    let finishRefs!: () => void
+    const refsApi = asHostApi({
+      worktreeListProject: async () => [{ path: cwd, branch: 'solus/12345678' }],
+      worktreeBranches: async () => ['main', 'solus/12345678'],
+    })
+    servedBy(refsApi)
+    const ctx = {} as IpcContext
+    await store.refreshRefs('host-a', '/repo', ctx)
+    servedBy(asHostApi({
+      gitRefreshState: () => new Promise<GitState>((resolve) => { finish = resolve }),
+      worktreeListProject: async () => {
+        await new Promise<void>((resolve) => { finishRefs = resolve })
+        return [{ path: cwd, branch: 'solus/12345678' }]
+      },
+      worktreeBranches: async () => ['main', 'solus/12345678'],
+    }))
+    const pendingRefs = store.refreshRefs('host-a', '/repo', ctx, { force: true })
+    const pending = store.refresh('host-a', cwd, { force: true })
+    store.checkouts.apply('host-a', { generation: 'test-host', cause: 'renamed', state: { cwd, revision: 2, checkout: {
+      repoRoot: '/repo', worktreePath: cwd, branch: 'solus/fix-layout', targetBranch: 'main',
+    } } })
+    expect(store.statusFor('host-a', cwd)?.branch).toBe('solus/fix-layout')
+    expect(store.statusFor('host-b', cwd)?.branch).toBe('solus/12345678')
+    expect(store.refsFor('host-a', '/repo').worktrees[0].branch).toBe('solus/fix-layout')
+    finish(gitState('solus/12345678'))
+    finishRefs()
+    await pending
+    await pendingRefs
+    expect(store.statusFor('host-a', cwd)?.branch).toBe('solus/fix-layout')
+    expect(store.refsFor('host-a', '/repo').worktrees[0].branch).toBe('solus/fix-layout')
+  })
+
   test("a new worktree starts from the organization's default branch for the project", async () => {
     // WHY: docs/plans/project-model.md §7 — a member sets the branch every new
     // worktree of a cloud project starts from; the host's detected default

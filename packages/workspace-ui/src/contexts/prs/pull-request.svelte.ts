@@ -348,9 +348,10 @@ export class PullRequest implements Contracts.PullRequest {
     return reviewers
   }
 
-  async removeRequestedReviewer(login: string): Promise<PrReviewer[]> {
-    const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, login)
+  async removeRequestedReviewer(reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<PrReviewer[]> {
+    const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, reviewerId, kind)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
+    this.store.mirrors.reviewerCandidates.delete(this.key)
     return reviewers
   }
 

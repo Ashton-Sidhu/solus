@@ -1,6 +1,7 @@
-import type { Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
+import type { Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { videoMimeType } from '@solus/contracts/video'
 import { z } from 'zod'
 
 let msgCounter = 0
@@ -305,4 +306,43 @@ export function imageRefAttachments(refs: PromptImageRef[] | undefined): Message
     mimeType: ref.mimeType,
     type: 'image' as const,
   }))
+}
+
+const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
+/** The slot and random prefix the host puts before an uploaded file's name. */
+const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
+
+/**
+ * A reloaded user turn, split the way the live bubble shows it: the typed text,
+ * and the files it carried. A sent file exists in provider history only as the
+ * `[Attached file: <path>]` lines `composeAttachmentContext` puts before the
+ * typed text; the live bubble keeps the attachments and shows only the text.
+ */
+export function splitAttachedFiles(
+  content: string,
+  serverId: string | undefined,
+) {
+  const lines = content.split('\n')
+  const paths: string[] = []
+  while (paths.length < lines.length) {
+    const match = ATTACHED_FILE_LINE.exec(lines[paths.length])
+    if (!match) break
+    paths.push(match[1])
+  }
+  // The composer separates the lines from the text with a blank line. Without
+  // one, the user typed the bracket themselves.
+  const isComposed = paths.length > 0 && (paths.length === lines.length || lines[paths.length] === '')
+  const attachments = (isComposed ? paths : []).map((path, index): Attachment => {
+    const name = (path.split(/[\\/]/).pop() || path).replace(UPLOAD_NAME_PREFIX, '')
+    const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
+    if (path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)) {
+      attachment.hostPath = path
+      if (serverId) attachment.hostServerId = serverId
+    }
+    const mimeType = videoMimeType({ name })
+    if (mimeType) attachment.mimeType = mimeType
+    return attachment
+  })
+  const text = isComposed ? lines.slice(paths.length).join('\n').replace(/^\n+/, '') : content
+  return { text, attachments }
 }

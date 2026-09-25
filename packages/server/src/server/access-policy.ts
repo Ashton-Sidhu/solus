@@ -123,6 +123,7 @@ const resourceRpcRules = {
   attachFiles: editor(optionalCtxAt(0)),
   attachFilePaths: editor(optionalCtxAt(1)),
   attachUpload: editor(ctxAt(0)),
+  attachUploadToken: editor(ctxAt(0)),
   takeScreenshot: editor(optionalCtxAt(0)),
   pasteImage: editor(optionalCtxAt(1)),
   enterDesignMode: editor(optionalCtxAt(0)),
@@ -140,6 +141,10 @@ const resourceRpcRules = {
   tasksLinkSession: editor(sessionIdAt(1)),
   tasksUnlinkSession: editor(sessionIdAt(1)),
   tasksRekeySession: editor(sessionIdAt(0)),
+  watchList: viewer(sessionIdAt(0)),
+  watchPause: editor(sessionIdAt(0)),
+  watchResume: editor(sessionIdAt(0)),
+  watchCancel: editor(sessionIdAt(0)),
   // Works — reading
   loadWork: viewer(workIdAt(0)),
   loadWorkUpdatedAt: viewer(workIdAt(0)),

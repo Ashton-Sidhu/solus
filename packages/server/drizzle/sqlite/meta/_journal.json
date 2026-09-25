@@ -85,6 +85,20 @@
       "when": 1790105429450,
       "tag": "0011_workspace_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790309657735,
+      "tag": "0012_drop_task_hierarchy",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1790309659042,
+      "tag": "0013_task_epic",
+      "breakpoints": true
     }
   ]
 }

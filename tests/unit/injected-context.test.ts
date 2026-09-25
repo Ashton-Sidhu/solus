@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { stripInjectedContext } from '@solus/server/agents/utils'
+import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { formatTaskContext } from '@solus/server/tasks/task-context'
 import type { TaskDetails } from '@solus/contracts/task-types'
 
@@ -21,6 +22,20 @@ const details = {
   links: [],
   events: [],
 } as unknown as TaskDetails
+
+describe('stripAttachedFileLines', () => {
+  test('a title or preview shows the typed text, not the attached file paths', () => {
+    // WHY: a video attached to the first prompt named the session and the task
+    // "[Attached file: /Users/…/flicker.mp4]" instead of what the user asked.
+    const prompt = '[Attached file: /data/attachments/s/0-abc-flicker.mp4]\n[Attached file: /tmp/log.txt]\n\nWhy does the box flicker?'
+    expect(stripAttachedFileLines(prompt)).toBe('Why does the box flicker?')
+  })
+
+  test('a bracket the user typed without the composer blank line stays', () => {
+    const typed = '[Attached file: see below]\nThis is my text'
+    expect(stripAttachedFileLines(typed)).toBe(typed)
+  })
+})
 
 describe('stripInjectedContext', () => {
   test('keeps the typed prompt of a task-backed session', () => {
@@ -75,5 +90,17 @@ describe('task lifecycle work contracts', () => {
   test('autonomous permits the agent to finish the task', () => {
     const packet = formatTaskContext(details, null, [], 'autonomous')
     expect(packet).toContain('or done when the work is complete without review')
+  })
+
+  // Solus discovers only the pull request on the session's own branch. A stack
+  // layer or an existing pull request stays invisible on the task unless the
+  // agent links it, whatever the lifecycle policy.
+  test('every policy asks the agent to link each pull request it works on', () => {
+    for (const policy of ['none', 'moderate', 'autonomous'] as const) {
+      const packet = formatTaskContext(details, null, [], policy)
+      expect(packet).toContain('with link_task (kind=pr')
+      expect(packet).toContain('including every layer of a stack')
+      expect(packet).toContain('If linking fails, report it.')
+    }
   })
 })

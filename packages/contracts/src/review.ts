@@ -333,3 +333,150 @@ export const REVIEW_PROGRESS_STEPS: ReviewProgressStepDef[] = [
   { id: 'analyzing', label: 'Analyzing changes' },
   { id: 'writing', label: 'Writing review guide' },
 ]
+
+// ─── Lenses (docs/plans/review-lenses.md) ───
+//
+// A lens is one generated HTML artifact for one review target. A new lens or a
+// lens edit replaces it; the host keeps one previous version for Restore.
+
+/** Largest lens HTML the host accepts. The lens crosses WebSockets, and a lens
+ * edit puts the HTML back into a prompt. */
+export const REVIEW_LENS_MAX_HTML_CHARS = 500_000
+
+/** A named lens prompt from Settings, used again on any target. */
+export interface SavedLens {
+  id: string
+  name: string
+  prompt: string
+}
+
+/** The prompt that made a lens. A copy, so a later edit to the saved lens does
+ * not change or outdate the lens it made. */
+export interface ReviewLensSource {
+  savedLensId?: string
+  name: string
+  prompt: string
+}
+
+export interface ReviewLensEdit {
+  prompt: string
+  at: string
+}
+
+export interface ReviewLens {
+  version: 1
+  key: string
+  target: ReviewTarget
+  headSha: string
+  baseSha: string
+  changeFingerprint: string
+  generatedAt: string
+  source: ReviewLensSource
+  /** Lens edits applied since `source`, oldest first. */
+  edits: ReviewLensEdit[]
+  title: string
+  html: string
+}
+
+/** One place in the change, read from `data-solus-file` / `data-solus-line`
+ * on the element a lens comment is pinned to. */
+export interface ReviewLensCodeAnchor {
+  path: string
+  line: number
+}
+
+export type ReviewLensPost =
+  | { kind: 'draft-line'; draftId: string }
+  | { kind: 'conversation'; commentId: string; url: string }
+
+export interface ReviewLensComment {
+  id: string
+  /** Fractions of the render box, the same pin artifact works use. */
+  pin: { x: number; y: number }
+  label: string
+  codeAnchor?: ReviewLensCodeAnchor
+  /** Text of the pinned element, quoted when the comment goes to a PR. */
+  quote?: string
+  body: string
+  createdAt: number
+  resolvedAt?: number
+  posted?: ReviewLensPost
+}
+
+export interface ReviewLensVersion {
+  lens: ReviewLens
+  comments: ReviewLensComment[]
+}
+
+/** Everything the host stores for one target. */
+export interface ReviewLensRecord {
+  version: 1
+  current: ReviewLensVersion
+  previous?: ReviewLensVersion
+  /** Epoch ms of the last durable change: a new lens, a restore, or a comment. */
+  updatedAt: number
+}
+
+export interface ReviewLensJob {
+  kind: 'generate' | 'edit'
+  status: ReviewGuideStatus
+  step?: ReviewProgressStep
+  error?: string
+  updatedAt: number
+}
+
+/** Where the host keeps a lens. The client never computes it: working-tree and
+ * branch keys embed a branch only the host can read. */
+export interface ReviewLensAddress {
+  repoRoot: string
+  key: string
+}
+
+export interface ReviewLensSnapshot extends ReviewLensAddress {
+  target: ReviewTarget
+  current: ReviewLensVersion | null
+  hasPrevious: boolean
+  /** The change moved since the current lens was made. */
+  outdated: boolean
+  job: ReviewLensJob | null
+  /** `ReviewLensRecord.updatedAt`, or 0 when there is no lens. */
+  revision: number
+}
+
+/** Small on purpose: it never carries HTML. A client reads the snapshot again
+ * when `revision` moves past the one it holds. */
+export interface ReviewLensChangedEvent extends ReviewLensAddress {
+  job: ReviewLensJob | null
+  revision: number
+}
+
+export interface ReviewLensRunOptions {
+  target: ReviewTarget
+  agent?: AgentId
+  model?: string | null
+  reasoningEffort?: ReasoningEffort | null
+}
+
+export interface ReviewLensGenerateRequest extends ReviewLensRunOptions {
+  source: ReviewLensSource
+}
+
+export interface ReviewLensEditRequest extends ReviewLensRunOptions {
+  prompt: string
+  /** Open lens comments to apply with this edit. They are resolved when the
+   * edit succeeds. */
+  commentIds: string[]
+}
+
+export type ReviewLensCommentChange =
+  | { kind: 'add'; comment: Pick<ReviewLensComment, 'pin' | 'label' | 'codeAnchor' | 'quote' | 'body'> }
+  | { kind: 'edit'; commentId: string; body: string }
+  | { kind: 'resolve'; commentId: string; resolved: boolean }
+  | { kind: 'delete'; commentId: string }
+  /** A draft line comment was added to (or removed from) the PR review draft. */
+  | { kind: 'mark-drafted'; commentId: string; draftId: string | null }
+
+export interface ReviewLensCommentsResult {
+  comments: ReviewLensComment[]
+  revision: number
+}

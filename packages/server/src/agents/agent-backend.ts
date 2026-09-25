@@ -59,6 +59,10 @@ export interface BackendEvents {
   normalized: (sessionId: string | null, event: NormalizedEvent) => void
   exit: (sessionId: string | null, code: number | null, signal: string | null) => void
   error: (sessionId: string | null, err: Error) => void
+  /** A command the agent left running finished after its turn ended. The
+   *  control plane wakes the session with `prompt`. Codex only: Claude wakes
+   *  itself inside its open query. */
+  'background-command-completed': (sessionId: string, prompt: string) => void
 }
 
 /**

@@ -132,7 +132,7 @@
   }}
 >
   <Popover.Trigger
-    class="text-workspace-chrome flex h-6.5 min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-full px-2.5 shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors {open
+    class="text-workspace-chrome flex h-6.5 min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-full px-2.5 shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors {open
       ? 'bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest)]'
       : 'hover:bg-[var(--wash-2)]'}"
     aria-label="Browser profile: {label}"

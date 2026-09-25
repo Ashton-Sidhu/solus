@@ -35,6 +35,7 @@ const PNG_ID = `${digest('a')}.png`
 const PDF_ID = `${digest('b')}.pdf`
 const MP4_ID = `${digest('c')}.mp4`
 const SVG_ID = `${digest('d')}.svg`
+const WEBM_ID = `${digest('e')}.webm`
 
 type UploadModule = typeof import('@solus/server/providers/github/asset-upload')
 type AdapterModule = typeof import('@solus/server/tasks/adapters/github')
@@ -68,6 +69,7 @@ beforeAll(async () => {
   writeFileSync(join(dataDir, 'assets', PDF_ID), Buffer.from('fake pdf bytes'))
   writeFileSync(join(dataDir, 'assets', MP4_ID), Buffer.from('fake mp4 bytes'))
   writeFileSync(join(dataDir, 'assets', SVG_ID), Buffer.from('<svg />'))
+  writeFileSync(join(dataDir, 'assets', WEBM_ID), Buffer.from('fake webm bytes'))
 
   upload = await import('@solus/server/providers/github/asset-upload')
   adapter = new (await import('@solus/server/tasks/adapters/github')).GitHubTaskSyncAdapter()
@@ -154,6 +156,27 @@ describe('github asset upload request', () => {
   test('reports a 422 as a rejected file', async () => {
     respond = () => new Response('content_type is not included in the list', { status: 422 })
     expect(await uploadFailureReason(PNG_ID)).toBe('rejected-file')
+  })
+
+  // The same answer gh gives: the caller learns when it may try again.
+  test('reports a 429 as rate limited with the wait GitHub asked for', async () => {
+    respond = () => new Response('', { status: 429, headers: { 'retry-after': '30' } })
+    const client = mockedGithubClient()
+    const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
+    const failure = await upload.uploadGithubAsset(client, target, PNG_ID).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(upload.GithubAssetUploadError)
+    expect((failure as InstanceType<UploadModule['GithubAssetUploadError']>).reason).toBe('rate-limited')
+    expect((failure as Error).message).toContain('retry after 30 seconds')
+  })
+
+  // gh accepts WebM, so a WebM a user attached can reach a pull request.
+  test('uploads a WebM video with its video content type', async () => {
+    const client = mockedGithubClient()
+    const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
+    await upload.uploadGithubAsset(client, target, WEBM_ID)
+
+    expect(new URL(requests[0].url).searchParams.get('content_type')).toBe('video/webm')
   })
 
   test('treats an accepted upload with no URL as a failure', async () => {

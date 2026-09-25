@@ -125,40 +125,41 @@ describe('the acting session tools', () => {
     const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'independent', report: false }, deps())
     expect(result.ok).toBe(true)
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['thread-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null, parentTaskId: null }, false, 0] })
+    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['thread-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0] })
     expect(reloaded('start_session', result.text)).toEqual({ agentSessionId: 'thread-child', messageId: 'm-created', provider: 'codex' })
   })
 
-  test('start_session with task=subtask files the child under the caller\'s root task, from a task or a subtask', async () => {
+  test('start_session with task=attempt and no task_id runs on the caller\'s own task, never a new subtask', async () => {
+    // WHY: a task holds its sessions directly. A started session that minted a
+    // subtask filed its works there, out of sight of the task the user opened.
     const root = await taskStore.createTask('local', { title: 'Ship the store', projectKey: '/repo', body: '' })
-    const part = await taskStore.createTask('local', { title: 'Part one', projectKey: '/repo', body: '', parentId: root.id })
     await bind('thread-on-root', root.id)
-    await bind('thread-on-part', part.id)
 
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'subtask' }, deps('thread-on-root'))).ok).toBe(true)
-    expect(calls[0]!.args[1]).toMatchObject({ taskId: null, parentTaskId: root.id })
-    // Tasks have two levels: a session on a subtask starts a sibling.
-    calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'subtask' }, deps('thread-on-part'))).ok).toBe(true)
-    expect(calls[0]!.args[1]).toMatchObject({ taskId: null, parentTaskId: root.id })
+    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('thread-on-root'))).ok).toBe(true)
+    expect(calls[0]!.args[1]).toMatchObject({ taskId: root.id })
+    expect(calls[0]!.args[1]).not.toHaveProperty('parentTaskId')
     expect(calls[0]!.args[2]).toBe(true)
   })
 
-  test('start_session with task=subtask from a session with no task is refused, not filed at the top', async () => {
+  test('start_session with task=attempt from a session with no task and no task_id is refused, not filed at the top', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'subtask' }, deps('thread-without-task'))
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('thread-without-task'))
     expect(result.ok).toBe(false)
     expect(result.text).toContain("task='independent'")
     expect(calls).toEqual([])
   })
 
-  test('start_session with task=attempt needs the task, and runs on it', async () => {
+  test('start_session with task=attempt and task_id runs on that task', async () => {
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps())).ok).toBe(false)
-    expect(calls).toEqual([])
     expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt', task_id: 'task-7' }, deps())).ok).toBe(true)
-    expect(calls[0]!.args[1]).toMatchObject({ taskId: 'task-7', parentTaskId: null })
+    expect(calls[0]!.args[1]).toMatchObject({ taskId: 'task-7' })
+  })
+
+  test('start_session no longer accepts task=subtask', async () => {
+    calls.length = 0
+    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'subtask' }, deps())).ok).toBe(false)
+    expect(calls).toEqual([])
   })
 
   test('start_session without a task choice is refused', async () => {

@@ -6,6 +6,7 @@ import type { SessionMeta } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { runBounded } from '../../lib/concurrency'
 import { encodePathAsFolder, stripInjectedContext } from '../utils'
+import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { MemoryCache } from '@solus/contracts/cache'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
 import { resolveHomePath } from '../../platform/paths'
@@ -169,12 +170,12 @@ export function parseHeadMeta(lines: string[]): SessionHeadMeta {
         const content = obj.message?.content
         const textContent = z.string().safeParse(content)
         if (textContent.success) {
-          const text = stripInjectedContext(extractPromptText(textContent.data))
+          const text = stripAttachedFileLines(stripInjectedContext(extractPromptText(textContent.data)))
           meta.firstMessage = text.substring(0, 100) || null
         } else if (Array.isArray(content)) {
           const textPart = content.find((part) => part.type === 'text')
           const raw = textPart?.type === 'text' ? extractPromptText(textPart.text) : ''
-          const text = stripInjectedContext(raw)
+          const text = stripAttachedFileLines(stripInjectedContext(raw))
           meta.firstMessage = text.substring(0, 100) || null
         }
       }

@@ -1171,6 +1171,35 @@ describe('renderer task hydration', () => {
     expect(maximumActiveDeletes).toBeLessThanOrEqual(8)
   })
 
+  test('keeps a deleted task off the list once its delete commits', async () => {
+    // WHY: the host drops the row only after its invalidation reload. Listing
+    // the task again between the commit and that reload makes a deleted task
+    // flash back on screen, and a snapshot read before the delete would keep it.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+          tasksDelete: async () => {},
+        },
+      },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const pending = store.softRemove(['task-1'])
+
+    await store.commitPending(pending)
+    expect(store.tasks).toEqual([])
+
+    // A stale snapshot that still lists the task must not resurrect it.
+    await store.load()
+    expect(store.tasks).toEqual([])
+  })
+
   test('homes a cross-host inbox ticket, and routes its writes there afterwards', async () => {
     // WHY: a ticket in the inbox reaches this client from several hosts at once,
     // and which one owns it is the user's choice after deduplication — the only

@@ -12,6 +12,7 @@ import {
   type BrowserSnapshot,
   type BrowserSnapshotOptions,
   type BrowserEvidenceTarget,
+  type BrowserRecordingStopRequest,
   type BrowserTarget,
   type BrowserViewportRequest,
   type BrowserWebVitals,
@@ -20,7 +21,8 @@ import type { AgentTool, AgentToolContext, AgentToolResult } from '../agents/too
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { writeAssetUpload } from '../server/assets'
-import { attachEvidence } from './browser-evidence'
+import { attachEvidence, stopAndFileRecording } from './browser-evidence'
+import { browserRecorder } from './browser-recorder'
 import { browserProfiles, profileForOpen } from './browser-profiles'
 import { browserRegistry } from './browser-registry'
 import { discoverBrowserTargets } from './target-scanner'
@@ -430,6 +432,67 @@ function evidenceTargetFrom(
   if (input.attach_to_pr_number) return { kind: 'pr', number: input.attach_to_pr_number, cwd: context.cwd }
   return null
 }
+
+export const browserRecordStartAgentTool = browserTool({
+  name: 'browser_record_start',
+  description:
+    'Start recording a browser page to an MP4. Record when the thing to show moves: an animation, a '
+    + 'transition, timing, focus moving, a flicker, or a flow of more than one step. A still screenshot '
+    + 'from browser_snapshot is enough for layout. Clicks and key presses show on the recording. Drive '
+    + 'the page as usual, then call browser_record_stop. A recording stops by itself after 5 minutes.',
+  inputFields: { browserPageId: z.string() },
+  pageOf: (input) => input.browserPageId,
+  execute: async (input) => {
+    const state = await browserRecorder().start(input.browserPageId, 'agent')
+    return ok(`Recording ${input.browserPageId} since ${new Date(state.startedAt).toISOString()}. `
+      + 'Call browser_record_stop when the flow is done.')
+  },
+})
+
+export const browserRecordStopAgentTool = browserTool({
+  name: 'browser_record_stop',
+  description:
+    'Stop recording a browser page and save the MP4. The user sees the recording in the conversation '
+    + 'as soon as it stops. Pass attach_to_task_id or attach_to_pr_number to file it where it will '
+    + 'outlive this session — a recording that is not filed is deleted after a day.',
+  inputFields: {
+    browserPageId: z.string(),
+    attach_to_task_id: z.string().optional().describe(
+      'File the recording as a comment on this task. It plays inline in Solus and stays local.',
+    ),
+    attach_to_pr_number: z.number().optional().describe(
+      'File the recording as a comment on this pull request. The video is uploaded to GitHub first, '
+      + 'because a pull request cannot play a Solus-local asset.',
+    ),
+    caption: z.string().optional().describe('What the recording shows. Defaults to the page and its viewport.'),
+  },
+  // Saving and uploading up to 50 MB can outlast the default backstop.
+  deadlineMs: 180_000,
+  pageOf: (input) => input.browserPageId,
+  execute: async (input, context) => {
+    const request: BrowserRecordingStopRequest = { browserPageId: input.browserPageId }
+    const target = evidenceTargetFrom(input, context)
+    if (target) request.attach = target
+    if (input.caption) request.caption = input.caption
+    const result = await stopAndFileRecording(browserRecorder(), request)
+    const { recording } = result
+    // Published here, not left to the reply, for the reason browser_snapshot
+    // publishes its capture: the user must see it whatever the model writes.
+    context.emit({ type: 'browser_recording_captured', recording })
+    const caption = input.caption?.trim() || `${recording.title || recording.url} — ${recording.viewport}`
+    const lines = [
+      `Saved a ${Math.round(recording.durationMs / 1000)}s recording `
+      + `(${(recording.sizeBytes / 1024 / 1024).toFixed(1)} MB): ${recording.hostPath}`,
+      `To show it in a reply, paste: ![${caption}](${recording.hostPath})`,
+    ]
+    if (recording.stoppedBy) lines.push(`It stopped early: ${recording.stoppedBy}.`)
+    if (result.attachedTo) {
+      lines.push(`Filed on ${result.attachedTo}.${result.publishedUrl ? ` Published at ${result.publishedUrl}` : ''}`)
+    }
+    if (result.attachError) lines.push(`The recording was stored but not filed: ${result.attachError}`)
+    return ok(lines.join('\n'))
+  },
+})
 
 export const browserClickAgentTool = browserTool({
   name: 'browser_click',

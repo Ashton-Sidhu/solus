@@ -4,6 +4,7 @@
   } from "../../contexts";
   import {
     getMarkdownImageContext,
+    isMarkdownVideo,
     markdownAssetId,
     markdownImagePath,
   } from "./lib/markdown-image";
@@ -13,6 +14,8 @@
     assetUrlCache,
     localArtifactProtocolUrl,
   } from "../artifact/lib/asset-url";
+  import { HostVideoPlayer, VideoPlayer } from "../ui/video-player";
+  import type { HostMediaRequest } from "../../lib/host-media-url.svelte";
 
   interface Props {
     href?: string;
@@ -22,10 +25,24 @@
 
   let { href = "", title = undefined, text = "" }: Props = $props();
   const context = getMarkdownImageContext();
+  const assetId = $derived(markdownAssetId(href));
+  const path = $derived(markdownImagePath(href, context?.cwd()));
+  // `![caption](/abs/path.mp4)` in an agent reply plays in place.
+  const isVideo = $derived(isMarkdownVideo(href, path, assetId));
+  const videoRequest = $derived.by((): HostMediaRequest | null => {
+    const serverId = context?.serverId();
+    if (!isVideo || !serverId || (!path && !assetId)) return null;
+    return {
+      serverId,
+      path: path ?? undefined,
+      assetId: assetId ?? undefined,
+      ctx: context?.ctx(),
+      canReadLocalFiles: !context?.isWeb(),
+    };
+  });
   let src = $state("");
   $effect(() => {
-    const assetId = markdownAssetId(href);
-    const path = markdownImagePath(href, context?.cwd());
+    if (isVideo) return;
     const serverId = context?.serverId();
     if ((!path && !assetId) || !serverId) {
       src = href;
@@ -74,6 +91,16 @@
   });
 </script>
 
-{#if src}
+{#if isVideo}
+  <!-- Keyed on the reference: a different video is a new player, while a
+       renewed URL for the same one keeps its playhead. -->
+  {#key href}
+    {#if videoRequest}
+      <HostVideoPlayer request={videoRequest} label={text || title || ""} class="my-2 max-w-[40rem]" />
+    {:else}
+      <VideoPlayer src={href} label={text || title || ""} class="my-2 max-w-[40rem]" />
+    {/if}
+  {/key}
+{:else if src}
   <img {src} {title} alt={text} loading="lazy" class="block h-auto max-w-full" />
 {/if}

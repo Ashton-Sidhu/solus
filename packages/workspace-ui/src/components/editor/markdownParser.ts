@@ -1,4 +1,5 @@
 import { Marked, Tokenizer } from 'marked'
+import { boldTextInCodeSpan } from '../../lib/markdownBoldCode'
 
 /** Soft line break: a single newline plus any indentation the wrap carried. */
 const SOFT_WRAP = /[ \t]*\n[ \t]*/g
@@ -21,6 +22,18 @@ const SOFT_WRAP = /[ \t]*\n[ \t]*/g
 export function createMarkdownParser(): Marked {
   const parser = new Marked()
   parser.use({
+    extensions: [{
+      name: 'boldCodeSpan',
+      level: 'inline',
+      start: (src) => src.indexOf('`'),
+      tokenizer(src) {
+        const match = /^(`+)([\s\S]*?)\1(?!`)/.exec(src)
+        if (!match) return
+        const boldText = boldTextInCodeSpan(match[2])
+        if (boldText === null) return
+        return { type: 'strong', raw: match[0], text: boldText, tokens: [{ type: 'text', raw: boldText, text: boldText }] }
+      },
+    }],
     tokenizer: {
       inlineText(src) {
         const token = Tokenizer.prototype.inlineText.call(this, src)

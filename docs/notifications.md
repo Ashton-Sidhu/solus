@@ -36,7 +36,7 @@ list is the same switch.
 |---|---|
 | Needs approval | `permission_request` event; `needs_approval` attention entry |
 | Question | `question_request` event; `question` attention entry |
-| Turn finished | `turn_settled` event; `finished` attention entry |
+| Turn finished | `turn_settled` event; `finished` attention entry. A turn that ends with background work still running (`background` status) does not count; it notifies when the agent's real end arrives |
 | Session failed | `failed` attention entry |
 | Plan ready | `plan` event |
 | Work created | `work_created` and `artifact_created` events |

@@ -349,14 +349,6 @@ export function buildTabSections(
   return result
 }
 
-/** Pick the tab immediately left of a closing tab in the supplied display order,
- *  falling back to the right only when the closing tab is first. */
-export function adjacentTabAfterClose(tabIds: string[], closingTabId: string): string | null {
-  const closingIndex = tabIds.indexOf(closingTabId)
-  if (closingIndex === -1) return null
-  return tabIds[closingIndex - 1] ?? tabIds[closingIndex + 1] ?? null
-}
-
 export function formatMessageTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }

@@ -40,7 +40,7 @@
       "updatedAt": "2026-07-12T18:32:00.000Z",
       "createdBy": { "kind": "agent", "agentProvider": "claude-code", "sessionId": "demo-session-webhooks" },
       "lastRunId": "demo-automation-run-triage",
-      "lastRunStatus": "dispatched",
+      "lastRunStatus": "succeeded",
       "lastRunAt": "2026-07-12T18:30:00.000Z"
     }
   ],
@@ -73,7 +73,7 @@
         "automationId": "demo-automation-pr-triage",
         "startedAt": "2026-07-12T18:30:00.000Z",
         "finishedAt": "2026-07-12T18:32:00.000Z",
-        "status": "dispatched",
+        "status": "succeeded",
         "output": "Triaged PR #142 and suggested API Platform plus Infrastructure reviewers. Posted a risk summary covering Redis availability, per-key isolation, and response-header compatibility.",
         "agentSessionId": "demo-automation-session-triage"
       }

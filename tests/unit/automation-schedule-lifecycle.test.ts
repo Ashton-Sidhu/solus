@@ -7,17 +7,15 @@ import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema } from '@solus/contracts/hos
 import { scheduleCardState } from '@solus/workspace-ui/components/automations/lib/schedule-card'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const directory = mkdtempSync(join(tmpdir(), 'solus-session-schedule-'))
+const directory = mkdtempSync(join(tmpdir(), 'solus-automation-schedule-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 process.env.SOLUS_DATA_DIR = directory
 let store: typeof import('@solus/server/automations/automations-store')
-let runner: typeof import('@solus/server/automations/automation-runner')
 let db: typeof import('@solus/server/db')
 let automationTools: typeof import('@solus/server/automations/automation-tools')
 
 beforeAll(async () => {
   store = await import('@solus/server/automations/automations-store')
-  runner = await import('@solus/server/automations/automation-runner')
   db = await import('@solus/server/db')
   automationTools = await import('@solus/server/automations/automation-tools')
 })
@@ -30,58 +28,10 @@ afterAll(() => {
 
 const action = {
   prompt: 'Check CI until it passes.', agentProvider: 'codex' as const,
-  modelId: null, reasoningEffort: 'medium' as const, cwd: directory, sessionId: 'existing-thread',
+  modelId: null, reasoningEffort: 'medium' as const, cwd: directory,
 }
 
-describe('session scheduled checks', () => {
-  test('both providers can schedule this conversation without running it immediately', async () => {
-    for (const provider of ['codex', 'claude-code'] as const) {
-      const result = await automationTools.executeAutomationTool('create_automation', {
-        name: `Check ${provider}`, prompt: action.prompt, run_in_session: true,
-        trigger: { type: 'interval', every_minutes: 30 },
-      }, { ctx: { agentProvider: provider, cwd: directory, sessionId: `thread-${provider}` } })
-      expect(result.ok).toBe(true)
-      const saved = (await store.listAutomations()).find(item => item.name === `Check ${provider}`)!
-      expect(saved.action.sessionId).toBe(`thread-${provider}`)
-      expect(saved.nextRunAt).toBeDefined()
-      expect(await store.listRuns(saved.id)).toEqual([])
-      await store.updateAutomation(saved.id, { enabled: false })
-    }
-  })
-
-  test('resumes the same thread, provides stop instructions, and prevents overlapping checks', async () => {
-    const saved = await store.createAutomation('CI', action, { kind: 'user' }, true, { type: 'interval', everyMinutes: 30 })
-    let release!: () => void
-    let entered!: () => void
-    const called = new Promise<void>(resolve => { entered = resolve })
-    const pending = new Promise<void>(resolve => { release = resolve })
-    runner.setAutomationSessionDispatcher(async options => {
-      expect(options.agentSessionId).toBe('existing-thread')
-      expect(options.displayPrompt).toBe(action.prompt)
-      expect(options.prompt).toContain(`Schedule id: ${saved.id}`)
-      expect(options.prompt).toContain('update_automation')
-      expect(options.prompt).toContain('Check CI until it passes.')
-      entered()
-      await pending
-    })
-    const run = await runner.triggerAutomationRun(saved)
-    await called
-    expect(runner.hasActiveRun(saved.id)).toBe(true)
-    expect(await store.claimDueAutomations(new Date(Date.now() + 3_600_000), runner.hasActiveRun)).toEqual([])
-    // Wait on the actual persistence event rather than an arbitrary timeout.
-    let unsubscribe = () => {}
-    const finished = new Promise<void>(resolve => {
-      unsubscribe = store.onAutomationsChanged(event => {
-        if (event.kind === 'run-finished' && event.run.id === run.id) resolve()
-      })
-    })
-    release()
-    await finished
-    unsubscribe()
-    expect((await store.loadRun(saved.id, run.id))?.agentSessionId).toBe('existing-thread')
-    await store.updateAutomation(saved.id, { enabled: false })
-  })
-
+describe('automation schedule lifecycle', () => {
   test('a missed one-time check fires once after reopening the store and shows completion', async () => {
     const once = await store.createAutomation('Once', action, { kind: 'user' }, true, {
       type: 'once', runAt: new Date(Date.now() + 60_000).toISOString(),
@@ -92,12 +42,11 @@ describe('session scheduled checks', () => {
     expect(await store.claimDueAutomations(dueTime)).toEqual([])
     setSystemTime(dueTime)
     const run = await store.startRun(once.id)
-    await store.finishRun(once.id, run.id, { status: 'dispatched' })
+    await store.finishRun(once.id, run.id, { status: 'succeeded' })
     setSystemTime()
     const finished = (await store.loadAutomation(once.id))!
     expect(scheduleCardState({ ...finished, lastRunAt: dueTime.toISOString() })).toBe('Schedule complete')
-    expect(finished.archivedAt).toBeDefined()
-    expect(scheduleCardState({ ...finished, archivedAt: undefined, lastRunAt: new Date(Date.now()).toISOString() })).toBe('Paused')
+    expect(scheduleCardState({ ...finished, lastRunAt: new Date(Date.now()).toISOString() })).toBe('Paused')
   })
 
   test('pause preserves timing, resume rearms it, and stop keeps history without future checks', async () => {
@@ -108,7 +57,7 @@ describe('session scheduled checks', () => {
     expect(paused.nextRunAt).toBeUndefined()
     expect((await store.updateAutomation(saved.id, { enabled: true }))?.nextRunAt).toBeDefined()
     const run = await store.startRun(saved.id)
-    await store.finishRun(saved.id, run.id, { status: 'dispatched' })
+    await store.finishRun(saved.id, run.id, { status: 'succeeded' })
     const result = await automationTools.executeAutomationTool('update_automation', {
       automation_id: saved.id, archived: true,
     })
@@ -132,7 +81,7 @@ describe('session scheduled checks', () => {
     expect(stopping.archivedAt).toBeUndefined()
     expect(stopping.archiveRequested).toBe(true)
     expect(stopping.enabled).toBe(false)
-    await store.finishRun(saved.id, run.id, { status: 'dispatched' })
+    await store.finishRun(saved.id, run.id, { status: 'succeeded' })
     const archived = (await store.loadAutomation(saved.id))!
     expect(archived.archivedAt).toBeDefined()
     expect(archived.archiveRequested).toBeUndefined()
@@ -157,7 +106,7 @@ describe('session scheduled checks', () => {
     const saved = await store.createAutomation('Expire', action, { kind: 'user' }, true, { type: 'interval', everyMinutes: 30 })
     const paused = await store.createAutomation('Keep paused', action, { kind: 'user' }, false, { type: 'interval', everyMinutes: 30 })
     const run = await store.startRun(saved.id)
-    await store.finishRun(saved.id, run.id, { status: 'dispatched' })
+    await store.finishRun(saved.id, run.id, { status: 'succeeded' })
     const archived = (await store.updateAutomation(saved.id, { archived: true }))!
     const archivedAt = Date.parse(archived.archivedAt!)
     db.closeDb()

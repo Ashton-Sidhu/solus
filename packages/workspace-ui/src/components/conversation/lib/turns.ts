@@ -12,8 +12,10 @@ export type GroupedItem =
   | { kind: 'plan'; message: Message }
   | { kind: 'document'; messages: Message[] }
   | { kind: 'automation'; message: Message }
+  | { kind: 'watch'; message: Message }
   | { kind: 'task'; message: Message }
   | { kind: 'browser-snapshot'; messages: Message[] }
+  | { kind: 'browser-recording'; message: Message }
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
   | { kind: 'review-guide'; message: Message }
@@ -122,7 +124,9 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       // rather than being printed as the turn's answer.
       else if (msg.role === 'assistant' && isNoReplyNotice(msg.content)) result.push({ kind: 'system', message: msg })
       else if (msg.automationRef) result.push({ kind: 'automation', message: msg })
+      else if (msg.watchRef) result.push({ kind: 'watch', message: msg })
       else if (msg.taskRef) result.push({ kind: 'task', message: msg })
+      else if (msg.browserRecording) result.push({ kind: 'browser-recording', message: msg })
       else if (msg.artifact) result.push({ kind: 'artifact', message: msg })
       else if (msg.reviewGuideRef) result.push({ kind: 'review-guide', message: msg })
       else if (msg.role === 'assistant') result.push({ kind: 'assistant', message: msg })
@@ -259,6 +263,8 @@ const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'artifact',
   'automation',
+  // A watch card is how the person sees and stops the wait it started.
+  'watch',
   'document',
   'agent-conversation-group',
   // The visible /review turn only queues background authoring, then ends with
@@ -269,18 +275,27 @@ const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   // A screenshot is the visual result of the turn. Folding it would leave the
   // user with only the agent's prose about what the page looked like.
   'browser-snapshot',
+  // A recording is the same kind of result, in motion.
+  'browser-recording',
   // A plan is what the turn produced, not a step it took to get there — and it
   // is the one card the reader still has to act on after the turn ends.
   'plan',
 ])
 
+/** A turn can end while its backgrounded sub-agents still run. Their card is
+ *  what the session waits on, so it stays on screen until they report; then it
+ *  folds with the rest of the work. */
+function hasRunningSubagent(item: GroupedItem): boolean {
+  return item.kind === 'subagent-group' && item.messages.some((message) => message.toolStatus === 'running')
+}
+
 /**
- * Cut the transcript into turns at each user message, then cut each turn once:
+ * Cut the transcript at each user message and task card, then cut each turn once:
  * everything up to its final assistant output is `body`, the rest is `tail`.
  * A finished turn shows the tail and folds the body behind its row — prose, tool
  * calls, sub-agents and intermediate cards. Rendered artifacts, automations,
  * created sessions, and work cards remain visible because they are outcomes of
- * the turn rather than implementation steps.
+ * the turn rather than implementation steps. Task cards occupy their own rows.
  *
  * One cut, never a re-ordering: expanding hands back the same transcript in the
  * same order. A live turn puts everything in `body` and hides nothing — the view
@@ -307,11 +322,20 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
   }
 
   for (const item of items) {
+    if (item.kind === 'task') {
+      // Task cards are transcript outcomes, not steps in the agent's work.
+      // Give each card its own virtual row so the turn disclosure cannot
+      // enclose it, even when it arrives between tool calls and an answer.
+      open(item, itemKey(item))
+      continue
+    }
     if (item.kind === 'user' || isDivider(item)) {
       open(item, itemKey(item))
       continue
     }
-    if (turns.length === 0) open(null, `turn-head-${itemKey(item)}`)
+    if (turns.length === 0 || turns[turns.length - 1].lead?.kind === 'task') {
+      open(null, `turn-head-${itemKey(item)}`)
+    }
     bodies[bodies.length - 1].push(item)
   }
 
@@ -374,7 +398,7 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
       if (echoesEnd(item, turn.end)) continue
       if (j < cut) {
         turn.body.push(item)
-        if (COLLAPSE_EXCLUDED_KINDS.has(item.kind)) {
+        if (COLLAPSE_EXCLUDED_KINDS.has(item.kind) || hasRunningSubagent(item)) {
           turn.visibleWhenCollapsed.push(item)
         }
       } else {
@@ -382,10 +406,10 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
       }
     }
 
-    // A turn opens on a user message or a divider; both carry their own clock.
+    // A turn or standalone card lead carries its own clock.
     const lead = turn.lead
     turn.startedAt =
-      lead && (lead.kind === 'user' || lead.kind === 'system')
+      lead && (lead.kind === 'user' || lead.kind === 'system' || lead.kind === 'task')
         ? lead.message.timestamp
         : firstTimestamp(body)
   }

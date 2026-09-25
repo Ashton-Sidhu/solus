@@ -98,7 +98,7 @@
   {/if}
   <SettingsRow
     label="Download updates automatically"
-    description="Fetch a new version as soon as it is found. You still choose when to restart."
+    description="Download updates when found. You choose when to restart."
     visible={updatesStore.isAvailable}
   >
     {#snippet control()}

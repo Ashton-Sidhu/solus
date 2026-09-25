@@ -12,7 +12,7 @@
     Users as UsersIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext, sharesStore } from "../../contexts";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -75,6 +75,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
 
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
@@ -188,7 +189,7 @@
     onClose();
     if (!targetTabId) return;
     if (onCloseTab) onCloseTab(targetTabId);
-    else session.closeTab(targetTabId);
+    else sidebarStore.closeTabs([targetTabId]);
   }
 
   /** Sharing needs the session's host, which only an open tab names, and that host linked to Solus cloud. */

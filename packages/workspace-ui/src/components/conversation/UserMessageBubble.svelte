@@ -17,11 +17,16 @@
     FileCode as FileCodeIcon,
     File as FileIcon,
     Zap as LightningIcon,
+    Eye as EyeIcon,
+    SquareTerminal as TerminalIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { hostImageSources } from "./lib/host-image-src.svelte";
+  import { getMarkdownImageContext } from "./lib/markdown-image";
+  import { HostVideoPlayer } from "../ui/video-player";
+  import { isVideoAttachment, videoAttachmentPath } from "../../lib/video-attachment";
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";
@@ -63,7 +68,11 @@
 
   const text = $derived(content ?? message?.content ?? "");
   const isPending = $derived(deliveryState !== 'sent');
-  const isAutomation = $derived(message?.via === "automation");
+  // Sent by the host's own work, not a person: an automation, a watch wake, or
+  // a background command that finished after the agent's turn.
+  const isHostSent = $derived(
+    message?.via === "automation" || message?.via === "watch" || message?.via === "background-command",
+  );
   const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove));
   const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
   // The wait is only worth stating on the bubble that actually served it.
@@ -158,9 +167,15 @@
       (a) => a.type !== 'design-selection' && (a.dataUrl || a.hostPath) && a.type !== 'file',
     ) ?? [],
   );
+  // A video plays in place. It is a `file`, so it is held out of the file row.
+  const videoAttachments = $derived(
+    allAttachments?.filter((a) => isVideoAttachment(a) && !!videoAttachmentPath(a)) ?? [],
+  );
   const fileAttachments = $derived(
     allAttachments?.filter(
-      (a) => a.type !== 'design-selection' && (!(a.dataUrl || a.hostPath) || a.type === 'file'),
+      (a) => a.type !== 'design-selection'
+        && (!(a.dataUrl || a.hostPath) || a.type === 'file')
+        && !videoAttachments.includes(a),
     ) ?? [],
   );
   const imageServerId = $derived(
@@ -190,6 +205,18 @@
     return state.status === 'ready' ? state.url : null;
   }
   let browserSrc = $state<string | null>(null);
+  // The transcript knows whether this client can read the host's disk itself.
+  const markdownContext = getMarkdownImageContext();
+  function videoRequest(attachment: NonNullable<Message['attachments']>[number]) {
+    const path = videoAttachmentPath(attachment);
+    if (!path) return null;
+    return {
+      serverId: imageHost(attachment),
+      path,
+      ctx: session?.ctxFor(attachmentTabId),
+      canReadLocalFiles: markdownContext ? !markdownContext.isWeb() : false,
+    };
+  }
 
   const FILE_ICON_COMPONENTS = {
     'image/png': ImageIcon,
@@ -251,6 +278,18 @@
     </div>
   {/if}
 
+  {#if videoAttachments.length > 0}
+    <div class="flex w-full flex-col items-end gap-1.5">
+      {#each videoAttachments as a (a.id)}
+        <HostVideoPlayer
+          request={videoRequest(a)}
+          label={a.name}
+          class="w-[min(24rem,85%)]"
+        />
+      {/each}
+    </div>
+  {/if}
+
   {#if fileAttachments.length > 0}
     <div class="flex gap-1.5 flex-wrap justify-end" style="max-width:85%">
       {#each fileAttachments as a, i (i)}
@@ -293,11 +332,11 @@
  ? 'min-w-[8.5rem] pointer-fine:[.is-laptop-display_&]:min-w-[7.5rem]'
  : 'min-w-0'} {isPending
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:py-1.5 pointer-fine:[.is-laptop-display_&]:pr-2.5 pointer-fine:[.is-laptop-display_&]:pl-2'
- : isAutomation
+ : isHostSent
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 pt-2.5 pb-2.5'}"
       >
-        {#if !isAutomation}
+        {#if !isHostSent}
           <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->
           <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
         {/if}
@@ -307,7 +346,19 @@
             {ordinal}
           </span>
         {/if}
-        {#if isAutomation}
+        {#if message?.via === "watch" || message?.via === "background-command"}
+          <!-- Required origin label, as for an automation below. What woke the
+               agent is already in the transcript, so this is not a link. -->
+          <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
+            {#if message.via === "watch"}
+              <EyeIcon size={9} />
+              <span>Watch</span>
+            {:else}
+              <TerminalIcon size={9} />
+              <span>Background command</span>
+            {/if}
+          </span>
+        {:else if isHostSent}
           <!-- Required origin label: the only thing separating an agent-sent
                message from a person's is this line plus the missing fill. -->
           <button

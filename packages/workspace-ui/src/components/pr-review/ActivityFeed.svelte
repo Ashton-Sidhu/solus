@@ -528,12 +528,17 @@
     }
   }
 
-  async function removeReviewer(login: string): Promise<void> {
+  async function removeReviewer(reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<void> {
     if (reviewerMutation) return;
-    reviewerMutation = login;
+    reviewerMutation = kind === 'team' ? `team:${reviewerId}` : reviewerId;
     try {
-      reviewers = await pullRequest(pr.number).removeRequestedReviewer(login);
-      toasts.success(`Removed ${login} from requested reviewers`);
+      reviewers = await pullRequest(pr.number).removeRequestedReviewer(reviewerId, kind);
+      if (kind === 'team') {
+        reviewerCandidates = reviewerCandidates.filter((candidate) =>
+          candidate.kind !== 'team' || candidate.slug !== reviewerId,
+        );
+      }
+      toasts.success(`Removed ${reviewerId} from requested reviewers`);
     } catch (error) {
       toasts.error("Couldn't remove the reviewer", {
         description: error instanceof Error ? error.message : String(error),
@@ -923,7 +928,7 @@
             {/if}
           </div>
 
-          <!-- The facts about the change — branch, files, churn — as captioned
+          <!-- The facts about the change — branch and churn — as captioned
                rows under the author. Reviewers, checks, and the file list are
                the rail's while it has a column; once it folds, the reviewers
                lead this list instead of sitting in a folded section below. -->
@@ -932,7 +937,6 @@
               leading={detail ? leadingFacts : undefined}
               {headBranch}
               {baseRef}
-              fileCount={changedFiles.length}
               {filesLoading}
               additions={diffStat.additions}
               deletions={diffStat.deletions}
@@ -940,13 +944,13 @@
           </div>
 
           <!-- The rail's inline home. With no column beside the conversation,
-               the status card and the reference sections sit here, under the
-               facts and above the description, so the state of the pull
-               request and the move that changes it are still in the first
-               screen rather than past every comment on it. -->
+               the status card sits here, under the facts and above the
+               description, so the state of the pull request and the move that
+               changes it are still in the first screen rather than past every
+               comment on it. Checks and changed files follow the description. -->
           {#if railFolded}
             <div class="mt-5">
-              {@render railPanel("inline")}
+              {@render railPanel("inline", "status")}
             </div>
           {/if}
         </header>
@@ -1022,12 +1026,18 @@
           </section>
         {/if}
 
+        {#if railFolded}
+          <div class="mt-8">
+            {@render railPanel("inline", "sections")}
+          </div>
+        {/if}
+
         <!-- Activity timeline: an editorial rail — no cards; a continuous
              hairline spine with icon nodes, content set directly on the canvas
              with airy spacing. Commits, review threads, and the durable
              conversation interleave by time (see buildActivityTimeline); the
              opened event always leads. -->
-        <div class="mt-10 mb-4 flex items-center gap-2">
+        <div class="{railFolded ? 'mt-6' : 'mt-10'} mb-4 flex items-center gap-2">
           <h2
             class="text-xs font-medium st text-muted-foreground uppercase"
           >
@@ -1185,9 +1195,13 @@
 <!-- One definition, two homes: a column beside the conversation where there is
      room for one, and a block under the title where there is not. Rendering it
      twice would be twenty props kept in step by hand. -->
-{#snippet railPanel(variant: "column" | "inline")}
+{#snippet railPanel(
+  variant: "column" | "inline",
+  part: "all" | "status" | "sections" = "all",
+)}
   <PrActivityRail
     {variant}
+    {part}
     {detail}
     {reviewers}
     {reviewersLoading}

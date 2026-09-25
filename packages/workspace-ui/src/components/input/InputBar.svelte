@@ -14,6 +14,7 @@
     getSettingsContext,
     getAgentContext,
     getVoiceModelStore,
+    getClientShellContext,
     presenceStore,
     runtime,
   } from "../../contexts";
@@ -64,6 +65,7 @@
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { useComposerFold } from "./lib/composer-fold.svelte";
 
   import type { Snippet } from "svelte";
@@ -267,6 +269,16 @@
   const composerServerId = $derived(
     run?.serverId ?? serverConnections.defaultServerId(),
   );
+  const clientShell = getClientShellContext();
+  // The host a video chip plays from, addressed by this composer's own source,
+  // as its uploads are.
+  const attachmentHost = $derived({
+    serverId: composerServerId ?? LOCAL_SERVER_ID,
+    ctx: (targetTabId ?? draftId)
+      ? session.ctxFor((targetTabId ?? draftId)!)
+      : session.ctxForDirectory(composerCwd),
+    canReadLocalFiles: clientShell.supportsLocalAttachments,
+  });
 
   // ─── Editor state ───
 
@@ -656,6 +668,7 @@
       <AttachmentChips
         {attachments}
         tabId={targetTabId}
+        host={attachmentHost}
         onRemove={(id) => {
           const index = attachments.findIndex((a) => a.id === id);
           if (index !== -1) attachments.splice(index, 1);

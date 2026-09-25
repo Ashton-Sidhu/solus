@@ -38,6 +38,7 @@ export const GITHUB_UPLOADABLE_ASSETS = new Map<string, UploadableAssetType>([
   ['svg', { contentType: 'image/svg+xml', maxBytes: 10 * MEGABYTE, kind: 'image' }],
   ['mp4', { contentType: 'video/mp4', maxBytes: 100 * MEGABYTE, kind: 'video' }],
   ['mov', { contentType: 'video/quicktime', maxBytes: 100 * MEGABYTE, kind: 'video' }],
+  ['webm', { contentType: 'video/webm', maxBytes: 100 * MEGABYTE, kind: 'video' }],
 ])
 
 /** Repository permissions the endpoint accepts. READ and TRIAGE get a 404. */
@@ -48,6 +49,7 @@ export type GithubAssetUploadReason =
   | 'rejected-file'
   | 'unsupported-file'
   | 'unsupported-token'
+  | 'rate-limited'
   | 'transport'
 
 export class GithubAssetUploadError extends Error {
@@ -191,8 +193,27 @@ async function uploadFailure(response: Response): Promise<GithubAssetUploadError
       // status alone points at the wrong problem.
       return new GithubAssetUploadError('permission', 'Attaching files needs write access to the repository.')
     case 422:
+      // The plan limit lives here: GitHub's text is the only place that says it.
       return new GithubAssetUploadError('rejected-file', `GitHub rejected the attachment. ${detail}`.trim())
+    case 429: {
+      const retryAfter = retryAfterSeconds(response.headers.get('retry-after'))
+      return new GithubAssetUploadError(
+        'rate-limited',
+        retryAfter === null
+          ? 'GitHub rate limited the upload; retry later.'
+          : `GitHub rate limited the upload; retry after ${retryAfter} seconds.`,
+      )
+    }
     default:
       return new GithubAssetUploadError('transport', `GitHub refused the upload with status ${response.status}. ${detail}`.trim())
   }
+}
+
+/** `Retry-After` is either delta-seconds or an HTTP date. */
+function retryAfterSeconds(header: string | null): number | null {
+  if (!header) return null
+  if (/^\d+$/.test(header.trim())) return Number(header.trim())
+  const date = Date.parse(header)
+  if (Number.isNaN(date)) return null
+  return Math.max(0, Math.ceil((date - Date.now()) / 1000))
 }

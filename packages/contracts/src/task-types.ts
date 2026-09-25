@@ -6,9 +6,6 @@ import type { AgentId, WorkType } from './types'
 
 export type TaskProviderId = 'github' | 'jira' | 'local'
 
-/** `'epic'` = a parent that groups child tasks; `'task'` = a unit of work. */
-export type TaskKind = 'task' | 'epic'
-
 /** The one task lifecycle, shared by local tasks and upstream tickets. Upstream
  * providers normalize their states into this vocabulary at their own boundary
  * (e.g. an open GitHub issue reads as `todo`). */
@@ -57,6 +54,21 @@ export interface NormalizedTaskComment {
   createdAt: number
 }
 
+/**
+ * The upstream epic (a Jira parent, a GitHub parent issue) a ticket belongs to,
+ * as a snapshot taken on each read. Solus shows it and gives its description to
+ * the agent; it never creates, moves, or closes one, and never writes this link
+ * upstream. The epic need not be a Solus task.
+ */
+export interface TaskEpic {
+  provider: Exclude<TaskProviderId, 'local'>
+  externalId: string
+  url: string
+  title: string
+  /** The epic's description, as the provider renders it. Injected into the task packet. */
+  body: string
+}
+
 export interface NormalizedTicket extends ExternalTicketRef {
   title: string
   body: string
@@ -73,6 +85,9 @@ export interface NormalizedTicket extends ExternalTicketRef {
   comments: NormalizedTaskComment[]
   snapshot?: unknown
   priorityHint?: TaskPriority
+  /** Null when the ticket has no epic; undefined when this read cannot tell
+   *  (a list read that does not carry the parent). */
+  epic?: TaskEpic | null
 }
 
 export interface TicketPatch {
@@ -170,7 +185,6 @@ export interface Task {
   shortId?: number
   /** Null/undefined means the global inbox. */
   projectKey?: string | null
-  kind: TaskKind
   title: string
   titleSource?: TaskTitleSource
   /** Markdown description. */
@@ -185,10 +199,8 @@ export interface Task {
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
   labels: string[]
-  /** The epic this task belongs to, if any. */
-  parentId?: string
-  /** Optional provider-supplied child ids for hydrated epics. The UI groups by parentId. */
-  childIds?: string[]
+  /** The upstream epic this ticket belongs to. Set only from a provider read. */
+  epic?: TaskEpic
   /** Due date as an ISO calendar day (`YYYY-MM-DD`); drives sorting + overdue cues. */
   dueDate?: string
   /** Priority; drives the "what's next" sort and the priority badge. */
@@ -216,17 +228,14 @@ export interface Task {
 export interface TaskListFilter {
   projectKey?: string | null
   status?: TaskStatus | TaskStatus[]
-  parentId?: string | null
   scope?: 'all' | 'inbox' | 'project' | 'up_next'
 }
 
 export interface TaskCreateInput {
   title: string
   projectKey?: string | null
-  parentId?: string | null
   body?: string
   status?: TaskStatus
-  kind?: TaskKind
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -238,11 +247,9 @@ export interface TaskCreateInput {
 
 export interface TaskUpdatePatch {
   projectKey?: string | null
-  parentId?: string | null
   title?: string
   body?: string
   status?: TaskStatus
-  kind?: TaskKind
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -349,7 +356,6 @@ export type TaskEventKind =
   | 'assignee_changed'
   | 'due_date_changed'
   | 'title_changed'
-  | 'parent_changed'
   | 'labels_changed'
   | 'linked'
   | 'unlinked'
@@ -380,7 +386,6 @@ export interface TaskEvent {
  * surfaces that would render it are the ones that overwrite it. */
 export interface TaskDetails {
   task: Task
-  subtasks: Task[]
   comments: TaskComment[]
   links: TaskLink[]
   /** Newest-last, capped at `TASK_EVENT_LIMIT`. Merge with `comments` by
@@ -392,9 +397,6 @@ export interface TaskDetails {
 
 export interface TaskForSessionResult {
   task: Task
-  parent: Task | null
-  subtasks: Task[]
-  siblings: Task[]
   attempts: TaskSessionLink[]
 }
 
@@ -412,8 +414,6 @@ export interface TaskForSessionResult {
 export interface PrepareSessionTaskRequest {
   /** Bind this task instead of minting a new one. */
   existingTaskId?: string | null
-  /** Mint the new task as a direct child of this one. */
-  parentTaskId?: string | null
   /**
    * The id to mint the new task under: a ULID the client minted when it made
    * the session, so the row it already shows keeps its identity when the task
@@ -464,7 +464,6 @@ export interface TaskLinkedItemSnapshot {
  */
 export interface TaskSnapshot {
   details: TaskDetails
-  parent: TaskDetails | null
   sessions: TaskSessionLink[]
   /** Full content of the task's content-bearing linked items (works, plans),
    *  so the dispatched agent can read the documents its task points at.
@@ -611,6 +610,8 @@ export interface TaskSessionLink {
   role?: TaskSessionRole
   /** Session-owned checkout branch, projected through the relationship. */
   branch?: string
+  /** Checkout address on executionServerId (or the task host), when indexed. */
+  checkoutPath?: string
   /** Whether that branch is the session's own worktree rather than a clone it
    *  shares. Git state is held per working directory, so every attempt running
    *  in one checkout reports the same branch — a fact about the checkout, not

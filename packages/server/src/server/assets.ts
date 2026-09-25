@@ -1,5 +1,5 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { createHash, randomBytes } from 'crypto'
+import { createReadStream, existsSync } from 'fs'
 import { mkdir, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, extname, isAbsolute, join, resolve } from 'path'
 import { Readable } from 'stream'
@@ -14,12 +14,14 @@ import {
   type AssetUploadResult,
 } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
+import { VIDEO_FILE_EXTENSIONS, videoMimeType } from '@solus/contracts/video'
 import { dataDir } from '../platform/paths'
 import { ASSET_ID, storedAssetPath } from './asset-paths'
 import { parseByteRange } from './byte-range'
 import { resolvePreviewPath } from './handlers/lib/file-preview'
 import { uploadBucketId, uploadFolderName } from './handlers/attachment-handlers'
 import { isInsideRoot } from '../paths'
+import { getAssetSigningSecret, readSignedToken, signToken } from './signed-token'
 
 export const ASSET_URL_TTL_MS = 60 * 60 * 1000
 /** Bounds the file-system work one `assetFindUrl` request can ask for. */
@@ -49,6 +51,7 @@ export const ASSET_MIME_TYPES = new Map([
   ['.webp', 'image/webp'],
   ['.svg', 'image/svg+xml'],
   ['.pdf', 'application/pdf'],
+  ...VIDEO_FILE_EXTENSIONS.map((extension) => [`.${extension}`, videoMimeType({ name: `video.${extension}` })!] as const),
 ])
 
 interface AssetTokenPayload {
@@ -65,62 +68,12 @@ const assetTokenPayloadSchema = z
   })
   .strict()
 
-let cachedSecret: { path: string; value: Buffer } | null = null
-
-/** One random asset-capability secret per host data directory. */
-export function getAssetSigningSecret(): Buffer {
-  const stateDir = join(dataDir(), 'state')
-  const secretPath = join(stateDir, 'asset-signing-secret')
-  if (cachedSecret?.path === secretPath) return cachedSecret.value
-  mkdirSync(stateDir, { recursive: true })
-
-  let value: Buffer
-  if (existsSync(secretPath)) {
-    value = Buffer.from(readFileSync(secretPath, 'utf8').trim(), 'hex')
-  } else {
-    value = randomBytes(32)
-    try {
-      writeFileSync(secretPath, value.toString('hex'), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
-      value = Buffer.from(readFileSync(secretPath, 'utf8').trim(), 'hex')
-    }
-  }
-  if (value.length !== 32) throw new Error('The host asset signing secret is invalid.')
-  cachedSecret = { path: secretPath, value }
-  return value
-}
-
-export function mintAssetToken(payload: AssetTokenPayload, secret: Buffer): string {
-  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const signature = createHmac('sha256', secret).update(encoded).digest('base64url')
-  return `${encoded}.${signature}`
-}
-
 export function verifyAssetToken(token: string, secret: Buffer, now = Date.now()): AssetTokenPayload | null {
-  const separator = token.lastIndexOf('.')
-  if (separator <= 0 || separator === token.length - 1) return null
-  const encoded = token.slice(0, separator)
-  const signature = token.slice(separator + 1)
-  const expected = createHmac('sha256', secret).update(encoded).digest()
-  let received: Buffer
-  try {
-    received = Buffer.from(signature, 'base64url')
-  } catch {
-    return null
-  }
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null
-
-  try {
-    const result = assetTokenPayloadSchema.safeParse(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')))
-    if (!result.success) return null
-    const payload = result.data
-    if (!isAbsolute(payload.path) || payload.expiresAt <= now) return null
-    if (!ASSET_ID.test(basename(payload.path)) && !ASSET_MIME_TYPES.has(extname(payload.path).toLowerCase())) return null
-    return payload
-  } catch {
-    return null
-  }
+  const payload = readSignedToken(token, secret, assetTokenPayloadSchema)
+  if (!payload) return null
+  if (!isAbsolute(payload.path) || payload.expiresAt <= now) return null
+  if (!ASSET_ID.test(basename(payload.path)) && !ASSET_MIME_TYPES.has(extname(payload.path).toLowerCase())) return null
+  return payload
 }
 
 function rawAllowedRoots(ctx: IpcContext | undefined): string[] {
@@ -181,9 +134,22 @@ export async function writeAssetUpload(
   request: AssetUploadRequest,
   options: { assetsDir?: string } = {},
 ): Promise<AssetUploadResult> {
-  const bytes = decodeUploadedAsset(request)
-  const extension = assetExtension(request)
+  const stored = await writeAssetBytes(decodeUploadedAsset(request), assetExtension(request), options)
+  return { ...stored, mime: request.mime }
+}
+
+/**
+ * Store bytes the host produced itself (a browser recording) under their
+ * content address. The caller vouches for the bytes, so the extension decides
+ * how the asset is served: `mp4` plays inline, an unknown one downloads.
+ */
+export async function writeAssetBytes(
+  bytes: Buffer,
+  extension: string,
+  options: { assetsDir?: string } = {},
+): Promise<AssetUploadResult> {
   const id = `${createHash('sha256').update(bytes).digest('hex')}.${extension}`
+  if (!ASSET_ID.test(id)) throw new Error('The asset extension is invalid.')
   const root = options.assetsDir ?? join(dataDir(), 'assets')
   const target = join(root, id)
   await mkdir(root, { recursive: true })
@@ -202,7 +168,8 @@ export async function writeAssetUpload(
       await unlink(temporary).catch(() => {})
     }
   }
-  return { id, uri: `asset://${id}`, mime: request.mime, size: bytes.length }
+  const mime = ASSET_MIME_TYPES.get(`.${extension}`) ?? 'application/octet-stream'
+  return { id, uri: `asset://${id}`, mime, size: bytes.length }
 }
 
 /** Canonicalize a requested artifact and confine it to this session's checkout. */
@@ -245,10 +212,8 @@ export async function createAssetUrl(
 
   const now = options.now ?? Date.now()
   const expiresAt = now + (options.ttlMs ?? ASSET_URL_TTL_MS)
-  const token = mintAssetToken(
-    { path: target, expiresAt, downloadName: assetId ? request.name : undefined },
-    options.secret ?? getAssetSigningSecret(),
-  )
+  const payload: AssetTokenPayload = { path: target, expiresAt, downloadName: assetId ? request.name : undefined }
+  const token = signToken(payload, options.secret ?? getAssetSigningSecret())
   return { relativeUrl: `/api/assets/${token}`, expiresAt }
 }
 
@@ -291,7 +256,9 @@ export async function serveAssetToken(
   const isStoredAsset = ASSET_ID.test(basename(payload.path))
   const mime = ASSET_MIME_TYPES.get(extension) ?? 'application/octet-stream'
   if (!isStoredAsset && !ASSET_MIME_TYPES.has(extension)) return new Response('Unsupported type', { status: 415 })
-  const isInlineImage = isStoredAsset && RASTER_MIME_BY_EXTENSION.has(extension.slice(1))
+  // A stored video plays in place like a stored image shows. Every other stored
+  // asset downloads, because its bytes were never checked against its type.
+  const isInline = isStoredAsset && (RASTER_MIME_BY_EXTENSION.has(extension.slice(1)) || mime.startsWith('video/'))
 
   const range = parseByteRange(request.range, fileStat.size)
   if (request.range && !range) {
@@ -306,10 +273,12 @@ export async function serveAssetToken(
     'Content-Type': mime,
     'Content-Length': String(range ? end - start + 1 : fileStat.size),
     'Accept-Ranges': 'bytes',
-    'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
+    // `media-src 'self'`: a video opened on its own is a media document that
+    // loads this same URL.
+    'Content-Security-Policy': "default-src 'none'; img-src data: *; media-src 'self' *; style-src 'unsafe-inline'",
     'X-Content-Type-Options': 'nosniff',
   }
-  if (isStoredAsset && !isInlineImage) {
+  if (isStoredAsset && !isInline) {
     const safeName = (payload.downloadName || basename(payload.path)).replace(/["\\\r\n]/g, '_')
     Object.assign(headers, { 'Content-Disposition': `attachment; filename="${safeName}"` })
   }

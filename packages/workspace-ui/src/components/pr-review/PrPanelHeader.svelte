@@ -52,7 +52,7 @@
     number: number;
     /** Which view is showing. The overflow's contents follow it; the band's
      *  slots do not. */
-    tab: "activity" | "map" | "guide" | "diff";
+    tab: "activity" | "map" | "guide" | "lens" | "diff";
     fullScreen: boolean;
     /** Absent when the surface is too narrow to hold a split at all — there is
      *  no smaller state to go back to, so the control is not offered. */

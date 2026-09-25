@@ -403,6 +403,29 @@ DELETE FROM transcript_mirror_rows;
   `
 DROP TABLE project_config;
 `,
+
+  // Watches (docs/plans/watches.md) wait on the host and then wake one session.
+  // They replace session-bound automations, whose rows and runs are removed.
+  `
+CREATE TABLE watches (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  next_run_at INTEGER,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX watches_by_session ON watches(session_id, created_at DESC);
+CREATE INDEX watches_due ON watches(status, next_run_at);
+DELETE FROM automation_runs WHERE automation_id IN (
+  SELECT id FROM automations WHERE json_extract(action, '$.sessionId') IS NOT NULL
+);
+DELETE FROM automations WHERE json_extract(action, '$.sessionId') IS NOT NULL;
+UPDATE automation_runs SET status = 'succeeded' WHERE status = 'dispatched';
+UPDATE automations SET last_run = json_set(last_run, '$.lastRunStatus', 'succeeded')
+  WHERE json_extract(last_run, '$.lastRunStatus') = 'dispatched';
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

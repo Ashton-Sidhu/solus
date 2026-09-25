@@ -423,6 +423,8 @@
               <div class="absolute inset-0" class:hidden={currentEntry?.prNumber !== entry.prNumber}>
                 {#if prepared.has(entry.prNumber)}
                   {@const ready = prepared.get(entry.prNumber)!}
+                  <!-- Review Mode is a triage queue: like Map, the lens stays on
+                       the full review surface and has no key here. -->
                   <PrReviewPane
                     pr={ready.pr}
                     api={reviewApi}
@@ -430,7 +432,9 @@
                     target={ready.pr}
                     targetCtx={postingContext ?? session.ctx}
                     activeTab={views.get(entry.prNumber) ?? "guide"}
-                    onActiveTabChange={(view) => views.set(entry.prNumber, view)}
+                    onActiveTabChange={(view) => {
+                      if (view !== "lens") views.set(entry.prNumber, view);
+                    }}
                     onUnresolvedCountChange={(count) => unresolvedByPr.set(entry.prNumber, count)}
                     headless
                   />
