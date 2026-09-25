@@ -324,17 +324,22 @@ Each step ships alone and leaves the tree green.
    host, `defaultStartProject` treating it as down, the Git and saved-prompt
    reads skipping it, `markDirectoryAnswered`, and
    `reconcileMachineReferences` (§6). *Fixes `Unknown Solus server`.*
-3. **Boot in two steps** (client). Workspace first, machines second;
+3. **Split the primary reads** (client). `serverConnections.workspaceServerId()`
+   for collaboration; every `defaultServerId()` and `fallbackServerId` read
+   (§5.4) moves to it or to `defaultMachineId()`. This comes before boot: while
+   records are reached through "the primary", making a machine the primary
+   would move record reads (works, tasks, automations) off the workspace
+   service.
+4. **Boot in two steps** (client). Workspace first, machines second;
    `registerPrimary` and `activeServerId` stop naming the workspace.
-4. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field
+5. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field
    beside the old rows; the client reads `workspaces` when present and the
    `kind: 'cloud'` rows otherwise.
-5. **Drop the cloud rows** (solus-cloud) once clients from step 4 are the
+6. **Drop the cloud rows** (solus-cloud) once clients from step 5 are the
    oldest supported. Remove `kind: 'cloud'`, `isActiveWorkspace`,
    `isCloudServer`, `cloudConnections`, and `savedCloudServerIds`.
-6. **Typed plane APIs** (client). `CollaborationApi`/`ExecutionApi`; move the
-   remaining primary reads (§5.4) and delete `defaultServerId`,
-   `fallbackServerId`, and `defaultHostApi`.
+7. **Typed plane APIs** (client). `CollaborationApi`/`ExecutionApi`; delete
+   `defaultServerId`, `fallbackServerId`, and `defaultHostApi`.
 
 ## 9. Proofs
 
