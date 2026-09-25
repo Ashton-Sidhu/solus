@@ -63,13 +63,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   use:portal={mountIn}
-  class="pointer-events-auto fixed inset-0 z-[210] bg-black/45"
+  class="no-drag pointer-events-auto fixed inset-0 z-[210] bg-black/45"
   onclick={onClose}
 ></div>
 
 <div
   use:portal={mountIn}
-  class="bottom-sheet text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[211] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
+  class="bottom-sheet no-drag text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[211] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
   role="dialog"
   aria-modal="true"
   aria-label={label}
