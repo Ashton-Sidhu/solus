@@ -27,7 +27,8 @@ export async function openScratchpadDraft(workspace: JustChatWorkspace, via: Via
     {
       atCloudOrigin: cloudAccount() !== null,
       lastChatServerId: workspace.settings.lastChatServerId,
-      defaultServerId: serverConnections.defaultServerId(),
+      // A chat runs on a machine: the window's own host is the workspace service at the account origin.
+      defaultServerId: serverConnections.defaultMachineId(),
     },
   )
   if (!serverId) {
