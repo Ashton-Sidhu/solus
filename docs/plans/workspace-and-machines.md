@@ -1,6 +1,6 @@
 # Record homes and machines — separating where records live from where work runs
 
-Status: steps 1–3 implemented on `refactor/record-homes-and-machines` (2026-09-24); steps 4–6 open.
+Status: steps 1–4 implemented (2026-09-24): Solus `refactor/record-homes-and-machines`, solus-cloud `feat/directory-workspaces`. Step 5 waits on rollout; step 6 is deferred.
 
 ## 1. Why
 
@@ -329,12 +329,19 @@ Each step ships alone and leaves the tree green.
    (§5.1). Steps 1–3 are on `refactor/record-homes-and-machines`.
 4. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field
    beside the old rows; the client reads `workspaces` when present and the
-   `kind: 'cloud'` rows otherwise.
+   `kind: 'cloud'` rows otherwise (`directoryHostsOf`). Done: the contract and
+   client on the Solus branch, the route on solus-cloud
+   `feat/directory-workspaces`. The Solus side ships first: the control plane's
+   contract copy must match Solus `main` (`src/lib/shared/uplink.test.ts`).
 5. **Drop the cloud rows** (solus-cloud) once clients from step 4 are the
    oldest supported. Remove `kind: 'cloud'`, `isActiveWorkspace`,
-   `isCloudServer`, `cloudConnections`, and `savedCloudServerIds`.
-6. **Typed plane APIs** (client). `CollaborationApi`/`ExecutionApi`, so a
-   machine call on the workspace service does not compile.
+   `isCloudServer`, `cloudConnections`, and `savedCloudServerIds`. Waits on that
+   rollout.
+6. **Typed plane APIs** (client). Deferred (2026-09-24). `apiFor(serverId)`
+   takes ids that are only known at run time, so a type split protects nothing
+   unless every record read moves to a separate accessor — a wide API change for
+   a guard that steps 1–3 already give at each call site. Revisit if a machine
+   call on the workspace service reappears.
 
 ## 9. Proofs
 
@@ -349,7 +356,7 @@ Each step ships alone and leaves the tree green.
   and a work, and the composer says "Choose a machine".
 - Lab: deleting the organization's managed host while a client is open moves
   its drafts and leaves its started tabs read-only.
-- Type (step 6): `start()` on the workspace service's API does not compile (a `@ts-expect-error` test).
+- Unit (`tests/unit/directory-workspaces.test.ts`, solus-cloud `hosts.test.ts`): both directory forms give the same saved rows; a malformed `workspaces` reads as absent.
 
 ## 10. Decisions
 
