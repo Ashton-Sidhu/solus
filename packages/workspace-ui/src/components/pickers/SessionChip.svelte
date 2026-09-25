@@ -66,6 +66,9 @@
      *  session may: Auto routes a first prompt, so nothing already running can
      *  take it. */
     allowAuto?: boolean;
+    /** Show the fast-mode switch. A host that cannot send fast mode with its
+     *  run turns it off, so the switch never promises what the run ignores. */
+    allowFastMode?: boolean;
     /** Host-scoped metadata can differ from the active workspace host. */
     agents?: AgentMetadata[];
     /** The host whose TypeSafe key decides whether Auto can run. Defaults to
@@ -89,6 +92,7 @@
     menuSide = "top",
     modelOnly = false,
     allowAuto = false,
+    allowFastMode = true,
     agents,
     serverId,
     disabled = false,
@@ -498,11 +502,8 @@
     align="end"
     sideOffset={6}
     class={cn(
-      // `text-menu`, not the chrome rung. A menu is a decision surface: every
-      // other menu in the app holds 14px on a laptop, and the chrome rung steps
-      // to 12px there. Pinning it here — and restating it over every `.menu-row`
-      // — made the model picker the one menu that shrank on a laptop display,
-      // a rung below the rows of the very menus it sits beside.
+      // `text-menu`, not the chrome rung. A menu is a decision surface, and
+      // every other menu in the app takes `text-menu` too.
       "overflow-visible p-0 text-menu",
       // Capped to the window, per WP5: anchored in a 356px pane a 452px menu is
       // wider than the pane it drops out of. The cap is honest in any container
@@ -653,8 +654,8 @@
           </DropdownMenu.RadioGroup>
           <div class="min-h-2 flex-1"></div>
           <DropdownMenu.Separator />
-          {#if isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId)}
-            <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary) pointer-fine:[.is-laptop-display_&]:h-7 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-2">
+          {#if allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId)}
+            <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary)">
               <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
               <Switch
                 size="sm"

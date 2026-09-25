@@ -137,7 +137,7 @@ function taskFromTicket(ticket: NormalizedTicket, projectKey: string): Task {
     id: ticket.externalId,
     providerId: ticket.provider,
     projectKey,
-    kind: 'task',
+    ...(ticket.epic ? { epic: ticket.epic } : {}),
     title: ticket.title,
     body: ticket.body,
     status: ticket.status,

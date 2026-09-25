@@ -110,6 +110,7 @@ function normalizeTask(task: Task, ref: ExternalTicketRef): NormalizedTicket {
     comments: commentsFromTask(task),
     snapshot: task.raw ?? task,
     priorityHint: task.priority,
+    epic: task.epic ?? null,
   }
 }
 
@@ -322,7 +323,6 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     const tasks: Task[] = response.data.items.map((issue) => ({
       id: String(issue.number),
       providerId: 'github',
-      kind: 'task',
       title: issue.title,
       body: issue.body ?? '',
       status: issue.state === 'closed'

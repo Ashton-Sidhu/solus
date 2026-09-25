@@ -5,6 +5,7 @@ import type {
   NormalizedTicket,
   TaskCandidateOptions,
   Task,
+  TaskEpic,
   TaskStatus,
   TaskSyncField,
   TicketPatch,
@@ -16,6 +17,7 @@ import {
   changedSearchSchema,
   commentSchema,
   createdIssueSchema,
+  epicIssueSchema,
   escapeJql,
   ISSUE_FIELDS,
   issueSchema,
@@ -40,6 +42,9 @@ import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { storedAssetPath } from '../../server/asset-paths'
 import type { TaskSyncAdapter } from './types'
+import { createLogger } from '../../logger'
+
+const log = createLogger('main', 'jira-task-adapter')
 
 /**
  * The Jira half of the one Atlassian connection.
@@ -171,7 +176,49 @@ export class JiraTaskSyncAdapter implements TaskSyncAdapter {
       },
       issueSchema,
     )
-    return this.normalize(issue, ref, ref.url || await this.ticketUrl(ref, issue.key))
+    const url = ref.url || await this.ticketUrl(ref, issue.key)
+    return { ...this.normalize(issue, ref, url), epic: await this.readEpic(ref, issue) }
+  }
+
+  /**
+   * The issue's parent as its epic, with the description the agent reads. The
+   * issue payload carries only the parent's key and summary, so the
+   * description is one more read. Jira Cloud reports an epic through `parent`
+   * for every project type, so the retired Epic Link field is not read.
+   */
+  private async readEpic(ref: ExternalTicketRef, issue: JiraIssue): Promise<TaskEpic | null> {
+    const parent = issue.fields.parent
+    if (!parent) return null
+    const url = await this.ticketUrl(ref, parent.key)
+    const summary = parent.fields?.summary ?? parent.key
+    try {
+      const epic = await atlassianRequest(
+        {
+          product: 'jira',
+          cloudId: scopeFor(ref.externalKey).cloudId,
+          path: `/rest/api/3/issue/${encodeURIComponent(parent.key)}`,
+          query: { fields: 'summary,description' },
+          failure: taskSyncFailure,
+        },
+        epicIssueSchema,
+      )
+      return {
+        provider: 'jira',
+        externalId: parent.key,
+        url,
+        title: epic.fields.summary ?? summary,
+        body: adfToMarkdown(epic.fields.description),
+      }
+    } catch (error) {
+      // An epic the user cannot read must not fail the sync of an issue they
+      // can. The row still names it; only the description is missing.
+      log.warn('jira_epic_read_failed', {
+        issueKey: issue.key,
+        epicKey: parent.key,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return { provider: 'jira', externalId: parent.key, url, title: summary, body: '' }
+    }
   }
 
   async fetchTickets(refs: ExternalTicketRef[]): Promise<NormalizedTicket[]> {
@@ -525,10 +572,7 @@ export class JiraTaskSyncAdapter implements TaskSyncAdapter {
     } while (issues.length < cap)
 
     const siteUrl = await connectedSiteUrl(cloudId)
-    const tasks = issues.slice(0, cap).map((issue) => this.taskFromIssue(
-      issue,
-      siteUrl ? `${siteUrl}/browse/${issue.key}` : '',
-    ))
+    const tasks = issues.slice(0, cap).map((issue) => this.taskFromIssue(issue, siteUrl))
     return truncated ? { tasks, truncated: true } : { tasks }
   }
 
@@ -536,21 +580,33 @@ export class JiraTaskSyncAdapter implements TaskSyncAdapter {
    * A browse row. Deliberately without `raw`: the provider payload it used to
    * carry was a second copy of the whole issue, on every row, cached as JSON and
    * sent to every client — and no surface read it. A ticket's detail view
-   * fetches the issue itself, which is where the full payload belongs.
+   * fetches the issue itself, which is where the full payload belongs. The
+   * same holds for the epic: the row names it, without its description.
    */
-  private taskFromIssue(issue: JiraIssue, url: string): Task {
-    return {
+  private taskFromIssue(issue: JiraIssue, siteUrl: string | null): Task {
+    const browseUrl = (key: string) => siteUrl ? `${siteUrl}/browse/${key}` : ''
+    const task: Task = {
       id: issue.key,
       providerId: 'jira',
-      kind: 'task',
       title: issue.fields.summary ?? issue.key,
       body: adfToMarkdown(issue.fields.description),
       status: statusFromJira(issue.fields.status.statusCategory.key, issue.fields.status.name),
-      url,
+      url: browseUrl(issue.key),
       labels: issue.fields.labels ?? [],
       priority: priorityFromJira(issue.fields.priority?.name),
       updatedAt: Date.parse(issue.fields.updated),
     }
+    const parent = issue.fields.parent
+    if (parent) {
+      task.epic = {
+        provider: 'jira',
+        externalId: parent.key,
+        url: browseUrl(parent.key),
+        title: parent.fields?.summary ?? parent.key,
+        body: '',
+      }
+    }
+    return task
   }
 
   private normalize(issue: JiraIssue, ref: ExternalTicketRef, url: string): NormalizedTicket {

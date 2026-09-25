@@ -38,6 +38,6 @@
   <CaretLeftIcon size={19} class="hidden @max-[30rem]/pane:block" />
 </button>
 <span
-  class="shrink-0 px-[3px] text-workspace-chrome text-muted-foreground opacity-30 [.is-laptop-display_&]:px-0.5 @max-[30rem]/pane:hidden"
+  class="shrink-0 px-[3px] text-workspace-chrome text-muted-foreground opacity-30 @max-[30rem]/pane:hidden"
   aria-hidden="true">/</span
 >

@@ -181,7 +181,7 @@
      rather than laid over it — so the rail stops at a node's edge instead of
      showing through it. -->
 <ol
-  class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4"
+  class="relative flex flex-col gap-5"
   role="list"
 >
   <span

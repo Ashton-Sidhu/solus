@@ -2,12 +2,12 @@
 // quick presets, and roving-focus keyboard navigation for the property pickers.
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
-import type { TaskKind, TaskPriority, TaskStatus } from '@solus/contracts/task-types'
+import type { TaskPriority, TaskStatus } from '@solus/contracts/task-types'
 import { z } from 'zod'
 
 /** Snapshot of the composer's fields, persisted so a closed-without-saving draft
  *  comes back. Only the plain "new task" case is persisted (no seed / no preset
- *  parent) — a session-seeded composer always starts from its seed.
+ *  status) — a session-seeded composer always starts from its seed.
  *
  *  Drafts live in sessionStorage, not localStorage: a half-written task should
  *  survive closing/reopening the modal (and window reloads) within a run, but
@@ -19,8 +19,6 @@ interface ComposerDraft {
   dueDate: string
   priority: TaskPriority | ''
   status: TaskStatus
-  kind: TaskKind
-  parentId: string
   labels: string[]
 }
 
@@ -32,8 +30,6 @@ const composerDraftSchema = z.object({
   dueDate: z.string().catch(''),
   priority: z.enum(['urgent', 'high', 'medium', 'low']).or(z.literal('')).catch(''),
   status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']).catch('todo'),
-  kind: z.enum(['task', 'epic']).catch('task'),
-  parentId: z.string().catch(''),
   labels: z.array(z.string()).catch([]),
 })
 

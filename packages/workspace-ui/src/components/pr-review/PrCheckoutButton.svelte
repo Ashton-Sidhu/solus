@@ -11,7 +11,7 @@
   <Button
     type="button"
     size="xs"
-    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2 @max-[40rem]/band:px-2"
+    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
     {onclick}
     disabled={preparingComposer || disabled}
     aria-label="Check out this pull request"

@@ -248,7 +248,7 @@
         maxHeight={220}
         dictation
         placeholder="Focus on data flow, call out migration risks, and group tests with the behavior they verify."
-        class="rounded-lg border border-border bg-background px-2.5 [--plain-editor-font-size:var(--text-workspace-chrome)] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
+        class="rounded-lg border border-border bg-background px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
       />
     {/snippet}
   </SettingsRow>
@@ -257,7 +257,7 @@
 <SettingsSection label="Lenses" visible={isVisible("review-lenses")}>
   <SettingsRow
     label="Saved lenses"
-    description="Prompts the Lens tab offers on every review. Each makes an HTML view of the change."
+    description="Prompts for the Lens tab. Choose one for an HTML view of the change, or tick up to four for one lens with a tab for each."
     visible={isVisible("review-lenses")}
   >
     {#snippet body()}
@@ -267,7 +267,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

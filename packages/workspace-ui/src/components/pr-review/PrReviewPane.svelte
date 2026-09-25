@@ -33,7 +33,7 @@
   import { parsePatchFiles } from "@pierre/diffs";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
-  import SubmitReviewModal from "./SubmitReviewModal.svelte";
+  import SubmitReviewForm from "./SubmitReviewForm.svelte";
   import PrReviewDiff from "./PrReviewDiff.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
@@ -358,7 +358,7 @@
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
   let refreshingPr = $state(false);
-  // Owned here so a typed summary survives closing/reopening the submit modal.
+  // Owned here so a typed summary survives closing/reopening the review popover.
   let submitEvent = $state<DraftReview["event"]>("COMMENT");
   let submitBody = $state("");
 
@@ -672,7 +672,7 @@
   );
 
   // Esc is the only way out, and J / K walk the queue. All three skip while a
-  // comment/text field is focused (it owns its own keys) or the submit modal is
+  // comment/text field is focused (it owns its own keys) or the review popover is
   // up (it owns Esc).
   function onWindowKeydown(e: KeyboardEvent) {
     if (headless || e.defaultPrevented || showSubmit) return;
@@ -747,7 +747,23 @@
 
 {#snippet reviewButton()}
   {#if pr && reviewDetail?.state === "open" && reviewDetail.viewerPermissions.reviewVerdicts.length > 0}
-    <PrReviewButton draftCount={drafts.length} onclick={() => (showSubmit = true)} />
+    <PrReviewButton draftCount={drafts.length} bind:open={showSubmit}>
+      {#snippet form()}
+        <SubmitReviewForm
+          {pr}
+          {drafts}
+          submitReview={(review) =>
+            pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
+          supportedVerdicts={reviewDetail?.capabilities.reviewVerdicts ?? ["comment"]}
+          allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
+          bind:event={submitEvent}
+          bind:body={submitBody}
+          onClose={() => (showSubmit = false)}
+          onSubmitted={onReviewSubmitted}
+          onDraftFixes={openFixComments}
+        />
+      {/snippet}
+    </PrReviewButton>
   {/if}
 {/snippet}
 
@@ -975,17 +991,3 @@
 
 </section>
 
-{#if showSubmit && pr}
-  <SubmitReviewModal
-    {pr}
-    {drafts}
-    submitReview={(review) =>
-      pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
-    allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
-    bind:event={submitEvent}
-    bind:body={submitBody}
-    onClose={() => (showSubmit = false)}
-    onSubmitted={onReviewSubmitted}
-    onDraftFixes={openFixComments}
-  />
-{/if}

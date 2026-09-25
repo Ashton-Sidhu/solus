@@ -10,7 +10,6 @@ import { formatExchangeTag, formatOrchestrationItem, type OrchestrationItem } fr
 import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../tasks/task'
-import { listTaskChildren } from '../tasks/task-store'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { MAX_WAIT_MS } from '../orchestration/session-orchestrator'
 import { formatTaskSessions } from '../orchestration/task-view'
@@ -233,11 +232,11 @@ const LIST_AGENT_TARGETS_DESC =
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status, bound task/subtask context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
+  'Load a Solus session by id: its status, bound task context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
 const SEND_SESSION_DESC =
   "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_session's. Cannot target your own session."
 const READ_TASK_SESSIONS_DESC =
-  "Show everything that happened in a task: the root task and its subtasks, and every session working on any of them, whoever started it — its status, what it waits on the user for, its last message, and references to what it produced (plans, works, sessions it started). Read it to catch up after a restart or before deciding what to do next; read one session in full with read_session."
+  "Show everything that happened in a task: every session working on it, whoever started it — its status, what it waits on the user for, its last message, and references to what it produced (plans, works, sessions it started). Read it to catch up after a restart or before deciding what to do next; read one session in full with read_session."
 const STOP_SESSION_DESC =
   "Stop another running Solus session and clear its queued prompts. Cannot target your own session."
 
@@ -313,23 +312,8 @@ async function taskContextForSession(sessionId: string): Promise<{
   const boundTask = await Task.forSession(LOCAL_ORGANIZATION_ID, sessionId)
   if (!boundTask) return null
   const task = boundTask.record()
-  const parent = task.parentId ? (await Task.byId(LOCAL_ORGANIZATION_ID, task.parentId)).record() : null
-  const subtasks = await listTaskChildren(LOCAL_ORGANIZATION_ID, parent?.id ?? task.id)
-  const siblings = parent ? subtasks.filter((candidate) => candidate.id !== task.id) : []
-  const relationship = parent ? `subtask of ${parent.id}` : 'top-level task'
-  const details = [`task: ${task.id} [${task.status}] ${task.title} (${relationship})`]
-  if (parent) details.push(`parent task: ${parent.id} [${parent.status}] ${parent.title}`)
-  const related = parent ? siblings : subtasks
-  if (related.length) {
-    details.push(parent ? 'sibling subtasks:' : 'subtasks:')
-    for (const relatedTask of related) {
-      details.push(`- ${relatedTask.id} [${relatedTask.status}] ${relatedTask.title}`)
-    }
-  }
-  return {
-    summary: `${task.id} [${task.status}] ${task.title} (${relationship})`,
-    details,
-  }
+  const summary = `${task.id} [${task.status}] ${task.title}`
+  return { summary, details: [`task: ${summary}`] }
 }
 
 /** The time window of a search. */
@@ -364,21 +348,6 @@ function searchWindow(afterArg: string, beforeArg: string): SearchWindow | { err
     untilTs: now,
     rangeNote: 'No time range given — searched the last 2 weeks. Pass after="YYYY-MM-DD" (optionally with before) to search a different window.\n\n',
   }
-}
-
-/** Where a started session's task goes. A task holds its sessions directly,
- *  so an attempt without task_id joins the caller's own task. */
-async function taskPlacement(
-  choice: 'attempt' | 'independent',
-  taskId: string | undefined,
-  callerSessionId: string | undefined,
-): Promise<{ taskId?: string } | { error: string }> {
-  if (choice === 'independent') return {}
-  const existing = taskId?.trim()
-  if (existing) return { taskId: existing }
-  const callerTask = callerSessionId ? await Task.forSession(LOCAL_ORGANIZATION_ID, callerSessionId) : null
-  if (!callerTask) return { error: "This session has no task to join. Use task='independent', or task='attempt' with a task_id." }
-  return { taskId: callerTask.id }
 }
 
 /** Where the outcome goes, in the call's first line. */
@@ -715,8 +684,16 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   }
   const runner = await chooseRunner(input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
   if ('error' in runner) return { ok: false, text: runner.error }
-  const placement = await taskPlacement(input.task, input.task_id, deps.ctx?.sessionId)
-  if ('error' in placement) return { ok: false, text: placement.error }
+  // A task holds its sessions directly, so an attempt without task_id joins
+  // the caller's own task. An independent session gets a new task.
+  let taskId: string | null = null
+  if (input.task === 'attempt') {
+    const callerSessionId = deps.ctx?.sessionId
+    taskId = input.task_id?.trim()
+      || (callerSessionId ? (await Task.forSession(LOCAL_ORGANIZATION_ID, callerSessionId))?.id : undefined)
+      || null
+    if (!taskId) return { ok: false, text: "This session has no task to join. Use task='independent', or task='attempt' with a task_id." }
+  }
 
   const { provider, modelId, reasoningEffort, contextWindow } = runner
   const cwd = input.cwd?.trim() || deps.ctx?.cwd || '~'
@@ -731,7 +708,7 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
     contextWindow,
     cwd,
     worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
-    taskId: placement.taskId ?? null,
+    taskId,
   }, input.report, waitMs)
 
   return {

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `__new_tasks` (
 	`priority` text,
 	`labels` text DEFAULT '[]' NOT NULL,
 	`pr` text,
+	`epic` text,
 	`source` text DEFAULT 'user' NOT NULL,
 	`origin_session_id` text,
 	`origin_automation_id` text,
@@ -28,5 +29,6 @@ DROP TABLE `tasks`;--> statement-breakpoint
 ALTER TABLE `__new_tasks` RENAME TO `tasks`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `tasks_short_id_unique` ON `tasks` (`short_id`);--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS `tasks_by_project` ON `tasks` (`project_key`,`status`,`"updated_at" desc`);--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS `tasks_by_status` ON `tasks` (`status`,`"created_at" desc`);
+CREATE INDEX IF NOT EXISTS `tasks_by_project` ON `tasks` (`project_key`,`status`,"updated_at" desc);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `tasks_by_status` ON `tasks` (`status`,"created_at" desc);--> statement-breakpoint
+DELETE FROM `task_events` WHERE `kind` = 'parent_changed';

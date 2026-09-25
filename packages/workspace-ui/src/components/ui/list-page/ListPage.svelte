@@ -108,13 +108,12 @@
     condensedCrumbs,
   }: Props = $props();
 
-  // The head's own measure. A laptop display gives up the generous desktop top
-  // band so the first row lands higher on a short screen; the type on the head
-  // still comes from the shared chrome rung, never from this boundary.
+  // The head's own measure. The type on the head comes from the shared chrome
+  // rung, never from this boundary.
   const headPad = $derived(
     split
-      ? "pt-[26px] [.is-laptop-display_&]:pt-5"
-      : "pt-[42px] [.is-laptop-display_&]:pt-8",
+      ? "pt-[26px]"
+      : "pt-[42px]",
   );
 </script>
 
@@ -131,8 +130,8 @@
       ? 'px-[18px]'
       : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'} {hideHeader
       ? split
-        ? 'pt-[max(26px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(1.25rem,var(--solus-page-top-inset,0px))]'
-        : 'pt-[max(42px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(2rem,var(--solus-page-top-inset,0px))]'
+        ? 'pt-[max(26px,var(--solus-page-top-inset,0px))]'
+        : 'pt-[max(42px,var(--solus-page-top-inset,0px))]'
       : ''}"
   >
     <!-- ── Row 1: the page title, and the controls that act on the window ── -->
@@ -141,18 +140,13 @@
            the loading silhouette reserves the same box, so the list under it
            does not drop when the real page arrives.
 
-           At the record rung the tallest control is the 44px drawer button, and
-           both the rung's height and its bottom measure are marked `!` for the
-           same reason: a laptop-display variant is two selectors to the rung's
-           one, so on a phone-width pane it won the height and left the button
-           overflowing a 27px box — swallowing the whole gap under it and
-           putting the filter band 1px below the button. -->
+           At the record rung the tallest control is the 44px drawer button. -->
       <div
         class={chromeHead
           ? "workspace-titlebar mb-2 flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center pl-[max(0px,calc(var(--solus-chrome-lead-inset,0px)-18px))]"
-          : `workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! ${headPad} ${split
- ? 'pb-[11px] [.is-laptop-display_&]:pb-2'
- : 'pb-[13px] [.is-laptop-display_&]:pb-2.5'}`}
+          : `workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! ${headPad} ${split
+ ? 'pb-[11px]'
+ : 'pb-[13px]'}`}
       >
         <PageCrumbLine
           {page}
@@ -179,7 +173,7 @@
       <div
         class="box-content shrink-0 items-center gap-2 {condensed && !hideHeader ? 'hidden' : 'flex'} {split || toolbarFilters
           ? 'h-8 pb-[14px]'
-          : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'} {wrapFilters
+          : 'h-[30px] pb-[14px]'} {wrapFilters
           ? '@max-[32rem]/listpage:h-auto! @max-[32rem]/listpage:flex-wrap'
           : ''} @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
       >
@@ -194,7 +188,7 @@
                it adds to rather than up in the crumb line. -->
           <button
             type="button"
-            class="flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-workspace-chrome font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:px-2.5 @max-[30rem]/pane:order-2 @max-[30rem]/pane:ml-auto @max-[30rem]/pane:h-10 @max-[30rem]/pane:rounded-full"
+            class="flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-workspace-chrome font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] @max-[30rem]/pane:order-2 @max-[30rem]/pane:ml-auto @max-[30rem]/pane:h-10 @max-[30rem]/pane:rounded-full"
             onclick={primaryAction.run}
           >
             <PlusIcon size={16} weight="bold" class="shrink-0" />

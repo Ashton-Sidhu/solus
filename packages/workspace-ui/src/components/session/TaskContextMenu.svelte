@@ -63,7 +63,7 @@
     onMarkUnread?: () => void;
     onRemove?: () => void;
     onDelete?: () => void;
-    /** Session-level actions for a task with no nested subtasks: the row *is* a
+    /** Session-level actions for a task with one session: the row *is* a
      *  single session, so it earns the same session menu items a loose session
      *  row gets. Each is omitted when it doesn't apply to this leaf. */
     sessionId?: string | null;
@@ -294,7 +294,7 @@
           <GitPullRequestIcon />
           {prChoices.length === 1 ? `Pull request #${prChoices[0].number}` : `Pull requests (${prChoices.length})`}
         </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain pointer-fine:[.is-laptop-display_&]:w-72">
+        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain">
           {#if prChoices.length === 1}
             {@render prActions(prChoices[0])}
           {:else}

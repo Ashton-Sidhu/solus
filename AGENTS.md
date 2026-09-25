@@ -234,12 +234,11 @@ applied:
 - Colors and shadows must work in **both light and dark mode**.
 - Use Tailwind v4 utilities rather than CSS wherever practical.
 - Use `text-workspace-chrome` for navigation, rails, action labels, and other
-  workspace chrome. It is the canonical responsive type rung: 12px on laptop
-  displays, 14px on large desktop displays, and 14px on coarse-pointer mobile
-  clients. Do not recreate it with hard-coded width queries or
-  `.is-laptop-display` text-size variants. Use `.is-laptop-display` only for
-  non-type geometry such as widths, heights, padding, and gaps; it is driven by
-  the shared `LAPTOP_SCREEN_MAX_WIDTH` definition.
+  workspace chrome. It is 14px on every display. Solus has one density: do not
+  size type or geometry by the monitor. Users make the UI denser or roomier
+  with zoom (`mod+plus` / `mod+minus`). Layout adapts to its container
+  (`@container`) and to the pointer (`pointer-coarse:`), never to `screen.width`
+  (`docs/plans/single-density.md`).
 - The interface is **keyboard-first**. Every control must be keyboard-navigable. Add a
   shortcut where it materially improves a repeated action.
 - Global shortcuts use `opt+shift+<key>`; sub-page shortcuts use `opt+<key>`.

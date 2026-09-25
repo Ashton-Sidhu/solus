@@ -1789,11 +1789,6 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Tasks page ───
 
-  private sidebarRootTaskId(taskId: string): string {
-    const task = this.tasksStore.peek(taskId)
-    return task?.parentId ?? taskId
-  }
-
   private sidebarSessionIdsForTab(tabId: string): string[] {
     const session = this.sessionFor(tabId)
     const tab = this.tabs[tabId]
@@ -1804,21 +1799,18 @@ export class WorkspaceContext implements SurfaceContext {
   /** Record the task-scoped occurrence the user selected. This controls the
    * active path only; it does not create another automatic sidebar row. */
   selectSidebarTaskOccurrence(taskId: string, sessionId: string): void {
-    this.sidebarTaskContextBySessionId.set(sessionId, this.sidebarRootTaskId(taskId))
+    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
   }
 
   /** Materialize the one permitted duplicate: a task/session pair the user
    * explicitly opened rather than one discovered by background reconciliation. */
   showExplicitSidebarTaskSession(taskId: string, sessionId: string): void {
-    const rootTaskId = this.sidebarRootTaskId(taskId)
-    this.explicitSidebarTaskSessions.add(`${rootTaskId}:${sessionId}`)
-    this.sidebarTaskContextBySessionId.set(sessionId, rootTaskId)
+    this.explicitSidebarTaskSessions.add(`${taskId}:${sessionId}`)
+    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
   }
 
   hasExplicitSidebarTaskSession(taskId: string, sessionId: string): boolean {
-    return this.explicitSidebarTaskSessions.has(
-      `${this.sidebarRootTaskId(taskId)}:${sessionId}`,
-    )
+    return this.explicitSidebarTaskSessions.has(`${taskId}:${sessionId}`)
   }
 
   sidebarTaskContextForTab(tabId: string): string | null {
@@ -1830,12 +1822,11 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   clearSidebarTaskOccurrences(taskId: string): void {
-    const rootTaskId = this.sidebarRootTaskId(taskId)
     for (const key of this.explicitSidebarTaskSessions) {
-      if (key.startsWith(`${rootTaskId}:`)) this.explicitSidebarTaskSessions.delete(key)
+      if (key.startsWith(`${taskId}:`)) this.explicitSidebarTaskSessions.delete(key)
     }
     for (const [sessionId, contextTaskId] of this.sidebarTaskContextBySessionId) {
-      if (contextTaskId === rootTaskId) this.sidebarTaskContextBySessionId.delete(sessionId)
+      if (contextTaskId === taskId) this.sidebarTaskContextBySessionId.delete(sessionId)
     }
   }
 

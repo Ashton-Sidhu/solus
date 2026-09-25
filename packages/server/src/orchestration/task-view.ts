@@ -14,13 +14,13 @@ import { listPlanRefsForSessions } from '../plans/plan-index'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { describePendingInput } from '../sessions/pending-input'
 import { resolveSessionLineageById } from '../sessions/session-lineage'
-import { taskTree } from '../tasks/task-sessions'
+import { taskWithAttempts } from '../tasks/task-sessions'
 
 /**
  * The task view: everything that happened in one task, for the parent that
- * coordinates it. It covers the root task and every subtask, and every session
- * working on any of them — whoever started it — with its status, what it waits
- * on, its last message and what it produced.
+ * coordinates it. It covers every session working on the task — whoever
+ * started it — with its status, what it waits on, its last message and what it
+ * produced.
  *
  * It reads only durable records and live status, so after a restart a parent
  * still finds what its children produced even when a report was lost. Like a
@@ -44,11 +44,10 @@ interface ViewedSession {
 }
 
 export async function formatTaskSessions(taskId: string, reads: TaskViewReads): Promise<string | null> {
-  const tree = await taskTree(LOCAL_ORGANIZATION_ID, taskId)
-  if (!tree) return null
-  const root = tree.parent ?? tree.task
-  const tasks = [root, ...tree.subtasks]
-  const sessions: ViewedSession[] = tree.attempts
+  const found = await taskWithAttempts(LOCAL_ORGANIZATION_ID, taskId)
+  if (!found) return null
+  const { task } = found
+  const sessions: ViewedSession[] = found.attempts
     .filter((link) => link.role === 'working')
     .map((link) => {
       const thread = resolveSessionLineageById(link.sessionId)?.active.providerSessionId ?? link.sessionId
@@ -61,19 +60,17 @@ export async function formatTaskSessions(taskId: string, reads: TaskViewReads): 
   const lastMessages = await Promise.all(shown.map((session) => lastMessage(session, reads)))
 
   const lines = [
-    `Task ${root.id} [${root.status}] ${root.title}`,
-    ...tree.subtasks.map((subtask) => `- subtask ${subtask.id} [${subtask.status}] ${subtask.title}`),
+    `Task ${task.id} [${task.status}] ${task.title}`,
     '',
     sessions.length ? `Sessions (${sessions.length}), most recent first:` : 'No sessions work on this task yet.',
   ]
   shown.forEach((session, index) => {
-    const task = tasks.find((candidate) => candidate.id === session.link.taskId)
-    lines.push('', ...sessionLines(session, task ? `${task.id} ${task.title}` : taskId, reads, lastMessages[index] ?? null, outputs.get(session.thread) ?? []))
+    lines.push('', ...sessionLines(session, reads, lastMessages[index] ?? null, outputs.get(session.thread) ?? []))
   })
   const rest = sessions.slice(shown.length)
   if (rest.length) {
     lines.push('', `${rest.length} older sessions:`)
-    for (const session of rest) lines.push(`- ${sessionTitle(session, reads)} on task ${session.link.taskId ?? taskId}`)
+    for (const session of rest) lines.push(`- ${sessionTitle(session, reads)}`)
   }
   return lines.join('\n')
 }
@@ -92,7 +89,6 @@ function sessionTitle(session: ViewedSession, reads: TaskViewReads): string {
 
 function sessionLines(
   session: ViewedSession,
-  taskLabel: string,
   reads: TaskViewReads,
   last: string | null,
   outputs: SessionOutput[],
@@ -103,7 +99,6 @@ function sessionLines(
   const parent = session.meta?.delegation?.parentSessionId
   const lines = [
     `- ${sessionTitle(session, reads)}`,
-    `  task: ${taskLabel}`,
     `  ${[provider && model ? `${provider}/${model}` : provider, status, parent ? `started by session ${parent}` : 'started by a person'].filter(Boolean).join(' · ')}`,
   ]
   const branch = session.meta?.branch ?? session.link.branch

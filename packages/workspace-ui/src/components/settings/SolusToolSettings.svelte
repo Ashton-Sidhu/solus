@@ -77,7 +77,7 @@
       {#snippet body()}
         <ul id={`solus-tools-${group.id}`} class="flex flex-col divide-y divide-border rounded-lg border border-border">
           {#each group.visibleTools as name (name)}
-            <li class="flex items-center justify-between gap-4 px-3 py-2 [.is-laptop-display_&]:py-1.5">
+            <li class="flex items-center justify-between gap-4 px-3 py-2">
               <div class="min-w-0">
                 <div class="truncate text-workspace-chrome text-(--solus-text-primary)">{toolLabel(name)}</div>
                 <code class="block truncate font-[family-name:var(--solus-code-font-family)] text-[0.8125em] text-muted-foreground">{name}</code>

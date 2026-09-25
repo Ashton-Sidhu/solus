@@ -148,46 +148,4 @@
   :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]:hover::before) {
     background: var(--color-accent);
   }
-
-  /* ─── Laptop geometry ───
-     The toast text already steps down with --text-workspace-chrome, but Sonner's
-     box is fixed pixels, so on a laptop the card kept desktop bulk around smaller
-     copy. Step the geometry down with the type: 2px off the padding, the icon,
-     the buttons, and the close mark, with the width scaled to match. Geometry
-     only — the type rung stays where index.css sets it. Sonner writes --width
-     inline on the toaster element, so that one declaration must be !important. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display .toaster) {
-      --width: 328px !important;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"]) {
-      padding: 14px;
-      gap: 5px;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"] [data-icon]),
-    :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"] [data-icon] svg) {
-      height: 0.875rem;
-      width: 0.875rem;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"] [data-button]) {
-      height: 22px;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
-      --close-size: 18px;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast].solus-toast-progress) {
-      padding-left: 2.25rem;
-    }
-
-    :global(html.is-laptop-display .toaster [data-sonner-toast].solus-toast-progress [data-content]::before) {
-      left: 0.875rem;
-      height: 0.875rem;
-      width: 0.875rem;
-    }
-  }
 </style>

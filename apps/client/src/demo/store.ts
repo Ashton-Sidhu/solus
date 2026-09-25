@@ -514,7 +514,6 @@ export class DemoStore {
     const id = `demo-task-${++this.taskCounter}`
     const task: Task = {
       providerId: 'local',
-      kind: input.kind ?? 'task',
       title: input.title ?? 'Untitled task',
       body: input.body ?? '',
       status: input.status ?? 'todo',

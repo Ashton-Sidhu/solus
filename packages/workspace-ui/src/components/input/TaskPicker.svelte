@@ -38,12 +38,7 @@
   const tasks = $derived(
     workspace.tasksStore
       .tasksForCheckout(serverId, projectKey)
-      .filter(
-        (task) =>
-          task.kind === "task" &&
-          task.status !== "done" &&
-          task.status !== "dropped",
-      ),
+      .filter((task) => task.status !== "done" && task.status !== "dropped"),
   );
   const taskSections = $derived(taskPickerSections(tasks));
   const label = $derived(

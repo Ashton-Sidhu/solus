@@ -17,7 +17,7 @@ import {
 } from '@lucide/svelte'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
-import type { PrGuideStatus } from '@solus/contracts/review'
+import type { PrGuideStatus, ReviewLensJob } from '@solus/contracts/review'
 import { z } from 'zod'
 import {
   absoluteTime,
@@ -30,7 +30,7 @@ import {
   type ListRowSpec,
   type ListTint,
 } from '../../ui/list-page/list-page'
-import { Clock, LoaderCircle, CircleAlert, CircleMinus, BookOpen, BookOpenCheck } from '@lucide/svelte'
+import { Clock, CircleAlert, CircleMinus, BookOpen, BookOpenCheck, Aperture } from '@lucide/svelte'
 import { relativeTime, type PrSortMode } from './pr-utils'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 import { PR_STATUS_TONE } from './pr-row-styles'
@@ -106,6 +106,8 @@ export function prStatusGlyph(status: PrStatusKey): PrStatusGlyph {
 export interface PrRowContext {
   checks: (pr: PullRequest) => PrChecksSummary | undefined
   guideStatus?: (pr: PullRequest) => PrGuideStatus | undefined
+  /** The lens job this client saw the host run, if any (`reviewLensStore`). */
+  lensJob?: (pr: PullRequest) => ReviewLensJob | null
   /** Whether the viewer authored it. Drives the Authored section. */
   isMine: (pr: PullRequest) => boolean
   /** Whether the viewer is asked to review it. Absent means the host's own
@@ -120,12 +122,25 @@ function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
     ready: { label: 'Review guide available', statusIcon: undefined, tint: 'success' },
     outdated: { label: 'Review guide outdated', statusIcon: CircleAlert, tint: 'warning' },
     queued: { label: 'Review guide queued', statusIcon: Clock, tint: 'neutral' },
-    generating: { label: 'Generating review guide', statusIcon: LoaderCircle, tint: 'info' },
+    generating: { label: 'Generating review guide', statusIcon: undefined, tint: 'info' },
     failed: { label: 'Review guide generation failed', statusIcon: CircleAlert, tint: 'failure' },
     cancelled: { label: 'Review guide generation cancelled', statusIcon: CircleMinus, tint: 'neutral' },
   } satisfies Record<PrGuideStatus, { label: string; statusIcon: ListIcon | undefined; tint: ListTint }>
-  return [{ ...states[status], icon: status === 'ready' ? BookOpenCheck : BookOpen, iconOnly: true, spinning: status === 'generating' }]
+  return [{ ...states[status], icon: status === 'ready' ? BookOpenCheck : BookOpen, iconOnly: true, pulsing: status === 'generating' }]
 
+}
+
+function lensChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
+  const status = ctx.lensJob?.(pr)?.status
+  if (!status || status === 'outdated') return []
+  const states = {
+    ready: { label: 'Review lens ready', statusIcon: undefined, tint: 'success' },
+    queued: { label: 'Review lens queued', statusIcon: Clock, tint: 'neutral' },
+    generating: { label: 'Generating review lens', statusIcon: undefined, tint: 'info' },
+    failed: { label: 'Review lens failed', statusIcon: CircleAlert, tint: 'failure' },
+    cancelled: { label: 'Review lens cancelled', statusIcon: CircleMinus, tint: 'neutral' },
+  } satisfies Record<Exclude<ReviewLensJob['status'], 'outdated'>, { label: string; statusIcon: ListIcon | undefined; tint: ListTint }>
+  return [{ ...states[status], icon: Aperture, iconOnly: true, pulsing: status === 'generating' }]
 }
 
 /** A conflict is a fact of an open PR that neither the group nor the state
@@ -260,7 +275,7 @@ export function prRow(
     // The state leads the row as a glyph, so the chips are only what needs
     // saying beyond it; the branch stays a hover reveal so the title is still
     // the only elastic thing in the middle of the row.
-    chips: [...conflictChips(pr), ...guideChips(pr, ctx)],
+    chips: [...conflictChips(pr), ...guideChips(pr, ctx), ...lensChips(pr, ctx)],
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr, ctx.checks(pr)),
     meta: '',
@@ -365,6 +380,7 @@ export function prGroups(
  */
 export interface PrListView {
   guide: 'all' | 'has-guide'
+  lens: 'all' | 'has-lens'
   query: string
   /** The lifecycle states the list is showing. Also decides the *fetch*
    *  scope, since the server pages open and closed separately. */
@@ -390,6 +406,7 @@ export interface PrListView {
 export function emptyListView(): PrListView {
   return {
     guide: 'all',
+    lens: 'all',
     query: '',
     statusKeys: [...OPEN_PR_STATUS_KEYS],
     sortMode: 'ready',

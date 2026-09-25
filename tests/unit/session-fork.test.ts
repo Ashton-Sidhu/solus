@@ -52,7 +52,7 @@ function fixture() {
   context.sessions = { byId: { source: original } }
   context.tabs = { sourceTab: makeTab(original.id, { id: 'sourceTab' }) }
   context.sessionFor = (tabId: string) => context.sessions.byId[context.tabs[tabId]?.sessionId]
-  context.tasksStore = { taskForSession: (sessionId: string) => sessionId === 'source' ? { id: 'same-subtask', parentId: 'parent' } : null }
+  context.tasksStore = { taskForSession: (sessionId: string) => sessionId === 'source' ? { id: 'same-task' } : null }
   context.pluginCommands = { global: [], project: [] }
   context.addTabToOrder = () => {}
   context.setActiveTab = () => {}
@@ -119,7 +119,7 @@ describe('fork session ownership and identity', () => {
     const { context, original } = fixture()
     const tabId = await context.opening.forkTab('sourceTab')
     const fork = context.sessionFor(tabId) as Session
-    expect(fork.task).toEqual({ kind: 'existing', taskId: 'same-subtask' })
+    expect(fork.task).toEqual({ kind: 'existing', taskId: 'same-task' })
     expect(fork.id).not.toBe(original.id)
     expect(fork.run.serverId).toBe('run-host')
     expect(fork.run.taskServerId).toBe('task-host')

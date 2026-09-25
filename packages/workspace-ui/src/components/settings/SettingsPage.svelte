@@ -487,7 +487,7 @@
          through at that width. -->
     <Sidebar.Provider
       open={true}
-      class="w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 [.is-laptop-display_&]:w-[clamp(16rem,22cqi,19rem)] @max-[48rem]/pane:hidden"
+      class="w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 @max-[48rem]/pane:hidden"
     >
       <Sidebar.Root
         role="navigation"
@@ -506,23 +506,23 @@
              (The page owns its titlebar chrome, so the window-control clearance
              lives in that lead rather than as an outlet pad above the whole
              surface — that is what lets this column reach the window's top.) -->
-        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-2.5">
+        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
           <SearchField
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-workspace-chrome [.is-laptop-display_&]:py-1"
+            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-workspace-chrome"
           />
         </Sidebar.Header>
         <Sidebar.Content
-          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 px-[1.1875rem] pb-4 [.is-laptop-display_&]:gap-1.5 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-3"
+          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 px-[1.1875rem] pb-4"
         >
           {#each groupedTabs as section (section.group)}
             <Sidebar.Group class="p-0">
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-[0.875em] font-medium uppercase text-muted-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:pl-2"
+                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-[0.875em] font-medium uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -537,7 +537,7 @@
                       <Sidebar.MenuButton
                         type="button"
                         isActive={active}
-                        class="group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:px-2 {active
+                        class="group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground {active
                           ? 'text-foreground'
                           : ''}"
                         aria-current={active ? "page" : undefined}
@@ -559,7 +559,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.875em] text-muted-foreground [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:py-2"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.875em] text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -577,7 +577,7 @@
            below it, and not above the sections, where a duplicate of it pushed
            the first setting a screenful down. -->
       <header
-        class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0 [.is-laptop-display_&]:px-7"
+        class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0"
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">
@@ -644,7 +644,7 @@
       </div>
 
       <div
-        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [.is-laptop-display_&]:px-7 [&_button]:font-normal"
+        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [&_button]:font-normal"
         role="tabpanel"
         style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
       >

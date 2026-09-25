@@ -7,16 +7,21 @@
     Plus as NewLensIcon,
     BookmarkPlus as SaveWorkIcon,
     Save as SavePromptIcon,
+    ScrollText as PromptIcon,
   } from "@lucide/svelte";
   import type { ReviewLensComment, ReviewLensSource } from "@solus/contracts/review";
-  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
-  import { resolveReviewAgent } from "../../lib/reviewAgent";
+  import { getAgentContext, getSettingsContext, getWorkspaceContext } from "../../contexts";
+  import type { ResolvedReviewAgent } from "../../lib/reviewAgent";
+  import * as TooltipUI from "../ui/tooltip";
+  import SessionChip from "../pickers/SessionChip.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { threadTime } from "../../lib/relative-time";
   import { Button } from "../ui/button";
   import { CommentComposer } from "../ui/comment-composer";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import ReviewProgress from "./ReviewProgress.svelte";
   import LensStart from "./LensStart.svelte";
   import LensCommentLayer from "./LensCommentLayer.svelte";
   import { reviewLensStore, type LensSubject } from "./review-lens.store.svelte";
@@ -25,6 +30,7 @@
     framePointForPin,
     isLensRunning,
     lensJobLabel,
+    lensPickerSelection,
     queryLensAnchor,
     savedLensFromPrompt,
     type LensPullRequestAdapter,
@@ -54,6 +60,7 @@
 
   const settings = getSettingsContext();
   const session = getWorkspaceContext();
+  const agentContext = getAgentContext();
 
   const entry = $derived(reviewLensStore.entryFor(subject));
   const snapshot = $derived(entry?.snapshot ?? null);
@@ -73,6 +80,15 @@
   let now = $state(Date.now());
   let frameWrapEl = $state<HTMLDivElement | null>(null);
   let dismissedFailureAt = $state(0);
+  let showPrompt = $state(false);
+  /** The model and reasoning for edits and regenerations from this lens. It
+   *  starts at the review companion in Settings; a change here is for this lens only. */
+  let selection = $state(untrack(() => lensPickerSelection(settings, agentContext.metadata)));
+  const agent = $derived<ResolvedReviewAgent>({
+    agent: selection.provider,
+    model: selection.modelId,
+    reasoningEffort: selection.reasoningEffort,
+  });
 
   // Read the lens again each time the view opens, so "Outdated" follows edits
   // made while it was hidden. Never generate on open: a lens is manual in v1,
@@ -109,13 +125,13 @@
     }
   }
 
-  function generate(source: ReviewLensSource) {
+  function generate(source: ReviewLensSource, runAgent: ResolvedReviewAgent) {
     showStart = false;
-    void command("make the lens", (target) => reviewLensStore.generate(target, { ...resolveReviewAgent(settings), source }));
+    void command("make the lens", (target) => reviewLensStore.generate(target, { ...runAgent, source }));
   }
 
   function regenerate() {
-    if (current) generate(current.lens.source);
+    if (current) generate(current.lens.source, agent);
   }
 
   function sendEdit(prompt: string) {
@@ -124,7 +140,7 @@
     editKey++;
     void command(
       "edit the lens",
-      (target) => reviewLensStore.edit(target, { ...resolveReviewAgent(settings), prompt, commentIds }),
+      (target) => reviewLensStore.edit(target, { ...agent, prompt, commentIds }),
       false,
     );
   }
@@ -222,7 +238,7 @@
       Lenses are not available for this review: the host has no checkout for it.
     </p>
   {:else if !snapshot}
-    <p class="m-auto text-workspace-chrome text-(--solus-text-tertiary)" aria-live="polite">Loading the lens…</p>
+    <ContentSkeleton label="Loading lens" />
   {:else}
     {#if failure}
       <div
@@ -239,12 +255,12 @@
 
     {#if !current || showStart}
       {#if running && !current && job}
-        <div class="m-auto flex flex-col items-center gap-3 px-6 text-center text-workspace-chrome" aria-live="polite">
-          <p class="text-(--solus-text-secondary)">{lensJobLabel(job)}…</p>
-          <Button variant="outline" size="xs" onclick={() => void command("cancel", (target) => reviewLensStore.cancel(target))}>
-            Cancel
-          </Button>
-        </div>
+        <ReviewProgress
+          subject="lens"
+          step={job.step}
+          queued={job.status === "queued"}
+          onCancel={() => void command("cancel", (target) => reviewLensStore.cancel(target))}
+        />
       {:else}
         <div class="min-h-0 flex-1 overflow-y-auto">
           <LensStart
@@ -259,8 +275,30 @@
         </div>
       {/if}
     {:else}
-      <header class="flex shrink-0 flex-col gap-1.5 border-b border-(--solus-container-border) px-4 py-2.5 text-workspace-chrome">
-        <div class="flex min-w-0 items-center gap-2">
+      {#snippet action(label: string, Icon: typeof RegenerateIcon, onclick: () => void, disabled = false, pressed?: boolean)}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <Button
+                {...tooltipProps}
+                variant={pressed ? "secondary" : "ghost"}
+                size="icon-xs"
+                class="text-(--solus-text-secondary) hover:text-foreground aria-pressed:text-foreground pointer-coarse:size-10"
+                aria-label={label}
+                aria-pressed={pressed}
+                {disabled}
+                {onclick}
+              >
+                <Icon aria-hidden="true" />
+              </Button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={label} />
+        </TooltipUI.Root>
+      {/snippet}
+
+      <header class="shrink-0 border-b border-(--solus-container-border) text-workspace-chrome">
+        <div class="flex h-11 min-w-0 items-center gap-2 pr-2.5 pl-4 pointer-coarse:h-13">
           <h2 class="min-w-0 truncate font-medium text-foreground" title={current.lens.title}>{current.lens.title}</h2>
           {#if snapshot.outdated}
             <span
@@ -270,64 +308,52 @@
               Outdated
             </span>
           {/if}
-          <span class="min-w-0 flex-1"></span>
-          <span class="shrink-0 truncate text-xs text-(--solus-text-tertiary) tabular-nums @max-[30rem]/pane:hidden">
+          <span class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) tabular-nums @max-[30rem]/pane:hidden">
             {current.lens.source.name} · {threadTime(Date.parse(current.lens.generatedAt), now)} · {current.lens.headSha.slice(0, 7)}
           </span>
+          <span class="hidden flex-1 @max-[30rem]/pane:block"></span>
+          <div class="flex shrink-0 items-center gap-0.5">
+            {#if running && job}
+              <span class="mr-1.5 text-xs text-(--solus-text-secondary)" aria-live="polite">{lensJobLabel(job)}…</span>
+              <Button variant="outline" size="xs" onclick={() => void command("cancel", (target) => reviewLensStore.cancel(target))}>
+                Cancel
+              </Button>
+            {:else}
+              {@render action("Regenerate", RegenerateIcon, regenerate, busy || reconnecting)}
+              {@render action("New lens", NewLensIcon, () => (showStart = true), busy || reconnecting)}
+              {@render action(
+                snapshot.hasPrevious ? "Restore previous version" : "No previous version",
+                RestoreIcon,
+                () => void command("restore the lens", (target) => reviewLensStore.restore(target)),
+                busy || reconnecting || !snapshot.hasPrevious,
+              )}
+            {/if}
+            <span class="mx-1 h-4 w-px bg-(--hairline)" aria-hidden="true"></span>
+            {@render action(
+              armed ? "Stop pinning comments" : "Pin a comment",
+              CommentIcon,
+              () => {
+                armed = !armed;
+                draftPin = null;
+              },
+              reconnecting,
+              armed,
+            )}
+            {@render action(showPrompt ? "Hide prompt" : "Show prompt", PromptIcon, () => (showPrompt = !showPrompt), false, showPrompt)}
+            {@render action("Save as work", SaveWorkIcon, () => void saveAsWork())}
+            {#if !current.lens.source.savedLensId}
+              {@render action("Save prompt as a lens", SavePromptIcon, () => savePrompt(current.lens.source.prompt))}
+            {/if}
+          </div>
         </div>
-        <details class="text-xs text-(--solus-text-tertiary)">
-          <summary class="cursor-pointer select-none">Prompt{current.lens.edits.length ? ` and ${current.lens.edits.length} edit${current.lens.edits.length === 1 ? "" : "s"}` : ""}</summary>
-          <p class="mt-1 whitespace-pre-wrap">{current.lens.source.prompt}</p>
-          {#each current.lens.edits as edit, index (index)}
-            <p class="mt-1 whitespace-pre-wrap">Edit {index + 1}: {edit.prompt}</p>
-          {/each}
-        </details>
-        <div class="flex flex-wrap items-center gap-1">
-          {#if running && job}
-            <span class="mr-1 text-xs text-(--solus-text-secondary)" aria-live="polite">{lensJobLabel(job)}…</span>
-            <Button variant="outline" size="xs" onclick={() => void command("cancel", (target) => reviewLensStore.cancel(target))}>
-              Cancel
-            </Button>
-          {:else}
-            <Button variant="ghost" size="xs" disabled={busy || reconnecting} onclick={regenerate} title="Make this lens again for the current change">
-              <RegenerateIcon aria-hidden="true" />Regenerate
-            </Button>
-            <Button variant="ghost" size="xs" disabled={busy || reconnecting} onclick={() => (showStart = true)} title="Replace this lens with a different one">
-              <NewLensIcon aria-hidden="true" />New lens
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={busy || reconnecting || !snapshot.hasPrevious}
-              title={snapshot.hasPrevious ? "Swap this lens with the previous version" : "There is no previous version"}
-              onclick={() => void command("restore the lens", (target) => reviewLensStore.restore(target))}
-            >
-              <RestoreIcon aria-hidden="true" />Restore previous
-            </Button>
-          {/if}
-          <Button
-            variant={armed ? "secondary" : "ghost"}
-            size="xs"
-            aria-pressed={armed}
-            disabled={reconnecting}
-            title="Click the lens to pin a comment"
-            onclick={() => {
-              armed = !armed;
-              draftPin = null;
-            }}
-          >
-            <CommentIcon aria-hidden="true" />Comment
-          </Button>
-          <span class="flex-1"></span>
-          <Button variant="ghost" size="xs" onclick={() => void saveAsWork()} title="Copy this lens into Folio as an artifact work">
-            <SaveWorkIcon aria-hidden="true" />Save as work
-          </Button>
-          {#if !current.lens.source.savedLensId}
-            <Button variant="ghost" size="xs" onclick={() => savePrompt(current.lens.source.prompt)} title="Keep this prompt in Settings → Review">
-              <SavePromptIcon aria-hidden="true" />Save as lens
-            </Button>
-          {/if}
-        </div>
+        {#if showPrompt}
+          <div class="max-h-48 overflow-y-auto border-t border-(--hairline) bg-(--wash-1) px-4 py-2.5 text-xs leading-relaxed text-(--solus-text-secondary)">
+            <p class="whitespace-pre-wrap">{current.lens.source.prompt}</p>
+            {#each current.lens.edits as edit, index (index)}
+              <p class="mt-2 whitespace-pre-wrap"><span class="text-(--solus-text-tertiary)">Edit {index + 1} · </span>{edit.prompt}</p>
+            {/each}
+          </div>
+        {/if}
       </header>
 
       <div class="min-h-0 flex-1 overflow-y-auto">
@@ -352,41 +378,56 @@
         </div>
       </div>
 
-      <div class="shrink-0 border-t border-(--solus-container-border) px-4 py-2.5">
-        {#key editKey}
-          <CommentComposer
-            surface="compact"
-            placeholder={running ? "Wait for the lens to finish…" : "Ask for a change to the lens…"}
-            ariaLabel="Lens edit"
-            submitLabel="Send"
-            submitOn="enter"
-            cancelLabel="Clear"
-            autoFocus={active && editKey > 0}
-            disabled={running || busy || reconnecting}
-            onSave={sendEdit}
-            onCancel={() => editKey++}
-          >
-            {#snippet secondaryActions()}
-              {#if openComments.length > 0}
-                <label class="flex items-center gap-1.5 text-xs text-(--solus-text-secondary)">
-                  <input type="checkbox" bind:checked={applyComments} class="accent-(--solus-accent)" />
-                  Apply {openComments.length} comment{openComments.length === 1 ? "" : "s"}
-                </label>
-              {/if}
-            {/snippet}
-          </CommentComposer>
-        {/key}
-        {#if openComments.length > 0 && applyComments}
-          <Button
-            variant="ghost"
-            size="xs"
-            class="mt-1"
-            disabled={running || busy || reconnecting}
-            onclick={() => sendEdit("")}
-          >
-            Apply {openComments.length} comment{openComments.length === 1 ? "" : "s"} now
-          </Button>
-        {/if}
+      <div class="shrink-0 px-3 pt-2 pb-3">
+        <div
+          class="rounded-2xl border border-(--solus-container-border) bg-(--solus-popover-bg) px-3 py-2.5 shadow-[0_0.75rem_2rem_-1.5rem_rgba(0,0,0,0.35)] transition-[border-color] focus-within:border-[color:color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
+        >
+          {#key editKey}
+            <CommentComposer
+              surface="embedded"
+              placeholder={running ? "Wait for the lens to finish…" : "Ask for a change to the lens…"}
+              ariaLabel="Lens edit"
+              submitLabel="Send"
+              submitOn="enter"
+              cancelLabel="Clear"
+              autoFocus={active && editKey > 0}
+              disabled={running || busy || reconnecting}
+              onSave={sendEdit}
+              onCancel={() => editKey++}
+            >
+              {#snippet secondaryActions()}
+                <div class="flex min-w-0 items-center gap-1">
+                  <SessionChip
+                    bind:selection
+                    menuSide="top"
+                    allowFastMode={false}
+                    disabled={running || busy || reconnecting}
+                    ariaLabel="Lens model and reasoning"
+                    returnFocusOnClose
+                  />
+                  {#if openComments.length > 0}
+                    <label class="flex shrink-0 cursor-pointer items-center gap-1.5 px-1.5 text-xs text-(--solus-text-secondary)">
+                      <input type="checkbox" bind:checked={applyComments} class="accent-(--solus-accent) pointer-coarse:size-5" />
+                      Apply {openComments.length} comment{openComments.length === 1 ? "" : "s"}
+                    </label>
+                    {#if applyComments}
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        class="shrink-0"
+                        disabled={running || busy || reconnecting}
+                        title="Edit the lens from the open comments alone"
+                        onclick={() => sendEdit("")}
+                      >
+                        Apply now
+                      </Button>
+                    {/if}
+                  {/if}
+                </div>
+              {/snippet}
+            </CommentComposer>
+          {/key}
+        </div>
       </div>
     {/if}
   {/if}

@@ -93,8 +93,6 @@ To start a chat in Scratchpad:
   Solus Cloud origin it uses the managed host of your organization. On desktop
   it uses this computer. In all cases, it uses the host of your last
   Scratchpad chat first, if that host is up.
-- **New session headline.** When a new session is in a project, **or just chat**
-  below the headline moves it to Scratchpad on the same host.
 - **Onboarding.** **Just chat** and **Start without a project** end in
   Scratchpad.
 

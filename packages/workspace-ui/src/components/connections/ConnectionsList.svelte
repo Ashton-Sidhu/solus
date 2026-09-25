@@ -184,7 +184,7 @@
 
 <SettingsSection label="Connected devices">
   {#if connections.sessions.length === 0}
-    <div class="flex flex-col items-center justify-center gap-2 py-8 [.is-laptop-display_&]:py-6">
+    <div class="flex flex-col items-center justify-center gap-2 py-8">
       <div
         class="flex size-10 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
       >
@@ -200,10 +200,10 @@
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 px-4 py-2.5 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
+        class="group flex items-center gap-3 px-4 py-2.5"
       >
         <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
         >
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>

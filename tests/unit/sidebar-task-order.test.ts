@@ -38,7 +38,6 @@ function task(id: string, shortId: number, createdAt: number, updatedAt = create
     shortId,
     providerId: 'local' as const,
     projectKey: '/repos/solus',
-    kind: 'task' as const,
     title: id,
     titleSource: 'manual' as const,
     body: '',
@@ -101,7 +100,6 @@ describe('sortSidebarRowsByCreation', () => {
     type DurableRowHarness = {
       session: {
         tasksStore: {
-          byParent: Map<string, ReturnType<typeof task>[]>
           projectKeyOf: (task: { projectKey?: string | null }) => string | null
           get: () => {
             serverId: null
@@ -132,7 +130,6 @@ describe('sortSidebarRowsByCreation', () => {
     const store = Object.create(SessionSidebarStore.prototype) as DurableRowHarness
     store.session = {
       tasksStore: {
-        byParent: new Map(),
         projectKeyOf: (task) => task.projectKey ?? null,
         get: () => ({
           serverId: null,

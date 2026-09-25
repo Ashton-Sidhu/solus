@@ -273,7 +273,7 @@
       <!-- The name takes the place of the search field: the same header row,
            typed as the end of its own path, so the step reads as this menu. -->
       <div
-        class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 [.is-laptop-display_&]:gap-1.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:pb-1.5 [.is-laptop-display_&]:pt-2 text-(--solus-text-tertiary)"
+        class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 text-(--solus-text-tertiary)"
       >
         <button
           type="button"
@@ -345,7 +345,7 @@
               disabled={!project.checkout}
               onSelect={() => project.checkout && activate(project.checkout)}
               data-menu-current={isCurrent ? "" : undefined}
-              class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11 pointer-fine:[.is-laptop-display_&]:pr-9"
+              class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11"
             >
               <ProjectFavicon
                 projectRoot={project.checkout?.projectRoot ?? project.key}

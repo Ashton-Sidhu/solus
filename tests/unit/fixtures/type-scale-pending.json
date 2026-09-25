@@ -34,7 +34,7 @@
   "packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte",
   "packages/workspace-ui/src/components/pr-review/ActivityTimeline.svelte",
   "packages/workspace-ui/src/components/pr-review/PrReviewPane.svelte",
-  "packages/workspace-ui/src/components/pr-review/SubmitReviewModal.svelte",
+  "packages/workspace-ui/src/components/pr-review/SubmitReviewForm.svelte",
   "packages/workspace-ui/src/components/project-panel/GitSection.svelte",
   "packages/workspace-ui/src/components/project-panel/GitSetupSection.svelte",
   "packages/workspace-ui/src/components/project-panel/GoalSection.svelte",

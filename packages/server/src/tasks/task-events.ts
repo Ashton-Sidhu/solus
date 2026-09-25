@@ -32,7 +32,6 @@ interface TaskFieldsForDiff {
   assignee: string | null
   due_date: string | null
   title: string
-  parent_id: string | null
   labels: string
 }
 
@@ -41,7 +40,7 @@ const taskEventRowSchema = z.object({
   task_id: z.string(),
   kind: z.enum([
     'created', 'status_changed', 'priority_changed', 'assignee_changed',
-    'due_date_changed', 'title_changed', 'parent_changed', 'labels_changed',
+    'due_date_changed', 'title_changed', 'labels_changed',
     'linked', 'unlinked', 'session_started',
   ]),
   actor: z.enum(['user', 'agent', 'automation', 'system']),
@@ -113,7 +112,6 @@ const DIFFED_FIELDS: Array<{ column: keyof TaskFieldsForDiff; kind: TaskEventKin
   { column: 'assignee', kind: 'assignee_changed' },
   { column: 'due_date', kind: 'due_date_changed' },
   { column: 'title', kind: 'title_changed' },
-  { column: 'parent_id', kind: 'parent_changed' },
   { column: 'labels', kind: 'labels_changed' },
 ]
 

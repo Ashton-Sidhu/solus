@@ -49,6 +49,17 @@ Use these terms in code, UI, and conversation. Do not make synonyms.
 
 ## Features
 
+### Combined lenses
+
+The user can tick up to four saved lenses (`MAX_COMBINED_LENSES`) and generate
+one lens with a tab for each. This is built on the client only
+(`combinedLensSource` in `components/review/lib/lens-surface.ts`): the saved
+prompts are joined into one `ReviewLensSource` with tab instructions. The host
+sees one prompt, so rule 1 (one lens for each target) and Regenerate, edits,
+Restore, and comments are unchanged. The lens does not record which saved
+lenses made it; "Save as lens" on a combined lens saves the joined prompt as one
+new saved lens. A single ticked lens keeps its own source.
+
 ### Settings → Review → Lenses
 
 - Add, edit, reorder, and delete saved lenses. Each has a name and a prompt.
@@ -70,10 +81,19 @@ and cancelled.
 - A prompt field for a **one-time prompt**. The user types a prompt and
   generates a lens from it. The prompt is not saved in Settings unless the user
   selects "Save as lens".
+- A model and reasoning picker. It starts at the review companion agent,
+  model, and effort in Settings → Review. A change applies to this generation
+  only; Solus does not save it. Regenerate and lens edits use the Settings
+  values. The picker has no fast-mode switch, because a lens run does not send
+  fast mode.
+- The panel is centered in the Lens canvas, the same as the guide's empty
+  offer.
 
 **Generating**
 
-- Progress steps (preparing, analyzing, writing) and Cancel.
+- Progress steps (preparing, analyzing, writing) and Cancel. The guide and the
+  lens use the same progress screen (`review/ReviewProgress.svelte`): a
+  medallion with a ring that fills as the steps advance, and a step list.
 
 **Ready**
 
@@ -161,9 +181,16 @@ as a conversation comment.
 - `ReviewLensSnapshot` — address (`repoRoot`, `key`), target, the current
   version with its comments, `hasPrevious`, `outdated`, the live job, and
   `revision` (`ReviewLensRecord.updatedAt`).
-- `ReviewLensChangedEvent` on the `review.lensChanged` topic — address, job,
-  and revision. It never carries HTML. A client reads the snapshot again only
-  when the revision moves past the one it holds.
+- `ReviewLensChangedEvent` on the `review.lensChanged` topic — address,
+  target, job, and revision. It never carries HTML. A client reads the
+  snapshot again only when the revision moves past the one it holds. The
+  target lets a client with no pane open name the review: `app-core.ts` calls
+  `reviewLensStore.follow()` once, the store keeps the last job per target on
+  every host, the PR list row shows it (`pullRequestJobFor`, keyed by the pull
+  request without its SHAs), and `onReady` shows the `review_lens_ready` toast
+  only for a run the client saw as queued or generating. There is no bulk
+  status call: a run that ended before the client connected does not show on
+  the list.
 - `ReviewLensJob` — `generate` or `edit`, with the guide's status and progress
   steps. There is no separate `editing` step: the job kind says it.
 - `REVIEW_LENS_MAX_HTML_CHARS` = 500 000.
@@ -260,6 +287,7 @@ navigation; a browser tab cannot). This is a known limit of v1.
 - Automatic generation and warming.
 - Saved lenses for one project.
 - More than one lens for each target.
-- Agent, model, or effort settings for each lens.
+- Agent, model, or effort settings saved on each lens. (The picker in the
+  empty state is for one generation only.)
 - A history of more than one previous version.
 - Posting lens comments to a code host for a target that is not a pull request.

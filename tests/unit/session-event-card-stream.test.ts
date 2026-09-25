@@ -87,7 +87,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => hydration,
       (taskId, sessionId) => { tracked = [taskId, sessionId] },
     )
-    session.task = { kind: 'existing', taskId: 'subtask-1' }
+    session.task = { kind: 'existing', taskId: 'new-task-1' }
     session.currentTurnStart = 'fresh'
     session.run.serverId = 'remote-host'
     session.run.taskServerId = 'task-host'
@@ -100,16 +100,16 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
 
     // WHY: clearing this before hydration resolves gives the sidebar one frame
-    // where the new subtask is rendered as an unrelated loose session.
-    expect(tracked).toEqual(['subtask-1', 'session-1'])
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
+    // where the new task is rendered as an unrelated loose session.
+    expect(tracked).toEqual(['new-task-1', 'session-1'])
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
 
-    finishHydration({ id: 'subtask-1' })
+    finishHydration({ id: 'new-task-1' })
     await hydration
     await Promise.resolve()
     // WHY: the durable link is authoritative once it exists, so the mounted
     // session keeps its durable task identity.
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
   })
 
   test('links a fresh dispatched session without task-owned branch metadata', async () => {

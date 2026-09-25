@@ -96,17 +96,17 @@
   <Popover.Trigger>
     {#snippet child({ props })}
       <!-- The header's own geometry — the same 30px row the primary action and
-           the view switcher stand on, 26px on a laptop display. No font size is
-           pinned: the page declares its rung once (`text-chrome-dense`) and
-           every control in this row inherits it, so the type follows the
-           display instead of freezing at 12px.
+           the view switcher stand on. No font size is pinned: the page
+           declares its rung once (`text-chrome-dense`) and every control in
+           this row inherits it, so the type follows the page instead of
+           freezing at 12px.
 
            Unbound is marked by a hairline and full-strength text, never by
            colour: the accent belongs to the one primary action beside it. -->
       <button
         {...props}
         type="button"
-        class="flex h-[30px] [.is-laptop-display_&]:h-[26px] shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2.5 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 {trigger.unbound
+        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2.5 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 {trigger.unbound
           ? 'font-medium text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)]'
           : 'text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground'}"
         aria-label="Task provider"

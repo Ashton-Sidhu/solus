@@ -58,6 +58,7 @@ check for a finished turn. System alerts keep the platform's own icon.
 | Event | Sources |
 |---|---|
 | Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR and session guides); the PR row in the project panel when the guide finishes after the row is gone |
+| Review lens ready | `reviewLensStore.onReady` in `app-core.ts`, for a lens run this client saw start or run. A PR lens toast has **Open lens** |
 | Software updates | Desktop: the download and restart prompts (`desktop-updates.svelte.ts`). Any client: "Solus / Claude Code / Codex X is available on host" (`host-update-notices.svelte.ts`) |
 | Host found nearby | LAN discovery in `servers.store` |
 | Teammates | "X joined" and "X left" in `presence.store` |

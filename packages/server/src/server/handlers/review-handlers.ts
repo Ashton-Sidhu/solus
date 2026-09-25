@@ -155,6 +155,7 @@ export function registerReviewHandlers(
   const emitLens = (event: import('@solus/contracts/review').ReviewLensChangedEvent) =>
     events.broadcast('review.lensChanged', event)
   server.register('readReviewLens', async ([ctx, target]) => lenses.read(ctx, target))
+  server.register('prLensRevisions', async ([ctx, targets]) => lenses.savedPrRevisions(ctx, targets))
   server.register('requestReviewLens', async ([ctx, request]) => lenses.generate(ctx, request, emitLens))
   server.register('editReviewLens', async ([ctx, request]) => lenses.edit(ctx, request, emitLens))
   server.register('cancelReviewLens', async ([ctx, target]) => lenses.cancel(ctx, target, emitLens))

@@ -48,13 +48,15 @@
 
 <div class="flex flex-col gap-3" data-testid="saved-lenses">
   {#each lenses as lens, index (lens.id)}
-    <div class="flex flex-col gap-2 rounded-lg border border-border p-2.5">
-      <div class="flex items-center gap-1.5">
+    <div
+      class="flex flex-col overflow-hidden rounded-lg border border-border bg-background transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+    >
+      <div class="flex items-center gap-0.5 pt-1 pr-1.5 pl-1">
         <Input
           value={lens.name}
           placeholder="Lens name"
           aria-label="Lens name"
-          class="h-7 min-w-0 flex-1 text-workspace-chrome"
+          class="h-7 min-w-0 flex-1 border-0 px-2 font-medium text-workspace-chrome focus-visible:ring-0"
           oninput={(event) => change(lens.id, { name: event.currentTarget.value })}
         />
         <Button
@@ -88,7 +90,7 @@
         maxHeight={180}
         dictation
         placeholder="Describe the view you want for every change: what to show, how to lay it out, what to link."
-        class="rounded-lg border border-border bg-background px-2.5 [--plain-editor-font-size:var(--text-workspace-chrome)] focus-within:border-(--solus-accent) [&_.cm-content]:![min-height:3.5rem] [&_.cm-content]:![font-weight:400]"
+        class="px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0_0_0.625rem] [&_.cm-content]:![min-height:2.5rem] [&_.cm-content]:![font-weight:400]"
       />
     </div>
   {/each}

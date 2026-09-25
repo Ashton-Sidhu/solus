@@ -155,7 +155,7 @@
   {/snippet}
 
   <div
-    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-3"
+    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4"
   >
     {#if argv}
       <div class="interrupt-payload">

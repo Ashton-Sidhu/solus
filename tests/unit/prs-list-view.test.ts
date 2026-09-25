@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { Aperture } from '@lucide/svelte'
 import type { PullRequest } from '@solus/contracts/providers'
+import type { ReviewLensJob } from '@solus/contracts/review'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import {
   OPEN_PR_STATUS_KEYS,
@@ -101,7 +103,20 @@ describe('PR row slots', () => {
       { ...context, guideStatus: () => 'generating' },
       NOW,
     )
-    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'Generating review guide', iconOnly: true, spinning: true }))
+    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'Generating review guide', iconOnly: true, pulsing: true, statusIcon: undefined }))
+  })
+
+  test('a generating lens pulses the lens glyph instead of adding a spinner', () => {
+    // WHY: the lens must read as the same mark the review pane uses, and a
+    // second running glyph beside it is noise the pulse already carries.
+    const row = prRow(
+      pullRequest,
+      { ...context, lensJob: () => ({ status: 'generating' }) as ReviewLensJob },
+      NOW,
+    )
+    expect(row.chips).toContainEqual(
+      expect.objectContaining({ label: 'Generating review lens', icon: Aperture, pulsing: true, statusIcon: undefined }),
+    )
   })
 
   test('every row leads with its lifecycle, because sorted rows have no group to say it', () => {

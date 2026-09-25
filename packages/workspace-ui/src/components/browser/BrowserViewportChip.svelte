@@ -153,7 +153,7 @@
     aria-label="Viewport size"
   >
     <!-- The rung is declared once here and inherited by the whole sheet, so the
-         picker steps between its laptop and desktop sizes as one surface. Plain
+         picker sizes as one surface. Plain
          flow, never flex: as flex items the bands compete for height and the
          preset list is the one that loses. -->
     <div class="text-workspace-chrome">

@@ -1,8 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import {
-    Layers as StackIcon,
-    SquareCheck as CheckSquareIcon,
     X as XIcon,
     LoaderCircle as CircleNotchIcon,
     Calendar as CalendarBlankIcon,
@@ -36,19 +34,12 @@
     addLabel,
     labelSuggestions,
   } from "./lib/task-composer";
-  import type {
-    Task,
-    TaskKind,
-    TaskPriority,
-    TaskStatus,
-  } from "@solus/contracts/task-types";
+  import type { TaskPriority, TaskStatus } from "@solus/contracts/task-types";
 
   interface Props {
-    /** Existing epics, offered as the parent for a new task. */
-    epics: Task[];
-    /** Whether the provider models epics/sub-tasks + a settable status (local
-     *  only). When false the composer hides those local-only fields. */
-    allowEpics?: boolean;
+    /** Whether the provider takes a status on create (local only). New GitHub
+     *  issues always start open, so the composer hides the field there. */
+    canSetStatus?: boolean;
     /** Whether priority/due date will actually persist on create. A new GitHub
      *  issue isn't on a Projects board yet, so those fields would be silently
      *  dropped — hide them rather than eat the input. */
@@ -59,8 +50,6 @@
     workingDirectory?: string;
     /** Agent provider whose built-in slash commands populate the body's / menu. */
     provider: AgentId;
-    /** Preset parent (when adding a child from an epic header). Locks to a task. */
-    initialParentId?: string;
     /** Preset status (when adding into a board column). */
     initialStatus?: TaskStatus;
     /** Performs the write. Throws on failure (the caller surfaces a toast); on
@@ -68,8 +57,6 @@
     onCreate: (input: {
       title: string;
       body: string;
-      kind: TaskKind;
-      parentId?: string;
       dueDate?: string;
       priority?: TaskPriority;
       status?: TaskStatus;
@@ -82,13 +69,11 @@
     onCancel: () => void;
   }
   let {
-    epics,
-    allowEpics = false,
+    canSetStatus = false,
     canPlan = false,
     knownLabels = [],
     workingDirectory,
     provider,
-    initialParentId,
     initialStatus,
     onCreate,
     onCreated,
@@ -98,9 +83,9 @@
   const session = getSurfaceContext();
 
   // Only the plain "new task" composer restores and persists a draft — a preset
-  // parent (add-from-epic) or preset status (add-into-column) is its own flow
-  // and must neither resurrect nor overwrite the plain draft.
-  const persistable = untrack(() => !initialParentId && !initialStatus);
+  // status (add-into-column) is its own flow and must neither resurrect nor
+  // overwrite the plain draft.
+  const persistable = untrack(() => !initialStatus);
   const draft = persistable ? loadDraft() : null;
 
   let title = $state(draft?.title ?? "");
@@ -112,9 +97,6 @@
     untrack(() => initialStatus) ?? draft?.status ?? "todo",
   );
   let labels = $state<string[]>(draft?.labels ?? []);
-  // A preset parent forces a child task; otherwise the user chooses task vs epic.
-  let kind = $state<TaskKind>(draft?.kind ?? "task");
-  let parentId = $state(draft?.parentId ?? "");
   let createAnother = $state(loadCreateAnother());
 
   const PRIORITY_OPTIONS: TaskPriority[] = ["urgent", "high", "medium", "low"];
@@ -152,28 +134,10 @@
       dueDate,
       priority,
       status,
-      kind,
-      parentId,
       labels,
     });
   });
 
-  const parentEpic = $derived(
-    initialParentId
-      ? epics.find((e) => e.id === initialParentId)
-      : parentId
-        ? epics.find((e) => e.id === parentId)
-        : undefined,
-  );
-  // Names the dialog for assistive technology. Nothing renders it: on screen the
-  // title field and the Create button already say what is being made.
-  const heading = $derived(
-    initialParentId
-      ? "New sub-task"
-      : kind === "epic"
-        ? "New epic"
-        : "New task",
-  );
   const dueLabel = $derived(
     dueDate ? (dueDateMeta(dueDate)?.label ?? dueDate) : null,
   );
@@ -185,18 +149,17 @@
   const canSubmit = $derived(title.trim().length > 0 && !saving);
 
   // ── Property pickers (Linear-style popovers) ──────────────────────────────
-  // Status, priority, and parent are menus; due date and labels hold an input,
-  // so they are popovers — a menu's typeahead would eat the typing.
-  type PickerName = "status" | "priority" | "due" | "labels" | "parent";
+  // Status and priority are menus; due date and labels hold an input, so they
+  // are popovers — a menu's typeahead would eat the typing.
+  type PickerName = "status" | "priority" | "due" | "labels";
   let statusOpen = $state(false);
   let priorityOpen = $state(false);
   let dueOpen = $state(false);
   let labelsOpen = $state(false);
-  let parentOpen = $state(false);
   let duePanel = $state<HTMLDivElement | null>(null);
 
   function closePickers() {
-    statusOpen = priorityOpen = dueOpen = labelsOpen = parentOpen = false;
+    statusOpen = priorityOpen = dueOpen = labelsOpen = false;
   }
 
   /** ⌥-letter accelerators open one picker and close the rest. */
@@ -205,7 +168,6 @@
     priorityOpen = name === "priority";
     dueOpen = name === "due";
     labelsOpen = name === "labels";
-    parentOpen = name === "parent";
   }
 
   /** Apply a property choice and close the picker. Closing lands focus on the
@@ -235,22 +197,17 @@
   async function submit() {
     if (!canSubmit) return;
     const description = descriptionEditor?.getMarkdown() ?? body;
-    // A preset parent (adding from an epic header) always wins and forces a task;
-    // otherwise epics never nest and a task takes the chosen parent, if any.
-    const parent = initialParentId ?? (kind === "task" ? parentId : "");
     saving = true;
     try {
       await onCreate({
         title: title.trim(),
         body: description.trim(),
-        kind: initialParentId ? "task" : kind,
-        parentId: parent || undefined,
         // Planning fields only persist where the provider stores them (local).
         dueDate: canPlan ? dueDate || undefined : undefined,
         priority: canPlan ? priority || undefined : undefined,
         // Status is only a real settable field locally; new GitHub issues
         // always start in the open (todo) state.
-        status: allowEpics ? status : undefined,
+        status: canSetStatus ? status : undefined,
         labels: labels.length ? [...labels] : undefined,
       });
     } catch {
@@ -271,7 +228,7 @@
   }
 
   /** Rapid-entry reset: clear the content fields but keep the chosen properties
-   *  (status/priority/due/kind/parent) so a run of similar tasks is fast. */
+   *  (status/priority/due) so a run of similar tasks is fast. */
   function resetForAnother() {
     title = "";
     body = "";
@@ -318,16 +275,13 @@
       const name = map[e.code];
       const nameAllowed =
         name === "status"
-          ? allowEpics
+          ? canSetStatus
           : name === "priority" || name === "due"
             ? canPlan
             : !!name;
       if (name && nameAllowed) {
         e.preventDefault();
         openPicker(name);
-      } else if (e.code === "KeyE" && !initialParentId && allowEpics) {
-        e.preventDefault();
-        kind = kind === "task" ? "epic" : "task";
       } else if (e.code === "KeyF") {
         e.preventDefault();
         expanded = !expanded;
@@ -373,20 +327,9 @@
  ? 'w-[clamp(22rem,78vw,60rem)] h-[min(46rem,86vh)]'
  : 'w-[clamp(22rem,64vw,46rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col text-sm rounded-xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
     role="dialog"
-    aria-label={heading}
+    aria-label="New task"
     aria-modal="true"
   >
-    <!-- A sub-task's parent, on its own line above the title. Nothing else in
-         the panel names it, and it belongs with the title rather than beside
-         the window controls. -->
-    {#if initialParentId && parentEpic}
-      <div class="px-5 pt-4 flex-shrink-0">
-        <span class="block truncate text-xs text-(--solus-text-tertiary)"
-          >{parentEpic.title}</span
-        >
-      </div>
-    {/if}
-
     <!-- Header: the title IS the header. The panel's own name was noise, so the
          field the user types into takes that line, with the window controls on
          its right. The placeholder stays visibly softer than entered text so
@@ -396,12 +339,7 @@
          `input::placeholder` unlayered, and an unlayered declaration outranks
          every layered utility, so the plain class was silently dead and the
          title's prompt rendered in the same grey as the description's. -->
-    <div
-      class="flex items-center gap-1 px-5 {initialParentId &&
-      parentEpic
-        ? 'pt-1'
-        : 'pt-4'} flex-shrink-0"
-    >
+    <div class="flex items-center gap-1 px-5 pt-4 flex-shrink-0">
       <Input
         bind:ref={titleEl}
         bind:value={title}
@@ -490,31 +428,8 @@
       <div
         class="flex flex-wrap items-center gap-1.5 px-5 pb-4 shrink-0"
       >
-      <!-- Type — absent when the parent is preset (always a sub-task) or the
-           provider has no epics. One control that names what it is now and
-           swaps on click, rather than a segmented control shouting both. -->
-      {#if !initialParentId && allowEpics}
-        <button
-          type="button"
-          class={PROPERTY_TRIGGER}
-          onclick={() => (kind = kind === "task" ? "epic" : "task")}
-          disabled={saving}
-          aria-label="Type"
-          title={kind === "epic"
-            ? "Epic — switch to task (⌥E)"
-            : "Task — switch to epic (⌥E)"}
-        >
-          {#if kind === "epic"}
-            <StackIcon size={13} class="shrink-0 text-violet-600 [.dark_&]:text-violet-400" />
-          {:else}
-            <CheckSquareIcon size={13} class="shrink-0 text-sky-600 [.dark_&]:text-sky-400" />
-          {/if}
-          {kind === "epic" ? "Epic" : "Task"}
-        </button>
-      {/if}
-
       <!-- Status (local only — new GitHub issues always start open/todo) -->
-      {#if allowEpics}
+      {#if canSetStatus}
         <DropdownMenu.Root bind:open={statusOpen}>
           <DropdownMenu.Trigger disabled={saving}>
             {#snippet child({ props })}
@@ -752,7 +667,7 @@
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="h-9 text-workspace-chrome pointer-fine:[.is-laptop-display_&]:h-8"
+            class="h-9 text-workspace-chrome"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -785,56 +700,6 @@
         </div>
         </Popover.Content>
       </Popover.Root>
-
-      {#if !initialParentId && allowEpics}
-        {#if kind === "task" && epics.length}
-          <DropdownMenu.Root bind:open={parentOpen}>
-            <DropdownMenu.Trigger disabled={saving}>
-              {#snippet child({ props })}
-                <button
-                  {...props}
-                  type="button"
-                  class="max-w-[12rem] {PROPERTY_TRIGGER}"
-                  aria-label="Parent epic"
-                >
-                  <StackIcon size={13} class="shrink-0 text-violet-600 [.dark_&]:text-violet-400" />
-                  <span class="truncate"
-                    >{parentEpic ? parentEpic.title : "No epic"}</span
-                  >
-                </button>
-              {/snippet}
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Content
-              align="start"
-              sideOffset={6}
-              class="z-[10010] w-[220px]"
-              aria-label="Set parent epic"
-              onCloseAutoFocus={focusTitle}
-            >
-              <DropdownMenu.Item onSelect={() => commit(() => (parentId = ""))}>
-                No epic
-                {#if parentId === ""}
-                  <span class="ml-auto text-primary" aria-hidden="true">✓</span>
-                {/if}
-              </DropdownMenu.Item>
-              {#each epics as epic (epic.id)}
-                <DropdownMenu.Item
-                  onSelect={() => commit(() => (parentId = epic.id))}
-                >
-                  <StackIcon
-                    size={14}
-                    class="text-(--solus-text-tertiary) flex-shrink-0"
-                  />
-                  <span class="truncate">{epic.title}</span>
-                  {#if parentId === epic.id}
-                    <span class="ml-auto text-primary" aria-hidden="true">✓</span>
-                  {/if}
-                </DropdownMenu.Item>
-              {/each}
-            </DropdownMenu.Content>
-          </DropdownMenu.Root>
-        {/if}
-      {/if}
     </div>
 
     <div
@@ -894,11 +759,7 @@
             />
             Creating…
           {:else}
-            Create {initialParentId
-              ? "sub-task"
-              : kind === "epic"
-                ? "epic"
-                : "task"}
+            Create task
             <span class="opacity-55 tabular-nums">⌘↵</span>
           {/if}
         </button>

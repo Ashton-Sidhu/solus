@@ -28,6 +28,7 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { reviewLensStore } from '../../components/review/review-lens.store.svelte'
 import { trackSessionReviewGuides } from '../../components/review/lib/session-guide-tracker.svelte'
 import { trackBranchReviewGuides } from '../../components/review/lib/branch-guide-tracker.svelte'
 import { toasts } from '../../lib/toasts'
@@ -132,6 +133,24 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     })
   })
   onDestroy(unsubscribeReviewGuideReady)
+
+  onDestroy(reviewLensStore.follow())
+  onDestroy(reviewLensStore.onReady((serverId, event) => {
+    if (!notificationsStore.wants('review_lens_ready')) return
+    const target = event.target
+    if (target.kind !== 'pr') {
+      // A local lens has no route to reopen it by; its Review tab shows it.
+      toasts.success(`Review lens ready for ${event.repoRoot.split('/').pop() || event.repoRoot}`, { duration: 10_000 })
+      return
+    }
+    toasts.success(`Review lens ready for ${target.owner}/${target.repo} #${target.number}`, {
+      duration: 10_000,
+      action: {
+        label: 'Open lens',
+        onAction: () => { void session.prReview.openPullRequest({ number: target.number, expectedRepo: target }, { serverId, tab: 'lens' }) },
+      },
+    })
+  }))
 
   const keybindings = new KeybindingsContext()
   keybindings.setOverrides(settings.keybindings)

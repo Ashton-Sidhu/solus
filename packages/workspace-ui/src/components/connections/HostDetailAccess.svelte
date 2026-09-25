@@ -39,16 +39,16 @@
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}
-    <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary) [.is-laptop-display_&]:py-5">
+    <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">
       No devices are connected to this host.
     </p>
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 px-4 py-2.5 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
+        class="group flex items-center gap-3 px-4 py-2.5"
       >
         <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
         >
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>

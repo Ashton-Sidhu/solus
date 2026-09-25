@@ -15,7 +15,7 @@ describe('treeKeyIntent', () => {
   })
 
   it('makes → open a closed task before it walks into one', () => {
-    // Two presses to reach a subtask, never one: the first press is a
+    // Two presses to reach a session row, never one: the first press is a
     // disclosure, and disclosure must not move what the pane is showing.
     expect(treeKeyIntent('ArrowRight', collapsed, 3)).toEqual({ kind: 'expand' })
     expect(treeKeyIntent('ArrowRight', expanded, 3)).toEqual({ kind: 'focus', index: 2 })
@@ -27,7 +27,7 @@ describe('treeKeyIntent', () => {
     expect(treeKeyIntent('ArrowRight', leaf, 3)).toEqual({ kind: 'enterPane' })
   })
 
-  it('makes ← close a task and climb out of a subtask', () => {
+  it('makes ← close a task and climb out of a session row', () => {
     expect(treeKeyIntent('ArrowLeft', expanded, 3)).toEqual({ kind: 'collapse' })
     expect(treeKeyIntent('ArrowLeft', child, 3)).toEqual({ kind: 'focus', index: 1 })
   })

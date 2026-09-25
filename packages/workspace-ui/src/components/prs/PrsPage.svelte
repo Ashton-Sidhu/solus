@@ -76,6 +76,7 @@
   import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions } from "./lib/pr-filter-menu";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
+  import { reviewLensStore } from "../review/review-lens.store.svelte";
   import { PrPageScope } from "./lib/pr-page-scope.svelte";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
@@ -265,6 +266,10 @@
         ? pullRequests.guides.statusFor(scope.serverId, scope.ctx, pr.number)
         : undefined;
     },
+    lensJob: (pr) => {
+      const scope = lookupScopeFor(pr);
+      return scope ? reviewLensStore.pullRequestJobFor(scope.serverId, { ...pr.baseRepo, number: pr.number }) : null;
+    },
     isMine: (pr) => isAuthoredBy(pr, viewerLoginFor(pr)),
     isReviewRequested: (pr) => isReviewRequestedFrom(pr, viewerLoginFor(pr)),
   });
@@ -291,6 +296,10 @@
       hasGuide: (pr) => {
         const scope = lookupScopeFor(pr);
         return !!scope && !!pullRequests.guides.metadataFor(scope.serverId, scope.ctx, pr.number)?.generatedAt;
+      },
+      hasLens: (pr) => {
+        const scope = lookupScopeFor(pr);
+        return !!scope && reviewLensStore.hasSavedPrLens(scope.serverId, { ...pr.baseRepo, number: pr.number });
       },
     }),
   );
@@ -446,9 +455,23 @@
       !searchFocused &&
       !toolbarPinned,
   );
+  // A press on a row blurs the field on pointerdown. Folding then moves the
+  // list under the pointer before the release, and the browser drops the
+  // click — so a blur during a press folds only once the press ends.
+  let pointerHeld = false;
+  let foldAfterPress = false;
   function onSearchFocusChange(focused: boolean) {
+    if (!focused && pointerHeld) {
+      foldAfterPress = true;
+      return;
+    }
+    foldAfterPress = false;
     searchFocused = focused;
     if (!focused) toolbarPinned = false;
+  }
+  function endPress() {
+    pointerHeld = false;
+    if (foldAfterPress) onSearchFocusChange(false);
   }
   function unfoldSearch() {
     toolbarPinned = true;
@@ -650,9 +673,15 @@
             scope.items.map((pullRequest) => pullRequest.number),
           );
           void pullRequests.guides.loadListed(scope);
+          loadListedLenses(scope);
         }
       })
       .catch(() => {});
+  }
+
+  function loadListedLenses(scope: ProjectPrs): void {
+    const prs = scope.items.map((pr) => ({ ...pr.baseRepo, number: pr.number }));
+    void reviewLensStore.loadPrRevisions(scope.hostApi, scope.serverId, scope.hostContext, prs);
   }
 
   function loadViewers(): void {
@@ -862,6 +891,7 @@
   async function loadMore(scope: ProjectPrs): Promise<void> {
     await scope.loadMore();
     void pullRequests.guides.loadListed(scope);
+    loadListedLenses(scope);
     await pullRequests.checks.load(
       scope.hostApi,
       scope.serverId,
@@ -870,6 +900,12 @@
     );
   }
 </script>
+
+<svelte:window
+  onpointerdown={() => (pointerHeld = true)}
+  onpointerup={endPress}
+  onpointercancel={endPress}
+/>
 
 {#snippet pageActions()}
   {#if selected.length > 0 && workspace}

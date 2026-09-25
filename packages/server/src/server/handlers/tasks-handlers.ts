@@ -29,6 +29,9 @@ import { organizationOf } from '../principal'
 import type { ShareManager } from '../../sharing/share-manager'
 import { listInboxUpstream } from '../../tasks/inbox'
 import type { Task as TaskRecord, TaskSidebarSnapshot } from '@solus/contracts/task-types'
+import { createLogger, isDebugEnabled } from '../../logger'
+
+const log = createLogger('main', 'tasks-handlers')
 
 /**
  * Global native-task RPCs plus project-scoped upstream-provider reads/writes.
@@ -104,7 +107,18 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   })
 
   server.register('tasksSidebarSnapshot', async (_args, ctx) => {
+    const startedAt = performance.now()
     const snapshot = await readTaskSidebarSnapshot(organizationOf(ctx.principal))
+    // Every `tasks.invalidated` makes each client read this whole snapshot
+    // again. Debug builds record its cost so that design can be judged on numbers.
+    if (isDebugEnabled()) {
+      log.debug('tasks_sidebar_snapshot_read', {
+        clientId: ctx.clientId,
+        readMs: Math.round(performance.now() - startedAt),
+        taskCount: snapshot.tasks.length,
+        bytes: Buffer.byteLength(JSON.stringify(snapshot)),
+      })
+    }
     const tasks = await visibleTasks(ctx, snapshot.tasks)
     if (tasks.length === snapshot.tasks.length) return snapshot
     const visible = new Set(tasks.map((task) => task.id))

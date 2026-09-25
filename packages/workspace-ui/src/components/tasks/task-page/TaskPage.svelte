@@ -691,7 +691,7 @@
       {#if railFolded}
         <button
           type="button"
-          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:size-9"
+          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
           onclick={() => (propertiesOpen = true)}
           aria-haspopup="dialog"
           aria-expanded={propertiesOpen}
@@ -1037,7 +1037,7 @@
         <span class="text-workspace-chrome font-medium text-foreground">Properties</span>
         <button
           type="button"
-          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-8"
+          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent]"
           onclick={() => (propertiesOpen = false)}
         >
           Done

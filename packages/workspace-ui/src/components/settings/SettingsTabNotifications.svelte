@@ -113,7 +113,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

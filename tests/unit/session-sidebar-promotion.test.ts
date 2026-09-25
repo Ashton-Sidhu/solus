@@ -15,7 +15,6 @@ function task(id: string): Task {
     id,
     providerId: 'local',
     projectKey: '/repo',
-    kind: 'task',
     title: id,
     body: '',
     status: 'in_progress',
@@ -29,7 +28,6 @@ function store(pendingTaskIds: string[], openTaskIds: string[] = []): RowVisibil
   const harness = Object.create(SessionSidebarStore.prototype) as RowVisibilityHarness
   harness.session = {
     tasksStore: {
-      byParent: new Map(),
       // No session is linked yet: the task was minted a moment ago.
       get: () => ({ sessions: [] }),
     },
@@ -63,7 +61,6 @@ describe('a new session becoming a task row', () => {
     const linked = store([])
     linked.session = {
       tasksStore: {
-        byParent: new Map(),
         get: () => ({ sessions: [{ sessionId: 'session-1', role: 'working' }] }),
       },
     }

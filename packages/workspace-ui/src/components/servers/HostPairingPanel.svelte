@@ -62,17 +62,17 @@
 
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="mt-4 text-pretty leading-[1.6] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3">
+    <p class="mt-4 text-pretty leading-[1.6] font-secondary text-(--solus-text-secondary)">
       Solus is using your existing SSH access to pair with the server on
       {target.name}. Nothing is installed on this Mac.
     </p>
   {:else if store.pairingView === "error"}
-    <p class="mt-4 text-pretty leading-[1.6] text-(--solus-status-error) [.is-laptop-display_&]:mt-3">
+    <p class="mt-4 text-pretty leading-[1.6] text-(--solus-status-error)">
       {store.pairingError}
     </p>
   {:else if store.pairingView === "ssh-target"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -89,7 +89,7 @@
         bind:ref={sshTargetInput}
         bind:value={store.sshTarget}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
         placeholder="user@host"
         autocomplete="off"
         spellcheck={false}
@@ -97,7 +97,7 @@
     </label>
   {:else if store.pairingView === "ssh-password"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -117,7 +117,7 @@
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
         type="password"
         placeholder="••••••••"
         autocomplete="current-password"
@@ -125,7 +125,7 @@
     </label>
   {:else}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -141,7 +141,7 @@
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-[length:inherit] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:max-w-[10rem] [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
+        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-[length:inherit] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
         placeholder="000000"
         inputmode="numeric"
         maxlength="6"

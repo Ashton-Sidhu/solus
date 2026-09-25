@@ -14,7 +14,7 @@ function stubs(): Plugin {
       if (name) return `virtual:${name}.svelte`
     },
     load(id) {
-      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
+      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check', 'RotateCw', 'ExternalLink'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
       if (id === 'virtual:markdown-icon.svelte') return '<span></span>'
       if (id === 'virtual:CodeSpan.svelte') return '<script>let { text } = $props()</script><code>{text}</code>'
       if (id === 'virtual:MarkdownLink.svelte') return '<script>let { href, children } = $props()</script><a {href}>{@render children?.()}</a>'
@@ -135,6 +135,26 @@ describe('complete GitHub Markdown documents', () => {
     expect(body.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA')
     expect(body.innerHTML).not.toContain('data:image/svg')
     expect(body.innerHTML).not.toContain('javascript:')
+  })
+
+  it('plays WebM and M4V links in PR and task bodies without eager downloads', () => {
+    for (const policy of ['remote', 'local'] as const) {
+      for (const extension of ['webm', 'm4v']) {
+        const url = `https://example.com/recording.${extension}?token=123`;
+        for (const source of [url, `![Recording](${url})`]) {
+          const body = renderDocument(source, policy)
+          const video = body.querySelector('video')
+          expect(video?.getAttribute('src')).toBe(url)
+          expect(video?.getAttribute('preload')).toBe('none')
+          expect(video?.hasAttribute('controls')).toBe(true)
+          expect(video?.hasAttribute('playsinline')).toBe(true)
+          expect(body.querySelector('img')).toBeNull()
+        }
+        const labelled = renderDocument(`[Download recording](${url})`, policy)
+        expect(labelled.querySelector('video')).toBeNull()
+        expect(labelled.textContent).toContain('Download recording')
+      }
+    }
   })
 
   it('plays standalone videos in place, inside alerts too, and leaves ordinary links as text', () => {

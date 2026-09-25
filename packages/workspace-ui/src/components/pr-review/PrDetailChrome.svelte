@@ -7,6 +7,7 @@
   import { flatPrSection, prGroups, prStatusOf, type PrRowContext } from "../prs/lib/prs-list-view";
   import { SubPageCrumbLine, SUB_PAGE_CRUMB_BTN } from "../ui/list-page";
   import { statusDotColor } from "./lib/pr-status";
+  import { reviewLensStore } from "../review/review-lens.store.svelte";
 
   /**
    * The pull request's head: the sub page band every record shares, whose leaf
@@ -60,6 +61,7 @@
     checks: (pr) => pullRequests.checks.summaryFor(serverId, projectCtx(), pr.number),
     guideStatus: (pr) =>
       pullRequests.guides.statusFor(serverId, projectCtx(), pr.number),
+    lensJob: (pr) => reviewLensStore.pullRequestJobFor(serverId, { ...pr.baseRepo, number: pr.number }),
     isMine: () => false,
   });
 
@@ -116,7 +118,7 @@
       #{number}
       <CaretDownIcon
         size={11}
-        class="shrink-0 opacity-45 transition-transform duration-150 [.is-laptop-display_&]:size-[10px] {menuOpen
+        class="shrink-0 opacity-45 transition-transform duration-150 {menuOpen
           ? 'rotate-180'
           : ''}"
       />
@@ -133,7 +135,7 @@
         onclick={() => (menuOpen = false)}
       ></button>
       <div
-        class="absolute top-[34px] left-0 z-40 w-[min(430px,calc(100vw-2rem))] rounded-2xl bg-popover p-[5px] shadow-[var(--elev-dropdown)] [.is-laptop-display_&]:top-[30px] [.is-laptop-display_&]:w-[min(390px,calc(100vw-2rem))]"
+        class="absolute top-[34px] left-0 z-40 w-[min(430px,calc(100vw-2rem))] rounded-2xl bg-popover p-[5px] shadow-[var(--elev-dropdown)]"
         role="listbox"
         aria-label="Pull requests"
       >
@@ -156,7 +158,7 @@
                 type="button"
                 role="option"
                 aria-selected={active}
-                class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-md px-[9px] transition-colors duration-150 hover:bg-[var(--wash-2)] [.is-laptop-display_&]:h-[30px] {active
+                class="flex h-[34px] w-full cursor-pointer items-center gap-[9px] rounded-md px-[9px] transition-colors duration-150 hover:bg-[var(--wash-2)] {active
  ? 'bg-[var(--wash-2)]'
  : ''}"
                 onclick={() => open(rowNumber)}

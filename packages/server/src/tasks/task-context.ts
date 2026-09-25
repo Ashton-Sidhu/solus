@@ -1,5 +1,10 @@
-import type { TaskDetails, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import { clip } from '@solus/contracts/session-exchange'
+import type { TaskDetails, TaskEpic, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
+
+/** Characters of the epic's description the packet carries. The epic is
+ *  context for this task, not the work itself; the agent can open the url. */
+const EPIC_BODY_LIMIT = 2000
 
 /** Solus finds a pull request on the session's own branch, but not one the agent
  *  opened elsewhere (another branch, a stack layer, an existing pull request). */
@@ -11,7 +16,6 @@ const PR_LINKING_LINE = '- Link each pull request that you create or work on for
  *  gives each link its display metadata. */
 export function formatTaskContext(
   details: TaskDetails,
-  parentDetails: TaskDetails | null = null,
   attempts: readonly TaskSessionLink[] = [],
   lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',
 ): string {
@@ -25,21 +29,7 @@ export function formatTaskContext(
   if (task.assignee) lines.push(`Assignee: ${task.assignee}`)
   if (task.pr?.url) lines.push(`Pull request: ${task.pr.url}`)
 
-  if (parentDetails) {
-    lines.push(`Parent task: ${parentDetails.task.id} — ${parentDetails.task.title}`)
-    const siblings = parentDetails.subtasks.filter((candidate) => candidate.id !== task.id)
-    if (siblings.length) {
-      lines.push('Sibling subtasks:')
-      for (const sibling of siblings) {
-        lines.push(`- ${sibling.id} [${sibling.status}] ${sibling.title}`)
-      }
-    }
-  } else if (details.subtasks.length) {
-    lines.push('Subtasks:')
-    for (const subtask of details.subtasks) {
-      lines.push(`- ${subtask.id} [${subtask.status}] ${subtask.title}`)
-    }
-  }
+  if (task.epic) lines.push(...formatTaskEpic(task.epic))
 
   if (details.links.length) {
     lines.push('Linked:')
@@ -97,6 +87,16 @@ export function formatTaskContext(
   }
 
   return lines.join('\n')
+}
+
+/** The upstream epic this task belongs to: one line that names it, then its
+ *  description on one indented line, clipped. */
+export function formatTaskEpic(epic: TaskEpic): string[] {
+  const ref = /^\d+$/.test(epic.externalId) ? `#${epic.externalId}` : epic.externalId
+  const lines = [`Epic: ${epic.provider} ${ref} — "${epic.title}" — ${epic.url}`]
+  const body = clip(epic.body, EPIC_BODY_LIMIT)
+  if (body) lines.push(`  ${body}`)
+  return lines
 }
 
 /** One linked item as the agent should address it: the id its read tool takes,

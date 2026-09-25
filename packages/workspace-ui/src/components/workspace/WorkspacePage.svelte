@@ -1036,7 +1036,7 @@
                window. It keeps one fixed top measure when the session sidebar
                opens or closes. ── -->
           <div
-            class="workspace-titlebar mx-auto flex w-full max-w-[72rem] shrink-0 items-center px-8 pt-[42px] pb-[13px] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5"
+            class="workspace-titlebar mx-auto flex w-full max-w-[72rem] shrink-0 items-center px-8 pt-[42px] pb-[13px] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
             <PageCrumbLine
               page="folio"
@@ -1049,7 +1049,7 @@
 
           <!-- ── Row 2: search · sort · filters · New ── -->
           <div
-            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pb-3"
+            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
           <WorkspaceSearchField
             {filter}
@@ -1065,7 +1065,7 @@
             aria-hidden="true"
           ></span>
           {@render newMenu(
-            "flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:px-2.5",
+            "flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]",
             16,
           )}
           </div>

@@ -20,51 +20,26 @@ export type GroupedItem =
   | { kind: 'artifact'; message: Message }
   | { kind: 'review-guide'; message: Message }
 
+/** The card kinds that gather a whole turn's members into one card. */
+type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'browser-snapshot' | 'document'
+
 export function groupMessages(messages: Message[]): GroupedItem[] {
   const result: GroupedItem[] = []
   let toolBuf: Message[] = []
-  // A turn's sub-agents are one act of delegation, so they are one card at the
-  // position of the FIRST launch, in launch order. Tool rows and prose between
-  // two launches still render in place, below the card, and do NOT close it —
-  // only a new turn does. The open card's array is grown in place.
-  let subagentGroup: Message[] | null = null
-  const openOrGrowSubagents = (msg: Message) => {
-    if (subagentGroup) subagentGroup.push(msg)
+  // A turn's cards of one kind are one act — delegating to sub-agents, talking
+  // to other sessions, looking at pages, writing documents — so each kind is one
+  // card at the position of its FIRST member, in the order they happened. Tool
+  // rows, prose, and other cards between two members still render in place,
+  // below the card, and do NOT close it — only a new turn does. An open card's
+  // array is grown in place.
+  const cardGroups = new Map<CardGroupKind, Message[]>()
+  const openOrGrowCard = (kind: CardGroupKind, msg: Message) => {
+    const group = cardGroups.get(kind)
+    if (group) group.push(msg)
     else {
-      subagentGroup = [msg]
-      result.push({ kind: 'subagent-group', messages: subagentGroup })
-    }
-  }
-  // The turn's agent-conversation cards stack at the position of the FIRST dispatch, in
-  // dispatch order, even though tool rows interleave between them in the raw
-  // transcript (each send_session is a tool call followed by its agent-conversation
-  // message). Tool rows therefore do NOT close the stack — only real prose or
-  // a new turn does. The open group's array is grown in place.
-  let agentConversationGroup: Message[] | null = null
-  // A capture pass is one act of looking, and the transcript has to say so: the
-  // frames of a pass stack into one plate at the position of the FIRST capture.
-  // Each `browser_snapshot` is a tool call followed by its snapshot message, so
-  // tool rows interleave and must NOT close the plate — only prose, another
-  // card, or a new turn does. The open plate's array is grown in place.
-  let snapshotPlate: Message[] | null = null
-  const openOrGrowPlate = (msg: Message) => {
-    if (snapshotPlate) snapshotPlate.push(msg)
-    else {
-      snapshotPlate = [msg]
-      result.push({ kind: 'browser-snapshot', messages: snapshotPlate })
-    }
-  }
-  // Documents written back to back are one act of writing, so they are one card:
-  // a stack at the position of the FIRST write. Each `create_work` is a tool call
-  // followed by its work message, so tool rows interleave and must NOT close the
-  // stack — only prose, another card, or a new turn does. The open stack's array
-  // is grown in place.
-  let documentStack: Message[] | null = null
-  const openOrGrowStack = (msg: Message) => {
-    if (documentStack) documentStack.push(msg)
-    else {
-      documentStack = [msg]
-      result.push({ kind: 'document', messages: documentStack })
+      const messages = [msg]
+      cardGroups.set(kind, messages)
+      result.push({ kind, messages })
     }
   }
   const flushTools = () => {
@@ -76,44 +51,28 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
   for (const msg of messages) {
     if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
       flushTools()
-      agentConversationGroup = null
-      snapshotPlate = null
-      documentStack = null
       result.push({ kind: 'question', message: msg })
     } else if (msg.role === 'tool' && msg.subMessages) {
       flushTools()
-      openOrGrowSubagents(msg)
+      openOrGrowCard('subagent-group', msg)
     } else if (msg.role === 'tool') {
       toolBuf.push(msg)
     } else if (msg.agentConversationRef) {
       flushTools()
-      snapshotPlate = null
-      documentStack = null
-      if (agentConversationGroup) {
-        agentConversationGroup.push(msg)
-      } else {
-        agentConversationGroup = [msg]
-        result.push({ kind: 'agent-conversation-group', messages: agentConversationGroup })
-      }
+      openOrGrowCard('agent-conversation-group', msg)
     } else {
       flushTools()
-      agentConversationGroup = null
-      if (opensTurn(msg)) subagentGroup = null
+      if (opensTurn(msg)) cardGroups.clear()
       if (msg.browserSnapshot) {
-        documentStack = null
-        openOrGrowPlate(msg)
+        openOrGrowCard('browser-snapshot', msg)
         continue
       }
-      // Anything the agent says or produces ends the pass: a second batch of
-      // captures after a sentence is a second look, and a second plate.
-      snapshotPlate = null
       // A rendered artifact carries its work reference for the frame's own
       // rail; it is shown flush, never folded into a document stack.
       if (msg.workRef && !msg.artifact) {
-        openOrGrowStack(msg)
+        openOrGrowCard('document', msg)
         continue
       }
-      documentStack = null
       // The SDK writes its interrupt notice back as a user turn to keep the
       // provider transcript well-formed. Nobody typed it, so it renders as a
       // transient row, not a bubble.

@@ -57,6 +57,8 @@ test.each(['fixed', 'grouped', 'picker-fixed', 'picker-grouped'])('%s virtual li
         globalThis[key] = dom.window[key];
       }
       globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+      globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+      globalThis.cancelAnimationFrame = (frame) => clearTimeout(frame);
       HTMLElement.prototype.scroll = function () {};
       const { mount, unmount, flushSync } = await import(${JSON.stringify(client)});
       const { default: Fixture } = await import(${JSON.stringify(fixture)});

@@ -73,7 +73,6 @@
     onSelectSession: (session: SidebarSessionChild) => void;
     onMoreSession: (event: MouseEvent, session: SidebarSessionChild) => void;
     onSnoozeSession: (session: SidebarSessionChild, anchor: HTMLElement) => void;
-    onCompleteSession: (session: SidebarSessionChild) => void;
     onCloseSession: (session: SidebarSessionChild) => void;
   }
   let {
@@ -100,7 +99,6 @@
     onSelectSession,
     onMoreSession,
     onSnoozeSession,
-    onCompleteSession,
     onCloseSession,
   }: Props = $props();
 
@@ -506,7 +504,7 @@
         <ProjectFavicon
           projectRoot={task.projectKey}
           serverId={task.serverId}
-          class="size-4 pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[&_.lucide-folder]:size-[82%] pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-[82%]"
+          class="size-4 pointer-fine:[&_.lucide-folder]:size-[82%]"
         />
       </span>
       {@render rowTitle()}
@@ -544,7 +542,7 @@
             <ProjectFavicon
               projectRoot={task.projectKey}
               serverId={task.serverId}
-              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[&_.lucide-folder]:size-[82%] pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-[82%]"
+              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span
@@ -566,14 +564,14 @@
                     os={remoteOs}
                     managed={hostIsManaged(host)}
                     size={12}
-                    class="size-3 shrink-0 [.is-laptop-display_&]:size-2.5"
+                    class="size-3 shrink-0"
                   />
                   <span class="min-w-0 truncate">{host?.label}</span>
                 </span>
               {:else}
                 <LaptopIcon
                   size={12}
-                  class="size-3 shrink-0 @max-[15rem]:hidden [.is-laptop-display_&]:size-2.5"
+                  class="size-3 shrink-0 @max-[15rem]:hidden"
                   aria-label="Local"
                 />
               {/if}
@@ -656,9 +654,6 @@
           onSelect={() => onSelectSession(session)}
           onMore={(event) => onMoreSession(event, session)}
           onSnooze={(anchor) => onSnoozeSession(session, anchor)}
-          onComplete={session.isSubtask
-            ? () => onCompleteSession(session)
-            : undefined}
           onClose={() => onCloseSession(session)}
         />
       {/each}

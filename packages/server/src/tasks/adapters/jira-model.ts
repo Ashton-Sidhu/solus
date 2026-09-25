@@ -64,6 +64,12 @@ export const issueSchema = z.object({
       statusCategory: z.object({ key: z.string() }),
     }),
     priority: z.object({ name: z.string() }).nullish(),
+    /** The epic (or, for a subtask, its parent issue). Jira carries the
+     *  summary here but never the description. */
+    parent: z.object({
+      key: z.string(),
+      fields: z.object({ summary: z.string().nullish() }).nullish(),
+    }).nullish(),
     comment: z.object({
       comments: z.array(z.object({
         id: z.string(),
@@ -98,6 +104,9 @@ export const transitionsSchema = z.object({
   })),
 })
 export const createdIssueSchema = z.object({ key: z.string() })
+export const epicIssueSchema = z.object({
+  fields: z.object({ summary: z.string().nullish(), description: adfBodySchema }),
+})
 export const issueTypesSchema = z.object({
   issueTypes: z.array(z.object({ id: z.string(), name: z.string(), subtask: z.boolean().nullish() })),
 })
@@ -114,8 +123,8 @@ export function taskSyncFailure(failure: AtlassianFailure): Error {
   return new Error(`${authProblem ? TASKS_AUTH_ERROR_PREFIX : ''}${failure.detail}`)
 }
 
-export const ISSUE_FIELDS = 'summary,description,status,labels,priority,updated,comment'
-export const LIST_FIELDS = ['summary', 'description', 'status', 'labels', 'priority', 'updated']
+export const ISSUE_FIELDS = 'summary,description,status,labels,priority,updated,comment,parent'
+export const LIST_FIELDS = ['summary', 'description', 'status', 'labels', 'priority', 'updated', 'parent']
 
 export interface JiraFieldUpdate {
   summary?: string

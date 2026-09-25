@@ -328,10 +328,10 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] pointer-fine:[.is-laptop-display_&]:max-w-[36rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
- ? 'min-w-[8.5rem] pointer-fine:[.is-laptop-display_&]:min-w-[7.5rem]'
+        class="group/bubble relative max-w-[41.25rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
+ ? 'min-w-[8.5rem]'
  : 'min-w-0'} {isPending
- ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:py-1.5 pointer-fine:[.is-laptop-display_&]:pr-2.5 pointer-fine:[.is-laptop-display_&]:pl-2'
+ ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
  : isHostSent
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 pt-2.5 pb-2.5'}"
@@ -502,7 +502,7 @@
         <button
           type="button"
           onclick={() => (marksExpanded = true)}
-          class="text-chrome-shelf inline-flex h-6 shrink-0 items-center rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card px-1.5 text-(--solus-text-tertiary) transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-none [.is-laptop-display_&]:h-[1.375rem]"
+          class="text-chrome-shelf inline-flex h-6 shrink-0 items-center rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card px-1.5 text-(--solus-text-tertiary) transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-none"
         >
           +{hiddenMarkCount} mark{hiddenMarkCount === 1 ? "" : "s"}
         </button>
@@ -575,8 +575,7 @@
   }
 
   /* A held prompt is session state, not settled transcript prose. Keep it on
-     the responsive card rung: 14px on desktop and 12px on a precise-pointer
-     laptop, with the smaller shell above following the same display boundary. */
+     the card rung. */
   :global(.queued-message-prose),
   :global(.queued-message-prose h1),
   :global(.queued-message-prose h2),

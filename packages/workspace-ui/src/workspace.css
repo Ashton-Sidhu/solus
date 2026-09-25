@@ -834,8 +834,7 @@
      wash that composites over any fill the row already has. */
   --zebra: color-mix(in oklch, var(--muted) 45%, transparent);
   --hover-wash: inset 0 0 0 999px var(--muted);
-  /* The vertical padding of a table or settings row; the laptop display takes
-     the compact rung the cloud site offers as a choice. */
+  /* The vertical padding of a table or settings row. */
   --row-py: 14px;
   /* Rules. The group-header rule is the quiet one; -strong is for section
      dividers that have to survive against a wash, and -strongest is the ring a
@@ -1054,38 +1053,35 @@ html, body, #root {
 @theme {
   --text-workspace-chrome: 0.875rem;
   --text-workspace-chrome--line-height: 1.1875rem;
-  /* Sidebar times: 12px on desktop and touch, 10px on laptops. */
+  /* Sidebar times: 12px. */
   --text-sidebar-time: 0.75rem;
   --text-sidebar-time--line-height: 1rem;
   /* Message gutter timestamps stay below the persistent rails they annotate:
-     12px on desktop and touch, then 10px on a precise-pointer laptop. */
+     12px. */
   --text-conversation-gutter: 0.75rem;
   --text-conversation-gutter--line-height: 1;
   /* The dense chrome rung: list pages, breadcrumbs, builders. 12px wherever a
      pointer is precise, 14px on touch. It is a *rung*, not a variant of the one
      above — six surfaces used to reach it by overwriting
      `--text-workspace-chrome` inline, which made every one of them restate the
-     laptop and coarse-pointer boundary by hand. A rung is named and its value is
+     coarse-pointer boundary by hand. A rung is named and its value is
      set here; a surface picks one, and never redefines what one means. */
   --text-chrome-dense: 0.75rem;
   --text-chrome-dense--line-height: 1.1875rem;
   /* Insights is a data-dense workspace surface. Its controls and chart labels
-     use one compact rung: 12px on desktop and touch, 10px on a precise-pointer
-     laptop. */
+     use one compact rung: 12px. */
   --text-insights-chrome: 0.75rem;
   --text-insights-chrome--line-height: 1rem;
   /* The question itself is not chrome: it is the one field a user composes in,
-     so it reads a rung above the controls around it — 14px on a desktop
-     display, 12px on a precise-pointer laptop. */
+     so it reads a rung above the controls around it — 14px. */
   --text-insights-query: 0.875rem;
   --text-insights-query--line-height: 1.25rem;
-  /* Result table headers and cells use 13px on desktop and touch, then step down
-     to 11px on a precise-pointer laptop. */
+  /* Result table headers and cells use 13px. */
   --text-insights-table: 0.8125rem;
   --text-insights-table--line-height: 1.125rem;
   /* Recorded conversation inside the Insights Summary card stays readable on a
      large display without taking the main transcript's body rung. Both values
-     still carry the user's text preference, then step down on a laptop below. */
+     carry the user's text preference. */
   --text-insights-summary: calc(0.875rem * var(--solus-font-scale, 1));
   --text-insights-summary--line-height: 1.7;
   --text-insights-summary-heading: calc(1rem * var(--solus-font-scale, 1));
@@ -1093,18 +1089,13 @@ html, body, #root {
   /* The shelf-label rung: the collapsible section headings that sit above a list
      of chrome rows ("Snoozed", "Completed"). It has to stay a step under
      `--text-workspace-chrome` at every width, because that is the whole cue —
-     a heading the same size as its rows can only separate itself by weight, and
-     a bolder-than-its-contents heading is what a laptop used to show once the
-     chrome rung shrank to 12px and closed the gap. One value at every width;
-     on a laptop it ties the chrome rung rather than clearing it, and the weight
-     carries the cue there. The project rail is dense enough that the weight
+     a heading the same size as its rows can only separate itself by weight.
+     The project rail is dense enough that the weight
      alone did not read, so `ProjectPanel.svelte` restates this rung a notch
      down for its own subtree. */
   --text-chrome-shelf: 0.75rem;
   --text-chrome-shelf--line-height: 1rem;
-  /* The uppercase group heading inside a menu ("Start in"). 12px on desktop and
-     touch, then 10px on a precise-pointer laptop, where the letterspaced caps
-     read as loud as the 14px rows under them. */
+  /* The uppercase group heading inside a menu ("Start in"). 12px. */
   --text-menu-heading: 0.75rem;
   /* The micro rung: the bottom of the chrome ladder, spent on what annotates a
      row rather than what the row says — keycaps, pill and rail counts, the
@@ -1129,18 +1120,14 @@ html, body, #root {
      with: a viewport size or an error count laid over the capture, where the
      chrome rung would cover what it labels. It began as the pull request
      review's meta rung; the review now reads at the chrome rung like the rest
-     of the workspace, and only these overlays still want the smaller step.
-     Steps down on a precise-pointer laptop for the same reason every rung
-     above does; touch keeps the desktop size. */
+     of the workspace, and only these overlays still want the smaller step. */
   --text-review-meta: 0.6875rem;
   --text-review-meta--line-height: 1.45;
   /* File paths in the pull request rail are dense reference data rather than
-     action labels. Keep them below the rail chrome: 12px on desktop and touch,
-     then 10px on a precise-pointer laptop. */
+     action labels. Keep them below the rail chrome: 12px. */
   --text-review-file: 0.75rem;
   --text-review-file--line-height: 1.25;
-  /* Compact controls embedded in pull request diffs: 12px on desktop and
-     touch, then 10px on a precise-pointer laptop. */
+  /* Compact controls embedded in pull request diffs: 12px. */
   --text-review-control: 0.75rem;
   --text-review-control--line-height: 1rem;
   /* The symbol card's two dense rungs. The card is a reference surface floating
@@ -1149,11 +1136,7 @@ html, body, #root {
      the section label, the directory beside a filename, the `:line` suffix, the
      reference counts. `code` is a quoted line of source, and it runs a step
      under the sans filename above it because monospace at an equal size reads
-     larger and takes the section over — the two share a value on a large
-     display and separate on a laptop, where only the sans has room to give.
-     Both step down on a precise-pointer laptop like the chrome rung they hang
-     from; code steps more gently, because a quoted line loses legibility faster
-     than a label does. The line number inside a quoted row is the shared
+     larger and takes the section over. The line number inside a quoted row is the shared
      `--text-micro` rung above, not a card-owned one. */
   --text-symbol-card-meta: 0.75rem;
   --text-symbol-card-meta--line-height: 1.25;
@@ -1163,10 +1146,7 @@ html, body, #root {
      diff-summary and subagent cards that interrupt the reading column. They are
      a surface of their own — not rails, not prose — so they get a rung pair
      rather than borrowing the chrome one: a card carries a label line and a
-     meta line, and the two must stay one step apart at every width. Both follow
-     the display for the same reason the chrome rung does, because a laptop
-     spends the card's height on reading column it cannot recover. Touch keeps
-     the larger size, the same guard every rung above uses. */
+     meta line, and the two must stay one step apart. */
   --text-transcript-card: 0.875rem;
   --text-transcript-card--line-height: 1.3;
   --text-transcript-meta: 0.75rem;
@@ -1175,8 +1155,7 @@ html, body, #root {
      nested tool detail without taking the full transcript-card rung. */
   --text-activity-label: 0.8125rem;
   /* Expanded tool groups are diagnostic detail below the transcript caption.
-     Keep each tool call at 12px on large and touch displays, then step it down
-     to 10px on a precise-pointer laptop without tightening the row height. */
+     Keep each tool call at 12px. */
   --text-tool-step: 0.75rem;
   --text-tool-step--line-height: 1rem;
   /* The content ladder's annotation rung: the subtitle, field row, badge or
@@ -1188,9 +1167,7 @@ html, body, #root {
   --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
   --text-caption--line-height: 1.5;
   /* Task and pull request descriptions, plus their posted comments, are
-     reading content inside dense workspace surfaces. They sit one step above
-     their previous size on each precise-pointer display rung, while touch
-     keeps the larger values. */
+     reading content inside dense workspace surfaces. */
   --text-description-prose: calc(1rem * var(--solus-font-scale, 1));
   --text-pr-prose-compact: calc(0.875rem * var(--solus-font-scale, 1));
   --text-body: calc(0.875rem * var(--solus-font-scale, 1));
@@ -1201,48 +1178,6 @@ html, body, #root {
   --text-h2--line-height: 1.3;
   --text-h1: calc(1.6875rem * var(--solus-font-scale, 1));
   --text-h1--line-height: 1.25;
-}
-
-/* The runtime owns the laptop boundary through LAPTOP_SCREEN_MAX_WIDTH and
-   stamps this class on the document. Keep the responsive type decision here,
-   at the canonical rung, so rails do not recreate that boundary themselves.
-   Coarse-pointer clients retain the touch-readable desktop size. */
-@media (pointer: fine) {
-  html.is-laptop-display {
-    --row-py: 10px;
-    --text-workspace-chrome: 0.75rem;
-    --text-sidebar-time: 0.625rem;
-    --text-conversation-gutter: 0.625rem;
-    --text-insights-chrome: 0.625rem;
-    --text-insights-query: 0.75rem;
-    --text-insights-table: 0.6875rem;
-    --text-insights-summary: calc(0.75rem * var(--solus-font-scale, 1));
-    --text-insights-summary-heading: calc(0.875rem * var(--solus-font-scale, 1));
-    --text-menu-heading: 0.625rem;
-    /* `--text-menu` and `--text-chrome-shelf` are deliberately absent here. A
-       menu is a decision surface, not a band you scan past, so it holds 14px on
-       both displays and its shortcut hints hold 12px. Stepping them made a
-       laptop menu read as squinted-at rather than quiet, which is what this
-       block is for everywhere else. */
-    --text-review-meta: 0.625rem;
-    --text-review-file: 0.625rem;
-    --text-review-control: 0.625rem;
-    --text-symbol-card-meta: 0.625rem;
-    --text-symbol-card-code: 0.6875rem;
-    --text-micro: 0.5625rem;
-    --text-transcript-card: 0.75rem;
-    --text-transcript-meta: 0.6875rem;
-    --text-activity-label: 0.6875rem;
-    --text-description-prose: calc(0.875rem * var(--solus-font-scale, 1));
-    --text-pr-prose-compact: calc(0.75rem * var(--solus-font-scale, 1));
-    --text-tool-step: 0.625rem;
-    /* Transcript card geometry. Touch keeps the 40px line. */
-    --tx-card-head: 2.25rem;
-    --tx-card-row: 1.875rem;
-    --tx-card-radius: 0.625rem;
-    --tx-card-pad-l: 0.625rem;
-    --tx-card-body-indent: 2.5rem;
-  }
 }
 
 /* Touch keeps the readable size on the dense rung too. */
@@ -2206,13 +2141,6 @@ button.solus-token {
      --doc-pad-x below. */
   --solus-doc-pad-x: 3.5rem;
 }
-/* Keep some laptop margin for the outline, but let the document use more of the
-   pane than the large-display step. The column still tracks the pane, so a
-   narrow split remains constrained by its own width. Peek sets its own measure
-   and is excluded, because a 19rem preview column has no margin to win back. */
-html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
-  --solus-doc-measure: clamp(66ch, 56cqi, 92ch);
-}
 .doc-shell-root .solus-doc-editor .ProseMirror {
   --doc-pad-x: var(--solus-doc-pad-x);
   font-size: var(--solus-doc-size);
@@ -3127,8 +3055,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   font-size: var(--text-body);
   line-height: 1.78;
   /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
-     pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
-     the root font-size floors on a laptop screen. (An interpolated weight like
+     pixel grid and stay crisp at small reading sizes. (An interpolated weight like
      520 falls between masters, renders un-hinted, and reads soft.) We deliberately
      run body at 400 — not 500 — so the jump to 600 headings / strong is a full
      200 units and emphasis actually separates from the surrounding prose. */
@@ -3170,8 +3097,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .prose-reading h4 { font-size: var(--text-body); }
 
 /* Review-guide narration belongs to the surrounding review chrome rather than
-   the transcript's reading ladder. Inherit the responsive workspace rung so the
-   guide steps down with the rest of the review surface on a laptop. */
+   the transcript's reading ladder, so it inherits the workspace rung. */
 .prose-reading.prose-review-guide { font-size: inherit; }
 
 /* ─── Transcript prose (the "Conversation assets" spec, §4 · §5 · §14) ───
@@ -3192,8 +3118,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
      conversation cards take, so prose and cards read as one column at every
      pane width. */
   max-width: 88%;
-  /* Primary conversation text uses the body rung. On the laptop's default 90%
-     display zoom this resolves to about 14px instead of the previous 12.6px. */
+  /* Primary conversation text uses the body rung. */
   font-size: var(--text-body);
   /* Set by the tallest thing a paragraph can hold, not by the text. A chip box is
      ~22px; at 1.62 the borders of stacked lines nearly touch. */
@@ -3209,17 +3134,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 }
 .prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
   max-width: 88%;
-}
-@media (pointer: fine) {
-  html.is-laptop-display .prose-transcript-main { max-width: 82%; }
-
-  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) {
-    max-width: none;
-  }
-
-  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
-    max-width: 82%;
-  }
 }
 /* Element margins alone set the rhythm; the generic sibling step would add to
    the asymmetric heading spacing below. */
@@ -4379,8 +4293,7 @@ html.is-mac-workspace
      --solus-font-scale (that preference belongs to the transcript).
      A menu item is a label you read to make a decision, which is the rule that
      put every other row label in the app on the 14px rung — so menus join them,
-     with their shortcut hints a step below at 12px. Neither steps on a laptop:
-     see the note in the `html.is-laptop-display` block.
+     with their shortcut hints a step below at 12px.
      Kept as a token, unlike the rest of chrome, while the value settles: one
      edit here moves every menu in the app. Fold it into `text-sm` once it has. */
   --text-menu: 0.875rem;
@@ -4389,10 +4302,7 @@ html.is-mac-workspace
 @utility menu-surface {
   overflow: hidden;
   border: 0;
-  /* Call sites restate their own radius over this one. Stepping the radius
-     *here* on a laptop would compile to `html.is-laptop-display .menu-surface`,
-     which outranks every one of those utilities. The surfaces that want the
-     step opt into it themselves. */
+  /* Call sites restate their own radius over this one. */
   border-radius: 1rem;
   /* A menu is a *portalled* surface: bits-ui mounts it on `document.body`, so it
      sits outside `#root` and inherits nothing from the page that opened it. Its
@@ -4483,16 +4393,8 @@ html.is-mac-workspace
 
 @utility menu-heading {
   padding: 0.5rem 0.625rem 0.3125rem;
-  /* Tracks the row inset it labels, so the heading stays left-aligned with the
-     rows under it once those step to 8px. */
-  @media (pointer: fine) {
-    html.is-laptop-display & {
-      padding: 0.375rem 0.5rem 0.25rem;
-    }
-  }
-  /* A group heading has to stay a step under its rows at *both* display sizes.
-     The menu rows hold 14px on a laptop, but the letterspaced caps still read
-     too loud there at 12px, so the heading takes its own rung that steps down. */
+  /* A group heading stays a step under its 14px rows, so the letterspaced caps
+     do not read as loud as the rows. */
   font-size: var(--text-menu-heading);
   font-weight: 500;
   line-height: 1;

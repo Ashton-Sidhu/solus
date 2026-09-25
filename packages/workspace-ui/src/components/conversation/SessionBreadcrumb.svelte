@@ -481,7 +481,7 @@
                 aria-expanded={menu === "project"}
                 onclick={() => toggleMenu("project")}
               >
-                <ProjectFavicon projectRoot={projectKey} class="size-4 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3" />
+                <ProjectFavicon projectRoot={projectKey} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
                 >
@@ -490,7 +490,7 @@
           </Breadcrumb.Link>
           {#if menu === "project"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={MENU_HEADING}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -594,14 +594,14 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
+                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
                       placeholder="Search tasks in {projectLabel}"
                     />
                     <Command.List
-                      class="max-h-[min(24rem,calc(100vh-8rem))] [.is-laptop-display_&]:max-h-[min(17.5rem,calc(100vh-7rem))] overflow-y-auto p-[0.3125rem]"
+                      class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
                     >
                       {#if filteredTasksInProject.length === 0}
                         <div
@@ -622,7 +622,7 @@
                                the completed section is a trailing affordance so
                                nothing is pushed off that edge. -->
                           <div
-                            class="mb-1 flex h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] items-center gap-1.5 [.is-laptop-display_&]:gap-1 px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="mb-1 flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                           >
                             <span>Open</span>
                             <span class="tabular-nums opacity-50"
@@ -645,7 +645,7 @@
                             value="completed tasks section"
                             class="{completedVisible
                               ? 'mb-1'
-                              : ''} h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] gap-1.5 [.is-laptop-display_&]:gap-1 rounded-md px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                              : ''} h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                             aria-expanded={completedVisible}
                             onSelect={() =>
                               (completedOverride = {
@@ -660,7 +660,7 @@
                             <CaretDownIcon
                               size={11}
                               weight="bold"
-                              class="ml-auto shrink-0 [.is-laptop-display_&]:size-[0.625rem] transition-transform duration-150 {completedVisible
+                              class="ml-auto shrink-0 transition-transform duration-150 {completedVisible
  ? ''
  : '-rotate-90'}"
                             />
@@ -700,7 +700,7 @@
           >
         {/if}
 
-        <!-- Capped like the task crumb: on a laptop band the leaf otherwise
+        <!-- Capped like the task crumb: on a narrow band the leaf otherwise
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
@@ -771,7 +771,7 @@
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={MENU_HEADING}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
                   {@const status = taskStatusFor(child.attention)}
@@ -853,7 +853,7 @@
       {@const record = taskRecord}
       <button
         type="button"
-        class="flex h-[1.875rem] [.is-laptop-display_&]:h-[1.6875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
+        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
  ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
  : ''}"
         title="Task actions"

@@ -12,7 +12,6 @@
     SourceLogo,
     SubPageCrumbLine,
     SUB_PAGE_CHIP,
-    SUB_PAGE_ICON,
     SUB_PAGE_ROUND_BTN,
   } from "../../ui/list-page";
 
@@ -135,7 +134,7 @@
       title="Open task page"
       aria-label="Open task page"
     >
-      <ArrowsOutSimpleIcon size={13} class={SUB_PAGE_ICON} />
+      <ArrowsOutSimpleIcon size={13} />
     </button>
   {/if}
 
@@ -147,7 +146,7 @@
       title={`Open in ${providerLabel}`}
       aria-label={`Open task in ${providerLabel}`}
     >
-      <ArrowSquareOutIcon size={13} class={SUB_PAGE_ICON} />
+      <ArrowSquareOutIcon size={13} />
     </button>
   {/if}
 {/snippet}

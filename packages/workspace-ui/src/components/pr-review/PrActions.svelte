@@ -100,7 +100,7 @@
   {#if armedLabel}
     <div
       class="flex min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[10px] px-3.5 font-medium text-(--solus-art-positive) shadow-[shadow:var(--elev-ring)] {row
-        ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+        ? 'h-8 shrink-0'
         : 'h-[34px] w-full'}"
       title="{armedLabel}: the host merges this once its requirements pass"
     >
@@ -127,7 +127,7 @@
       'resolve-conflicts'
         ? 'bg-(--solus-art-negative) text-white hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)]'
         : 'bg-primary text-primary-foreground shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] hover:bg-primary/90'} {row
-        ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+        ? 'h-8 shrink-0'
         : 'h-[34px] w-full'}"
       title={action.kind === "mark-ready"
         ? "Mark the pull request ready for review"
@@ -153,7 +153,7 @@
       variant="ghost"
       disabled={!addressCommentsReady || addressingComments}
       class="flex h-8 min-w-0 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-[10px] border-0 bg-transparent px-3 font-normal text-muted-foreground shadow-[shadow:var(--elev-ring)] transition-[background-color,color,scale] duration-150 hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.985] disabled:opacity-60 {row
-        ? 'shrink pointer-fine:[.is-laptop-display_&]:h-7'
+        ? 'shrink'
         : 'w-full'}"
       title={addressingComments
         ? "Preparing fix draft…"

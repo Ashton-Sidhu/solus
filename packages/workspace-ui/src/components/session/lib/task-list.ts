@@ -98,14 +98,11 @@ export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boole
 }
 
 /**
- * Whether a task row opens onto anything. Several sessions obviously do; so does
- * a single one that belongs to a *subtask*, because the row above it is named
- * after the root task and would otherwise be the only trace of the child's
- * existence. A lone session of the task itself discloses nothing — the row is
- * already that session.
+ * Whether a task row opens onto anything. Several sessions do; a lone session
+ * discloses nothing — the row is already that session.
  */
-export function hasDisclosure(sessions: readonly { isSubtask?: boolean }[]): boolean {
-  return sessions.length > 1 || sessions.some((session) => session.isSubtask)
+export function hasDisclosure(sessions: readonly unknown[]): boolean {
+  return sessions.length > 1
 }
 
 /**
@@ -117,7 +114,7 @@ export function hasDisclosure(sessions: readonly { isSubtask?: boolean }[]): boo
  */
 export function taskRowBranchName(
   taskBranchName: string | null,
-  sessions: readonly { branchName: string | null; isSubtask?: boolean }[],
+  sessions: readonly { branchName: string | null }[],
 ): string | null {
   if (hasDisclosure(sessions)) return null
   return sessions.length === 1 ? (sessions[0].branchName ?? taskBranchName) : taskBranchName
@@ -435,16 +432,15 @@ export function resolveTaskSidebarLifecycle(input: {
   }
 }
 
-/** A task appears only after this client opens it. Child tasks render under
- * their root, and a local dismissal keeps a root closed until a session reopens
- * it. Task status does not add a row by itself. */
+/** A task appears only after this client opens it, and a local dismissal
+ * keeps it closed until a session reopens it. Task status does not add a row
+ * by itself. */
 export function shouldShowDurableSidebarTask(
-  task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
   isOpenOnClient: boolean,
 ): boolean {
-  return !task.parentId && (hasOpenSession || (!isDismissed && isOpenOnClient))
+  return hasOpenSession || (!isDismissed && isOpenOnClient)
 }
 
 /** A session whose task is done is finished work, whatever its tab is doing.
@@ -470,10 +466,10 @@ export function isCompletedTaskSession(
  * how long it stays. Both explicit workflow endings count.
  */
 export function shouldShelveCompletedTask(
-  task: Pick<Task, 'parentId' | 'status'>,
+  task: Pick<Task, 'status'>,
   isAlreadyInColumn: boolean,
 ): boolean {
-  if (task.parentId || isAlreadyInColumn) return false
+  if (isAlreadyInColumn) return false
   return task.status === 'done' || task.status === 'dropped'
 }
 

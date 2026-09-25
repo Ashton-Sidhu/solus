@@ -353,7 +353,7 @@
   </header>
 
   <div
-    class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52 [.is-laptop-display_&]:h-36"
+    class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52"
     bind:clientWidth={plotWidth}
   >
     {#key `${viewport.from}:${viewport.to}`}

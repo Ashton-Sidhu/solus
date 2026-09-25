@@ -188,22 +188,41 @@ describe('a capture in the transcript', () => {
       .toEqual(['s1', 's2', 's3'])
   })
 
-  test('starts a second plate once the agent has spoken', () => {
-    // WHY: a pass is one act of looking. Captures taken after the agent has said
-    // something about the first batch are a second look, and merging them would
-    // put frames above the sentence that was written before they existed.
+  test('keeps one plate for the turn when the agent speaks between captures', () => {
+    // WHY: like the sub-agent card, a turn's captures are one card. The agent's
+    // commentary between frames must not cut the turn's captures into a row of
+    // separate cards down the conversation; the prose renders below the plate.
     const messages: Message[] = [
+      { id: 'u1', role: 'user', content: 'Check the pages', timestamp: 0 },
       { id: 's1', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 1 },
-      { id: 's2', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 2 },
-      { id: 'a1', role: 'assistant', content: 'Both look right. Now the wide one.', timestamp: 3 },
-      { id: 's3', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 4 },
+      { id: 'a1', role: 'assistant', content: 'That looks right. Now the wide one.', timestamp: 2 },
+      { id: 's2', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 3 },
+      { id: 'w1', role: 'assistant', content: '', workRef: { workId: 'w', title: 'Notes' }, timestamp: 4 },
+      { id: 's3', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 5 },
+    ]
+
+    const grouped = groupMessages(messages)
+    const plates = grouped.filter((item) => item.kind === 'browser-snapshot')
+
+    expect(plates).toHaveLength(1)
+    expect(plates[0]?.kind === 'browser-snapshot' && plates[0].messages.map((m) => m.id))
+      .toEqual(['s1', 's2', 's3'])
+    expect(grouped.map((item) => item.kind)).toEqual(['user', 'browser-snapshot', 'assistant', 'document'])
+  })
+
+  test('starts a new plate for a new turn', () => {
+    // WHY: a new prompt is a new request. Its captures answer it, so they must
+    // not be appended to the plate of an earlier turn far up the conversation.
+    const messages: Message[] = [
+      { id: 'u1', role: 'user', content: 'Check the page', timestamp: 0 },
+      { id: 's1', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 1 },
+      { id: 'u2', role: 'user', content: 'Now the wide one', timestamp: 2 },
+      { id: 's2', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 3 },
     ]
 
     const plates = groupMessages(messages).filter((item) => item.kind === 'browser-snapshot')
 
     expect(plates).toHaveLength(2)
-    expect(plates[0]?.kind === 'browser-snapshot' && plates[0].messages).toHaveLength(2)
-    expect(plates[1]?.kind === 'browser-snapshot' && plates[1].messages).toHaveLength(1)
   })
 
   test('renders the plate at the position of the first frame, not the last', () => {

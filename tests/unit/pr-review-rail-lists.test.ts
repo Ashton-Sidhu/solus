@@ -27,23 +27,8 @@ describe('changed-file row heights', () => {
     // height anyway leaves a blank half-row; giving a nested file the short one
     // clips its directory. The list is told the same number either way, so a
     // wrong answer here overlaps every row below it.
-    expect(fileRowHeight(file('bun.lock'), false)).toBeLessThan(
-      fileRowHeight(file('web/src/routes/+page.svelte'), false),
-    )
-    expect(fileRowHeight(file('bun.lock'), true)).toBeLessThan(
-      fileRowHeight(file('web/src/routes/+page.svelte'), true),
-    )
-  })
-
-  test('every row steps down on a laptop display', () => {
-    // WHY: the rail itself narrows to 292px on a laptop and the type rungs step
-    // with it. A row height that did not would leave the shorter text floating
-    // in a box sized for the desktop rung.
-    expect(fileRowHeight(file('a/b.ts'), true)).toBeLessThan(
-      fileRowHeight(file('a/b.ts'), false),
-    )
-    expect(fileRowHeight(file('b.ts'), true)).toBeLessThan(
-      fileRowHeight(file('b.ts'), false),
+    expect(fileRowHeight(file('bun.lock'))).toBeLessThan(
+      fileRowHeight(file('web/src/routes/+page.svelte')),
     )
   })
 })

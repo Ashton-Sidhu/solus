@@ -618,8 +618,8 @@
             </Table.Row>
             {#if open}
               <!-- An expanded session is bounded so it stays an entry in a list
-                   of sessions: three turns on a laptop, five on a taller
-                   desktop display, then the session scrolls in place under the
+                   of sessions: three turns, five on a taller display, then
+                   the session scrolls in place under the
                    app's standard thumb. Without it one long session pushes
                    every other session off the screen.
 

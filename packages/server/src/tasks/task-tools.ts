@@ -5,7 +5,7 @@ import { resolveRepoRoot, resolveRepositoryKey } from '../git/git-helpers'
 import { createTask, listTasks } from './task-store'
 import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
-import { formatTaskLink } from './task-context'
+import { formatTaskEpic, formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
 import { tasksAreCloudOwned } from '../outbox/cloud-ownership'
 import { ulid } from '@solus/contracts/ulid'
@@ -33,7 +33,6 @@ const log = createLogger('main', 'task-tools.ts')
 const STATUS_VALUES = ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'] as const
 const LIST_STATUS_VALUES = [...STATUS_VALUES, 'all'] as const
 const PRIORITY_VALUES = ['urgent', 'high', 'medium', 'low'] as const
-const KIND_VALUES = ['task', 'epic'] as const
 const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation', 'session'] as const
 
 // ─── Schemas ───
@@ -65,8 +64,6 @@ const listTasksFields = {
 const createTaskFields = {
   title: z.string().describe('Task title.'),
   body: z.string().optional().describe('Task body/description in markdown.'),
-  kind: z.enum(KIND_VALUES).optional().describe("Task kind. Defaults to 'task'."),
-  parent_id: z.string().optional().describe('Optional parent epic/task id.'),
   priority: z.enum(PRIORITY_VALUES).optional().describe('Optional priority.'),
   labels: z.array(z.string()).optional().describe('Optional labels.'),
   due_date: z.string().optional().describe('Optional ISO due date, usually YYYY-MM-DD.'),
@@ -109,7 +106,7 @@ const linkTaskInputSchema = z.object(linkTaskFields)
 // ─── Descriptions ───
 
 const READ_TASK_DESC =
-  "Read a local Solus task by id, including its description, comments, subtasks, and linked items (works, plans, PRs, automations) with the ids their read tools take."
+  "Read a local Solus task by id, including its description, its upstream epic, comments, and linked items (works, plans, PRs, automations) with the ids their read tools take."
 const UPDATE_DESC =
   "Move a local task to a lifecycle status. This does not write to an external tracker."
 const LIST_TASKS_DESC =
@@ -149,7 +146,6 @@ interface TaskToolArgs {
   inbox?: unknown
   kind?: unknown
   labels?: unknown
-  parent_id?: unknown
   priority?: unknown
   role?: unknown
   scope?: unknown
@@ -210,7 +206,7 @@ async function executeTaskTool(
         text: formatTaskForAgent(task, details.comments.map((comment) => ({
           author: comment.author ?? 'unknown',
           body: comment.body,
-        })), details.subtasks, details.links),
+        })), details.links),
       }
     }
 
@@ -254,21 +250,15 @@ async function executeTaskTool(
       const parsed = createTaskInputSchema.parse(args)
       const title = parsed.title.trim()
       if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
-      const requestedParentId = parsed.parent_id?.trim() ?? ''
-      if (requestedParentId && foreignTaskFor(deps.ctx.solusSessionId, requestedParentId)) {
-        return { ok: false, text: foreignWriteUnsupported('create_task under a parent', requestedParentId) }
-      }
       const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
       const isInbox = parsed.inbox === true
       // A cloud task belongs to the repository, not to this machine's path
       // (docs/plans/project-model.md §4); a folder with no remote keeps its path.
-      if (cloudOwned) return recordCloudOwnedTask({ title, projectKey: isInbox ? null : (await resolveRepositoryKey(projectKey)) ?? projectKey, body: parsed.body ?? '', kind: parsed.kind ?? 'task', parentId: requestedParentId || null, priority: parsed.priority ?? null, labels, dueDate: parsed.due_date?.trim() || null, status: parsed.status ?? (isInbox ? 'inbox' : 'todo'), originSessionId: deps.ctx.sessionId ?? null, createdAt: 0 }, deps)
+      if (cloudOwned) return recordCloudOwnedTask({ title, projectKey: isInbox ? null : (await resolveRepositoryKey(projectKey)) ?? projectKey, body: parsed.body ?? '', priority: parsed.priority ?? null, labels, dueDate: parsed.due_date?.trim() || null, status: parsed.status ?? (isInbox ? 'inbox' : 'todo'), originSessionId: deps.ctx.sessionId ?? null, createdAt: 0 }, deps)
       const input: TaskCreateInput = {
         title,
         projectKey: isInbox ? null : projectKey,
         body: parsed.body ?? '',
-        kind: parsed.kind ?? 'task',
-        parentId: requestedParentId || null,
         priority: parsed.priority ?? null,
         labels,
         dueDate: parsed.due_date?.trim() || null,
@@ -401,11 +391,10 @@ function recordCloudOwnedTask(fields: TaskCreateOpPayload, deps: TaskToolDeps): 
 
 function formatCloudTaskForAgent(id: string, payload: TaskCreateOpPayload): string {
   const lines = [
-    `${payload.kind === 'epic' ? 'Epic' : 'Task'} ${id} — "${payload.title}"`,
+    `Task ${id} — "${payload.title}"`,
     `status: ${payload.status}`,
   ]
   if (payload.labels?.length) lines.push(`labels: ${payload.labels.join(', ')}`)
-  if (payload.parentId) lines.push(`parent: ${payload.parentId}`)
   lines.push('', payload.body.trim() || '(no description)')
   return lines.join('\n')
 }
@@ -413,25 +402,20 @@ function formatCloudTaskForAgent(id: string, payload: TaskCreateOpPayload): stri
 function formatTaskForAgent(
   task: TaskRecord,
   comments: Array<{ author: string; body: string }> = [],
-  subtasks: TaskRecord[] = [],
   links: TaskLinkRecord[] = [],
 ): string {
   const lines = [
-    `${task.kind === 'epic' ? 'Epic' : 'Task'} ${task.id} — "${task.title}"`,
+    `Task ${task.id} — "${task.title}"`,
     `status: ${task.status}`,
   ]
   if (task.labels.length) lines.push(`labels: ${task.labels.join(', ')}`)
   if (task.assignee) lines.push(`assignee: ${task.assignee}`)
-  if (task.parentId) lines.push(`parent: ${task.parentId}`)
+  if (task.epic) lines.push(...formatTaskEpic(task.epic))
   if (links.length) {
     lines.push('', 'Linked:')
     for (const link of links) lines.push(`- ${formatTaskLink(link)}`)
   }
   lines.push('', task.body.trim() || '(no description)')
-  if (subtasks.length) {
-    lines.push('', 'Subtasks:')
-    for (const subtask of subtasks) lines.push(`- ${subtask.id} [${subtask.status}] ${subtask.title}`)
-  }
   if (comments.length) {
     lines.push('', 'Comments:')
     for (const comment of comments) lines.push(`- ${comment.author}: ${comment.body.trim()}`)

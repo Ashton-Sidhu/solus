@@ -119,7 +119,7 @@
 
   <button
     type="button"
-    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:h-8! @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:rounded-full @max-[30rem]/pane:px-3 @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)] {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
+    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 @max-[30rem]/pane:h-8! @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:rounded-full @max-[30rem]/pane:px-3 @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)] {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
     title="Switch project"
     aria-label="Switch project"
     aria-haspopup="menu"
@@ -132,7 +132,7 @@
         <ProjectFavicon
           projectRoot={active.projectKey}
           serverId={active.serverId}
-          class="size-4 shrink-0 [.is-laptop-display_&]:size-3.5"
+          class="size-4 shrink-0"
         />
       {/key}
     {/if}
@@ -143,7 +143,7 @@
     </span>
     <CaretDownIcon
       size={12}
-      class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 [.is-laptop-display_&]:size-[11px] {menuOpen ? 'rotate-180' : ''}"
+      class="shrink-0 text-muted-foreground opacity-50 transition-transform duration-200 {menuOpen ? 'rotate-180' : ''}"
     />
   </button>
 
@@ -206,7 +206,7 @@
             type="button"
             class={cn(
               menuRowVariants({ stagger: false }),
-              "w-full pr-9 text-left text-workspace-chrome pointer-coarse:pr-11 pointer-fine:[.is-laptop-display_&]:pr-9",
+              "w-full pr-9 text-left text-workspace-chrome pointer-coarse:pr-11",
               !project.available && "cursor-not-allowed opacity-50",
             )}
             data-menu-current={isActive ? "" : undefined}

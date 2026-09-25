@@ -34,25 +34,17 @@ export function isRailFolded(contentWidth: number): boolean {
  * here is the *only* height, applied to the row through the `style` the list
  * hands back. Never set a height on the row itself as well.
  *
- * Heights follow the display for the same reason the review's type rungs do
- * (ADR-0010/0013): the rail is narrower on a laptop and spends height it
- * cannot recover.
- *
  * A changed-file row is two lines — filename over directory — unless the file
  * sits at the repository root and has no directory to put under it. */
-export const FILE_ROW_HEIGHT = {
-  standard: { nested: 44, root: 30 },
-  laptop: { nested: 40, root: 28 },
-} as const
+export const FILE_ROW_HEIGHT = { nested: 44, root: 30 } as const
 
 /** How many checks show before the rest wait behind "Show more". */
 export const CHECKS_VISIBLE_ROWS = 6
 /** How many files show before the section becomes its own scrollport. */
 export const FILES_VISIBLE_ROWS = 7
 
-export function fileRowHeight(file: ChangedFileStat, isLaptopDisplay: boolean): number {
-  const scale = isLaptopDisplay ? FILE_ROW_HEIGHT.laptop : FILE_ROW_HEIGHT.standard
-  return dirName(file.path) ? scale.nested : scale.root
+export function fileRowHeight(file: ChangedFileStat): number {
+  return dirName(file.path) ? FILE_ROW_HEIGHT.nested : FILE_ROW_HEIGHT.root
 }
 
 /**

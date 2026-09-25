@@ -4,7 +4,6 @@
       {
         "id": "ACME-214",
         "providerId": "jira",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Expose rate-limit headers on 429s",
         "body": "Return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` from every enforced rejection. Preserve the existing API error envelope and request id.",
@@ -34,7 +33,6 @@
       {
         "id": "demo-task-2",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Dashboard: usage graph for API keys",
         "body": "Plot daily requests by API key with plan quota and projected overage. Show when data was last aggregated.",
@@ -54,7 +52,6 @@
       {
         "id": "demo-task-3",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Rotate webhook signing secrets",
         "body": "Support overlapping webhook secrets for seven days and expose the active secret prefix in settings.",
@@ -74,7 +71,6 @@
       {
         "id": "demo-task-4",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Backfill invoice-grade usage ledger",
         "body": "Import the current billing period from request logs with deterministic event ids and a distinct backfill source marker.",
@@ -95,7 +91,6 @@
       {
         "id": "demo-task-5",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Alert on Redis fail-open decisions",
         "body": "Page API on-call when fail-open exceeds 0.1% of authenticated requests for ten minutes. Link the alert to the rollout runbook.",
@@ -116,7 +111,6 @@
       {
         "id": "demo-task-6",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Add custom domains to link analytics",
         "body": "Include custom-domain hostnames in click breakdowns without increasing the analytics query count.",
@@ -135,7 +129,6 @@
       {
         "id": "demo-task-7",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Make webhook retry timing deterministic",
         "body": "Remove endpoint-scoped retry counters, inject scheduling time, and add an interleaving regression test.",
@@ -155,7 +148,6 @@
       {
         "id": "demo-task-8",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Document API key rotation procedure",
         "body": "Publish the overlapping-key rotation flow, grace periods, audit events, and emergency revocation steps.",
@@ -174,7 +166,6 @@
       {
         "id": "demo-task-9",
         "providerId": "local",
-        "kind": "task",
         "projectKey": "/home/demo/acme",
         "title": "Reduce redirect endpoint p95 below 25 ms",
         "body": "Cache active link destinations in Redis and preserve click tracking through the async event queue.",
@@ -199,7 +190,6 @@
     "ACME-214": {
       "id": "ACME-214",
       "providerId": "jira",
-      "kind": "task",
       "title": "Expose rate-limit headers on 429s",
       "body": "Return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` from every enforced rejection. Preserve the existing API error envelope and request id.",
       "status": "in_progress",
@@ -228,7 +218,6 @@
     "demo-task-2": {
       "id": "demo-task-2",
       "providerId": "local",
-      "kind": "task",
       "title": "Dashboard: usage graph for API keys",
       "body": "Plot daily requests by API key with plan quota and projected overage. Show when data was last aggregated.",
       "status": "todo",
@@ -247,7 +236,6 @@
     "demo-task-3": {
       "id": "demo-task-3",
       "providerId": "local",
-      "kind": "task",
       "title": "Rotate webhook signing secrets",
       "body": "Support overlapping webhook secrets for seven days and expose the active secret prefix in settings.",
       "status": "todo",
@@ -266,7 +254,6 @@
     "demo-task-4": {
       "id": "demo-task-4",
       "providerId": "local",
-      "kind": "task",
       "title": "Backfill invoice-grade usage ledger",
       "body": "Import the current billing period from request logs with deterministic event ids and a distinct backfill source marker.",
       "status": "in_progress",
@@ -286,7 +273,6 @@
     "demo-task-5": {
       "id": "demo-task-5",
       "providerId": "local",
-      "kind": "task",
       "title": "Alert on Redis fail-open decisions",
       "body": "Page API on-call when fail-open exceeds 0.1% of authenticated requests for ten minutes. Link the alert to the rollout runbook.",
       "status": "in_progress",
@@ -306,7 +292,6 @@
     "demo-task-6": {
       "id": "demo-task-6",
       "providerId": "local",
-      "kind": "task",
       "title": "Add custom domains to link analytics",
       "body": "Include custom-domain hostnames in click breakdowns without increasing the analytics query count.",
       "status": "todo",
@@ -324,7 +309,6 @@
     "demo-task-7": {
       "id": "demo-task-7",
       "providerId": "local",
-      "kind": "task",
       "title": "Make webhook retry timing deterministic",
       "body": "Remove endpoint-scoped retry counters, inject scheduling time, and add an interleaving regression test.",
       "status": "done",
@@ -343,7 +327,6 @@
     "demo-task-8": {
       "id": "demo-task-8",
       "providerId": "local",
-      "kind": "task",
       "title": "Document API key rotation procedure",
       "body": "Publish the overlapping-key rotation flow, grace periods, audit events, and emergency revocation steps.",
       "status": "done",
@@ -361,7 +344,6 @@
     "demo-task-9": {
       "id": "demo-task-9",
       "providerId": "local",
-      "kind": "task",
       "title": "Reduce redirect endpoint p95 below 25 ms",
       "body": "Cache active link destinations in Redis and preserve click tracking through the async event queue.",
       "status": "done",

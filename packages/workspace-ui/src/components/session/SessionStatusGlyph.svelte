@@ -31,7 +31,7 @@
 >
   <Icon
     size={14}
-    class="size-3.5 md:pointer-fine:[.is-laptop-display_&]:size-3 {visual.spin
+    class="size-3.5 {visual.spin
       ? 'animate-spin motion-reduce:animate-none'
       : ''}"
   />

@@ -75,6 +75,7 @@ describe('pull request sections', () => {
       viewerLogin: () => 'sidhu',
       checksState: () => null,
       hasGuide: () => false,
+      hasLens: () => false,
     }
     const items = [
       pr(1, { author: 'alex', createdAt: '2026-01-02T00:00:00Z' }),
@@ -106,6 +107,7 @@ describe('pull request sections', () => {
       viewerLogin: () => null,
       checksState: () => null,
       hasGuide: () => false,
+      hasLens: () => false,
     }
     const items = [pr(1, { title: 'Fix login' }), pr(2, { title: 'Docs' })]
     const listView = { ...emptyListView(), query: 'login' }

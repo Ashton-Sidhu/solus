@@ -1,7 +1,7 @@
 import type { GitHubClient } from '../../providers/github/octokit'
 import { githubClients, runGithubRequest } from '../../providers/github/request'
 import type { RepoRef } from '../../providers/types'
-import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskEpic, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { z } from 'zod'
 
 // GitHub Issues are open/closed + labels only — there's no native "In Progress".
@@ -15,9 +15,8 @@ const MAX_ISSUES = 200
 const PAGE_SIZE = 50
 
 // ─── GraphQL documents ────────────────────────────────────────────────────────
-// GraphQL (not REST) because we need the sub-issue graph (parent/children, GA
-// 2025), issue types, and linked PRs in one round-trip — REST exposes none of
-// these on the issues endpoints.
+// GraphQL (not REST) because we need the parent issue (sub-issues, GA 2025) and
+// linked PRs in one round-trip — REST exposes neither on the issues endpoints.
 
 // `projectItems` carries the Projects v2 metadata (status / due / priority) that
 // rides along with each issue — the item id + project id we need to write back,
@@ -31,11 +30,9 @@ const ISSUE_FIELDS = `
   state
   url
   updatedAt
-  issueType { name }
   labels(first: 20) { nodes { name } }
   assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
-  parent { number }
-  subIssuesSummary { total }
+  parent { number title url }
   linkedPr: closedByPullRequestsReferences(first: 1, includeClosedPrs: false) {
     nodes { number url headRefName }
   }
@@ -81,7 +78,7 @@ const GET_ISSUE_QUERY = `
     repository(owner: $owner, name: $repo) {
       issue(number: $number) {
         ${ISSUE_FIELDS}
-        subIssues(first: 100) { nodes { number } }
+        parent { body }
         comments(first: 100) {
           nodes { id author { login } body createdAt }
         }
@@ -151,18 +148,17 @@ interface IssueNode {
   state: 'OPEN' | 'CLOSED'
   url: string
   updatedAt: string
-  issueType: { name: string } | null
   labels: { nodes: { name: string }[] }
   assignees: { nodes: { login: string; avatarUrl: string }[] }
-  parent: { number: number } | null
-  subIssuesSummary: { total: number } | null
+  /** The epic. `body` is selected only by the hydrated getTask read: a list
+   *  carries one epic description per issue otherwise. */
+  parent: { number: number; title: string; url: string; body?: string | null } | null
   // The active PR that will close this issue (open only, first one) — present on
   // both the list and the hydrated response, so cards can show the PR/branch too.
   linkedPr?: { nodes: { number: number; url: string; headRefName: string }[] }
   // Projects v2 metadata (status/due/priority) riding along with the issue.
   projectItems?: { nodes: ProjectItemNode[] }
   // Present only on the hydrated getTask response:
-  subIssues?: { nodes: { number: number }[] }
   comments?: { nodes: GitHubComment[] }
   closedByPullRequestsReferences?: { nodes: GitHubLinkedPr[] }
 }
@@ -342,12 +338,15 @@ interface IssueMutationBase {
   issue_number: number
 }
 
-function issueKind(node: IssueNode): TaskKind {
-  // Either an explicit "Epic" issue type or the presence of sub-issues makes
-  // this a grouping parent. Sub-issues is the more faithful signal.
-  if (node.issueType?.name?.toLowerCase() === 'epic') return 'epic'
-  if ((node.subIssuesSummary?.total ?? 0) > 0) return 'epic'
-  return 'task'
+/** The parent issue as the child's epic. A list read carries no description. */
+function issueEpic(parent: NonNullable<IssueNode['parent']>): TaskEpic {
+  return {
+    provider: 'github',
+    externalId: String(parent.number),
+    url: parent.url,
+    title: parent.title,
+    body: parent.body ?? '',
+  }
 }
 
 function issueToTask(node: IssueNode): Task {
@@ -372,7 +371,6 @@ function issueToTask(node: IssueNode): Task {
   return {
     id: String(node.number),
     providerId: 'github',
-    kind: issueKind(node),
     title: node.title,
     body: node.body ?? '',
     status: onBoard ? boardStatus : normalizeStatus(node, labels),
@@ -381,8 +379,7 @@ function issueToTask(node: IssueNode): Task {
     assigneeAvatarUrl: assignee?.avatarUrl,
     labels,
     priority: onBoard ? planning.priority : priorityFromLabels(labels),
-    parentId: node.parent ? String(node.parent.number) : undefined,
-    childIds: node.subIssues?.nodes.map((n) => String(n.number)),
+    epic: node.parent ? issueEpic(node.parent) : undefined,
     dueDate: onBoard ? planning.dueDate : undefined,
     branch: active?.headRefName,
     pr: active ? { url: active.url, number: active.number } : undefined,

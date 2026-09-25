@@ -15,6 +15,7 @@ export type PrChecksState = 'passing' | 'pending' | 'failing'
 
 export interface PrFacetSelection {
   guide?: 'all' | 'has-guide'
+  lens?: 'all' | 'has-lens'
   involvement: 'all' | 'created' | 'assigned' | 'review-requested'
   author: string | null
   label: string | null
@@ -25,6 +26,7 @@ export interface PrFacetSelection {
 
 interface PrFacetContext {
   hasGuide?: (pr: PullRequest) => boolean
+  hasLens?: (pr: PullRequest) => boolean
   viewerLogin: (pr: PullRequest) => string | null
   checksState: (pr: PullRequest) => 'passing' | 'pending' | 'failing' | null
 }
@@ -37,6 +39,7 @@ export function filterPrFacets(
 ): PullRequest[] {
   return items.filter((pr) => {
     if (selection.guide === 'has-guide' && !context.hasGuide?.(pr)) return false
+    if (selection.lens === 'has-lens' && !context.hasLens?.(pr)) return false
     if (!matchesInvolvement(pr, selection.involvement, context.viewerLogin(pr))) return false
     if (selection.author && pr.author.toLowerCase() !== selection.author.toLowerCase()) return false
     if (selection.label && !pr.labels.some((label) => label.name === selection.label)) return false

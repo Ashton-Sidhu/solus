@@ -9,8 +9,8 @@
    *
    *  The field takes the rung its surface declares rather than pinning one, so
    *  it reads at the same size as the rows it filters — the menu rung on a stock
-   *  menu, the dense rung on a dense one — and follows that rung down on a
-   *  laptop display instead of standing a size above the list. */
+   *  menu, the dense rung on a dense one — instead of standing a size above
+   *  the list. */
   interface Props {
     value: string;
     placeholder: string;
@@ -23,7 +23,7 @@
 </script>
 
 <div
-  class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 [.is-laptop-display_&]:gap-1.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:pb-1.5 [.is-laptop-display_&]:pt-2 text-(--solus-text-tertiary)"
+  class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 text-(--solus-text-tertiary)"
 >
   {#if leading}
     {@render leading()}

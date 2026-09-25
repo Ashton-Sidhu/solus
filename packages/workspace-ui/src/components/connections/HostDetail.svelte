@@ -36,7 +36,7 @@
   );
 </script>
 
-<div class="flex flex-col gap-6 [.is-laptop-display_&]:gap-5">
+<div class="flex flex-col gap-6">
   <div class="min-w-0">
     <h2
       class="text-[2em] font-medium text-foreground"
@@ -52,7 +52,7 @@
   </div>
 
   <Tabs.Root bind:value={connectionsNav.tab}>
-    <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1 [.is-laptop-display_&]:gap-3">
+    <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1">
       <Tabs.Trigger value="overview" class="flex-none px-0">Overview</Tabs.Trigger>
       <Tabs.Trigger value="git" class="flex-none px-0">Git</Tabs.Trigger>
       <Tabs.Trigger value="providers" class="flex-none px-0">AI providers</Tabs.Trigger>
@@ -65,20 +65,20 @@
       {/if}
     </Tabs.List>
 
-    <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
+    <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
       <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
     </Tabs.Content>
-    <Tabs.Content value="git" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
+    <Tabs.Content value="git" class="mt-5 flex flex-col gap-7">
       <HostDetailGit {setup} />
     </Tabs.Content>
-    <Tabs.Content value="providers" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
+    <Tabs.Content value="providers" class="mt-5 flex flex-col gap-7">
       <HostDetailProviders {setup} />
     </Tabs.Content>
-    <Tabs.Content value="environment" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
+    <Tabs.Content value="environment" class="mt-5 flex flex-col gap-7">
       <HostDetailEnvironment {setup} serverId={host.id} />
     </Tabs.Content>
     {#if isActive}
-      <Tabs.Content value="access" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
+      <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
         <HostDetailAccess serverId={host.id} />
       </Tabs.Content>
     {/if}

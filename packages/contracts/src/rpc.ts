@@ -431,6 +431,7 @@ export const RPC_INVOKE_METHODS = [
 
   // Review lens (one generated HTML artifact per review target)
   'readReviewLens',
+  'prLensRevisions',
   'requestReviewLens',
   'editReviewLens',
   'cancelReviewLens',

@@ -69,7 +69,6 @@ function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['detail
         id: taskId,
         providerId: 'local',
         projectKey: '/home/dev/solus',
-        kind: 'task',
         title: 'Fix the scroll bug',
         body: 'Restore scrollback after refresh.',
         status: 'in_progress',
@@ -77,12 +76,10 @@ function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['detail
         labels: [],
         ...overrides,
       } as TaskSnapshot['details']['task'],
-      subtasks: [],
       comments: [],
       links: [],
       events: [],
     },
-    parent: null,
     sessions: [],
   }
 }
@@ -287,13 +284,6 @@ describe('task tools on a dispatched session (foreign task)', () => {
     )
     expect(linked.ok).toBe(false)
     expect(linked.text).toContain('another host')
-
-    const subtask = await taskTools.createTaskAgentTool.execute(
-      { title: 'child', parent_id: foreignTaskId },
-      toolContext(sessionId),
-    )
-    expect(subtask.ok).toBe(false)
-    expect(subtask.text).toContain('another host')
   })
 
   test('a local task is untouched by the foreign branch', async () => {
@@ -313,7 +303,7 @@ describe('the shipped snapshot renders the packet without a local row', () => {
   test('formatTaskContext consumes a TaskSnapshot verbatim', async () => {
     const { formatTaskContext } = await import('@solus/server/tasks/task-context')
     const snapshot = shippedSnapshot('01JSNAPSHOTONLYXXXXXXXXXXX')
-    const packet = formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
+    const packet = formatTaskContext(snapshot.details, snapshot.sessions)
     expect(packet).toContain('[Working On Task — "Fix the scroll bug"')
     expect(packet).toContain('Restore scrollback after refresh.')
     expect(packet).toContain('read_task')
@@ -333,7 +323,7 @@ describe('the shipped snapshot renders the packet without a local row', () => {
       createdBy: 'agent',
       linkedAt: 0,
     }] as never
-    const packet = formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
+    const packet = formatTaskContext(snapshot.details, snapshot.sessions)
     expect(packet).toContain('Linked:')
     expect(packet).toContain('work work-1 — "Design doc" (read_work)')
   })

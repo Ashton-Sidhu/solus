@@ -15,21 +15,9 @@
     --diagram-glyph: #a89a88;
 
     /* Card scale. A node card is chrome drawn in canvas pixels, so it does not
-       shrink with the window the way a laid-out surface does: the same 200px
-       card eats a much larger share of a 1440px laptop screen than of a desktop
-       one. The laptop rung below compacts the card as a unit — box, padding and
-       type together — which is the same boundary `--text-workspace-chrome`
-       uses. Document geometry (an authored or resized width) is never scaled;
+       shrink with the window the way a laid-out surface does. Document geometry (an authored or resized width) is never scaled;
        it belongs to the diagram, not to the display it is read on. */
     --diagram-node-scale: 1;
-  }
-
-  /* Coarse-pointer clients keep the full-size card for the same reason they keep
-     the 14px chrome rung: a phone or tablet is read at arm's length. */
-  @media (pointer: fine) {
-    html.is-laptop-display .diagram-shell {
-      --diagram-node-scale: 0.875;
-    }
   }
 
   .dark .diagram-shell {

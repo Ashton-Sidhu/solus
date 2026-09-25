@@ -1,5 +1,10 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { serverConnections } from '@solus/client-core/server-connections'
+
+mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
+mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
+  notificationsStore: { wants: () => false },
+}))
 
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -12,6 +17,13 @@ const values = new Map<string, string>([
     url: 'http://10.10.1.22:3000',
     sessionToken: 'token',
     installationId: 'build-host',
+    lastConnected: 1,
+  }, {
+    id: 'early-host',
+    label: 'Cloud host',
+    url: 'https://early-host.example',
+    sessionToken: 'token',
+    installationId: 'early-host',
     lastConnected: 1,
   }])],
 ])
@@ -108,5 +120,33 @@ describe('server status', () => {
 
     expect(serversStore.statusFor('remote')).toBe('different-server')
     expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('different-server')
+  })
+
+  test('a host that connected before tracking began still reads as online', () => {
+    // WHY: boot dials saved hosts before the app mounts. A host that connects in
+    // that gap never re-announces itself, and the Run on picker only appears for
+    // an online remote — so the store must read the state it missed.
+    const originalIds = serverConnections.connectedServerIds
+    const originalConnectionFor = serverConnections.connectionFor
+    const early = {
+      status: 'connected',
+      attempt: 0,
+      supervisor: { phase: 'connected' },
+    } as unknown as ReturnType<typeof serverConnections.connectionFor>
+    serverConnections.connectedServerIds = () => ['early-host']
+    serverConnections.connectionFor = (serverId) => serverId === 'early-host' ? early : undefined
+
+    try {
+      // The failed probe above also reached this host, as a health probe can
+      // fail for a host whose socket is up.
+      expect(serversStore.statusFor('early-host')).not.toBe('online')
+      serversStore.trackConnections()
+
+      expect(serversStore.statusFor('early-host')).toBe('online')
+      expect(serversStore.connectedRemotes.map((server) => server.id)).toContain('early-host')
+    } finally {
+      serverConnections.connectedServerIds = originalIds
+      serverConnections.connectionFor = originalConnectionFor
+    }
   })
 })

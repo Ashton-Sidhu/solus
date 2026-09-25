@@ -269,17 +269,6 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-  /* `is-laptop-display` reads the monitor, and a phone screen is narrow enough
-     to match it — so this dense rung must be gated on a fine pointer, or the
-     bar mic lands at 28px in the hand. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .recording-stop--bar,
-    :global(html.is-laptop-display) .rc-bar-mic {
-      width: 1.75rem;
-      height: 1.75rem;
-    }
-  }
-
   /* Level with the send button beside it, which also steps up for a finger. */
   @media (pointer: coarse) {
     .recording-stop--bar,
@@ -287,10 +276,4 @@
       width: 2.25rem;
       height: 2.25rem;
     }
-  }
-  :global(html.is-laptop-display) .recording-stop--field,
-  :global(html.is-laptop-display) .rc-mic {
-    width: 1.5rem;
-    height: 1.5rem;
-  }
-</style>
+  }</style>

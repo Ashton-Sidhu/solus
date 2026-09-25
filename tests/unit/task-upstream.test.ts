@@ -62,7 +62,6 @@ const db = {
 const upstreamTask: Task = {
   id: '42',
   providerId: 'github',
-  kind: 'task',
   title: 'Upstream issue',
   body: '',
   status: 'todo',

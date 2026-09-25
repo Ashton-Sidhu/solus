@@ -103,7 +103,7 @@
 {:else}
 <!-- The card sits inside the diff's light DOM, which is set in the code font.
      Conversation is prose, so the card restates the UI face and reads at the
-     same 12px the Activity tab's thread cards use on a laptop display. -->
+     same 12px the Activity tab's thread cards use. -->
 <div
   class="mx-3 my-1.5 overflow-hidden rounded-xl border border-border bg-card font-[family-name:var(--solus-font-family)] text-xs leading-normal text-foreground"
 >

@@ -70,6 +70,18 @@ the recording from the toolbar, the palette, or `⌥R`.
   refuses the video, the recording stays on the host and Solus shows GitHub's
   reason. Uploading needs write access to the repository.
 
+PR and task descriptions and comments use the shared video player for standalone
+video URLs and image-style video embeds. MP4, M4V, MOV, WebM, and GitHub
+attachment URLs play inline. Labelled links remain links. The player loads
+metadata near the screen, pauses when hidden, and provides Retry and Open if
+playback fails. The source link remains below the player.
+
+Playback depends on the client's codec support and access to the URL. Private
+GitHub attachments can need a signed-in browser; the player does not supply
+GitHub credentials. WebM with VP8 or VP9 is supported on iOS and iPadOS starting
+with Safari 17.4 ([WebKit release notes](https://webkit.org/blog/15063/webkit-features-in-safari-17-4/)).
+Solus recordings remain MP4; uploaded WebM files are not converted.
+
 ## Retention
 
 - Solus keeps a recording that is filed on a task or a pull request.

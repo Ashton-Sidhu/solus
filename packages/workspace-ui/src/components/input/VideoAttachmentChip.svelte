@@ -56,7 +56,7 @@
   }
 </script>
 
-<div class="relative size-14 flex-shrink-0 pointer-fine:[.is-laptop-display_&]:size-12">
+<div class="relative size-14 flex-shrink-0">
   {#if upload?.status === "failed"}
     <!-- The whole tile retries: on a phone it is the only target large enough. -->
     <button
@@ -64,7 +64,7 @@
       onclick={() => attachmentUploads.retry(attachment.id)}
       title={upload.message}
       aria-label="Retry uploading {label}: {upload.message}"
-      class="flex size-full flex-col items-center justify-center gap-0.5 rounded-lg border border-(--destructive)/40 bg-(--solus-surface-primary) text-(--destructive) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent) active:scale-[0.96] pointer-fine:[.is-laptop-display_&]:rounded-md"
+      class="flex size-full flex-col items-center justify-center gap-0.5 rounded-lg border border-(--destructive)/40 bg-(--solus-surface-primary) text-(--destructive) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent) active:scale-[0.96]"
     >
       <RotateCwIcon size={14} aria-hidden="true" />
       <span class="text-[0.625rem] font-medium">Retry</span>
@@ -77,7 +77,7 @@
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={percent}
-      class="relative flex size-full flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-(--solus-container-border) bg-(--solus-surface-primary) text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:rounded-md"
+      class="relative flex size-full flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-(--solus-container-border) bg-(--solus-surface-primary) text-(--solus-text-tertiary)"
     >
       <VideoIcon size={14} aria-hidden="true" />
       <span class="text-[0.625rem] tabular-nums">{percent}%</span>
@@ -92,7 +92,7 @@
       onclick={() => request && onPlay(request)}
       disabled={!request}
       aria-label="Play {label}{duration ? `, ${duration}` : ''}"
-      class="relative size-full overflow-hidden rounded-lg bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent) pointer-fine:[.is-laptop-display_&]:rounded-md"
+      class="relative size-full overflow-hidden rounded-lg bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
     >
       {#if media.url}
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -127,7 +127,7 @@
       onRemove();
     }}
     aria-label="Remove {label}"
-    class="absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96] pointer-coarse:size-6 pointer-fine:[.is-laptop-display_&]:size-3.5"
+    class="absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96] pointer-coarse:size-6"
   >
     <XIcon size={10} />
   </button>

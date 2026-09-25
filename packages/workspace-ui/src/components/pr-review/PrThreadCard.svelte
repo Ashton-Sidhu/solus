@@ -149,7 +149,7 @@
   class="overflow-hidden rounded-lg border border-border/60 bg-background"
 >
   <div
-    class="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
+    class="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-3 py-2"
   >
     {#if diffHunk}
       <Button
@@ -197,7 +197,7 @@
     {#if diffHunk && diffOpen}
       <div class="border-b border-border/60">
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenBeforeLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -225,7 +225,7 @@
           hunkSeparators="simple"
         />
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenAfterLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -248,7 +248,7 @@
     {/if}
 
     <div
-      class="flex flex-col px-3 py-2.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
+      class="flex flex-col px-3 py-2.5"
     >
       <!-- Each reply reads like a timeline comment's header and body: a small
            avatar, name, and time on one line, the words below. -->

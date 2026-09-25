@@ -384,6 +384,41 @@ describe('turn collapse', () => {
     ).toEqual(['a', 'b'])
   })
 
+  test('prose and other cards between dispatches do not split the agent-conversation stack', () => {
+    // WHY: the agent reports on each session as it dispatches the next one. If
+    // that commentary closed the stack, one turn's briefings would scatter into
+    // separate cards down the conversation. Only a new prompt starts a new stack.
+    const items = groupMessages([
+      msg({ role: 'user', content: 'brief both' }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+      msg({ role: 'assistant', content: 'A is on it. Now B.' }),
+      msg({ role: 'assistant', workRef: { workId: 'w1', title: 'Brief', workType: 'doc' } }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+      msg({ role: 'user', content: 'and C' }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'c', provider: 'codex', title: 'C', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual([
+      'user',
+      'agent-conversation-group',
+      'assistant',
+      'document',
+      'user',
+      'agent-conversation-group',
+    ])
+    const stacks = items.filter((item) => item.kind === 'agent-conversation-group')
+    expect(stacks.map((item) => (item.kind === 'agent-conversation-group' ? item.messages.length : 0))).toEqual([2, 1])
+  })
+
   test('a turn that never answered is work all the way down', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'go' }),
@@ -697,18 +732,22 @@ describe('document stack', () => {
     ])
   })
 
-  test('prose between two writes starts a second stack', () => {
-    // WHY: a sentence means the agent moved on; the next file is a new act of
-    // writing and gets its own card rather than growing the previous one.
+  test('prose between two writes keeps one stack, and a new prompt starts another', () => {
+    // WHY: like the sub-agent card, a turn's documents are one card. The agent's
+    // sentence between two writes renders below the stack instead of cutting the
+    // turn's documents into separate cards. A new prompt is a new request.
     const items = groupMessages([
       msg({ role: 'user', content: 'write them' }),
       work('w1', 'First'),
       msg({ role: 'assistant', content: 'Now the second one.' }),
       work('w2', 'Second'),
+      msg({ role: 'user', content: 'one more' }),
+      work('w3', 'Third'),
     ])
 
+    expect(items.map((item) => item.kind)).toEqual(['user', 'document', 'assistant', 'user', 'document'])
     const documents = items.filter((item) => item.kind === 'document')
-    expect(documents.map((item) => (item.kind === 'document' ? item.messages.length : 0))).toEqual([1, 1])
+    expect(documents.map((item) => (item.kind === 'document' ? item.messages.length : 0))).toEqual([2, 1])
   })
 
   test('a stack stays visible when its turn folds, and each stack keys apart', () => {

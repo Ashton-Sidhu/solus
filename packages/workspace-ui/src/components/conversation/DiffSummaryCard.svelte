@@ -120,9 +120,9 @@
 {#if tree.total > 0}
   <div
     bind:this={cardEl}
-    class="diff-summary px-[0.8125rem] py-[0.6875rem] pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-fine:[.is-laptop-display_&]:py-2 {embedded
+    class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded
       ? 'diff-summary-embedded'
-      : 'rounded-2xl pointer-fine:[.is-laptop-display_&]:rounded-xl'}"
+      : 'rounded-2xl'}"
     data-testid="diff-summary"
   >
     <div class="diff-summary-header flex items-center gap-2">
@@ -297,24 +297,6 @@
     background: transparent;
     box-shadow: none;
   }
-
-  :global(html.is-laptop-display) .diff-summary {
-    --diff-indent: 1.125rem;
-    --diff-row-pad: 0.3125rem;
-    --diff-row-gap: 0.375rem;
-    --diff-row-block-pad: 0.1875rem;
-    --diff-icon-size: 0.75rem;
-    --diff-bar-width: 1.75rem;
-  }
-
-  :global(html.is-laptop-display) .diff-summary:not(.diff-summary-embedded) {
-    width: 70%;
-  }
-
-  :global(html.is-laptop-display) .diff-summary-header {
-    gap: 0.375rem;
-  }
-
   /* The card is the last thing in the transcript, so an unbounded tree opens
      straight past the fold and under the input bar. Past this the tree scrolls
      inside the card and the card itself stays whole on screen. */
@@ -328,11 +310,6 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-
-  :global(html.is-laptop-display) .diff-body {
-    max-height: min(19rem, 36vh);
-  }
-
   .diff-header {
     border: none;
     background: transparent;

@@ -512,7 +512,6 @@
         rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
-        md:pointer-fine:[.is-laptop-display_&]:h-[72%] md:pointer-fine:[.is-laptop-display_&]:w-[88%]
         max-md:mt-auto max-md:h-[calc(100dvh-6rem)] max-md:w-full max-md:rounded-b-none max-md:rounded-t-[1.625rem]
         max-md:bg-background max-md:shadow-[shadow:0_-0.0625rem_0_var(--hairline-strong),0_-1.5rem_3.75rem_-1.25rem_rgba(0,0,0,0.5)]"
       role="dialog"
@@ -853,10 +852,10 @@
             {displayPath}
           </span>
           <div class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground max-md:hidden">
-            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden pointer-fine:[.is-laptop-display_&]:hidden">
+            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden">
               <Kbd variant="hint">↑↓</Kbd>navigate
             </span>
-            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden pointer-fine:[.is-laptop-display_&]:hidden">
+            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden">
               <Kbd variant="hint">→</Kbd>open
             </span>
           </div>

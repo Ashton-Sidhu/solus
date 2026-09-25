@@ -25,17 +25,32 @@ export function runSqliteSchemaMigrations(db: DatabaseSync): void {
     | { created_at: number | string }
     | undefined
   const appliedThrough = last ? Number(last.created_at) : -1
-  for (const migration of migrations) {
-    if (migration.folderMillis <= appliedThrough) continue
-    db.exec('BEGIN IMMEDIATE')
-    try {
-      for (const statement of migration.sql) db.exec(statement)
-      db.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(migration.hash, migration.folderMillis)
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      throw error
+  // A file that never ran a generated migration may hold hand-made tables that
+  // lack declared columns. A table rebuild copies every declared column, so
+  // those columns must exist before the migrations run, not only after.
+  if (!last) addMissingColumns(db)
+  // A generated migration that drops a column rebuilds the table: it copies the
+  // rows to a new table and drops the old one. SQLite ignores its own
+  // `PRAGMA foreign_keys=OFF` inside the transaction below, so with enforcement
+  // on, that DROP would cascade and delete every row that references the table.
+  // SAFETY: the pragma returns one integer column.
+  const foreignKeys = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    for (const migration of migrations) {
+      if (migration.folderMillis <= appliedThrough) continue
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        for (const statement of migration.sql) db.exec(statement)
+        db.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(migration.hash, migration.folderMillis)
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
     }
+  } finally {
+    db.exec(`PRAGMA foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`)
   }
   addMissingColumns(db)
   restoreSetAsideRows(db, rebuilt)

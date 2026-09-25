@@ -446,6 +446,9 @@ export interface SolusAPI {
   /** The lens for one target, with its comments and live job. Null when the
    * target has no checkout the host can resolve. */
   readReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensSnapshot | null>
+  /** The saved-lens revision of many listed pull requests in one round trip,
+   * answered in request order; 0 means no lens. Reads host storage only. */
+  prLensRevisions(ctx: IpcContext, targets: Extract<ReviewTarget, { kind: 'pr' }>[]): Promise<number[]>
   /** Queue a new lens. It replaces the current lens only when it succeeds. */
   requestReviewLens(ctx: IpcContext, request: ReviewLensGenerateRequest): Promise<ReviewLensSnapshot | null>
   /** Queue a lens edit on the current lens. */

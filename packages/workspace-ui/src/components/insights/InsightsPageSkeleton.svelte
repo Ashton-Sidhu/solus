@@ -14,7 +14,7 @@
 >
   <div class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
   <header
-    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
+    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
   >
     <span class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome font-semibold"
       >Insights</span

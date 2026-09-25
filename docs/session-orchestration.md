@@ -50,11 +50,11 @@ orchestrator in `packages/server/src/orchestration/`.
 
 | Tool | Does |
 | --- | --- |
-| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `independent` (a new top-level task). A task holds its sessions directly; a started session never mints a subtask. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
+| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `independent` (a new top-level task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |
-| `read_task_sessions` | The task view: the root task, its subtasks, and every session working on any of them — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
+| `read_task_sessions` | The task view: the task and every session working on it — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
 | `search_sessions` | Full-text search over past conversations. |
 | `list_agent_targets` | Providers and models this host can run. |
 

@@ -410,8 +410,6 @@ export function eventLine(event: TaskEvent): TaskEventLine {
       return { icon: EVENT_GLYPHS.arrow, text: `${who} set the target to ${event.to ?? 'none'}` }
     case 'title_changed':
       return { icon: EVENT_GLYPHS.arrow, text: `${who} renamed this task` }
-    case 'parent_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} changed the parent task` }
     case 'labels_changed':
       return { icon: EVENT_GLYPHS.arrow, text: labelsChangedText(who, event.from, event.to) }
     case 'linked':

@@ -38,6 +38,7 @@ import {
   onTaskSyncDirty,
   updateExternalLinkAfterSync,
   writeExternalLink,
+  writeTaskEpic,
   type ExternalLinkRecord,
 } from './task-sync-store'
 import { resolveTaskPublishTarget, taskSyncAdapter } from './adapters/registry'
@@ -341,6 +342,7 @@ export class TaskSyncEngine {
     try {
       const adapter = this.adapterFor(link.provider)
       const external = await adapter.fetchTicket(refFor(link))
+      const epicChanged = await getDatabase().transaction((db) => writeTaskEpic(db, taskId, external.epic))
       const externalMoved = link.externalUpdatedAt !== null
         && link.externalUpdatedAt !== undefined
         && external.externalUpdatedAt !== link.externalUpdatedAt
@@ -392,6 +394,7 @@ export class TaskSyncEngine {
         now,
       ))
       const hasClientVisibleChange = changedCommentCount > 0
+        || epicChanged
         || currentLink.dirtyFields.length > 0
         || dirtyComments.length > 0
         || currentLink.syncState !== 'ok'

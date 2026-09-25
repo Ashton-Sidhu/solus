@@ -68,7 +68,6 @@ function task(): Task {
   return {
     id: 'task-1',
     providerId: 'local',
-    kind: 'task',
     title: 'Hydrated task',
     body: '',
     status: 'in_progress',
@@ -199,7 +198,6 @@ describe('renderer task hydration', () => {
         comments: [{ id: 'comment-1', body: 'Landed' }],
         events: [],
         links: [],
-        subtasks: [],
       }),
     }
     taskServerConnections.registerPrimary('local', api)
@@ -308,7 +306,6 @@ describe('renderer task hydration', () => {
           comments: [],
           events: [],
           links: [],
-          subtasks: [],
         }
       },
     }
@@ -346,14 +343,12 @@ describe('renderer task hydration', () => {
       comments: []
       events: []
       links: []
-      subtasks: []
     }) => void
     const details = new Promise<{
       task: Task
       comments: []
       events: []
       links: []
-      subtasks: []
     }>((resolve) => { resolveDetails = resolve })
     const api = {
       tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
@@ -377,7 +372,7 @@ describe('renderer task hydration', () => {
 
     expect(first).toBe(second)
     expect(detailReads).toBe(1)
-    resolveDetails({ task: task(), comments: [], events: [], links: [], subtasks: [] })
+    resolveDetails({ task: task(), comments: [], events: [], links: [] })
     await first
   })
 
@@ -582,7 +577,7 @@ describe('renderer task hydration', () => {
     resolveSnapshot({
       tasks: [
         { ...task(), id: 'parent' },
-        { ...task(), id: 'child', parentId: 'parent' },
+        { ...task(), id: 'child' },
       ],
       sessionsByTask: {
         parent: [{ taskId: 'parent', sessionId: 'resumed-session', role: 'referenced', linkedAt: 0 }],
@@ -593,10 +588,10 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('resumed-session')?.id).toBe('child')
     expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
-    expect(store.get('parent').attempts.map(({ sessionId }) => sessionId)).toEqual([
+    expect(store.get('parent').sessions.map(({ sessionId }) => sessionId)).toEqual([
       'resumed-session',
     ])
-    expect(store.get('child').attempts.map(({ sessionId }) => sessionId)).toEqual([
+    expect(store.get('child').sessions.map(({ sessionId }) => sessionId)).toEqual([
       'resumed-session',
     ])
   })
@@ -623,7 +618,6 @@ describe('renderer task hydration', () => {
         comments: [],
         events: [],
         links: links.map((link) => ({ ...link })),
-        subtasks: [],
       }),
     }
     taskServerConnections.registerPrimary('local', api)
@@ -730,7 +724,7 @@ describe('renderer task hydration', () => {
     // not for a "no task" answer.
     installStateRune()
     const parent = { ...task(), id: 'parent', title: 'Parent task' }
-    const child = { ...task(), id: 'child', parentId: 'parent', title: 'Current subtask' }
+    const child = { ...task(), id: 'child', title: 'Current task' }
     let calls = 0
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
@@ -772,9 +766,6 @@ describe('renderer task hydration', () => {
         solus: {
           tasksForSession: async () => ({
             task: owner,
-            parent: null,
-            subtasks: [],
-            siblings: [],
             attempts: [],
           }),
           tasksSidebarSnapshot: async () => {
@@ -794,15 +785,13 @@ describe('renderer task hydration', () => {
     expect(snapshots).toBe(1)
   })
 
-  test('hydrates the complete related tree when the snapshot already knows the selected session', async () => {
+  test('hydrates every named attempt when the snapshot already knows the selected session', async () => {
     // WHY: opening from the session picker must not stop at the first known
-    // task binding. Sibling subtasks and their named session links are cheap
-    // metadata and must appear before any sibling transcript is opened.
+    // task binding. The task's other attempts and their names are cheap
+    // metadata and must appear before any of their transcripts is opened.
     installStateRune()
-    const parent = { ...task(), id: 'parent', title: 'Parent task' }
-    const selected = { ...task(), id: 'selected', parentId: parent.id, title: 'Selected subtask' }
-    const sibling = { ...task(), id: 'sibling', parentId: parent.id, title: 'Named sibling' }
-    let treeReads = 0
+    const selected = { ...task(), id: 'selected', title: 'Selected task' }
+    let taskReads = 0
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
@@ -815,25 +804,12 @@ describe('renderer task hydration', () => {
             },
           }),
           tasksForSession: async () => {
-            treeReads++
+            taskReads++
             return {
               task: selected,
-              parent,
-              subtasks: [selected, sibling],
-              siblings: [sibling],
               attempts: [
-                {
-                  taskId: selected.id,
-                  sessionId: 'selected-session',
-                  sessionTitle: 'Selected session',
-                  linkedAt: 1,
-                },
-                {
-                  taskId: sibling.id,
-                  sessionId: 'sibling-session',
-                  sessionTitle: 'Named sibling session',
-                  linkedAt: 2,
-                },
+                { taskId: selected.id, sessionId: 'selected-session', sessionTitle: 'Selected session', linkedAt: 1 },
+                { taskId: selected.id, sessionId: 'other-session', sessionTitle: 'Another attempt', linkedAt: 2 },
               ],
             }
           },
@@ -845,15 +821,12 @@ describe('renderer task hydration', () => {
     const store = new TasksStore()
     await store.ensureSessionBinding('selected-session')
 
-    expect(treeReads).toBe(1)
-    expect(store.tasks.map(({ id }) => id).sort()).toEqual(['parent', 'selected', 'sibling'])
-    expect(store.get('sibling').sessions).toEqual([
-      expect.objectContaining({
-        sessionId: 'sibling-session',
-        sessionTitle: 'Named sibling session',
-      }),
+    expect(taskReads).toBe(1)
+    expect(store.get('selected').sessions).toEqual([
+      expect.objectContaining({ sessionId: 'selected-session', sessionTitle: 'Selected session' }),
+      expect.objectContaining({ sessionId: 'other-session', sessionTitle: 'Another attempt' }),
     ])
-    expect(store.taskForSession('sibling-session')?.title).toBe('Named sibling')
+    expect(store.taskForSession('other-session')?.id).toBe('selected')
   })
 
   test('publishes a started session before durable link hydration settles', async () => {
@@ -1110,7 +1083,6 @@ describe('renderer task hydration', () => {
             comments: [],
             events: [],
             links: [],
-            subtasks: [],
           }),
         },
       },
@@ -1212,7 +1184,6 @@ describe('renderer task hydration', () => {
     const ticket: Task = {
       id: '87',
       providerId: 'github',
-      kind: 'task',
       title: 'Inbox ticket',
       body: '',
       status: 'todo',
@@ -1260,7 +1231,6 @@ describe('renderer task hydration', () => {
       id: '31',
       providerId: 'github',
       projectKey,
-      kind: 'task',
       title: 'GitHub issue',
       body: '',
       status: 'todo',
@@ -1314,7 +1284,6 @@ describe('renderer task hydration', () => {
       id: '87',
       providerId: 'github',
       projectKey,
-      kind: 'task',
       title: 'Direct issue',
       body: '',
       status: 'todo',

@@ -444,8 +444,10 @@ export interface ReviewLensSnapshot extends ReviewLensAddress {
 }
 
 /** Small on purpose: it never carries HTML. A client reads the snapshot again
- * when `revision` moves past the one it holds. */
+ * when `revision` moves past the one it holds. `target` lets a client that has
+ * no pane open for the review (the PR list, a toast) name it. */
 export interface ReviewLensChangedEvent extends ReviewLensAddress {
+  target: ReviewTarget
   job: ReviewLensJob | null
   revision: number
 }

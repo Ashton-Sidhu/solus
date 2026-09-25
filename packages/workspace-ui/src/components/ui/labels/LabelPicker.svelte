@@ -113,7 +113,7 @@
         {align}
         sideOffset={6}
         collisionPadding={8}
-        class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-[min(13rem,calc(100vw-2rem))]"
+        class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
         aria-label={menuLabel}
       >
         <Command.Root shouldFilter={false}>
@@ -145,7 +145,7 @@
                   aria-checked={current}
                 >
                   <span
-                    class="size-2.5 shrink-0 rounded-full bg-[color-mix(in_oklch,var(--label-color)_42%,var(--background))] pointer-fine:[.is-laptop-display_&]:size-2"
+                    class="size-2.5 shrink-0 rounded-full bg-[color-mix(in_oklch,var(--label-color)_42%,var(--background))]"
                     style="--label-color: {labelTint(option.color)}"
                     aria-hidden="true"
                   ></span>

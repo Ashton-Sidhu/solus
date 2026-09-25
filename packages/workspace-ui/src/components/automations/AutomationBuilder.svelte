@@ -620,7 +620,7 @@
       {#if isEditing}
         <Button
           variant="outline"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={endEdit}
         >
           <CheckIcon size={12} weight="bold" />
@@ -629,7 +629,7 @@
       {:else}
         <Button
           variant="outline"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={beginEdit}
         >
           <PencilSimpleIcon size={12} />
@@ -640,7 +640,7 @@
       {#if isRunning}
         <Button
           variant="destructive"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 px-3.5 font-medium [.is-laptop-display_&]:px-2.5"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 px-3.5 font-medium"
           onclick={cancelRun}
           disabled={cancelling}
           aria-label="Stop run"
@@ -655,7 +655,7 @@
         </Button>
       {:else}
         <Button
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)] [.is-laptop-display_&]:pr-[0.6875rem] [.is-laptop-display_&]:pl-[0.625rem]"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
           onclick={runNow}
           aria-label="Run now"
         >
@@ -670,7 +670,7 @@
 <!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
 {#snippet statStrip()}
   <div
-    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 [.is-laptop-display_&]:mt-5 [.is-laptop-display_&]:gap-x-8 [.is-laptop-display_&]:py-3.5 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
   >
     <div class="flex min-w-0 flex-col gap-1">
       <span class={EYEBROW}>Next</span>
@@ -709,7 +709,7 @@
 
 <!-- ── The reading column: what the agent is told, every run ── -->
 {#snippet instructionsBlock()}
-  <div class="mt-8.5 flex flex-col gap-4.5 [.is-laptop-display_&]:mt-7 [.is-laptop-display_&]:gap-4">
+  <div class="mt-8.5 flex flex-col gap-4.5">
     <div class="flex items-baseline gap-2.5">
       <span class={EYEBROW}>Instructions</span>
       <span class="text-xs text-muted-foreground/80"
@@ -759,9 +759,9 @@
 <!-- ── The rail: machine facts, set like data ── -->
 {#snippet railCard()}
   <div
-    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 [.is-laptop-display_&]:gap-5 [.is-laptop-display_&]:p-4 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
   >
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationScheduleFields
         {schedule}
         {enabled}
@@ -770,7 +770,7 @@
       />
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <span class={EYEBROW}>Setup</span>
       <div class="flex flex-col">
         <div class={ROW}>
@@ -853,7 +853,6 @@
               commitAction();
             }}
             size="default"
-            class="[.is-laptop-display_&]:h-[14px] [.is-laptop-display_&]:w-6 [.is-laptop-display_&]:[&_[data-slot=switch-thumb]]:size-3"
             aria-label="Run each fire on an isolated git branch"
             title="Run each fire on an isolated git branch"
           />
@@ -861,7 +860,7 @@
       </div>
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationRunHistory
         {runs}
         expanded={isRunHistoryExpanded}
@@ -888,13 +887,13 @@
        blocks. `justify-center` centers the two columns horizontally while
        they're a row; once stacked it would center them *vertically*, so it is
        reset to start. -->
-  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain pointer-fine:[.is-laptop-display_&]:gap-10 pointer-fine:[.is-laptop-display_&]:px-9 pointer-fine:[.is-laptop-display_&]:pt-8 pointer-fine:[.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
+  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
     <main class="flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none">
       {@render titleBlock()}
       {@render statStrip()}
       {@render instructionsBlock()}
     </main>
-    <aside class="w-[21.25rem] shrink-0 [.is-laptop-display_&]:w-[19rem] @max-[65rem]:w-auto">
+    <aside class="w-[21.25rem] shrink-0 @max-[65rem]:w-auto">
       {@render railCard()}
     </aside>
   </div>

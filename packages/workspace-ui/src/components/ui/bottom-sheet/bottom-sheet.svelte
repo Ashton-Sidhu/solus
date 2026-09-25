@@ -69,7 +69,7 @@
 
 <div
   use:portal={mountIn}
-  class="bottom-sheet no-drag text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[211] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
+  class="bottom-sheet no-drag text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[211] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)]"
   role="dialog"
   aria-modal="true"
   aria-label={label}
@@ -81,13 +81,13 @@
   </div>
 
   {#if header}
-    <div class="shrink-0 px-[18px] pt-1.5 pb-2 pointer-fine:[.is-laptop-display_&]:px-[14px]">
+    <div class="shrink-0 px-[18px] pt-1.5 pb-2">
       {@render header()}
     </div>
   {/if}
 
   <div
-    class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-[14px] [-webkit-overflow-scrolling:touch] pointer-fine:[.is-laptop-display_&]:px-3 {header
+    class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-[14px] [-webkit-overflow-scrolling:touch] {header
       ? ''
       : 'pt-1.5'} {footer ? '' : 'pb-[max(1rem,env(safe-area-inset-bottom,0px))]'}"
   >
@@ -96,7 +96,7 @@
 
   {#if footer}
     <div
-      class="shrink-0 px-[14px] pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pointer-fine:[.is-laptop-display_&]:px-3"
+      class="shrink-0 px-[14px] pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
     >
       {@render footer()}
     </div>

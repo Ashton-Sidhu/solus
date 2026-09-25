@@ -117,16 +117,8 @@
 </div>
 
 <style>
-  /* Geometry, so it follows the monitor rather than the window (ADR-0010): a
-     desktop display has the room to read a graph without zooming, a laptop
-     does not and keeps the shorter frame. `max-height` is what protects a
-     short pane and a phone. */
+  /* `max-height` is what protects a short pane and a phone. */
   .diagram-embed__canvas {
     height: 28rem;
     min-height: 14rem;
-  }
-
-  :global(html.is-laptop-display) .diagram-embed__canvas {
-    height: 20rem;
-  }
-</style>
+  }</style>

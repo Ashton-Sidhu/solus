@@ -103,6 +103,45 @@ describe('native task migration', () => {
   })
 })
 
+describe('dropping the local task hierarchy', () => {
+  test.skipIf(process.env.SOLUS_DB === 'postgres')('a file from before the epic snapshot loses parent_id and kind and keeps every row', async () => {
+    // WHY: dropping a column rebuilds the tasks table, and every other task
+    // table cascades on its rows. With foreign keys enforced, the rebuild would
+    // delete each comment, link and session binding the developer has.
+    const { readMigrationFiles } = await import('drizzle-orm/migrator')
+    db.closeDb()
+    for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
+
+    const migrations = readMigrationFiles({ migrationsFolder: migrationsFolder('sqlite') })
+    const before = migrations.slice(0, -1)
+    const old = new Database(join(dataDir, 'solus.db'))
+    old.exec('PRAGMA foreign_keys = ON')
+    old.exec('CREATE TABLE "__drizzle_migrations" (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC)')
+    for (const migration of before) {
+      for (const statement of migration.sql) old.exec(statement)
+      old.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(migration.hash, migration.folderMillis)
+    }
+    old.exec(`
+      INSERT INTO tasks(id, short_id, title, kind, created_at, updated_at) VALUES ('epic', 1, 'An epic', 'epic', 1, 1);
+      INSERT INTO tasks(id, short_id, title, parent_id, created_at, updated_at) VALUES ('child', 2, 'A child', 'epic', 2, 2);
+      INSERT INTO task_comments(id, task_id, body, created_at) VALUES ('c1', 'epic', 'keep me', 3);
+      INSERT INTO task_events(id, task_id, kind, created_at) VALUES ('e1', 'child', 'parent_changed', 4);
+      INSERT INTO task_events(id, task_id, kind, created_at) VALUES ('e2', 'child', 'created', 5);
+    `)
+    old.close()
+
+    const reopened = db.getDb()
+    const columns = reopened.prepare('SELECT name FROM pragma_table_info(?)').all('tasks').map((row) => (row as { name: string }).name)
+    expect(columns).toContain('epic')
+    expect(columns).not.toContain('parent_id')
+    expect(columns).not.toContain('kind')
+    expect((await taskStore.listTasks('local')).tasks.map((task) => task.id).sort()).toEqual(['child', 'epic'])
+    expect((await (await tasks.Task.byId('local', 'epic')).details()).comments.map((comment) => comment.body)).toEqual(['keep me'])
+    expect((await (await tasks.Task.byId('local', 'child')).events()).map((event) => event.kind)).toEqual(['created'])
+    expect(reopened.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 })
+  })
+})
+
 describe('organization scoping', () => {
   test('a task created for one organization is invisible to another', async () => {
     // WHY: in the cloud one database serves every organization. A read that
@@ -335,16 +374,27 @@ describe('native task CRUD', () => {
     expect(await inboxTask.delete()).toBe(false)
   })
 
-  test('cascades subtask deletion and rejects a third hierarchy level', async () => {
-    const parent = await taskStore.createTask('local', { title: 'Parent', projectKey: '/workspace/solus' })
-    const child = await taskStore.createTask('local', { title: 'Child', parentId: parent.id })
+  test('an upstream epic is a snapshot only a provider read writes', async () => {
+    // WHY: Solus never manages epics. The sync engine stores what the ticket
+    // reported; a local edit must neither clear it nor queue it upstream.
+    const { writeTaskEpic, externalLinkForTask } = await import('@solus/server/tasks/task-sync-store')
+    const task = await taskStore.createTask('local', { title: 'Mirrored', projectKey: '/workspace/solus' })
+    const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
+    const read = async () => (await tasks.Task.byId('local', task.id)).record().epic
 
-    await expect(taskStore.createTask('local', { title: 'Grandchild', parentId: child.id })).rejects.toThrow(
-      'Subtasks cannot contain nested subtasks.',
-    )
-    expect((await (await tasks.Task.byId('local', parent.id)).details()).subtasks.map((task) => task.id)).toEqual([child.id])
-    expect(await (await tasks.Task.byId('local', parent.id)).delete()).toBe(true)
-    expect((await taskStore.listTasks('local')).tasks).toEqual([])
+    expect(await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))).toBe(true)
+    expect(await read()).toEqual(epic)
+    expect(await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))).toBe(false)
+
+    await (await tasks.Task.byId('local', task.id)).update({ title: 'Renamed' })
+    expect(await read()).toEqual(epic)
+    expect(await externalLinkForTask(task.id)).toBeNull()
+
+    // A read that cannot tell leaves the snapshot; a read that saw no epic clears it.
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, undefined))
+    expect(await read()).toEqual(epic)
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, null))
+    expect(await read()).toBeUndefined()
   })
 })
 
@@ -611,17 +661,12 @@ describe('session minting and durable links', () => {
     expect(child).not.toBeNull()
     expect(sibling).not.toBeNull()
     expect(root!).toMatchObject({ status: 'in_progress', source: 'session' })
-    expect(root!.parentId).toBeUndefined()
     expect(Array.from(root!.title)).toHaveLength(80)
-    expect(child!.parentId).toBeUndefined()
-    expect(sibling!.parentId).toBeUndefined()
     expect((await taskSessions.taskSessions('local'))[root!.id]).toEqual([
       expect.objectContaining({ sessionId: 'session-root', role: 'working' }),
     ])
     expect((await taskSessions.tasksForSession('local', 'session-child'))).toMatchObject({
       task: { id: child!.id },
-      parent: null,
-      siblings: [],
       attempts: [expect.objectContaining({ taskId: child!.id, sessionId: 'session-child' })],
     })
   })
@@ -651,7 +696,6 @@ describe('session minting and durable links', () => {
     const tasks = (await taskStore.listTasks('local')).tasks
     expect(tasks).toHaveLength(1)
     expect(tasks[0].id).toBe(root.id)
-    expect(tasks[0].parentId).toBeUndefined()
     expect((await taskSessions.taskSessions('local', root.id))[root.id]).toEqual([
       expect.objectContaining({ taskId: root.id, sessionId: 'session-first-attempt' }),
       expect.objectContaining({ taskId: root.id, sessionId: 'session-second-attempt' }),
@@ -918,8 +962,8 @@ describe('session minting and durable links', () => {
   })
 
   test('automatic metadata from a new linked session does not rename its parent task', async () => {
-    // WHY: creating a subtask session can add another attempt link. Its generated
-    // name belongs to that session or its own child task, not the existing parent.
+    // WHY: a new session on an existing task adds another attempt link. Its
+    // generated name belongs to that session, not to the task it joined.
     const task = await taskSessions.prepareSessionTask('local', {
       sessionId: 'origin-session',
       prompt: 'Original task title',

@@ -405,7 +405,7 @@
      with a single filled surface at the end of it.
 
      Use the shared workspace rung so these actions match the shell title
-     and controls on desktop, laptop, and touch clients. */
+     and controls on desktop and touch clients. */
   .wha-verb {
     flex-shrink: 0;
     height: 1.625rem;
@@ -528,26 +528,6 @@
   }
   .wha-actions {
     display: contents;
-  }
-  /* The row's laptop rung. The runtime owns the display boundary and stamps
-     `is-laptop-display` on the document, so the cluster steps down with the
-     chrome around it instead of holding a desktop height on a 13" screen. The
-     whole row moves together — one control 2px taller than the ones beside it
-     would read as a second row. Fenced to a precise pointer above the
-     record width so the 40px touch strip below still wins: this selector
-     carries an ancestor and would otherwise outrank it. */
-  @media (pointer: fine) and (min-width: 768px) {
-    :global(html.is-laptop-display) .wha-verb,
-    :global(html.is-laptop-display) .wha-solus {
-      height: 1.5rem;
-    }
-    :global(html.is-laptop-display) .wha-overflow,
-    :global(html.is-laptop-display) .wha-solus-trigger {
-      width: 1.5rem;
-    }
-    :global(html.is-laptop-display) .wha-overflow {
-      height: 1.5rem;
-    }
   }
   /* Mobile: the header is the formatting strip, whose buttons are 40px touch
      targets — these have to match it or they read as a second, smaller row. */

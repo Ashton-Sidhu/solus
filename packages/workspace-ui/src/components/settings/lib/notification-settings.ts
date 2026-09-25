@@ -134,6 +134,12 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
     keywords: ['review', 'guide', 'pull request', 'pr', 'companion'],
   },
   {
+    id: 'review_lens_ready',
+    label: 'Review lens ready',
+    description: 'A review lens finishes for a pull request or a change.',
+    keywords: ['review', 'lens', 'pull request', 'pr', 'html'],
+  },
+  {
     id: 'update_available',
     label: 'Software updates',
     description: 'An update is ready for Solus, Claude Code, or Codex.',

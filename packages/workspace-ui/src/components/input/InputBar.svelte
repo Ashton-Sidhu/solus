@@ -886,7 +886,7 @@
                 : "Send message"}
             class="pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
               ? 'size-9'
-              : 'size-[1.875rem] [.is-laptop-display_&]:size-7'} {stopsRun
+              : 'size-[1.875rem]'} {stopsRun
               ? ''
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'

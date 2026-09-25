@@ -73,11 +73,11 @@
     {#each serversStore.servers as server (server.id)}
       <button
         type="button"
-        class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-muted [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5"
+        class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-muted"
         onclick={() => connectionsNav.open(server.id)}
       >
         <span
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
         >
           <!-- The OS logo marks a machine you dispatch to; the host you are
                on keeps the plain device glyph. -->
@@ -125,9 +125,9 @@
   {/snippet}
 
   {#each serversStore.nearbyHosts as host (host.server.installationId)}
-    <div class="flex items-center gap-3 px-4 py-3 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
+    <div class="flex items-center gap-3 px-4 py-3">
       <span
-        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
+        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
       >
         <WifiHighIcon size={15} />
       </span>
@@ -157,7 +157,7 @@
   <!-- Always present, whether or not anything was found: discovery failing
        silently is the same picture as a network with no hosts on it, and this
        is the only place that says which one the user is looking at. -->
-  <div class="px-4 py-3 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
+  <div class="px-4 py-3">
     <p class="text-pretty text-[0.875em] leading-5 text-(--solus-text-tertiary)">
       {#if serversStore.nearbyHosts.length === 0}
         No nearby hosts found.

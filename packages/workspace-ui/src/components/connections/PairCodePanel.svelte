@@ -102,7 +102,7 @@
     {/snippet}
   </SettingsRow>
 {:else}
-  <div class="flex flex-col gap-4 p-4 [.is-laptop-display_&]:gap-3 [.is-laptop-display_&]:p-3.5">
+  <div class="flex flex-col gap-4 p-4">
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
@@ -151,11 +151,11 @@
     {#if bestPairLink && bestEndpoint && bestPairQr}
       {@const BestIcon = endpointIcon[bestEndpoint.kind]}
       <div
-        class="flex flex-col gap-3 rounded-2xl border border-border bg-(--solus-container-bg) p-3 sm:flex-row [.is-laptop-display_&]:rounded-xl [.is-laptop-display_&]:p-2.5"
+        class="flex flex-col gap-3 rounded-2xl border border-border bg-(--solus-container-bg) p-3 sm:flex-row"
       >
         <div class="shrink-0">
           <svg
-            class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0 [.is-laptop-display_&]:size-32"
+            class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0"
             viewBox={bestPairQr.viewBox}
             role="img"
             aria-label={`QR code for pairing using ${bestEndpoint.label}`}

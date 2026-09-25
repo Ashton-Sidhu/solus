@@ -647,8 +647,8 @@
           {#if !isInitialLoading}
             <div
               class={showEmpty
-                ? "pt-[22px] [.is-laptop-display_&]:pt-4"
-                : "pt-[30px] [.is-laptop-display_&]:pt-6"}
+                ? "pt-[22px]"
+                : "pt-[30px]"}
             >
               <AutomationLaunchpad
                 projectPath={selectedProject?.projectPath ??

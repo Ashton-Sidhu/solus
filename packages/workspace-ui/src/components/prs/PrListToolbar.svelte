@@ -145,7 +145,7 @@
       align="end"
       alignOffset={400}
       sideOffset={6}
-      class="w-64 pointer-fine:[.is-laptop-display_&]:w-56"
+      class="w-64"
     >
       {#each filterGroups as group, index (group.key)}
         {@const Icon = group.icon}

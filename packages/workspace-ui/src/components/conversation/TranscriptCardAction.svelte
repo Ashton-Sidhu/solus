@@ -130,16 +130,6 @@
   }
 
   /* Geometry only. A finger gets a 32px target. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display .tx-card-action) {
-      height: 1.375rem;
-      padding: 0 0.5rem;
-    }
-    :global(html.is-laptop-display .tx-card-action.is-icon) {
-      width: 1.375rem;
-      padding: 0;
-    }
-  }
 
   @media (pointer: coarse) {
     :global(.tx-card-action) {

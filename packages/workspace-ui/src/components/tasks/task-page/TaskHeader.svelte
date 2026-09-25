@@ -93,12 +93,12 @@
      label optically where it sat as plain text while giving the control a
      padded hit area, and a task whose provider will not take the change keeps
      the label and loses only the affordance. -->
-<div class="flex items-center gap-[13px] pb-[11px] [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:pb-2">
+<div class="flex items-center gap-[13px] pb-[11px]">
   <TaskStatusMenu
     status={task.status}
     options={editableStatuses}
     onSelect={onSaveStatus}
-    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent [.is-laptop-display_&]:h-[22px]"
+    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
     {#snippet trigger()}
       <span
@@ -116,7 +116,7 @@
           stroke-width="1.45"
           stroke-linecap="round"
           stroke-linejoin="round"
-          class="size-[13px] shrink-0 [.is-laptop-display_&]:size-3"
+          class="size-[13px] shrink-0"
           aria-hidden="true"><path d={status.glyph} /></svg
         >
         {status.label}
@@ -125,7 +125,7 @@
   </TaskStatusMenu>
 
   <span
-    class="h-[11px] w-px bg-[var(--hairline-strong)] [.is-laptop-display_&]:h-2.5"
+    class="h-[11px] w-px bg-[var(--hairline-strong)]"
     aria-hidden="true"
   ></span>
 
@@ -133,11 +133,11 @@
     priority={task.priority}
     disabled={!canEditPriority}
     onSelect={onSavePriority}
-    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal text-muted-foreground transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent [.is-laptop-display_&]:h-[22px]"
+    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal text-muted-foreground transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
     {#snippet trigger()}
       <span
-        class="flex h-[9px] shrink-0 items-end gap-[1.5px] [.is-laptop-display_&]:h-2"
+        class="flex h-[9px] shrink-0 items-end gap-[1.5px]"
         aria-hidden="true"
       >
         {#each bars as bar (bar.height)}
@@ -153,7 +153,7 @@
 
   {#if openedAt}
     <span
-      class="h-[11px] w-px bg-[var(--hairline-strong)] [.is-laptop-display_&]:h-2.5"
+      class="h-[11px] w-px bg-[var(--hairline-strong)]"
       aria-hidden="true"
     ></span>
     <span class="text-xs text-muted-foreground opacity-75">opened {openedAt}</span>

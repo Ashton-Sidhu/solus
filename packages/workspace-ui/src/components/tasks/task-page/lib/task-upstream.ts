@@ -124,6 +124,30 @@ export function taskUpstreamState(input: {
   }
 }
 
+/** The upstream epic as the properties rail names it. Null hides the row: a
+ *  task with no epic has nothing to say there, not an empty value. */
+export interface TaskEpicRow {
+  providerId: Exclude<TaskProviderId, 'local'>
+  title: string
+  ref: string
+  url: string
+  /** The row's tooltip: the provider, the reference, and the full title. */
+  hint: string
+}
+
+export function taskEpicRow(task: Pick<Task, 'epic'>): TaskEpicRow | null {
+  const epic = task.epic
+  if (!epic) return null
+  const ref = ticketRef(epic.provider, epic.externalId)
+  return {
+    providerId: epic.provider,
+    title: epic.title,
+    ref,
+    url: epic.url,
+    hint: `Open ${PROVIDER_NAMES[epic.provider]} ${ref} — ${epic.title}`,
+  }
+}
+
 /** How each provider writes a ticket reference: GitHub numbers its issues and
  *  prefixes them with `#`; a Jira key (`ACME-12`) already reads as one. */
 export function ticketRef(

@@ -56,7 +56,8 @@ export interface ListChipSpec {
   /** Compact state glyph with its label retained for assistive technology. */
   iconOnly?: boolean
   statusIcon?: ListIcon
-  spinning?: boolean
+  /** Work is in progress: the glyph itself pulses instead of adding a spinner. */
+  pulsing?: boolean
   label: string
   /** A domain label uses the shared pastel pill treatment in this host colour. */
   labelColor?: string

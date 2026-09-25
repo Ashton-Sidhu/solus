@@ -210,7 +210,7 @@
   {#snippet runButton()}
     <button
       type="button"
-      class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 [.is-laptop-display_&]:size-6.5"
+      class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
       disabled={!canRun(activeForm)}
       onclick={() => onRun(activeForm)}
       title="Run — ⌘↵"
@@ -239,7 +239,7 @@
   {/snippet}
 
   {#if activeForm === "nl"}
-    <div class="relative flex h-12 items-center gap-2.5 pr-2 pl-2.5 [.is-laptop-display_&]:h-11">
+    <div class="relative flex h-12 items-center gap-2.5 pr-2 pl-2.5">
       {@render languageSegment()}
       <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
       <div class="flex min-w-0 flex-1 items-center">
@@ -443,7 +443,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     data-solus-ui
-    class="fixed inset-0 z-[10020] flex items-center justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] p-6 pointer-events-auto motion-safe:animate-[backdrop-fade_140ms_ease-out] [.is-laptop-display_&]:p-4"
+    class="fixed inset-0 z-[10020] flex items-center justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] p-6 pointer-events-auto motion-safe:animate-[backdrop-fade_140ms_ease-out]"
     role="presentation"
     onclick={(event) => {
       if (event.target === event.currentTarget) closeEditorPopout();
@@ -456,7 +456,7 @@
     }}
   >
     <div
-      class="sql-popout-enter max-h-[min(82vh,48rem)] w-[min(76rem,calc(100vw-4rem))] overflow-x-hidden overflow-y-auto rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-card shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_11%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_13%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)] [.is-laptop-display_&]:max-h-[min(76vh,36rem)] [.is-laptop-display_&]:w-[min(66rem,calc(100vw-2rem))]"
+      class="sql-popout-enter max-h-[min(82vh,48rem)] w-[min(76rem,calc(100vw-4rem))] overflow-x-hidden overflow-y-auto rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-card shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_11%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_13%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
       data-sb
       role="dialog"
       aria-label="Focused query console"

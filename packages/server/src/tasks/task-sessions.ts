@@ -10,7 +10,6 @@ import {
   database,
   emitChanged,
   jsonValue,
-  listTaskChildren,
   loadTaskRecord,
   normalizedOptional,
   requireTask,
@@ -210,11 +209,10 @@ async function transferSessionOwnership(
     await deleteSessionLink(db, organizationId, owner.task_id, sessionId, {}, now)
     if (owner.source !== 'session' || owner.origin_session_id !== sessionId) continue
     // The placeholder minted for this session is empty once the session leaves
-    // it: nothing else links to it, nothing hangs under it, nobody wrote on it.
+    // it: nothing else links to it and nobody wrote on it.
     // Anything more than that makes it a task in its own right, which stays.
     const stillHoldsSomething = await db.get(sql`
       SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${owner.task_id}
-      UNION ALL SELECT 1 AS present FROM ${tasks} WHERE parent_id = ${owner.task_id}
       UNION ALL SELECT 1 AS present FROM ${taskComments} WHERE task_id = ${owner.task_id}
       UNION ALL SELECT 1 AS present FROM ${taskLinks} WHERE task_id = ${owner.task_id}
       LIMIT 1
@@ -322,26 +320,18 @@ export async function taskIdForSession(organizationId: string, sessionId: string
   return link?.task_id ?? null
 }
 
-/** Resolve a session into the durable two-level task tree without loading or
- * starting any sibling sessions. */
+/** Resolve a session into its task and every session attempt on that task,
+ * without loading or starting any of those sessions. */
 export async function tasksForSession(organizationId: string, sessionId: string): Promise<TaskForSessionResult | null> {
   const taskId = await taskIdForSession(organizationId, sessionId)
-  return taskId ? taskTree(organizationId, taskId) : null
+  return taskId ? taskWithAttempts(organizationId, taskId) : null
 }
 
-/** The two-level tree `taskId` belongs to: the task, its root, the root's
- *  subtasks, and every session attempt on any of them. */
-export async function taskTree(organizationId: string, taskId: string): Promise<TaskForSessionResult | null> {
+/** One task and the session attempts on it. */
+export async function taskWithAttempts(organizationId: string, taskId: string): Promise<TaskForSessionResult | null> {
   const task = await loadTaskRecord(organizationId, taskId)
   if (!task) return null
-  const parent = task.parentId ? await loadTaskRecord(organizationId, task.parentId) : null
-  const rootId = parent?.id ?? task.id
-  const subtasks = await listTaskChildren(organizationId, rootId)
-  const siblings = task.parentId ? subtasks.filter((subtask) => subtask.id !== task.id) : []
-  const attemptsByTask = await taskSessions(organizationId)
-  const attempts = [rootId, ...subtasks.map((subtask) => subtask.id)]
-    .flatMap((id) => attemptsByTask[id] ?? [])
-  return { task, parent, subtasks, siblings, attempts }
+  return { task, attempts: (await taskSessions(organizationId, taskId))[taskId] ?? [] }
 }
 
 function promptTitle(prompt?: string): string {

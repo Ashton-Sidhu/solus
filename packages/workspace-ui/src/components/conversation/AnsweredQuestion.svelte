@@ -36,14 +36,14 @@
 {#snippet optionRow(option: QuestionOption, chosen: boolean)}
   {@const label = optionLabelParts(option.label)}
   <div
-    class="flex items-start gap-2.5 rounded-lg border px-[0.6875rem] py-[0.5rem] pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-fine:[.is-laptop-display_&]:py-[0.375rem] {chosen ? 'border-border bg-card' : 'border-(--solus-tx-rule-strong) bg-transparent'}"
+    class="flex items-start gap-2.5 rounded-lg border px-[0.6875rem] py-[0.5rem] {chosen ? 'border-border bg-card' : 'border-(--solus-tx-rule-strong) bg-transparent'}"
   >
     {#if chosen}
-      <span class="mt-[0.1875rem] inline-flex size-[0.9375rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--chart-3)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-3)_70%,var(--foreground))] pointer-fine:[.is-laptop-display_&]:size-[0.8125rem]" aria-hidden="true">
+      <span class="mt-[0.1875rem] inline-flex size-[0.9375rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--chart-3)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-3)_70%,var(--foreground))]" aria-hidden="true">
         <Check size="0.625rem" strokeWidth={3} />
       </span>
     {:else}
-      <span class="mt-[0.1875rem] inline-flex size-[0.9375rem] shrink-0 rounded-full border border-border pointer-fine:[.is-laptop-display_&]:size-[0.8125rem]" aria-hidden="true"></span>
+      <span class="mt-[0.1875rem] inline-flex size-[0.9375rem] shrink-0 rounded-full border border-border" aria-hidden="true"></span>
     {/if}
     <span class="flex min-w-0 flex-1 flex-col gap-px">
       <span class="break-words {chosen ? 'font-medium' : 'text-(--muted-foreground)'}">{label.text}{#if label.note}<span class="ml-1 text-transcript-meta font-normal text-(--muted-foreground)">· {label.note}</span>{/if}</span>
@@ -68,9 +68,9 @@
 {/snippet}
 
 {#snippet detail()}
-  <div class="flex flex-col gap-3.5 py-1 text-transcript-card pointer-fine:[.is-laptop-display_&]:gap-3">
+  <div class="flex flex-col gap-3.5 py-1 text-transcript-card">
     {#each questions as { key, question, resolved, others }, i (key)}
-      <div class="flex min-w-0 flex-col gap-1.5 pointer-fine:[.is-laptop-display_&]:gap-1">
+      <div class="flex min-w-0 flex-col gap-1.5">
         <p class="m-0 leading-relaxed text-pretty break-words whitespace-pre-wrap text-foreground">
           {#if questions.length > 1}<span class="mr-1.5 text-transcript-meta text-(--muted-foreground) opacity-70">{i + 1}.</span>{/if}{question.question}
         </p>
@@ -87,7 +87,7 @@
                 {@render optionRow(option, true)}
               {/each}
               {#if resolved.remark}
-                <div class="flex items-start gap-2.5 px-[0.6875rem] py-1 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-2.5">
+                <div class="flex items-start gap-2.5 px-[0.6875rem] py-1">
                   <MessageSquareText size="0.9375rem" class="mt-[0.1875rem] shrink-0 text-(--muted-foreground)" aria-hidden="true" />
                   <p class="m-0 min-w-0 leading-relaxed break-words whitespace-pre-wrap text-foreground">{resolved.remark}</p>
                 </div>
@@ -99,7 +99,7 @@
                the pick keeps its check, the rest appear beneath it unmarked. -->
           {#if others.length}
             <details class="group">
-              <summary class="-ml-1 flex min-h-7 w-fit cursor-pointer list-none items-center gap-1 rounded px-1 text-transcript-meta text-(--muted-foreground) outline-none transition-colors select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-fine:[.is-laptop-display_&]:min-h-6">
+              <summary class="-ml-1 flex min-h-7 w-fit cursor-pointer list-none items-center gap-1 rounded px-1 text-transcript-meta text-(--muted-foreground) outline-none transition-colors select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
                 <ChevronRight size="1em" class="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
                 <span class="group-open:hidden">Show {others.length} other {others.length === 1 ? 'option' : 'options'}</span>
                 <span class="hidden group-open:inline">Hide other options</span>
@@ -123,7 +123,7 @@
              it is the answer. -->
         <div class="flex min-w-0 flex-col gap-1">
           <span class="text-transcript-meta text-(--muted-foreground)">Answer, from the transcript</span>
-          <p class="m-0 rounded-lg border border-border bg-card px-[0.6875rem] py-[0.5rem] leading-relaxed break-words whitespace-pre-wrap pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-fine:[.is-laptop-display_&]:py-[0.375rem]">{message.questionResult}</p>
+          <p class="m-0 rounded-lg border border-border bg-card px-[0.6875rem] py-[0.5rem] leading-relaxed break-words whitespace-pre-wrap">{message.questionResult}</p>
         </div>
       {:else}
         <p class="m-0 text-transcript-meta text-(--muted-foreground)">

@@ -158,17 +158,6 @@ export class TasksStore {
     return [...tasks.values()]
   }
 
-  byParent: Map<string, Task[]> = $derived.by(() => {
-    const grouped = new Map<string, Task[]>()
-    for (const task of this.tasks) {
-      if (!task.parentId) continue
-      const tasks = grouped.get(task.parentId)
-      if (tasks) tasks.push(task)
-      else grouped.set(task.parentId, [task])
-    }
-    return grouped
-  })
-
   inbox: Task[] = $derived(this.tasks.filter((task) => !task.projectKey && task.status !== 'dropped'))
   upNext: Task[] = $derived(
     this.tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress' || task.status === 'in_review'),
@@ -572,7 +561,7 @@ export class TasksStore {
   /** `loaded` means "the first attempt finished", which is what the spinners
    *  read — but a failed attempt must not stand in for a successful one here,
    *  or one bad snapshot latches every task surface empty for the rest of the
-   *  session: no sidebar tree, no subtasks, no rail card. Retry while the last
+   *  session: no sidebar row, no rail card. Retry while the last
    *  attempt is still the failed one. */
   ensureLoaded(): Promise<void> {
     if (this.loaded && !this.error) return Promise.resolve()
@@ -808,54 +797,47 @@ export class TasksStore {
       })
   }
 
-  /** Hydrate the complete lightweight tree for an opened session even when the
-   * global snapshot already knows its owner. The targeted read carries sibling
-   * subtasks and every linked session's display metadata; none of it requires a
-   * transcript. The host's answer is authoritative: a session it reports as
+  /** Hydrate an opened session's task and attempts even when the global
+   * snapshot already knows its owner. The targeted read carries every linked
+   * session's display metadata; none of it requires a transcript. The host's answer is authoritative: a session it reports as
    * taskless is taskless, and most sessions are, so that answer must not cost
    * a full snapshot per restored tab. Fall back to the global snapshot only
    * when the focused read itself failed. */
   async ensureSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
     const existing = this.taskForSession(sessionId)
-    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
+    const hydrated = await this.hydrateSessionTask(sessionId, serverId)
     if (hydrated) return hydrated
     if (hydrated === null || existing) return existing
     await this.load()
     return this.taskForSession(sessionId)
   }
 
-  /** The two-level tree a session belongs to — its task, that task's parent,
-   * and every subtask under the root, each by name. The global snapshot
-   * carries all of them whenever it succeeds; this is the read that still
+  /** The task a session belongs to and every attempt on it. The global
+   * snapshot carries them whenever it succeeds; this is the read that still
    * answers when it did not, so a session restored from disk never renders as
-   * a loose row beside a parent whose subtasks are missing.
+   * a loose row beside the task it belongs to.
    *
    * `null` is the host's answer that the session has no task; `undefined`
    * means no host could answer. */
-  private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
+  private async hydrateSessionTask(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
     const ownerServerId = serverId ?? serverConnections.defaultServerId()
     if (!ownerServerId) return undefined
     const api = serverConnections.apiFor(ownerServerId)
-    const tree = await api.tasksForSession(sessionId).catch(() => undefined)
-    if (tree === undefined) return undefined
-    if (tree === null) return null
-    return this.applySessionTree(sessionId, tree, serverId)
+    const found = await api.tasksForSession(sessionId).catch(() => undefined)
+    if (found === undefined) return undefined
+    if (found === null) return null
+    return this.applySessionTask(sessionId, found, serverId)
   }
 
-  private applySessionTree(
+  private applySessionTask(
     sessionId: string,
-    tree: TaskForSessionResult,
+    found: TaskForSessionResult,
     serverId?: string,
   ): Task {
-    const task = this.get(tree.task.id)
-    for (const record of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
-      if (record) this.get(record.id).hydrate(record, serverId)
-    }
+    const task = this.get(found.task.id).hydrate(found.task, serverId)
     task.bindSession(sessionId)
-    for (const attempt of tree.attempts) {
-      this.get(attempt.taskId ?? tree.task.id).applyAttempt(attempt)
-    }
+    for (const attempt of found.attempts) task.applyAttempt(attempt)
     return task
   }
 
@@ -867,7 +849,7 @@ export class TasksStore {
    * so the targeted rows merge into a complete collection, not an empty one. */
   async refreshSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
-    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
+    const hydrated = await this.hydrateSessionTask(sessionId, serverId)
     return hydrated ?? this.taskForSession(sessionId)
   }
 

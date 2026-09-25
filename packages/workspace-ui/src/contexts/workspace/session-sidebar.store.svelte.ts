@@ -8,7 +8,6 @@ import { existingTaskId, newTaskId } from './session-draft.svelte'
 import { firstActivityAt, lastActivityAt, turnStartedAt, withLazyActivity } from './session-activity'
 import {
   buildProjectSummaries,
-  compareTaskCreationOrder,
   maxTaskAttention,
   dedupePrChoices,
   prChipForChoices,
@@ -113,8 +112,6 @@ export type SidebarSessionChild = {
   lastActivityAt: number
   /** Stable persisted key for hiding this child without deleting its task or session. */
   dismissalKey?: string
-  /** True when this session belongs to a child task rather than the root task. */
-  isSubtask?: boolean
   /** Background walkthrough state for this exact agent session. */
   reviewGuideStatus: 'generating' | 'ready' | null
   /** Durable walkthrough state shown in the row tooltip after its notification
@@ -229,9 +226,7 @@ export class SessionSidebarStore {
   lifecycleNow = $state(Date.now())
   readonly regeneratingPinnedSessionIds = new SvelteSet<string>()
 
-  /** Tabs opened for a task that do not have a durable link yet. Children
-   *  resolve to their root because the sidebar
-   *  renders one durable row for the whole task tree. */
+  /** Tabs opened for a task that do not have a durable link yet. */
   private pendingTabByTaskId: Map<string, string[]> = $derived.by(() => {
     const byTaskId = new SvelteMap<string, string[]>()
     for (const tabId of this.visibleTabIds) {
@@ -241,10 +236,9 @@ export class SessionSidebarStore {
       // during that handoff or the row briefly changes shape in the sidebar.
       const task = this.pendingTaskFor(sess)
       if (!task) continue
-      const rootTaskId = task.parentId ?? task.id
-      const tabIds = byTaskId.get(rootTaskId)
+      const tabIds = byTaskId.get(task.id)
       if (tabIds) tabIds.push(tabId)
-      else byTaskId.set(rootTaskId, [tabId])
+      else byTaskId.set(task.id, [tabId])
     }
     return byTaskId
   })
@@ -256,15 +250,8 @@ export class SessionSidebarStore {
     return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
   }
 
-  /** A root task's child records, in the order they were created. */
-  private childrenOf(taskId: string): Task[] {
-    return [...(this.session.tasksStore.byParent.get(taskId) ?? [])].sort(
-      compareTaskCreationOrder,
-    )
-  }
-
   /**
-   * Whether a link earns the session a row under this root. The owning link
+   * Whether a link earns the session a row under this task. The owning link
    * does — the host keeps exactly one `working` owner per session, so this is
    * what makes one conversation one row. A `referenced` link is a relationship
    * the task page shows; it projects a row only where the user opened that
@@ -280,7 +267,7 @@ export class SessionSidebarStore {
   }
 
   /**
-   * One durable task's row, aggregated over its whole tree. Shared by the
+   * One durable task's row, aggregated over its sessions. Shared by the
    * active column and the Completed shelf, which select different tasks but
    * describe each of them identically — a finished task must not read
    * differently because it is being listed as history.
@@ -292,8 +279,6 @@ export class SessionSidebarStore {
     task: Task,
     openTabBySessionId: Map<string, string>,
   ): SidebarTask {
-    const children = this.childrenOf(task.id)
-    const taskTree = [task, ...children]
     const tabIds: string[] = []
     let attention: AttentionState = null
     let unread = false
@@ -306,44 +291,40 @@ export class SessionSidebarStore {
     let serverId: string | null = null
     let linkedServerId: string | null = null
 
-    for (const item of taskTree) {
-      for (const link of this.session.tasksStore.get(item.id).sessions) {
-        if (!this.projectsSessionUnder(task.id, link)) continue
-        const linkServerId = attemptServerId({
-          link,
-          taskServerId: this.session.tasksStore.get(item.id).serverId,
-        })
-        linkedServerId ??= linkServerId
-        createdAt = Math.min(createdAt, link.startedAt ?? createdAt)
-        const tabId = openTabBySessionId.get(link.sessionId)
-        // The feed speaks for the sessions with no tab, as its name says. A
-        // mounted tab knows the same status and, unlike the feed, whether the
-        // user has read it — letting the feed answer for one kept a viewed
-        // failure red on the parent row.
-        if (!tabId) {
-          const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
-          attention = maxTaskAttention(attention, liveState?.attention ?? null)
-          if (liveState?.attention === 'running') {
-            runStartedAt = runStartedAt === 0
-              ? liveState.runStartedAt
-              : Math.min(runStartedAt, liveState.runStartedAt)
-          }
-          continue
+    const taskModel = this.session.tasksStore.get(task.id)
+    for (const link of taskModel.sessions) {
+      if (!this.projectsSessionUnder(task.id, link)) continue
+      const linkServerId = attemptServerId({ link, taskServerId: taskModel.serverId })
+      linkedServerId ??= linkServerId
+      createdAt = Math.min(createdAt, link.startedAt ?? createdAt)
+      const tabId = openTabBySessionId.get(link.sessionId)
+      // The feed speaks for the sessions with no tab, as its name says. A
+      // mounted tab knows the same status and, unlike the feed, whether the
+      // user has read it — letting the feed answer for one kept a viewed
+      // failure red on the parent row.
+      if (!tabId) {
+        const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+        attention = maxTaskAttention(attention, liveState?.attention ?? null)
+        if (liveState?.attention === 'running') {
+          runStartedAt = runStartedAt === 0
+            ? liveState.runStartedAt
+            : Math.min(runStartedAt, liveState.runStartedAt)
         }
-        if (tabIds.includes(tabId)) continue
-        tabIds.push(tabId)
-        const tab = this.session.tabs[tabId]
-        const session = this.session.sessionFor(tabId)
-        if (!tab || !session) continue
-        createdAt = Math.min(createdAt, firstActivityAt(session))
-        serverId ??= session.run.serverId ?? null
-        const nextAttention = getAttentionState(session, tab, this.planStore.plans)
-        attention = maxTaskAttention(attention, nextAttention)
-        unread ||= tab.hasUnread
-        if (nextAttention === 'running') {
-          const startedAt = turnStartedAt(session)
-          if (startedAt > 0) runStartedAt = runStartedAt === 0 ? startedAt : Math.min(runStartedAt, startedAt)
-        }
+        continue
+      }
+      if (tabIds.includes(tabId)) continue
+      tabIds.push(tabId)
+      const tab = this.session.tabs[tabId]
+      const session = this.session.sessionFor(tabId)
+      if (!tab || !session) continue
+      createdAt = Math.min(createdAt, firstActivityAt(session))
+      serverId ??= session.run.serverId ?? null
+      const nextAttention = getAttentionState(session, tab, this.planStore.plans)
+      attention = maxTaskAttention(attention, nextAttention)
+      unread ||= tab.hasUnread
+      if (nextAttention === 'running') {
+        const startedAt = turnStartedAt(session)
+        if (startedAt > 0) runStartedAt = runStartedAt === 0 ? startedAt : Math.min(runStartedAt, startedAt)
       }
     }
 
@@ -419,10 +400,7 @@ export class SessionSidebarStore {
    * out and back in as a new element.
    */
   private isDurableRowShown(task: Task, openTabBySessionId: Map<string, string>): boolean {
-    const taskTree = [task, ...this.childrenOf(task.id)]
-    const durableLinks = taskTree.flatMap((item) =>
-      this.session.tasksStore.get(item.id).sessions,
-    )
+    const durableLinks = this.session.tasksStore.get(task.id).sessions
     const hasPendingTab = this.pendingTabByTaskId.has(task.id)
     const hasProjectedSession = durableLinks.some((link) =>
       this.projectsSessionUnder(task.id, link),
@@ -432,7 +410,6 @@ export class SessionSidebarStore {
       this.projectsSessionUnder(task.id, link) && openTabBySessionId.has(link.sessionId),
     )
     return shouldShowDurableSidebarTask(
-      task,
       this.dismissedRowKeys.has(task.id),
       hasLocalTab,
       this.openTaskIds.has(task.id),
@@ -527,12 +504,6 @@ export class SessionSidebarStore {
   // Equal snapshot values must not restart subscriptions on task refresh.
   private linkedPrInterestKey = $derived(JSON.stringify(this.linkedPrInterests))
 
-  /** Root tasks any catalog host can restore through the sidebar picker.
-   * Unlike `catalogTasks`, this includes rows the user dismissed earlier. */
-  pickableTasks: Task[] = $derived.by(() =>
-    this.session.tasksStore.tasks.filter((task) => !task.parentId),
-  )
-
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
   projectSummaries: ProjectSummary[] = $derived(
@@ -540,7 +511,7 @@ export class SessionSidebarStore {
   )
 
   /**
-   * When a row last did anything: the latest change to its task tree or a
+   * When a row last did anything: the latest change to its task or a
    * message in one of its mounted sessions. It moves with every streamed
    * message, so only a reader that shows or ranks by it may ask — the pickers'
    * ranking, or one phone row's timestamp — never the column's projection.
@@ -548,10 +519,8 @@ export class SessionSidebarStore {
   activityAtFor(task: SidebarTask): number {
     let latest = 0
     if (task.taskId) {
-      const root = this.session.tasksStore.tasks.find((candidate) => candidate.id === task.taskId)
-      for (const item of root ? [root, ...this.childrenOf(root.id)] : []) {
-        latest = Math.max(latest, item.updatedAt)
-      }
+      const record = this.session.tasksStore.tasks.find((candidate) => candidate.id === task.taskId)
+      if (record) latest = record.updatedAt
     }
     for (const tabId of task.tabIds) {
       const session = this.session.sessionFor(tabId)
@@ -585,8 +554,8 @@ export class SessionSidebarStore {
 
   /** The projects the task picker offers as a scope. Built from what that
    *  picker can actually list, not from the sidebar's columns. */
-  pickerProjectChoices: ProjectFilterChoice[] = $derived(
-    buildPickerProjectChoices(this.pickableTasks, this.currentProject),
+  pickerProjectChoices: ProjectFilterChoice[] = $derived.by(() =>
+    buildPickerProjectChoices(this.session.tasksStore.tasks, this.currentProject),
   )
 
   /** The project the list is scoped to, or null for all of them. Resolved
@@ -871,7 +840,7 @@ export class SessionSidebarStore {
       const aliases = [session.id, session.handoffId, session.agentSessionId]
         .filter((sessionId): sessionId is string => !!sessionId)
       const linkedAttempt = task.taskId
-        ? this.session.tasksStore.get(task.taskId).attempts
+        ? this.session.tasksStore.get(task.taskId).sessions
           .find((attempt) => this.tabIdBySessionId.get(attempt.sessionId) === tabId)
         : undefined
       if (linkedAttempt && !aliases.includes(linkedAttempt.sessionId)) aliases.push(linkedAttempt.sessionId)
@@ -963,7 +932,7 @@ export class SessionSidebarStore {
       }))
     }
     return prLinkDiscoveryAttempts(
-      this.session.tasksStore.get(task.taskId).attempts,
+      this.session.tasksStore.get(task.taskId).sessions,
       (sessionId) => {
         const tabId = this.tabIdBySessionId.get(sessionId)
         return tabId
@@ -1119,8 +1088,8 @@ export class SessionSidebarStore {
    * The sessions the picker lists for a pickable task.
    *
    * `catalogTasks` is this client's working set: a task earns a row only when
-   * it is open here or has a mounted session. `pickableTasks` is every root
-   * task on every catalog host, so most of them have no row, and reading their
+   * it is open here or has a mounted session. The picker lists every task on
+   * every catalog host, so most of them have no row, and reading their
    * sessions through one reported them as empty. Opening such a task then
    * resumed a session the row had just said did not exist. This reads the
    * task's own links instead, and counts the rows per-row dismissal hid,
@@ -1131,7 +1100,7 @@ export class SessionSidebarStore {
       this.catalogTasks.flatMap((row) => (row.taskId ? [[row.taskId, row.tabIds] as const] : [])),
     )
     const byTaskId = new Map<string, SidebarSessionChild[]>()
-    for (const task of this.pickableTasks) {
+    for (const task of this.session.tasksStore.tasks) {
       byTaskId.set(task.id, this.buildSessions(task.id, tabIdsByTaskId.get(task.id) ?? [], true))
     }
     return byTaskId
@@ -1141,13 +1110,11 @@ export class SessionSidebarStore {
     return this.pickerSessionsByTaskId.get(task.id) ?? this.buildSessions(task.id, [], true)
   }
 
-  /** Mark the durable task and every mounted session represented by its root
-   * row as unread. The task timestamp persists the choice; the tab flags drive
+  /** Mark the durable task and every mounted session represented by its row
+   * as unread. The task timestamp persists the choice; the tab flags drive
    * the blue unread indicator in the mounted sidebar. */
   async markTaskUnread(taskId: string): Promise<void> {
-    const task = this.session.tasksStore.peek(taskId)
-    const rootTaskId = task?.parentId ?? taskId
-    const tabIds = this.catalogTasks.find((row) => row.taskId === rootTaskId)?.tabIds ?? []
+    const tabIds = this.catalogTasks.find((row) => row.taskId === taskId)?.tabIds ?? []
     await this.session.tasksStore.get(taskId).markRead(false)
     const notifiedSessions = new Set<string>()
     for (const tabId of tabIds) {
@@ -1173,12 +1140,9 @@ export class SessionSidebarStore {
    * woken has nothing to record: writing it would make the host invalidate
    * every task surface on every click. */
   acknowledgeTask(taskId: string): void {
-    const task = this.session.tasksStore.peek(taskId)
-    const rootTaskId = task?.parentId ?? taskId
-    const row = this.catalogTasks.find((row) => row.taskId === rootTaskId)
-    // The row wakes on the root task's read time, so that is the one to write.
+    const row = this.catalogTasks.find((row) => row.taskId === taskId)
     if (!row?.woke) return
-    void this.session.tasksStore.get(rootTaskId).markRead(true)
+    void this.session.tasksStore.get(taskId).markRead(true)
   }
 
   /** Defer a row that has no task record. `until` of null wakes it now, which
@@ -1202,29 +1166,16 @@ export class SessionSidebarStore {
 
   /** Put a durable task and every linked attempt back into the sidebar. The
    * picker is an explicit reversal of per-row dismissal, so it restores the
-   * whole task tree without changing any task lifecycle state. */
+   * task and its sessions without changing any task lifecycle state. */
   restoreTask(taskId: string): void {
     const task = this.session.tasksStore.peek(taskId)
     if (!task) return
-    const root = this.session.tasksStore.peek(task.parentId) ?? task
-    const taskTree = [root, ...this.childrenOf(root.id)]
-    const rowKeys = [
-      root.id,
-      ...taskTree.flatMap((record) => [
-        ...(record.parentId ? [`task:${record.id}`] : []),
-        ...this.session.tasksStore.get(record.id).sessions.map(
-          (link) => `session:${link.sessionId}`,
-        ),
-      ]),
-    ]
+    const sessions = this.session.tasksStore.get(task.id).sessions
+    const rowKeys = [task.id, ...sessions.map((link) => `session:${link.sessionId}`)]
     for (const rowKey of rowKeys) this.dismissedRowKeys.delete(rowKey)
     removeDismissedSidebarRows(rowKeys)
-    for (const record of taskTree) {
-      for (const link of this.session.tasksStore.get(record.id).sessions) {
-        this.session.showExplicitSidebarTaskSession(root.id, link.sessionId)
-      }
-    }
-    this.openTaskIds.add(root.id)
+    for (const link of sessions) this.session.showExplicitSidebarTaskSession(task.id, link.sessionId)
+    this.openTaskIds.add(task.id)
     this.persistOpenTaskIds()
   }
 
@@ -1249,27 +1200,21 @@ export class SessionSidebarStore {
     includeRestorable = false,
   ): SidebarSessionChild[] {
     if (!taskId) return tabIds.map((tabId) => this.childForTab(tabId))
-    const root = this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
-    if (!root) return []
+    const record = this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
+    if (!record) return []
 
-    const linkedSessions = [root, ...this.childrenOf(root.id)]
-      .flatMap((record) =>
-        this.session.tasksStore.get(record.id).sessions.map((link) => ({
-          record,
-          link,
-        })),
-      )
-      .sort((a, b) => a.link.linkedAt - b.link.linkedAt)
+    const linkedSessions = this.session.tasksStore.get(record.id).sessions
+      .toSorted((a, b) => a.linkedAt - b.linkedAt)
     const seenSessionIds = new Set<string>()
     const children: SidebarSessionChild[] = []
+    const projectKey = record.projectKey ?? undefined
 
-    for (const { record, link } of linkedSessions) {
+    for (const link of linkedSessions) {
       if (seenSessionIds.has(link.sessionId)) continue
       seenSessionIds.add(link.sessionId)
-      if (!includeRestorable && !this.projectsSessionUnder(root.id, link)) continue
-      const projectKey = record.projectKey ?? root.projectKey ?? undefined
+      if (!includeRestorable && !this.projectsSessionUnder(record.id, link)) continue
       const tabId = this.tabIdBySessionId.get(link.sessionId)
-      const dismissalKey = record.parentId ? `task:${record.id}` : `session:${link.sessionId}`
+      const dismissalKey = `session:${link.sessionId}`
       const linkServerId = attemptServerId({
         link,
         taskServerId: this.session.tasksStore.get(record.id).serverId,
@@ -1282,12 +1227,12 @@ export class SessionSidebarStore {
         const child = this.liveChildFor(tabId)
         children.push(withLazyActivity({
           ...child,
-          // A row stands for one session, so it is named by that session — a
-          // subtask included. Naming every attempt under a subtask after the
-          // subtask drew four identical rows for four conversations, and made
-          // renaming one of them impossible: the typed name landed on the
-          // session while the row went on reading its task. The task title is
-          // still the fallback for a session that has no name of its own.
+          // A row stands for one session, so it is named by that session.
+          // Naming every attempt after the task drew four identical rows for
+          // four conversations, and made renaming one of them impossible: the
+          // typed name landed on the session while the row went on reading its
+          // task. The task title is still the fallback for a session that has
+          // no name of its own.
           label: sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
           taskId: record.id,
           sessionId: link.sessionId,
@@ -1297,7 +1242,6 @@ export class SessionSidebarStore {
           modelId: child.modelId ?? link.model,
           branchName: child.branchName ?? link.branch ?? null,
           dismissalKey,
-          isSubtask: !!record.parentId,
         },
         // A restored tab can exist before its transcript is hydrated. The
         // durable link still knows when that session was active; do not turn
@@ -1322,53 +1266,21 @@ export class SessionSidebarStore {
         lastActivityAt: link.lastActivityAt ?? link.linkedAt,
         reviewGuideStatus: null,
         dismissalKey,
-        isSubtask: !!record.parentId,
       })
     }
 
-    for (const tabId of this.pendingTabByTaskId.get(root.id) ?? []) {
+    for (const tabId of this.pendingTabByTaskId.get(record.id) ?? []) {
       if (children.some((child) => child.tabId === tabId)) continue
-      const target = this.session.sessionFor(tabId)?.task
-      const pendingTaskId = target ? existingTaskId(target) : null
-      const pendingTask = pendingTaskId
-        ? this.session.tasksStore.tasks.find((candidate) => candidate.id === pendingTaskId)
-        : undefined
-      const dismissalKey = pendingTask?.parentId ? `task:${pendingTask.id}` : `tab:${tabId}`
+      const dismissalKey = `tab:${tabId}`
       if (!includeRestorable && this.dismissedRowKeys.has(dismissalKey)) continue
       const child = this.liveChildFor(tabId)
       children.push(withLazyActivity({
         ...child,
         label: child.label,
-        taskId: pendingTask?.id ?? root.id,
-        projectKey: pendingTask?.projectKey ?? root.projectKey ?? undefined,
-        dismissalKey,
-        isSubtask: !!pendingTask?.parentId,
-      }, () => this.tabActivityAt(tabId)))
-    }
-
-    // A subtask is part of the task tree before it has a provider session.
-    // Keep those rows visible and selectable; selecting one starts its first
-    // session through the existing no-session child path.
-    for (const record of this.childrenOf(root.id)) {
-      if (children.some((child) => child.taskId === record.id)) continue
-      const dismissalKey = `task:${record.id}`
-      if (!includeRestorable && this.dismissedRowKeys.has(dismissalKey)) continue
-      children.push({
         taskId: record.id,
-        projectKey: record.projectKey ?? root.projectKey ?? undefined,
-        branchName: null,
-        label: record.title,
-        attention: null,
-        unread: false,
-        // Nothing has run yet, so the only true answer is where it would: the
-        // host that holds the task.
-        serverId: this.session.tasksStore.get(record.id).serverId,
-        runStartedAt: 0,
-        lastActivityAt: 0,
-        reviewGuideStatus: null,
+        projectKey,
         dismissalKey,
-        isSubtask: true,
-      })
+      }, () => this.tabActivityAt(tabId)))
     }
 
     // One row per session across its homes: the runner while it is connected,
@@ -1405,11 +1317,9 @@ export class SessionSidebarStore {
    * clicking its task-bar row. */
   async selectTaskRecord(task: Task): Promise<void> {
     this.restoreTask(task.id)
-    const rootTaskId = task.parentId ?? task.id
-    const root = this.session.tasksStore.peek(rootTaskId) ?? task
     // The picker's own session list, so the row the reader saw and the session
     // ⏎ opens can never disagree.
-    const target = taskSessionTarget(this.sessionsForPickableTask(root))
+    const target = taskSessionTarget(this.sessionsForPickableTask(task))
     if (target) await this.selectChild(target)
     else await this.session.opening.openTaskSession(task)
   }

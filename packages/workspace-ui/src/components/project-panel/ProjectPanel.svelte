@@ -655,18 +655,7 @@
     line-height: var(--text-workspace-chrome--line-height);
   }
 
-  /* The shelf rung is flat at 12px, so on a laptop it meets the chrome rung the
-     rows take and the section headings and their key hints stop reading as a
-     step under the rows they sit above. The rail restates the rung one notch
-     down for its own subtree rather than stepping it globally: a menu is a
-     decision surface and holds both of its sizes on either display. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .project-sections {
-      --text-chrome-shelf: 0.6875rem;
-    }
-  }
-
-  /* At the rail's narrow laptop measure the fixed gutter is a large share of
+  /* At the rail's narrow measure the fixed gutter is a large share of
      the column, so the cards give chrome back to their content. */
   @container (max-width: 17rem) {
     .project-sections {

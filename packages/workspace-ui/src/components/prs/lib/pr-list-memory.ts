@@ -29,7 +29,7 @@ const PREFERENCES_KEY = 'solus.prs.preferences'
 
 export type PrListPreferences = Pick<
   PrListView,
-  'sortMode' | 'statusKeys' | 'involvement' | 'author' | 'label' | 'draft' | 'review' | 'checks' | 'guide'
+  'sortMode' | 'statusKeys' | 'involvement' | 'author' | 'label' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
 >
 
 const bounded = z.string().max(200)
@@ -43,6 +43,8 @@ const preferencesSchema = z.object({
   review: z.enum(['all', 'approved', 'changes-requested', 'review-required', 'no-reviews']),
   checks: z.enum(['all', 'passing', 'pending', 'failing']),
   guide: z.enum(['all', 'has-guide']),
+  // Added later: preferences saved before it keep their other choices.
+  lens: z.enum(['all', 'has-lens']).default('all'),
 })
 
 /** The choices saved on this device, or null when none are (or they no longer
@@ -69,6 +71,7 @@ export function prListPreferencesOf(view: PrListView): PrListPreferences {
     review: view.review,
     checks: view.checks,
     guide: view.guide,
+    lens: view.lens,
   }
 }
 

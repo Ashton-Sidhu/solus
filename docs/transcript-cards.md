@@ -34,7 +34,7 @@ Source: the "Conversation Cards Spec" design project (turns 2b, 3a, 3b, 4a, 4b).
 | Type word | Lowercase, muted, never truncates. A failure reason goes here. |
 | Target | Optional path, branch, or file. Sans, `--text-tool-step`. |
 | Rail | Counts and time only, never prose. Sans with tabular figures, `--text-transcript-meta`, 70%. |
-| Actions | 24px targets (22px on a laptop display, 32px on touch). At most one primary and one ghost button, plus split and ⋯. |
+| Actions | 24px targets (32px on touch). At most one primary and one ghost button, plus split and ⋯. |
 
 Body layouts (`bodyLayout`):
 
@@ -110,9 +110,7 @@ agent waits on a person here (a request or a plan decision).
 ## Tokens
 
 `workspace.css` declares `--solus-tx-quiet-*`, `--solus-tx-attention-shadow`,
-`--solus-tx-divider`, and the `--tx-card-*` geometry. On a
-fine-pointer laptop display the line is 36px, rows are 30px, and the radius is
-10px. Touch keeps the 40px line. In dark mode the quiet shell drops its lift
+`--solus-tx-divider`, and the `--tx-card-*` geometry. In dark mode the quiet shell drops its lift
 because the fill does the lifting.
 
 ## Not in scope

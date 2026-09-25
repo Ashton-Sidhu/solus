@@ -9,9 +9,7 @@ type SelectionWorkspace = Pick<WorkspaceContext, 'runFor' | 'defaultRunConfig' |
 /**
  * Open a project — or Scratchpad — in one checkout, for the tab or draft that
  * `sourceId` names. A checkout on the run's own host is a folder change; one on
- * another host moves the run there too. The project chip and the draft
- * headline's "or just chat" both land here, so they move a run the same way.
- * Resolves once the run names the checkout; the caller returns focus.
+ * another host moves the run there too. Resolves once the run names the checkout; the caller returns focus.
  */
 export async function aimRunAtCheckout(
   workspace: SelectionWorkspace,

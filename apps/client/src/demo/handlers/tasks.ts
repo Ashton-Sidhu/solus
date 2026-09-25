@@ -11,7 +11,6 @@ function taskDetails(store: DemoStore, id: string): TaskDetails {
   const rawComments = raw?.comments ?? []
   return {
     task,
-    subtasks: store.listTasks().tasks.filter((candidate) => candidate.parentId === id),
     comments: rawComments.map((comment, index) => ({
       id: comment.id ?? `${id}-comment-${index}`,
       taskId: id,
@@ -64,7 +63,6 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     return {
       tasks: list.tasks.filter((task) => {
         if (filter?.projectKey !== undefined && task.projectKey !== filter.projectKey) return false
-        if (filter?.parentId !== undefined && task.parentId !== filter.parentId) return false
         if (filter?.status) {
           const statuses = Array.isArray(filter.status) ? filter.status : [filter.status]
           if (!statuses.includes(task.status)) return false
@@ -187,21 +185,6 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     const sessions = store.taskSessions()
     const taskId = Object.entries(sessions).find(([, links]) => links.some((link) => link.sessionId === sessionId))?.[0]
     if (!taskId) return null
-    const task = store.getTask(taskId)
-    const parent = task.parentId ? store.getTask(task.parentId) : null
-    const rootId = parent?.id ?? task.id
-    const subtasks = store.listTasks().tasks.filter((candidate) => candidate.parentId === rootId)
-    const siblings = task.parentId
-      ? subtasks.filter((candidate) => candidate.id !== task.id)
-      : []
-    const attempts = [rootId, ...subtasks.map((candidate) => candidate.id)]
-      .flatMap((candidateTaskId) => sessions[candidateTaskId] ?? [])
-    return {
-      task,
-      parent,
-      subtasks,
-      siblings,
-      attempts,
-    }
+    return { task: store.getTask(taskId), attempts: sessions[taskId] ?? [] }
   })
 }

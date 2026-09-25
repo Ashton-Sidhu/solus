@@ -87,8 +87,8 @@
       type="button"
       disabled={!canSubmit}
       class={cn(
-        "flex h-7.5 shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 [.is-laptop-display_&]:h-7",
-        submitContent ? "w-7.5 justify-center px-0 [.is-laptop-display_&]:w-7" : "px-3",
+        "flex h-7.5 shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40",
+        submitContent ? "w-7.5 justify-center px-0" : "px-3",
       )}
       aria-label={submitAriaLabel}
       title={`${submitLabel} · ⌘↵`}

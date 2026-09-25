@@ -189,7 +189,6 @@ function durableTask(status: Task['status'], overrides: Partial<Task> = {}): Tas
   return {
     id: `task-${status}`,
     providerId: 'local',
-    kind: 'task',
     title: status,
     body: '',
     status,
@@ -231,38 +230,28 @@ describe('shouldShowDurableSidebarTask', () => {
     // Status and age describe the task lifecycle, not whether its sidebar row
     // exists. The explicit remove action is the only way a root row leaves —
     // completing one is that same action, which is why nothing here reads status.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), false, false, true)).toBe(true)
-    expect(shouldShowDurableSidebarTask(durableTask('dropped'), false, false, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
   })
 
   it('restores a completed task when one of its sessions is reopened', () => {
     // WHY: completion removes the row by dismissing it, so reopening a session
     // has to bring the task back. Hiding a finished task on status instead left
     // the reopened conversation mounted with no row — and unloaded again.
-    expect(shouldShowDurableSidebarTask(durableTask('done'), true, true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(true, true, true)).toBe(true)
   })
 
   it('restores an open task when a new session explicitly reopens it', () => {
-    const task = durableTask('in_progress')
-    expect(shouldShowDurableSidebarTask(task, true, false, true)).toBe(false)
-    expect(shouldShowDurableSidebarTask(task, true, true, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(true, false, true)).toBe(false)
+    expect(shouldShowDurableSidebarTask(true, true, true)).toBe(true)
   })
 
   it('keeps every host task closed until this client opens it', () => {
     // WHY: connecting a host must not copy any part of its task list into the
     // session sidebar. Status alone is not an open action.
-    for (const status of ['todo', 'in_progress', 'in_review'] as const) {
-      const task = durableTask(status)
-      expect(shouldShowDurableSidebarTask(task, false, false, false)).toBe(false)
-      expect(shouldShowDurableSidebarTask(task, false, false, true)).toBe(true)
-      expect(shouldShowDurableSidebarTask(task, false, true, false)).toBe(true)
-    }
-  })
-
-  it('continues to project child tasks through their root row', () => {
-    expect(
-      shouldShowDurableSidebarTask(durableTask('in_progress', { parentId: 'root' }), false, true, true),
-    ).toBe(false)
+    expect(shouldShowDurableSidebarTask(false, false, false)).toBe(false)
+    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
+    expect(shouldShowDurableSidebarTask(false, true, false)).toBe(true)
   })
 })
 
@@ -291,10 +280,6 @@ describe('shouldShelveCompletedTask', () => {
 
   it('never doubles a row the column is already showing', () => {
     expect(shouldShelveCompletedTask(durableTask('done'), true)).toBe(false)
-  })
-
-  it('keeps subtasks under their root, as the column does', () => {
-    expect(shouldShelveCompletedTask(durableTask('done', { parentId: 'root' }), false)).toBe(false)
   })
 })
 
@@ -744,16 +729,9 @@ describe('title emphasis', () => {
 })
 
 describe('hasDisclosure', () => {
-  it('opens a task whose only session belongs to a subtask', () => {
-    // The row is named after the root task, so without the disclosure the
-    // subtask has no representation in the column at all — the reason a task
-    // having subtasks was invisible in the first place.
-    expect(hasDisclosure([{ isSubtask: true }])).toBe(true)
-  })
-
   it('stays flat for a task that is already its one session', () => {
     // Nothing to reveal: expanding would restate the row underneath itself.
-    expect(hasDisclosure([{ isSubtask: false }])).toBe(false)
+    expect(hasDisclosure([{}])).toBe(false)
     expect(hasDisclosure([])).toBe(false)
   })
 
@@ -777,7 +755,6 @@ describe('taskRowBranchName', () => {
       { branchName: 'solus/one' },
       { branchName: 'solus/two' },
     ])).toBe(null)
-    expect(taskRowBranchName(null, [{ branchName: 'solus/one', isSubtask: true }])).toBe(null)
   })
 
   it('keeps a loose row on its own branch when no session names one', () => {

@@ -15,7 +15,6 @@
   import {
     SUB_PAGE_CRUMB_BTN,
     SUB_PAGE_CRUMB_TEXT,
-    SUB_PAGE_ICON,
     SUB_PAGE_ROUND_BTN,
   } from "./sub-page-styles";
 
@@ -33,8 +32,8 @@
    * window controls act on the pane and sit past a rule so they never read as
    * part of the record.
    *
-   * Geometry comes from `sub-page-styles`, at the desktop, laptop and touch
-   * rungs; type comes from the shared chrome rung.
+   * Geometry comes from `sub-page-styles`, at the desktop and touch rungs;
+   * type comes from the shared chrome rung.
    */
   interface Props {
     page: NavPage;
@@ -102,13 +101,12 @@
      At the record rung the band is 56px, because its controls already are: the
      touch rung gives every button in here a 36–44px box, which did not fit the
      40px band and overflowed it. Both insets are marked `!` so the desktop
-     pair above cannot win them back on a phone, where `.is-laptop-display` is
-     also set. -->
+     pair above cannot win them back on a phone. -->
 <div
-  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1 border-b border-[var(--hairline)] text-workspace-chrome [.is-laptop-display_&]:gap-0.5 @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
-    ? 'pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] [.is-laptop-display_&]:pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]'
-    : 'pl-3 [.is-laptop-display_&]:pl-2.5'} {hasWindowControls
-    ? 'pr-3.5 [.is-laptop-display_&]:pr-3'
+  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1 border-b border-[var(--hairline)] text-workspace-chrome @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
+    ? 'pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]'
+    : 'pl-3'} {hasWindowControls
+    ? 'pr-3.5'
     : 'pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))]'}"
 >
   <nav class="flex min-w-0 shrink items-center" aria-label="Location">
@@ -122,7 +120,7 @@
         <span class={SUB_PAGE_CRUMB_TEXT}>{segment.label}</span>
       {/if}
       <span
-        class="shrink-0 px-[3px] text-muted-foreground opacity-30 [.is-laptop-display_&]:px-0.5"
+        class="shrink-0 px-[3px] text-muted-foreground opacity-30"
         aria-hidden="true">/</span
       >
     {/each}
@@ -130,7 +128,7 @@
       {@render leafControl()}
     {:else if leaf}
       <span
-        class="flex h-7 min-w-0 max-w-48 items-center truncate rounded px-[7px] text-foreground pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-6 [.is-laptop-display_&]:px-1.5"
+        class="flex h-7 min-w-0 max-w-48 items-center truncate rounded px-[7px] text-foreground pointer-coarse:h-9"
         title={leafTitle ?? leaf}>{leaf}</span
       >
     {/if}
@@ -157,7 +155,7 @@
         title="Previous {stepper.itemLabel}{hint(stepper.previousHint)}"
         aria-label="Previous {stepper.itemLabel}"
       >
-        <CaretLeftIcon size={12} class={SUB_PAGE_ICON} />
+        <CaretLeftIcon size={12} />
       </button>
       {#if queueLabel}
         <span class="tabular-nums whitespace-nowrap text-muted-foreground">{queueLabel}</span>
@@ -170,7 +168,7 @@
         title="Next {stepper.itemLabel}{hint(stepper.nextHint)}"
         aria-label="Next {stepper.itemLabel}"
       >
-        <CaretRightIcon size={12} class={SUB_PAGE_ICON} />
+        <CaretRightIcon size={12} />
       </button>
     </div>
   {/if}
@@ -185,7 +183,7 @@
          which made it the one that got clipped off the edge. The parent crumb
          at the head of this row is the back control, and it is enough. -->
     <span
-      class="mx-1 h-4 w-px shrink-0 bg-[var(--hairline-strong)] [.is-laptop-display_&]:mx-0.5 [.is-laptop-display_&]:h-3.5 @max-[30rem]/pane:hidden"
+      class="mx-1 h-4 w-px shrink-0 bg-[var(--hairline-strong)] @max-[30rem]/pane:hidden"
       aria-hidden="true"
     ></span>
     <span class="contents @max-[30rem]/pane:hidden">
@@ -204,9 +202,9 @@
         aria-pressed={maximized}
       >
         {#if maximized}
-          <ArrowsInIcon size={13} class={SUB_PAGE_ICON} />
+          <ArrowsInIcon size={13} />
         {:else}
-          <ArrowsOutIcon size={13} class={SUB_PAGE_ICON} />
+          <ArrowsOutIcon size={13} />
         {/if}
       </button>
     {/if}
@@ -219,7 +217,7 @@
         title={closeLabel}
         aria-label={closeLabel}
       >
-        <XIcon size={13} class={SUB_PAGE_ICON} />
+        <XIcon size={13} />
       </button>
     {/if}
     </span>

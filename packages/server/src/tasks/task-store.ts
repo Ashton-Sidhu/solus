@@ -34,17 +34,16 @@ const taskRowSchema = z.object({
   id: z.string(),
   short_id: z.number().nullable(),
   project_key: z.string().nullable(),
-  parent_id: z.string().nullable(),
   title: z.string(),
   title_source: z.enum(['prompt', 'generated', 'manual']),
   body: z.string(),
   status: taskStatusSchema,
-  kind: z.enum(['task', 'epic']),
   assignee: z.string().nullable(),
   due_date: z.string().nullable(),
   priority: taskPrioritySchema.nullable(),
   labels: z.string(),
   pr: z.string().nullable(),
+  epic: z.string().nullable(),
   source: taskSourceSchema,
   origin_session_id: z.string().nullable(),
   origin_automation_id: z.string().nullable(),
@@ -72,6 +71,13 @@ const taskCommentRowSchema = z.object({
   dirty: z.number(),
 })
 export const taskPrSchema = z.object({ url: z.string(), number: z.number() })
+export const taskEpicSchema = z.object({
+  provider: z.enum(['github', 'jira']),
+  externalId: z.string(),
+  url: z.string(),
+  title: z.string(),
+  body: z.string(),
+})
 const labelListSchema = z.array(z.string())
 const nextShortIdRowSchema = z.object({ next_id: z.number() })
 
@@ -116,7 +122,6 @@ export function taskFromRow(row: TaskRow): Task {
     id: row.id,
     providerId: 'local',
     projectKey: row.project_key,
-    kind: row.kind,
     title: row.title,
     titleSource: row.title_source,
     body: row.body,
@@ -137,11 +142,12 @@ export function taskFromRow(row: TaskRow): Task {
     }
   }
   if (row.assignee !== null) task.assignee = row.assignee
-  if (row.parent_id !== null) task.parentId = row.parent_id
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
   const pr = jsonValue(row.pr, taskPrSchema)
   if (pr) task.pr = pr
+  const epic = jsonValue(row.epic, taskEpicSchema)
+  if (epic) task.epic = epic
   if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
   if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
   if (row.triaged_at !== null) task.triagedAt = row.triaged_at
@@ -201,15 +207,6 @@ export async function loadTaskRecord(organizationId: string, id: string): Promis
   return row ? taskFromRow(row) : null
 }
 
-export async function listTaskChildren(organizationId: string, parentId: string): Promise<Task[]> {
-  const rows = taskRowSchema.array().parse(await database().all(sql`
-    ${TASK_SELECT}
-    WHERE tasks.parent_id = ${parentId} AND tasks.organization_id = ${organizationId}
-    ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
-  `))
-  return rows.map(taskFromRow)
-}
-
 export async function requireTask(organizationId: string, id: string, db: Db = database()): Promise<TaskRow> {
   const row = await taskRow(organizationId, id, db)
   if (!row) throw new Error(`Task ${id} not found.`)
@@ -239,24 +236,6 @@ export function assertTaskStatus(status: TaskStatus): void {
   if (!TASK_STATUSES.has(status)) throw new Error(`Invalid task status: ${status}`)
 }
 
-export async function parentForChild(
-  organizationId: string,
-  parentId: string,
-  childId: string | undefined,
-  db: Db,
-): Promise<TaskRow> {
-  if (parentId === childId) throw new Error('A task cannot be its own parent.')
-  const parent = await requireTask(organizationId, parentId, db)
-  if (parent.parent_id !== null) throw new Error('Subtasks cannot contain nested subtasks.')
-  if (childId) {
-    const child = await requireTask(organizationId, childId, db)
-    const nested = await db.get(sql`SELECT 1 AS present FROM ${tasks} WHERE parent_id = ${childId} LIMIT 1`)
-    if (nested) throw new Error('A task with subtasks cannot itself become a subtask.')
-    if (child.id === parent.id) throw new Error('A task cannot be its own parent.')
-  }
-  return parent
-}
-
 /** A task's origin, as the activity feed reads it. */
 const ACTOR_BY_SOURCE = {
   user: 'user',
@@ -278,28 +257,20 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   const title = input.title.trim()
   if (!title) throw new Error('Task title cannot be empty.')
 
-  let projectKey = normalizedOptional(input.projectKey)
-  const parentId = normalizedOptional(input.parentId)
-  if (parentId) {
-    const parent = await parentForChild(organizationId, parentId, undefined, db)
-    if (projectKey !== null && projectKey !== parent.project_key) {
-      throw new Error('A subtask must belong to the same project as its parent.')
-    }
-    projectKey = parent.project_key
-  }
+  const projectKey = normalizedOptional(input.projectKey)
 
   const id = input.id ?? ulid(input.now)
   const triagedAt = input.status === 'inbox' ? null : input.now
   const doneAt = input.status === 'done' ? input.now : null
   await db.run(sql`
     INSERT INTO ${tasks}(
-      id, short_id, project_key, parent_id, title, title_source, body, status,
-      kind, assignee, due_date, priority, labels,
+      id, short_id, project_key, title, title_source, body, status,
+      assignee, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
       triaged_at, done_at, organization_id
     ) VALUES (
-      ${id}, ${await nextShortId(db)}, ${projectKey}, ${parentId}, ${title}, ${input.titleSource},
-      ${input.body ?? ''}, ${input.status}, ${input.kind === 'epic' ? 'epic' : 'task'},
+      ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
+      ${input.body ?? ''}, ${input.status},
       ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
       ${JSON.stringify(input.labels ?? [])}, ${input.source}, ${normalizedOptional(input.originSessionId)},
       ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt},
@@ -317,15 +288,10 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
 export async function listTasks(organizationId: string, filter: TaskListFilter = {}): Promise<TaskListResult> {
   const clauses: SQL[] = [sql`tasks.organization_id = ${organizationId}`]
   const hasProjectKey = Object.prototype.hasOwnProperty.call(filter, 'projectKey')
-  const hasParentId = Object.prototype.hasOwnProperty.call(filter, 'parentId')
 
   if (hasProjectKey) {
     if (filter.projectKey === null) clauses.push(sql`project_key IS NULL`)
     else clauses.push(sql`project_key = ${filter.projectKey ?? null}`)
-  }
-  if (hasParentId) {
-    if (filter.parentId === null) clauses.push(sql`parent_id IS NULL`)
-    else clauses.push(sql`parent_id = ${filter.parentId ?? null}`)
   }
 
   const statuses = filter.status === undefined

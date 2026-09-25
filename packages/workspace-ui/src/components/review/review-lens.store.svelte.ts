@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   reviewGuideTargetId,
   type ReviewLensChangedEvent,
@@ -6,16 +6,19 @@ import {
   type ReviewLensCommentsResult,
   type ReviewLensEditRequest,
   type ReviewLensGenerateRequest,
+  type ReviewLensJob,
   type ReviewLensSnapshot,
   type ReviewTarget,
 } from '@solus/contracts/review'
 import type { IpcContext } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { ConnectionStatus } from '@solus/client-core/ws-transport'
 
 type ConnectionListener = (serverId: string, status: ConnectionStatus, attempt: number) => void
+type LensEventListener = (serverId: string, event: ReviewLensChangedEvent) => void
+type PullRequestIdentity = Pick<Extract<ReviewTarget, { kind: 'pr' }>, 'host' | 'owner' | 'repo' | 'number'>
 
 /** Which lens a surface reads. `scopeKey` separates two checkouts that share a
  *  target kind (two worktrees each with a working-tree lens); the host decides
@@ -43,6 +46,20 @@ function subjectKey(subject: Pick<LensSubject, 'serverId' | 'scopeKey' | 'target
   return `${subject.serverId}::${subject.scopeKey}::${reviewGuideTargetId(subject.target)}`
 }
 
+/** A PR job is found by the pull request alone: the list row knows the PR, not
+ *  the host's storage address, and a new head must not hide a running job. */
+function jobKey(serverId: string, event: ReviewLensChangedEvent): string {
+  return event.target.kind === 'pr' ? prJobKey(serverId, event.target) : `${serverId}::${event.repoRoot}::${event.key}`
+}
+
+function prJobKey(serverId: string, pr: PullRequestIdentity): string {
+  return `${serverId}::${reviewGuideTargetId({ kind: 'pr', host: pr.host, owner: pr.owner, repo: pr.repo, number: pr.number })}`
+}
+
+function isRunning(job: ReviewLensJob | null | undefined): boolean {
+  return job?.status === 'queued' || job?.status === 'generating'
+}
+
 /**
  * Lens state shared by every mounted review surface (docs/plans/review-lenses.md).
  * The host owns the job and the record; this store holds the last snapshot per
@@ -56,11 +73,71 @@ export class ReviewLensStore {
   private subscribed = new Set<string>()
   private disconnected = new SvelteMap<string, true>()
   private connectionUnsubscribe: (() => void) | null = null
+  /** The last job each host announced, for surfaces with no pane open (the PR
+   *  list, the ready toast). Live only: a job that ended before this client
+   *  connected is not here. */
+  private jobs = new SvelteMap<string, ReviewLensJob | null>()
+  /** Ready jobs the user opened, as `jobKey::updatedAt`. */
+  private seenReadyJobs = new SvelteSet<string>()
+  /** The saved-lens revision of each listed PR, by `prJobKey`; 0 means none.
+   *  `loadPrRevisions` fills it and `review.lensChanged` keeps it current. */
+  private prRevisions = new SvelteMap<string, number>()
+  /** PRs `loadPrRevisions` asked about since the host last connected. */
+  private probedPrs = new Set<string>()
+  private readyListeners = new Set<LensEventListener>()
 
   constructor(
-    private readonly eventsFor: (serverId: string) => HostEventSubscriber = (serverId) => serverConnections.eventsFor(serverId),
+    private readonly subscribeEvents: (listener: LensEventListener) => () => void = (listener) => subscribeAllHosts('review.lensChanged', listener),
     private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onStatusChange(listener),
   ) {}
+
+  /** Follow `review.lensChanged` on every host. The app shell calls it once;
+   *  panes and the PR list read what it records. */
+  follow(): () => void {
+    return this.subscribeEvents((serverId, event) => this.receive(serverId, event))
+  }
+
+  /** Observe a job that finishes while this client watches it run. A cached
+   *  read never notifies: reopening Solus must not replay old toasts. */
+  onReady(listener: LensEventListener): () => void {
+    this.readyListeners.add(listener)
+    return () => this.readyListeners.delete(listener)
+  }
+
+  /** The job a PR row shows. A ready job the user opened shows nothing. */
+  pullRequestJobFor(serverId: string, pr: PullRequestIdentity): ReviewLensJob | null {
+    const key = prJobKey(serverId, pr)
+    const job = this.jobs.get(key) ?? null
+    return job?.status === 'ready' && this.seenReadyJobs.has(`${key}::${job.updatedAt}`) ? null : job
+  }
+
+  /** Whether the host has a saved lens for this PR. False until its list row
+   *  was probed with `loadPrRevisions`. */
+  hasSavedPrLens(serverId: string, pr: PullRequestIdentity): boolean {
+    return (this.prRevisions.get(prJobKey(serverId, pr)) ?? 0) > 0
+  }
+
+  /**
+   * Ask the host about these PRs' saved lenses in one request, once per PR
+   * while the host stays connected. A lens made or changed later arrives as
+   * `review.lensChanged`. A probe that failed is forgotten, so the next list
+   * load asks again.
+   */
+  async loadPrRevisions(api: HostApi, serverId: string, ctx: IpcContext, prs: readonly PullRequestIdentity[]): Promise<void> {
+    this.bind(serverId)
+    const fresh = prs.filter((pr) => !this.probedPrs.has(prJobKey(serverId, pr)))
+    if (!fresh.length) return
+    const keys = fresh.map((pr) => prJobKey(serverId, pr))
+    for (const key of keys) this.probedPrs.add(key)
+    try {
+      const targets = fresh.map(({ host, owner, repo, number }) => ({ kind: 'pr' as const, host, owner, repo, number }))
+      const revisions = await api.prLensRevisions(structuredClone($state.snapshot(ctx)), targets)
+      // An event that arrived while the probe ran is at least as new.
+      keys.forEach((key, index) => this.prRevisions.set(key, Math.max(this.prRevisions.get(key) ?? 0, revisions?.[index] ?? 0)))
+    } catch {
+      for (const key of keys) this.probedPrs.delete(key)
+    }
+  }
 
   entryFor(subject: Pick<LensSubject, 'serverId' | 'scopeKey' | 'target'> | null): LensEntry | null {
     return subject ? this.entries.get(subjectKey(subject)) ?? null : null
@@ -80,6 +157,10 @@ export class ReviewLensStore {
   markSeen(subject: Pick<LensSubject, 'serverId' | 'scopeKey' | 'target'> | null): void {
     const entry = this.entryFor(subject)
     if (entry?.snapshot && entry.seenRevision !== entry.snapshot.revision) entry.seenRevision = entry.snapshot.revision
+    if (subject?.target.kind !== 'pr') return
+    const key = prJobKey(subject.serverId, subject.target)
+    const job = this.jobs.get(key)
+    if (job?.status === 'ready') this.seenReadyJobs.add(`${key}::${job.updatedAt}`)
   }
 
   async load(subject: LensSubject): Promise<void> {
@@ -176,16 +257,22 @@ export class ReviewLensStore {
         return
       }
       this.disconnected.delete(host)
+      // Events missed while away can hide a new lens, so the list asks again.
+      for (const key of this.probedPrs) if (key.startsWith(`${host}::`)) this.probedPrs.delete(key)
       for (const subject of this.subjects.values()) {
         if (subject.serverId === host) void this.load(subject)
       }
     })
-    if (this.subscribed.has(serverId)) return
     this.subscribed.add(serverId)
-    this.eventsFor(serverId).subscribe('review.lensChanged', (event) => this.receive(serverId, event))
   }
 
   private receive(serverId: string, event: ReviewLensChangedEvent): void {
+    const lensJobKey = jobKey(serverId, event)
+    // A comment change re-sends the finished job; only a run seen live is news.
+    const finished = event.job?.status === 'ready' && isRunning(this.jobs.get(lensJobKey))
+    this.jobs.set(lensJobKey, event.job)
+    if (event.target.kind === 'pr') this.prRevisions.set(lensJobKey, event.revision)
+    if (finished) for (const listener of this.readyListeners) listener(serverId, event)
     for (const [key, subject] of this.subjects) {
       if (subject.serverId !== serverId) continue
       const entry = this.entries.get(key)

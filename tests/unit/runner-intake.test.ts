@@ -63,7 +63,7 @@ function op(domain: OutboxOp['domain'], resourceId: string, name: string, payloa
 describe('runner intake', () => {
   test('ops land in the runner\'s organization in order; a redelivery applies nothing twice', async () => {
     const create = op('tasks', 'task-a', 'create', {
-      title: 'From the runner', projectKey: '/repo', body: 'body', kind: 'task', parentId: null, priority: 'high', labels: ['x'], dueDate: null, status: 'todo', originSessionId: 'thread-1', createdAt: 1_700_000_000_000,
+      title: 'From the runner', projectKey: '/repo', body: 'body', priority: 'high', labels: ['x'], dueDate: null, status: 'todo', originSessionId: 'thread-1', createdAt: 1_700_000_000_000,
     })
     const comment = op('tasks', 'task-a', 'comment', { body: 'first', author: 'agent' })
     const work = op('works', 'work-a', 'create', { title: 'Doc', docType: 'doc', content: '# Doc', originSessionId: 'thread-1', linkToSessionTask: true })

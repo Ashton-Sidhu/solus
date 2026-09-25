@@ -60,7 +60,7 @@
 </TranscriptCard>
 
 {#snippet cardBody()}
-  <div class="flex flex-col gap-2.5 pointer-fine:[.is-laptop-display_&]:gap-2">
+  <div class="flex flex-col gap-2.5">
     {@render children?.()}
   </div>
 {/snippet}

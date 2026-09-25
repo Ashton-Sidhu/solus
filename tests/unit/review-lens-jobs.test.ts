@@ -93,6 +93,15 @@ async function generate(f: ReturnType<typeof fixture>, title: string) {
 }
 
 describe('review lens jobs', () => {
+  test('the PR list reads each saved-lens revision in request order, 0 for none', async () => {
+    const other = { kind: 'pr' as const, host: 'github.com', owner: 'acme', repo: 'app', number: 8 }
+    const f = fixture({
+      locate: async (_ctx, target) => ({ address: { ...address, key: target.kind === 'pr' ? `pr-${target.number}` : 'x' }, target }),
+      read: async ({ key }) => (key === 'pr-7' ? { version: 1, current: {} as ReviewLensRecord['current'], updatedAt: 42 } : null),
+    })
+    expect(await f.jobs.savedPrRevisions(ctx, [other, { ...other, number: 7 }])).toEqual([0, 42])
+  })
+
   test('a new lens replaces the current one and keeps exactly one previous version', async () => {
     const f = fixture()
     await generate(f, 'First')
@@ -102,6 +111,8 @@ describe('review lens jobs', () => {
     expect(f.record()?.previous?.lens.title).toBe('Second')
     expect(f.events.at(-1)?.job?.status).toBe('ready')
     expect(f.events.at(-1)?.revision).toBe(f.record()!.updatedAt)
+    // The PR list and the ready toast name the review from the event alone.
+    expect(f.events.every((event) => event.target.kind === 'pr' && event.target.number === 7)).toBe(true)
   })
 
   test('restore swaps the two versions and a second restore swaps them back', async () => {

@@ -73,7 +73,7 @@
         {#each card.steps as step (step.id)}
           {@const stepMs = timing.msFor(step.id)}
           <li
-            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem] pointer-fine:[.is-laptop-display_&]:min-h-6 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:py-[0.1875rem]"
+            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
             class:is-active={step.status === "active"}
           >
             {#if step.status === "done"}
@@ -105,7 +105,7 @@
             {/if}
           </li>
           {#if step.detail && step.status === "error"}
-            <li class="setup-detail px-2 pb-1.5 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pb-1">
+            <li class="setup-detail px-2 pb-1.5">
               {step.detail}
             </li>
           {/if}

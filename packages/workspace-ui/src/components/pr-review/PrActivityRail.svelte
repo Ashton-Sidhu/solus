@@ -28,7 +28,6 @@
   } from "@solus/contracts/providers";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { runtime } from "../../contexts";
   import { ensureIconCollections } from "../diagram/iconify";
   import { Button } from "../ui/button";
   import VirtualList from "../ui/list-page/VirtualList.svelte";
@@ -218,11 +217,9 @@
   );
   const tone = $derived(readiness ? readinessTone(readiness.key) : "neutral");
   // The file list is virtualized, so it needs a row height and a scrollport
-  // height in pixels. The heights follow the *display*, not the pane, because
-  // the rail's own width does (ADR-0010) — a container query here would resize
-  // rows on every drag frame of the pane divider.
+  // height in pixels.
   const fileRowSizes = $derived(
-    changedFiles.map((file) => fileRowHeight(file, runtime.isLaptopDisplay)),
+    changedFiles.map(fileRowHeight),
   );
   const fileRowSize = $derived((index: number) => fileRowSizes[index] ?? 0);
   const filesViewportHeight = $derived(
@@ -353,13 +350,12 @@
 <!-- Fixed widths rather than a percentage clamp: the rail's contents are mono
      paths, verdict words, and a status block whose line breaks were chosen
      against one measure, and a rail that resizes with the pane re-breaks all
-     of them on every drag frame. The laptop step is a display decision
-     (ADR-0010), not a container one. Inline, it is the reading column's own
+     of them on every drag frame. Inline, it is the reading column's own
      width, and there is nothing to pin. -->
 <aside
   class={inline
     ? "w-full text-workspace-chrome"
-    : "w-[330px] shrink-0 pb-6 text-workspace-chrome [.is-laptop-display_&]:w-[292px]"}
+    : "w-[330px] shrink-0 pb-6 text-workspace-chrome"}
 >
   <!-- The cap is what makes `sticky` safe. Pinned flush, a rail taller than the
        scrollport never moves, so everything past the fold — the tail of an
@@ -370,7 +366,7 @@
   <div
     class={inline
       ? "flex flex-col"
-      : "sticky top-[38px] -mx-[11px] flex flex-col px-[11px] [.is-laptop-display_&]:top-6 max-h-[calc(100vh-102px)] overflow-y-auto overscroll-contain"}
+      : "sticky top-[38px] -mx-[11px] flex flex-col px-[11px] max-h-[calc(100vh-102px)] overflow-y-auto overscroll-contain"}
   >
     <!-- The status: what state the pull request is in and the move that
          changes it, set straight on the canvas with no card around it — it
@@ -626,7 +622,7 @@
               {@const duration = checkDuration(item)}
               {@const verdict = checkVerdict(item)}
               <li
-                class="group/check flex h-[30px] items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-[var(--wash-2)] pointer-fine:[.is-laptop-display_&]:h-7"
+                class="group/check flex h-[30px] items-center gap-1 rounded-lg pr-1 transition-colors hover:bg-[var(--wash-2)]"
               >
                 <button
                   type="button"
@@ -757,10 +753,14 @@
             >
               {#snippet children(file, _index, style)}
                 {@const icon = fileTypeIcon(file.path)}
-                <!-- Two lines of mono behind a file-type glyph: the filename
-                     carries the churn on its own baseline, the directory sits
-                     under it. Rail paths are long and a single line would
-                     truncate the part that identifies the file.
+                <!-- Two lines behind a file-type glyph: the filename carries the
+                     churn on its own baseline, the directory sits under it.
+                     Rail paths are long and a single line would truncate the
+                     part that identifies the file. Both lines are sans: mono at
+                     this rung renders soft and reads larger than the rail
+                     around it. The directory takes the muted colour alone — an
+                     `opacity` on text drops it to grayscale antialiasing and
+                     blurs it.
 
                      The glyph is the same `fileTypeIcon` brand mark Files,
                      Diff, the file picker and project search all use. It
@@ -786,18 +786,18 @@
                       />
                     {/if}
                     <span class="flex min-w-0 flex-1 flex-col">
-                      <span class="min-w-0 truncate font-mono"
+                      <span class="min-w-0 truncate font-medium text-foreground"
                         >{fileName(file.path)}</span
                       >
                       {#if dirName(file.path)}
                         <span
-                          class="min-w-0 truncate font-mono text-muted-foreground opacity-80"
+                          class="min-w-0 truncate text-muted-foreground"
                           >{dirName(file.path).replace(/\/$/, "")}</span
                         >
                       {/if}
                     </span>
                     <span
-                      class="flex shrink-0 items-center gap-1 font-mono tabular-nums"
+                      class="flex shrink-0 items-center gap-1 font-medium tabular-nums"
                     >
                       {#if file.additions}<span
                           class="text-(--solus-art-positive)">+{file.additions}</span

@@ -651,7 +651,6 @@ export function createDesktopPalette(
           label: t.title,
           group: "Tasks",
           icon: ListChecksIcon,
-          hint: t.kind === "epic" ? "Epic" : undefined,
           keywords: ["task", t.id, t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
         }))

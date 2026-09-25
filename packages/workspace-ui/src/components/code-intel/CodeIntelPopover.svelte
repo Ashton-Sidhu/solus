@@ -233,21 +233,21 @@
     sideOffset={6}
     collisionPadding={8}
     aria-label={lookup ? `Symbol ${lookup.token}` : "Symbol"}
-    class="menu-surface z-[10002] w-[min(34rem,calc(100vw-2rem))] gap-0 overflow-hidden rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-[min(29rem,calc(100vw-2rem))] pointer-fine:[.is-laptop-display_&]:rounded-xl"
+    class="menu-surface z-[10002] w-[min(34rem,calc(100vw-2rem))] gap-0 overflow-hidden rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-workspace-chrome"
   >
     {#if isAwaitingFirstAnswer}
       <!-- The answer's shape before the answer: the card keeps its geometry so
            nothing jumps when the lookup lands, and the wait reads as a 2px seam
            rather than as a spinner that says nothing about progress. -->
       <div aria-busy="true" aria-label="Looking up symbol">
-        <div class="flex flex-col gap-2.5 px-5 pt-4 pb-3.5 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:pt-3 pointer-fine:[.is-laptop-display_&]:pb-3">
+        <div class="flex flex-col gap-2.5 px-5 pt-4 pb-3.5">
           <Skeleton class="h-3.5 w-[58%] rounded-sm" />
           <Skeleton class="h-3 w-[80%] rounded-sm" />
         </div>
-        <div class="border-t border-(--solus-menu-hairline) px-5 py-3 pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5">
+        <div class="border-t border-(--solus-menu-hairline) px-5 py-3">
           <Skeleton class="h-3 w-[44%] rounded-sm" />
         </div>
-        <div class="flex flex-col gap-2.5 border-t border-(--solus-menu-hairline) px-5 pt-3.5 pb-4 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:pt-3 pointer-fine:[.is-laptop-display_&]:pb-3">
+        <div class="flex flex-col gap-2.5 border-t border-(--solus-menu-hairline) px-5 pt-3.5 pb-4">
           <Skeleton class="h-3 w-[30%] rounded-sm" />
           <Skeleton class="h-3 w-[66%] rounded-sm" />
         </div>
@@ -267,13 +267,11 @@
            source), `text-symbol-card-code` for a quoted line of source, and
            `text-micro` for the number of that line. Code runs under the sans
            filename above it because monospace at an equal size reads larger and
-           would take the section over. Every rung here follows the display, so
-           the card shrinks with the workspace around it on a laptop instead of
-           floating over 12px code at 14px; the values and their laptop steps
-           are declared together in `index.css`, never restated per element.
+           would take the section over. The rung values are declared together in
+           `index.css`, never restated per element.
            Every element states its rung: a portalled surface inherits whatever
            the primitive last set for anything that does not. -->
-      <div class="flex flex-col gap-2 px-5 pt-4 pb-3.5 pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:pt-3 pointer-fine:[.is-laptop-display_&]:pb-3">
+      <div class="flex flex-col gap-2 px-5 pt-4 pb-3.5">
         <div class="max-h-28 overflow-auto font-[family-name:var(--solus-code-font-family)] text-workspace-chrome leading-[1.55] break-words whitespace-pre-wrap">
           {#if signature.keyword}<span class="text-(--solus-syntax-keyword)">{signature.keyword}</span>{" "}{/if}<span
             class="font-semibold text-(--solus-text-primary)">{signature.name}</span><span class="text-(--solus-text-tertiary)">{signature.rest}</span>
@@ -326,7 +324,7 @@
         <!-- Where the symbol lives, said once, as a place rather than as a verb. -->
         {#if definition && isDefinedHere}
           {@const label = locationLabel(definition)}
-          <div class="flex min-w-0 flex-col gap-0.5 border-t border-(--solus-menu-hairline) px-5 py-3 pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5">
+          <div class="flex min-w-0 flex-col gap-0.5 border-t border-(--solus-menu-hairline) px-5 py-3">
             <span class="text-symbol-card-meta text-(--solus-text-tertiary)">Definition</span>
             <span class="flex min-w-0 items-baseline gap-1.5 text-workspace-chrome">
               <span class="shrink-0 font-medium text-(--solus-text-primary)">{label.name}</span>
@@ -338,7 +336,7 @@
           {@const label = locationLabel(definition)}
           <button
             type="button"
-            class="flex w-full items-start gap-2.5 overflow-hidden border-t border-(--solus-menu-hairline) px-5 py-3 text-left outline-hidden transition-[background-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) focus-visible:shadow-[shadow:inset_0_0_0_62rem_var(--solus-menu-hover-ink)] pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5"
+            class="flex w-full items-start gap-2.5 overflow-hidden border-t border-(--solus-menu-hairline) px-5 py-3 text-left outline-hidden transition-[background-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) focus-visible:shadow-[shadow:inset_0_0_0_62rem_var(--solus-menu-hover-ink)]"
             onclick={openDefinition}
           >
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -357,7 +355,7 @@
                page it belongs to — so repeating it is a row of noise. The test
                is the reference, not the loaded summary, so the row does not
                appear for an instant and then vanish while MDN answers. -->
-          <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5">
+          <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary)">
             Defined outside this project.
           </div>
         {/if}
@@ -366,7 +364,7 @@
           <!-- One column, one list: every reference reads as the line of code it
                is, grouped under the file it lives in. -->
           <div class="flex flex-col border-t border-(--solus-menu-hairline)">
-            <div class="px-5 pt-3 pb-0.5 text-symbol-card-meta text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:px-4">
+            <div class="px-5 pt-3 pb-0.5 text-symbol-card-meta text-(--solus-text-tertiary)">
               {referenceSummary(symbol.referenceCount, symbol.referenceFileCount)}
             </div>
             <CodeIntelReferenceList
@@ -381,12 +379,12 @@
         {:else}
           <!-- An external symbol has a definition and no call sites here. Say
                which of the two is true rather than showing an empty list. -->
-          <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5">
+          <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary)">
             No references in your source tree
           </div>
         {/if}
       {:else if result && !isLoading && !notice}
-        <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2.5">
+        <div class="border-t border-(--solus-menu-hairline) px-5 py-3 text-workspace-chrome text-(--solus-text-tertiary)">
           No symbol at this position.
         </div>
       {/if}
@@ -395,7 +393,7 @@
     {#if notice}
       <div
         class={cn(
-          "flex min-w-0 flex-col gap-1.5 border-t border-(--solus-menu-hairline) bg-(--solus-surface-hover) px-5 py-2.5 text-workspace-chrome pointer-fine:[.is-laptop-display_&]:px-4 pointer-fine:[.is-laptop-display_&]:py-2",
+          "flex min-w-0 flex-col gap-1.5 border-t border-(--solus-menu-hairline) bg-(--solus-surface-hover) px-5 py-2.5 text-workspace-chrome",
           notice.tone === "warning" ? "text-(--solus-status-error)" : "text-(--solus-text-tertiary)",
         )}
       >

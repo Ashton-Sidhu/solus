@@ -214,7 +214,7 @@
     {#if onNewSession}
       <button
         type="button"
-        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:h-[22px] [.is-laptop-display_&]:px-2"
+        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
         onclick={onNewSession}
       >
         <PlusIcon size={11} weight="bold" aria-hidden="true" />
@@ -241,32 +241,32 @@
     </div>
   {:else}
     <div
-      class="scrollbar-on-hover max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)] [.is-laptop-display_&]:rounded-lg"
+      class="scrollbar-on-hover max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
     >
       <!-- Sticky so the columns stay named through a long history. It carries
            the card's own fill, or rows would read through it as it scrolls. -->
       <div
-        class="sticky top-0 z-10 flex h-[27px] items-center gap-[11px] bg-card pr-2 pl-[13px] font-normal text-muted-foreground uppercase opacity-75 shadow-[0_.5px_0_var(--hairline)] [.is-laptop-display_&]:h-[24px] [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:pl-[11px]"
+        class="sticky top-0 z-10 flex h-[27px] items-center gap-[11px] bg-card pr-2 pl-[13px] font-normal text-muted-foreground uppercase opacity-75 shadow-[0_.5px_0_var(--hairline)]"
         aria-hidden="true"
       >
         <span class="w-3.5 shrink-0"></span>
         <span class="min-w-0 flex-1">Session</span>
-        <span class="w-[104px] shrink-0 @max-[34rem]:hidden [.is-laptop-display_&]:w-[92px]">
+        <span class="w-[104px] shrink-0 @max-[34rem]:hidden">
           Agent
         </span>
-        <span class="w-[128px] shrink-0 @max-[46rem]:hidden [.is-laptop-display_&]:w-[110px]">
+        <span class="w-[128px] shrink-0 @max-[46rem]:hidden">
           Host
         </span>
-        <span class="w-[72px] shrink-0 text-right [.is-laptop-display_&]:w-[64px]">Started</span>
+        <span class="w-[72px] shrink-0 text-right">Started</span>
         <!-- Sized for four controls, which is what a running row has: the cell
              is `shrink-0` all the way down, so a width sized for three does not
              clip the fourth, it paints it over Started. -->
-        <span class="w-[116px] shrink-0 [.is-laptop-display_&]:w-[100px]"></span>
+        <span class="w-[116px] shrink-0"></span>
       </div>
 
       {#each rows as row (row.sessionId)}
         <div
-          class="group flex h-[34px] cursor-pointer items-center gap-[11px] border-t-[.5px] border-[color-mix(in_oklch,var(--hairline)_60%,transparent)] pr-2 pl-[13px] transition-colors first:border-t-0 hover:bg-[var(--wash-1)] [.is-laptop-display_&]:h-[30px] [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:pl-[11px]"
+          class="group flex h-[34px] cursor-pointer items-center gap-[11px] border-t-[.5px] border-[color-mix(in_oklch,var(--hairline)_60%,transparent)] pr-2 pl-[13px] transition-colors first:border-t-0 hover:bg-[var(--wash-1)]"
           role="button"
           tabindex="0"
           title={row.dateFull}
@@ -304,7 +304,7 @@
           </span>
 
           <span
-            class="w-[104px] shrink-0 truncate text-muted-foreground opacity-70 @max-[34rem]:hidden [.is-laptop-display_&]:w-[92px]"
+            class="w-[104px] shrink-0 truncate text-muted-foreground opacity-70 @max-[34rem]:hidden"
           >
             {row.agent}
           </span>
@@ -313,7 +313,7 @@
                the same way wherever it is named. A host that cannot be named is
                left blank rather than defaulting to this machine. -->
           <span
-            class="flex w-[128px] shrink-0 items-center gap-1 overflow-hidden text-muted-foreground opacity-70 @max-[46rem]:hidden [.is-laptop-display_&]:w-[110px]"
+            class="flex w-[128px] shrink-0 items-center gap-1 overflow-hidden text-muted-foreground opacity-70 @max-[46rem]:hidden"
           >
             {#if row.host}
               {#if row.host.isRemote}
@@ -326,7 +326,7 @@
           </span>
 
           <span
-            class="w-[72px] shrink-0 text-right tabular-nums text-muted-foreground opacity-65 [.is-laptop-display_&]:w-[64px]"
+            class="w-[72px] shrink-0 text-right tabular-nums text-muted-foreground opacity-65"
           >
             {row.date}
           </span>
@@ -336,7 +336,7 @@
                running row: Stop is the one action a user may need without
                hunting for it. -->
           <span
-            class="flex w-[116px] shrink-0 items-center justify-end gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 [.is-laptop-display_&]:w-[100px] {row.running
+            class="flex w-[116px] shrink-0 items-center justify-end gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 {row.running
               ? 'opacity-100'
               : 'opacity-0'}"
           >
@@ -347,7 +347,7 @@
                     <button
                       {...props}
                       type="button"
-                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))] [.is-laptop-display_&]:size-[22px]"
+                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
                       onclick={(e) => {
                         e.stopPropagation();
                         onStop(row.sessionId);
@@ -369,7 +369,7 @@
                     <button
                       {...props}
                       type="button"
-                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
                       onclick={(e) => {
                         e.stopPropagation();
                         openSplit(row.sessionId);
@@ -389,7 +389,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
                     onclick={(e) => {
                       e.stopPropagation();
                       onOpen(row.sessionId);
@@ -408,7 +408,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
                     onclick={(e) => {
                       e.stopPropagation();
                       onUnlink(row.sessionId);

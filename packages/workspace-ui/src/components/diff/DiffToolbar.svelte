@@ -188,7 +188,7 @@
           {#snippet child({ props: tooltipProps })}
             <div
               {...tooltipProps}
-              class="flex min-w-0 max-w-[24rem] shrink items-center gap-1 desktop-only [.is-laptop-display_&]:max-w-[14rem]"
+              class="flex min-w-0 max-w-[24rem] shrink items-center gap-1 desktop-only"
             >
               <GitBranchIcon
                 size={14}

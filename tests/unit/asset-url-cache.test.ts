@@ -52,6 +52,45 @@ describe('asset URL cache', () => {
     expect(url).toBe('https://host.example/api/assets/stored')
   })
 
+  test('concurrent requests for one asset share a single mint', async () => {
+    // WHY: every mounted row renders the project favicon in the same frame after
+    // a reload. Without sharing, each row minted its own URL — dozens of
+    // identical assetCreateUrl calls per reload.
+    const cache = new AssetUrlCache()
+    let mintCount = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const api: SignedAssetUrlRequest['api'] = {
+      assetCreateUrl: async () => {
+        mintCount++
+        await gate
+        return { relativeUrl: `/api/assets/token-${mintCount}`, expiresAt: 900_000 }
+      },
+    }
+    const request: SignedAssetUrlRequest = { serverId: 'host-a', path: '/repo/favicon.svg', origin: 'https://host.example', api }
+
+    const urls = Promise.all(Array.from({ length: 20 }, () => cache.resolve(request, 1_000)))
+    release()
+
+    expect(new Set(await urls)).toEqual(new Set(['https://host.example/api/assets/token-1']))
+    expect(mintCount).toBe(1)
+  })
+
+  test('a failed mint is not shared with the next request', async () => {
+    const cache = new AssetUrlCache()
+    let mintCount = 0
+    const api: SignedAssetUrlRequest['api'] = {
+      assetCreateUrl: async () => {
+        if (++mintCount === 1) throw new Error('host unavailable')
+        return { relativeUrl: '/api/assets/token', expiresAt: 900_000 }
+      },
+    }
+    const request: SignedAssetUrlRequest = { serverId: 'host-a', path: '/repo/favicon.svg', origin: 'https://host.example', api }
+
+    await expect(cache.resolve(request, 1_000)).rejects.toThrow('host unavailable')
+    expect(await cache.resolve(request, 2_000)).toBe('https://host.example/api/assets/token')
+  })
+
   test('a refused URL is minted again even while the cache thinks it is fresh', async () => {
     // WHY: a video player retries after the host refuses its URL. Handing back
     // the same cached URL would fail the same way until the cache's own clock

@@ -68,7 +68,7 @@
 
   const candidates = $derived(
     (projectKey ? store.tasksForCheckout(serverId, projectKey) : store.tasks)
-      .filter((task) => task.kind === "task" && task.status !== "done" && task.status !== "dropped")
+      .filter((task) => task.status !== "done" && task.status !== "dropped")
       .map((task) => ({ taskId: task.id, title: task.title, status: task.status, shortId: task.shortId })),
   );
   const rows = $derived(taskLinkPickerRows(candidates, linked ?? [], conversationTaskId ?? null));

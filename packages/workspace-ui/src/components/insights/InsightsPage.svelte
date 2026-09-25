@@ -463,7 +463,7 @@
     <span class="text-insights-summary text-muted-foreground">{detail}</span>
     <button
       type="button"
-      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10 pointer-fine:[.is-laptop-display_&]:size-5.5"
+      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10"
       aria-label={queryChartExpanded ? "Collapse chart" : "Expand chart"}
       aria-controls={chartId}
       aria-expanded={queryChartExpanded}
@@ -505,7 +505,7 @@
   <!-- Match the Tasks header measure and keep the loading shell aligned. -->
   <div class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
   <header
-    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
+    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
   >
     <PageCrumbLine
       page="insights"
@@ -620,7 +620,7 @@
         />
       {:else if rendering.rendering === "trend"}
         <section
-          class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)] [.is-laptop-display_&]:px-3 [.is-laptop-display_&]:py-2.5"
+          class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
           aria-label="Trend"
         >
           {@render measureHeading(
@@ -643,7 +643,7 @@
         <ResultTable result={store.result} />
       {:else if rendering.rendering === "ranking"}
         <section
-          class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)] [.is-laptop-display_&]:px-3 [.is-laptop-display_&]:py-2.5"
+          class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
           aria-label="Ranking"
         >
           {@render measureHeading(
@@ -670,7 +670,7 @@
   {#if splitList}
     <!-- The rail now reaches the window's top edge, so it clears the window
          controls itself, at the split measure the Pull Requests column uses. -->
-    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col pt-[max(26px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(1.25rem,var(--solus-page-top-inset,0px))]">
+    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col pt-[max(26px,var(--solus-page-top-inset,0px))]">
       <InsightsRail
         items={railItems}
         heading={listLabel}

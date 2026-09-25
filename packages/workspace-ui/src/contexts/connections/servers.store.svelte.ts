@@ -316,6 +316,16 @@ class ServersStore {
     serverConnections.onPhaseChange((serverId, phase) => {
       this.connectionStateFor(serverId).phase = phase
     })
+
+    // Boot dials every saved host before the app mounts, so a fast host can
+    // connect before these listeners exist and never announce it again. Read
+    // where each dialed connection stands now; an undialed one has said nothing.
+    for (const serverId of serverConnections.connectedServerIds()) {
+      const connection = serverConnections.connectionFor(serverId)
+      if (!connection || connection.status === 'disconnected') continue
+      this.setConnectionStatus(serverId, connection.status, connection.attempt)
+      this.connectionStateFor(serverId).phase = connection.supervisor.phase
+    }
   }
 
   init(): void {

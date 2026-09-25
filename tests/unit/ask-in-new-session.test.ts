@@ -26,7 +26,7 @@ interface Fixture {
     activeTabId: string
     splitChatTabId: string | null
     sessionFor(tabId: string): SourceSession
-    tasksStore: { taskForSession(sessionId: string): { id: string; parentId?: string } | null }
+    tasksStore: { taskForSession(sessionId: string): { id: string } | null }
     openSplitChat(sessionId: string): void
   }
   forkTab(tabId: string, options: { activate: boolean; task: TaskTarget }): Promise<string>
@@ -34,7 +34,7 @@ interface Fixture {
 }
 const FixtureClass: new () => Fixture = new Function('quotedReplyDraft', 'ownedTaskId', 'requestInputFocus', `${code}; return Fixture`)(quotedReplyDraft, ownedTaskId, () => {})
 
-async function ask(task: TaskTarget, boundTask?: { id: string; parentId?: string }, handoffId: string | null = null) {
+async function ask(task: TaskTarget, boundTask?: { id: string }, handoffId: string | null = null) {
   const fixture = new FixtureClass()
   const original: SourceSession = { id: 'stable-source', agentSessionId: 'provider-source', handoffId, task, prompt: { text: '' } }
   const forked: SourceSession = { ...original, id: 'new-session', prompt: { text: '' } }
@@ -67,9 +67,9 @@ describe('ask in new session task ownership', () => {
     expect(result.bindingId).toBe('stable-source')
   })
 
-  test('keeps the exact subtask and honors a durable task transfer', async () => {
-    const result = await ask({ kind: 'existing', taskId: 'old-task' }, { id: 'source-subtask', parentId: 'parent-task' }, 'handoff-session')
-    expect(result.requestedTask).toEqual({ kind: 'existing', taskId: 'source-subtask' })
+  test('keeps the bound task and honors a durable task transfer', async () => {
+    const result = await ask({ kind: 'existing', taskId: 'old-task' }, { id: 'source-task' }, 'handoff-session')
+    expect(result.requestedTask).toEqual({ kind: 'existing', taskId: 'source-task' })
     expect(result.bindingId).toBe('handoff-session')
   })
 

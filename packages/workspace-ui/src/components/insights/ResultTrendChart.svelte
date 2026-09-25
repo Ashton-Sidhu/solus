@@ -125,7 +125,7 @@
 {/if}
 
 <div
-  class="h-56 w-full sm:h-48 sm:[@media(min-height:1000px)]:h-64 pointer-fine:[.is-laptop-display_&]:h-48 {onSelect
+  class="h-56 w-full sm:h-48 sm:[@media(min-height:1000px)]:h-64 {onSelect
     ? 'cursor-pointer'
     : 'cursor-crosshair'}"
 >

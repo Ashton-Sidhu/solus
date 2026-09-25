@@ -1779,6 +1779,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "epic": {
+          "name": "epic",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "source": {
           "name": "source",
           "type": "text",

@@ -109,7 +109,7 @@
   // Newest work first, and the row now states the date it is sorted by, so the
   // order is readable rather than something you have to take on trust.
   const tasks = $derived(
-    sidebarStore.pickableTasks.toSorted(
+    session.tasksStore.tasks.toSorted(
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     ),
   );
@@ -1004,8 +1004,8 @@
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
     <!-- `text-menu`, not the chrome rung, for the same reason the command
-         palette holds it: a decision surface keeps 14px on a laptop display. -->
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] md:pointer-fine:[.is-laptop-display_&]:h-[74%] md:pointer-fine:[.is-laptop-display_&]:w-[89%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+         palette holds it: this is a decision surface. -->
+    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

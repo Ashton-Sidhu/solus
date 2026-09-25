@@ -57,7 +57,7 @@
         <li class="min-w-0">
         <button
           type="button"
-          class="-mx-2 flex h-9.5 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-left transition-colors duration-100 hover:not-disabled:bg-muted disabled:cursor-default focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:gap-2"
+          class="-mx-2 flex h-9.5 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-left transition-colors duration-100 hover:not-disabled:bg-muted disabled:cursor-default focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
           title={run.branch ? `Changes from this run live on branch ${worktreeDisplayName(run.branch)}` : undefined}
           onclick={() => onOpen(run)}
           disabled={!run.agentSessionId}

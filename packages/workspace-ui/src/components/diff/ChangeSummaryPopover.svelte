@@ -46,7 +46,7 @@
         {...tooltipProps}
         bind:this={triggerEl}
         type="button"
-        class="no-drag flex h-[1.625rem] min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 [.is-laptop-display_&]:max-w-[18rem] {open
+        class="no-drag flex h-[1.625rem] min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {open
           ? 'bg-[var(--wash-2)]'
           : 'bg-transparent hover:bg-[var(--wash-2)]'}"
         aria-haspopup="menu"

@@ -9,7 +9,7 @@ interface ReviewDispositionPosterOptions {
   submit: (ctx: IpcContext, prNumber: number, review: DraftReview) => Promise<void>
 }
 
-/** Maps held session outcomes onto the same provider submission used by SubmitReviewModal. */
+/** Maps held session outcomes onto the same provider submission used by SubmitReviewForm. */
 export function createReviewDispositionPoster(
   options: ReviewDispositionPosterOptions,
 ): DispositionPoster {

@@ -235,7 +235,7 @@
   {@const conflict = conflicts.get(id)}
   {@const custom = isOverridden(id, settings.keybindings)}
   <div
-    class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
+    class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs
  {recording ? 'bg-(--solus-accent)/8' : ''}"
   >
     <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{def.label}</span>
@@ -287,7 +287,7 @@
   {@const combo = appShortcuts.toggle}
   {@const recording = bindingCapture.id === "app:toggle"}
   {@const failed = appFailed}
-  <div class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
+  <div class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs
  {recording ? 'bg-(--solus-accent)/8' : ''}">
     <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{APP_SHORTCUT_LABEL}</span>
     <div class="flex shrink-0 items-center gap-1.5">
@@ -364,7 +364,7 @@
     <div class="flex min-w-0 flex-1 flex-col gap-6">
       {#if searchQuery}
         {#if !hasSearchResults}
-          <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">No shortcuts match your search</div>
+          <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.key)}
             {@render ruledSection(section.label)}

@@ -17,7 +17,6 @@ function task(id: string, status: TaskStatus): Task {
     body: '',
     url: '',
     status,
-    kind: 'task',
     labels: [],
     providerId: 'local',
     projectKey: '/repo',

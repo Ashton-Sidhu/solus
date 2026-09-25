@@ -8,10 +8,9 @@ import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './viewport'
-import { runtime } from './runtime.svelte'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
+import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
 import { DEFAULT_HOST_CONFIG, HOST_CONFIG_FIELDS, MAX_SIDEBAR_MOTION_MS } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
@@ -122,17 +121,7 @@ function applyFontSize(size: number): void {
  *  bridge method is absent there and this is a no-op. */
 function applyZoomFactor(factor: number): void {
   localApi.setZoomFactor?.(factor)
-  // Layout branches keyed on the display need the factor to read `screen.width`
-  // honestly — Chromium reports it in zoomed CSS pixels.
-  runtime.setZoomFactor(factor)
 }
-
-/** Zoom is a desktop shell capability; on web and mobile the browser owns it,
- *  so there is nothing to seed and the stored factor stays at 100%. */
-const DEFAULT_ZOOM_FACTOR =
-  localApi.setZoomFactor === undefined
-    ? ZOOM_FACTOR_DEFAULT
-    : defaultZoomFactorForScreen(globalThis.screen?.width)
 
 export const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
 const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
@@ -417,7 +406,7 @@ function deviceField<Value>(
 const DEVICE_FIELDS = {
   // Only a first run may seed the screen-derived zoom (see the constructor);
   // a blob from before zoom existed reads as the neutral factor instead.
-  zoomFactor: deviceField(z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT), DEFAULT_ZOOM_FACTOR, ZOOM_FACTOR_DEFAULT),
+  zoomFactor: deviceField(z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT), ZOOM_FACTOR_DEFAULT),
   // Settings → Appearance shows the per-surface font overrides (prompt,
   // document, smoothing) only when this is on; the two-font view is the
   // default. Device-local: it is how this client's settings page is folded,

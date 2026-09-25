@@ -1924,6 +1924,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "epic": {
+          "name": "epic",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "source": {
           "name": "source",
           "type": "text",

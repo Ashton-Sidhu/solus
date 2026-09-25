@@ -82,7 +82,7 @@
       type="button"
       onclick={onRemove}
       aria-label="Remove mark {chip.pin}"
-      class="flex size-5 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-55 [.is-laptop-display_&]:size-4.5 transition-[background-color,color,opacity] duration-[var(--duration-quick)] hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-1"
+      class="flex size-5 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-55 transition-[background-color,color,opacity] duration-[var(--duration-quick)] hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-1"
     >
       <XIcon size={10} strokeWidth={2} />
     </button>
@@ -95,7 +95,7 @@
     onclick={onOpen}
     title={chip.title}
     data-testid="mark-chip"
-    class="text-chrome-shelf inline-flex h-6 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card pr-1.5 pl-[0.1875rem] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] focus-visible:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] focus-visible:outline-none [.is-laptop-display_&]:h-[1.375rem]"
+    class="text-chrome-shelf inline-flex h-6 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card pr-1.5 pl-[0.1875rem] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] focus-visible:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] focus-visible:outline-none"
   >
     {@render shell()}
   </button>
@@ -104,8 +104,8 @@
     title={chip.title}
     data-testid="mark-chip"
     class="text-chrome-shelf inline-flex max-w-full shrink-0 items-center gap-1.5 bg-card {sent
-      ? 'h-6 rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] pr-1.5 pl-[0.1875rem] [.is-laptop-display_&]:h-[1.375rem]'
-      : 'h-6.5 rounded-lg pr-[0.1875rem] pl-1 shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)] transition-shadow hover:shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] [.is-laptop-display_&]:h-6'}"
+      ? 'h-6 rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] pr-1.5 pl-[0.1875rem]'
+      : 'h-6.5 rounded-lg pr-[0.1875rem] pl-1 shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)] transition-shadow hover:shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]'}"
   >
     {@render shell()}
   </span>

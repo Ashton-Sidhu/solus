@@ -290,8 +290,7 @@
 <style>
   /* The three texts use the responsive Summary rung: one step below the main
      transcript, but large enough to read as a summary rather than chart
-     annotation. It is 14px on desktop and 12px on a laptop, and carries the
-     user's text-size preference at both sizes.
+     annotation. It is 14px and carries the user's text-size preference.
 
      Written here, not as a utility: `.prose-transcript` and `.prose-reading`
      are unlayered, so a `text-*` utility in `@layer utilities` never wins. */

@@ -517,27 +517,6 @@
     requestInputFocus();
   }
 
-  /** Completing a subtask also clears its row and mounted conversation, the
-   *  same way its close control does; the parent task row stays. */
-  async function completeChild(child: SidebarSessionChild) {
-    try {
-      if (child.taskId) {
-        const task = session.tasksStore.peek(child.taskId);
-        const reopening = task?.status === "done";
-        await session.tasksStore
-          .get(child.taskId)
-          .setStatus(reopening ? "todo" : "done");
-        if (!reopening) sidebarStore.closeChild(child);
-      } else if (child.tabId) sidebarStore.toggleTaskDone(child.tabId);
-      requestInputFocus();
-    } catch (error) {
-      toasts.error("Couldn't complete subtask", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-      requestInputFocus();
-    }
-  }
-
   /** Removing a task is local sidebar view state. Its workflow status and any
    *  provider run stay unchanged; only the row and mounted tabs leave. */
   function removeTask(task: SidebarTask) {
@@ -825,7 +804,6 @@
     onMoreSession={openChildContextMenu}
     onSnoozeSession={(child, anchor) =>
       openSnooze({ rowKey: child.taskId ?? task.key, title: child.label }, anchor)}
-    onCompleteSession={completeChild}
     onCloseSession={removeChild}
   />
 {/snippet}
@@ -1039,7 +1017,7 @@
     {#snippet taskPicker()}
       <button
         type="button"
-        class="relative flex size-7 pointer-fine:[.is-laptop-display_&]:size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="Open picker"
         title={`Open picker (${comboHint("global.task-picker")})`}
         onclick={() => {
@@ -1048,7 +1026,7 @@
       >
         <PlusIcon
           size={15}
-          class="pointer-fine:[.is-laptop-display_&]:size-[13px] pointer-coarse:size-[15px]"
+          class="pointer-coarse:size-[15px]"
         />
       </button>
     {/snippet}
@@ -1314,7 +1292,7 @@
       (menuTask
         ? (session.tasksStore.get(menuTask.id).sessions.length) > 0
         : false)}
-    <!-- A task with no nested subtasks is a single session wearing a task's row,
+    <!-- A task with one session is a single session wearing a task's row,
          so it earns the session menu items a loose session row gets. -->
     {@const leafSessions = sidebarTask
       ? sidebarStore.sessionsFor(sidebarTask)

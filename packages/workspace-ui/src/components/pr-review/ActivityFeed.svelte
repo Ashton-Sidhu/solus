@@ -776,7 +776,7 @@
       <!-- The one failure said once for the whole tab: nothing below can
            load until the host has a credential, and the fix is one action. -->
       <div
-        class="mx-auto w-full max-w-[1386px] px-[52px] pt-6 [.is-laptop-display_&]:px-8"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-6"
       >
         <GithubConnectionRequired {serverId} />
       </div>
@@ -786,7 +786,7 @@
            status pill and the tabs line up with the title and the right rail
            instead of floating out at the pane's edges on wide windows. -->
       <div
-        class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px] [.is-laptop-display_&]:px-8 [.is-laptop-display_&]:pt-6"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px]"
       >
         {@render masthead()}
       </div>
@@ -805,9 +805,9 @@
       bind:this={contentRowEl}
       class="@container mx-auto flex w-full max-w-[1386px] flex-wrap items-start gap-14 px-[52px] {masthead
         ? 'pt-3.5'
-        : 'pt-[38px]'} [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-8 {masthead
+        : 'pt-[38px]'} {masthead
         ? ''
-        : '[.is-laptop-display_&]:pt-6'}"
+        : ''}"
     >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <!-- The column declares the review's type once, at the dense chrome

@@ -11,7 +11,6 @@
   import { ensureIconCollections } from "../diagram/iconify";
   import { GLYPH } from "../editor/unified-autocomplete/kinds";
   import type { TriggerChar } from "../editor/unified-autocomplete/trigger";
-  import { runtime } from "../../contexts";
   import {
     isSelectable,
     inlineTitlePrefix,
@@ -63,8 +62,8 @@
      width and have it read narrow in a wide pane, the menu takes the composer's
      own width — bounded so it neither cramps a metadata column nor runs the
      rows so long that the trailing slot floats away from the title. */
-  const MIN_WIDTH = $derived(runtime.isLaptopDisplay ? 420 : 480);
-  const MAX_WIDTH = $derived(runtime.isLaptopDisplay ? 560 : 660);
+  const MIN_WIDTH = 480;
+  const MAX_WIDTH = 660;
   const titleWeight = $derived(
     triggerChar === "#" ? "font-normal" : "font-medium",
   );
@@ -122,12 +121,12 @@
     <!-- A fixed 12px, not the chrome rung: at 14px the mono rows read a size
          larger than the composer they sit on. Every size inside is in `em`. -->
     <div
-      class="unified-menu text-xs rounded-2xl bg-(--solus-popover-bg) p-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:p-1"
+      class="unified-menu text-xs rounded-2xl bg-(--solus-popover-bg) p-1.5"
       style="box-shadow:var(--solus-popover-shadow), 0 0 0 0.03125rem var(--wash-ring);backdrop-filter:blur(1.25rem)"
     >
       <div
         bind:this={listEl}
-        class="max-h-[22rem] overflow-x-hidden overflow-y-auto pointer-fine:[.is-laptop-display_&]:max-h-[18rem]"
+        class="max-h-[22rem] overflow-x-hidden overflow-y-auto"
         role="listbox"
         tabindex="-1"
       >
@@ -144,16 +143,16 @@
 
       {#if sessionPreview}
         <div
-          class="mx-0.5 mt-1.5 max-h-24 overflow-hidden px-2 pt-2 pb-1 pointer-fine:[.is-laptop-display_&]:mt-1 pointer-fine:[.is-laptop-display_&]:max-h-[4.75rem] pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pt-1.5"
+          class="mx-0.5 mt-1.5 max-h-24 overflow-hidden px-2 pt-2 pb-1"
         >
           <div
-            class="mb-1 flex items-center gap-2 text-[0.75em] font-medium uppercase tracking-[0.06em] text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:mb-0.5"
+            class="mb-1 flex items-center gap-2 text-[0.75em] font-medium uppercase tracking-[0.06em] text-(--solus-text-tertiary)"
           >
             <span>Opening prompt</span>
             <span class="h-px flex-1 bg-(--wash-rule)"></span>
           </div>
           <div
-            class="line-clamp-3 leading-relaxed text-(--solus-text-secondary) text-pretty pointer-fine:[.is-laptop-display_&]:line-clamp-2"
+            class="line-clamp-3 leading-relaxed text-(--solus-text-secondary) text-pretty"
           >
             {sessionPreview}
           </div>
@@ -162,9 +161,9 @@
 
       <div class="mx-0.5 mt-[0.3125rem] h-px bg-(--wash-rule)"></div>
       <div
-        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-[0.875em] text-(--solus-text-tertiary) select-none pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pt-1.5"
+        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-[0.875em] text-(--solus-text-tertiary) select-none"
       >
-        <span class="flex items-center gap-[0.6875rem] pointer-fine:[.is-laptop-display_&]:gap-2">
+        <span class="flex items-center gap-[0.6875rem]">
           <span
             ><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span
           >
@@ -197,14 +196,14 @@
     stroke-width="1.4"
     stroke-linecap="round"
     stroke-linejoin="round"
-    class="size-[0.8125rem] pointer-fine:[.is-laptop-display_&]:size-3"
+    class="size-[0.8125rem]"
     aria-hidden="true"><path d={path} /></svg
   >
 {/snippet}
 
 {#snippet label(text: string, hint: string)}
   <div
-    class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem] pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-[0.4375rem] pointer-fine:[.is-laptop-display_&]:pt-[0.4375rem] pointer-fine:[.is-laptop-display_&]:pb-1"
+    class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]"
   >
     <span class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
@@ -223,7 +222,7 @@
        back, so the drill never loses its subject. -->
   <button
     type="button"
-    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover) pointer-fine:[.is-laptop-display_&]:h-[1.625rem] pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-[0.4375rem]"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover)"
     onclick={onBack}
   >
     <span class="flex w-4 shrink-0 items-center justify-center"
@@ -239,7 +238,7 @@
     >
   </button>
   <div
-    class="mx-1 my-1 h-px bg-(--wash-rule) pointer-fine:[.is-laptop-display_&]:my-0.5"
+    class="mx-1 my-1 h-px bg-(--wash-rule)"
     aria-hidden="true"
   ></div>
 {/snippet}
@@ -255,7 +254,7 @@
     role="option"
     aria-selected={selected}
     data-row-index={index}
-    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120 pointer-fine:[.is-laptop-display_&]:h-[1.625rem] pointer-fine:[.is-laptop-display_&]:gap-[0.4375rem] pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-[0.4375rem]"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120"
     style="background:{selected ? 'var(--wash-selected)' : 'transparent'}"
     onmousemove={(event) => onHover(index, event)}
     onclick={() => onActivate(entry)}

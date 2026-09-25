@@ -8,9 +8,7 @@ import {
   commentsForTask,
   database,
   emitChanged,
-  listTaskChildren,
   normalizedOptional,
-  parentForChild,
   requireTask,
   taskFromRow,
 } from './task-store'
@@ -141,7 +139,6 @@ export class Task implements TaskRecord {
   providerId!: TaskRecord['providerId']
   shortId?: number
   projectKey?: string | null
-  kind!: TaskRecord['kind']
   title!: string
   titleSource?: TaskTitleSource
   body!: string
@@ -149,7 +146,7 @@ export class Task implements TaskRecord {
   url!: string | null
   assignee?: string
   labels!: string[]
-  parentId?: string
+  epic?: TaskRecord['epic']
   dueDate?: string
   priority?: TaskPriority
   pr?: TaskRecord['pr']
@@ -244,7 +241,6 @@ export class Task implements TaskRecord {
     const externalLink = await externalLinkForTask(this.id, db)
     const details: TaskDetails = {
       task: this.record(),
-      subtasks: await listTaskChildren(this.#organizationId, this.id),
       comments: await commentsForTask(this.id, db),
       links: await readTaskLinks(db, this.#organizationId, this.id),
       events: await readTaskEvents(db, this.id),
@@ -270,23 +266,9 @@ export class Task implements TaskRecord {
     await database().transaction(async (db) => {
       const existing = await requireTask(this.#organizationId, this.id, db)
       const now = Date.now()
-      let parentId = existing.parent_id
-      let projectKey = existing.project_key
-
-      if (patch.parentId !== undefined) {
-        parentId = normalizedOptional(patch.parentId)
-        if (parentId) {
-          const parent = await parentForChild(this.#organizationId, parentId, this.id, db)
-          projectKey = parent.project_key
-        }
-      }
-      if (patch.projectKey !== undefined) {
-        const requestedProject = normalizedOptional(patch.projectKey)
-        if (parentId && requestedProject !== projectKey) {
-          throw new Error('A subtask must belong to the same project as its parent.')
-        }
-        projectKey = requestedProject
-      }
+      const projectKey = patch.projectKey === undefined
+        ? existing.project_key
+        : normalizedOptional(patch.projectKey)
       const title = patch.title === undefined ? existing.title : patch.title.trim()
       if (!title) throw new Error('Task title cannot be empty.')
       const status = patch.status ?? existing.status
@@ -298,10 +280,10 @@ export class Task implements TaskRecord {
 
       await db.run(sql`
         UPDATE ${tasks} SET
-          project_key = ${projectKey}, parent_id = ${parentId}, title = ${title},
+          project_key = ${projectKey}, title = ${title},
           title_source = ${patch.title === undefined ? existing.title_source : 'manual'},
           body = ${patch.body ?? existing.body},
-          status = ${status}, kind = ${patch.kind ?? existing.kind},
+          status = ${status},
           assignee = ${patch.assignee === undefined ? existing.assignee : normalizedOptional(patch.assignee)},
           due_date = ${patch.dueDate === undefined ? existing.due_date : normalizedOptional(patch.dueDate)},
           priority = ${patch.priority === undefined ? existing.priority : patch.priority},
@@ -684,8 +666,5 @@ export class Task implements TaskRecord {
  * (`attachLinkedContent`) before shipping, so this stays a pure store read. */
 export async function taskSnapshot(organizationId: string, taskId: string): Promise<TaskSnapshot> {
   const details = await (await Task.byId(organizationId, taskId)).details()
-  const parent = details.task.parentId
-    ? await (await Task.byId(organizationId, details.task.parentId)).details()
-    : null
-  return { details, parent, sessions: (await taskSessions(organizationId, taskId))[taskId] ?? [] }
+  return { details, sessions: (await taskSessions(organizationId, taskId))[taskId] ?? [] }
 }

@@ -79,7 +79,7 @@
 {#if merged}
   <div
     class="flex items-center font-medium text-(--solus-art-positive) {row
-      ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+      ? 'h-8 shrink-0'
       : 'h-[34px]'}"
   >
     Merged
@@ -87,7 +87,7 @@
 {:else}
   <div
     class="flex items-stretch overflow-hidden rounded-[10px] bg-primary shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] transition-[scale] duration-150 active:scale-[0.985] {row
-      ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+      ? 'h-8 shrink-0'
       : 'h-[34px] w-full'}"
   >
     <Button

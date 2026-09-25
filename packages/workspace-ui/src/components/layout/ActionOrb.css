@@ -588,11 +588,6 @@
   .files-pop {
     width: min(calc(44rem * var(--orb-scale)), calc(100vw - 2.5rem));
   }
-
-  .is-laptop-display .files-pop {
-    width: min(calc(36rem * var(--orb-scale)), calc(100vw - 2rem));
-  }
-
   @media (max-width: 520px) {
     .files-pop {
       bottom: 4rem;

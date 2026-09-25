@@ -185,6 +185,15 @@ export class ReviewLensJobs {
     return located ? this.snapshot(ctx, located) : null
   }
 
+  /** The saved-lens revision of each pull request, 0 when it has none. A PR
+   * lens address needs no checkout, so the PR list can ask for a whole page. */
+  savedPrRevisions(ctx: IpcContext, targets: PrGuideTarget[]): Promise<number[]> {
+    return Promise.all(targets.map(async (target) => {
+      const located = await this.deps.locate(ctx, target)
+      return located ? (await this.deps.read(located.address))?.updatedAt ?? 0 : 0
+    }))
+  }
+
   generate(ctx: IpcContext, request: ReviewLensGenerateRequest, emit: EmitLens): Promise<ReviewLensSnapshot | null> {
     if (!request.source.prompt.trim()) throw new Error('Write a lens prompt first.')
     return this.start(ctx, request.target, 'generate', emit, async () => ({
@@ -222,14 +231,14 @@ export class ReviewLensJobs {
     running.controller.abort()
     this.running.delete(id)
     const kind = this.jobs.get(id)?.kind ?? 'generate'
-    this.setJob(located.address, { kind, status: 'cancelled', updatedAt: this.deps.now() }, emit)
+    this.setJob(located, { kind, status: 'cancelled', updatedAt: this.deps.now() }, emit)
     return true
   }
 
   async restore(ctx: IpcContext, target: ReviewTarget, emit: EmitLens): Promise<ReviewLensSnapshot | null> {
     const located = await this.deps.locate(ctx, target)
     if (!located) return null
-    await this.mutate(located.address, emit, (record) => {
+    await this.mutate(located, emit, (record) => {
       const restored = restoreLens(record, this.deps.now())
       if (!restored) throw new Error('There is no previous lens to restore.')
       return restored
@@ -238,15 +247,15 @@ export class ReviewLensJobs {
   }
 
   async changeComments(ctx: IpcContext, target: ReviewTarget, change: ReviewLensCommentChange, emit: EmitLens): Promise<ReviewLensCommentsResult> {
-    const address = await this.requireAddress(ctx, target)
-    const record = await this.mutate(address, emit, (current) => changeLensComments(current, change, this.deps.now()))
+    const located = await this.requireLocated(ctx, target)
+    const record = await this.mutate(located, emit, (current) => changeLensComments(current, change, this.deps.now()))
     return { comments: record.current.comments, revision: record.updatedAt }
   }
 
   async postComment(ctx: IpcContext, target: ReviewTarget, commentId: string, emit: EmitLens): Promise<ReviewLensCommentsResult> {
     if (target.kind !== 'pr') throw new Error('Only a pull-request lens can post comments.')
-    const address = await this.requireAddress(ctx, target)
-    const record = await this.mutate(address, emit, async (current) => {
+    const located = await this.requireLocated(ctx, target)
+    const record = await this.mutate(located, emit, async (current) => {
       const comment = current.current.comments.find((item) => item.id === commentId)
       if (!comment) throw new Error('This lens comment no longer exists.')
       if (comment.posted) throw new Error('This comment is already on the pull request.')
@@ -259,8 +268,8 @@ export class ReviewLensJobs {
 
   async retractComment(ctx: IpcContext, target: ReviewTarget, commentId: string, emit: EmitLens): Promise<ReviewLensCommentsResult> {
     if (target.kind !== 'pr') throw new Error('Only a pull-request lens can post comments.')
-    const address = await this.requireAddress(ctx, target)
-    const record = await this.mutate(address, emit, async (current) => {
+    const located = await this.requireLocated(ctx, target)
+    const record = await this.mutate(located, emit, async (current) => {
       const posted = current.current.comments.find((item) => item.id === commentId)?.posted
       if (posted?.kind !== 'conversation') throw new Error('This comment is not on the pull request.')
       await this.deps.deleteComment(target, posted.commentId)
@@ -271,10 +280,10 @@ export class ReviewLensJobs {
 
   // ─── internals ───
 
-  private async requireAddress(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensAddress> {
+  private async requireLocated(ctx: IpcContext, target: ReviewTarget): Promise<LocatedLens> {
     const located = await this.deps.locate(ctx, target)
     if (!located) throw new Error('This review has no git checkout.')
-    return located.address
+    return located
   }
 
   private async snapshot(ctx: IpcContext, located: LocatedLens): Promise<ReviewLensSnapshot> {
@@ -299,10 +308,10 @@ export class ReviewLensJobs {
     }
   }
 
-  private setJob(address: ReviewLensAddress, job: ReviewLensJob, emit: EmitLens): void {
+  private setJob({ address, target }: LocatedLens, job: ReviewLensJob, emit: EmitLens): void {
     const id = addressId(address)
     this.jobs.set(id, job)
-    emit({ ...address, job, revision: this.revisions.get(id) ?? 0 })
+    emit({ ...address, target, job, revision: this.revisions.get(id) ?? 0 })
   }
 
   /** Run `task` after every earlier write to the same record. */
@@ -317,7 +326,7 @@ export class ReviewLensJobs {
   }
 
   private mutate(
-    address: ReviewLensAddress,
+    { address, target }: LocatedLens,
     emit: EmitLens,
     apply: (record: ReviewLensRecord) => ReviewLensRecord | Promise<ReviewLensRecord>,
   ): Promise<ReviewLensRecord> {
@@ -328,7 +337,7 @@ export class ReviewLensJobs {
       const next = await apply(record)
       if (!await this.deps.write(address, next)) throw new Error("Couldn't save the lens.")
       this.revisions.set(id, next.updatedAt)
-      emit({ ...address, job: this.jobs.get(id) ?? null, revision: next.updatedAt })
+      emit({ ...address, target, job: this.jobs.get(id) ?? null, revision: next.updatedAt })
       return next
     })
   }
@@ -351,24 +360,25 @@ export class ReviewLensJobs {
     this.running.get(id)?.controller.abort()
     const running: RunningLens = { controller: new AbortController() }
     this.running.set(id, running)
-    this.setJob(address, { kind, status: 'queued', updatedAt: this.deps.now() }, emit)
+    this.setJob(located, { kind, status: 'queued', updatedAt: this.deps.now() }, emit)
     void this.run(ctx, located, kind, running, emit, plan)
     return this.snapshot(ctx, located)
   }
 
   private async run(
     ctx: IpcContext,
-    { address, target }: LocatedLens,
+    located: LocatedLens,
     kind: ReviewLensJob['kind'],
     running: RunningLens,
     emit: EmitLens,
     plan: (record: ReviewLensRecord | null) => Promise<LensRunPlan>,
   ): Promise<void> {
+    const { address, target } = located
     const id = addressId(address)
     const signal = running.controller.signal
     const isCurrent = () => this.running.get(id) === running && !signal.aborted
     const step = (value: ReviewProgressStep) => {
-      if (isCurrent()) this.setJob(address, { kind, status: 'generating', step: value, updatedAt: this.deps.now() }, emit)
+      if (isCurrent()) this.setJob(located, { kind, status: 'generating', step: value, updatedAt: this.deps.now() }, emit)
     }
     try {
       step('preparing')
@@ -423,14 +433,14 @@ export class ReviewLensJobs {
       if (!committed || !isCurrent()) return
       this.running.delete(id)
       this.revisions.set(id, committed.updatedAt)
-      this.setJob(address, { kind, status: 'ready', updatedAt: this.deps.now() }, emit)
+      this.setJob(located, { kind, status: 'ready', updatedAt: this.deps.now() }, emit)
       log.info('review_lens_ready', { key: address.key, kind })
     } catch (error) {
       if (!isCurrent()) return
       this.running.delete(id)
       const message = error instanceof Error ? error.message : String(error)
       log.warn('review_lens_failed', { key: address.key, kind, error: message })
-      this.setJob(address, { kind, status: 'failed', error: message, updatedAt: this.deps.now() }, emit)
+      this.setJob(located, { kind, status: 'failed', error: message, updatedAt: this.deps.now() }, emit)
     }
   }
 }

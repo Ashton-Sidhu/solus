@@ -25,7 +25,7 @@ import type {
   SessionExecutionHost,
   Task as TaskRecord,
   TaskDetails,
-  TaskKind,
+  TaskEpic,
   TaskLinkInput,
   TaskLinkKind,
   TaskMirroredTicket,
@@ -40,7 +40,7 @@ import type {
   TaskTitleSource,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
-import { sameMirroredTicket, samePr, samePrLinks, sameStrings } from './task-reconcile'
+import { sameEpic, sameMirroredTicket, samePr, samePrLinks, sameStrings } from './task-reconcile'
 import { upstreamTaskDetails } from './upstream-task-details'
 import { taskTitleRegenerationInput } from './task-title-regeneration'
 import type { TasksStore } from './tasks.store.svelte'
@@ -53,7 +53,6 @@ export class Task implements TaskRecord {
   providerId = $state<TaskProviderId>('local')
   shortId = $state<number | undefined>()
   projectKey = $state<string | null | undefined>()
-  kind = $state<TaskKind>('task')
   title = $state('')
   titleSource = $state<TaskTitleSource | undefined>()
   body = $state('')
@@ -63,8 +62,7 @@ export class Task implements TaskRecord {
   assignee = $state<string | undefined>()
   assigneeAvatarUrl = $state<string | undefined>()
   labels = $state<string[]>([])
-  parentId = $state<string | undefined>()
-  childIds = $state<string[] | undefined>()
+  epic = $state<TaskEpic | undefined>()
   dueDate = $state<string | undefined>()
   priority = $state<TaskPriority | undefined>()
   pr = $state<TaskPr | undefined>()
@@ -168,16 +166,6 @@ export class Task implements TaskRecord {
     return this.prLinks[0] ?? null
   }
 
-  /** Every session shown under this task in the session tree — its own, plus
-   *  every sibling subtask's, since the tree renders them under one root. */
-  get attempts(): TaskSessionLink[] {
-    if (!this.#known) return this.#sessions
-    const rootId = this.parentId ?? this.id
-    const tree = [rootId, ...(this.#store.byParent.get(rootId) ?? []).map((child) => child.id)]
-    const links = tree.flatMap((id) => this.#store.peek(id)?.sessions ?? [])
-    return [...new Map(links.map((link) => [link.sessionId, link])).values()]
-  }
-
   /** True while a visible surface is rendering this task's detail. */
   get isDetailWatched(): boolean {
     return this.#watchCount > 0
@@ -249,7 +237,7 @@ export class Task implements TaskRecord {
       if (this.#known ? this.isUpstream : await this.#looksUpstream()) {
         const cwd = this.#upstreamCwd
         this.hydrate(await this.#api.tasksGetUpstream(cwd, this.id))
-        const details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
+        const details = upstreamTaskDetails(this)
         this.#details = details
         return details
       }
@@ -343,7 +331,7 @@ export class Task implements TaskRecord {
     if (this.isUpstream) {
       const cwd = this.#upstreamCwd
       this.hydrate(await this.#api.tasksCommentUpstream(cwd, this.id, body))
-      this.#details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
+      this.#details = upstreamTaskDetails(this)
       return this
     }
     this.applyDetails(await this.#api.tasksComment(this.id, body, opts))
@@ -608,7 +596,6 @@ export class Task implements TaskRecord {
     this.providerId = record.providerId
     this.shortId = record.shortId
     this.projectKey = record.projectKey
-    this.kind = record.kind
     this.title = record.title
     this.titleSource = record.titleSource
     this.body = record.body
@@ -616,7 +603,6 @@ export class Task implements TaskRecord {
     this.url = record.url
     this.assignee = record.assignee
     this.assigneeAvatarUrl = record.assigneeAvatarUrl
-    this.parentId = record.parentId
     this.dueDate = record.dueDate
     this.priority = record.priority
     this.canEditPlanningFields = record.canEditPlanningFields
@@ -637,7 +623,7 @@ export class Task implements TaskRecord {
       this.mirroredTicket = record.mirroredTicket
     }
     if (!sameStrings(this.labels, record.labels)) this.labels = record.labels
-    if (!sameStrings(this.childIds, record.childIds)) this.childIds = record.childIds
+    if (!sameEpic(this.epic, record.epic)) this.epic = record.epic
     if (!samePr(this.pr, record.pr)) this.pr = record.pr
     this.raw = record.raw
     this.#file()
@@ -681,8 +667,8 @@ export class Task implements TaskRecord {
   }
 
   /**
-   * Take a detail payload: this task, its subtasks, its pull request links and
-   * the detail itself.
+   * Take a detail payload: this task, its pull request links and the detail
+   * itself.
    *
    * Session links are deliberately not part of this. A task's attempts are
    * written by the sidebar snapshot and the focused session-tree read and by
@@ -695,7 +681,6 @@ export class Task implements TaskRecord {
       snapshot: this.#prLinks.find((current) => current.number === link.number
         && current.targetScope === link.targetScope)?.snapshot,
     })))
-    for (const subtask of details.subtasks) this.#store.get(subtask.id).hydrate(subtask)
     this.#details = details
   }
 }

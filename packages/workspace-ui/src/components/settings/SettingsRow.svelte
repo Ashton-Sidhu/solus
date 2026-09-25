@@ -51,8 +51,12 @@
     class="px-4 py-3 {isInert ? 'opacity-55' : ''}"
     aria-disabled={disabled || undefined}
   >
+    <!-- Only a row with a control reserves the trailing column; otherwise the
+         copy takes the full width instead of wrapping beside an empty cell. -->
     <div
-      class="flex flex-col gap-3 @min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8"
+      class="flex flex-col gap-3 {control
+        ? '@min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8'
+        : ''}"
     >
       <div class="min-w-0 flex-1 space-y-1">
         <div class="flex min-h-5 items-center gap-1.5">
@@ -68,7 +72,7 @@
           {/if}
         </div>
         {#if description}
-          <p class="max-w-xl text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">
+          <p class="text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">
             {description}
           </p>
         {/if}

@@ -186,7 +186,7 @@
     </DropdownMenu.Root>
   </div>
 
-  <ol class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4" role="list">
+  <ol class="relative flex flex-col gap-5" role="list">
     <span class="absolute top-2 bottom-2 left-[11px] w-px bg-border" aria-hidden="true"></span>
 
     {#each shown as entry (entry.key)}

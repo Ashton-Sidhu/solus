@@ -374,6 +374,7 @@ export const RPC_PLANES = {
 
   // Review lens (checkout-bound, like the guide; posting reaches the code host)
   readReviewLens: 'execution',
+  prLensRevisions: 'execution',
   requestReviewLens: 'execution',
   editReviewLens: 'execution',
   cancelReviewLens: 'execution',

@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    Check as CheckIcon,
     CloudOff as CloudOffIcon,
     Laptop as LaptopIcon,
     Moon as MoonIcon,
@@ -49,7 +48,6 @@
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
     onSnooze?: (anchor: HTMLElement) => void;
-    onComplete?: () => void;
     onClose: () => void;
   }
   let {
@@ -64,14 +62,13 @@
     onRenameCancel,
     onMore,
     onSnooze,
-    onComplete,
     onClose,
   }: Props = $props();
 
   const status = $derived(taskStatusFor(session.attention));
   // Only the session you are reading — and any session asking for a person —
   // leads in weight. Its siblings rest at the secondary tone even while the task
-  // above them holds the selection, so a long subtask list points at one row
+  // above them holds the selection, so a long session list points at one row
   // instead of reading as a block of equally live work.
   const titleIsEmphasized = $derived(
     shouldEmphasizeTitle(status, session.unread, selected),
@@ -114,7 +111,7 @@
   );
 
   // Which machine the session runs on. Unlike the task row this is never
-  // omitted: a subtask list mixes hosts freely, so "here" has to be stated
+  // omitted: a session list mixes hosts freely, so "here" has to be stated
   // rather than inferred from the absence of a mark. Only a remote host is
   // named; a local one is the laptop icon alone.
   const host = $derived(serversStore.hostFor(session.serverId));
@@ -160,7 +157,7 @@
   data-tab-id={session.tabId}
   data-task-id={session.taskId}
   aria-selected={selected}
-  aria-label={session.isSubtask ? `Subtask: ${session.label}` : session.label}
+  aria-label={session.label}
   onclick={(event) => {
     if (suppressNextClick) {
       suppressNextClick = false;
@@ -247,7 +244,7 @@
           <MiddleTruncate value={branchLabel} showTitle={false} class="max-w-[66%]" />
         {/if}
         <!-- Which machine the session runs on. Unlike the task row this is
-             never omitted: a subtask list mixes hosts freely, so "here" has to
+             never omitted: a session list mixes hosts freely, so "here" has to
              be stated rather than inferred from the absence of a mark. A local
              session states it with the laptop alone; only a remote one needs
              the name, to say which of the other machines it is. -->
@@ -369,13 +366,13 @@
           <span
             class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/session:pointer-events-auto pointer-fine:group-hover/session:static pointer-fine:group-hover/session:opacity-100 pointer-fine:group-has-[:focus-visible]/session:pointer-events-auto pointer-fine:group-has-[:focus-visible]/session:static pointer-fine:group-has-[:focus-visible]/session:opacity-100"
           >
-            <!-- Same three actions, same order, as the task row above it —
-                 including dropping snooze on a narrow column so the hover
-                 cluster stops eating the title. -->
+            <!-- The task row's actions, in its order — including dropping
+                 snooze on a narrow column so the hover cluster stops eating
+                 the title. -->
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground @max-[15rem]:hidden"
               title="Snooze"
-              aria-label="Snooze subtask"
+              aria-label="Snooze session"
               disabled={!onSnooze}
               onclick={(event) => {
                 event.stopPropagation();
@@ -384,19 +381,6 @@
             >
               <MoonIcon size={13} />
             </button>
-            {#if onComplete}
-              <button
-                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-                title="Mark subtask completed"
-                aria-label="Mark subtask completed"
-                onclick={(event) => {
-                  event.stopPropagation();
-                  onComplete();
-                }}
-              >
-                <CheckIcon size={14} weight="bold" />
-              </button>
-            {/if}
             {#if session.tabId || session.dismissalKey}
               <button
                 class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"

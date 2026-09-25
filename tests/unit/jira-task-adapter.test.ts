@@ -19,6 +19,9 @@ const REF = { ...SCOPE, externalId: 'ACME-7', url: '' }
 let requests: AtlassianRequest[] = []
 let transitions: Array<{ id: string; name: string; to: { name: string; statusCategory: { key: string } } }> = []
 let issueStatus = { name: 'To Do', statusCategory: { key: 'new' } }
+/** The issue's `parent` field, as Jira carries it: key and summary, never the description. */
+let parent: { key: string; fields: { summary: string } } | null = null
+let epicReadFails = false
 
 function issuePayload() {
   return {
@@ -34,6 +37,7 @@ function issuePayload() {
       labels: ['infra'],
       status: issueStatus,
       priority: { name: 'Highest' },
+      parent,
       comment: {
         comments: [{
           id: '9001',
@@ -51,6 +55,15 @@ function issuePayload() {
 let searchResponse: ((request: AtlassianRequest) => unknown) | null = null
 
 function payloadFor(request: AtlassianRequest): unknown {
+  if (request.path === '/rest/api/3/issue/ACME-1') {
+    if (epicReadFails) throw new Error('You do not have permission to see this issue.')
+    return {
+      fields: {
+        summary: 'Release 2.0',
+        description: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Every client in one week.' }] }] },
+      },
+    }
+  }
   if (request.path.endsWith('/transitions')) {
     return request.method === 'POST' ? undefined : { transitions }
   }
@@ -93,6 +106,8 @@ let adapter: InstanceType<typeof JiraTaskSyncAdapter>
 beforeEach(() => {
   requests = []
   searchResponse = null
+  parent = null
+  epicReadFails = false
   issueStatus = { name: 'To Do', statusCategory: { key: 'new' } }
   transitions = [
     { id: '2', name: 'Start', to: { name: 'In Progress', statusCategory: { key: 'indeterminate' } } },
@@ -326,5 +341,42 @@ describe('searching past the list cap', () => {
     await adapter.listTickets(SCOPE, { query: 'say "hi"' })
     const search = requests.find((request) => request.path === '/rest/api/3/search/jql')
     expect(jqlBodySchema.parse(search?.body).jql).toContain('say \\"hi\\"')
+  })
+})
+
+describe('the upstream epic', () => {
+  test('a ticket read carries its parent as the epic, with the description', async () => {
+    // WHY: the agent gets the epic's description as context. Jira's issue
+    // payload names the parent but never carries its description.
+    parent = { key: 'ACME-1', fields: { summary: 'Release 2' } }
+    expect((await adapter.fetchTicket(REF)).epic).toEqual({
+      provider: 'jira',
+      externalId: 'ACME-1',
+      url: 'https://acme.atlassian.net/browse/ACME-1',
+      title: 'Release 2.0',
+      body: 'Every client in one week.',
+    })
+  })
+
+  test('a ticket with no parent reports no epic, and reads nothing more', async () => {
+    // WHY: null, not undefined — the sync engine clears a stored epic only
+    // when the read says the ticket has none.
+    expect((await adapter.fetchTicket(REF)).epic).toBeNull()
+    expect(requests.map((request) => request.path)).toEqual(['/rest/api/3/issue/ACME-7'])
+  })
+
+  test('an epic the user cannot read still names itself and does not fail the sync', async () => {
+    parent = { key: 'ACME-1', fields: { summary: 'Release 2' } }
+    epicReadFails = true
+    expect((await adapter.fetchTicket(REF)).epic).toMatchObject({ externalId: 'ACME-1', title: 'Release 2', body: '' })
+  })
+
+  test('a list row names its epic from the search payload alone', async () => {
+    parent = { key: 'ACME-1', fields: { summary: 'Release 2' } }
+    const { tasks } = await adapter.listTickets(SCOPE)
+    expect(tasks[0]?.epic).toEqual({
+      provider: 'jira', externalId: 'ACME-1', url: 'https://acme.atlassian.net/browse/ACME-1', title: 'Release 2', body: '',
+    })
+    expect(requests.some((request) => request.path === '/rest/api/3/issue/ACME-1')).toBe(false)
   })
 })

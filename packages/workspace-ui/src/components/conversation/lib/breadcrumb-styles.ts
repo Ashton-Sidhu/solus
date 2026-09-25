@@ -6,16 +6,16 @@ export const CRUMB_BUTTON =
   'flex h-[1.875rem] cursor-pointer items-center rounded px-[0.46875rem] transition-[background] duration-150 hover:bg-accent'
 
 export const MENU_ROW =
-  'flex h-[2.125rem] [.is-laptop-display_&]:h-[1.75rem] w-full cursor-pointer items-center gap-[0.5625rem] [.is-laptop-display_&]:gap-2 rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent'
+  'flex h-[2.125rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent'
 
 /** The row's own title, which truncates before anything beside it does. */
 export const MENU_LABEL = 'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap'
 
-/** The Projects and Sessions headings take the same laptop step as the task
- *  menu's Open/Completed pair: the three menus open off one band and are read in
- *  one pass, so they shrink together or the band looks assembled. */
+/** The Projects and Sessions headings take the same rung as the task menu's
+ *  Open/Completed pair: the three menus open off one band and are read in one
+ *  pass, so they match or the band looks assembled. */
 export const MENU_HEADING =
-  'px-[0.5625rem] pt-1.5 pb-2.5 [.is-laptop-display_&]:pt-1 [.is-laptop-display_&]:pb-2 text-chrome-shelf font-medium text-muted-foreground uppercase'
+  'px-[0.5625rem] pt-1.5 pb-2.5 text-chrome-shelf font-medium text-muted-foreground uppercase'
 
 /** Rows you can close reserve the slot the X lands in, so nothing reflows the
  *  moment a pointer crosses the row. The wash follows the row, not the pointer's

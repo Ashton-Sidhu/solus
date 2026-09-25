@@ -33,13 +33,11 @@ function sidebarStore(): SidebarStoreHarness {
   return store
 }
 
-function task(id: string, title: string, parentId?: string): Task {
+function task(id: string, title: string): Task {
   return {
     id,
     providerId: 'local',
     projectKey: '/repo',
-    parentId,
-    kind: 'task',
     title,
     body: '',
     status: 'todo',
@@ -49,7 +47,7 @@ function task(id: string, title: string, parentId?: string): Task {
   }
 }
 
-describe('session sidebar subtask rows', () => {
+describe('session sidebar session rows', () => {
   test('projects a session under its owner, and under a referrer only where the user opened it', () => {
     // WHY: the host keeps one working owner per session. A referenced link is
     // a relationship the task page shows; drawing a row for it as well put the
@@ -70,58 +68,6 @@ describe('session sidebar subtask rows', () => {
     expect(store.projectsSessionUnder('second-task', reference)).toBe(true)
   })
 
-  test('shows an unstarted subtask by its own name', () => {
-    // WHY: the task tree exists before its provider sessions. Hiding or naming
-    // that row after the parent makes the sidebar unable to represent the plan.
-    const root = task('root', 'Ship the release')
-    const subtask = task('child', 'Verify the release', root.id)
-    const store = sidebarStore()
-    store.session = {
-      tasksStore: {
-        tasks: [root, subtask],
-        byParent: new Map([[root.id, [subtask]]]),
-        get: () => ({ sessions: [], serverId: null }),
-      },
-    }
-    store.visibleTabIds = []
-    store.pendingTabByTaskId = new Map()
-    store.dismissedRowKeys = new Set()
-    // The column memoizes each row's children off `allTasks`; a hand-built store
-    // has no such pass, so the empty maps send this row down the build path the
-    // assertion is about.
-    store.tabIdBySessionId = new Map()
-    store.sessionsByTaskId = new Map()
-
-    const sidebarTask = {
-      id: root.id,
-      taskId: root.id,
-      listKey: root.id,
-      key: root.id,
-      title: root.title,
-      projectKey: '/repo',
-      projectLabel: 'repo',
-      branchName: null,
-      serverId: null,
-      prNumber: null,
-      status: 'idle',
-      attention: null,
-      unread: false,
-      createdAt: 0,
-      runStartedAt: 0,
-      tabIds: [],
-    } satisfies SidebarTask
-
-    const rows = store.sessionsFor(sidebarTask)
-    expect(rows).toEqual([
-      expect.objectContaining({
-        taskId: 'child',
-        label: 'Verify the release',
-        isSubtask: true,
-      }),
-    ])
-    expect(rows[0].sessionId).toBeUndefined()
-  })
-
   test('the picker lists a task the sidebar has no row for, dismissals included', () => {
     // WHY: the sidebar column is this client's working set, so most pickable
     // tasks have no row in it. Reading their sessions through one reported them
@@ -132,7 +78,6 @@ describe('session sidebar subtask rows', () => {
     store.session = {
       tasksStore: {
         tasks: [root],
-        byParent: new Map(),
         get: () => ({
           serverId: 'workshop',
           sessions: [
@@ -178,7 +123,6 @@ describe('session sidebar subtask rows', () => {
     store.session = {
       tasksStore: {
         tasks: [root],
-        byParent: new Map(),
         // The task's own host answers for a link that recorded none: not a
         // dispatch means it ran wherever the task lives.
         get: () => ({
@@ -203,27 +147,23 @@ describe('session sidebar subtask rows', () => {
     ])
   })
 
-  test('each attempt under a subtask carries its own name', () => {
-    // WHY: a subtask holds as many sessions as it took attempts. Naming every
-    // one of those rows after the subtask drew four identical rows for four
+  test('each attempt on a task carries its own name', () => {
+    // WHY: a task holds as many sessions as it took attempts. Naming every one
+    // of those rows after the task drew four identical rows for four
     // conversations, and renaming one of them appeared to rename all four —
     // the typed name went onto the session while the row read its task.
     const root = task('root', 'Ship the release')
-    const subtask = task('child', 'Verify the release', root.id)
     const store = sidebarStore()
     store.session = {
       tasksStore: {
-        tasks: [root, subtask],
-        byParent: new Map([[root.id, [subtask]]]),
-        get: (taskId: string) => ({
+        tasks: [root],
+        get: () => ({
           serverId: 'workshop',
-          sessions: taskId === subtask.id
-            ? [
-                { taskId: subtask.id, sessionId: 'named', sessionTitle: 'lady', provider: 'claude', startedAt: 1, lastActivityAt: 1, executionServerId: null, linkedAt: 1 },
-                // Nothing has named this one, so the subtask still speaks for it.
-                { taskId: subtask.id, sessionId: 'unnamed', sessionTitle: null, provider: 'claude', startedAt: 2, lastActivityAt: 2, executionServerId: null, linkedAt: 2 },
-              ]
-            : [],
+          sessions: [
+            { taskId: root.id, sessionId: 'named', sessionTitle: 'lady', provider: 'claude', startedAt: 1, lastActivityAt: 1, executionServerId: null, linkedAt: 1 },
+            // Nothing has named this one, so the task still speaks for it.
+            { taskId: root.id, sessionId: 'unnamed', sessionTitle: null, provider: 'claude', startedAt: 2, lastActivityAt: 2, executionServerId: null, linkedAt: 2 },
+          ],
         }),
       },
     }
@@ -236,7 +176,7 @@ describe('session sidebar subtask rows', () => {
     const rows = store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask)
     expect(rows.map((row) => [row.sessionId, row.label])).toEqual([
       ['named', 'lady'],
-      ['unnamed', 'Verify the release'],
+      ['unnamed', 'Ship the release'],
     ])
   })
 
@@ -248,7 +188,6 @@ describe('session sidebar subtask rows', () => {
     store.session = {
       tasksStore: {
         tasks: [root],
-        byParent: new Map(),
         get: () => ({
           serverId: 'workshop',
           sessions: [{

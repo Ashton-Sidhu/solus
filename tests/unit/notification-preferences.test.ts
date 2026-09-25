@@ -56,7 +56,7 @@ describe('notification preferences', () => {
       expect(DEFAULT_NOTIFICATION_PREFERENCES.events[event]).toBe(true)
     }
     expect(APP_NOTICE_EVENTS).toEqual([
-      'review_guide_ready', 'update_available', 'host_discovered', 'teammate_presence', 'share_revoked',
+      'review_guide_ready', 'review_lens_ready', 'update_available', 'host_discovered', 'teammate_presence', 'share_revoked',
     ])
   })
 

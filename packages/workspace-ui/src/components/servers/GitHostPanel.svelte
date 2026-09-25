@@ -32,7 +32,7 @@
     <Button
       variant="ghost"
       size="sm"
-      class="mt-2 -ml-2 text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:h-6"
+      class="mt-2 -ml-2 text-workspace-chrome text-(--solus-text-tertiary)"
       onclick={() => void setup.cancelGithubConnect()}
     >
       Cancel

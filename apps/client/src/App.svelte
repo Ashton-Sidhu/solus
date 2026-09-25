@@ -107,9 +107,6 @@
   const taskComposerTasks = $derived(
     taskComposer ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey) : [],
   );
-  const taskComposerEpics = $derived(
-    taskComposerTasks.filter((task) => task.kind === "epic"),
-  );
   const taskComposerLabels = $derived(
     Array.from(new Set(taskComposerTasks.flatMap((task) => task.labels))).sort(),
   );
@@ -888,8 +885,7 @@
   {:then taskComposerModule}
     {@const TaskComposer = taskComposerModule.default}
     <TaskComposer
-      epics={taskComposerEpics}
-      allowEpics={taskComposerProvider === "local"}
+      canSetStatus={taskComposerProvider === "local"}
       canPlan={taskComposerProvider === "local"}
       knownLabels={taskComposerLabels}
       workingDirectory={taskComposer.workingDirectory}

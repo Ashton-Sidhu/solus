@@ -59,9 +59,9 @@
   side="right"
   align="start"
   sideOffset={4}
-  class="items-stretch whitespace-normal p-0 text-left font-normal [.is-laptop-display_&]:max-w-80"
+  class="items-stretch whitespace-normal p-0 text-left font-normal"
 >
-  <div class="flex min-w-0 max-w-96 flex-col gap-2 p-3 [.is-laptop-display_&]:max-w-80 [.is-laptop-display_&]:p-2.5">
+  <div class="flex min-w-0 max-w-96 flex-col gap-2 p-3">
     <div class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
       {title}
     </div>
@@ -72,17 +72,17 @@
             <ProjectFavicon
               projectRoot={projectKey}
               {serverId}
-              class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+              class="size-3.5 shrink-0"
             />
           {:else}
-            <LaptopIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
+            <LaptopIcon class="size-3.5 shrink-0" />
           {/if}
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{resolvedProjectLabel}</span>
         </div>
       {/if}
       {#if modelLabel}
         <div class="flex min-w-0 items-center gap-2">
-          <span class="flex w-3.5 shrink-0 items-center justify-center [.is-laptop-display_&]:w-3">
+          <span class="flex w-3.5 shrink-0 items-center justify-center">
             <ProviderMark mark={providerMark} size={11} transparent />
           </span>
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{modelLabel}</span>
@@ -93,10 +93,10 @@
           <HostOperatingSystemIcon
             os={remoteOs}
             managed={hostIsManaged(host)}
-            class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+            class="size-3.5 shrink-0"
           />
         {:else}
-          <LaptopIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
+          <LaptopIcon class="size-3.5 shrink-0" />
         {/if}
         <span class="min-w-0 truncate text-(--solus-text-secondary)">
           {isRemote ? host?.label : "Local"}
@@ -104,7 +104,7 @@
       </div>
       {#if resolvedBranchLabel}
         <div class="flex min-w-0 items-center gap-2">
-          <GitBranchIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
+          <GitBranchIcon class="size-3.5 shrink-0" />
           <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
@@ -119,7 +119,7 @@
         >
           <ReviewGuideGlyph
             weight={reviewGuideStatus === "ready" ? "fill" : "regular"}
-            class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+            class="size-3.5 shrink-0"
           />
           <span>
             {reviewGuideStatus === "ready"

@@ -114,14 +114,6 @@
   const taskComposerProvider = $derived(
     taskComposerConfig?.taskProvider ?? "local",
   );
-  const taskComposerTasks = $derived(
-    taskComposer
-      ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey)
-      : [],
-  );
-  const taskComposerEpics = $derived(
-    taskComposerTasks.filter((t) => t.kind === "epic"),
-  );
   const taskComposerLabels = $derived(
     taskComposer ? session.tasksStore.knownLabels(taskComposer.serverId, taskComposer.projectKey) : [],
   );
@@ -678,8 +670,7 @@
       {:then taskComposerModule}
         {@const TaskComposer = taskComposerModule.default}
         <TaskComposer
-          epics={taskComposerEpics}
-          allowEpics={taskComposerProvider === "local"}
+          canSetStatus={taskComposerProvider === "local"}
           canPlan={taskComposerProvider === "local"}
           knownLabels={taskComposerLabels}
           workingDirectory={taskComposer.workingDirectory}

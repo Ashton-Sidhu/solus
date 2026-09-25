@@ -94,7 +94,7 @@
           : isVideo
             ? "flex-shrink-0"
           : a.dataUrl
-            ? "relative size-14 flex-shrink-0 pointer-fine:[.is-laptop-display_&]:size-12"
+            ? "relative size-14 flex-shrink-0"
             : "flex h-[1.875rem] max-w-[12.5rem] flex-shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) pr-1.5 pl-2 text-workspace-chrome text-(--solus-text-secondary)"}
       >
         {#if isAnnotation}
@@ -110,7 +110,7 @@
             <button
               type="button"
               onclick={() => onRemove(a.id)}
-              class="text-chrome-shelf flex h-6.5 items-center gap-1.5 rounded-lg bg-card pr-[0.1875rem] pl-2 text-(--solus-text-secondary) shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)] [.is-laptop-display_&]:h-6"
+              class="text-chrome-shelf flex h-6.5 items-center gap-1.5 rounded-lg bg-card pr-[0.1875rem] pl-2 text-(--solus-text-secondary) shadow-[shadow:inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]"
               aria-label="Remove {label}"
             >
               <span class="truncate">{label}</span>
@@ -135,7 +135,7 @@
               : a.dataUrl ? `Preview ${label}` : `Open ${label}`}
             title={upload?.status === 'failed' ? upload.message : undefined}
             class={a.dataUrl
-              ? "size-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent) pointer-fine:[.is-laptop-display_&]:rounded-md"
+              ? "size-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
               : "flex min-w-0 flex-1 items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--solus-accent)"}
             style="cursor:{a.dataUrl ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
             onclick={() => {
@@ -150,7 +150,7 @@
               <img
                 src={a.dataUrl}
                 alt={label}
-                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20 pointer-fine:[.is-laptop-display_&]:rounded-md"
+                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20"
               />
             {:else}
               {@const IconComponent =
@@ -174,7 +174,7 @@
             onclick={() => removeAttachment(a.id)}
             aria-label="Remove {label}"
             class={a.dataUrl
-              ? "absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96] pointer-fine:[.is-laptop-display_&]:size-3.5"
+              ? "absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96]"
               : "flex size-4 flex-shrink-0 items-center justify-center rounded text-(--solus-text-tertiary) opacity-60 transition-[background-color,color,opacity,scale] duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) hover:opacity-100 focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none active:scale-[0.96]"}
           >
             <XIcon size={a.dataUrl ? 10 : 11} />

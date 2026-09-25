@@ -72,7 +72,7 @@
     {align}
     sideOffset={6}
     collisionPadding={8}
-    class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-[min(13rem,calc(100vw-2rem))]"
+    class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
     aria-label="Request a reviewer"
   >
     <Command.Root shouldFilter={false} class="h-auto min-h-0 [&>[data-slot=command-list]]:min-h-0 [&>div:first-child]:shrink-0">
@@ -85,7 +85,7 @@
            Keep matching rows mounted so arrow keys can reach every result.
            Search filters all collaborators loaded by the host. -->
       <Command.List
-        class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto overscroll-contain p-1.5 pointer-fine:[.is-laptop-display_&]:max-h-[min(14rem,calc(var(--bits-popover-content-available-height,17rem)-3rem))]"
+        class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto overscroll-contain p-1.5"
       >
         {#if loading}
           <ContentSkeleton label="Loading reviewers" />

@@ -15,8 +15,7 @@
  *
  * Two rungs. Above `@max-[30rem]/pane` the band is one 28px line. At the record
  * rung it becomes a 44px card over a scrolling row of 32px pills. Geometry at
- * the rung is marked `!`: a laptop-display variant is two selectors to the
- * rung's one and wins on specificity, and a coarse-pointer `min-h-10` from
+ * the rung is marked `!`: a coarse-pointer `min-h-10` from
  * `PAGE_GHOST_BTN` would otherwise make a sort chip 8px taller than the toggle
  * chip beside it.
  */

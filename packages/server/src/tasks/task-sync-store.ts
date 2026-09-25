@@ -3,11 +3,12 @@ import type {
   ExternalTicketRef,
   NormalizedTaskComment,
   NormalizedTicket,
+  TaskEpic,
   TaskExternalLink,
   TaskSyncState,
 } from '@solus/contracts/task-types'
 import { getDatabase, type Db } from '../db/database'
-import { taskComments, taskExternalLinks } from './schema'
+import { taskComments, taskExternalLinks, tasks } from './schema'
 import { z } from 'zod'
 
 const syncFieldSchema = z.enum(['title', 'body', 'status', 'labels', 'priority', 'assignee'])
@@ -191,9 +192,24 @@ export async function writeExternalLink(
       failure_count = 0
   `)
   await insertExternalComments(db, organizationId, taskId, ticket.comments)
+  await writeTaskEpic(db, taskId, ticket.epic)
   const link = await externalLinkForTask(taskId, db)
   if (!link) throw new Error(`Failed to persist external link for task ${taskId}`)
   return link
+}
+
+/**
+ * Store the upstream epic a ticket read reported. Only a provider read writes
+ * this column, and it is not a sync field: nothing local can dirty it and it is
+ * never pushed. `undefined` means the read could not tell, so the stored
+ * snapshot stays. Returns whether the stored value changed.
+ */
+export async function writeTaskEpic(db: Db, taskId: string, epic: TaskEpic | null | undefined): Promise<boolean> {
+  if (epic === undefined) return false
+  const value = epic === null ? null : JSON.stringify(epic)
+  return (await db.run(sql`
+    UPDATE ${tasks} SET epic = ${value} WHERE id = ${taskId} AND epic IS NOT ${value}
+  `)).changes > 0
 }
 
 export async function markTaskFieldsDirty(

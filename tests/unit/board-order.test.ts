@@ -11,7 +11,7 @@ import { orderColumn } from '@solus/workspace-ui/components/tasks/lib/board-orde
  * load-bearing language guarantee a test should pin rather than a comment.
  */
 const task = (id: string): Task =>
-  ({ id, title: id, status: 'todo', kind: 'task', providerId: 'local', body: '', labels: [], url: null, updatedAt: 0 }) as Task
+  ({ id, title: id, status: 'todo', providerId: 'local', body: '', labels: [], url: null, updatedAt: 0 }) as Task
 
 const ids = (tasks: Task[]) => tasks.map((t) => t.id)
 

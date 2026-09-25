@@ -15,6 +15,7 @@ import {
 import {
   commentSyncState,
   heldBackCommentIds,
+  taskEpicRow,
   taskPublishTarget,
   taskUpstreamState,
 } from '@solus/workspace-ui/components/tasks/task-page/lib/task-upstream'
@@ -185,7 +186,6 @@ describe('task list assignee avatars', () => {
     const task = {
       id: '31',
       providerId: 'github',
-      kind: 'task',
       title: 'GitHub issue',
       body: '',
       status: 'todo',
@@ -214,7 +214,6 @@ describe('upstream task details', () => {
       id: '31',
       providerId: 'github',
       projectKey: '/workspace/solus',
-      kind: 'task',
       title: 'GitHub issue',
       body: 'Issue body',
       status: 'todo',
@@ -231,7 +230,7 @@ describe('upstream task details', () => {
       },
     }
 
-    expect(upstreamTaskDetails(task, [task])).toMatchObject({
+    expect(upstreamTaskDetails(task)).toMatchObject({
       task,
       links: [],
       events: [],
@@ -577,5 +576,28 @@ describe('publishing a task that has no ticket', () => {
       comments: [],
     })
     expect(taskPublishTarget({ task: localTask, upstream, status })).toBeNull()
+  })
+})
+
+describe('the Epic row', () => {
+  test('is absent for a task with no upstream epic', () => {
+    // WHY: Solus never assigns an epic, so an empty row would offer an action
+    // that does not exist.
+    expect(taskEpicRow({})).toBeNull()
+  })
+
+  test('names the epic by title and provider reference, and opens it upstream', () => {
+    expect(taskEpicRow({
+      epic: { provider: 'github', externalId: '3', url: 'https://github.com/acme/app/issues/3', title: 'Release 2.0', body: 'long description' },
+    })).toEqual({
+      providerId: 'github',
+      title: 'Release 2.0',
+      ref: '#3',
+      url: 'https://github.com/acme/app/issues/3',
+      hint: 'Open GitHub #3 — Release 2.0',
+    })
+    expect(taskEpicRow({
+      epic: { provider: 'jira', externalId: 'ACME-1', url: '', title: 'Release', body: '' },
+    })?.ref).toBe('ACME-1')
   })
 })

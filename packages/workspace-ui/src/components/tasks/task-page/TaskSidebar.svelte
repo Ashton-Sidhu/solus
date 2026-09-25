@@ -11,6 +11,7 @@
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
   import {
     syncToneColor,
+    taskEpicRow,
     type TaskPublishTarget,
     type TaskUpstreamState,
   } from "./lib/task-upstream";
@@ -101,13 +102,14 @@
   // Task labels are names alone; the picker draws them in the accent.
   const taskLabels = $derived(task.labels.map((name) => ({ name })));
   const labelCandidateOptions = $derived(labelCandidates.map((name) => ({ name })));
+  const epic = $derived(taskEpicRow(task));
 </script>
 
 
 <div
   class={sheet
     ? "flex w-full flex-col gap-3.5"
-    : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px]"}
+    : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"}
 >
   <div class={GROUP}>
     <div class={ROW}>
@@ -187,6 +189,28 @@
         <span class="truncate">{projectLabel}</span>
       </span>
     </div>
+
+    <!-- Read-only: the epic comes with the upstream ticket, and Solus never
+         moves a task between epics. Its description is agent context, so the
+         row only names it and opens it upstream. -->
+    {#if epic}
+      {@const epicUrl = epic.url}
+      <div class={ROW}>
+        <span class={ROW_LABEL}>Epic</span>
+        <button
+          type="button"
+          class="{VALUE_BUTTON} min-w-0 overflow-hidden"
+          onclick={() => onOpenUpstream(epicUrl)}
+          disabled={!epicUrl}
+          title={epic.hint}
+        >
+          <SourceLogo source={epic.providerId} />
+          <span class="truncate">{epic.title}</span>
+          <span class="flex-1"></span>
+          <span class="shrink-0 text-muted-foreground opacity-80">{epic.ref}</span>
+        </button>
+      </div>
+    {/if}
 
     <div
       class="flex min-h-[34px] items-center {sheet

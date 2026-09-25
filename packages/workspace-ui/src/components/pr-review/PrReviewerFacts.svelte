@@ -80,7 +80,7 @@
 </dt>
 <dd class="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
   {#if loading}
-    <Skeleton class="size-6 rounded-full bg-muted pointer-fine:[.is-laptop-display_&]:size-5" />
+    <Skeleton class="size-6 rounded-full bg-muted" />
   {:else if loadFailed}
     <span>Couldn’t load reviewers.</span>
     {#if onRetry}
@@ -105,7 +105,7 @@
               <button
                 {...props}
                 type="button"
-                class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] pointer-fine:[.is-laptop-display_&]:size-5 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {ring
+                class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {ring
                   ? 'outline-2 -outline-offset-0 outline-[var(--reviewer-ring)]'
                   : 'hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)]'}"
                 style={ring ? `--reviewer-ring:${ring}` : undefined}
@@ -122,8 +122,8 @@
                     name={reviewer.login}
                     url={reviewer.avatarUrl ?? ""}
                     size={ring
-                      ? "size-5 text-xs pointer-fine:[.is-laptop-display_&]:size-4"
-                      : "size-6 text-xs pointer-fine:[.is-laptop-display_&]:size-5"}
+                      ? "size-5 text-xs"
+                      : "size-6 text-xs"}
                   />
                 {/if}
               </button>
@@ -149,7 +149,7 @@
         </DropdownMenu.Root>
       {:else}
         <span
-          class="grid size-6 shrink-0 place-items-center rounded-full pointer-fine:[.is-laptop-display_&]:size-5 {ring
+          class="grid size-6 shrink-0 place-items-center rounded-full {ring
             ? 'outline-2 -outline-offset-0 outline-[var(--reviewer-ring)]'
             : ''}"
           style={ring ? `--reviewer-ring:${ring}` : undefined}
@@ -161,8 +161,8 @@
             name={reviewer.login}
             url={reviewer.avatarUrl ?? ""}
             size={ring
-              ? "size-5 text-xs pointer-fine:[.is-laptop-display_&]:size-4"
-              : "size-6 text-xs pointer-fine:[.is-laptop-display_&]:size-5"}
+              ? "size-5 text-xs"
+              : "size-6 text-xs"}
           />
         </span>
       {/if}
@@ -171,7 +171,7 @@
       <button
         bind:this={addTrigger}
         type="button"
-        class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors pointer-fine:[.is-laptop-display_&]:size-5 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground"
+        class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground"
         aria-label="Request a reviewer"
         aria-haspopup="menu"
         aria-expanded={menuOpen}

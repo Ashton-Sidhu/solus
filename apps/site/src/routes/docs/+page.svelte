@@ -850,7 +850,7 @@
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Local tickets and GitHub Issues', 'Keep lightweight local tickets, or connect a repository to sync GitHub Issues into the same board. Status flows both ways.'],
-						['Planning fields', 'Epics, priorities, labels, due dates, and threaded comments.'],
+						['Planning fields', 'Priorities, labels, due dates, and threaded comments. A ticket\'s upstream epic shows on the task and reaches the agent as context.'],
 						['Start a session from a task', 'The ticket body and comments ride along as context.'],
 						['Linked work', 'Sessions, pull requests, plans, and works stay linked to the task, so the board shows where everything stands.'],
 					] as [title, desc]}

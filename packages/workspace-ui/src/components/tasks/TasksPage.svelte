@@ -23,7 +23,6 @@
     TASKS_AUTH_ERROR_PREFIX,
     type Task,
     type TaskStatus,
-    type TaskKind,
     type TaskPriority,
   } from "@solus/contracts/task-types";
   import type { ProjectConfig } from "@solus/contracts/types";
@@ -233,26 +232,22 @@
   let configReady = $state(false);
   let taskLoadEpoch = 0;
   const canCreate = $derived(!!taskContext);
-  const allowEpics = true;
 
   // ── List-view multi-select ── owned by a context store so the selection isn't
   // threaded through the row components.
   const selection = new TasksSelectionStore();
   setTasksSelection(selection);
   // Composer state: null = closed; an object opens it (with an optional preset
-  // parent epic when adding a child from an epic header, or a preset status when
-  // adding into a board column).
+  // status when adding into a board column).
   let composing = $state<{
-    parentId?: string;
     status?: TaskStatus;
     context: NonNullable<typeof taskContext>;
   } | null>(null);
   // The task the plain "New task" flow just created, handed off to its own page
-  // once the composer closes. The inline flows (adding into a board column, or a
-  // sub-task under an epic header) stay on the list, so they leave this null.
+  // once the composer closes. The inline flow (adding into a board column) stays
+  // on the list, so it leaves this null.
   let createdForNavigation: string | null = null;
   // Detail view: the task whose full ticket (body, comments, PRs) is open.
-  const epics = $derived(projectTasks.filter((t) => t.kind === "epic"));
   // Existing labels across the project, offered as composer suggestions.
   const knownLabels = $derived(
     Array.from(new Set(projectTasks.flatMap((t) => t.labels))).sort(),
@@ -516,7 +511,7 @@
   }
 
   function beginComposing(
-    options: { parentId?: string; status?: TaskStatus } = {},
+    options: { status?: TaskStatus } = {},
   ) {
     if (!taskContext) return;
     createdForNavigation = null;
@@ -839,15 +834,13 @@
   async function onCreate(input: {
     title: string;
     body: string;
-    kind: TaskKind;
-    parentId?: string;
     dueDate?: string;
     priority?: TaskPriority;
     status?: TaskStatus;
     labels?: string[];
   }) {
     if (!composing) return;
-    const inline = !!composing.parentId || !!composing.status;
+    const inline = !!composing.status;
     try {
       const created = await store.create(
         { ...input, projectKey: composing.context.projectKey },
@@ -1078,7 +1071,7 @@
               A task made in the workspace, or by an agent on a machine linked to
               this organization, appears here for everyone.
             {:else}
-              Create {allowEpics ? "a task or epic" : "a task"}, then start a
+              Create a task, then start a
               session from it to give the agent its full context.
             {/if}
             {#snippet actions()}
@@ -1406,13 +1399,11 @@
 
     {#if composing}
       <TaskComposer
-        {epics}
-        {allowEpics}
+        canSetStatus
         canPlan
         {knownLabels}
         workingDirectory={composing.context.workingDirectory}
         provider={session.settings.activeAgent}
-        initialParentId={composing.parentId}
         initialStatus={composing.status}
         {onCreate}
         onCreated={() => {

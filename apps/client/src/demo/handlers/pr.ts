@@ -161,6 +161,8 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     arg<SessionCtx[]>(args, 0).map((session) => store.reviewGuideStatus({ session }, 'session')))
   backend.register('prGuideStatuses', (args) =>
     arg<unknown[]>(args, 1).map(() => store.reviewGuideStatus(arg<IpcContext>(args, 0), 'branch')))
+  // The demo has no lenses; a filled array keeps the lens filter honest.
+  backend.register('prLensRevisions', (args) => arg<unknown[]>(args, 1).map(() => 0))
   backend.register('requestReviewGuide', guideStatus)
   backend.register('generateGuide', (args) => ({
     key: guideStatus(args).key,

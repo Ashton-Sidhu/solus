@@ -475,7 +475,7 @@
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
       >
         <button
           type="button"
@@ -484,7 +484,7 @@
               theme.sidebarCompletedRetentionDays - 1,
             )}
           aria-label="Decrease completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >&minus;</button
         >
         <Input
@@ -512,7 +512,7 @@
               theme.sidebarCompletedRetentionDays + 1,
             )}
           aria-label="Increase completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >+</button
         >
       </div>
@@ -541,14 +541,14 @@
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
       >
         <button
           type="button"
           onclick={() =>
             commitSidebarMotionMs(theme.sidebarMotionMs - SIDEBAR_MOTION_STEP_MS)}
           aria-label="Shorten sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >&minus;</button
         >
         <Input
@@ -574,7 +574,7 @@
           onclick={() =>
             commitSidebarMotionMs(theme.sidebarMotionMs + SIDEBAR_MOTION_STEP_MS)}
           aria-label="Lengthen sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >+</button
         >
       </div>
@@ -820,7 +820,7 @@
 
 {#if !anyVisible}
   <div
-    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6"
+    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)"
   >
     No settings match your search
   </div>

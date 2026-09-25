@@ -3273,12 +3273,12 @@ export class ControlPlane extends EventEmitter {
     if (shipped && shipped.details.task.id === taskId) {
       setForeignTaskSnapshot(sessionId, shipped)
       const overlaid = foreignTaskFor(sessionId, taskId) ?? shipped
-      return formatTaskContext(overlaid.details, overlaid.parent, overlaid.sessions, lifecyclePolicy)
+      return formatTaskContext(overlaid.details, overlaid.sessions, lifecyclePolicy)
     }
     setForeignTaskSnapshot(sessionId, null)
     try {
       const snapshot = await taskSnapshot(LOCAL_ORGANIZATION_ID, taskId)
-      return formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions, lifecyclePolicy)
+      return formatTaskContext(snapshot.details, snapshot.sessions, lifecyclePolicy)
     } catch (err) {
       // On a dispatch this once failed silently — the task's row lives on
       // another host. A taskId this host cannot read now always names a defect:

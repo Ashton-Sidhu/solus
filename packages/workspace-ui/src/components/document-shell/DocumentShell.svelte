@@ -382,7 +382,7 @@
   let outlineAtTop = $state(true);
   // A narrow pane on a wide monitor has no margin for the panel to unfold into.
   const outlineHasMarginRoom = $derived(
-    hasOutlineMarginRoom(shellWidth, runtime.isLaptopDisplay),
+    hasOutlineMarginRoom(shellWidth),
   );
   // The fit rule's other half. Where the panel cannot render beside the prose
   // it does not render over it either: the gutter keeps its at-rest bars, and

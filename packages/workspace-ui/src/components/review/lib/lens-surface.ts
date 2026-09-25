@@ -5,8 +5,19 @@ import type {
   ReviewLensCodeAnchor,
   ReviewLensJob,
   ReviewLensSnapshot,
+  ReviewLensSource,
   SavedLens,
 } from "@solus/contracts/review";
+import type { AgentMetadata } from "@solus/contracts/types";
+import type { SettingsContext } from "../../../contexts";
+import {
+  clampReasoningEffort,
+  defaultModelIdFor,
+  defaultReasoningFor,
+  modelOptionsFor,
+  type PickerSelection,
+} from "../../pickers/lib/picker-selection";
+import { LENS_PROGRESS_STEPS } from "./review-progress";
 
 /** What a pull-request review hands the Lens tab so a lens comment can reach
  *  the pull request: the draft review it adds line comments to, and the patch
@@ -36,17 +47,30 @@ export function lensTabState(snapshot: ReviewLensSnapshot | null, unread: boolea
   return snapshot?.current ? "ready" : "absent";
 }
 
-const STEP_LABELS = {
-  preparing: "Preparing the diff",
-  analyzing: "Reading the change",
-  writing: "Writing the lens",
-} as const;
-
 /** The one line a running job reads as. */
 export function lensJobLabel(job: ReviewLensJob): string {
   if (job.status === "queued") return job.kind === "edit" ? "Edit queued" : "Lens queued";
   const verb = job.kind === "edit" ? "Editing the lens" : "Making the lens";
-  return job.step ? `${verb} · ${STEP_LABELS[job.step]}` : verb;
+  const step = LENS_PROGRESS_STEPS.find((s) => s.id === job.step);
+  return step ? `${verb} · ${step.label}` : verb;
+}
+
+/** The agent choice a new lens starts from: the review companion in Settings,
+ *  with a model and effort that agent can actually run. */
+export function lensPickerSelection(
+  settings: Pick<SettingsContext, "reviewAgent" | "reviewModel" | "reviewReasoning">,
+  metadataByAgent: Record<string, AgentMetadata | null>,
+): PickerSelection {
+  const provider = settings.reviewAgent;
+  const models = modelOptionsFor(provider, metadataByAgent);
+  const modelId =
+    settings.reviewModel && models.some((model) => model.id === settings.reviewModel)
+      ? settings.reviewModel
+      : defaultModelIdFor(provider, metadataByAgent);
+  const reasoningEffort = settings.reviewReasoning
+    ? clampReasoningEffort(provider, modelId, settings.reviewReasoning)
+    : (defaultReasoningFor(provider, modelId) ?? "medium");
+  return { provider, modelId, reasoningEffort, fastMode: false };
 }
 
 /**
@@ -150,6 +174,35 @@ export function savedLensFromPrompt(prompt: string): SavedLens {
   const firstLine = prompt.trim().split("\n")[0] ?? "";
   const name = firstLine.length > 48 ? `${firstLine.slice(0, 47).trimEnd()}…` : firstLine;
   return { id: uuid(), name: name || "Lens", prompt: prompt.trim() };
+}
+
+/** Most saved lenses one lens can combine. Every section shares one agent run
+ *  and the one HTML size limit, so more sections make thinner pages. */
+export const MAX_COMBINED_LENSES = 4;
+
+/**
+ * The prompt for one lens made from several saved lenses: one tab per saved
+ * lens, in the order they were chosen. One lens stays one lens: this is a
+ * single prompt, so Regenerate, edits, Restore, and comments work unchanged.
+ * A single saved lens keeps its own source, so choosing one is the same as a
+ * click on its card.
+ */
+export function combinedLensSource(lenses: readonly SavedLens[]): ReviewLensSource {
+  const [first] = lenses;
+  if (!first) throw new Error("Choose at least one saved lens.");
+  if (lenses.length === 1) return { savedLensId: first.id, name: first.name, prompt: first.prompt };
+  const names = lenses.map((lens) => lens.name.trim() || "Untitled lens");
+  const sections = lenses.map((lens, index) => `## Tab ${index + 1}: ${names[index]}\n\n${lens.prompt.trim()}`);
+  return {
+    name: names.join(" + "),
+    prompt: [
+      `Make one lens with ${lenses.length} tabs, one for each section below, in this order.`,
+      "Label each tab with its section name. Keep one short shared header above the tabs.",
+      "Each tab follows its own section prompt. Show one tab at a time, and let the reader switch with a click or the arrow keys.",
+      "",
+      ...sections,
+    ].join("\n\n"),
+  };
 }
 
 /** Starting points in Settings. The user edits them into their own. */

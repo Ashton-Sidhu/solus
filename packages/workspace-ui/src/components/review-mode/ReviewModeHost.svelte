@@ -474,8 +474,8 @@
               />
             </div>
             <div class="flex shrink-0 items-center gap-1.5">
-              <Button variant="outline" size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" onclick={cancelComposer}>Cancel</Button>
-              <Button size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
+              <Button variant="outline" size="sm" class="h-7.5" onclick={cancelComposer}>Cancel</Button>
+              <Button size="sm" class="h-7.5" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
             </div>
           </div>
         {:else}
@@ -499,8 +499,8 @@
               <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 text-xs opacity-70">d</kbd>
             </Button>
             <span class="ml-auto hidden items-center gap-2 text-xs text-(--solus-text-tertiary) 2xl:flex">
-              <span><kbd class="">j</kbd>/<kbd class="">k</kbd> next / prev</span>
-              <span><kbd class="">u</kbd> undo</span>
+              <span><kbd>j</kbd>/<kbd>k</kbd> next / prev</span>
+              <span><kbd>u</kbd> undo</span>
             </span>
           </div>
         {/if}

@@ -97,7 +97,7 @@
         maxHeight={220}
         dictation
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
-        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
+        class="rounded-lg border border-border bg-background px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>
@@ -155,14 +155,14 @@
         maxHeight={220}
         dictation
         placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
-        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
+        class="rounded-lg border border-border bg-background px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

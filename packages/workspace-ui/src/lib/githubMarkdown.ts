@@ -48,7 +48,7 @@ export function standaloneMarkdownMediaLink(raw: string): MarkdownMediaLink | nu
 
   try {
     const url = new URL(href);
-    const isDirectVideo = /\.(?:mp4|mov)$/i.test(url.pathname);
+    const isDirectVideo = videoMimeType({ name: url.pathname }) !== null;
     const isGithubAttachment =
       url.hostname.toLowerCase().replace(/^www\./, "") === "github.com" &&
       url.pathname.startsWith("/user-attachments/assets/");

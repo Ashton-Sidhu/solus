@@ -34,6 +34,7 @@ export interface SignedAssetFindRequest {
 
 export class AssetUrlCache {
   private readonly entries = new Map<string, CachedAssetUrl>()
+  private readonly pendingMints = new Map<string, Promise<AssetCreateUrlResult>>()
 
   async resolve(request: SignedAssetUrlRequest, now = Date.now()): Promise<string> {
     const sourceKey = request.assetId
@@ -43,11 +44,27 @@ export class AssetUrlCache {
     const cached = this.entries.get(key)
     if (!request.refresh && cached && cached.expiresAt - now > ASSET_URL_REFRESH_WINDOW_MS) return cached.url
 
-    const minted = await request.api.assetCreateUrl(
-      request.ctx,
-      request.assetId ? { assetId: request.assetId, name: request.name } : { path: request.path },
-    )
-    return this.remember(key, request.origin, minted)
+    // Many mounted surfaces render one asset in the same frame (a project
+    // favicon on every row). They share one mint instead of one each. A mint
+    // in flight is always newer than a refused URL, so a refresh joins it too.
+    let pending = this.pendingMints.get(key)
+    if (!pending) {
+      pending = request.api.assetCreateUrl(
+        request.ctx,
+        request.assetId ? { assetId: request.assetId, name: request.name } : { path: request.path },
+      )
+      const mint = pending
+      this.pendingMints.set(key, mint)
+      void mint.then(
+        () => this.forgetPendingMint(key, mint),
+        () => this.forgetPendingMint(key, mint),
+      )
+    }
+    return this.remember(key, request.origin, await pending)
+  }
+
+  private forgetPendingMint(key: string, mint: Promise<AssetCreateUrlResult>): void {
+    if (this.pendingMints.get(key) === mint) this.pendingMints.delete(key)
   }
 
   /** The first candidate the host can serve, in one round trip, or null when
@@ -67,6 +84,7 @@ export class AssetUrlCache {
 
   clear(): void {
     this.entries.clear()
+    this.pendingMints.clear()
   }
 }
 
