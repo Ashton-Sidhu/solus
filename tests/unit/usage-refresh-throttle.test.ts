@@ -22,7 +22,7 @@ test('project panels becoming active share one usage read per minute', async () 
   runes.$derived = <T>(value: T) => value
   let reads = 0
   let failNext = false
-  spyOn(serverConnections, 'defaultServerId').mockReturnValue('host-a')
+  spyOn(serverConnections, 'defaultMachineId').mockReturnValue('host-a')
   spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
     usageLimits: async () => {
       reads++

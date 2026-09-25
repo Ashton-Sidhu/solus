@@ -52,6 +52,10 @@ export function initializeRuntime(
   const stopPhases = serverConnections.onPhaseChange((serverId, phase) => {
     if (phase !== 'connected') return
     void sendOutbox.drain(serverId, (record) => session.dispatch.redeliverOutboxPrompt(serverId, record))
+    // A window that booted with no machine (the account origin) reads the
+    // machine facts once one connects; a no-op while the default is unchanged.
+    void session.lifecycle.initStaticInfo()
+      .catch((error) => logConnectionReadError('static info initialization', error))
   })
 
   // Hosts skip watch-fired freshness work while no client is foregrounded.

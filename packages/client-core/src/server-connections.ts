@@ -3,6 +3,7 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   awaitsManagedCompute,
+  chooseDefaultMachine,
   installationIdDecision,
   isCloudServer,
   loadServers,
@@ -296,6 +297,18 @@ export class ServerConnections {
    */
   defaultServerId(): string | null {
     return this.primaryServerId
+  }
+
+  /** Where new work runs when nothing narrower names a machine; null when the
+   *  window has none (`chooseDefaultMachine`). Unlike `defaultServerId`, never
+   *  the workspace service. */
+  defaultMachineId(): string | null {
+    return chooseDefaultMachine({
+      primaryId: this.primaryServerId,
+      localId: this.localServerId(),
+      saved: loadServers(),
+      isConnected: (serverId) => this.connections.get(serverId)?.supervisor.phase === 'connected',
+    })
   }
 
   /** The client machine's own registered host: the desktop's local target.

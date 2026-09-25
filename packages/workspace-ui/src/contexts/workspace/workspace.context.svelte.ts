@@ -327,6 +327,7 @@ export class WorkspaceContext implements SurfaceContext {
       refreshGitState: (opts) => this.environment.refreshEnvironment(this, opts),
       ctxFor: (tabId) => this.ctxFor(tabId),
       apiFor: (tabId) => this.apiFor(tabId),
+      serverIdFor: (tabId) => this.serverIdFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
       rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
@@ -1035,8 +1036,8 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** The host new sessions land on when nothing else names one. */
   get fallbackServerId(): string {
-    return serverConnections.defaultServerId()
-      ?? serverConnections.localServerId()
+    return serverConnections.defaultMachineId()
+      ?? serverConnections.defaultServerId()
       ?? LOCAL_SERVER_ID
   }
 

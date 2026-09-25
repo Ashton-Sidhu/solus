@@ -45,9 +45,10 @@ export class AgentContext {
    *  nobody asks for a while. Reads the new-work default host; other hosts'
    *  snapshots arrive through the `usage.limitsChanged` topic. Every mounted
    *  project panel asks when its tab becomes active, and the topic already
-   *  delivers changes, so one read per host per minute is enough. */
+   *  delivers changes, so one read per host per minute is enough. Usage is a
+   *  machine's (its agents' seats), so a window with no machine reads nothing. */
   async refreshUsage(now = Date.now()): Promise<void> {
-    const serverId = serverConnections.defaultServerId()
+    const serverId = serverConnections.defaultMachineId()
     if (!serverId) return
     if (now - (this.usageReadAtByServerId.get(serverId) ?? -Infinity) < USAGE_REFRESH_INTERVAL_MS) return
     this.usageReadAtByServerId.set(serverId, now)

@@ -87,6 +87,30 @@ export function isCloudServer(server: { uplink?: Pick<SavedServerUplink, 'kind'>
   return server?.uplink?.kind === 'cloud'
 }
 
+/**
+ * Where new work runs when nothing narrower names a machine
+ * (docs/plans/workspace-and-machines.md §5.1). The primary is kept when it is a
+ * machine — the desktop's own, or the machine a web page was served by. At the
+ * account origin the primary is the workspace service, which runs nothing, so the
+ * choice falls to the active organization's managed host, then to any machine,
+ * and only among connected ones: a call sent to a machine that is not there
+ * waits for as long as it stays away. Null is "no machine", never the service.
+ */
+export function chooseDefaultMachine(input: {
+  primaryId: string | null
+  localId: string | null
+  saved: readonly SavedServer[]
+  isConnected: (serverId: string) => boolean
+}): string | null {
+  const { primaryId, localId, saved, isConnected } = input
+  if (primaryId && !isCloudServer(saved.find((server) => server.id === primaryId))) return primaryId
+  if (localId) return localId
+  const organizationId = saved.find((server) => isCloudServer(server) && server.uplink?.isActiveWorkspace)?.uplink?.organizationId
+  const machines = saved.filter((server) => !isCloudServer(server) && isConnected(server.id))
+  const managed = machines.find((server) => server.uplink?.kind === 'managed' && server.uplink.organizationId === organizationId)
+  return (managed ?? machines[0])?.id ?? null
+}
+
 /** The routes to dial, oldest entries included: `url` is always one of them, as a direct route. */
 export function savedServerRoutes(server: Pick<SavedServer, 'url' | 'routes'>): HostRoute[] {
   const routes = server.routes ?? []

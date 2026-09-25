@@ -46,6 +46,7 @@ describe('plugin command freshness', () => {
           return loaded
         },
       }) as never,
+      serverIdFor: () => 'host-a',
       loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
       rebuildAgentConversations: () => {},
     })

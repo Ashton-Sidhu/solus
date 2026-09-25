@@ -15,6 +15,7 @@ import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 
 /** Raw messages added per automatic backfill round. Matches the initial restore
  *  window, so filling an empty viewport costs the same read that opened it. */
@@ -45,6 +46,8 @@ export interface WorkspaceLifecycleStoreDeps {
   refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
   apiFor(tabId: string): HostApi
+  /** The host `apiFor` answers with, by name: plugin commands are read only from a machine. */
+  serverIdFor(tabId: string): string
   loadTranscript(args: {
     sessionId: string
     loadPath: string
@@ -100,7 +103,8 @@ export class WorkspaceLifecycleStore {
 
   // Non-reactive guards: callers share an in-flight initialization, and a failed
   // connection attempt remains retryable after the transport reconnects.
-  private staticInfoInitialized = false
+  /** The machine `staticInfo` was last read from; a new default machine reads again. */
+  private staticInfoServerId: string | null = null
   private staticInfoInitialization: Promise<void> | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
@@ -213,8 +217,15 @@ export class WorkspaceLifecycleStore {
     if (cached) this.applyStartInfo(cached, { fresh: false })
   }
 
+  /**
+   * Read `start()` from the default machine. A window with no machine yet — the
+   * account origin before any machine connects — reads nothing and paints from
+   * the cache; the runtime calls this again as machines connect, and a default
+   * machine that changed is read again.
+   */
   async initStaticInfo(): Promise<void> {
-    if (this.staticInfoInitialized) return
+    const serverId = serverConnections.defaultMachineId()
+    if (!serverId || serverId === this.staticInfoServerId) return
     if (this.staticInfoInitialization) return this.staticInfoInitialization
 
     const initialization = (async () => {
@@ -226,7 +237,7 @@ export class WorkspaceLifecycleStore {
       const optimisticEnvironmentRefresh = coldLoad
         ? this.deps.refreshGitState().catch(() => null)
         : null
-      const result = await this.defaultHostApi().start()
+      const result = await serverConnections.apiFor(serverId).start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (coldLoad) {
@@ -245,7 +256,7 @@ export class WorkspaceLifecycleStore {
 
     try {
       await initialization
-      this.staticInfoInitialized = true
+      this.staticInfoServerId = serverId
     } finally {
       if (this.staticInfoInitialization === initialization) this.staticInfoInitialization = null
     }
@@ -258,16 +269,12 @@ export class WorkspaceLifecycleStore {
    * during onboarding reads as available without a relaunch.
    */
   async refreshAgentAvailability(): Promise<void> {
-    const result = await this.defaultHostApi().start()
+    const serverId = serverConnections.defaultMachineId()
+    if (!serverId) return
+    const result = await serverConnections.apiFor(serverId).start()
     this.applyStartInfo(result, { fresh: true })
     saveCachedStart(result)
-  }
-
-  /** start() is a boot payload: it comes from the new-work default host. */
-  private defaultHostApi(): HostApi {
-    const serverId = serverConnections.defaultServerId()
-    if (!serverId) throw new Error('Primary Solus connection has not been registered')
-    return serverConnections.apiFor(serverId)
+    this.staticInfoServerId = serverId
   }
 
   /**
@@ -278,6 +285,9 @@ export class WorkspaceLifecycleStore {
    */
   async refreshPluginCommands(workingDirectory: string, tabId?: string, opts: { onlyIfStale?: boolean } = {}): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
+    // Slash commands are a checkout's; a run that names no machine (the account
+    // origin before one connects) falls to the workspace service, which has none.
+    if (!hostRolesStore.hasExecution(this.deps.serverIdFor(targetTabId))) return
     const targetSession = this.deps.registry.sessionFor(targetTabId)
     const provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
     const source = `${provider}\0${workingDirectory}`
