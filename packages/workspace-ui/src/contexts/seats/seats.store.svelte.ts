@@ -6,6 +6,7 @@ import { seatProviderSchema, type SeatConnectStartResult, type SeatProvider, typ
 import type { AgentId } from '@solus/contracts/types'
 import { sharesStore } from '../sharing/shares.store.svelte'
 import { toasts } from '../../lib/toasts'
+import { seatNeeded } from './seat-need'
 
 /**
  * Provider seats per host (Step 2 plan §3.6): the caller's own Claude and Codex
@@ -69,6 +70,21 @@ class SeatsStore {
 
   isBusy(serverId: string, provider: SeatProvider): boolean {
     return this.busy === seatKey(serverId, provider)
+  }
+
+  /** A draft on this host must connect this seat before it can send. */
+  needsSeat(serverId: string, provider: SeatProvider): boolean {
+    return seatNeeded(this.hasSeats.get(serverId), this.seats.get(serverId), provider)
+  }
+
+  /**
+   * Read a host's seats again for a composer that aims at it: the first time,
+   * learn whether it gives this client seats; after that, re-list them. One
+   * read per host or agent change — `host.seatChanged` keeps it fresh between.
+   */
+  async refreshFor(serverId: string): Promise<void> {
+    if (!this.hasSeats.has(serverId)) return this.ensure(serverId)
+    if (this.hasSeats.get(serverId)) await this.load(serverId)
   }
 
   /**
