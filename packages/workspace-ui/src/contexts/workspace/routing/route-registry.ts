@@ -173,6 +173,9 @@ export interface RouteDescriptor<K extends RouteName> {
   serialize: (params: RouteParams[K]) => string
   placement: Placement
   exclusiveGroup?: ExclusiveGroup
+  /** A utility page the user steps into and back out of. Closing it returns its
+   *  pane to the main-workspace route it replaced, not to home or to history. */
+  returnsOnClose?: boolean
   /** The surface draws a shared-height header that consumes the window-control
    *  lead inset itself. Page outlets must not add a second titlebar-height pad. */
   ownsTitlebarChrome?: boolean
@@ -351,6 +354,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => (p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''),
     placement: 'any',
     exclusiveGroup: 'page',
+    returnsOnClose: true,
     // The nav column paints to the window's top edge, so the page clears the
     // window controls inside its own header band rather than being padded down.
     ownsTitlebarChrome: true,
