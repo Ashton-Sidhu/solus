@@ -25,6 +25,7 @@
     Expand as ArrowsOutLineVerticalIcon,
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { Snippet } from "svelte";
   import type { TurnSnapshot } from "@solus/contracts/types";
@@ -194,12 +195,12 @@
                 class="text-(--solus-accent) flex-shrink-0"
                 weight="bold"
               />
-              <span
-                class="truncate font-medium text-(--solus-text-primary)"
+              <MiddleTruncate
+                value={branchLabel}
+                showTitle={false}
+                class="font-medium text-(--solus-text-primary)"
                 style="font-family:{MONO_FONT}"
-              >
-                {branchLabel}
-              </span>
+              />
             </div>
           {/snippet}
         </TooltipUI.Trigger>

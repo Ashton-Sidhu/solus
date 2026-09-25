@@ -9,6 +9,7 @@
     Search as MagnifyingGlassIcon,
   } from "@lucide/svelte";
   import { Input } from "../ui/input";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { abbreviateHome } from "../../lib/paths";
   import type { OpenProjectStore } from "./open-project.store.svelte";
   import type { HomeAction, HomeRow } from "./lib/open-project-home";
@@ -101,12 +102,12 @@
         {#snippet recentRow()}
           <FolderIcon size={13} class="shrink-0 text-muted-foreground opacity-80" />
           <span class="min-w-0 flex-1 truncate text-sm">{row.project.folderName}</span>
-          <span
-            class="max-w-[16.25rem] shrink-0 truncate font-mono  text-muted-foreground"
+          <MiddleTruncate
+            value={abbreviateHome(row.project.path)}
+            showTitle={false}
             title={row.project.path}
-          >
-            {abbreviateHome(row.project.path)}
-          </span>
+            class="max-w-[16.25rem] shrink-0 font-mono text-muted-foreground"
+          />
         {/snippet}
         {@render shell(index, "h-10", recentRow)}
       {:else}

@@ -23,6 +23,7 @@
   import UnreadDot from "./UnreadDot.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import {
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
@@ -242,10 +243,7 @@
         class="flex min-w-0 flex-1 items-center gap-[0.5625rem] opacity-70 @max-[15rem]:gap-1.5"
       >
         {#if branchLabel}
-          <span
-            class="min-w-0 max-w-[66%] overflow-hidden text-ellipsis whitespace-nowrap"
-            >{branchLabel}</span
-          >
+          <MiddleTruncate value={branchLabel} showTitle={false} class="max-w-[66%]" />
         {/if}
         <!-- Which machine the session runs on. Unlike the task row this is
              never omitted: a subtask list mixes hosts freely, so "here" has to

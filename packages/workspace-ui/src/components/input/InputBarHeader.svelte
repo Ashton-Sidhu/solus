@@ -34,6 +34,7 @@
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import ProjectChip from "./ProjectChip.svelte";
   import TaskPicker from "./TaskPicker.svelte";
   import {
@@ -441,7 +442,7 @@
                   : 'opacity-70'}"
               />
             {/if}
-            <span class="truncate">{displayBranchLabel}</span>
+            <MiddleTruncate value={displayBranchLabel} showTitle={false} />
           </Button>
         {/snippet}
       </TooltipUI.Trigger>

@@ -8,6 +8,7 @@
     diffFileStatus,
   } from "../../lib/diffTreeAdapter";
   import { toTreeDisplayPath } from "../../lib/diffTreeAdapter";
+  import { MiddleTruncate } from "../ui/middle-truncate";
 
   interface Props {
     files: FileDiffMetadata[];
@@ -20,7 +21,8 @@
   // The desktop Changed files card, kept whole: uppercase label, split
   // add/delete bar, per-file counts in tabular mono. Mobile changes only what
   // it must — the row grows so the filename can lead on its own line and never
-  // truncate to make room for its folder.
+  // truncate to make room for its folder. A name too long for the line loses
+  // its middle, so the extension stays.
   const totals = $derived(
     files.reduce(
       (sum, file) => {
@@ -108,7 +110,7 @@
       >
         <span class="mobile-tree-status" data-status={status}>{status}</span>
         <span class="mobile-tree-names">
-          <span class="mobile-tree-name">{parts.name}</span>
+          <span class="mobile-tree-name"><MiddleTruncate value={parts.name} /></span>
           {#if parts.folder}
             <span class="mobile-tree-folder">{parts.folder}</span>
           {/if}

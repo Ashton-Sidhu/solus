@@ -10,6 +10,7 @@
   import * as Popover from "./ui/popover";
   import * as Command from "./ui/command";
   import { MenuFooter, MenuSearch } from "./ui/menu";
+  import { MiddleTruncate } from "./ui/middle-truncate";
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeDisplayName } from "../lib/git-context";
   import {
@@ -177,9 +178,7 @@
     class="menu-item-stagger"
   >
     <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-    <span class="min-w-0 flex-1 truncate" title={isWorktree ? worktreeDisplayName(branch) : branch}>
-      {isWorktree ? worktreeDisplayName(branch) : branch}
-    </span>
+    <MiddleTruncate value={isWorktree ? worktreeDisplayName(branch) : branch} class="flex-1" />
     {#if branch === selectedBranch}
       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
     {/if}
@@ -276,9 +275,7 @@
                   class="menu-item-stagger"
                 >
                   <TreeStructureIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-                  <span class="min-w-0 flex-1 truncate" title={worktreeDisplayName(worktree.branch)}>
-                    {worktreeDisplayName(worktree.branch)}
-                  </span>
+                  <MiddleTruncate value={worktreeDisplayName(worktree.branch)} class="flex-1" />
                   {#if pendingDispatch?.worktree?.path === worktree.path}
                     <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                   {/if}
@@ -317,7 +314,7 @@
                     class="menu-item-stagger"
                   >
                     <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-                    <span class="min-w-0 flex-1 truncate">{branch}</span>
+                    <MiddleTruncate value={branch} class="flex-1" />
                     {#if pendingDispatch.baseBranch === branch}
                       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                     {/if}
