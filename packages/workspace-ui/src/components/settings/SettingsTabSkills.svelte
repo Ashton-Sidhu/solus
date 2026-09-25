@@ -82,7 +82,7 @@
   function refreshCommands(targetServerId: string) {
     const activeTabId = workspace.activeTabId;
     const activeServerId = (activeTabId ? workspace.runFor(activeTabId)?.serverId : undefined)
-      ?? serverConnections.defaultServerId();
+      ?? workspace.fallbackServerId;
     if (activeServerId !== targetServerId) return;
     const cwd = (workspace.activeSession?.run ?? workspace.defaultRunConfig).workingDirectory;
     void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined);

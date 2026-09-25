@@ -30,7 +30,7 @@ export function attachmentTarget(
     ? session.runFor(targetTabId)
     : session.activeSession?.run;
   const serverId =
-    run?.serverId ?? serverConnections.defaultServerId() ?? LOCAL_SERVER_ID;
+    run?.serverId ?? serverConnections.defaultMachineId() ?? LOCAL_SERVER_ID;
   const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
   return { targetTabId, serverId, ctx };
 }

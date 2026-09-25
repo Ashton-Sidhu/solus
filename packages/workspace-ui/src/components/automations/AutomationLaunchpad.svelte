@@ -92,12 +92,9 @@
     draftPrompt = text;
     draftingCwd = cwd;
     // Drafting has no narrower owner, so the new-work default host creates it.
-    draftingServerId =
-      serverConnections.defaultServerId() ??
-      serverConnections.connectedServerIds()[0] ??
-      null;
+    draftingServerId = serverConnections.defaultMachineId();
     if (!draftingServerId) {
-      toasts.error("Couldn't start a session", { description: "No host is connected" });
+      toasts.error("Couldn't start a session", { description: "No machine is connected" });
       dismissDraft();
       return;
     }
@@ -139,11 +136,9 @@
   async function seedTemplate(template: AutomationTemplate) {
     if (seedingId) return;
     // Seeding has no narrower owner, so the new-work default host creates it.
-    const serverId =
-      serverConnections.defaultServerId() ??
-      serverConnections.connectedServerIds()[0];
+    const serverId = serverConnections.defaultMachineId();
     if (!serverId) {
-      toasts.error("Couldn't create that automation", { description: "No host is connected" });
+      toasts.error("Couldn't create that automation", { description: "No machine is connected" });
       return;
     }
     seedingId = template.id;

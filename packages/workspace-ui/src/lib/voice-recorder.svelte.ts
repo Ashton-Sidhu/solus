@@ -10,8 +10,8 @@ import { z } from 'zod'
 function transcriptionHostApi(): HostApi | null {
   const localHostApi = serverConnections.localHostApi()
   if (localHostApi) return localHostApi
-  const defaultServerId = serverConnections.defaultServerId()
-  return defaultServerId ? serverConnections.apiFor(defaultServerId) : null
+  const machineId = serverConnections.defaultMachineId()
+  return machineId ? serverConnections.apiFor(machineId) : null
 }
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading

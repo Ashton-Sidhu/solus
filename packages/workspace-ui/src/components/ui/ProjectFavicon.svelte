@@ -22,7 +22,7 @@
     const contextualServerId =
       serverId ??
       session.activeSession?.run.serverId ??
-      serverConnections.defaultServerId();
+      serverConnections.defaultMachineId();
     return contextualServerId
       ? serverConnections.resolveId(contextualServerId)
       : "";

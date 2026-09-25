@@ -717,9 +717,10 @@ export class WorkspaceContext implements SurfaceContext {
     return this.sessionFor(sourceId)?.run ?? this.drafts.sessionDrafts.get(sourceId)?.run
   }
 
-  /** The new-work default host, for deliberately session-less operations. */
+  /** The new-work default host, for deliberately session-less operations: the
+   *  default machine, and the window's own host only when there is none. */
   private defaultServerId(): string {
-    const serverId = serverConnections.defaultServerId()
+    const serverId = serverConnections.defaultMachineId() ?? serverConnections.defaultServerId()
     if (!serverId) throw new Error('Primary Solus connection has not been registered')
     return serverId
   }

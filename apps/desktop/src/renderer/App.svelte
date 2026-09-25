@@ -218,7 +218,7 @@
       (ui.directoryPickerTargetTabId
         ? session.sessionFor(ui.directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   // apiFor() opens the connection as a side effect, so only reach for the
@@ -227,7 +227,7 @@
     ui.directoryPickerOpen
       ? serverConnections.apiFor(directoryPickerServerId)
       : serverConnections.apiFor(
-          serverConnections.defaultServerId() ?? LOCAL_SERVER_ID,
+          serverConnections.defaultMachineId() ?? LOCAL_SERVER_ID,
         ),
   );
   const directoryPickerHostLabel = $derived(

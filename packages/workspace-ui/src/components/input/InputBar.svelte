@@ -267,7 +267,7 @@
         : null),
   );
   const composerServerId = $derived(
-    run?.serverId ?? serverConnections.defaultServerId(),
+    run?.serverId ?? session.fallbackServerId,
   );
   const clientShell = getClientShellContext();
   // The host a video chip plays from, addressed by this composer's own source,

@@ -47,14 +47,14 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       (directoryPickerTargetTabId
         ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   const directoryPickerApi = $derived.by(() => {
     if (directoryPickerOpen) {
       return serverConnections.apiFor(directoryPickerServerId);
     }
-    const bootServerId = serverConnections.defaultServerId();
+    const bootServerId = serverConnections.defaultMachineId();
     return bootServerId ? serverConnections.apiFor(bootServerId) : undefined;
   });
   const directoryPickerHostLabel = $derived.by(() => {
@@ -389,7 +389,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
   }
 
   const identityServerId = $derived(
-    openProjectStore.isOpen ? serverConnections.defaultServerId() : null,
+    openProjectStore.isOpen ? serverConnections.defaultMachineId() : null,
   );
   const localGitIdentity = $derived(
     identityServerId ? hostSetupStore.readinessByHost[identityServerId]?.git.identity ?? null : null,

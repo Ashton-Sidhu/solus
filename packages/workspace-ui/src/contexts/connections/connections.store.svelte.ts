@@ -173,7 +173,7 @@ export class ConnectionsStore {
       this.capabilitiesByServer.set(target.serverId, capabilities)
       // The unqualified mirror backs client-wide gates and follows the
       // new-work default host.
-      if (target.serverId === serverConnections.defaultServerId()) this.capabilities = capabilities
+      if (target.serverId === serverConnections.defaultMachineId()) this.capabilities = capabilities
     } catch (e) {
       if (e instanceof TransportDisconnectedError) return
       console.error('getServerCapabilities failed', e)
@@ -189,7 +189,7 @@ export class ConnectionsStore {
     const result = await serverConnections.apiFor(serverId).setProjectsBaseDirectory(path)
     const hostCapabilities = this.capabilitiesByServer.get(serverId)
     if (hostCapabilities) Object.assign(hostCapabilities, result)
-    if (this.capabilities && serverId === serverConnections.defaultServerId()) {
+    if (this.capabilities && serverId === serverConnections.defaultMachineId()) {
       Object.assign(this.capabilities, result)
     }
   }
@@ -201,7 +201,7 @@ export class ConnectionsStore {
     // The unqualified mirror answers for the default host when its per-host
     // record was never loaded.
     const capabilities = this.capabilitiesFor(target.serverId)
-      ?? (target.serverId === serverConnections.defaultServerId() ? this.capabilities : null)
+      ?? (target.serverId === serverConnections.defaultMachineId() ? this.capabilities : null)
     if (!capabilities || this.agentTaskLifecyclePolicyUpdating) return
     const previousPolicy = capabilities.agentTaskLifecyclePolicy
     capabilities.agentTaskLifecyclePolicy = policy

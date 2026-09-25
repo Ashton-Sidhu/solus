@@ -219,7 +219,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     const reconnected = detectReconnect(connectionStatus);
     untrack(() => {
       if (connectionStatus === "connected") {
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           void connectionsStore.refreshCapabilities({
             serverId: defaultServerId,
@@ -228,7 +228,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       }
       if (reconnected) {
         refreshTheme(settings.setSystemTheme.bind(settings));
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           sessionEnvironmentStore.invalidateRegistrationsForHost(
             defaultServerId,
@@ -288,7 +288,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       );
       const unsubSessionStatuses =
         sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultServerId();
+      const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       // The promoted settings tier lives on the host so it follows the user
       // between desktop, web, and mobile. The localStorage copy already painted

@@ -93,7 +93,7 @@ export function savedRemoteHistoryHosts(): RemoteHistoryHosts {
   // The host the picker already scans directly — the client's own machine
   // when it has one, else the new-work default — must not be scanned twice.
   const localServerId = serverConnections.localServerId()
-    ?? serverConnections.defaultServerId()
+    ?? serverConnections.defaultMachineId()
     ?? LOCAL_SERVER_ID
   return {
     localServerId,

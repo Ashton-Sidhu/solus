@@ -154,7 +154,7 @@
     projectChoices.map<ListProjectOption>((choice) => ({
       key: choice.projectKey,
       projectKey: choice.projectKey,
-      serverId: serverConnections.defaultServerId() ?? "",
+      serverId: serverConnections.defaultMachineId() ?? "",
       label: choice.label,
       available: true,
     })),

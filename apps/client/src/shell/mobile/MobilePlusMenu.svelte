@@ -94,7 +94,7 @@
 
   const attachmentServerId = $derived(
     composerRun?.serverId ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   const attachmentCapabilities = $derived(

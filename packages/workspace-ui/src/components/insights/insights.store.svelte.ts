@@ -188,7 +188,7 @@ export class InsightsStore {
   private turnSearchTimer: ReturnType<typeof setTimeout> | null = null
 
   private get api(): HostApi {
-    const serverId = this.serverId ?? serverConnections.defaultServerId()
+    const serverId = this.serverId ?? serverConnections.defaultMachineId()
     if (!serverId) throw new Error('No Solus connection has been registered')
     return serverConnections.apiFor(serverId)
   }

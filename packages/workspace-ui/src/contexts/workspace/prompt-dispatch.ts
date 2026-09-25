@@ -3,6 +3,7 @@ import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
@@ -381,9 +382,11 @@ export class PromptDispatch {
     if (session.status === 'connecting') return false
     if (session.readOnlyReason) return false
 
+    // On the web a run with no machine — none paired yet, or only the workspace
+    // service, which runs no agents — asks for a host instead of sending.
     if (
       localApi.getPlatform() === 'web'
-      && !serverConnections.defaultServerId()
+      && !hostRolesStore.hasExecution(session.run.serverId)
       && !session.run.pendingHostDispatch
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))

@@ -284,7 +284,7 @@
         voiceModelStore.apply(status, serverId),
       );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultServerId();
+      const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       // The promoted settings tier lives on the host so it follows the user
       // between desktop, web, and mobile, exactly as the desktop boot does.
@@ -410,7 +410,7 @@
     untrack(() => {
       if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
       if (connectionStatus === 'connected') {
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           void connectionsStore.refreshCapabilities({ serverId: defaultServerId });
         }

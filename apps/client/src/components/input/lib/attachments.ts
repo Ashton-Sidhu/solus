@@ -11,7 +11,7 @@ export function createWebAttachments(session: WorkspaceContext) {
     const targetId = sourceId ?? session.focusedSourceId ?? session.activeTabId;
     const draft = targetId ? session.drafts.sessionDrafts.get(targetId) : undefined;
     const serverId = (targetId ? session.runFor(targetId)?.serverId : undefined)
-      ?? serverConnections.defaultServerId();
+      ?? serverConnections.defaultMachineId();
     if (!serverId) return;
     // Capture the host and prompt before a picker or upload can yield to navigation.
     const api = serverConnections.apiFor(serverId);

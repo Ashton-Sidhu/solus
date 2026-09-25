@@ -218,7 +218,7 @@
       session.settingsTab === "voice",
   );
   let selectedSettingsServerId = $state(
-    serverConnections.defaultServerId() ?? "",
+    serverConnections.defaultMachineId() ?? "",
   );
   // Machines only: the workspace service is a connection this client holds,
   // not a host with settings of its own (docs/plans/cloud-service-model.md §15).
@@ -246,7 +246,7 @@
   $effect(() => {
     if (selectedSettingsHost) return;
     selectedSettingsServerId =
-      serverConnections.defaultServerId() ?? settingsHosts[0]?.serverId ?? "";
+      serverConnections.defaultMachineId() ?? settingsHosts[0]?.serverId ?? "";
   });
 
   let searchQuery = $state("");
