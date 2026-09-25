@@ -198,6 +198,24 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.currentActivity).toBe('Thinking...')
   })
 
+  test('hands the latest thought to the next tool call, once', async () => {
+    // WHY: the settled activity row prints the thought that led to the call
+    // beside its "Thought for" label. A thought with no readable text must not
+    // erase the earlier one, and the preview must not leak onto a later call.
+    const { reducer, session } = await createReducer([])
+    const think = (text?: string) => {
+      reducer.apply('session-1', { type: 'thinking', state: 'start' })
+      reducer.apply('session-1', { type: 'thinking', state: 'stop', ...(text ? { text } : {}) })
+    }
+    think('An early idea')
+    think('**Reading the stylesheet**\n\nThe rule is unlayered.')
+    think()
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Read', toolId: 'read', index: 0 })
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Edit', toolId: 'edit', index: 1 })
+
+    expect(session.messages.map((message) => message.thinkingPreview)).toEqual(['Reading the stylesheet', undefined])
+  })
+
   test('adds an interrupt divider immediately and deduplicates the provider confirmation', async () => {
     const { reducer, session } = await createReducer([
       {

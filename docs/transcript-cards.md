@@ -85,6 +85,19 @@ Sub-agent cards carry no status word: the glyph is the status (a spinner while
 running, a check when returned, a warning when failed). Their rail leads with the
 provider's mark and the model's name, then steps and time.
 
+All sub-agents that one turn launches share one card, with one row for each
+agent. The card stays at the position of the first launch. Tool calls and prose
+between two launches do not start a second card; they show in order below the
+card. A new turn starts a new card.
+
+A finished tool-group row that says "Thought for …" also shows the first line
+of the latest thought, as plain text in the foreground colour, and truncates it
+to one line. Claude sends the text of its thinking blocks; Codex sends its
+reasoning summary, or the raw reasoning when there is no summary. When the
+provider sends no readable text (redacted, omitted, or encrypted reasoning), the
+row shows only the label. A live "Thinking" row does not show a thought, because
+the text arrives only when the thought ends.
+
 The agent conversation card is header-only. Its dialogue is read in the agent's
 own session, which a click on the card opens. A body appears only when the other
 agent waits on a person here (a request or a plan decision).

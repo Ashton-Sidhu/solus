@@ -133,6 +133,30 @@ describe('ClaudeTurnNormalizer', () => {
     })).toEqual([{ type: 'permission_mode_changed', permissionMode: 'ask' }])
   })
 
+  test('closes a thinking span with the thought its deltas carried', () => {
+    // WHY: the activity row shows the first line of the thought beside its
+    // label, and content_block_stop is the only place the whole thought is known.
+    const normalizer = new ClaudeTurnNormalizer()
+    const thinkingBlock = (index: number, thinking: string[]) => [
+      { type: 'stream_event', event: { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } } },
+      ...thinking.map((text) => ({
+        type: 'stream_event',
+        event: { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: text } },
+      })),
+      { type: 'stream_event', event: { type: 'content_block_stop', index } },
+    ] as ClaudeEvent[]
+
+    expect(thinkingBlock(0, ['**Reading the ', 'stylesheet**\n\nThe rule is unlayered.']).flatMap((raw) => normalizer.push(raw))).toEqual([
+      { type: 'thinking', state: 'start' },
+      { type: 'thinking', state: 'stop', text: '**Reading the stylesheet**\n\nThe rule is unlayered.' },
+    ])
+    // Omitted or redacted thinking sends no text; the span still closes.
+    expect(thinkingBlock(1, []).flatMap((raw) => normalizer.push(raw))).toEqual([
+      { type: 'thinking', state: 'start' },
+      { type: 'thinking', state: 'stop' },
+    ])
+  })
+
   test('streams parented text into the subagent transcript', () => {
     const normalizer = new ClaudeTurnNormalizer()
 

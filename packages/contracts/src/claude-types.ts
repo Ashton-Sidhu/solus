@@ -16,8 +16,8 @@ export interface ContentBlock {
   id?: string
   name?: string
   input?: ClaudeToolInput
-  /** Extended-thinking span. The transcript prints how long it took, never the
-   *  text, so only the block's start/stop boundary is consumed. */
+  /** Extended-thinking span. Only the block's start/stop boundary and the
+   *  streamed thinking_delta text are consumed; this assembled copy is not. */
   thinking?: string
 }
 

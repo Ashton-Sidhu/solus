@@ -7,6 +7,7 @@ import { uuid } from '@solus/contracts/uuid'
 import { artifactUpdateFromHistory } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
+import { thoughtPreview } from '../../components/conversation/lib/thought-preview'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -182,16 +183,20 @@ export function materializeSessionTranscript(
   const resultsByToolId = new Map(history.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
   ))
-  // Thinking is never rendered as a turn — only its duration is, folded onto the
-  // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
-  // no span boundaries, so the run of reasoning turns is bracketed by the first
-  // one's timestamp and the message that ends the run.
+  // Thinking is never rendered as a turn — only its duration and the first line
+  // of its latest thought are, folded onto the tool call it preceded (mirrors
+  // the live reducer's thinkingSpans). Replay has no span boundaries, so the run
+  // of reasoning turns is bracketed by the first one's timestamp and the message
+  // that ends the run.
   let thinkingRunStartedAt: number | null = null
+  let thinkingRunPreview = ''
   for (const m of loadedHistory) {
     // Reasoning/thinking turns ride along in the transcript for provider handoffs;
-    // the conversation view shows how long they took, never their text.
+    // the conversation view shows how long they took and the first line of the
+    // latest one, never the whole text.
     if (m.role === 'reasoning') {
       if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
+      if (!m.parentToolUseId) thinkingRunPreview = thoughtPreview(m.content) || thinkingRunPreview
       continue
     }
     if (m.role === 'tool_result') {
@@ -215,7 +220,9 @@ export function materializeSessionTranscript(
     // Whatever message follows the run of reasoning turns ends it, whether or not
     // it has anywhere to print the figure.
     const thinkingRunEndedAt = thinkingRunStartedAt
+    const thinkingRunEndedPreview = thinkingRunPreview
     thinkingRunStartedAt = null
+    thinkingRunPreview = ''
 
     // Sub-agent activity reconstructs into the spawning tool's nested transcript,
     // mirroring the live reducer — never the flat thread.
@@ -294,6 +301,7 @@ export function materializeSessionTranscript(
     if (thinkingRunEndedAt !== null && m.role === 'tool') {
       const ms = msgTimestamp - thinkingRunEndedAt
       if (ms > 0) msg.thinkingMs = ms
+      if (thinkingRunEndedPreview) msg.thinkingPreview = thinkingRunEndedPreview
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
     if (m.role === 'tool' && m.report) msg.report = m.report
