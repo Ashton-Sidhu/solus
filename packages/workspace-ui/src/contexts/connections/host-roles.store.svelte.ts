@@ -10,6 +10,8 @@ import { ALL_HOST_ROLES, COLLABORATION_ONLY_ROLES, hostRolesOf, type HostRole } 
  * without `execution` never appears where work is started or a checkout is read;
  * a host without `collaboration` never appears where tasks, works, or shares are.
  */
+const NO_HOST_ROLES: readonly HostRole[] = []
+
 class HostRolesStore {
   private readonly rolesByServer = new SvelteMap<string, readonly HostRole[]>()
   private readonly inFlight = new Map<string, Promise<void>>()
@@ -45,8 +47,12 @@ class HostRolesStore {
     this.rolesByServer.set(serverId, roles)
   }
 
+  /** A host this client does not know — deleted, or never listed here — serves
+   *  nothing, so no gate offers work or records on it
+   *  (docs/plans/workspace-and-machines.md §6). */
   private assumedRolesFor(serverId: string): readonly HostRole[] {
-    return savedCloudServerIds().has(serverId) ? COLLABORATION_ONLY_ROLES : ALL_HOST_ROLES
+    if (savedCloudServerIds().has(serverId)) return COLLABORATION_ONLY_ROLES
+    return serverConnections.isKnownServer(serverId) ? ALL_HOST_ROLES : NO_HOST_ROLES
   }
 
   private load(serverId: string): Promise<void> {

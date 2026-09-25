@@ -31,10 +31,13 @@ async function bootDirectory() {
   const state = { kind: 'unknown' }
   const saved: SavedServer[] = [{ id: 'paired', label: 'Paired host', url: 'https://paired.example', sessionToken: 'fixture', lastConnected: 1 }]
   const save = mock((servers: SavedServer[]) => { saved.splice(0, saved.length, ...servers) })
+  const answered = mock(() => {})
   const boot = new Function('adoptCloudOriginIfPresent', 'uplinkAccountSource', 'cloudOrigin',
-    'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'startupAccountRead',
+    'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'startupAccountRead', 'markDirectoryAnswered',
     `${compiled}\nreturn adoptCloudDirectory();`)
-  await boot(adoptCloudOriginIfPresent, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, startupAccountRead)
+  await boot(adoptCloudOriginIfPresent, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, startupAccountRead, answered)
+  // Only a merged directory makes the saved hosts authoritative (workspace-and-machines.md §6).
+  expect(answered).toHaveBeenCalledTimes(save.mock.calls.length)
   return { state, saved, save }
 }
 

@@ -153,6 +153,29 @@ export function onServerRemoving(listener: ServerRemovingListener): () => void {
   return () => serverRemovingListeners.delete(listener)
 }
 
+const directoryAnsweredListeners = new Set<() => void>()
+let directoryAnswered = false
+
+/**
+ * A directory read succeeded and was merged into the saved hosts. From here a
+ * reference to a host the saved list does not hold names a machine that is
+ * gone (docs/plans/workspace-and-machines.md §6). A failed read never calls
+ * this: until a read succeeds, an unknown host may still be listed.
+ */
+export function markDirectoryAnswered(): void {
+  directoryAnswered = true
+  for (const listener of directoryAnsweredListeners) listener()
+}
+
+export function hasDirectoryAnswered(): boolean {
+  return directoryAnswered
+}
+
+export function onDirectoryAnswered(listener: () => void): () => void {
+  directoryAnsweredListeners.add(listener)
+  return () => directoryAnsweredListeners.delete(listener)
+}
+
 export type InstallationIdDecision = 'match' | 'mismatch'
 
 export function installationIdDecision(

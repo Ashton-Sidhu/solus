@@ -21,7 +21,7 @@ test('restores persisted sessions without waiting for static host metadata', asy
   const loadPinnedSessions = mock(async () => {})
 
   const stop = initializeRuntime(
-    { initStaticInfo: () => staticInfo } as never,
+    { initStaticInfo: () => staticInfo, settings: { lastProject: null }, unstartedRuns: () => [] } as never,
     { loadPinnedSessions } as never,
   )
 
@@ -38,8 +38,9 @@ test('reconnect refreshes do not register more app listeners, and unmount releas
   const stopPhases = mock(() => {})
   const connections = spyOn(serverConnections, 'onConnectionCreated').mockReturnValue(stopConnections)
   const phases = spyOn(serverConnections, 'onPhaseChange').mockReturnValue(stopPhases)
-  // SAFETY: bootstrap is mocked above; these are the only workspace and sidebar methods this test calls.
-  const workspace = { initStaticInfo: async () => {} } as Parameters<typeof initializeRuntime>[0]
+  // SAFETY: bootstrap is mocked above; these are the only workspace and sidebar
+  // members this test reaches (the gone-machine pass reads the last two).
+  const workspace = { initStaticInfo: async () => {}, settings: { lastProject: null }, unstartedRuns: () => [] } as unknown as Parameters<typeof initializeRuntime>[0]
   // SAFETY: the fixture covers the one sidebar command called by initialization and refresh.
   const sidebar = { loadPinnedSessions: async () => {} } as Parameters<typeof initializeRuntime>[1]
   try {

@@ -16,6 +16,8 @@ afterEach(() => {
 function servedBy(api: HostApi): () => HostApi {
   api.checkoutSnapshot ??= async () => ({ generation: 'test-host', revision: 0, states: [] })
   spyOn(serverConnections, 'apiFor').mockReturnValue(api)
+  // The serving host is a machine this client knows: Git is read only from one.
+  spyOn(serverConnections, 'isKnownServer').mockReturnValue(true)
   return () => api
 }
 

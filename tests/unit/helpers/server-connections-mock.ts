@@ -88,6 +88,9 @@ export function singleHostServerConnections() {
     apiFor: (serverId: string) => api(serverId),
     setPrimary: (serverId: string) => { primaryServerId = serverId },
     defaultServerId: () => primaryServerId,
+    // Every host in a single-host test is a machine this client knows.
+    defaultMachineId: () => primaryServerId,
+    isKnownServer: () => true,
     localServerId: () => 'local',
     localHostApi: () => api('local'),
     eventsFor: (serverId: string) => events(serverId),

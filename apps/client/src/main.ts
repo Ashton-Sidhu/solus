@@ -8,7 +8,7 @@ import { parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { clearActiveServerId, getActiveServerId, loadServers, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { clearActiveServerId, getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
 import { adoptCloudOriginIfPresent } from '@solus/client-core/uplink-account'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
@@ -256,6 +256,7 @@ async function adoptCloudDirectory(): Promise<void> {
   if (accountRead) await Promise.race([accountRead, new Promise((resolve) => setTimeout(resolve, 2_000))])
   if (!directory) return
   saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
+  markDirectoryAnswered()
 }
 
 async function bootFromCatalog(): Promise<void> {

@@ -1110,7 +1110,10 @@ export class WorkspaceContext implements SurfaceContext {
     const defaults = this.config.globalDefaults
     const project = defaultStartProject(
       this.settings.lastProject,
-      (serverId) => ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
+      // A remembered host this client no longer knows is down too: it was deleted,
+      // or it was never listed at this origin.
+      (serverId) => !serverConnections.isKnownServer(serverId)
+        || ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
       { serverId: this.fallbackServerId, directory: this.staticInfo?.workspacePath ?? '~' },
     )
     return {

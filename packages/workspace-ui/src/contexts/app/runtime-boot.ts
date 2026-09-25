@@ -4,6 +4,9 @@ import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hasDirectoryAnswered, onDirectoryAnswered } from '@solus/client-core/server-registry'
+import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { reconcileMachineReferences } from '../workspace/machine-references'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 
@@ -36,11 +39,28 @@ export function refreshRuntime(
 
 }
 
+/**
+ * Clear references to machines that are gone (`reconcileMachineReferences`),
+ * only once the saved hosts are authoritative: a directory read succeeded, or
+ * this client has no directory to wait for.
+ */
+function reconcileGoneMachines(session: WorkspaceContext): void {
+  if (!hasDirectoryAnswered() && uplinkAccountSource()) return
+  reconcileMachineReferences(
+    session,
+    (serverId) => serverConnections.isKnownServer(serverId),
+    () => serverConnections.defaultMachineId() !== null,
+  )
+}
+
 export function initializeRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): () => void {
   refreshRuntime(session, sidebarStore)
+  // Restored tabs and drafts may name a machine a previous load saw deleted.
+  reconcileGoneMachines(session)
+  const stopDirectory = onDirectoryAnswered(() => reconcileGoneMachines(session))
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
   const stopConnections = serverConnections.onConnectionCreated(() => {
@@ -56,11 +76,14 @@ export function initializeRuntime(
     // machine facts once one connects; a no-op while the default is unchanged.
     void session.lifecycle.initStaticInfo()
       .catch((error) => logConnectionReadError('static info initialization', error))
+    // Work left on a gone machine while there was nowhere to move it moves now.
+    reconcileGoneMachines(session)
   })
 
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
   return () => {
+    stopDirectory()
     stopConnections()
     stopPhases()
   }

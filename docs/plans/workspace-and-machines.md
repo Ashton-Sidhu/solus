@@ -170,8 +170,8 @@ socket per endpoint, as today, and exposes the two concepts separately:
 ```ts
 workspace(): WorkspaceConnection | null      // the active organization's workspace
 recordHome(record): CollaborationApi         // the home of one record: a workspace or a machine
-machine(id: MachineId): MachineRef           // see §6
-defaultMachine(): MachineId | null           // where new work goes
+isKnownServer(id: string): boolean          // see §6
+defaultMachineId(): string | null            // where new work goes
 ```
 
 - `registerPrimary`, `defaultServerId()`, `setPrimary` and
@@ -237,10 +237,11 @@ machine: `version`, the agent account's `email` and `subscriptionType`,
 `start()` on the primary and read as if the window had one machine (about 45
 reads in 21 files).
 
-They move into the per-host capability record the supervisor already loads on
-every accepted session (`serverConnections.capabilitiesFor`), which already
-carries `version` and `workspacePath`; the other four join it. `staticInfo` and
-`initStaticInfo` are deleted. Each reader takes the facts of a named machine:
+`start()` is already a per-machine read; what is wrong is where it is sent. Step
+1 sends it to the default machine and reads nothing when there is none:
+`staticInfo` is the default machine's facts, read again when the default machine
+changes (a machine that connects after boot). Step 6 moves each reader to the
+machine it names, keyed by machine, and deletes the single `staticInfo`:
 
 | Reader | Machine | With no machine |
 |---|---|---|
@@ -254,45 +255,46 @@ A machine that has not answered yet reads as loading, not as missing.
 
 ## 6. Machine references
 
-A stored machine id resolves to one of three states:
+A stored machine id is **known** when `serverConnections.isKnownServer(id)`
+says so: a registered target, a live connection, or a saved host — the ids
+`resolveTarget` answers for. Anything else names a machine that was deleted or
+was never listed at this origin.
 
-```ts
-type MachineRef =
-  | { state: 'live'; id: MachineId; api: ExecutionApi }
-  | { state: 'pending'; id: MachineId }  // the directory has not answered this load
-  | { state: 'gone'; id: MachineId }     // the directory answered without it
-```
+**Reads treat an unknown host as unusable, never as an error.** Nothing asks
+`apiFor` for it:
 
-**The rule for `gone`.** A machine is gone when both hold:
+- `hostRolesStore` gives an unknown host no roles, so every gate that asks
+  `hasExecution` or `hasCollaboration` (the Run-on list, dispatch, the Git
+  environment read, plugin commands) skips it.
+- `defaultStartProject` treats a remembered project on an unknown host as down.
+- Saved prompts list nothing for it.
 
-1. the most recent *successful* read of the directory at its `uplink.directoryUrl`
-   does not list it, and
-2. this device holds no pairing for it (`sessionToken` is empty). A paired host
-   that was unlinked keeps its direct route and stays live, which is what
-   `mergeDirectoryIntoSaved` already does.
+**Writes wait until the saved hosts are authoritative.** The saved list only
+loses a directory host on a successful directory read (`mergeDirectoryIntoSaved`),
+and a paired host that was unlinked keeps its direct route and stays known. A
+failed read changes nothing. `markDirectoryAnswered()` (`server-registry.ts`)
+marks a successful merge, at boot (`apps/client/src/main.ts`) and on every
+refresh (`serversStore.refreshDirectory`).
 
-A failed or missing directory read never makes a machine gone; until the first
-successful read of the page load, a directory-listed machine is `pending`. An id
-that was never saved (a hand-edited setting, another device's snapshot) is
-`gone` once the directory has answered.
+**One owner for removal.** `reconcileMachineReferences`
+(`contexts/workspace/machine-references.ts`) updates every reference to an
+unknown host; readers do not each handle a ghost. It runs from
+`initializeRuntime` after restore, on every successful directory read, and when
+a machine connects — but only once a directory has answered this load, or when
+the client has no directory at all:
 
-`machine(id)` never throws. `resolveTarget`'s `Unknown Solus server` stays only
-for a programming error: an id that is not a machine id at all.
-
-**One owner for removal.** When `saveServers` drops a machine
-(`onServerRemoving`), one reconciler updates everything that names it; readers
-do not each handle a ghost:
-
-| Reference | On `gone` |
+| Reference | When its machine is unknown |
 |---|---|
 | `settings.lastProject` | cleared; `defaultRunConfig` falls to the default machine |
-| an unstarted draft or tab | moved to the machine `chooseRunOnHost` picks for its project (a checkout elsewhere wins), else the default machine; with none, the draft stays and the Run-on chip reads "Host removed — choose a machine" |
-| a started tab | kept on its machine and shown read-only from the mirror (the record page's runner-offline state, cloud service plan §19) with "This machine was removed" |
-| the device's default machine | cleared; resolved again (§5.1) |
-| per-host caches (saved prompts, plugin commands, capabilities, skew dismissals, outbox) | dropped, as the send outbox and skew dismissals already are |
+| an unstarted draft or tab | moved to where a new session starts (the default machine and its folder), as a fresh draft would be; with no machine, it stays until one connects |
+| a draft opened from a task | moves as above and keeps the task's home, unless that is unknown too |
+| a started tab | kept on its machine: its conversation lives there |
 
-The same pass runs once at boot, after the first successful directory read, for
-references a previous version left behind.
+A live connection to a host the directory dropped is kept (a refresh never cuts
+a working session), and the host stays known while it is connected.
+
+Left for later: the Run-on chip's "Host removed — choose a machine" text, and
+a started tab's read-only "This machine was removed" state.
 
 ## 7. What stays the same
 
@@ -312,14 +314,16 @@ references a previous version left behind.
 
 Each step ships alone and leaves the tree green.
 
-1. **Default machine and machine facts** (client). Add `defaultMachine()` from
-   `executionServers`; send `usageLimits` and hostless `getPluginCommands` to it,
-   or skip them when it is null; move `StaticInfo` into the capability record
-   and delete `initStaticInfo` (§5.5). *Fixes the `PLANE_DISABLED` errors.*
-2. **Machine references** (client). `MachineRef`, the `gone` rule, the removal
-   reconciler, `defaultStartProject` treating `gone` and `pending` as down, and
-   saved prompts and the start gate reading through `machine(id)`. *Fixes
-   `Unknown Solus server`.*
+1. **Default machine** (client). `serverConnections.defaultMachineId()`
+   (`chooseDefaultMachine` in `server-registry.ts`); `start()`, `usageLimits`,
+   and `fallbackServerId` use it; nothing is read with no machine, and
+   `start()` is read again when a machine connects; plugin commands are read
+   only from a host that serves `execution` (§5.5). *Fixes the
+   `PLANE_DISABLED` errors.*
+2. **Machine references** (client). `isKnownServer`, no roles for an unknown
+   host, `defaultStartProject` treating it as down, the Git and saved-prompt
+   reads skipping it, `markDirectoryAnswered`, and
+   `reconcileMachineReferences` (§6). *Fixes `Unknown Solus server`.*
 3. **Boot in two steps** (client). Workspace first, machines second;
    `registerPrimary` and `activeServerId` stop naming the workspace.
 4. **Directory `workspaces`** (contract, then solus-cloud). Emit the new field

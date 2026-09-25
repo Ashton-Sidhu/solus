@@ -23,6 +23,7 @@ import {
   loadServers,
   LOCAL_SERVER_ID,
   managedHostNeedsStart,
+  markDirectoryAnswered,
   onServerRemoving,
   removeServer,
   savedServerRoutes,
@@ -407,6 +408,7 @@ class ServersStore {
       }
       this.refreshServers()
       serverConnections.startCatalogSupervisors()
+      markDirectoryAnswered()
     } finally {
       this.directoryRefreshInFlight = false
       this.lastDirectoryReadAt = Date.now()

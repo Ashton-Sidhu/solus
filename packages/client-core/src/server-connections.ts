@@ -515,6 +515,18 @@ export class ServerConnections {
     return value
   }
 
+  /**
+   * Whether `serverId` names a host this client can reach: the ids
+   * `resolveTarget` answers for, without the throw. A stored id that fails is a
+   * host that was deleted or never listed here (docs/plans/workspace-and-machines.md §6);
+   * a caller reads nothing from it rather than asking `apiFor`.
+   */
+  isKnownServer(serverId: string): boolean {
+    if (this.connections.has(serverId) || this.targets.has(serverId)) return true
+    if (loadServers().some((server) => server.id === serverId)) return true
+    return serverId === LOCAL_SERVER_ID && !!this.primaryServerId && this.targets.has(this.primaryServerId)
+  }
+
   private resolveTarget(serverId: string): SolusServerTarget {
     const registered = this.targets.get(serverId)
     if (registered) return registered

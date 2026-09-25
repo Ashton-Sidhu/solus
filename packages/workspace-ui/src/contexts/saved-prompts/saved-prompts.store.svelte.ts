@@ -24,7 +24,8 @@ export class SavedPromptsStore {
 
   /** `serverId` names the host that owns `projectRoot` — the run's host. */
   load(projectRoot: string, serverId: string, opts?: { force?: boolean }): Promise<SavedPrompt[]> {
-    if (!projectRoot || !serverId) return Promise.resolve([])
+    // A host this client does not know was deleted: it has no prompts to list.
+    if (!projectRoot || !serverId || !serverConnections.isKnownServer(serverId)) return Promise.resolve([])
     const key = hostKey(serverId, projectRoot)
     const pending = this.inFlight.get(key)
     if (pending) return pending
