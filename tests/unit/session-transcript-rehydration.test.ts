@@ -59,6 +59,28 @@ describe('session transcript rehydration', () => {
       expect(artifacts.map((message) => message.workRef?.title)).toEqual(['Same title', 'Same title', 'Renamed'])
     })
   }
+  test('folds the latest thought before a tool call onto it as a one-line preview', () => {
+    // WHY: a reloaded turn must show the same "Thought" line the live turn
+    // showed. Reasoning with no readable text keeps the earlier thought, and a
+    // turn with no reasoning keeps the plain label.
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, [
+      { role: 'user', content: 'fix the rule', timestamp: 1 },
+      { role: 'reasoning', content: 'First idea', timestamp: 2 },
+      { role: 'reasoning', content: '**Reading the stylesheet**\n\nThe rule is unlayered.', timestamp: 3 },
+      { role: 'reasoning', content: '   ', timestamp: 4 },
+      { role: 'tool', content: '', toolName: 'Read', toolId: 'read', toolInput: '{}', timestamp: 6 },
+      { role: 'tool', content: '', toolName: 'Edit', toolId: 'edit', toolInput: '{}', timestamp: 7 },
+    ])
+    const tools = transcript.messages.filter((message) => message.role === 'tool')
+    expect(tools.map((tool) => tool.thinkingPreview)).toEqual(['Reading the stylesheet', undefined])
+    expect(tools[0].thinkingMs).toBe(4)
+  })
+
   test('late subagent activity follows its owning call across disjoint pages', async () => {
     connections.registerPrimary('transcript-host', {
       loadSessionPage: async (request) => request.before ? {

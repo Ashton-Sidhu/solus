@@ -23,12 +23,14 @@
   import UnreadDot from "./UnreadDot.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import {
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
     shouldRecedeRow,
     taskStatusFor,
   } from "./lib/task-list";
+  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
     session: SidebarSessionChild;
@@ -242,10 +244,7 @@
         class="flex min-w-0 flex-1 items-center gap-[0.5625rem] opacity-70 @max-[15rem]:gap-1.5"
       >
         {#if branchLabel}
-          <span
-            class="min-w-0 max-w-[66%] overflow-hidden text-ellipsis whitespace-nowrap"
-            >{branchLabel}</span
-          >
+          <MiddleTruncate value={branchLabel} showTitle={false} class="max-w-[66%]" />
         {/if}
         <!-- Which machine the session runs on. Unlike the task row this is
              never omitted: a subtask list mixes hosts freely, so "here" has to
@@ -326,6 +325,7 @@
                 ? 'text-(--solus-status-complete)'
                 : 'text-chart-5'}"
               role="img"
+              onanimationstart={alignStatusAnimationPhase}
               aria-label={mark.state === "ready"
                 ? "Review guide ready"
                 : "Generating review guide"}
@@ -355,6 +355,7 @@
             <span
               class="flex shrink-0 items-center text-chart-5"
               role="img"
+              onanimationstart={alignStatusAnimationPhase}
               aria-label={attentionLabel(session.attention)}
             >
               <SpinnerGapIcon size={13} class="animate-spin" />

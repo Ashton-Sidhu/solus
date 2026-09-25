@@ -31,7 +31,7 @@ import { RouterStore } from './routing/router.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
 import { ROUTES, chatRoute, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { leadingHomeRoute } from './leading-home'
+import { canReturnToRoute, leadingHomeRoute } from './leading-home'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
@@ -258,6 +258,14 @@ export class WorkspaceContext implements SurfaceContext {
       drafts: this.drafts.sessionDrafts,
       composingDraftIds: this.drafts.composingDraftIds,
       createDraft: () => this.drafts.createSessionDraft({}),
+    })
+    // Settings hands its pane back to what it covered, unless that tab closed
+    // or that draft was sent while it was open.
+    this.router.canReturnTo = (ref) => canReturnToRoute(ref, {
+      hasTabs: this.hasOpenTabs(),
+      hasTabForSession: (sessionId) => !!this.tabIdForSession(sessionId),
+      drafts: this.drafts.sessionDrafts,
+      composingDraftIds: this.drafts.composingDraftIds,
     })
     // The courier stays domain-blind; each domain contributes only the answer
     // to "which connected host owns this resource id".

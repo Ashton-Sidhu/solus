@@ -7,6 +7,7 @@
     GitBranch as GitBranchIcon,
   } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { Skeleton } from "../ui/skeleton";
   import { changeBlocks } from "./lib/change-blocks";
 
@@ -24,9 +25,8 @@
    * Metadata, so it reads at the meta rung (`text-xs`) rather than at the
    * chrome rung the rail's rows take. The head ref is a literal a reader may
    * need to type, so the whole branch row is the copy target. Long refs stay on
-   * one line and truncate at the start, where their generated prefixes carry
-   * less identifying information than their suffixes. The receipt shows in
-   * place of the copy glyph.
+   * one line and truncate in the middle, so both the owner prefix and the
+   * identifying suffix survive. The receipt shows in place of the copy glyph.
    */
   let {
     headBranch,
@@ -83,9 +83,7 @@
       onclick={copyBranch}
     >
       {#if headBranch}
-        <span
-          class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [direction:rtl] [unicode-bidi:plaintext]"
-        >{headBranch}</span>
+        <MiddleTruncate value={headBranch} showTitle={false} />
         <ArrowRightIcon
           size={11}
           class="shrink-0 text-muted-foreground opacity-60"

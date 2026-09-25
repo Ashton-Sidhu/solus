@@ -23,6 +23,7 @@
   import { worktreeDisplayName } from "../../lib/git-context";
   import { copyText, toasts } from "../../lib/toasts";
   import GitDropdown from "../GitDropdown.svelte";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { withSelectedWorktree } from "../input/lib/worktree-destination";
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
@@ -266,9 +267,9 @@
               size={13}
             />{:else}<GitBranchIcon size={13} />{/if}</span
         >
-        <span class="branch-row-name" title={displayedBranch}
-          >{displayedBranch}</span
-        >
+        <!-- The branch is the section's anchor — a constant half-step heavier
+             than the action rows beneath it. -->
+        <MiddleTruncate value={displayedBranch} class="flex-1 font-medium" />
         {#if copyableBranch}
           <span class="branch-copy-indicator" aria-hidden="true">
             <CopyIcon size={11} />
@@ -425,16 +426,6 @@
   .branch-row:hover .branch-copy-indicator,
   .branch-row:focus-visible .branch-copy-indicator {
     opacity: 1;
-  }
-  /* The branch is the section's anchor — a constant half-step heavier than
-     the action rows beneath it. */
-  .branch-row-name {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
   }
   .branch-control {
     display: flex;

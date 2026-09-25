@@ -784,7 +784,7 @@ function joinReasoningStrings<Value>(value: Value): string {
 
 /** A reasoning item's text, preferring the concise `summary` over raw `content`.
  *  Empty for non-reasoning items, so callers filter with a truthiness check. */
-function codexReasoningText(item: CodexHistoryItem): string {
+export function codexReasoningText(item: CodexHistoryItem): string {
   if (item.type !== 'reasoning') return ''
   return joinReasoningStrings(item.summary) || joinReasoningStrings(item.content)
 }

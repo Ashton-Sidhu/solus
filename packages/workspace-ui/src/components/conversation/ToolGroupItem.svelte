@@ -22,6 +22,7 @@
     type ParsedToolInput,
   } from "./lib/activity-summary";
   import { clickEndsTextSelection } from "./lib/text-selection";
+  import { latestThoughtPreview } from "./lib/thought-preview";
   import type { Message, TurnStartKind } from "@solus/contracts/types";
 
   interface Props {
@@ -104,6 +105,11 @@
     // The participle already carries the verb, so drop the description's own.
     return raw.replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "").trim();
   });
+  // A settled row that names no tool shows what the agent last thought
+  // beside its "Thought for" label. No readable thought keeps the plain label.
+  const thought = $derived(
+    namedTarget || working || failedTool ? "" : latestThoughtPreview(tools),
+  );
   const doneCount = $derived(tools.filter((t) => t.toolStatus !== "running").length);
 
   const failureLine = $derived.by(() => {
@@ -133,6 +139,7 @@
 </script>
 
 {#snippet targetText()}{namedTarget}{/snippet}
+{#snippet thoughtText()}{thought}{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -149,8 +156,9 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    target={namedTarget ? targetText : undefined}
-    proseTarget={showsBackgroundWait}
+    target={namedTarget ? targetText : thought ? thoughtText : undefined}
+    proseTarget={showsBackgroundWait || !!thought}
+    foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
     testid={runningTool
       ? "activity-running"

@@ -16,6 +16,9 @@ import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAg
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
+import { thoughtPreview } from '../../components/conversation/lib/thought-preview'
+
+type ThinkingSpan = { startedAt?: number; pendingMs: number; preview?: string }
 
 export interface SessionEventReducerDeps {
   registry: TabRegistry
@@ -59,10 +62,11 @@ export class SessionEventReducer {
   // immediately deliver another block without a tool call between them, so keep
   // that boundary until the next prose run and render it as a Markdown paragraph.
   private assistantMessageBoundaries = new Set<string>()
-  // Extended thinking is never a message: only its duration survives, carried
-  // onto the next tool call so the activity block can say "Thought for 6s".
+  // Extended thinking is never a message: only its duration and the first line
+  // of the latest thought survive, carried onto the next tool call so the
+  // activity block can say "Thought for 6s" beside what the agent thought.
   // Transport state, not domain state, so it lives here rather than on Session.
-  private thinkingSpans = new WeakMap<Session, { startedAt?: number; pendingMs: number }>()
+  private thinkingSpans = new WeakMap<Session, ThinkingSpan>()
   /** Last authoritative settlement applied per mounted session. Transport
    *  retries must not replay unread state, sounds, or final refresh work. */
   private settledTurnIds = new WeakMap<Session, string>()
@@ -71,7 +75,7 @@ export class SessionEventReducer {
 
   constructor(private deps: SessionEventReducerDeps) {}
 
-  private thinkingSpan(session: Session): { startedAt?: number; pendingMs: number } {
+  private thinkingSpan(session: Session): ThinkingSpan {
     let span = this.thinkingSpans.get(session)
     if (!span) {
       span = { pendingMs: 0 }
@@ -95,6 +99,14 @@ export class SessionEventReducer {
     const ms = span.pendingMs
     span.pendingMs = 0
     return ms > 0 ? ms : undefined
+  }
+
+  /** Hand the latest thought's first line to the tool call it preceded. */
+  private takeThinkingPreview(session: Session): string | undefined {
+    const span = this.thinkingSpan(session)
+    const preview = span.preview
+    span.preview = undefined
+    return preview
   }
 
   /** Mark every tab watching a session as unread, unless it is on screen. */
@@ -166,6 +178,10 @@ export class SessionEventReducer {
         span.pendingMs += Date.now() - span.startedAt
         span.startedAt = undefined
       }
+      // Several thoughts before one tool call: the latest is the one that led
+      // to it. A thought with no readable text keeps the earlier one.
+      const preview = event.state === 'stop' ? thoughtPreview(event.text) : ''
+      if (preview) span.preview = preview
       return
     }
 
@@ -265,6 +281,7 @@ export class SessionEventReducer {
           subMessages: event.isSubagent ? [] : undefined,
           subagentType: event.subagentType,
           thinkingMs: this.takeThinkingMs(session),
+          thinkingPreview: this.takeThinkingPreview(session),
           timestamp: Date.now(),
         }
         session.messages.push(toolMessage)
@@ -1203,6 +1220,7 @@ export class SessionEventReducer {
     if (span) {
       span.startedAt = undefined
       span.pendingMs = 0
+      span.preview = undefined
     }
   }
 

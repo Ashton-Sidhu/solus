@@ -23,7 +23,18 @@ export type GroupedItem =
 export function groupMessages(messages: Message[]): GroupedItem[] {
   const result: GroupedItem[] = []
   let toolBuf: Message[] = []
-  let subagentBuf: Message[] = []
+  // A turn's sub-agents are one act of delegation, so they are one card at the
+  // position of the FIRST launch, in launch order. Tool rows and prose between
+  // two launches still render in place, below the card, and do NOT close it —
+  // only a new turn does. The open card's array is grown in place.
+  let subagentGroup: Message[] | null = null
+  const openOrGrowSubagents = (msg: Message) => {
+    if (subagentGroup) subagentGroup.push(msg)
+    else {
+      subagentGroup = [msg]
+      result.push({ kind: 'subagent-group', messages: subagentGroup })
+    }
+  }
   // The turn's agent-conversation cards stack at the position of the FIRST dispatch, in
   // dispatch order, even though tool rows interleave between them in the raw
   // transcript (each send_session is a tool call followed by its agent-conversation
@@ -62,31 +73,20 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       toolBuf = []
     }
   }
-  const flushSubagents = () => {
-    if (subagentBuf.length > 0) {
-      result.push({ kind: 'subagent-group', messages: [...subagentBuf] })
-      subagentBuf = []
-    }
-  }
   for (const msg of messages) {
     if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
       flushTools()
-      flushSubagents()
       agentConversationGroup = null
       snapshotPlate = null
       documentStack = null
       result.push({ kind: 'question', message: msg })
     } else if (msg.role === 'tool' && msg.subMessages) {
-      // Consecutive sub-agents share one compact surface instead of repeating
-      // card chrome for every member of an orchestrated batch.
       flushTools()
-      subagentBuf.push(msg)
+      openOrGrowSubagents(msg)
     } else if (msg.role === 'tool') {
-      flushSubagents()
       toolBuf.push(msg)
     } else if (msg.agentConversationRef) {
       flushTools()
-      flushSubagents()
       snapshotPlate = null
       documentStack = null
       if (agentConversationGroup) {
@@ -97,8 +97,8 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       }
     } else {
       flushTools()
-      flushSubagents()
       agentConversationGroup = null
+      if (opensTurn(msg)) subagentGroup = null
       if (msg.browserSnapshot) {
         documentStack = null
         openOrGrowPlate(msg)
@@ -135,8 +135,13 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
     }
   }
   flushTools()
-  flushSubagents()
   return result
+}
+
+/** The messages `buildTurns` cuts a new turn at: a prompt, or a divider. */
+function opensTurn(message: Message): boolean {
+  if (message.role === 'user') return !isAgentNotice(message.content)
+  return dividesThread(message)
 }
 
 export function itemKey(item: GroupedItem): string {
@@ -254,8 +259,11 @@ function echoesEnd(item: GroupedItem, end: TurnEnd | null): boolean {
  *  thread, not something that happened inside a turn — so it opens one rather
  *  than sitting in one, and no fold can ever swallow it. */
 function isDivider(item: GroupedItem): boolean {
-  if (item.kind !== 'system') return false
-  const { agentChangedTo, forkSourceSessionId, worktreeMovedTo, newSessionForPlanId } = item.message
+  return item.kind === 'system' && dividesThread(item.message)
+}
+
+function dividesThread(message: Message): boolean {
+  const { agentChangedTo, forkSourceSessionId, worktreeMovedTo, newSessionForPlanId } = message
   return !!(agentChangedTo || forkSourceSessionId || worktreeMovedTo || newSessionForPlanId)
 }
 

@@ -8,6 +8,7 @@ import {
     Clock as ClockIcon,
     Activity as ActivityIcon,
   } from "@lucide/svelte";
+  import type { AttentionKind } from '@solus/contracts/attention-types'
   import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
@@ -92,6 +93,21 @@ export function attentionLabel(state: AttentionState): string {
   if (state === 'unread') return 'finished'
   if (state === 'background') return 'background task running'
   return ''
+}
+
+/** The sidebar state a host attention kind shows as, so a notification about a
+ *  session wears the same glyph and color as that session's sidebar row. The
+ *  sidebar draws a permission and a question with one "needs input" glyph. */
+export function attentionStateForKind(kind: AttentionKind): AttentionState {
+  switch (kind) {
+    case 'needs_approval':
+    case 'question':
+      return 'awaiting'
+    case 'failed':
+      return 'error'
+    case 'finished':
+      return 'unread'
+  }
 }
 
 export function getAttentionIcon(state: AttentionState): StatusIcon | null {

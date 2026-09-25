@@ -19,6 +19,9 @@
     /** The target is a sentence rather than a path or a command, so it takes the
      *  sans face the label uses instead of the mono one. */
     proseTarget?: boolean;
+    /** The target is the agent's own words — its latest thought — so it takes
+     *  the foreground colour instead of the muted caption tone. */
+    foregroundTarget?: boolean;
     /** Right end, outside the disclosure so it can hold a button of its own. */
     actions?: Snippet;
     /** 10.5px mono rail; the run time goes last. */
@@ -43,6 +46,7 @@
     label,
     target,
     proseTarget = false,
+    foregroundTarget = false,
     actions,
     rail,
     detail,
@@ -85,7 +89,7 @@
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>
       {#if target}
-        <span class="activity-target truncate" class:is-prose={proseTarget} class:font-mono={!proseTarget}
+        <span class="activity-target truncate" class:is-prose={proseTarget} class:is-foreground={foregroundTarget} class:font-mono={!proseTarget}
           >{@render target()}</span
         >
       {/if}
@@ -238,6 +242,11 @@
      sentence, and sits on the label's baseline without the nudge above. */
   .activity-target.is-prose {
     translate: none;
+  }
+
+  .activity-target.is-foreground {
+    color: var(--solus-text-primary);
+    opacity: 1;
   }
 
   .activity-rail {

@@ -4415,6 +4415,9 @@ html.is-mac-workspace
   box-shadow: var(--solus-menu-shadow);
   animation: var(--animate-menu-pop-in);
   @media (prefers-reduced-motion: reduce) { animation: none; }
+  /* Electron hit-tests drag regions without z-index, so a menu that drops over
+     the titlebar loses its clicks to window movement unless it opts out. */
+  -webkit-app-region: no-drag;
 }
 
 /* The current row is ink + check — two quiet signals rather than one loud

@@ -4,7 +4,7 @@
   "description": "Solus — Command Line User Interface for Coding Agents.",
   "license": "BUSL-1.1",
   "homepage": "https://solus.sh",
-  "main": "dist/main/index.js",
+  "main": "dist/main/boot.js",
   "workspaces": [
     "apps/*",
     "packages/*"

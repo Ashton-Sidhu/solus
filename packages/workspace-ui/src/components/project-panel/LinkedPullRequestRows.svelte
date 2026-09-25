@@ -250,11 +250,7 @@
         });
         return;
       }
-      const result = await pullRequest.merge(method);
-      if (!result.merged) {
-        toasts.error(result.message ?? "The code host refused the merge.");
-        return;
-      }
+      await pullRequest.merge(method);
       merged = true;
       toasts.success(`Merged #${number}`);
       onMerged();
