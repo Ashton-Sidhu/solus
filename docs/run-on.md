@@ -17,6 +17,10 @@ A folder with no Git remote is its own project on its host.
 A folder becomes a project only when you open, clone, or add it. Sending a
 prompt in a folder does not add it; it moves a known project to the top.
 
+The **Scratchpad** row at the top of the list starts the session with no
+project, in the Scratchpad folder of the Run on host. The row does not show
+when that host does not offer Scratchpad. See [Projects → Scratchpad](projects.md#scratchpad).
+
 ## Run on
 
 The Run on picker lists every host, and ends with **Add a host…**. It shows only
@@ -35,6 +39,10 @@ A cloud host that is not ready shows its state and takes no work. **Add a
 host…** pairs a new host and selects it.
 
 After a session starts, its host is fixed.
+
+On a host where each member uses their own seat, a new session shows **Connect
+Claude** or **Connect Codex** before the first send when you have no seat for
+the chosen agent on the Run on host.
 
 ## Branch and checkout
 

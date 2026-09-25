@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Folder as FolderIcon } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getSurfaceContext } from "../../contexts";
-  import { isWorkspaceDir } from "../../lib/paths";
+  import { connectionsStore, getSurfaceContext } from "../../contexts";
+  import { isChatFolder } from "../../lib/paths";
   import { projectFaviconResolver } from "../../lib/project-favicon";
   import WorkspaceMark from "./WorkspaceMark.svelte";
 
@@ -17,11 +17,6 @@
   } = $props();
 
   const session = getSurfaceContext();
-  // Only the workspace knows its own workspace directory; a client without one
-  // (the cloud console) treats every root as a project.
-  const isWorkspace = $derived(
-    isWorkspaceDir(projectRoot, session.workspace?.staticInfo?.workspacePath),
-  );
   const hasRoot = $derived(projectRoot.startsWith("/"));
   const resolvedServerId = $derived.by(() => {
     const contextualServerId =
@@ -32,6 +27,11 @@
       ? serverConnections.resolveId(contextualServerId)
       : "";
   });
+  // Scratchpad is the chat folder of the host that holds the root; a host that
+  // names none (the cloud console's service) treats every root as a project.
+  const isScratchpad = $derived(
+    isChatFolder(projectRoot, connectionsStore.chatFolderFor(resolvedServerId)),
+  );
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
   let source = $state<{
     key: string;
@@ -43,7 +43,7 @@
     const key = requestKey;
     const faviconServerId = resolvedServerId;
     const root = projectRoot;
-    if (isWorkspace || !hasRoot || !faviconServerId) {
+    if (isScratchpad || !hasRoot || !faviconServerId) {
       source = { key, status: "ready", url: null };
       return;
     }
@@ -73,7 +73,7 @@
 <span
   class="relative inline-flex flex-shrink-0 items-center justify-center {className}"
 >
-  {#if isWorkspace}
+  {#if isScratchpad}
     <WorkspaceMark class="size-full" />
   {:else}
     {#if !hasRoot || (source.key === requestKey && source.status === "ready" && !source.url)}

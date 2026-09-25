@@ -5,6 +5,7 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
+    connectionsStore,
     getSettingsContext,
     getWorkspaceContext,
     getSessionEnvironmentStore,
@@ -27,9 +28,9 @@
   import type { ProjectRef } from "../../contexts";
   import {
     projectHostId,
-    withCheckoutOnHost,
     worktreeBlockedReason,
   } from "../servers/run-on";
+  import { aimRunAtCheckout } from "./lib/project-selection";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
@@ -111,7 +112,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       gitHome.projectRoot ?? projectDir,
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(projectHostId(run ?? session.defaultRunConfig)),
     ),
   );
 
@@ -265,25 +266,13 @@
     serversStore.hostFor(projectHost)?.local ?? true,
   );
 
-  /** Open a project in one of its checkouts. A checkout on the run's own host
-   *  is a folder change; one on another host moves the run there too, which a
-   *  started conversation cannot do — its strip is gone by then. */
+  /** Open a project in one of its checkouts. A started conversation cannot
+   *  move — its strip is gone by then. */
   function selectProject(checkout: ProjectRef) {
-    const current = run ?? session.defaultRunConfig;
-    if (checkout.serverId === current.serverId && !current.pendingHostDispatch) {
-      void session.config.setBaseDirectory(checkout.projectRoot, source).then(
-        () => requestInputFocus(focusTarget),
-        () => {},
-      );
-      return;
-    }
-    applyRun(
-      withCheckoutOnHost(current, checkout.serverId, checkout.projectRoot, {
-        immediate: serversStore.hostFor(checkout.serverId)?.local ?? false,
-        isolate: serversStore.isolatesSessions(checkout.serverId),
-      }),
+    void aimRunAtCheckout(session, environmentStore, source, checkout).then(
+      () => requestInputFocus(focusTarget),
+      () => {},
     );
-    settleOnDestination();
   }
 
   /** The checkout type of the next session, chosen in the branch menu. */

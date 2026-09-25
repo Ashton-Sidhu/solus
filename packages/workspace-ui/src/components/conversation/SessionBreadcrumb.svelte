@@ -23,7 +23,7 @@
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import { connectionsStore, getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -127,7 +127,7 @@
   );
   const projectLabel = $derived(
     draft
-      ? projectDirLabel(projectKey, session.staticInfo?.workspacePath)
+      ? projectDirLabel(projectKey, connectionsStore.chatFolderFor(draft.run.serverId))
       : (task?.projectLabel ?? "~"),
   );
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));

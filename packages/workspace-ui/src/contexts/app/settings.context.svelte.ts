@@ -444,6 +444,9 @@ const DEVICE_FIELDS = {
   // session opened with nothing on screen to follow starts here. Device-local:
   // a server id only means something to the client that registered it.
   lastProject: deviceField<ProjectLocation | null>(projectLocationSchema.nullable().catch(null), null),
+  // The host the last Scratchpad chat started on. "Just chat" goes back there
+  // while it is up. Device-local for the same reason as `lastProject`.
+  lastChatServerId: deviceField<string | null>(z.string().nullable().catch(null), null),
   // First-run onboarding has already been through, or skipped. A client that
   // has never persisted settings is a fresh install, so the absence of the
   // whole blob is what means "show it" — a saved blob without this key belongs

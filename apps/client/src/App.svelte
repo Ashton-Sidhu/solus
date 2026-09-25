@@ -63,6 +63,7 @@
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
+  import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createWebProjectPicker } from "./components/projects/lib/project-picker.svelte";
@@ -622,6 +623,7 @@
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
+    justChatCommand(session),
     {
       id: "workspace",
       label: "Open workspace",

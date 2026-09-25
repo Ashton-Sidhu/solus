@@ -16,24 +16,31 @@ export function truncateMiddle(value: string, maxLength = 48): string {
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`
 }
 
-/** True when a working directory is the default "My Workspace" directory. */
-export function isWorkspaceDir(
+/** What every client calls the place a session with no project runs. */
+export const SCRATCHPAD_LABEL = 'Scratchpad'
+
+/**
+ * True when a working directory is the chat folder behind Scratchpad. Pass the
+ * chat folder of the host that owns the path: each host, and each member on a
+ * shared host, has its own.
+ */
+export function isChatFolder(
   path: string | null | undefined,
-  workspacePath: string | null | undefined,
+  chatFolder: string | null | undefined,
 ): boolean {
-  if (!path || !workspacePath) return false
-  return path.replace(/\/+$/, '') === workspacePath.replace(/\/+$/, '')
+  if (!path || !chatFolder) return false
+  return path.replace(/\/+$/, '') === chatFolder.replace(/\/+$/, '')
 }
 
 /**
- * Display name for a working directory: the friendly "My Workspace" label when
- * the path is the default workspace, otherwise the home-abbreviated path.
+ * Display name for a working directory: "Scratchpad" when the path is the
+ * host's chat folder, otherwise the home-abbreviated path.
  */
 export function displayDirName(
   path: string | null | undefined,
-  workspacePath: string | null | undefined,
+  chatFolder: string | null | undefined,
 ): string {
-  if (isWorkspaceDir(path, workspacePath)) return 'My Workspace'
+  if (isChatFolder(path, chatFolder)) return SCRATCHPAD_LABEL
   return abbreviateHome(path)
 }
 
@@ -44,9 +51,9 @@ export function displayDirName(
  */
 export function projectDirLabel(
   path: string | null | undefined,
-  workspacePath: string | null | undefined,
+  chatFolder: string | null | undefined,
 ): string {
-  if (isWorkspaceDir(path, workspacePath)) return 'My Workspace'
+  if (isChatFolder(path, chatFolder)) return SCRATCHPAD_LABEL
   const dir = path?.replace(/\/+$/, '')
   if (!dir || dir === '~') return '~'
   return dir.split('/').pop() || abbreviateHome(dir)

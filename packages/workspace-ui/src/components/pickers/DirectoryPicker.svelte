@@ -26,7 +26,7 @@
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
-  import { abbreviateHome } from "../../lib/paths";
+  import { abbreviateHome, SCRATCHPAD_LABEL } from "../../lib/paths";
   import Kbd from "../ui/Kbd.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import type { DirectoryEntry } from "@solus/contracts/types";
@@ -263,11 +263,11 @@
         resolvedHomePath,
         hostPlatform,
       )[0]?.path;
-      // My Workspace pins to the top: it is the app's default working directory,
-      // always present on the host, and never surfaces in recents.
+      // Scratchpad pins to the top: the host's chat folder, always present
+      // there, and never surfaces in recents.
       const workspaceLocation = capabilities?.workspacePath
         ? {
-            label: "My Workspace",
+            label: SCRATCHPAD_LABEL,
             path: ensureDirectoryPath(capabilities.workspacePath, hostPlatform),
             icon: "workspace" as const,
           }

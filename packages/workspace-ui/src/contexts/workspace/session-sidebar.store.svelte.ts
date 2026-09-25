@@ -33,6 +33,8 @@ import {
 } from '../../components/session/lib/task-list'
 import { draftTitle, type DraftRow } from '../../components/session/lib/draft-list'
 import { projectsStore } from '../projects/projects.store.svelte'
+import { connectionsStore } from '../connections/connections.store.svelte'
+import { isChatFolder, SCRATCHPAD_LABEL } from '../../lib/paths'
 import { pickerProjectChoices as buildPickerProjectChoices } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
 import {
@@ -123,7 +125,10 @@ export type SidebarSessionChild = {
   runnerOffline?: boolean
 }
 
-function projectLabel(projectKey: string): string {
+/** A row's project name. A chat reads "Scratchpad" against the chat folder of
+ *  its own host, so a chat on any host is named the same way. */
+function projectLabel(projectKey: string, serverId: string | null | undefined): string {
+  if (isChatFolder(projectKey, connectionsStore.chatFolderFor(serverId))) return SCRATCHPAD_LABEL
   return projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
 }
 
@@ -379,7 +384,7 @@ export class SessionSidebarStore {
       key: task.id,
       title: task.title,
       projectKey,
-      projectLabel: projectLabel(projectKey),
+      projectLabel: projectLabel(projectKey, serverId ?? linkedServerId),
       groupKey: this.session.tasksStore.projectKeyOf(task) ?? projectKey,
       branchName: null,
       serverId: serverId ?? linkedServerId,
@@ -480,7 +485,7 @@ export class SessionSidebarStore {
         key: tabId,
         title: sessionTitle(session),
         projectKey,
-        projectLabel: projectLabel(projectKey),
+        projectLabel: projectLabel(projectKey, session.run.serverId),
         groupKey: projectKey === '~' ? projectKey : projectsStore.projectKeyFor(session.run.serverId, projectKey),
         branchName: environment.branch,
         serverId: session.run.serverId ?? null,
@@ -575,7 +580,7 @@ export class SessionSidebarStore {
       run.projectGroupPath,
     )
     if (!projectKey || projectKey === '~') return null
-    return { projectKey, label: projectLabel(projectKey), count: 0 }
+    return { projectKey, label: projectLabel(projectKey, run.serverId), count: 0 }
   })
 
   /** The projects the task picker offers as a scope. Built from what that
@@ -675,7 +680,7 @@ export class SessionSidebarStore {
         draftId: draft.id,
         title: draftTitle(draft.prompt),
         projectKey,
-        projectLabel: projectLabel(projectKey),
+        projectLabel: projectLabel(projectKey, draft.run.serverId),
         serverId: draft.run.serverId,
         hasAttachments: draft.prompt.attachments.length > 0,
       })

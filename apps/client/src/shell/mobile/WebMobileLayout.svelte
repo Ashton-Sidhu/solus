@@ -13,6 +13,7 @@
   import InputBarHeader from "@solus/workspace-ui/components/input/InputBarHeader.svelte";
   import GoalSection from "@solus/workspace-ui/components/project-panel/GoalSection.svelte";
   import {
+    connectionsStore,
     getWorkspaceContext,
     getPullRequestsContext,
     getSessionEnvironmentStore,
@@ -118,7 +119,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       activeRun?.gitContext?.repoRoot ?? activeRun?.workingDirectory ?? "~",
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(activeRun?.serverId),
     ),
   );
   const headerTask = $derived(

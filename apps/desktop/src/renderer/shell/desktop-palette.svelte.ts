@@ -33,6 +33,7 @@ import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/o
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
 import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
+import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
 import {
   activeSessionShareTarget,
   projectsStore,
@@ -256,6 +257,7 @@ export function createDesktopPalette(
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
+    justChatCommand(session),
     {
       id: "save-prompt",
       label: "Save prompt",
