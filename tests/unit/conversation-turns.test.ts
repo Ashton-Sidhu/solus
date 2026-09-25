@@ -686,3 +686,56 @@ describe('document stack', () => {
     expect(itemKey(turn.visibleWhenCollapsed[0])).toBe(`ds-${turn.body[0].kind === 'document' ? turn.body[0].messages[0].id : ''}`)
   })
 })
+
+describe('subagent card', () => {
+  function launch(description: string): Message {
+    return {
+      ...msg({ role: 'tool', toolName: 'Agent', toolInput: JSON.stringify({ description }) }),
+      toolStatus: 'completed',
+      subMessages: [],
+      subagentType: 'claude',
+    }
+  }
+
+  test('launches separated by a tool call and by prose are one card at the first launch', () => {
+    // WHY: one turn's delegation is one decision. A Read or a sentence between
+    // two launches used to cut the card in two, so the reader saw two fan-outs
+    // for a single batch of agents. The steps between still render in order.
+    const first = launch('audit the tokens')
+    const second = launch('audit the call sites')
+    const third = launch('audit the tests')
+    const items = groupMessages([
+      msg({ role: 'user', content: 'audit the drift' }),
+      first,
+      tool('Read', '{"file_path":"index.css"}'),
+      second,
+      msg({ role: 'assistant', content: 'One more agent for the tests.' }),
+      third,
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'subagent-group', 'tool-group', 'assistant'])
+    const card = items[1]
+    expect(card.kind === 'subagent-group' && card.messages).toEqual([first, second, third])
+    // The card keeps the first launch's key, so its disclosure state survives
+    // later launches joining it.
+    expect(itemKey(card)).toBe(`sg-${first.id}`)
+  })
+
+  test('launches in different turns are separate cards', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'audit the tokens' }),
+      launch('audit the tokens'),
+      msg({ role: 'assistant', content: 'Done.' }),
+      msg({ role: 'user', content: 'now the tests' }),
+      launch('audit the tests'),
+      msg({ role: 'assistant', content: 'Done.' }),
+    ])
+
+    expect(turns).toHaveLength(2)
+    for (const turn of turns) {
+      const cards = turn.body.filter((item) => item.kind === 'subagent-group')
+      expect(cards).toHaveLength(1)
+      expect(cards[0].kind === 'subagent-group' && cards[0].messages).toHaveLength(1)
+    }
+  })
+})

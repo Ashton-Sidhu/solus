@@ -85,6 +85,11 @@ Sub-agent cards carry no status word: the glyph is the status (a spinner while
 running, a check when returned, a warning when failed). Their rail leads with the
 provider's mark and the model's name, then steps and time.
 
+All sub-agents that one turn launches share one card, with one row for each
+agent. The card stays at the position of the first launch. Tool calls and prose
+between two launches do not start a second card; they show in order below the
+card. A new turn starts a new card.
+
 The agent conversation card is header-only. Its dialogue is read in the agent's
 own session, which a click on the card opens. A body appears only when the other
 agent waits on a person here (a request or a plan decision).
