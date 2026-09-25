@@ -22,7 +22,7 @@ describe('desktop package contents', () => {
     // An exclusion-only platform override makes electron-builder include **/*.
     expect(matcher.containsOnlyIgnore()).toBe(false)
     const includes = matcher.createFilter()
-    for (const name of ['dist/main/index.js', 'dist/renderer/index.html', 'dist/client/index.html', 'dist/preload/index.js', 'resources/plugins/solus/plugin.json', 'package.json']) {
+    for (const name of ['dist/main/boot.js', 'dist/main/index.js', 'dist/renderer/index.html', 'dist/client/index.html', 'dist/preload/index.js', 'resources/plugins/solus/plugin.json', 'package.json']) {
       expect(includes(join(root, name), fileStat)).toBe(true)
     }
     for (const name of ['.env', '.solus-local/solus.db', 'dev.log', 'release/old.app/Contents/Resources/app.asar', 'packages/server/src/control-plane.ts', 'dist/main/index.js.map']) {
