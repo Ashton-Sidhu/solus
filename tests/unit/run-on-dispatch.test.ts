@@ -69,7 +69,6 @@ describe('choosing which host a tab will run on', () => {
       serverId: 'studio',
       isLocalHost: false,
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(result).toEqual({ ok: false, reason: 'no-path-on-host' })
@@ -90,7 +89,6 @@ describe('choosing which host a tab will run on', () => {
       path: '/srv/projects/solus',
       repoKey: 'github.com/solus-sh/solus',
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(result).toEqual({ ok: true })
@@ -115,7 +113,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: '/srv/projects/solus',
       intent: 'dispatch',
-      isolate: false,
     })
 
     const openedThere = workspaceWith({})
@@ -126,7 +123,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: '/srv/projects/solus',
       intent: 'open-project',
-      isolate: false,
     })
 
     expect(dispatched.session.run.serverId).toBe('studio')
@@ -138,8 +134,9 @@ describe('choosing which host a tab will run on', () => {
     expect(openedThere.session.run.serverId).toBe('studio')
     expect(openedThere.session.run.taskServerId).toBe('studio')
     // WHY: tasks are project-scoped. A tab moved to another project must not
-    // send its first prompt into the task selected in the project it left.
-    expect(openedThere.session.task).toEqual({ kind: 'new' })
+    // send its first prompt into the task selected in the project it left, and
+    // a session makes no task of its own.
+    expect(openedThere.session.task).toEqual({ kind: 'none' })
     expect(isDispatch(openedThere.session.run)).toBe(false)
     // WHY: a project that merely lives elsewhere is no different from a local
     // one, so worktree mode stays the user's choice rather than being forced.
@@ -160,7 +157,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: '/srv/projects/solus',
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(session.run.gitContext).toBeNull()
@@ -190,7 +186,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: '/srv/projects/solus/.git/solus/worktrees/release',
       intent: 'dispatch',
-      isolate: false,
     })
 
     // WHY: host preparation has already materialized origin/release as the
@@ -233,7 +228,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: selectedPath,
       intent: 'dispatch',
-      isolate: false,
     })
 
     // WHY: reusing an existing worktree must not create another one, and the Git
@@ -256,7 +250,6 @@ describe('choosing which host a tab will run on', () => {
       serverId: 'studio',
       isLocalHost: false,
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(result).toEqual({ ok: true })
@@ -281,7 +274,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: false,
       path: '/srv/projects/solus',
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(connectionCalls).not.toContain('release:local')
@@ -293,7 +285,6 @@ describe('choosing which host a tab will run on', () => {
       isLocalHost: true,
       path: '/home/dev/solus',
       intent: 'dispatch',
-      isolate: false,
     })
 
     expect(connectionCalls).toContain('release:studio')

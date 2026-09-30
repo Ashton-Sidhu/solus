@@ -6,10 +6,20 @@
   import { assistantMarkdownOptions, assistantMarkdownExtensions } from "../../conversation/lib/assistant-markdown";
   import UserMessageBubble from "../../conversation/UserMessageBubble.svelte";
   import ToolGroupItem from "../../conversation/ToolGroupItem.svelte";
+  import ThoughtRow from "../../conversation/ThoughtRow.svelte";
   import AnsweredQuestion from "../../conversation/AnsweredQuestion.svelte";
   import FencedBlock from "../../conversation/FencedBlock.svelte";
   import MarkdownLink from "../../conversation/MarkdownLink.svelte";
   import CodeSpan from "../../ui/CodeSpan.svelte";
+  import TranscriptTable from "../../conversation/TranscriptTable.svelte";
+  import AssistantAlert from "../../conversation/AssistantAlert.svelte";
+  import FootnoteRef from "../../conversation/FootnoteRef.svelte";
+  import FootnoteSection from "../../conversation/FootnoteSection.svelte";
+  import {
+    ALERT_TOKEN,
+    FOOTNOTE_REF_TOKEN,
+    FOOTNOTE_SECTION_TOKEN,
+  } from "../../conversation/lib/markdown-extensions";
 
   /**
    * A transcript with no tab behind it: the cloud's mirror of a session whose
@@ -21,7 +31,15 @@
   let { messages }: { messages: Message[] } = $props();
 
   const items = $derived(groupMessages(messages));
-  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink };
+  const markdownRenderers = {
+    code: FencedBlock,
+    codespan: CodeSpan,
+    link: MarkdownLink,
+    table: TranscriptTable,
+    [ALERT_TOKEN]: AssistantAlert,
+    [FOOTNOTE_REF_TOKEN]: FootnoteRef,
+    [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
+  };
 </script>
 
 <div class="flex flex-col" data-testid="session-record-transcript">
@@ -40,9 +58,13 @@
           />
         </div>
       {/if}
+    {:else if item.kind === "thought"}
+      <ThoughtRow message={item.message} skipMotion />
     {:else if item.kind === "question"}
       <AnsweredQuestion message={item.message} />
-    {:else if item.kind === "tool-group" || item.kind === "subagent-group"}
+    {:else if item.kind === "tool-group"}
+      <ToolGroupItem tools={item.messages} steps={item.steps} skipMotion />
+    {:else if item.kind === "subagent-group"}
       <ToolGroupItem tools={item.messages} skipMotion />
     {:else if item.kind === "system"}
       {#if item.message.content}

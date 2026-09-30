@@ -1,6 +1,17 @@
-import { describe, expect, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
-import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { afterAll, describe, expect, test } from 'bun:test'
+import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
+
+// The store's import chain reaches module-level stores built with `$state`,
+// which only the Svelte compiler provides. Bun runs the source as written, so
+// the rune is stood in for before the chain loads, as tab-registry.test.ts does.
+const runes = globalThis as unknown as { $state?: unknown }
+const previousState = runes.$state
+runes.$state = <T>(value: T) => value
+const { SessionSidebarStore } = await import('@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte')
+afterAll(() => {
+  if (previousState === undefined) delete runes.$state
+  else runes.$state = previousState
+})
 
 type RowVisibilityHarness = {
   session: unknown
@@ -15,7 +26,6 @@ function task(id: string): Task {
     id,
     providerId: 'local',
     projectKey: '/repo',
-    kind: 'task',
     title: id,
     body: '',
     status: 'in_progress',
@@ -25,50 +35,55 @@ function task(id: string): Task {
   }
 }
 
-function store(pendingTaskIds: string[], openTaskIds: string[] = []): RowVisibilityHarness {
+function link(sessionId: string, role: TaskSessionLink['role']): TaskSessionLink {
+  // SAFETY: the rule reads only a link's session and role.
+  return { sessionId, role } as TaskSessionLink
+}
+
+function store(options: {
+  links?: TaskSessionLink[]
+  pendingTaskIds?: string[]
+  openTaskIds?: string[]
+  dismissed?: string[]
+} = {}): RowVisibilityHarness {
   const harness = Object.create(SessionSidebarStore.prototype) as RowVisibilityHarness
   harness.session = {
-    tasksStore: {
-      byParent: new Map(),
-      // No session is linked yet: the task was minted a moment ago.
-      get: () => ({ sessions: [] }),
-    },
+    tasksStore: { get: () => ({ sessions: options.links ?? [] }) },
+    sessionFor: () => undefined,
   }
-  harness.pendingTabByTaskId = new Map(pendingTaskIds.map((taskId) => [taskId, [`tab-for-${taskId}`]]))
-  harness.dismissedRowKeys = new Set()
-  harness.openTaskIds = new Set(openTaskIds)
+  harness.pendingTabByTaskId = new Map((options.pendingTaskIds ?? []).map((taskId) => [taskId, [`tab-for-${taskId}`]]))
+  harness.dismissedRowKeys = new Set(options.dismissed ?? [])
+  harness.openTaskIds = new Set(options.openTaskIds ?? [])
   return harness
 }
 
-describe('a new session becoming a task row', () => {
-  test('the task row shows in the same pass that retires the loose row', () => {
-    // WHY: the loose row leaves as soon as the session names its task, but the
-    // task used to wait for an effect to add it to the open set. For one render
-    // the session had no row at all, so the list faded it out and back in.
-    const minted = task('minted')
-    expect(store(['minted']).isDurableRowShown(minted, new Map())).toBe(true)
+const mounted = new Map([['worker', 'worker-tab'], ['lead', 'lead-tab']])
+
+describe('which tasks have a row in the Tasks section', () => {
+  test("a task's other session does not open the task here", () => {
+    // WHY: the Tasks section lists the tasks a person opened. A session that
+    // is only linked to a task keeps its own row in Sessions, with the task on
+    // a chip, until the task is opened (docs/plans/task-conversation.md,
+    // decision 5).
+    expect(store({ links: [link('worker', 'working')] }).isDurableRowShown(task('linked'), mounted)).toBe(false)
+    expect(store({ pendingTaskIds: ['linked'] }).isDurableRowShown(task('linked'), new Map())).toBe(false)
   })
 
-  test('a task nobody has open and no tab waits on stays off the column', () => {
-    expect(store([]).isDurableRowShown(task('elsewhere'), new Map())).toBe(false)
+  test('a task nobody has open stays off the column', () => {
+    expect(store().isDurableRowShown(task('elsewhere'), new Map())).toBe(false)
   })
 
-  test('a task already open on this client still shows without a waiting tab', () => {
-    expect(store([], ['open']).isDurableRowShown(task('open'), new Map())).toBe(true)
+  test('a task opened on this client has a row, with or without a session', () => {
+    expect(store({ openTaskIds: ['open'] }).isDurableRowShown(task('open'), new Map())).toBe(true)
+    expect(store({ links: [link('worker', 'working')], openTaskIds: ['open'] }).isDurableRowShown(task('open'), mounted))
+      .toBe(true)
   })
 
-  test('a task shows while one of its sessions is open in a tab, with no copy in the open set', () => {
-    // WHY: the open set is written only when a tab closes. While the tab is
-    // open, the tab itself is what puts the row in the column.
-    const linked = store([])
-    linked.session = {
-      tasksStore: {
-        byParent: new Map(),
-        get: () => ({ sessions: [{ sessionId: 'session-1', role: 'working' }] }),
-      },
-    }
-    expect(linked.isDurableRowShown(task('linked'), new Map([['session-1', 'tab-1']]))).toBe(true)
-    expect(linked.isDurableRowShown(task('linked'), new Map())).toBe(false)
+  test('a mounted lead opens its task, even after the row was removed', () => {
+    // The row stands for the lead's conversation, so an open lead is a row.
+    const led = store({ links: [link('lead', 'lead')], dismissed: ['led'] })
+    expect(led.isDurableRowShown(task('led'), mounted)).toBe(true)
+    expect(led.isDurableRowShown(task('led'), new Map())).toBe(false)
   })
 })
 

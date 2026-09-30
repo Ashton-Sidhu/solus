@@ -44,5 +44,18 @@
   "overrides": [{
     "files": ["packages/server/src/typesafe/index.ts"],
     "rules": { "no-restricted-imports": "off" }
+  }, {
+    "files": ["packages/document-model/**"],
+    "rules": {
+      "no-restricted-imports": ["error", {
+        "patterns": [{
+          "group": ["svelte", "svelte/*", "*.svelte", "electron", "@solus/workspace-ui", "@solus/workspace-ui/*", "@solus/client-core", "@solus/client-core/*", "@solus/server", "@solus/server/*"],
+          "message": "The document model is shared by the host and every client: it imports no Svelte, browser, Electron, workspace, or server module."
+        }, {
+          "group": ["@typesafe-ai/sdk", "@typesafe-ai/sdk/*"],
+          "message": "Use @solus/server/typesafe/index so TypeSafe calls share one server interface."
+        }]
+      }]
+    }
   }]
 }

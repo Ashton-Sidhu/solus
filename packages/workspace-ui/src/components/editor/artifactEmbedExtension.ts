@@ -1,6 +1,5 @@
-import { Node, mergeAttributes } from '@tiptap/core'
 import { mount, unmount } from 'svelte'
-import { parseWorkEmbed, serializeWorkEmbed } from '@solus/contracts/work-embed'
+import { ArtifactEmbed } from '@solus/document-model/blocks'
 import ArtifactEmbedNodeView from './ArtifactEmbedNodeView.svelte'
 import type { WorkEmbedSource } from './lib/work-embed'
 
@@ -13,76 +12,10 @@ interface ArtifactEmbedExtensionOptions {
   isDark: () => boolean
 }
 
-export const ArtifactEmbedMarkdownExtension = Node.create({
-  name: 'artifactEmbed',
-  group: 'block',
-  atom: true,
-  selectable: true,
-  draggable: true,
-
-  addAttributes() {
-    return {
-      workId: { default: null },
-      title: { default: '' },
-    }
-  },
-
-  markdownTokenizer: {
-    name: 'artifactEmbed',
-    level: 'block',
-    start: (src: string) => /^\s*\[/.exec(src)?.index ?? -1,
-    tokenize(src: string) {
-      const newline = src.indexOf('\n')
-      const line = newline === -1 ? src : src.slice(0, newline)
-      const reference = parseWorkEmbed(line)
-      // The diagram tokenizer starts on `[` too. Declining the other member of
-      // the family is what keeps one from swallowing the other's lines.
-      if (reference?.type !== 'artifact') return undefined
-      const raw = newline === -1 ? line : `${line}\n`
-      return { type: 'artifactEmbed', raw, reference }
-    },
-  },
-
-  parseMarkdown(token) {
-    return {
-      type: 'artifactEmbed',
-      attrs: {
-        workId: String(token.reference?.workId ?? ''),
-        title: String(token.reference?.title ?? ''),
-      },
-    }
-  },
-
-  renderMarkdown(node) {
-    return serializeWorkEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-      type: 'artifact',
-    })
-  },
-
-  renderText({ node }) {
-    return serializeWorkEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-      type: 'artifact',
-    })
-  },
-
-  parseHTML() {
-    return [{ tag: 'div[data-artifact-embed]' }]
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, {
-      'data-artifact-embed': node.attrs.workId,
-      'data-artifact-title': node.attrs.title,
-    })]
-  },
-})
-
+/** An embedded artifact, rendered from its work. The node and its markdown
+ *  are the document model's. */
 export function createArtifactEmbedExtension(options: ArtifactEmbedExtensionOptions) {
-  return ArtifactEmbedMarkdownExtension.extend({
+  return ArtifactEmbed.extend({
     addNodeView() {
       return ({ node }) => {
         const dom = document.createElement('div')

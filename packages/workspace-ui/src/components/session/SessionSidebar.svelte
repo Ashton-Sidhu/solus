@@ -41,6 +41,7 @@
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import SidebarNavContextMenu from "./SidebarNavContextMenu.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
+  import PrContextMenu from "./PrContextMenu.svelte";
   import TaskActionBar from "./TaskActionBar.svelte";
   import TaskRow from "./TaskRow.svelte";
   import DraftRow from "./DraftRow.svelte";
@@ -55,8 +56,8 @@
   import { taskPrNavigation } from "./lib/pr-navigation";
   import { openNavPage, type NavPage } from "../../lib/page-nav";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import {
-    hasDisclosure,
     filterSidebarTasks,
     prChipForChoices,
     type TaskPrChoice,
@@ -64,7 +65,11 @@
   } from "./lib/task-list";
   import { treeKeyIntent } from "./lib/task-tree-keys";
   import { sidebarListMotion } from "./lib/sidebar-list-motion.svelte";
-  import { buildSidebarListItems, sidebarListOrderKey } from "./lib/sidebar-list-items";
+  import {
+    buildSidebarListItems,
+    sidebarListOrderKey,
+    type SidebarSection,
+  } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import * as TooltipUI from "../ui/tooltip";
 
@@ -91,6 +96,9 @@
       session.ctx,
     ),
   );
+  $effect(() => pullRequests.needsReview.wantShown(session));
+  // Works a teammate asked the reader to review, on every host.
+  const reviewInboxCount = $derived(session.worksStore.reviews.inbox.length);
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let sessionContextMenu = $state<
@@ -109,12 +117,18 @@
         y: number;
       }
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
+    | {
+        kind: "pull-request";
+        row: SidebarTask;
+        choice: TaskPrChoice;
+        x: number;
+        y: number;
+      }
     | null
   >(null);
   let navContextMenu = $state<
     { page: NavPage; x: number; y: number } | null
   >(null);
-  const expandedTaskIds = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
    *  where it sits, so two open editors would be two claims on the same name.
    *  A durable row is named by its task, which outlives any session it has open
@@ -138,8 +152,18 @@
     requestInputFocus();
   }
   let savedSessionsOpen = $state(false);
+  /** Open by default: tasks and sessions are live work, not history put away. */
+  let tasksSectionOpen = $state(true);
+  let sessionsSectionOpen = $state(true);
   let snoozedShelfOpen = $state(false);
   let completedShelfOpen = $state(false);
+
+  function toggleSection(section: SidebarSection) {
+    if (section === "tasks") tasksSectionOpen = !tasksSectionOpen;
+    else if (section === "sessions") sessionsSectionOpen = !sessionsSectionOpen;
+    else if (section === "snoozed") snoozedShelfOpen = !snoozedShelfOpen;
+    else completedShelfOpen = !completedShelfOpen;
+  }
   /** A snoozable row. Snoozing hides a row under the Snoozed shelf until its
    *  wake time; it says nothing about the work, so a row needs no task to have
    *  one — only a key this column can recognise it by. */
@@ -152,9 +176,16 @@
   let taskQuery = $state("");
   let sidebarNow = $state(Date.now());
   let taskSearchEl = $state<HTMLInputElement | null>(null);
-  const searchedTasks = $derived(
-    filterSidebarTasks(sidebarStore.visibleTasks, taskQuery),
+  const searchedTaskRows = $derived(
+    filterSidebarTasks(sidebarStore.taskRows, taskQuery),
   );
+  const searchedSessionRows = $derived(
+    filterSidebarTasks(sidebarStore.sessionRows, taskQuery),
+  );
+  /** Every open row in list order: tasks, then sessions. Selection ranges,
+   *  bulk actions and "the next row" all read this one order. */
+  const openRows = $derived([...searchedTaskRows, ...searchedSessionRows]);
+  const isSearching = $derived(taskQuery.trim().length > 0);
   const searchedSnoozedTasks = $derived(
     filterSidebarTasks(sidebarStore.snoozedTasks, taskQuery),
   );
@@ -172,17 +203,20 @@
    *  quiet shelf collapsed. Keep the manual preference separate so clearing
    *  the query restores the shelf to the state it had before the search. */
   const isCompletedShelfExpanded = $derived(
-    completedShelfOpen ||
-      (taskQuery.trim().length > 0 && searchedCompletedTasks.length > 0),
+    completedShelfOpen || (isSearching && searchedCompletedTasks.length > 0),
   );
-  /** Drafts, the active column, and both shelves as one list, so every change
-   *  between them animates as a change of order (docs/plans/sidebar-motion.md). */
+  /** Drafts, the Tasks section, the Sessions section, and both shelves as one
+   *  list, so every change between them animates as a change of order
+   *  (docs/plans/sidebar-motion.md). */
   const listItems = $derived(
     buildSidebarListItems({
       drafts: sidebarStore.draftRows,
-      active: session.tasksStore.loaded ? searchedTasks : [],
+      tasks: session.tasksStore.loaded ? searchedTaskRows : [],
+      sessions: session.tasksStore.loaded ? searchedSessionRows : [],
       snoozed: searchedSnoozedTasks,
       completed: searchedCompletedTasks,
+      isTasksOpen: tasksSectionOpen || isSearching,
+      isSessionsOpen: sessionsSectionOpen || isSearching,
       isSnoozedOpen: snoozedShelfOpen,
       isCompletedOpen: isCompletedShelfExpanded,
       shelfRevealTaskId: sidebarStore.shelfRevealTaskId,
@@ -191,7 +225,7 @@
   const selectedTaskIds = new SvelteSet<string>();
   let selectionAnchorId = $state<string | null>(null);
   $effect(() => {
-    const visibleIds = new Set(searchedTasks.map((task) => task.id));
+    const visibleIds = new Set(openRows.map((task) => task.id));
     for (const taskId of selectedTaskIds) {
       if (!visibleIds.has(taskId)) selectedTaskIds.delete(taskId);
     }
@@ -211,11 +245,6 @@
   // A filled badge here would be the brightest thing above the list and would
   // compete with the status marks, which are what the eye is meant to count.
 
-  function toggleExpand(taskId: string) {
-    if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
-    else expandedTaskIds.add(taskId);
-  }
-
   onMount(() => {
     const clock = window.setInterval(() => {
       sidebarNow = Date.now();
@@ -224,22 +253,25 @@
   });
 
   onMount(() => {
-    const expandPickedTask = (event: Event) => {
+    const revealPickedTask = (event: Event) => {
       const taskId = event instanceof CustomEvent ? event.detail : undefined;
       if (!taskId) return;
-      expandedTaskIds.add(taskId);
-      // The picked task may sit inside a collapsed shelf — a finished task in
-      // Completed, a sleeping one in Snoozed. Open the shelf that holds it so
+      // The picked task may sit inside a collapsed section — a finished task in
+      // Completed, a sleeping one in Snoozed. Open the section that holds it so
       // the row the picker just restored and highlighted is actually on screen.
       if (sidebarStore.completedTasks.some((task) => task.id === taskId)) {
         completedShelfOpen = true;
       } else if (sidebarStore.snoozedTasks.some((task) => task.id === taskId)) {
         snoozedShelfOpen = true;
+      } else if (sidebarStore.taskRows.some((task) => task.id === taskId)) {
+        tasksSectionOpen = true;
+      } else if (sidebarStore.sessionRows.some((task) => task.id === taskId)) {
+        sessionsSectionOpen = true;
       }
     };
-    window.addEventListener("solus:expand-sidebar-task", expandPickedTask);
+    window.addEventListener("solus:reveal-sidebar-task", revealPickedTask);
     return () =>
-      window.removeEventListener("solus:expand-sidebar-task", expandPickedTask);
+      window.removeEventListener("solus:reveal-sidebar-task", revealPickedTask);
   });
 
   /** Scoping the column produces a different list, so an offset into the old
@@ -256,8 +288,18 @@
     requestInputFocus();
   }
 
-  function newTask() {
+  function newSession() {
     session.drafts.openSessionDraft({ freshTask: true, via: "click" });
+  }
+
+  /** The task a session's chip names, beside the session where the shell has
+   *  a companion pane. The session stays on screen. */
+  function openLinkedTask(taskId: string) {
+    session.goToTask(
+      taskId,
+      "click",
+      session.hasCompanionPanes ? "secondary" : "leading",
+    );
   }
 
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
@@ -323,20 +365,13 @@
     });
   });
 
-  /** A task-row activation has two explicit effects: toggle its disclosure,
-   *  then navigate to its best session. The stable task id keeps the first
-   *  effect independent from any branch/session changes caused by the second.
-   *
-   *  The two are also worlds apart in cost. Disclosure is a few rows in this
-   *  column; navigation swaps the conversation, the diff pane and the focused
-   *  input, and for a task with nothing mounted it waits on an IPC round trip
-   *  first. Run in the same tick they land in one paint, so the caret appears
-   *  only once the whole app has finished switching — which is what made the
-   *  tree feel slow. The disclosure gets its own frame, and navigation follows
-   *  on the next one, by which time the row has already answered the click. */
+  /** A row activation navigates: a task row opens its lead with the task page
+   *  beside it, a session row opens its conversation. Navigation swaps the
+   *  conversation, the companion pane and the focused input, and for a row
+   *  with nothing mounted it waits on an IPC round trip first. It runs two
+   *  frames later, so the row answers the click before the app switches. */
   function activateTask(task: SidebarTask) {
-    if (task.taskId) sidebarStore.acknowledgeTask(task.taskId);
-    if (hasDisclosure(sidebarStore.sessionsFor(task))) toggleExpand(task.id);
+    sidebarStore.acknowledgeRow(task);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         // A fast double-click can enter rename mode before the first click's
@@ -357,7 +392,7 @@
       return;
     }
     if (event?.shiftKey && selectionAnchorId) {
-      const rows = searchedTasks;
+      const rows = openRows;
       const from = rows.findIndex((row) => row.id === selectionAnchorId);
       const to = rows.findIndex((row) => row.id === task.id);
       if (from >= 0 && to >= 0) {
@@ -377,27 +412,28 @@
   }
 
   function selectedTasks(): SidebarTask[] {
-    return searchedTasks.filter((task) => selectedTaskIds.has(task.id));
+    return openRows.filter((task) => selectedTaskIds.has(task.id));
   }
 
   async function bulkComplete() {
     const rows = selectedTasks();
-    const wasSelected = rows.some((task) =>
+    const onScreenRow = rows.find((task) =>
       task.tabIds.includes(session.onScreenTabId),
     );
-    const next =
-      searchedTasks.find((task) => !selectedTaskIds.has(task.id)) ?? null;
-    const blocked = rows.find(
-      (task) => completionBlocked(task.attention) || !task.taskId,
-    );
+    const wasSelected = !!onScreenRow;
+    const next = onScreenRow
+      ? nextTaskAfterLeaving(openRows, onScreenRow.id, selectedTaskIds)
+      : null;
+    const blocked = rows.find((task) => completionBlocked(task.attention));
     if (blocked) {
       toasts.error(`“${blocked.title}” cannot be completed right now.`);
       return;
     }
     for (const row of rows) {
       try {
-        await session.tasksStore.get(row.taskId!).setStatus("done");
-        sidebarStore.closeTabs(row.tabIds);
+        // A task moves to Completed. A session with no task has no record to
+        // mark, so completing it closes it.
+        await sidebarStore.completeTask(row);
       } catch (error) {
         toasts.error(`Stopped after “${row.title}”`, {
           description: error instanceof Error ? error.message : String(error),
@@ -427,11 +463,15 @@
   }
 
   function bulkDelete() {
-    const ids = selectedTasks().flatMap((task) =>
-      task.taskId ? [task.taskId] : [],
-    );
+    const rows = selectedTasks();
+    const ids = rows.flatMap((task) => (task.taskId ? [task.taskId] : []));
     selectedTaskIds.clear();
-    const pending = session.tasksStore.softRemove(ids);
+    // A session with no task has no record to delete: it leaves the sidebar
+    // and stays in History.
+    for (const row of rows) {
+      if (!row.taskId) sidebarStore.closeTask(row);
+    }
+    const pending = sidebarStore.deleteTasks(ids);
     if (!pending.length) return;
     toasts.undo(
       `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
@@ -462,7 +502,6 @@
   }
 
   function selectSession(child: SidebarSessionChild) {
-    if (child.taskId) sidebarStore.acknowledgeTask(child.taskId);
     void sidebarStore.selectChild(child);
     requestInputFocus();
     onSessionSelect?.();
@@ -514,31 +553,9 @@
     requestInputFocus();
   }
 
-  /** Completing a subtask also clears its row and mounted conversation, the
-   *  same way its close control does; the parent task row stays. */
-  async function completeChild(child: SidebarSessionChild) {
-    try {
-      if (child.taskId) {
-        const task = session.tasksStore.peek(child.taskId);
-        const reopening = task?.status === "done";
-        await session.tasksStore
-          .get(child.taskId)
-          .setStatus(reopening ? "todo" : "done");
-        if (!reopening) sidebarStore.closeChild(child);
-      } else if (child.tabId) sidebarStore.toggleTaskDone(child.tabId);
-      requestInputFocus();
-    } catch (error) {
-      toasts.error("Couldn't complete subtask", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-      requestInputFocus();
-    }
-  }
-
   /** Removing a task is local sidebar view state. Its workflow status and any
    *  provider run stay unchanged; only the row and mounted tabs leave. */
   function removeTask(task: SidebarTask) {
-    expandedTaskIds.delete(task.id);
     sidebarStore.closeTask(task);
     requestInputFocus();
   }
@@ -570,16 +587,9 @@
     snoozeTargets = [target];
   }
 
-  function nextActiveTaskAfter(taskId: string): SidebarTask | null {
-    const tasks = searchedTasks;
-    const index = tasks.findIndex((task) => task.id === taskId);
-    if (index < 0) return null;
-    return tasks[index + 1] ?? tasks[index - 1] ?? null;
-  }
-
   function navigateAfterLifecycleMove(next: SidebarTask | null) {
     if (next) void sidebarStore.selectTask(next);
-    else newTask();
+    else newSession();
     requestInputFocus();
     onSessionSelect?.();
   }
@@ -601,8 +611,13 @@
   function applySnooze(targets: SnoozeTarget[], until: number, note: string) {
     if (!targets.length) return;
     const row =
-      searchedTasks.find((candidate) => candidate.key === targets[0].rowKey) ?? null;
-    const next = row ? nextActiveTaskAfter(row.id) : null;
+      openRows.find((candidate) => candidate.key === targets[0].rowKey) ?? null;
+    const leavingTaskIds = new Set(
+      openRows
+        .filter((task) => targets.some((target) => target.rowKey === task.key))
+        .map((task) => task.id),
+    );
+    const next = row ? nextTaskAfterLeaving(openRows, row.id, leavingTaskIds) : null;
     const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
     for (const target of targets) sidebarStore.snoozeRow(target.rowKey, until, note);
     toasts.undo(
@@ -619,9 +634,9 @@
     requestInputFocus();
   }
 
-  /** The tree drives itself off the DOM rather than a mirrored index: the rows
+  /** The list drives itself off the DOM rather than a mirrored index: the rows
    *  it can move between are exactly the ones currently rendered, so a
-   *  collapsed task or a filtered project needs no bookkeeping here. */
+   *  collapsed section or a filtered project needs no bookkeeping here. */
   function handleTreeKeydown(event: KeyboardEvent) {
     if (event.metaKey || event.ctrlKey || event.altKey || !scrollEl) return;
 
@@ -635,44 +650,31 @@
     const index = focused ? rows.indexOf(focused) : -1;
     if (index < 0) return;
 
-    const expandedAttr = focused.getAttribute("aria-expanded");
-    // A session's parent is the nearest task row above it.
+    const taskKey = focused!.dataset.taskKey;
+    // A session listed under a row has no key of its own; its parent is the
+    // nearest row above it.
     const parentIndex =
-      focused!.dataset.tabId ||
-      (focused!.dataset.taskId && focused!.dataset.taskKey === undefined)
+      taskKey === undefined
         ? rows.findLastIndex(
             (row, at) => at < index && row.dataset.taskKey !== undefined,
           )
-        : focused!.dataset.taskKey
-          ? rows.findLastIndex(
-              (row, at) => at < index && row.dataset.projectKey !== undefined,
-            )
-          : -1;
+        : -1;
 
     const intent = treeKeyIntent(
       event.key,
-      {
-        index,
-        expanded: expandedAttr === null ? undefined : expandedAttr === "true",
-        parentIndex: parentIndex < 0 ? null : parentIndex,
-      },
+      { index, parentIndex: parentIndex < 0 ? null : parentIndex },
       rows.length,
     );
     if (!intent) return;
     event.preventDefault();
 
-    const taskKey = focused!.dataset.taskKey;
     const task = taskKey
-      ? searchedTasks.find((item) => item.key === taskKey)
+      ? openRows.find((item) => item.key === taskKey)
       : undefined;
 
     switch (intent.kind) {
       case "focus":
         rows[intent.index]?.focus();
-        break;
-      case "expand":
-      case "collapse":
-        if (task) toggleExpand(task.id);
         break;
       case "enterPane":
         requestInputFocus();
@@ -741,10 +743,9 @@
       openTaskContextMenu(event, task.taskId, task);
       return;
     }
-    openSessionContextMenu(event, {
-      kind: "tab",
-      tabId: task.tabIds[0] ?? null,
-    });
+    // A shelved session with no conversation here has its actions on the row.
+    if (!task.tabIds[0]) return;
+    openSessionContextMenu(event, { kind: "tab", tabId: task.tabIds[0] });
   }
 
   function openChildContextMenu(
@@ -793,10 +794,9 @@
     {prChoices}
     onPath={sidebarStore.onScreenTaskId === task.id}
     bulkSelected={selectedTaskIds.has(task.id)}
-    expanded={expandedTaskIds.has(task.id)}
     sessions={sidebarStore.sessionsFor(task)}
-    selectedTabId={sidebarStore.onScreenTaskId === task.id
-      ? session.onScreenTabId
+    disclosedSession={sidebarStore.disclosedSession?.rowId === task.id
+      ? sidebarStore.disclosedSession.session
       : null}
     {renamingTabId}
     {renamingTaskId}
@@ -805,8 +805,8 @@
       startRename(
         child
           ? { tabId: child.tabId }
-          : // Mirrors `renamingLead` in TaskRow: a durable row is named by its
-            // task, a loose one by its only tab.
+          : // Mirrors `renamingRow` in TaskRow: a durable row is named by its
+            // task, a session's own row by its only tab.
             task.taskId
             ? { taskId: task.taskId }
             : { tabId: task.tabIds[0] },
@@ -814,17 +814,25 @@
     onRename={(child, next) => renameSidebarItem(task, child, next)}
     onRenameCancel={cancelRename}
     onMore={(event) => openTaskOrSessionContextMenu(event, task)}
+    canSnooze={sidebarStore.canShelve(task)}
     onSnooze={(anchor) =>
       openSnooze({ rowKey: task.key, title: task.title }, anchor)}
     onWake={() => wakeRow(task.key)}
     onComplete={() => completeTask(task)}
     onClose={() => removeTask(task)}
     onOpenPr={openTaskPr}
+    onMorePr={(event, choice) =>
+      (sessionContextMenu = {
+        kind: "pull-request",
+        row: task,
+        choice,
+        x: event.clientX,
+        y: event.clientY,
+      })}
+    onOpenLinkedTask={() =>
+      task.linkedTask && openLinkedTask(task.linkedTask.taskId)}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
-    onSnoozeSession={(child, anchor) =>
-      openSnooze({ rowKey: child.taskId ?? task.key, title: child.label }, anchor)}
-    onCompleteSession={completeChild}
     onCloseSession={removeChild}
   />
 {/snippet}
@@ -863,10 +871,20 @@
               ><BooksIcon size={14} /></span
             >
             <span class="flex-1 text-left text-workspace-chrome">Workspace</span>
-            <span
-              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.toggle-workspace")}</span
-            >
+            {#if reviewInboxCount > 0}
+              <span
+                class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
+                title={`${reviewInboxCount} ${reviewInboxCount === 1 ? "work needs" : "works need"} your review`}
+                aria-label={`${reviewInboxCount} need your review`}
+                data-testid="work-review-inbox-count"
+                >{reviewInboxCount > 99 ? "99+" : reviewInboxCount}</span
+              >
+            {:else}
+              <span
+                class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
+                >{comboHint("global.toggle-workspace")}</span
+              >
+            {/if}
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
@@ -1003,9 +1021,9 @@
           bind:this={taskSearchEl}
           bind:value={taskQuery}
           type="search"
-          placeholder="Search tasks"
-          aria-label="Search sidebar tasks"
-          title={`Search sidebar tasks (${comboHint("global.focus-sidebar-task-search")})`}
+          placeholder="Search tasks and sessions"
+          aria-label="Search sidebar tasks and sessions"
+          title={`Search sidebar tasks and sessions (${comboHint("global.focus-sidebar-task-search")})`}
           class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
@@ -1038,7 +1056,7 @@
     {#snippet taskPicker()}
       <button
         type="button"
-        class="relative flex size-7 pointer-fine:[.is-laptop-display_&]:size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="Open picker"
         title={`Open picker (${comboHint("global.task-picker")})`}
         onclick={() => {
@@ -1047,7 +1065,7 @@
       >
         <PlusIcon
           size={15}
-          class="pointer-fine:[.is-laptop-display_&]:size-[13px] pointer-coarse:size-[15px]"
+          class="pointer-coarse:size-[15px]"
         />
       </button>
     {/snippet}
@@ -1076,10 +1094,10 @@
         type="button"
         class="rounded-lg px-2 py-1 text-xs hover:bg-accent"
         onclick={(event) => {
-          const targets = selectedTasks().map((row) => ({
-            rowKey: row.key,
-            title: row.title,
-          }));
+          // Only a session can be snoozed; a selected task stays where it is.
+          const targets = selectedTasks()
+            .filter((row) => sidebarStore.canShelve(row))
+            .map((row) => ({ rowKey: row.key, title: row.title }));
           if (!targets.length) return;
           snoozeAnchor = event.currentTarget;
           snoozeTargets = targets;
@@ -1118,16 +1136,16 @@
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
-    <!-- One list: drafts lead, then the active column,
-         then the Snoozed and Completed sections with their headers as entries.
-         A row that changes section, and a draft that arrives or leaves, then
-         animate as a change of order (docs/plans/sidebar-motion.md, step 3).
-         Drafts carry a pencil mark and a divider below them rather than a
-         heading; a prompt on its way to becoming a task is not one yet. -->
+    <!-- One list: drafts lead, then the Tasks, Sessions, Snoozed and Completed
+         sections with their headers as entries. A row that changes section,
+         and a draft that arrives or leaves, then animate as a change of order
+         (docs/plans/sidebar-motion.md, step 3). Drafts carry a pencil mark and
+         a divider below them rather than a heading; a prompt on its way to
+         becoming a session is not one yet. -->
     <div
       role="tree"
       tabindex="-1"
-      aria-label="Tasks"
+      aria-label="Tasks and sessions"
       onkeydown={handleTreeKeydown}
     >
       <div
@@ -1154,7 +1172,7 @@
                 type="button"
                 class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
                 aria-expanded={item.isOpen}
-                onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
+                onclick={() => toggleSection(item.section)}
               >
                 Snoozed
                 <span
@@ -1171,14 +1189,22 @@
               </button>
             </div>
           {:else if item.kind === "header"}
-            <div class="mt-2">
+            <!-- Tasks and Sessions are the two live sections: a task is talked
+                 to through its lead with its page beside it, a session is a
+                 conversation on its own. Completed takes the same header. A
+                 section that opens the list needs no space above it. -->
+            <div class="mt-2 first:mt-0 {item.section === 'completed' ? '' : 'mb-1'}">
               <button
                 type="button"
                 class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
                 aria-expanded={item.isOpen}
-                onclick={() => (completedShelfOpen = !completedShelfOpen)}
+                onclick={() => toggleSection(item.section)}
               >
-                Completed
+                {item.section === "tasks"
+                  ? "Tasks"
+                  : item.section === "sessions"
+                    ? "Sessions"
+                    : "Completed"}
                 <span
                   class="h-px min-w-4 flex-1 bg-sidebar-border/50"
                   aria-hidden="true"
@@ -1193,7 +1219,18 @@
               </button>
             </div>
           {:else}
-            <div class={item.section === "completed" ? "opacity-80" : ""}>
+            <!-- `content-visibility: auto` contains each row, so a change in
+                 one row never lays out the whole window, and rows below the
+                 fold skip style and layout. The intrinsic size matches the
+                 row, so a row does not shift the list when it paints. The row
+                 reaches past this box (`-mx-2`, hover shadow, focus ring); the
+                 padding and the clip margin keep that inside paint
+                 containment. -->
+            <div
+              class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.section === 'tasks' || item.section === 'sessions'
+                ? '[contain-intrinsic-size:auto_62px]'
+                : '[contain-intrinsic-size:auto_36px]'} {item.section === 'completed' ? 'opacity-80' : ''}"
+            >
               {@render taskRow(item.task)}
             </div>
           {/if}
@@ -1303,7 +1340,6 @@
     {@const menuTask = session.tasksStore.tasks.find(
       (task) => task.id === sessionContextMenu.taskId,
     )}
-    {@const menuPoint = { x: sessionContextMenu.x, y: sessionContextMenu.y }}
     {@const sidebarTask = sessionContextMenu.sidebarTask}
     {@const menuChild = sessionContextMenu.child}
     {@const hasLinkedSession =
@@ -1313,23 +1349,7 @@
       (menuTask
         ? (session.tasksStore.get(menuTask.id).sessions.length) > 0
         : false)}
-    <!-- A task with no nested subtasks is a single session wearing a task's row,
-         so it earns the session menu items a loose session row gets. -->
-    {@const leafSessions = sidebarTask
-      ? sidebarStore.sessionsFor(sidebarTask)
-      : []}
-    {@const leafSession = !hasDisclosure(leafSessions)
-      ? leafSessions[0]
-      : undefined}
-    {@const leafTabId = leafSession?.tabId ?? null}
-    {@const leafSess = leafTabId ? session.sessionFor(leafTabId) : null}
     {@const menuPrChoices = sidebarTask ? sidebarStore.prChoicesFor(sidebarTask) : []}
-    <!-- Absent while the row is already on the Snoozed shelf: that row offers
-         Wake instead, which is the same control in reverse. -->
-    {@const menuSnoozeTarget =
-      sidebarTask && sidebarTask.lifecycle !== "snoozed"
-        ? { rowKey: sidebarTask.key, title: sidebarTask.title }
-        : null}
     {#if menuTask}
       <TaskContextMenu
         x={sessionContextMenu.x}
@@ -1370,40 +1390,21 @@
         }}
         onStartRename={() => startRename({ taskId: menuTask.id })}
         onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
-        onSnoozeUntil={menuSnoozeTarget
-          ? (until) => applySnooze([menuSnoozeTarget], until, "")
-          : undefined}
-        onSnoozeWithNote={menuSnoozeTarget
-          ? () => openSnooze(menuSnoozeTarget, menuPoint)
-          : undefined}
-        onWake={sidebarTask?.lifecycle === "snoozed"
-          ? () => wakeRow(sidebarTask.key)
-          : undefined}
         onMarkUnread={() =>
           void sidebarStore.markTaskUnread(menuTask.id)}
+        onLinkPr={() =>
+          (session.ui.linkPrompt = { kind: "task-pull-request", taskId: menuTask.id })}
         onRemove={undefined}
-        sessionId={leafSession?.sessionId ?? null}
-        onFork={leafTabId && leafSess?.agentSessionId
-          ? () => void session.opening.forkTab(leafTabId)
-          : undefined}
-        onContinueWorktree={leafTabId &&
-        leafSess?.agentSessionId &&
-        !leafSess?.run.gitContext?.worktreePath
-          ? () => void session.opening.continueInWorktree(leafTabId)
-          : undefined}
-        isContinuingWorktree={leafTabId
-          ? session.ui.isContinuingInWorktree(leafTabId)
-          : false}
-        isSplit={!!leafTabId && leafTabId === session.splitChatTabId}
-        onOpenInSplit={leafTabId
-          ? () => session.openTabInSplit(leafTabId)
-          : undefined}
-        onCloseSplit={leafTabId ? () => session.closeSplitChat() : undefined}
         onClose={closeSessionContextMenu}
       />
     {/if}
   {:else if sessionContextMenu.kind === "tab"}
     {@const menuTabId = sessionContextMenu.tabId}
+    {@const menuPoint = { x: sessionContextMenu.x, y: sessionContextMenu.y }}
+    <!-- Snooze and completion belong to a session's own row. A session listed
+         under a task leaves both to the task. -->
+    {@const menuRow = menuTabId ? sidebarStore.taskForTab(menuTabId) : null}
+    {@const sessionRow = menuRow && !menuRow.taskId ? menuRow : null}
     <SessionContextMenu
       x={sessionContextMenu.x}
       y={sessionContextMenu.y}
@@ -1416,10 +1417,38 @@
           sidebarStore.childForTab(menuTabId).attention === "running"
             ? () => session.controls.interruptTabSession(menuTabId)
             : undefined,
+        done: sessionRow?.status === "done",
+        onToggleDone: sessionRow ? () => void completeTask(sessionRow) : undefined,
+        onSnooze:
+          sessionRow && sessionRow.lifecycle !== "snoozed" && sidebarStore.canShelve(sessionRow)
+            ? () => openSnooze({ rowKey: sessionRow.key, title: sessionRow.title }, menuPoint)
+            : undefined,
       }}
       onCloseTab={closeSession}
       closeTabLabel="Remove from Sidebar"
       closeTabIsDestructive={false}
+      onClose={closeSessionContextMenu}
+    />
+  {:else if sessionContextMenu.kind === "pull-request"}
+    {@const prMenu = sessionContextMenu}
+    <PrContextMenu
+      x={prMenu.x}
+      y={prMenu.y}
+      choice={prMenu.choice}
+      onOpen={() => openTaskPr(prMenu.choice)}
+      onOpenWeb={() => {
+        const url = prMenu.choice.url ?? prMenu.choice.pullRequest?.url;
+        if (url) void localApi.openExternal(url);
+      }}
+      onUnlink={sidebarStore.canUnlinkPullRequest(prMenu.row, prMenu.choice)
+        ? () =>
+            void sidebarStore
+              .unlinkPullRequest(prMenu.row, prMenu.choice)
+              .catch((error) =>
+                toasts.error("Couldn't unlink pull request", {
+                  description: error instanceof Error ? error.message : String(error),
+                }))
+        : undefined}
       onClose={closeSessionContextMenu}
     />
   {:else}
@@ -1453,7 +1482,7 @@
     anchor={snoozeAnchor}
     taskTitle={snoozeTargets.length === 1
       ? snoozeTargets[0].title
-      : `${snoozeTargets.length} selected tasks`}
+      : `${snoozeTargets.length} selected sessions`}
     onConfirm={(until, note) => void confirmSnooze(until, note)}
     onClose={() => {
       snoozeTargets = [];

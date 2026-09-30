@@ -316,28 +316,6 @@
     outline-offset: 2px;
   }
 
-  /* Laptop displays (ADR-0010): the rail is chrome, so it takes the same step
-     down the other workspace chrome takes — shorter ticks, tighter stack. Only
-     with a fine pointer; a coarse-pointer client keeps the larger targets. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .msg-nav {
-      gap: 5px;
-      padding: 5px;
-      border-radius: 12px;
-    }
-    :global(html.is-laptop-display) .msg-nav.expanded .msg-nav-row {
-      padding: 5px 9px;
-    }
-    :global(html.is-laptop-display) .msg-nav-dash {
-      width: 13px;
-      height: 1.5px;
-    }
-    :global(html.is-laptop-display) .msg-nav-row.active .msg-nav-dash {
-      width: 19px;
-      height: 2px;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .msg-nav,
     .msg-nav-label,

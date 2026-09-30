@@ -3,12 +3,12 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let solusToolbox: typeof import('@solus/server/agents/tools/solus-toolbox')['solusToolbox']
-let adaptClaudeTools: typeof import('@solus/server/agents/claude/claude-tool-adapter')['adaptClaudeTools']
+let solusToolbox: typeof import('@solus/server/execution/agents/tools/solus-toolbox')['solusToolbox']
+let adaptClaudeTools: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')['adaptClaudeTools']
 
 beforeAll(async () => {
-  ;({ solusToolbox } = await import('@solus/server/agents/tools/solus-toolbox'))
-  ;({ adaptClaudeTools } = await import('@solus/server/agents/claude/claude-tool-adapter'))
+  ;({ solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox'))
+  ;({ adaptClaudeTools } = await import('@solus/server/execution/agents/claude/claude-tool-adapter'))
 })
 
 // Agents must receive rendering guidance when tools load, including through the Claude adapter.

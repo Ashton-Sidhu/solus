@@ -2,6 +2,7 @@
   import { CircleDashed as IdleIcon } from "@lucide/svelte";
   import type { AttentionState } from "../../lib/sessionUtils";
   import { attentionLabel, getAttentionIcon } from "../../lib/sessionUtils";
+  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
     attention: AttentionState;
@@ -24,12 +25,13 @@
   class="flex shrink-0 items-center {className}"
   style:color={visual.color}
   role="img"
+  onanimationstart={alignStatusAnimationPhase}
   aria-label={label}
   title={label}
 >
   <Icon
     size={14}
-    class="size-3.5 md:pointer-fine:[.is-laptop-display_&]:size-3 {visual.spin
+    class="size-3.5 {visual.spin
       ? 'animate-spin motion-reduce:animate-none'
       : ''}"
   />

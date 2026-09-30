@@ -4,13 +4,13 @@
   import { CommentComposer } from '../ui/comment-composer'
   import ExternalCommentPublish from '../work/ExternalCommentPublish.svelte'
   import CommentBody from './CommentBody.svelte'
-  import PresenceAvatar from '../presence/PresenceAvatar.svelte'
+  import UserAvatar from '../users/UserAvatar.svelte'
   import {
     authorLabel,
     canChangeThread,
-    commentAuthor,
+    isAgentMessage,
     isResolved,
-    messagePerson,
+    messageUser,
     showsAuthor,
     visibleReplies,
   } from './lib/thread'
@@ -61,15 +61,15 @@
     onDelete,
   }: Props = $props()
 
-  const author = $derived(commentAuthor(comment))
+  const byAgent = $derived(isAgentMessage(comment))
   const resolved = $derived(isResolved(comment))
   const replies = $derived(visibleReplies(comment))
   // Who is reading (docs/plans/multiplayer-comments.md): another person's thread
   // carries their face and name; the reader's own carries none, as it always did.
   // Edit and Delete are offered only where the host would allow them.
   const viewer = getCommentViewer()
-  const self = $derived(viewer().selfUserIds)
-  const person = $derived(messagePerson(comment, self))
+  const reader = $derived(viewer())
+  const person = $derived(messageUser(comment, reader))
   const canChange = $derived(canChangeThread(comment, viewer()))
 
   // Resolved threads collapse to one sage row; "Show" re-expands this one
@@ -126,7 +126,7 @@
   <div
     class="ctc"
     class:ctc--focused={focused}
-    class:ctc--solus={author === 'solus'}
+    class:ctc--solus={byAgent}
     class:ctc--resolved={resolved}
     class:ctc--stuck={!!stickyEdge}
     class:ctc--moving={moving}
@@ -150,11 +150,11 @@
       <!-- Only the agent names itself. Your own thread carries no byline: in a
            document with one human reader, "You" is the one thing the card can
            never tell you that you did not already know. -->
-      {#if author === 'solus'}
+      {#if byAgent}
         <span class="ctc__spark" aria-hidden="true">✦</span>
-        <span class="ctc__author">{authorLabel(comment, self)}</span>
+        <span class="ctc__author">{authorLabel(comment, reader)}</span>
       {:else if person}
-        <PresenceAvatar {person} size={16} />
+        <UserAvatar user={person} size={16} />
         <span class="ctc__author" data-testid="comment-person">{person.displayName}</span>
       {/if}
       {#if comment.createdAt}
@@ -164,7 +164,7 @@
            rest: whether this comment reached the document is not something the
            reader should have to hover to learn. -->
       {#if externalWorkId && !editing}
-        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} author={comment.author} externalThreadId={comment.externalThreadId} />
+        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} byAgent={byAgent} externalThreadId={comment.externalThreadId} />
       {/if}
 
       <!-- Verbs are type, never filled buttons — a thread is a note, not a
@@ -225,24 +225,24 @@
       {/if}
 
       {#each shownReplies as reply, i (reply.id)}
-        {@const replyPerson = messagePerson(reply, self)}
+        {@const replyPerson = messageUser(reply, reader)}
         <div class="ctc__reply">
-          {#if reply.author === 'solus'}
+          {#if isAgentMessage(reply)}
             <span class="ctc__spark ctc__spark--reply" aria-hidden="true">✦</span>
           {:else if replyPerson}
-            <PresenceAvatar person={replyPerson} size={16} class="mt-px" />
+            <UserAvatar user={replyPerson} size={16} class="mt-px" />
           {/if}
           <div class="ctc__reply-text">
             {#if showsAuthor(shownReplies, i)}
-              {#if reply.author === 'solus' || replyPerson}
-                <span class="ctc__reply-author">{authorLabel(reply, self)}</span>
+              {#if isAgentMessage(reply) || replyPerson}
+                <span class="ctc__reply-author">{authorLabel(reply, reader)}</span>
               {/if}
               <span class="ctc__time">{threadTime(reply.createdAt, now)}</span>
             {/if}
             <CommentBody text={reply.text} />
           </div>
           {#if externalWorkId}
-            <ExternalCommentPublish workId={externalWorkId} messageId={reply.id} text={reply.text} quote={comment.selectedText} author={reply.author} externalThreadId={comment.externalThreadId} />
+            <ExternalCommentPublish workId={externalWorkId} messageId={reply.id} text={reply.text} quote={comment.selectedText} byAgent={isAgentMessage(reply)} externalThreadId={comment.externalThreadId} />
           {/if}
         </div>
       {/each}

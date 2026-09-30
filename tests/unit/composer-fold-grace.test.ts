@@ -89,11 +89,15 @@ test('ordinary blur folds without delay while menus, selections and recording st
     let recording = $state(false);
     let claims = 0;
     let fold;
+    const renders = [];
     const destroy = $effect.root(() => {
       fold = useComposerFold({
         root: () => el('bar'), tabId: () => 'tab', enabled: () => true,
         recording: () => recording, claimVoice: () => { claims += 1; },
       });
+      // Every value the fold takes inside a flush — the markup and the tween
+      // render each one, even when a later effect in the flush reverses it.
+      $effect.pre(() => { renders.push(fold.collapsed); });
     });
     el('bar').addEventListener('focusin', () => fold.handleFocusIn());
     el('bar').addEventListener('focusout', (event) => fold.handleFocusOut(event));
@@ -193,6 +197,7 @@ test('ordinary blur folds without delay while menus, selections and recording st
     // and when it lets go the editor is handed the keyboard a frame later.
     el('editor').focus(); flush();
     since = paints.length;
+    let rendersSince = renders.length;
     recording = true; flush();
     el('editor').blur(); flush();
     advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
@@ -202,11 +207,14 @@ test('ordinary blur folds without delay while menus, selections and recording st
     el('editor').focus(); flush();
     advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     neverFoldedSince(since);
+    assert.ok(!renders.slice(rendersSince).includes(true), 'the mic letting go never renders a fold, even inside one flush');
     // With nobody to hand the keyboard back, the mic letting go is a leave.
     recording = true; flush();
     el('editor').blur(); flush();
+    rendersSince = renders.length;
     recording = false; flush();
     assert.equal(fold.collapsed, false, 'the mic letting go is not itself a leave');
+    assert.ok(!renders.slice(rendersSince).includes(true), 'nor does it fold for one flush');
     advance(COMPOSER_REFOCUS_GRACE_MS); flush();
     assert.equal(fold.collapsed, true, 'it folds once the grace is up and the keyboard is still elsewhere');
 

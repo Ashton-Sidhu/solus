@@ -13,6 +13,8 @@
     compactText?: boolean;
     filterContent?: Snippet;
     activeCount?: number;
+    /** Offered in the Filters menu while a filter is active. */
+    onClearFilters?: () => void;
     /** Presentation controls between search and Filters. */
     trailing?: Snippet;
     searchEl?: HTMLInputElement | null;
@@ -25,6 +27,7 @@
     trailing,
     filterContent,
     activeCount = 0,
+    onClearFilters,
     searchEl = $bindable(null),
   }: Props = $props();
 </script>
@@ -49,7 +52,7 @@
 
   {#if trailing}{@render trailing()}{/if}
   {#if filters.length > 0 || filterContent}
-  <ListFilterMenu activeCount={activeCount + filters.filter((filter) => filter.active).length}>
+  <ListFilterMenu activeCount={activeCount + filters.filter((filter) => filter.active).length} onClear={onClearFilters}>
   {#each filters as filter (filter.key)}
     {@const Icon = filter.icon}
     <DropdownMenu.CheckboxItem checked={filter.active} closeOnSelect={false} onCheckedChange={filter.toggle}>

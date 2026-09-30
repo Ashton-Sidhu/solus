@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { hostKey } from "@solus/client-core/host-key";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { Star as StarIcon } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import {
+    connectionsStore,
     getWorkspaceContext,
     getClientShellContext,
     runtime,
@@ -32,6 +32,7 @@
     type ListProjectOption,
   } from "../ui/list-page";
   import { folderLabel } from "./lib/automation-format";
+  import { automationListMachineIds } from "./lib/automation-machines";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import AutomationContextMenu from "./AutomationContextMenu.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
@@ -57,17 +58,18 @@
       ? session.projectPageScope.checkout
       : null,
   );
-  // The full-page catalog has no narrower owner, so the new-work default host
-  // is its explicit scope; with no host connected there is nothing to list.
-  const selectedServerId = $derived(
-    pageProject?.serverId ??
-      serverConnections.defaultServerId() ??
-      serverConnections.connectedServerIds()[0] ??
-      null,
+  // Automations live on execution machines, never on the Solus API that is
+  // the primary at a Solus Cloud origin (plan 004, item 2). A project scope
+  // reads its checkout's machine; the full catalog merges every connected one.
+  const machineIds = $derived(
+    pageProject
+      ? [pageProject.serverId]
+      : automationListMachineIds(serversStore.executionServers),
   );
-  const hostItems = $derived(
-    selectedServerId ? store.itemsForHost(selectedServerId) : [],
-  );
+  // One key per machine set, so a status tick that rebuilds the same list
+  // does not reload it.
+  const machineKey = $derived(machineIds.join("\n"));
+  const hostItems = $derived(store.itemsForHosts(machineIds));
 
   const open = $derived(session.router.at("automations"));
   // The wide layout opens the builder in a side pane. The mobile layout keeps
@@ -87,7 +89,7 @@
     const base = automationProjects(
       hostItems,
       session.openProjects,
-      session.staticInfo?.workspacePath,
+      (serverId) => connectionsStore.chatFolderFor(serverId),
       (automation) => store.hostFor(automation.id),
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
     );
@@ -96,7 +98,7 @@
     // project before automating it," not only ones the list already spans.
     const extra: AutomationProject[] = [];
     for (const entry of projectsStore.entries) {
-      if (entry.serverId !== selectedServerId) continue;
+      if (!machineIds.includes(entry.serverId)) continue;
       const key = hostKey(entry.serverId, entry.projectRoot);
       if (base.some((project) => project.key === key)) continue;
       extra.push({
@@ -182,9 +184,8 @@
     return () => clearInterval(interval);
   });
 
-  // The visible universe belongs to the selected host. Paths and automation
-  // ids are host-local data, so another connected machine must not leak into
-  // this page when the user switches hosts.
+  // Paths and automation ids are host-local data, so each row keeps its own
+  // machine (`store.hostFor`) and a project scope keeps only its machine's rows.
   const scoped = $derived(
     selectedProject
       ? hostItems.filter(
@@ -229,11 +230,7 @@
     count: number;
   }>);
 
-  const isInitialLoading = $derived(
-    !!selectedServerId &&
-      !store.hasLoadedHost(selectedServerId) &&
-      store.isLoadingHost(selectedServerId),
-  );
+  const isInitialLoading = $derived(store.isInitialLoadingHosts(machineIds));
   // The zero-state owns the page, so the header hides its New button while it
   // shows. The command bar stays while there is a project to switch to: it
   // holds the project scope, the only way out of an empty project.
@@ -319,11 +316,11 @@
       // names one (e.g. from the project panel or a "Sent via automation"
       // badge); the bare route lands on the list.
       const focusId = session.router.params("automations")?.automationId;
-      if (focusId && selectedServerId) {
-        const scopeServerId = selectedServerId;
-        void store.loadAll(scopeServerId).then(() => {
+      if (focusId) {
+        const scopeServerIds = untrack(() => machineIds);
+        void store.loadHosts(scopeServerIds).then(() => {
           const target = store
-            .itemsForHost(scopeServerId)
+            .itemsForHosts(scopeServerIds)
             .find((automation) => automation.id === focusId);
           view = target
             ? { kind: "edit", automation: target }
@@ -331,12 +328,17 @@
         });
       } else {
         view = { kind: "list" };
-        if (selectedServerId) void store.loadAll(selectedServerId);
         if (!runtime.shouldSuppressFocus) {
           void tick().then(() => searchEl?.focus());
         }
       }
     }
+  });
+
+  // Reload when the page opens and whenever the set of machines changes.
+  $effect(() => {
+    if (!open || !machineKey) return;
+    void store.loadHosts(untrack(() => machineIds));
   });
 
   useScope("automations", { active: () => open });
@@ -437,6 +439,13 @@
     searchEl?.focus();
   }
 
+  /** Clears what the Filters badge counts. The search stays unless the project scope changes. */
+  function clearMenuFilters() {
+    statusFilter = "all";
+    showStarred = false;
+    if (selectedProject) selectProject(null);
+  }
+
   async function toggleEnabled(a: Automation, e?: Event) {
     e?.stopPropagation();
     await store.setEnabled(a.id, !a.enabled);
@@ -513,6 +522,7 @@
     placeholder="Search automations…"
     filters={listFilters}
     activeCount={Number(statusFilter !== "all") + Number(!!selectedProject)}
+    onClearFilters={clearMenuFilters}
   >
     {#snippet filterContent()}
       <ListProjectFilter
@@ -555,7 +565,7 @@
     {:else}
       <ListPage
         page="automations"
-        onRefresh={() => void store.loadAll()}
+        onRefresh={() => void store.loadHosts(machineIds)}
         refreshing={store.loading}
         syncedAt={synced.at}
         primaryAction={showEmpty
@@ -646,8 +656,8 @@
           {#if !isInitialLoading}
             <div
               class={showEmpty
-                ? "pt-[22px] [.is-laptop-display_&]:pt-4"
-                : "pt-[30px] [.is-laptop-display_&]:pt-6"}
+                ? "pt-[22px]"
+                : "pt-[30px]"}
             >
               <AutomationLaunchpad
                 projectPath={selectedProject?.projectPath ??

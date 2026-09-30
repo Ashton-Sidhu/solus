@@ -1,5 +1,5 @@
 import { GitHubAuth } from './auth'
-import { GitHubReauthRequiredError, type GitHubClient } from './octokit'
+import { GitHubReauthRequiredError, isGithubNotFound, type GitHubClient } from './octokit'
 import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
@@ -471,6 +471,68 @@ const PR_SEARCH_ROWS_QUERY = `
 
 interface PrSearchRowsResponse {
   nodes: Array<GqlNeedsReviewPullRequest | null>
+}
+
+/** PR sync's tick: every state, most recently updated first
+ *  (docs/plans/pr-sync.md §3.2). */
+const RECENT_PULL_REQUESTS_QUERY = `
+  query PrSyncRecent($owner: String!, $repo: String!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequests(first: $first, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ...NeedsReviewFields }
+      }
+    }
+  }
+  ${NEEDS_REVIEW_FIELDS}
+`
+
+interface RecentPullRequestsResponse {
+  repository: { pullRequests: GqlNeedsReviewPage } | null
+}
+
+/** Rows per page of the tick. One page covers a quiet repository's minute. */
+const RECENT_PAGE_SIZE = 50
+/** The most numbers one aliased read names. */
+const BY_NUMBER_BATCH_SIZE = 50
+
+/** One alias per number, so a whole batch is one request. The numbers are safe
+ *  integers, which is what makes writing them into the document sound. */
+function pullRequestsByNumberQuery(numbers: readonly number[]): string {
+  const fields = numbers.map((number) => `pr${number}: pullRequest(number: ${number}) { ...NeedsReviewFields }`)
+  return `
+    query PrSyncByNumber($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) { ${fields.join('\n')} }
+    }
+    ${NEEDS_REVIEW_FIELDS}
+  `
+}
+
+/** GitHub's answer to the aliased document: one `NeedsReviewFields` row or null
+ *  per alias. Typed like every other `client.graphql` answer here. */
+const aliasedRowsSchema = z.record(z.string(), z.custom<GqlNeedsReviewPullRequest | null>())
+
+const pullRequestsByNumberFailureSchema = z.object({
+  data: z.object({ repository: aliasedRowsSchema.nullable() }),
+  errors: z.array(z.object({ type: z.string().optional(), path: z.array(z.union([z.string(), z.number()])).optional() })),
+})
+
+/**
+ * The partial answer of an aliased read where only some numbers do not exist.
+ *
+ * GitHub answers such a number with a null alias and a `NOT_FOUND` error at
+ * `repository.prN`, and the client throws for any error. That is an answer, not a
+ * failure. A hidden repository (`repository` null) is still a failure, so the
+ * credential chain can try the next credential.
+ */
+function missingPullRequestsAnswer(
+  failure: z.infer<typeof pullRequestsByNumberFailureSchema>,
+): { repository: Record<string, GqlNeedsReviewPullRequest | null> } | null {
+  if (!failure.data.repository) return null
+  const onlyMissingNumbers = failure.errors.every((error) =>
+    error.type === 'NOT_FOUND' && error.path?.length === 2 && error.path[0] === 'repository')
+  if (!onlyMissingNumbers) return null
+  return { repository: failure.data.repository }
 }
 
 function toNeedsReviewPullRequest(
@@ -1308,6 +1370,16 @@ export class GitHubProvider implements ReviewProvider {
         owner: repo.owner,
         repo: repo.repo,
         pull_number: number,
+      }).catch(async (error) => {
+        // GitHub also answers 404 for a repository this credential cannot see,
+        // which is why a 404 moves to the next credential. When this credential
+        // reads the repository, the pull request itself is missing, and no other
+        // credential will find it. The repository read is memoised per client,
+        // so a list page has usually paid for it already.
+        if (!isGithubNotFound(error)) throw error
+        const repositoryVisible = await githubPullRequestAccessFor(client, repo, '', '').then(() => true, () => false)
+        if (repositoryVisible) throw new Error(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`)
+        throw error
       })
       const [access, requiredApprovingReviewCount] = await Promise.all([
         accessFor(client, repo, pr.user?.login ?? ''),
@@ -1315,6 +1387,55 @@ export class GitHubProvider implements ReviewProvider {
       ])
       return toPullRequest(pr, repo, access, undefined, requiredApprovingReviewCount)
     })
+  }
+
+  async listRecentPullRequests(repo: RepoRef, since: string | null): Promise<PullRequest[]> {
+    return this.withClient('list_recent_pull_requests', repo.host, async (client) => {
+      const found: GqlNeedsReviewPullRequest[] = []
+      let after: string | null = null
+      for (;;) {
+        const response: RecentPullRequestsResponse = await client.graphql<RecentPullRequestsResponse>(
+          RECENT_PULL_REQUESTS_QUERY,
+          { owner: repo.owner, repo: repo.repo, first: RECENT_PAGE_SIZE, after },
+        )
+        const page = response.repository?.pullRequests
+        if (!page) break
+        const rows = page.nodes.flatMap((node) => node ? [node] : [])
+        const fresh = since === null ? rows : rows.filter((row) => row.updatedAt > since)
+        found.push(...fresh)
+        if (since === null || fresh.length < rows.length || !page.pageInfo.hasNextPage) break
+        after = page.pageInfo.endCursor
+      }
+      return Promise.all(found.map(async (row) =>
+        toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? ''))))
+    })
+  }
+
+  async getPullRequests(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequest | null>> {
+    const answers = new Map<number, PullRequest | null>()
+    const unique = [...new Set(numbers)].filter((number) => Number.isSafeInteger(number) && number > 0)
+    for (let start = 0; start < unique.length; start += BY_NUMBER_BATCH_SIZE) {
+      const batch = unique.slice(start, start + BY_NUMBER_BATCH_SIZE)
+      await this.withClient('get_pull_requests', repo.host, async (client) => {
+        const response = await client.graphql<{ repository: Record<string, GqlNeedsReviewPullRequest | null> | null }>(
+          pullRequestsByNumberQuery(batch),
+          { owner: repo.owner, repo: repo.repo },
+        ).catch((error) => {
+          const failure = pullRequestsByNumberFailureSchema.safeParse(error)
+          const answer = failure.success ? missingPullRequestsAnswer(failure.data) : null
+          if (!answer) throw error
+          return answer
+        })
+        if (!response.repository) throw new Error(`Repository ${repo.owner}/${repo.repo} was not found.`)
+        for (const number of batch) {
+          const row = response.repository[`pr${number}`]
+          answers.set(number, row
+            ? toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? ''))
+            : null)
+        }
+      })
+    }
+    return answers
   }
 
   async updatePullRequest(
@@ -1417,7 +1538,7 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient(
       'list_pull_request_reviewer_candidates',
       repo.host,
-      (client) => listGithubReviewerCandidates(client, repo, pullRequest.author),
+      (client) => listGithubReviewerCandidates(client, repo, pullRequest.number, pullRequest.author),
     )
   }
 
@@ -1451,9 +1572,15 @@ export class GitHubProvider implements ReviewProvider {
     return this.listReviewers(repo, number)
   }
 
-  async removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]> {
+  async removeRequestedReviewer(repo: RepoRef, number: number, reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<PrReviewer[]> {
     await this.withClient('remove_requested_reviewer', repo.host, async ({ rest }) => {
-      await rest.pulls.removeRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: [login] })
+      await rest.pulls.removeRequestedReviewers({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        reviewers: kind === 'team' ? [] : [reviewerId],
+        ...(kind === 'team' ? { team_reviewers: [reviewerId] } : {}),
+      })
     })
     return this.listReviewers(repo, number)
   }
@@ -1711,14 +1838,15 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async addIssueComment(repo: RepoRef, number: number, body: string): Promise<void> {
-    await this.withClient('add_issue_comment', repo.host, async ({ rest }) => {
-      await rest.issues.createComment({
+  async addIssueComment(repo: RepoRef, number: number, body: string): Promise<{ id: string; url: string }> {
+    return this.withClient('add_issue_comment', repo.host, async ({ rest }) => {
+      const { data } = await rest.issues.createComment({
         owner: repo.owner,
         repo: repo.repo,
         issue_number: number,
         body,
       })
+      return { id: data.node_id, url: data.html_url }
     })
   }
 

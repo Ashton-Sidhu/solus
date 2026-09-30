@@ -1,15 +1,16 @@
 <script lang="ts">
   /**
-   * "Connect where your work lives." Every row drives the connections the rest
+   * "Connect your tools." Every row drives the connections the rest
    * of the app already uses — GitHub's device flow, the Cloudflare token form,
    * and the Atlassian site form — so anything connected here is connected
    * everywhere, and Settings shows it without a second round trip.
    */
-  import { Cloud as CloudIcon, LayoutGrid as AtlassianIcon } from "@lucide/svelte";
+  import Icon from "@iconify/svelte";
   import { onMount } from "svelte";
   import { atlassianStore, cloudflareStore, connectionsStore } from "../../contexts";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
   import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";
+  import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingGithubRow from "./OnboardingGithubRow.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
@@ -32,14 +33,14 @@
 
   const atlassianDetail = $derived(
     atlassianConnected
-      ? `${atlassianStore.siteName(serverId)} · ${atlassianStore.productSummary(serverId)}`
-      : "Confluence pages and Jira issues the agent can reach",
+      ? atlassianStore.siteName(serverId)
+      : "Confluence and Jira",
   );
 
   const cloudflareDetail = $derived(
     cloudflareConnected
-      ? `${cloudflareStore.status?.accountName ?? "Connected"} · Workers, D1, KV and R2`
-      : "Deploys and bindings the agent can reach",
+      ? cloudflareStore.status?.accountName ?? "Connected"
+      : "Workers, D1, KV and R2",
   );
 
   onMount(() => {
@@ -55,8 +56,14 @@
   <h1
     class="onboarding-title m-0 shrink-0 text-center text-2xl font-medium leading-[1.12] sm:text-2xl"
   >
-    Connect where your work lives
+    Connect your tools
   </h1>
+  <p
+    class="onboarding-title mt-3 w-full max-w-[28.25rem] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
+    style="animation-delay: 0.06s"
+  >
+    Give your agents your code, deploys and docs.
+  </p>
 
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">
     <OnboardingGithubRow />
@@ -65,7 +72,6 @@
       name="Cloudflare"
       detail={cloudflareDetail}
       delay={0.07}
-      tint="var(--chart-2)"
       state={cloudflareConnected ? "done" : "available"}
       actionLabel={cloudflareConnected
         ? undefined
@@ -76,7 +82,7 @@
       expanded={cloudflareFormOpen && !cloudflareConnected}
     >
       {#snippet mark()}
-        <CloudIcon size={18} />
+        <Icon icon={PROVIDER_LOGOS.cloudflare} width={28} height={28} />
       {/snippet}
       {#snippet expansion()}
         <!-- Cloudflare has no browser handshake to hand off to: it wants a
@@ -106,14 +112,13 @@
       name="Atlassian"
       detail={atlassianDetail}
       delay={0.14}
-      tint="var(--chart-1)"
       state={atlassianConnected ? "done" : "available"}
       actionLabel={atlassianConnected || atlassianFormOpen ? undefined : "Connect"}
       onaction={() => (atlassianFormOpen = true)}
       expanded={atlassianFormOpen && !atlassianConnected}
     >
       {#snippet mark()}
-        <AtlassianIcon size={18} />
+        <Icon icon={PROVIDER_LOGOS.atlassian} width={22} height={22} />
       {/snippet}
       {#snippet expansion()}
         <!-- Unlike Cloudflare, Atlassian does hand off to a browser, so this

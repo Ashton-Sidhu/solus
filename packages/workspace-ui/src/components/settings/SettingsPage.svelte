@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
+  import { isSolusApiId } from "@solus/contracts/uplink";
   import type { Component } from "svelte";
+  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import {
     X as XIcon,
     SlidersHorizontal as SlidersHorizontalIcon,
@@ -88,7 +89,7 @@
     {
       id: "notifications",
       label: "Notifications",
-      description: "How Solus gets your attention, and which events do.",
+      description: "Which events notify you, and how.",
       icon: BellIcon,
       group: "Workspace",
     },
@@ -102,7 +103,7 @@
     {
       id: "projects",
       label: "Projects",
-      description: "Folders you've opened in Solus, and their settings.",
+      description: "Your folders and their settings.",
       icon: FolderIcon,
       group: "Workspace",
       hiddenFromNav: true,
@@ -117,21 +118,21 @@
     {
       id: "review",
       label: "Review companion",
-      description: "How review guides are generated, and which agent writes them.",
+      description: "How review guides are made, and by which agent.",
       icon: BinocularsIcon,
       group: "Capabilities",
     },
     {
       id: "tools",
       label: "Tools",
-      description: "Solus agent tools, external applications, and code intelligence.",
+      description: "Agent tools, apps, and code intelligence.",
       icon: WrenchIcon,
       group: "Capabilities",
     },
     {
       id: "skills",
       label: "Skills",
-      description: "Find new skills and manage global skills on each host.",
+      description: "Find and manage global skills on each host.",
       icon: SparkleIcon,
       group: "Capabilities",
       desktopOnly: true,
@@ -171,14 +172,14 @@
     {
       id: "telemetry",
       label: "Telemetry",
-      description: "Send this host's traces, logs, and metrics to an OpenTelemetry collector.",
+      description: "Export traces, logs, and metrics over OpenTelemetry.",
       icon: BroadcastIcon,
       group: "Advanced",
     },
     {
       id: "experimental",
       label: "Experimental",
-      description: "Opt in to beta features that may change or be removed.",
+      description: "Beta features that may change or go away.",
       icon: FlaskIcon,
       group: "Advanced",
     },
@@ -218,13 +219,13 @@
       session.settingsTab === "voice",
   );
   let selectedSettingsServerId = $state(
-    serverConnections.defaultServerId() ?? "",
+    serverConnections.defaultMachineId() ?? "",
   );
   // Machines only: the workspace service is a connection this client holds,
   // not a host with settings of its own (docs/plans/cloud-service-model.md §15).
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
-    return serverConnections.connectedServerIds().filter((serverId) => !serversStore.isCloudHost(serverId)).map((serverId) => ({
+    return serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId)).map((serverId) => ({
       serverId,
       label:
         serversStore.hostFor(serverId)?.label ??
@@ -246,7 +247,7 @@
   $effect(() => {
     if (selectedSettingsHost) return;
     selectedSettingsServerId =
-      serverConnections.defaultServerId() ?? settingsHosts[0]?.serverId ?? "";
+      serverConnections.defaultMachineId() ?? settingsHosts[0]?.serverId ?? "";
   });
 
   let searchQuery = $state("");
@@ -315,7 +316,7 @@
  ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'font-medium text-(--muted-foreground) shadow-[shadow:var(--elev-ring)] active:bg-(--wash-1)'}"
       >
-        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
+        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
       </button>
     {/each}
   </div>
@@ -389,7 +390,7 @@
       hostLabel={selectedSettingsHost.label}
     />
   {:else if session.settingsTab === "keybindings"}
-    <SettingsTabKeybindings {searchQuery} />
+    <SettingsTabKeybindings bind:searchQuery />
   {/if}
 {/snippet}
 
@@ -487,13 +488,13 @@
          through at that width. -->
     <Sidebar.Provider
       open={true}
-      class="w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 [.is-laptop-display_&]:w-[clamp(16rem,22cqi,19rem)] @max-[48rem]/pane:hidden"
+      class="w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 @max-[48rem]/pane:hidden"
     >
       <Sidebar.Root
         role="navigation"
         aria-label="Settings"
         collapsible="none"
-        class="relative border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
+        class="relative border-r border-r-sidebar-border/50 bg-sidebar"
       >
         <div
           class="workspace-titlebar absolute inset-x-0 top-0 h-(--solus-titlebar-height)"
@@ -506,23 +507,24 @@
              (The page owns its titlebar chrome, so the window-control clearance
              lives in that lead rather than as an outlet pad above the whole
              surface — that is what lets this column reach the window's top.) -->
-        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-2.5">
+        <Sidebar.Header class="gap-3 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
+          <h2 class="px-[0.625rem] text-lg font-semibold tracking-[-0.01em] text-foreground">Settings</h2>
           <SearchField
             bind:ref={searchInputEl}
             bind:value={searchQuery}
-            placeholder="Search settings"
-            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-workspace-chrome [.is-laptop-display_&]:py-1"
+            placeholder="Search"
+            class="w-full basis-auto rounded-lg border-transparent bg-sidebar-accent px-3 py-1.5 [&_input]:text-workspace-chrome"
           />
         </Sidebar.Header>
         <Sidebar.Content
-          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 px-[1.1875rem] pb-4 [.is-laptop-display_&]:gap-1.5 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-3"
+          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-[1.1875rem] pb-4"
         >
           {#each groupedTabs as section (section.group)}
             <Sidebar.Group class="p-0">
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-[0.875em] font-medium uppercase text-muted-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:pl-2"
+                class="h-8 pr-2.5 pl-[0.625rem] text-workspace-chrome font-normal text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -537,9 +539,7 @@
                       <Sidebar.MenuButton
                         type="button"
                         isActive={active}
-                        class="group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:px-2 {active
-                          ? 'text-foreground'
-                          : ''}"
+                        class="group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded-lg px-[0.625rem] text-left text-foreground transition-[color,background] duration-150 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:font-normal"
                         aria-current={active ? "page" : undefined}
                         onclick={() => selectTab(tab.id)}
                       >
@@ -548,7 +548,7 @@
                           class="min-w-0 flex-1 overflow-hidden text-left text-workspace-chrome text-ellipsis whitespace-nowrap"
                           >{tab.label}</span
                         >
-                      {#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
+                        {#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
                       </Sidebar.MenuButton>
                     </Sidebar.MenuItem>
                   {/each}
@@ -559,7 +559,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.875em] text-muted-foreground [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:py-2"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.875em] text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -572,12 +572,10 @@
     </Sidebar.Provider>
 
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <!-- The page title lives in the window's own chrome row — the same band
-           every other full-page surface titles itself in — not in a second strip
-           below it, and not above the sections, where a duplicate of it pushed
-           the first setting a screenful down. -->
+      <!-- The window's chrome row holds the crumb trail and the page's actions.
+           The page title heads the reading column below, over its sections. -->
       <header
-        class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0 [.is-laptop-display_&]:px-7"
+        class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0"
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">
@@ -604,20 +602,7 @@
             </Breadcrumb.List>
           </Breadcrumb.Root>
         {:else}
-          <div class="flex min-w-0 items-baseline gap-2.5">
-            <h1
-              class="shrink-0 text-workspace-chrome font-medium text-foreground"
-            >
-              {activeTabMeta.label}
-            </h1>
-            <span
-              class="h-2.5 w-px shrink-0 self-center bg-border"
-              aria-hidden="true"
-            ></span>
-            <p class="min-w-0 truncate text-[0.875em] text-muted-foreground">
-              {activeTabMeta.description}
-            </p>
-          </div>
+          <span></span>
         {/if}
         <div class="flex shrink-0 items-center gap-2">
           <SettingsUpdateButton />
@@ -644,18 +629,26 @@
       </div>
 
       <div
-        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [.is-laptop-display_&]:px-7 [&_button]:font-normal"
+        class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [&_button]:font-normal"
         role="tabpanel"
         style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
       >
-        <!-- Reading column: a fixed 56rem measure, the width a settings row
+        <!-- Reading column: a fixed 48rem measure, the width a settings row
              stays legible at. A control sits at the trailing edge of its row,
              so a column that grew with the pane put a 1200px gap between a
              description and the switch it describes on a wide display. A wide
              pane shows margin instead. `w-full` keeps it from overflowing
              panes narrower than that. -->
-        <div class="mx-auto w-full max-w-4xl py-6">
-          <div class="flex flex-col gap-8">
+        <div class="mx-auto w-full max-w-3xl pt-8 pb-12">
+          <header class="mb-10 flex flex-col gap-1.5">
+            <h1 class="text-[1.75rem] leading-tight font-medium tracking-[-0.015em] text-foreground">
+              {openHostLabel ?? activeTabMeta.label}
+            </h1>
+            {#if !openHostLabel}
+              <p class="text-sm text-(--solus-text-secondary)">{activeTabMeta.description}</p>
+            {/if}
+          </header>
+          <div class="flex flex-col gap-10">
             {@render tabContent()}
           </div>
         </div>

@@ -137,7 +137,7 @@
 
   <SettingsRow
     label="Collector endpoint"
-    description="Base OTLP/HTTP address. Solus appends the signal path, so give the root — https://otlp.example.com, not its /v1/traces."
+    description="Root OTLP/HTTP URL, such as https://otlp.example.com. Solus adds /v1/traces."
     visible={isVisible("endpoint")}
     bodyVisible={isVisible("endpoint")}
   >
@@ -180,7 +180,7 @@
 <SettingsSection label="Signals" visible={isVisible("signals")}>
   <SettingsRow
     label="Traces and logs"
-    description="Every span Solus records and its structured log events. The same trace ids Insights shows."
+    description="All spans and structured logs. Same trace ids as Insights."
     visible={isVisible("signals")}
   >
     {#snippet control()}
@@ -214,7 +214,7 @@
 {/if}
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

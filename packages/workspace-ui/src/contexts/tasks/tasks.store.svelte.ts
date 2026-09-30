@@ -3,7 +3,9 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import type { SessionStatus } from '@solus/contracts/types'
 import { attemptServerId } from '../../lib/sessionUtils'
+import { visibleInWindow } from '../../lib/organization-filter'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type {
@@ -20,6 +22,7 @@ import type {
   TaskSidebarSnapshot,
   TaskSidebarPrLink,
 } from '@solus/contracts/task-types'
+import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { Task } from './task.svelte'
 
 const INVALIDATION_DEBOUNCE_MS = 100
@@ -94,7 +97,19 @@ export class TasksStore {
   /** The durable tasks the last snapshot listed, in its order. Membership only —
    *  each element is the one `Task` for its id, so a field written through it
    *  redraws the rows reading that field without this list being rebuilt. */
-  tasks = $state<Task[]>([])
+  private listedTasks = $state<Task[]>([])
+
+  /** The listed tasks this window shows: Local ones, and the selected
+   *  organization's (organization-scope §2, `organization-filter.ts`). */
+  get tasks(): Task[] {
+    const activeOrganizationId = organizationSelection.activeOrganizationId
+    return this.listedTasks.filter((task) => visibleInWindow(task.organizationId, activeOrganizationId))
+  }
+
+  /** Puts a task on the durable list, once; the window filter decides whether it shows. */
+  list(task: Task): void {
+    if (!this.listedTasks.some((row) => row.id === task.id)) this.listedTasks.push(task)
+  }
 
   /** Provider-owned tickets per project. Live rows answering a provider query,
    *  never persisted. */
@@ -142,16 +157,21 @@ export class TasksStore {
     return [...(this.byRepository.get(projectKey) ?? []), ...upstream.values()]
   }
 
-  byParent: Map<string, Task[]> = $derived.by(() => {
-    const grouped = new Map<string, Task[]>()
+  /** Every task of these projects, each once, and every task that belongs to
+   *  no project — the every-project list has no other page to leave those on. */
+  tasksInProjects(projectKeys: ReadonlySet<string>): Task[] {
+    const tasks = new Map<string, Task>()
     for (const task of this.tasks) {
-      if (!task.parentId) continue
-      const tasks = grouped.get(task.parentId)
-      if (tasks) tasks.push(task)
-      else grouped.set(task.parentId, [task])
+      const projectKey = this.projectKeyOf(task)
+      if (!projectKey || projectKeys.has(projectKey)) tasks.set(task.id, task)
     }
-    return grouped
-  })
+    for (const projectKey of projectKeys) {
+      for (const checkout of projectsStore.checkoutsOf(projectKey)) {
+        for (const task of this.upstreamTasksByProject.get(checkout.projectRoot) ?? []) tasks.set(task.id, task)
+      }
+    }
+    return [...tasks.values()]
+  }
 
   inbox: Task[] = $derived(this.tasks.filter((task) => !task.projectKey && task.status !== 'dropped'))
   upNext: Task[] = $derived(
@@ -217,6 +237,12 @@ export class TasksStore {
   private assigneeCandidateLoadsByCwd = new Map<string, Promise<TaskAssigneeCandidate[]>>()
   private upstreamLoadsByProject = new Map<string, Promise<void>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
+  /** The tasks each host named since the debounce began; null when a host
+   *  named none, which means "read everything". */
+  private pendingInvalidations = new Map<string, Set<string> | null>()
+  /** Bumped by each whole-list read. A narrowed read that started before one
+   *  cannot overwrite the newer rows it brought. */
+  private wholeListGeneration = 0
   private subscribedServerIds = new Set<string>()
   /** Changes whenever the set of hosts included in a sidebar snapshot changes. */
   private hostGeneration = 0
@@ -246,8 +272,7 @@ export class TasksStore {
         this.forgetRunningSessions(serverId)
         return
       }
-      this.hostGeneration++
-      void this.load()
+      void this.reloadHost(serverId)
     })
     queueMicrotask(() => void this.ensureLoaded())
   }
@@ -255,19 +280,15 @@ export class TasksStore {
   /** Each host announces its own invalidations, so each is subscribed once. */
   private watchHost(serverId: string): void {
     this.subscribedServerIds.add(serverId)
-    serverConnections.eventsFor(serverId).subscribe('tasks.invalidated', () => {
+    serverConnections.eventsFor(serverId).subscribe('tasks.invalidated', (event) => {
+      const named = this.pendingInvalidations.get(serverId)
+      if (!event.taskId) this.pendingInvalidations.set(serverId, null)
+      else if (named) named.add(event.taskId)
+      else if (named === undefined) this.pendingInvalidations.set(serverId, new Set([event.taskId]))
       if (this.invalidationTimer) clearTimeout(this.invalidationTimer)
       this.invalidationTimer = setTimeout(() => {
         this.invalidationTimer = null
-        void this.load()
-        // The broadcast carries no payload, so visible detail surfaces re-read
-        // their own task. Hidden tabs stay mounted and can leave many cached
-        // details behind; refreshing that full cache creates an RPC burst for
-        // work the user cannot see.
-        for (const task of this.byId.values()) {
-          if (task.isDetailWatched) void task.loadDetails()
-        }
-        void this.refreshLinkedTasks(serverId)
+        this.applyInvalidations()
       }, INVALIDATION_DEBOUNCE_MS)
     })
     serverConnections.eventsFor(serverId).subscribe('session.statusChanged', (event) => {
@@ -280,6 +301,114 @@ export class TasksStore {
         else this.runningSessionKeys.delete(key)
       }
     })
+  }
+
+  /**
+   * Re-read what the hosts said changed. A host that named its tasks costs one
+   * narrowed read of those rows; the whole list — over a megabyte at a thousand
+   * tasks — is read only when a host could not say which tasks changed.
+   */
+  private applyInvalidations(): void {
+    const pending = [...this.pendingInvalidations]
+    this.pendingInvalidations.clear()
+    const readsWholeList = pending.some(([, taskIds]) => !taskIds || taskIds.size > MAX_SIDEBAR_TASK_IDS)
+    if (readsWholeList) void this.load()
+    else for (const [serverId, taskIds] of pending) if (taskIds) void this.refreshTasks(serverId, [...taskIds])
+    // Visible detail surfaces re-read their own task. Hidden tabs stay mounted
+    // and can leave many cached details behind; refreshing that full cache
+    // creates an RPC burst for work the user cannot see.
+    const changedIds = readsWholeList ? null : new Set(pending.flatMap(([, taskIds]) => [...taskIds ?? []]))
+    for (const task of this.byId.values()) {
+      if (task.isDetailWatched && (!changedIds || changedIds.has(task.id))) void task.loadDetails()
+    }
+    for (const [serverId] of pending) void this.refreshLinkedTasks(serverId)
+  }
+
+  /**
+   * Re-read one host after its socket connects again. It missed its own
+   * invalidations while it was away, so its whole list is read — but only its
+   * list. A granted socket re-dials each time its grant expires, and reading
+   * every host on each of those edges re-read every other host's full list too.
+   */
+  private async reloadHost(serverId: string): Promise<void> {
+    // A cold read in flight has not listed this host: it retries with it. With
+    // no complete list on screen yet, a federated read is the only honest one.
+    if (this.loadPromise) {
+      this.hostGeneration++
+      return
+    }
+    if (!this.loaded || this.error) {
+      await this.load()
+      return
+    }
+    if (!hostRolesStore.hasCollaboration(serverId)) return
+    const generation = this.wholeListGeneration
+    let snapshot: TaskSidebarSnapshot
+    try {
+      snapshot = await serverConnections.apiFor(serverId).tasksSidebarSnapshot()
+    } catch (err) {
+      console.error('tasks sidebar host read failed', serverId, err)
+      return
+    }
+    if (generation !== this.wholeListGeneration) return
+    // The host's answer covers every task it listed before, so one it leaves out has gone.
+    const taskIds = new Set(snapshot.tasks.map((record) => record.id))
+    for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
+    this.applyTaskRows(serverId, [...taskIds], snapshot)
+  }
+
+  /** Read the named rows from their host and merge them into the list in place. */
+  private async refreshTasks(serverId: string, taskIds: string[]): Promise<void> {
+    // A cold read in flight will list these rows too; merge after it so this
+    // answer lands on a complete list, not an empty one.
+    await (this.loadPromise ?? this.ensureLoaded())
+    const generation = this.wholeListGeneration
+    let snapshot: TaskSidebarSnapshot
+    try {
+      snapshot = await serverConnections.apiFor(serverId).tasksSidebarSnapshot({ taskIds })
+    } catch (err) {
+      console.error('tasks sidebar narrowed read failed', serverId, err)
+      void this.load()
+      return
+    }
+    if (generation !== this.wholeListGeneration) return
+    this.applyTaskRows(serverId, taskIds, snapshot)
+  }
+
+  /**
+   * Merge a narrowed snapshot. Each named task takes its row, attempts, and pull
+   * request links from the answer; a named task the answer leaves out was
+   * deleted or is no longer visible, so it leaves the list. A task another host
+   * already lists stays with that host, as in `applySnapshots`.
+   */
+  private applyTaskRows(serverId: string, taskIds: string[], snapshot: TaskSidebarSnapshot): void {
+    const answered = new Set<string>()
+    for (const record of snapshot.tasks) {
+      const task = this.get(record.id)
+      if (task.serverId && task.serverId !== serverId && this.listedTasks.includes(task)) continue
+      answered.add(record.id)
+      task.serverId = serverId
+      task.hydrate(record)
+    }
+    const prLinkLists = snapshot.prLinkListsByTask
+      ?? Object.fromEntries(Object.entries(snapshot.prLinksByTask ?? {}).map(([taskId, link]) => [taskId, [link]]))
+    for (const taskId of taskIds) {
+      const task = this.byId.get(taskId)
+      if (!task || task.serverId !== serverId) continue
+      for (const link of task.sessions) task.unbindSession(link.sessionId)
+      if (!answered.has(taskId)) {
+        const index = this.listedTasks.indexOf(task)
+        if (index !== -1) this.listedTasks.splice(index, 1)
+        task.replaceSessions([])
+        task.applyPrLinks([])
+        continue
+      }
+      task.replaceSessions(snapshot.sessionsByTask[taskId] ?? [])
+      task.applyPrLinks(prLinkLists[taskId] ?? [])
+      for (const link of task.sessions) {
+        if (link.role !== 'referenced') task.bindSession(link.sessionId)
+      }
+    }
   }
 
   /** Whether the host reported this session running, as far as this client heard. */
@@ -556,7 +685,7 @@ export class TasksStore {
   /** `loaded` means "the first attempt finished", which is what the spinners
    *  read — but a failed attempt must not stand in for a successful one here,
    *  or one bad snapshot latches every task surface empty for the rest of the
-   *  session: no sidebar tree, no subtasks, no rail card. Retry while the last
+   *  session: no sidebar row, no rail card. Retry while the last
    *  attempt is still the failed one. */
   ensureLoaded(): Promise<void> {
     if (this.loaded && !this.error) return Promise.resolve()
@@ -567,6 +696,7 @@ export class TasksStore {
     if (this.loadPromise) return this.loadPromise
     this.loading = true
     this.error = null
+    this.wholeListGeneration++
     const load = (async () => {
       try {
         while (true) {
@@ -667,7 +797,7 @@ export class TasksStore {
       }
     }
 
-    this.tasks.splice(0, this.tasks.length, ...listed)
+    this.listedTasks.splice(0, this.listedTasks.length, ...listed)
     this.taskIdBySessionId.clear()
     for (const taskId of new Set([...this.byId.keys(), ...sessionsById.keys(), ...prLinksById.keys()])) {
       const task = this.get(taskId)
@@ -792,54 +922,47 @@ export class TasksStore {
       })
   }
 
-  /** Hydrate the complete lightweight tree for an opened session even when the
-   * global snapshot already knows its owner. The targeted read carries sibling
-   * subtasks and every linked session's display metadata; none of it requires a
-   * transcript. The host's answer is authoritative: a session it reports as
+  /** Hydrate an opened session's task and attempts even when the global
+   * snapshot already knows its owner. The targeted read carries every linked
+   * session's display metadata; none of it requires a transcript. The host's answer is authoritative: a session it reports as
    * taskless is taskless, and most sessions are, so that answer must not cost
    * a full snapshot per restored tab. Fall back to the global snapshot only
    * when the focused read itself failed. */
   async ensureSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
     const existing = this.taskForSession(sessionId)
-    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
+    const hydrated = await this.hydrateSessionTask(sessionId, serverId)
     if (hydrated) return hydrated
     if (hydrated === null || existing) return existing
     await this.load()
     return this.taskForSession(sessionId)
   }
 
-  /** The two-level tree a session belongs to — its task, that task's parent,
-   * and every subtask under the root, each by name. The global snapshot
-   * carries all of them whenever it succeeds; this is the read that still
+  /** The task a session belongs to and every attempt on it. The global
+   * snapshot carries them whenever it succeeds; this is the read that still
    * answers when it did not, so a session restored from disk never renders as
-   * a loose row beside a parent whose subtasks are missing.
+   * a loose row beside the task it belongs to.
    *
    * `null` is the host's answer that the session has no task; `undefined`
    * means no host could answer. */
-  private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
+  private async hydrateSessionTask(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
     const ownerServerId = serverId ?? serverConnections.defaultServerId()
     if (!ownerServerId) return undefined
     const api = serverConnections.apiFor(ownerServerId)
-    const tree = await api.tasksForSession(sessionId).catch(() => undefined)
-    if (tree === undefined) return undefined
-    if (tree === null) return null
-    return this.applySessionTree(sessionId, tree, serverId)
+    const found = await api.tasksForSession(sessionId).catch(() => undefined)
+    if (found === undefined) return undefined
+    if (found === null) return null
+    return this.applySessionTask(sessionId, found, serverId)
   }
 
-  private applySessionTree(
+  private applySessionTask(
     sessionId: string,
-    tree: TaskForSessionResult,
+    found: TaskForSessionResult,
     serverId?: string,
   ): Task {
-    const task = this.get(tree.task.id)
-    for (const record of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
-      if (record) this.get(record.id).hydrate(record, serverId)
-    }
+    const task = this.get(found.task.id).hydrate(found.task, serverId)
     task.bindSession(sessionId)
-    for (const attempt of tree.attempts) {
-      this.get(attempt.taskId ?? tree.task.id).applyAttempt(attempt)
-    }
+    for (const attempt of found.attempts) task.applyAttempt(attempt)
     return task
   }
 
@@ -851,7 +974,7 @@ export class TasksStore {
    * so the targeted rows merge into a complete collection, not an empty one. */
   async refreshSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
-    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
+    const hydrated = await this.hydrateSessionTask(sessionId, serverId)
     return hydrated ?? this.taskForSession(sessionId)
   }
 
@@ -864,13 +987,13 @@ export class TasksStore {
   }
 
   /**
-   * Bind an explicitly selected task, or mint the session's own, before its
-   * first prompt leaves — on the host that owns its project.
+   * Bind the task a session names, before its first prompt leaves — on the
+   * host that owns the task.
    *
    * This is the first-dispatch boundary, moved out of whichever host happens to
    * run the agent. A dispatched session runs on one machine and files here, so
-   * the mint cannot be a side effect of the prompt landing — the client has to
-   * name the host, and it is the only party that knows both.
+   * the binding cannot be a side effect of the prompt landing — the client has
+   * to name the host, and it is the only party that knows both.
    *
    * Returns null when the host declines the operation, in which case the caller
    * leaves the session taskless.
@@ -891,12 +1014,12 @@ export class TasksStore {
   softRemove(ids: string[]): Task[] {
     const wanted = new Set(ids)
     const removed: Task[] = []
-    for (let index = this.tasks.length - 1; index >= 0; index--) {
-      const task = this.tasks[index]
+    for (let index = this.listedTasks.length - 1; index >= 0; index--) {
+      const task = this.listedTasks[index]
       if (!wanted.has(task.id)) continue
       task.hideForUndo()
       removed.unshift(task)
-      this.tasks.splice(index, 1)
+      this.listedTasks.splice(index, 1)
     }
     return removed
   }
@@ -904,7 +1027,7 @@ export class TasksStore {
   restorePending(pending: Task[]): void {
     if (!pending.length) return
     for (const task of pending) task.restore()
-    this.tasks.sort((a, b) => b.updatedAt - a.updatedAt)
+    this.listedTasks.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   async commitPending(pending: Task[]): Promise<void> {
@@ -924,7 +1047,9 @@ export class TasksStore {
       },
     )
     await Promise.all(workers)
-    for (const task of pending) task.restore()
+    // A deleted task stays hidden: restoring it would list it again until the
+    // host's invalidation reload drops it, and a snapshot read before the
+    // delete landed would bring it back outright.
     const failed = pending.filter((_, index) => failureByIndex.has(index))
     if (failed.length) {
       this.restorePending(failed)

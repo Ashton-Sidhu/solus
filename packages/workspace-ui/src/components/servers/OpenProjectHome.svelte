@@ -4,13 +4,15 @@
     LoaderCircle as CircleNotchIcon,
     Download as DownloadSimpleIcon,
     Folder as FolderIcon,
+    FolderPlus as FolderPlusIcon,
     Link2 as LinkSimpleIcon,
     Search as MagnifyingGlassIcon,
   } from "@lucide/svelte";
   import { Input } from "../ui/input";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { abbreviateHome } from "../../lib/paths";
   import type { OpenProjectStore } from "./open-project.store.svelte";
-  import type { HomeRow } from "./lib/open-project-home";
+  import type { HomeAction, HomeRow } from "./lib/open-project-home";
 
   interface Props {
     store: OpenProjectStore;
@@ -36,10 +38,11 @@
   const firstActionIndex = $derived(rows.findIndex((row) => row.kind === "action"));
 
   const ACTION_LABELS = {
+    new: "New project…",
     browse: "Open a folder…",
     github: "Clone from GitHub…",
     "clone-url": "Clone from a URL…",
-  } satisfies Record<"browse" | "github" | "clone-url", string>;
+  } satisfies Record<HomeAction, string>;
 </script>
 
 {#snippet shell(index: number, height: string, children: import("svelte").Snippet)}
@@ -61,8 +64,10 @@
 
 <div class="text-xs px-3 pb-3">
   <!-- One box for both questions home answers: which project, or which repo. -->
-  <label class="mb-1 flex h-[2.125rem] items-center gap-2 rounded-lg bg-muted px-2.5">
-    <MagnifyingGlassIcon size={13} class="shrink-0 text-muted-foreground" />
+  <label
+    class="mb-1 flex h-[2.125rem] items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
+  >
+    <MagnifyingGlassIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
     <Input
       bind:ref={inputEl}
       bind:value={store.homeQuery}
@@ -97,12 +102,12 @@
         {#snippet recentRow()}
           <FolderIcon size={13} class="shrink-0 text-muted-foreground opacity-80" />
           <span class="min-w-0 flex-1 truncate text-sm">{row.project.folderName}</span>
-          <span
-            class="max-w-[16.25rem] shrink-0 truncate font-mono  text-muted-foreground"
+          <MiddleTruncate
+            value={abbreviateHome(row.project.path)}
+            showTitle={false}
             title={row.project.path}
-          >
-            {abbreviateHome(row.project.path)}
-          </span>
+            class="max-w-[16.25rem] shrink-0 font-mono text-muted-foreground"
+          />
         {/snippet}
         {@render shell(index, "h-10", recentRow)}
       {:else}
@@ -121,7 +126,7 @@
                 </div>
               {:else}
                 <div class="text-sm font-medium">No projects on {store.hostLabel || "this machine"} yet</div>
-                <div class="text-muted-foreground">Start with a folder or a repository.</div>
+                <div class="text-muted-foreground">Start a new project, or open a folder or a repository.</div>
               {/if}
             </div>
           {/if}
@@ -131,7 +136,8 @@
           {#if row.action === "github"}
             <Icon icon="logos:github-icon" width={13} class="shrink-0 text-muted-foreground" />
           {:else}
-            {@const ActionIcon = row.action === "browse" ? FolderIcon : LinkSimpleIcon}
+            {@const ActionIcon =
+              row.action === "new" ? FolderPlusIcon : row.action === "browse" ? FolderIcon : LinkSimpleIcon}
             <ActionIcon size={13} class="shrink-0 text-muted-foreground" />
           {/if}
           <span class="min-w-0 flex-1 truncate text-sm">{ACTION_LABELS[row.action]}</span>

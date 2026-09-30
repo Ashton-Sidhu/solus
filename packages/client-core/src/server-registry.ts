@@ -1,10 +1,22 @@
 /**
  * Persists the list of paired Solus servers in localStorage. Lets the user
- * connect to multiple machines and switch without re-pairing each time.
+ * connect to multiple machines and switch without re-pairing each time. Every
+ * entry is a machine: the organizations' workspace services are kept apart
+ * (`workspace-registry.ts`).
  */
 
 import type { HostOperatingSystem } from '@solus/contracts/types'
-import { hostKindSchema, hostRouteSchema, managedHostLifecycleSchema, type HostKind, type HostRoute, type ManagedHostLifecycle } from '@solus/contracts/uplink'
+import {
+  hostCategorySchema,
+  hostRouteSchema,
+  isSolusApiId,
+  machineKindSchema,
+  managedHostLifecycleSchema,
+  type HostCategory,
+  type HostRoute,
+  type MachineKind,
+  type ManagedHostLifecycle,
+} from '@solus/contracts/uplink'
 import { z } from 'zod'
 import { forwardCompatibleArray } from './forward-compat'
 
@@ -18,20 +30,20 @@ export interface SavedServerUplink {
   hostId: string
   /** The account origin whose directory named it, e.g. `https://app.solus.sh`. */
   directoryUrl: string
-  /** The organization the host is shared with, as the directory last said. The
-   *  share dialog reads its people from here when the host itself names none:
-   *  the owner connects as `local-owner` and the host never learns the organization. */
-  organizationId?: string
+  /** The organizations whose members may reach the host, as the directory last
+   *  said (organization-scope §3.1, R15): the ones a personal host is shared
+   *  with, or the one a managed host belongs to. Absent when it is shared with none. */
+  organizationIds?: string[]
+  /** What kind of machine the control plane recorded at enrollment. */
+  category?: HostCategory
   /** Whose machine this is, for a host shared with the account rather than linked by it. */
   ownerName?: string
   /** The account that linked a personal host, so its `host-owner` presence is one person with their account elsewhere. */
   ownerUserId?: string
   /** `managed` for a host Solus cloud provisioned for an organization (managed-hosts.md); absent is personal. */
-  kind?: HostKind
+  kind?: MachineKind
   /** Managed hosts only: what the control plane last said of the compute. Only a `ready` host is dialed. */
   managedState?: ManagedHostLifecycle
-  /** Cloud rows only: the organization the account is working in, as the directory last said. */
-  isActiveWorkspace?: boolean
 }
 
 /**
@@ -42,6 +54,11 @@ export interface SavedServerUplink {
  */
 export function awaitsManagedCompute(uplink: SavedServerUplink | undefined): boolean {
   return uplink?.kind === 'managed' && uplink.managedState !== 'ready'
+}
+
+/** Whether a host belongs to an organization: shared with it, or managed for it. */
+export function hostInOrganization(uplink: Pick<SavedServerUplink, 'organizationIds'> | undefined, organizationId: string | null): boolean {
+  return !!organizationId && !!uplink?.organizationIds?.includes(organizationId)
 }
 
 /**
@@ -62,7 +79,9 @@ export interface SavedServer {
    *  host advertises over the connection. */
   hasUserLabel?: boolean
   /** Server URL as the user entered it, e.g. `http://192.168.1.42:51234`. The
-   *  preferred direct route; `routes` may name more ways to reach the same host. */
+   *  preferred direct route; `routes` may name more ways to reach the same host.
+   *  Empty for a host known only through the cloud directory, whose routes are
+   *  the directory's alone. */
   url: string
   /** Long-lived session token from POST /pair. Empty for a host known only
    *  through the cloud directory: it is dialed with a short grant instead. */
@@ -79,12 +98,27 @@ export interface SavedServer {
 }
 
 /**
- * The organization's workspace service (docs/plans/cloud-service-model.md): a
- * `cloud` directory row. It is not a machine — no pairing, no LAN route, no
- * execution plane — and it is dialed with a grant like any directory host.
+ * Where new work runs when nothing narrower names a machine
+ * (docs/plans/workspace-and-machines.md §5.1). The primary is kept when it is a
+ * machine — the desktop's own, or the machine a web page was served by. At the
+ * account origin the primary is the workspace service, which runs nothing, so the
+ * choice falls to the active organization's managed host, then to any machine,
+ * and only among connected ones: a call sent to a machine that is not there
+ * waits for as long as it stays away. Null is "no machine", never the service.
  */
-export function isCloudServer(server: { uplink?: Pick<SavedServerUplink, 'kind'> } | null | undefined): boolean {
-  return server?.uplink?.kind === 'cloud'
+export function chooseDefaultMachine(input: {
+  primaryId: string | null
+  localId: string | null
+  saved: readonly SavedServer[]
+  activeOrganizationId: string | null
+  isConnected: (serverId: string) => boolean
+}): string | null {
+  const { primaryId, localId, saved, activeOrganizationId, isConnected } = input
+  if (primaryId && !isSolusApiId(primaryId)) return primaryId
+  if (localId) return localId
+  const machines = saved.filter((server) => isConnected(server.id))
+  const managed = machines.find((server) => server.uplink?.kind === 'managed' && hostInOrganization(server.uplink, activeOrganizationId))
+  return (managed ?? machines[0])?.id ?? null
 }
 
 /** The routes to dial, oldest entries included: `url` is always one of them, as a direct route. */
@@ -129,6 +163,29 @@ export function onServerRemoving(listener: ServerRemovingListener): () => void {
   return () => serverRemovingListeners.delete(listener)
 }
 
+const directoryAnsweredListeners = new Set<() => void>()
+let directoryAnswered = false
+
+/**
+ * A directory read succeeded and was merged into the saved hosts. From here a
+ * reference to a host the saved list does not hold names a machine that is
+ * gone (docs/plans/workspace-and-machines.md §6). A failed read never calls
+ * this: until a read succeeds, an unknown host may still be listed.
+ */
+export function markDirectoryAnswered(): void {
+  directoryAnswered = true
+  for (const listener of directoryAnsweredListeners) listener()
+}
+
+export function hasDirectoryAnswered(): boolean {
+  return directoryAnswered
+}
+
+export function onDirectoryAnswered(listener: () => void): () => void {
+  directoryAnsweredListeners.add(listener)
+  return () => directoryAnsweredListeners.delete(listener)
+}
+
 export type InstallationIdDecision = 'match' | 'mismatch'
 
 export function installationIdDecision(
@@ -145,7 +202,8 @@ const savedServerSchema = z.looseObject({
   id: z.string().min(1),
   label: z.string().catch(''),
   hasUserLabel: z.boolean().optional().catch(undefined),
-  url: z.string().min(1),
+  // Empty for a host known only through the directory: its routes are the directory's.
+  url: z.string(),
   sessionToken: z.string().catch(''),
   installationId: z.string().min(1),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
@@ -155,12 +213,12 @@ const savedServerSchema = z.looseObject({
   uplink: z.object({
     hostId: z.string().min(1),
     directoryUrl: z.string().min(1),
-    organizationId: z.string().min(1).optional().catch(undefined),
+    organizationIds: z.array(z.string().min(1)).optional().catch(undefined),
+    category: hostCategorySchema.optional().catch(undefined),
     ownerName: z.string().min(1).optional().catch(undefined),
     ownerUserId: z.string().min(1).optional().catch(undefined),
-    kind: hostKindSchema.optional().catch(undefined),
+    kind: machineKindSchema.optional().catch(undefined),
     managedState: managedHostLifecycleSchema.optional().catch(undefined),
-    isActiveWorkspace: z.boolean().optional().catch(undefined),
   }).optional().catch(undefined),
 })
 const savedServersSchema = forwardCompatibleArray(savedServerSchema)
@@ -173,7 +231,10 @@ export function loadServers(): SavedServer[] {
     if (decoded.success) {
       // SAFETY: Every surviving element passed savedServerSchema, whose fields
       // mirror SavedServer; loose passthrough keys widen, never narrow.
-      return decoded.data as SavedServer[]
+      const servers = decoded.data as SavedServer[]
+      // Builds before the split saved each workspace service as a host. It is
+      // not one, and read as a machine it would be dialed and offered as one.
+      return servers.filter((server) => !isSolusApiId(server.id))
     }
   } catch {}
   // An unreadable blob would be re-parsed and re-failed on every boot: delete
@@ -185,31 +246,13 @@ export function loadServers(): SavedServer[] {
   return []
 }
 
-let cloudServerIdsCache: { raw: string | null; ids: ReadonlySet<string> } | null = null
-
-/**
- * The ids of the saved cloud rows. Read on hot paths (every host row, every
- * sidebar pass), so the answer is memoized on the stored blob: a read costs a
- * string compare, and only a changed registry costs a parse.
- */
-export function savedCloudServerIds(): ReadonlySet<string> {
-  let raw: string | null = null
-  try {
-    raw = localStorage.getItem(KEY)
-  } catch {}
-  if (cloudServerIdsCache && cloudServerIdsCache.raw === raw) return cloudServerIdsCache.ids
-  const ids = new Set(loadServers().filter(isCloudServer).map((server) => server.id))
-  cloudServerIdsCache = { raw, ids }
-  return ids
-}
-
 export function saveServers(servers: SavedServer[]): void {
   localStorage.setItem(KEY, JSON.stringify(servers))
 }
 
 export function upsertServer(server: SavedServer): void {
   const servers = loadServers()
-  const idx = servers.findIndex(s => s.id === server.id || s.url === server.url)
+  const idx = servers.findIndex(s => s.id === server.id || (!!server.url && s.url === server.url))
   if (idx >= 0) servers[idx] = server
   else servers.push(server)
   saveServers(servers)

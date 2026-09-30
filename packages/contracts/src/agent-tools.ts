@@ -29,6 +29,7 @@ export const SOLUS_TOOL_GROUPS = [
     'resolve_comment',
     'publish_work',
     'pull_work_upstream',
+    'request_work_review',
   ] },
   { id: 'docs', label: 'External documents', tools: [
     'search_external_doc',
@@ -49,6 +50,11 @@ export const SOLUS_TOOL_GROUPS = [
     'list_automation_runs',
     'read_automation_run',
   ] },
+  { id: 'watches', label: 'Watches', tools: [
+    'watch',
+    'list_watches',
+    'cancel_watch',
+  ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
   ] },
@@ -67,6 +73,8 @@ export const SOLUS_TOOL_GROUPS = [
     'browser_resize',
     'browser_set_appearance',
     'browser_snapshot',
+    'browser_record_start',
+    'browser_record_stop',
     'browser_click',
     'browser_type',
     'browser_press',
@@ -76,14 +84,12 @@ export const SOLUS_TOOL_GROUPS = [
   ] },
   { id: 'sessions', label: 'Sessions', tools: [
     'list_agent_targets',
-    'find_sessions',
+    'search_sessions',
     'read_session',
-    'create_session',
-    'prompt_session',
-    'wait_for_session',
+    'read_task_sessions',
+    'start_session',
+    'send_session',
     'stop_session',
-    'answer_session',
-    'review_plan',
     'claude_subagent',
     'codex_subagent',
   ] },
@@ -93,7 +99,8 @@ export const SOLUS_TOOL_GROUPS = [
     'update_task_status',
     'create_task',
     'comment_task',
-    'link_task',
+    'link',
+    'list_session_pull_requests',
   ] },
 ] as const
 
@@ -101,6 +108,17 @@ export type ConfigurableSolusToolName = (typeof SOLUS_TOOL_GROUPS)[number]['tool
 export type SolusToolPreferences = Partial<Record<ConfigurableSolusToolName, boolean>>
 
 export const CONFIGURABLE_SOLUS_TOOL_NAMES = SOLUS_TOOL_GROUPS.flatMap((group) => [...group.tools])
+
+/** Tools a host may still have a saved preference for after they were removed.
+ *  The preference is dropped on read; any other unknown name is still refused. */
+export const RETIRED_SOLUS_TOOL_NAMES: readonly string[] = [
+  'wait_for_session', 'answer_session', 'review_plan',
+  'create_session', 'prompt_session', 'find_sessions',
+]
+
+export function withoutRetiredSolusTools(preferences: Record<string, boolean>): Record<string, boolean> {
+  return Object.fromEntries(Object.entries(preferences).filter(([name]) => !RETIRED_SOLUS_TOOL_NAMES.includes(name)))
+}
 
 export function isSolusToolEnabled(name: string, preferences: SolusToolPreferences): boolean {
   return !Object.entries(preferences).some(([toolName, enabled]) => toolName === name && !enabled)

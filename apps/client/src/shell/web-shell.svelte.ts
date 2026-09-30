@@ -24,7 +24,6 @@ export class WebShell extends ClientViewport implements ClientShellContext {
   get hasWorkspace(): boolean { return this.resourceKinds.has('workspace') }
   get hasProjectPanel(): boolean { return this.hasWorkspace && this.layout === 'wide' }
   get hasCompanionPanes(): boolean { return this.hasWorkspace && this.layout === 'wide' }
-  get deferHistoryToolInputs(): boolean { return this.layout === 'mobile' }
   constructor() {
     super()
     const refreshVisibility = () => { this.visible = document.visibilityState === 'visible' }

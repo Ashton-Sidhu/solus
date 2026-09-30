@@ -16,6 +16,7 @@
   import * as TooltipUI from '../ui/tooltip'
   import PlanApproveButton from './PlanApproveButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
+  import type { PlanApprovalMode } from '../../contexts/workspace/session-plan-operations'
 
   interface Props {
     planId: string
@@ -57,8 +58,8 @@
 
   useScope('plan-action-bar');
 
-  useKeybinding('plan-review.approve-ask', () => handleApprove('ask'));
-  useKeybinding('plan-review.approve-auto', () => handleApprove('auto'));
+  useKeybinding('plan-review.approve-ask', () => handleApprove('supervised'));
+  useKeybinding('plan-review.approve-auto', () => handleApprove('default'));
   useKeybinding('plan-review.reject', () => { session.rejectPlan(planId); onDone?.(); });
   useKeybinding('plan-review.reject-revise', () => handleRevise(), { enabled: () => hasRevise });
   useKeybinding('plan-review.focus-comment', () => void focusComposer());
@@ -72,7 +73,7 @@
     composerRef?.focus()
   }
 
-  function handleApprove(mode: 'ask' | 'auto') {
+  function handleApprove(mode: PlanApprovalMode) {
     menuOpen = false
     const picked = composerRef?.payload()
     // Only pass provider/model when they differ from the session's effective
@@ -236,7 +237,7 @@
 {#if compact && triggerEl}
   <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Content customAnchor={triggerEl} side="bottom" align="start" sideOffset={6} class="w-[180px]">
-      <DropdownMenu.Item data-testid="plan-action-yes" onSelect={() => handleApprove('ask')}>
+      <DropdownMenu.Item data-testid="plan-action-yes" onSelect={() => handleApprove('supervised')}>
         <RobotIcon size={14} />
         <span class="flex-1 text-left">Yes</span>
         {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥Y</Kbd></span>{/if}

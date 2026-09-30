@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { SeatProvider, SeatStatus } from '@solus/contracts/seats'
+import type { Seat, SeatProvider, SeatStatus } from '@solus/contracts/seats'
 import type { HostReadiness, SetupAgentAuthCheckResult } from '@solus/contracts/types'
-import { registerSetupHandlers } from '@solus/server/server/handlers/setup-handlers'
-import { SolusServer, type HandlerCtx } from '@solus/server/server/server'
+import { registerSetupHandlers } from '@solus/server/transport/handlers/setup-handlers'
+import { SolusServer, type HandlerCtx } from '@solus/server/transport/server'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 
 const MEMBER_ID = 'member-1'
@@ -31,9 +31,9 @@ function serverWithMemberSeat(): SolusServer {
     hasCommand: () => false,
     projectsRoot: () => '/tmp',
     seats: {
-      status: async (userId: string, provider: SeatProvider): Promise<SeatStatus> => ({
+      status: async (seat: Seat, provider: SeatProvider): Promise<SeatStatus> => ({
         provider,
-        state: userId === MEMBER_ID && provider === 'claude-code' ? 'connected' : 'none',
+        state: seat.kind === 'user' && seat.userId.kind === 'account' && seat.userId.accountId === MEMBER_ID && provider === 'claude-code' ? 'connected' : 'none',
         usageCapable: false,
       }),
     },

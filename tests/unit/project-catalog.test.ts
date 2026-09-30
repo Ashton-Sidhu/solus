@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   groupLogicalProjects,
-  mergeProjectOptions,
   normalizeProjectRoot,
   projectRefKey,
 } from '@solus/workspace-ui/contexts/projects/project-catalog'
@@ -38,54 +37,6 @@ describe('normalizeProjectRoot', () => {
 
   test('drops a trailing slash so it keys the same as the bare path', () => {
     expect(normalizeProjectRoot('/repos/solus/')).toBe('/repos/solus')
-  })
-})
-
-describe('mergeProjectOptions', () => {
-  test('dedupes by (serverId, projectRoot) across sources, first source keeping its label', () => {
-    const merged = mergeProjectOptions(
-      [
-        [{ serverId: 'host-a', projectRoot: '/repos/solus', label: 'Live: Solus' }],
-        [{ serverId: 'host-a', projectRoot: '/repos/solus', label: 'Catalog: Solus' }],
-      ],
-      () => true,
-      (serverId) => serverId,
-    )
-    expect(merged).toHaveLength(1)
-    expect(merged[0].label).toBe('Live: Solus')
-  })
-
-  test('keeps equal paths on different hosts as distinct rows, not deduped', () => {
-    const merged = mergeProjectOptions(
-      [[
-        { serverId: 'host-a', projectRoot: '/repos/solus', label: 'solus' },
-        { serverId: 'host-b', projectRoot: '/repos/solus', label: 'solus' },
-      ]],
-      () => true,
-      (serverId) => (serverId === 'host-a' ? 'Laptop' : 'Build box'),
-    )
-    expect(merged).toHaveLength(2)
-    expect(merged.map((option) => option.label).sort()).toEqual(['solus · Build box', 'solus · Laptop'])
-    expect(new Set(merged.map((option) => option.key)).size).toBe(2)
-  })
-
-  test('marks a disconnected host unavailable without dropping the row', () => {
-    const merged = mergeProjectOptions(
-      [[{ serverId: 'offline-host', projectRoot: '/repos/solus', label: 'solus' }]],
-      (serverId) => serverId !== 'offline-host',
-      (serverId) => serverId,
-    )
-    expect(merged).toHaveLength(1)
-    expect(merged[0].available).toBe(false)
-  })
-
-  test('ignores a bare workspace-root entry ("~")', () => {
-    const merged = mergeProjectOptions(
-      [[{ serverId: 'host-a', projectRoot: '~', label: 'Workspace' }]],
-      () => true,
-      (serverId) => serverId,
-    )
-    expect(merged).toHaveLength(0)
   })
 })
 

@@ -39,3 +39,27 @@ export function leadingHomeRoute(input: LeadingHomeInput): RouteRef {
   const draft = covered ?? input.createDraft()
   return { name: 'draft', params: { draftId: draft.id } }
 }
+
+/** What the workspace knows about which conversations still exist. */
+export interface ReturnRouteInput {
+  hasTabs: boolean
+  hasTabForSession: (sessionId: string) => boolean
+  drafts: ReadonlyMap<string, { id: string }>
+  composingDraftIds: ReadonlySet<string>
+}
+
+/**
+ * Whether a page like Settings can hand its pane back to the route it covered.
+ * A conversation needs its tab, and a composer needs its draft unsent and not
+ * taken by another pane. Pages own their own missing-record states, so any
+ * other route stays valid.
+ */
+export function canReturnToRoute(ref: RouteRef, input: ReturnRouteInput): boolean {
+  if (ref.name === 'chat') {
+    return ref.params.sessionId ? input.hasTabForSession(ref.params.sessionId) : input.hasTabs
+  }
+  if (ref.name === 'draft') {
+    return input.drafts.has(ref.params.draftId) && !input.composingDraftIds.has(ref.params.draftId)
+  }
+  return true
+}

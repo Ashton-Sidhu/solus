@@ -20,7 +20,6 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@solus/client-core/host-api";
   import type { PaneId } from "../../contexts/workspace/routing/location";
-  import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { localApi } from "@solus/client-core/local-api";
   import {
     useKeybinding,
@@ -30,10 +29,11 @@
   import { PrGuideController } from "./lib/pr-guide-controller.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import DiffHeatMap from "../diff/DiffHeatMap.svelte";
-  import { parsePatchFiles } from "@pierre/diffs";
+  import { repoFileLoader } from "../diff/lib/repo-file-loader";
+  import { parsePatchFileList } from "../../lib/pierre-diff";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
-  import SubmitReviewModal from "./SubmitReviewModal.svelte";
+  import SubmitReviewForm from "./SubmitReviewForm.svelte";
   import PrReviewDiff from "./PrReviewDiff.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
@@ -45,7 +45,13 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import LensSurface from "../review/LensSurface.svelte";
+  import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
+  import { lensTabState } from "../review/lib/lens-surface";
+  import { prLensAdapter, prLensSubject, prLensSubjectKey } from "./lib/pr-lens";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
+  import { setCodeHostMentions } from "../mentions/lib/code-host-mentions";
+  import { prMentionAccounts, warmPrMentions } from "./lib/pr-mentions";
   import {
     buildPrChecksFixPrompt,
     buildPrCommentsFixPrompt,
@@ -75,7 +81,6 @@
     onToggleFullScreen,
     onMoveAcross,
     onExit,
-    onStep,
     onUnresolvedCountChange,
     onRefreshTarget,
   }: {
@@ -109,8 +114,6 @@
     onMoveAcross?: () => void;
     /** How Esc and the close control get out. Defaults to leaving the review route. */
     onExit?: () => void;
-    /** How J / K walk the queue. Defaults to stepping the review route. */
-    onStep?: (delta: number) => void;
     onUnresolvedCountChange?: (count: number) => void;
     onRefreshTarget?: () => Promise<void>;
   } = $props();
@@ -175,8 +178,7 @@
         getApi,
         fallbackCtx: () => targetCtx ?? session.ctx,
         ctxForDirectory: (path) => session.ctxForDirectory(path),
-        loadThreads: (ctx, number, force) =>
-          pullRequests.projects.get(api, serverId, ctx).get(number).loadThreads({ force }),
+        threadSource: (ctx, number) => pullRequests.projects.get(api, serverId, ctx).get(number),
         loadDiff: (ctx, request) => api.prGetDiff(ctx, request),
         prepareCheckout: (ctx, target) => api.prPrepareCheckout(ctx, target),
         loadInterdiff: (ctx, target, force) =>
@@ -243,7 +245,7 @@
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrReviewSession.tab).
-  type ContentTab = "activity" | "map" | "guide" | "diff";
+  type ContentTab = "activity" | "map" | "guide" | "lens" | "diff";
   // The host target enables Activity and Diff together. A cached guide can also
   // load then; only generation and other source actions need checkout.
   const sub = $derived(
@@ -256,18 +258,34 @@
   const mapPatch = $derived(
     isSinceReviewMode ? (interdiff?.patch ?? "") : (review.diffPatch ?? ""),
   );
-  const mapFiles = $derived(
-    mapPatch ? parsePatchFiles(mapPatch).flatMap((part) => part.files) : [],
-  );
+  const mapFiles = $derived(mapPatch ? parsePatchFileList(mapPatch) : []);
 
-  async function loadRepoFilesForMap(repoRoot: string): Promise<readonly string[] | null> {
-    const result = await getApi().listProjectFiles(prCtx(), { cwd: repoRoot });
-    return result.ok ? result.files : null;
-  }
+  const loadRepoFilesForMap = repoFileLoader(getApi, prCtx);
 
   // Threads, the interdiff and the draft comments all live on the shared review
   // state — the popped-out diff is another pane over this same review.
   const reviewThreads = $derived(review.threads);
+
+  // `@` in every composer under this pane names a GitHub account, as on
+  // GitHub. The people come from the pull request's store; the first `@`
+  // reads the reviewers only when no surface has read them yet.
+  const mentionAccounts = $derived(
+    reviewDetail
+      ? prMentionAccounts({
+          author: reviewDetail.author,
+          authorAvatarUrl: reviewDetail.authorAvatarUrl,
+          reviewers: reviewDetail.reviewers ?? [],
+          threads: reviewThreads,
+          candidates: reviewDetail.reviewerCandidates ?? [],
+        })
+      : [],
+  );
+  setCodeHostMentions({
+    accounts: () => mentionAccounts,
+    warm: () => {
+      if (reviewDetail) warmPrMentions(reviewDetail);
+    },
+  });
   const threadsLoadFailed = $derived(review.threadsLoadFailed);
   function loadThreads(force = false) {
     review.loadThreads(force);
@@ -299,29 +317,26 @@
   // ── Commit scope ──
   // While set, the Diff tab shows one commit's changes instead of the PR diff.
   const commitScope = $derived(review.commitScope);
+  // PR sync keeps this pull request and its check runs fresh while the pane
+  // is open. When it reports a new revision of the pull request, the threads
+  // and the activity are read again.
   $effect(() => {
-    const currentNumber = target.number;
-    const prCwd = review.checkout?.worktreePath;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = subscribeAllHosts(
-      "prs.invalidated",
-      (emittingServerId, { projectRoot: changedCwd }) => {
-        if (emittingServerId !== serverId) return;
-        const paneCtx = prCtx();
-        const ctxCwd = projectScopeOf(paneCtx.session);
-        if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (target.number !== currentNumber) return;
-          loadThreads(true);
-          activityFeedRef?.refresh();
-        }, 500);
-      },
-    );
-    return () => {
-      unsub();
-      clearTimeout(timer);
-    };
+    const number = target.number;
+    const scope = projectScopeOf(projectCtx().session);
+    if (!scope) return;
+    return untrack(() => pullRequests.checks.wantReview(api, serverId, projectCtx(), number));
+  });
+  let reviewedRevision: string | null = null;
+  $effect(() => {
+    const revision = reviewDetail ? `${reviewDetail.number}:${reviewDetail.updatedAt}` : null;
+    if (!revision || revision === reviewedRevision) return;
+    const isFirstSight = reviewedRevision === null || !reviewedRevision.startsWith(`${reviewDetail?.number}:`);
+    reviewedRevision = revision;
+    if (isFirstSight) return;
+    untrack(() => {
+      loadThreads(true);
+      activityFeedRef?.refresh();
+    });
   });
 
   // GitHub-bound draft comments, persisted per guide key (shared store with the
@@ -336,10 +351,25 @@
   const saveDiffComment = (c: GuideDiffCommentSave) => review.drafts.save(c);
   const removeDraft = (id: string) => review.drafts.remove(id);
 
+  // The lens reads the same revision the guide does (docs/plans/review-lenses.md).
+  const lensSubjectKey = $derived(prLensSubjectKey(serverId, pr));
+  const lensSubject = $derived.by((): LensSubject | null => {
+    if (!lensSubjectKey) return null;
+    return untrack(() => (pr ? prLensSubject(getApi(), serverId, projectCtx(), pr) : null));
+  });
+  $effect(() => {
+    const subject = lensSubject;
+    if (subject) void untrack(() => reviewLensStore.load(subject));
+  });
+  const lensState = $derived(
+    lensTabState(reviewLensStore.entryFor(lensSubject)?.snapshot ?? null, reviewLensStore.isUnread(lensSubject)),
+  );
+  const lensPullRequest = $derived(prLensAdapter(review, reviewDetail ?? null));
+
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
   let refreshingPr = $state(false);
-  // Owned here so a typed summary survives closing/reopening the submit modal.
+  // Owned here so a typed summary survives closing/reopening the review popover.
   let submitEvent = $state<DraftReview["event"]>("COMMENT");
   let submitBody = $state("");
 
@@ -349,7 +379,7 @@
     try {
       // The host shares its answers between clients, so clearing this client's
       // caches is not enough — tell it to forget before anything below re-reads.
-      await pullRequests.projects.get(api, serverId, projectCtx()).forgetHostCache();
+      await pullRequests.projects.get(api, serverId, projectCtx()).refreshHost();
       if (activityFeedRef) {
         await activityFeedRef.refresh();
       } else {
@@ -411,8 +441,10 @@
   let mountedDiff = $state(untrack(() => sub === "diff" && (headless || embedded)));
   let mountedActivity = $state(untrack(() => sub === "activity"));
   let mountedMap = $state(untrack(() => sub === "map"));
+  let mountedLens = $state(untrack(() => sub === "lens"));
   $effect(() => {
-    if (sub === "guide") mountedGuide = true;
+    if (sub === "lens") mountedLens = true;
+    else if (sub === "guide") mountedGuide = true;
     else if (sub === "diff") { if (inlineDiff) mountedDiff = true; }
     else if (sub === "activity") mountedActivity = true;
     else if (sub === "map") mountedMap = true;
@@ -613,11 +645,6 @@
     requestInputFocus();
   }
 
-  function step(delta: number) {
-    if (onStep) onStep(delta);
-    else session.prReview.stepPrReview(delta, projectCtx());
-  }
-
   const summary = $derived(
     pullRequests.projects.at(serverId, projectScopeOf(projectCtx().session))?.prFor(target.number) ?? null,
   );
@@ -650,9 +677,8 @@
     { enabled: () => !headless && !!prUrl },
   );
 
-  // Esc is the only way out, and J / K walk the queue. All three skip while a
-  // comment/text field is focused (it owns its own keys) or the submit modal is
-  // up (it owns Esc).
+  // Esc is the only way out. It skips while a comment/text field is focused
+  // (it owns its own keys) or the review popover is up (it owns Esc).
   function onWindowKeydown(e: KeyboardEvent) {
     if (headless || e.defaultPrevented || showSubmit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -665,15 +691,6 @@
       // unless it is the only state this surface has room for.
       if (embedded && fullScreen && onToggleFullScreen) onToggleFullScreen();
       else exit();
-    } else if (key === "j") {
-      e.preventDefault();
-      step(1);
-    } else if (key === "k") {
-      e.preventDefault();
-      step(-1);
-    } else if (embedded && key === "e") {
-      e.preventDefault();
-      onToggleFullScreen?.();
     }
   }
 
@@ -697,9 +714,10 @@
     repo={targetRepo ? `${targetRepo.owner}/${targetRepo.repo}` : null}
     number={target.number}
     onOpenPage={prUrl ? openPr : undefined}
-    tab={sub === "guide" || sub === "map" ? sub : "activity"}
+    tab={sub === "guide" || sub === "map" || sub === "lens" ? sub : "activity"}
     diffOpen={diffPoppedOut}
     guideStatus={visibleGuideStatus}
+    {lensState}
     tabsDisabled={!pr}
     onSelect={select}
   />
@@ -712,6 +730,7 @@
     tab={sub === "diff" ? null : sub}
     diffOpen={sub === "diff"}
     guideStatus={visibleGuideStatus}
+    {lensState}
     tabsDisabled={!pr}
     diffHint="Read the change"
     onSelect={select}
@@ -724,7 +743,23 @@
 
 {#snippet reviewButton()}
   {#if pr && reviewDetail?.state === "open" && reviewDetail.viewerPermissions.reviewVerdicts.length > 0}
-    <PrReviewButton draftCount={drafts.length} onclick={() => (showSubmit = true)} />
+    <PrReviewButton draftCount={drafts.length} bind:open={showSubmit}>
+      {#snippet form()}
+        <SubmitReviewForm
+          {pr}
+          {drafts}
+          submitReview={(review) =>
+            pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
+          supportedVerdicts={reviewDetail?.capabilities.reviewVerdicts ?? ["comment"]}
+          allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
+          bind:event={submitEvent}
+          bind:body={submitBody}
+          onClose={() => (showSubmit = false)}
+          onSubmitted={onReviewSubmitted}
+          onDraftFixes={openFixComments}
+        />
+      {/snippet}
+    </PrReviewButton>
   {/if}
 {/snippet}
 
@@ -847,6 +882,25 @@
         />
       </div>
     {/if}
+    {#if mountedLens && pr}
+      <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "lens"}>
+        {#if !headless && !embedded}
+          <div
+            class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8cqi,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
+          >
+            {@render detailMasthead()}
+          </div>
+        {/if}
+        <div class="min-h-0 flex-1">
+          <LensSurface
+            subject={lensSubject}
+            active={sub === "lens"}
+            sourceTabId={reviewTabId ?? undefined}
+            pullRequest={lensPullRequest}
+          />
+        </div>
+      </div>
+    {/if}
     {#if mountedMap && pr}
       <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "map"}>
         {#if !headless && !embedded}
@@ -933,17 +987,3 @@
 
 </section>
 
-{#if showSubmit && pr}
-  <SubmitReviewModal
-    {pr}
-    {drafts}
-    submitReview={(review) =>
-      pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
-    allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
-    bind:event={submitEvent}
-    bind:body={submitBody}
-    onClose={() => (showSubmit = false)}
-    onSubmitted={onReviewSubmitted}
-    onDraftFixes={openFixComments}
-  />
-{/if}

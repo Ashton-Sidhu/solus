@@ -80,6 +80,9 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
       height: `${position.height}px`,
       margin: '0',
       boxSizing: 'border-box',
+      // A row can skip its rendering (`content-visibility: auto`); the copy
+      // must always paint while it fades.
+      contentVisibility: 'visible',
       transform: 'none',
       transition: 'none',
       pointerEvents: 'none',

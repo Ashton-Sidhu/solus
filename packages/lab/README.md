@@ -20,7 +20,7 @@ bun lab run guest-revoke --keep          # keep the data directory and lab.log f
 
 `bun lab` is `scripts/lab.ts`. Each run prints every check and a report; the exit code is non-zero on any failed check. The timeline of every dial, call, event, and check is `<dataDir>/lab/lab.log` (NDJSON), the host's own log is `<dataDir>/dev.log`, and its stdout is `<dataDir>/lab/host.log`.
 
-The `cloud-workspace` scenario boots its own **workspace service** (`src/workspace.ts`: the same build in workspace mode, `SOLUS_WORKSPACE=1`, on a temporary data directory, SQLite by default) and its own **runner** (a personal host the issuer links and attaches to the organization). It runs once on SQLite, and once more on Postgres when `POSTGRES_ADMIN_URL` names a server the Lab may create a database on (one fresh database per run, dropped after):
+The `cloud-workspace` scenario boots its own **Solus API** (`src/solus-api.ts`: the same build in API mode, `SOLUS_API=1`, on a temporary data directory, SQLite by default) and its own **runner** (a personal host the issuer links and attaches to the organization). It runs once on SQLite, and once more on Postgres when `POSTGRES_ADMIN_URL` names a server the Lab may create a database on (one fresh database per run, dropped after):
 
 ```bash
 docker run -d -e POSTGRES_PASSWORD=solus -p 54335:5432 postgres:17
@@ -36,7 +36,7 @@ POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54335/postgres bun lab ru
 | cara | organization member | in team A |
 | dan | organization member | in no team |
 | maya | guest | a visitor with a share link and no account |
-| carol | owner of another organization | on the workspace service, sees nothing of the Lab organization |
+| carol | owner of another organization | on the Solus API, sees nothing of the Lab organization |
 
 `--host personal` makes alice the machine's owner too: the issuer mints her an owner grant, and `ctx.client('alice', { route: 'local' })` reaches the ordinary listener credential-free. `--host managed` has no owner person; alice reaches the host only through grants.
 
@@ -50,8 +50,8 @@ POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54335/postgres bun lab ru
 - `task-share` — a task shared with a person by name opens its page, the session under it, and the document linked to it at the task's role; the person's own row survives a scope change; a guest with a task link reaches exactly the task and its contents, prompts as an editor on the sharer's seat, and is ended when the link is turned off; only the owner deletes.
 - `seats` — a member with no provider seat is refused with `SEAT_REQUIRED` and nothing is spawned; a pasted token seat rides the run; a guest runs on the sharer's seat; two members run at once on their own seats; only the administrator removes a seat. The mock backend records every run it is handed in `<dataDir>/lab/mock-runs.ndjson`, which `src/oracle.ts` reads.
 - `cloud-sessions` (personal flavor only; cloud-service-model.md §18–§19, the P2 exit test) — a runner streams a slow turn whose rows reach the service as they land; the runner is killed mid-turn; the transcript so far is readable and the session listed with the runner dead; the runner restarts on its data directory and its owner prompts it locally; the new turn's rows reach the service and the record settles to idle; bob reads the same rows.
-- `host-auth` (personal flavor, SQLite and Postgres workspace services) — the service refuses seat RPCs and the removed credential lease route; Claude and Codex seats stay on the selected host. Two hosts use independent logins; disconnect on A leaves B usable; another member cannot use either seat. Providers are mocked, never real accounts.
-- `cloud-workspace` (personal flavor only; docs/plans/cloud-service-model.md §15–§16) — alice and bob reach the workspace service with workspace grants; alice's task reaches bob live; a runner linked to the organization runs a mock-agent turn (`__MOCK_AGENT_TOOLS__`, the real `create_task` and `create_work` tools) whose task and work land on the service and not in the runner's own tables; the runner's session record is listed by the service, which keeps all three after the runner stops; carol, of another organization, sees none of it; execution methods answer `PLANE_DISABLED`.
+- `host-auth` (personal flavor, SQLite and Postgres Solus API instances) — the service refuses seat RPCs and the removed credential lease route; Claude and Codex seats stay on the selected host. Two hosts use independent logins; disconnect on A leaves B usable; another member cannot use either seat. Providers are mocked, never real accounts.
+- `cloud-workspace` (personal flavor only; docs/plans/cloud-service-model.md §15–§16) — alice and bob reach the Solus API with workspace grants; alice's task reaches bob live; a runner linked to the organization runs a mock-agent turn (`__MOCK_AGENT_TOOLS__`, the real `create_task` and `create_work` tools) whose task and work land on the service and not in the runner's own tables; the runner's session record is listed by the service, which keeps all three after the runner stops; carol, of another organization, sees none of it; execution methods answer `PLANE_DISABLED`.
 
 A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as('bob')` is a connected client, `ctx.client(...)` a fresh one, `expectOk` and `expectRefused` record checks, and `src/oracle.ts` holds the invariants scenarios call between steps.
 
@@ -69,10 +69,11 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 
 ### Cloud sharing (P4)
 
-`cloud-sharing` proves work snapshot push, offline work/task reads, cross-organization
+`cloud-sharing` proves server-owned work publication through `publicationStart`,
+including history, comments, and source removal, offline work/task reads, cross-organization
 refusal and the absence of a runner guest door. `cloud-sessions` additionally proves
 an offline guest transcript and an online prompt under the sharer's execution-host seat.
-`share-matrix`, `guest-revoke` and `task-share` now run against the workspace service,
+`share-matrix`, `guest-revoke` and `task-share` now run against the Solus API,
 not the personal/managed host. Set `POSTGRES_ADMIN_URL` to a disposable Postgres
 server to run both workspace engines. `bun scripts/lab.ts run all` is the command.
 

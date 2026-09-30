@@ -1,14 +1,17 @@
 <script lang="ts">
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { FileDiffMetadata } from "@pierre/diffs";
+  import { cn } from "../../lib/tw";
   import {
     buildHeatMapTree,
     heatBreadcrumb,
     heatChanges,
     heatIntensity,
     heatNodeAtPath,
+    heatTone,
     layoutTreemap,
     type HeatMapNode,
+    type HeatTone,
   } from "./lib/heat-map";
 
   let {
@@ -16,6 +19,7 @@
     onOpenFile,
     repoRoot = null,
     loadRepoFiles,
+    class: className = "",
   }: {
     files: FileDiffMetadata[];
     /** Display path of a changed file cell the user clicked, to open in the diff. */
@@ -23,7 +27,28 @@
     /** Repo root to list unchanged files from; null keeps a changed-only map. */
     repoRoot?: string | null;
     loadRepoFiles?: (repoRoot: string) => Promise<readonly string[] | null>;
+    /** The map's inset and type size. A pane uses the defaults; a card that
+     *  pads its own body, or sets its own type, passes them here. */
+    class?: string;
   } = $props();
+
+  /** The hue a changed cell is tinted with — the same colours the map prints
+   *  its `+N` and `−N` in, so the tint and the numbers agree. */
+  const TONE_COLORS = {
+    added: "var(--solus-art-3)",
+    removed: "var(--solus-stop-bg)",
+    mixed: "var(--solus-accent)",
+  } satisfies Record<HeatTone, string>;
+
+  const LEGEND: ReadonlyArray<[HeatTone, string]> = [
+    ["added", "Added"],
+    ["mixed", "Rewritten"],
+    ["removed", "Removed"],
+  ];
+
+  /** The gap between cells, taken out of each cell rather than painted as a
+   *  border, so the map sits on any surface without a seam colour to match. */
+  const CELL_GAP_PX = 3;
 
   // Unchanged repo structure, fetched once per root so the map shows the whole
   // repository, not just the changed slice. `loadedRoot` guards both re-entry
@@ -72,8 +97,8 @@
 
   function heatTint(node: HeatMapNode): string {
     if (!node.changed) return "background: var(--solus-surface-hover)";
-    const pct = Math.round(8 + heatIntensity(node, maxChanges) * 52);
-    return `background: color-mix(in srgb, var(--solus-accent) ${pct}%, var(--solus-surface-hover))`;
+    const pct = Math.round(12 + heatIntensity(node, maxChanges) * 46);
+    return `background: color-mix(in oklab, ${TONE_COLORS[heatTone(node)]} ${pct}%, var(--solus-surface-hover))`;
   }
 
   function nodeTitle(node: HeatMapNode): string {
@@ -81,7 +106,7 @@
     const stats = `+${node.additions} −${node.deletions}`;
     return node.kind === "folder"
       ? `${node.path} — ${node.changedFileCount} of ${node.totalFileCount} file${node.totalFileCount === 1 ? "" : "s"} changed, ${stats}`
-      : `${node.path} — ${stats}`;
+      : `${node.path} — ${node.status === "A" ? "new file, " : node.status === "D" ? "deleted, " : ""}${stats}`;
   }
 
   let mapWidth = $state(0);
@@ -93,7 +118,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="text-xs flex h-full min-h-0 flex-col gap-3 p-4"
+  class={cn("flex h-full min-h-0 flex-col gap-3 p-4 text-xs", className)}
   role="region"
   aria-label="Change heat map"
   tabindex="-1"
@@ -131,8 +156,8 @@
         </button>
       {/each}
     </nav>
-    <div class="flex shrink-0 items-center gap-3">
-      <span class="text-xs tabular-nums text-(--solus-text-tertiary)">
+    <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+      <span class="tabular-nums text-(--solus-text-tertiary)">
         {#if current.totalFileCount > current.changedFileCount}
           {current.changedFileCount} of {current.totalFileCount} files changed
         {:else}
@@ -147,17 +172,18 @@
           >−{current.deletions}</span
         >
       </span>
-      <span class="flex items-center gap-1.5" aria-hidden="true">
-        <span class="h-1.5 w-3 rounded-full bg-(--solus-surface-hover)"></span>
-        <span class="text-xs text-(--solus-text-tertiary)"
-          >unchanged</span
-        >
-        <span
-          class="ml-1.5 h-1.5 w-16 rounded-full"
-          style="background: linear-gradient(to right, color-mix(in srgb, var(--solus-accent) 8%, var(--solus-surface-hover)), color-mix(in srgb, var(--solus-accent) 60%, var(--solus-surface-hover)))"
-        ></span>
-        <span class="text-xs text-(--solus-text-tertiary)">changed</span
-        >
+      <!-- The legend names the hues; the strength of a tint is the heat, and
+           the tooltip on any cell gives its numbers. -->
+      <span class="flex items-center gap-3 text-(--solus-text-tertiary)" aria-hidden="true">
+        {#each LEGEND as [tone, label] (tone)}
+          <span class="flex items-center gap-1.5">
+            <span
+              class="size-2.5 rounded-[3px]"
+              style="background: color-mix(in oklab, {TONE_COLORS[tone]} 52%, var(--solus-surface-hover))"
+            ></span>
+            {label}
+          </span>
+        {/each}
       </span>
     </div>
   </div>
@@ -170,8 +196,8 @@
     {#each treemapRects as rect (rect.node.path)}
       <button
         type="button"
-        class="absolute cursor-pointer overflow-hidden rounded-md border-2 border-(--solus-container-bg) text-left hover:brightness-105 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-(--solus-accent) dark:hover:brightness-125"
-        style="left:{rect.left}px; top:{rect.top}px; width:{rect.width}px; height:{rect.height}px; {heatTint(
+        class="absolute cursor-pointer overflow-hidden rounded-md text-left transition-shadow hover:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--foreground)_28%,transparent)] focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-(--solus-accent)"
+        style="left:{rect.left}px; top:{rect.top}px; width:{Math.max(rect.width - CELL_GAP_PX, 0)}px; height:{Math.max(rect.height - CELL_GAP_PX, 0)}px; {heatTint(
           rect.node,
         )}"
         title={nodeTitle(rect.node)}
@@ -192,6 +218,8 @@
               >
                 {#if rect.node.kind === "folder"}
                   <span>{rect.node.changedFileCount}f</span>
+                {:else if rect.node.status === "A"}
+                  <span>new</span>
                 {/if}
                 <span class="font-medium" style="color:var(--solus-art-3)"
                   >+{rect.node.additions}</span

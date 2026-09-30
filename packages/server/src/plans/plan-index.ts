@@ -2,7 +2,11 @@ import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { worktreeProjectRoot, type AgentId, type PlanDescriptor, type PlanRevisionSummary } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../db/database'
-import { extractPlanTitle } from '../agents/plan-text'
+import type { RecordScope } from '../admission/principal'
+import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
+import { scopeClause } from '../data/scope'
+import { organizationOfSession, organizationsOfSessions } from '../data/sessions/session-records'
+import { extractPlanTitle } from '../execution/agents/plan-text'
 import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
@@ -45,19 +49,19 @@ export interface IndexedPlanInput {
 
 /**
  * The plan index is a query model over the provider transcripts this machine
- * holds (docs/plans/cloud-service-model.md): every read and write names the
- * organization, and a runner writes its own.
+ * holds (docs/plans/cloud-service-model.md). A plan is its session's child
+ * (organization-scope §3): every row carries the session's organization, a read
+ * names its scope, and the provider completion marks are this machine's own.
  */
 
 export async function indexLivePlan(
-  organizationId: string,
   input: Omit<IndexedPlanInput, 'title' | 'excerpt' | 'derivedStatus'>,
 ): Promise<void> {
   const lines = input.content
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !/^#{1,6}\s/.test(line))
-  await upsertIndexedPlan(organizationId, {
+  await insertPlan(getDatabase(), await organizationOfSession(input.sessionId), {
     ...input,
     title: extractPlanTitle(input.content),
     excerpt: lines.join(' ').replace(/[*_`]/g, '').slice(0, 240),
@@ -90,42 +94,38 @@ async function insertPlan(db: Db, organizationId: string, input: IndexedPlanInpu
   `)
 }
 
-export async function upsertIndexedPlan(organizationId: string, input: IndexedPlanInput): Promise<void> {
-  await insertPlan(getDatabase(), organizationId, input)
-}
-
 export async function replaceIndexedPlansForSession(
-  organizationId: string,
   provider: AgentId,
   sessionId: string,
   plans: IndexedPlanInput[],
 ): Promise<void> {
+  const organizationId = await organizationOfSession(sessionId)
   await getDatabase().transaction(async (db) => {
     await db.run(sql`
       DELETE FROM ${indexedPlans}
-      WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_id = ${sessionId}
+      WHERE provider = ${provider} AND session_id = ${sessionId}
     `)
     for (const plan of plans) await insertPlan(db, organizationId, plan)
   })
 }
 
 export async function replaceIndexedPlansForProvider(
-  organizationId: string,
   provider: AgentId,
   plans: IndexedPlanInput[],
 ): Promise<void> {
+  const organizations = await organizationsOfSessions(plans.map((plan) => plan.sessionId))
   await getDatabase().transaction(async (db) => {
     // A full provider rebuild reconciles live transcripts only. Rows already
     // marked unavailable are durable saved artifacts whose source transcript
     // cannot be rediscovered, so a rebuild must not erase them.
     await db.run(sql`
       DELETE FROM ${indexedPlans}
-      WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_available = 1
+      WHERE provider = ${provider} AND session_available = 1
     `)
-    for (const plan of plans) await insertPlan(db, organizationId, plan)
+    for (const plan of plans) await insertPlan(db, organizations.get(plan.sessionId) ?? provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, plan)
     await db.run(sql`
       INSERT INTO ${planIndexProviders}(provider, completed_at, organization_id)
-      VALUES (${provider}, ${Date.now()}, ${organizationId})
+      VALUES (${provider}, ${Date.now()}, ${provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID})
       ON CONFLICT(provider) DO UPDATE SET
         completed_at = excluded.completed_at,
         organization_id = excluded.organization_id
@@ -134,20 +134,20 @@ export async function replaceIndexedPlansForProvider(
 }
 
 export async function markIndexedPlanSessionUnavailable(
-  organizationId: string,
   provider: AgentId,
   sessionId: string,
 ): Promise<void> {
   await getDatabase().run(sql`
     UPDATE ${indexedPlans} SET session_available = 0
-    WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_id = ${sessionId}
+    WHERE provider = ${provider} AND session_id = ${sessionId}
   `)
 }
 
-export async function isPlanIndexComplete(organizationId: string, provider: AgentId): Promise<boolean> {
+/** Whether this machine finished indexing a provider's transcripts once. */
+export async function isPlanIndexComplete(provider: AgentId): Promise<boolean> {
   return !!await getDatabase().get(sql`
     SELECT 1 AS present FROM ${planIndexProviders}
-    WHERE organization_id = ${organizationId} AND provider = ${provider}
+    WHERE provider = ${provider}
   `)
 }
 
@@ -216,7 +216,7 @@ function rowsToDescriptors(rows: IndexedPlanRow[]): PlanDescriptor[] {
 }
 
 export async function listIndexedPlans(
-  organizationId: string,
+  scope: RecordScope,
   provider: AgentId,
   projectPath: string | undefined,
   allProjects: boolean,
@@ -239,7 +239,7 @@ export async function listIndexedPlans(
       ON plan_annotations.session_id = indexed_plans.session_id
      AND plan_annotations.plan_tool_use_id = indexed_plans.plan_tool_use_id
      AND plan_annotations.organization_id = indexed_plans.organization_id
-    WHERE indexed_plans.organization_id = ${organizationId}
+    WHERE ${scopeClause(scope, sql`indexed_plans.organization_id`)}
       AND indexed_plans.provider = ${provider}
       ${projectFilter}
     ORDER BY indexed_plans.timestamp DESC
@@ -247,15 +247,32 @@ export async function listIndexedPlans(
   return rowsToDescriptors(rows)
 }
 
+/** The plans these sessions wrote, newest first: ids and title only. */
+export async function listPlanRefsForSessions(
+  scope: RecordScope,
+  sessionIds: readonly string[],
+): Promise<Array<{ sessionId: string; planToolUseId: string; title: string }>> {
+  if (!sessionIds.length) return []
+  const rows = planRefRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT session_id, plan_tool_use_id, title FROM ${indexedPlans}
+    WHERE ${scopeClause(scope)}
+      AND session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
+    ORDER BY timestamp DESC
+  `))
+  return rows.map((row) => ({ sessionId: row.session_id, planToolUseId: row.plan_tool_use_id, title: row.title }))
+}
+
+const planRefRowSchema = z.object({ session_id: z.string(), plan_tool_use_id: z.string(), title: z.string() })
+
 export async function loadIndexedPlanContent(
-  organizationId: string,
+  scope: RecordScope,
   provider: AgentId,
   sessionId: string,
   planToolUseId: string,
 ): Promise<string | null> {
   const row = z.object({ content: z.string() }).nullish().parse(await getDatabase().get(sql`
     SELECT content FROM ${indexedPlans}
-    WHERE organization_id = ${organizationId} AND provider = ${provider}
+    WHERE ${scopeClause(scope)} AND provider = ${provider}
       AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
   `))
   return row?.content ?? null

@@ -12,7 +12,6 @@ export interface ClientShellContext {
   readonly supportsNativeSettings: boolean
   readonly hasProjectPanel: boolean
   readonly hasCompanionPanes: boolean
-  readonly deferHistoryToolInputs: boolean
   /**
    * Whether this shell has somewhere to send a resource of this kind. The
    * workspace shells open everything in place; the guest shell

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import { RPC_PLANES, rpcPlaneOf } from '@solus/contracts/rpc-planes'
-import { INTERNAL_HANDLER_CTX, SolusServer } from '@solus/server/server/server'
-import { PlaneDisabledError, resolveRoles } from '@solus/server/server/roles'
+import { INTERNAL_HANDLER_CTX, SolusServer } from '@solus/server/transport/server'
+import { PlaneDisabledError, resolveRoles } from '@solus/server/host/roles'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 
 // docs/plans/cloud-service-model.md: every method sits on exactly one plane, and a
@@ -16,8 +16,8 @@ describe('the plane map', () => {
   })
 
   test('records are collaboration; a checkout or an agent process is execution', () => {
-    expect(rpcPlaneOf('tasksCreate')).toBe('collaboration')
-    expect(rpcPlaneOf('loadWork')).toBe('collaboration')
+    expect(rpcPlaneOf('tasksComment')).toBe('collaboration')
+    expect(rpcPlaneOf('loadWorkRevisions')).toBe('collaboration')
     expect(rpcPlaneOf('shareSet')).toBe('collaboration')
     expect(rpcPlaneOf('prList')).toBe('collaboration')
     expect(rpcPlaneOf('prompt')).toBe('execution')
@@ -26,9 +26,8 @@ describe('the plane map', () => {
     // client whose only connection is the workspace service can still read it.
     expect(rpcPlaneOf('prGetDiff')).toBe('collaboration')
     expect(rpcPlaneOf('prInterdiff')).toBe('execution')
-    // A credential is connected where it is kept (cloud-service-model.md §5): the
-    // workspace service relays the CLI login and stores the result in the vault.
-    expect(rpcPlaneOf('seatConnectStart')).toBe('collaboration')
+    // Provider seat login runs on the execution host (seat-handlers.ts).
+    expect(rpcPlaneOf('seatConnectStart')).toBe('execution')
   })
 })
 
@@ -42,11 +41,11 @@ describe('SOLUS_ROLES', () => {
 
   test('a host refuses a method on a plane it does not serve with PLANE_DISABLED, and serves the rest', async () => {
     const server = new SolusServer()
-    server.register('tasksList', async () => ({ tasks: [] }))
+    server.register('tasksSidebarSnapshot', async () => ({ tasks: [], sessionsByTask: {} }))
     server.register('gitRefreshState', async () => undefined)
     server.useRoles(resolveRoles({ SOLUS_ROLES: 'collaboration' }))
 
-    await expect(server.handle('tasksList', [{}], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [] })
+    await expect(server.handle('tasksSidebarSnapshot', [], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [], sessionsByTask: {} })
     const refusal = server.handle('gitRefreshState', ['/repo'], TEST_HANDLER_CTX)
     await expect(refusal).rejects.toBeInstanceOf(PlaneDisabledError)
     await expect(refusal).rejects.toMatchObject({ code: 'PLANE_DISABLED', plane: 'execution' })

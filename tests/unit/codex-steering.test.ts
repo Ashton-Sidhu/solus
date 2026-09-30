@@ -3,11 +3,11 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
-let CodexRpcError: typeof import('@solus/server/agents/codex/codex-agent')['CodexRpcError']
+let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
+let CodexRpcError: typeof import('@solus/server/execution/agents/codex/codex-agent')['CodexRpcError']
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
-  ;({ CodexRpcError } = await import('@solus/server/agents/codex/codex-agent'))
+  ;({ CodexBackend } = await import('@solus/server/execution/agents/codex/codex-backend'))
+  ;({ CodexRpcError } = await import('@solus/server/execution/agents/codex/codex-agent'))
 })
 
 describe('CodexBackend steering', () => {
@@ -19,7 +19,7 @@ describe('CodexBackend steering', () => {
     backend.on('error', () => {})
     const handle = backend.startRun({
       provider: 'codex', prompt: 'fork', cwd: '/tmp', tools: [],
-      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
       conversation: { kind: 'fork', sourceThreadId: 'source-thread' },
     })
     expect(handle.agentSessionId).toBeNull()
@@ -36,7 +36,7 @@ describe('CodexBackend steering', () => {
     backend.on('error', () => {})
     const handle = backend.startRun({
       provider: 'codex', prompt: 'start', cwd: '/tmp', tools: [],
-      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
       conversation: kind === 'fork' ? { kind, sourceThreadId: 'source' } : { kind },
     })
     await expect(handle.runPromise).rejects.toBeInstanceOf(CodexRpcError)
@@ -52,7 +52,7 @@ describe('CodexBackend steering', () => {
     backend.on('error', () => {})
     const handle = backend.startRun({
       provider: 'codex', prompt: 'start', cwd: '/tmp', tools: [],
-      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
       conversation: { kind: 'start' },
     })
     await expect(handle.runPromise).rejects.toBe(failure)

@@ -5,6 +5,7 @@
     MessageCircle as ChatCircleTextIcon,
     Minimize as ArrowsInIcon,
     Maximize as ArrowsOutIcon,
+    PanelRight as FileTreeIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import type { TurnSnapshot } from "@solus/contracts/types";
@@ -28,10 +29,10 @@
    *
    * It carries navigation and state and nothing else: where you are (the tabs),
    * which change you read (the scope, or one turn of the session), what changed
-   * (the branch and its two counts), and the two window controls. Anything the *view* can be configured to do —
-   * unified/split, the file tree, collapse, token highlighting, refresh — lives
-   * under the overflow, whose contents follow the active tab. That is what lets
-   * the band's slots stay fixed: only the menu is contextual.
+   * (the branch and its two counts), the file tree toggle on the Diff tab, and
+   * the two window controls. Anything else the *view* can be configured to do —
+   * unified/split, collapse, token highlighting, refresh — lives under the
+   * overflow, whose contents follow the active tab.
    *
    * There is no rule under it and no divider beside it. Separation comes from
    * the gap before the window controls and from the body's own surface.
@@ -220,6 +221,33 @@
     {onOpenFile}
   />
 
+  {#if view === "diff" && changedFiles.length > 0}
+    <!-- The tree is how a reader moves between files, so its toggle keeps a
+         slot on the band. A stacked pane never shows the tree, so the record
+         rung has nothing for it to toggle. -->
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button
+            {...tooltipProps}
+            type="button"
+            class="no-drag flex size-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-[background-color,color] duration-100 ease-in-out hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-11 @max-[30rem]/band:hidden {treeCollapsed
+              ? 'bg-transparent text-muted-foreground'
+              : 'bg-[var(--wash-3)] text-foreground'}"
+            aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+            aria-pressed={!treeCollapsed}
+            onclick={onToggleTree}
+          >
+            <FileTreeIcon size={14} />
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={`${treeCollapsed ? "Show file tree" : "Hide file tree"} (${comboHint("diff-panel.toggle-tree")})`}
+      />
+    </TooltipUI.Root>
+  {/if}
+
   <ReviewPanelOverflowMenu
     {view}
     {diffStyle}
@@ -228,8 +256,6 @@
     {onToggleTokenHighlight}
     {allCollapsed}
     {onToggleCollapseAll}
-    {treeCollapsed}
-    {onToggleTree}
     {onRefresh}
     {refreshing}
     {guide}

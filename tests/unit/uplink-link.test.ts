@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle, type UplinkLinkDeps } from '@solus/server/server/uplink/link'
+import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle, type UplinkLinkDeps } from '@solus/server/transport/uplink/link'
 import type { EnrollHostResponse, UplinkStatus } from '@solus/contracts/uplink'
 import { uplinkStatusDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
@@ -28,6 +28,7 @@ function fakeControlPlane(options: {
     },
     connectorToken: 'connector-token-1',
     hostToken: 'sht_host-token-1',
+    oauthClient: { clientId: 'host_abcdefghijklmnop', clientSecret: 'shc_client-secret-1' },
   }
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input)
@@ -107,11 +108,13 @@ describe('the host side of the link', () => {
     expect(linkChanges).toEqual(['abcdefghijklmnop'])
   })
 
-  test('a linked host refuses to link again', async () => {
+  test('a linked host does not enrol again: another code is only an organization attachment, which this control plane refuses', async () => {
     const plane = fakeControlPlane()
     const { instance } = manager(plane)
     await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
     await expect(instance.link({ ticket: 'set_other', directoryUrl: DIRECTORY })).rejects.toBeInstanceOf(UplinkLinkError)
+    expect(plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))).toHaveLength(1)
+    expect(plane.calls.at(-1)?.url).toBe(`${DIRECTORY}/v1/hosts/abcdefghijklmnop/organizations/attach`)
   })
 
   test('a refused enrolment says why and leaves nothing behind', async () => {
@@ -322,7 +325,7 @@ describe('the managed link from the environment', () => {
       proxiedPort: () => 34118,
       connector,
       fetchImpl: plane.fetchImpl,
-      managedLink: () => envLink,
+      provisionedLink: () => envLink,
     })
     return { instance, connector }
   }
@@ -365,6 +368,24 @@ describe('the managed link from the environment', () => {
     expect(recreated.connector.token).toBe('connector-token-2')
     expect(recreated.instance.status()).toMatchObject({ linked: true, link: { connectionGeneration: 2 } })
     expect(readFileSync(join(dataDir, 'secrets', 'uplink-tokens.json'), 'utf8')).toContain('sht_host-token-2')
+  })
+
+  test('a link with no connector token is reached directly: no connector, online once stored and after the generation check', async () => {
+    // WHY: a managed host on a Sprite is reached through the Sprite's URL, whose proxy
+    // forwards to the proxied listener. There is no tunnel, so nothing may try to run one.
+    const plane = fakeControlPlane()
+    const direct: EnrollHostResponse = { link: plane.enrolled.link, hostToken: plane.enrolled.hostToken, oauthClient: plane.enrolled.oauthClient }
+    const first = managedManager(plane, direct)
+    await first.instance.resume()
+    expect(first.connector.events).toEqual([])
+    expect(first.instance.status()).toMatchObject({ linked: true, state: { observed: 'online' } })
+    expect(readFileSync(join(dataDir, 'secrets', 'uplink-tokens.json'), 'utf8')).not.toContain('connectorToken')
+
+    const rebooted = managedManager(plane, direct)
+    await rebooted.instance.resume()
+    expect(plane.calls).toHaveLength(1)
+    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.instance.status()).toMatchObject({ linked: true, state: { observed: 'online' } })
   })
 
   test('a personal host with nothing in its environment does nothing at boot', async () => {

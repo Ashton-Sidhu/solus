@@ -2,10 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import type { MetricsSpan } from '@solus/contracts/observability-types'
 import {
   attributeCount,
+  attributeLabel,
   attributesAsText,
   isPrimaryGroup,
   PRIMARY_GROUP_LABELS,
   turnAttributes,
+  turnStats,
 } from '@solus/workspace-ui/components/insights/lib/turn-attributes'
 import { buildTraceView } from '@solus/workspace-ui/components/insights/lib/waterfall'
 
@@ -139,6 +141,22 @@ describe('turn attributes', () => {
     expect(lines).toContain('cost_usd\t0.5')
   })
 
+  // WHY: the rail prints the fact in words and keeps the column name for the
+  // tooltip and the copy. A list of forty snake_case columns is a schema
+  // dump, and the reader is not writing a query yet.
+  test('every row carries a printed label distinct from its column name', () => {
+    const { root, view } = traceOf({})
+    for (const attribute of turnAttributes(root, view).flatMap((group) => group.attributes)) {
+      expect(attribute.label).not.toMatch(/_/)
+      expect(attribute.label.length).toBeGreaterThan(0)
+    }
+    expect(findAttribute(root, view, 'time_to_first_provider_event_ms').label).toBe('First provider event')
+  })
+
+  test('a column nobody named still prints as words rather than blank', () => {
+    expect(attributeLabel('some_new_measure_ms')).toBe('Some new measure')
+  })
+
   test('a denied permission tones the tool-call row and is counted', () => {
     const { root, view } = traceOf({}, [
       span({
@@ -153,5 +171,43 @@ describe('turn attributes', () => {
 
     expect(findAttribute(root, view, 'tool_call_count').tone).toBe('warning')
     expect(findAttribute(root, view, 'permission_denial_count').value).toBe('1')
+  })
+})
+
+describe('turn stats', () => {
+  // WHY: the line under the title is the reading a viewer takes in before
+  // anything else — duration, cost, tokens, cache, tools — so it has to be
+  // short, and it has to say when the number it prints is a warning.
+  test('the four outcome figures, in reading order', () => {
+    const { root, view } = traceOf(
+      { costUsd: 1.91, inputTokens: 26, outputTokens: 3_800, cacheReadTokens: 1_300_000, cacheCreationTokens: 11_800 },
+      [span({ spanId: 'tool-1', parentSpanId: 'trace-1', kind: 'tool_call', name: 'Bash' })],
+    )
+    const stats = turnStats(root, view)
+    expect(stats.map((stat) => stat.label)).toEqual(['Duration', 'Cost', 'Tokens', 'Cache'])
+    expect(stats[1].value).toBe('$1.91')
+    // Tokens state one total; the split is the line under it.
+    expect(stats[2].value).toBe('3.8k')
+    expect(stats[2].detail).toBe('26 in · 3.8k out')
+    expect(stats[3].value).toBe('99% read')
+  })
+
+  test('a turn with no cache figures has no cache stat rather than a 0%', () => {
+    const { root, view } = traceOf({ inputTokens: 100 })
+    expect(turnStats(root, view).map((stat) => stat.label)).not.toContain('Cache')
+  })
+
+  test('a large context that mostly missed the cache is the expensive shape, and says so', () => {
+    const { root, view } = traceOf({ inputTokens: 40_000, cacheReadTokens: 10_000, cacheCreationTokens: 5_000 })
+    const cache = turnStats(root, view).find((stat) => stat.label === 'Cache')
+    expect(cache?.tone).toBe('warning')
+    expect(cache?.verdict?.kind).toBe('bad')
+  })
+
+  test('a turn that read nearly all its input from cache is judged good', () => {
+    const { root, view } = traceOf({ inputTokens: 100, cacheReadTokens: 50_000, cacheCreationTokens: 0 })
+    const cache = turnStats(root, view).find((stat) => stat.label === 'Cache')
+    expect(cache?.verdict).toEqual({ kind: 'good', glyph: 'check', label: 'Hit' })
+    expect(cache?.meter?.fill).toBeGreaterThan(0.99)
   })
 })

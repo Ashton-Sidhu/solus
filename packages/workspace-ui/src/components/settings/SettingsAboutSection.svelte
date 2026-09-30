@@ -14,7 +14,8 @@
    *  its commands. Web and mobile show the version row only; a browser cannot
    *  replace the binary that serves it (`docs/plans/desktop-updates.md`). */
   import { CLIENT_VERSION } from "@solus/client-core/version-skew";
-  import { updatesStore } from "../../contexts";
+  import { serversStore, updatesStore } from "../../contexts";
+  import ModelProfilesRow from "./ModelProfilesRow.svelte";
   import GithubMarkdown from "../github-markdown/GithubMarkdown.svelte";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
@@ -96,9 +97,12 @@
       {#snippet control()}<Button variant="outline" size="sm" onclick={openProviders}>Show providers</Button>{/snippet}
     </SettingsRow>
   {/if}
+  {#if serversStore.activeServer}
+    <ModelProfilesRow host={serversStore.activeServer} />
+  {/if}
   <SettingsRow
     label="Download updates automatically"
-    description="Fetch a new version as soon as it is found. You still choose when to restart."
+    description="Download updates when found. You choose when to restart."
     visible={updatesStore.isAvailable}
   >
     {#snippet control()}

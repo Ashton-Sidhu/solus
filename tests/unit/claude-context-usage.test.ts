@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { toContextBreakdown } from '@solus/server/agents/claude/claude-context-usage'
+import { toContextBreakdown } from '@solus/server/execution/agents/claude/claude-context-usage'
 
 describe('toContextBreakdown', () => {
   test('omits both halves when the CLI reports no breakdown', () => {

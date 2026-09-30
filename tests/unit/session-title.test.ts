@@ -1,14 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
-import { generateMetadataWith, sanitizeTitle } from '@solus/server/sessions/session-title'
+import type { AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import { generateMetadataWith, sanitizeTitle } from '@solus/server/execution/sessions/session-title'
 
 /** A dispatcher that answers the way a backend would: `submitted` is the title
  *  handed to the capture tool (omitted = the tool is never called), `prose` is
  *  the run's final text. */
 function dispatcherAnswering(options: { submitted?: { title: string; description: string }; prose?: string }) {
   const requests: AgentRunRequest[] = []
+  const cancelled: boolean[] = []
   return {
     requests,
+    cancelled,
     runAgent(request: AgentRunRequest): AgentRun {
       requests.push(request)
       const done = (async () => {
@@ -24,7 +26,7 @@ function dispatcherAnswering(options: { submitted?: { title: string; description
           signal: null,
         }
       })()
-      return { sessionId: Promise.resolve(null), done, cancel: () => {}, handle: {} as never }
+      return { sessionId: Promise.resolve(null), done, cancel: () => { cancelled.push(true) }, handle: {} as never }
     },
   }
 }
@@ -74,6 +76,20 @@ describe('generateMetadataWith', () => {
         title: 'Auth Redirect Loop',
         description: 'Stop the login page from repeatedly redirecting authenticated users.',
       })
+  })
+
+  test('stops the run once the metadata is submitted', async () => {
+    // WHY: a model that keeps going after the submission ran into the turn
+    // limit, and each new session then logged a failed run with a good title.
+    const dispatcher = dispatcherAnswering({
+      submitted: { title: 'Barbie Dream House', description: 'Build a website for a Barbie dream house.' },
+    })
+    await generateMetadataWith(dispatcher, 'claude-code', 'make me a website', '/repo')
+    expect(dispatcher.cancelled).toEqual([true])
+
+    const unanswered = dispatcherAnswering({ prose: 'Barbie Dream House' })
+    await generateMetadataWith(unanswered, 'claude-code', 'make me a website', '/repo')
+    expect(unanswered.cancelled).toEqual([])
   })
 
   test('rejects unstructured prose instead of using it as a legacy title fallback', async () => {

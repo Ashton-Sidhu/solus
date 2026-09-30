@@ -1,10 +1,19 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { ListFilter as ListFilterIcon } from "@lucide/svelte";
+  import { ListFilter as ListFilterIcon, X as XIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../dropdown-menu";
   import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
 
-  let { activeCount = 0, children }: { activeCount?: number; children: Snippet } = $props();
+  let {
+    activeCount = 0,
+    onClear,
+    children,
+  }: {
+    activeCount?: number;
+    /** Puts every counted filter back to its default. Offered only while one is active. */
+    onClear?: () => void;
+    children: Snippet;
+  } = $props();
   let open = $state(false);
   useScope("list-filters", { exclusive: true, active: () => open });
 </script>
@@ -42,8 +51,15 @@
       align="end"
       alignOffset={400}
       sideOffset={6}
-      class="w-64 pointer-fine:[.is-laptop-display_&]:w-56"
+      class="w-64"
     >
       {@render children()}
+      {#if onClear && activeCount > 0}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item onSelect={onClear}>
+          <XIcon size={14} class="shrink-0 text-muted-foreground" />
+          <span class="min-w-0 flex-1 truncate">Clear filters</span>
+        </DropdownMenu.Item>
+      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>

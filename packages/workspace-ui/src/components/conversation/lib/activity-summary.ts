@@ -6,6 +6,7 @@ import { prettyToolName } from '../../../contexts/workspace/session.utils'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import type { GroupedItem } from './turns'
 import { parseSubagentInput } from './subagent'
+import { agentsAwaitingReply, waitingOnLabel } from '../agent-conversation/lib/agent-conversation'
 
 /** The things an activity block can report having done. Thinking is a kind
  *  too: it always arrives with the tools, so it folds into the same sentence
@@ -50,6 +51,7 @@ const PARTICIPLE_FOR_KIND = {
 
 const CHANGE_PATH_KEYS = [
   'file_path',
+  'notebook_path',
   'filePath',
   'path',
   'file',
@@ -63,6 +65,7 @@ const CHANGE_PATH_KEYS = [
 
 const toolPathSchema = z.object({
   file_path: z.string().optional(),
+  notebook_path: z.string().optional(),
   filePath: z.string().optional(),
   path: z.string().optional(),
   file: z.string().optional(),
@@ -186,8 +189,9 @@ export interface BackgroundWait {
 }
 
 /**
- * Sub-agents and commands this turn is still waiting on. A backgrounded call
- * answers at launch, so the row goes idle while the work continues — this, not
+ * Other agents, sub-agents and commands this turn is still waiting on. A
+ * backgrounded call — and a prompt or watch on another session — answers at
+ * launch, so the row goes idle while the work continues — this, not
  * "planning the next step", is what the session is doing. Null when nothing is
  * in flight.
  *
@@ -196,6 +200,10 @@ export interface BackgroundWait {
  * above the fold.
  */
 export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | null {
+  // Another session's reply is the whole reason the turn is still open: the
+  // host holds it running until the reply arrives, whatever else it said.
+  const peerWait = waitingOnLabel(agentsAwaitingReply(items))
+  if (peerWait) return { label: peerWait, target: '' }
   const subagents: Message[] = []
   const commands: Message[] = []
   for (const item of items) {
@@ -226,6 +234,21 @@ export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | n
     return { label: `Running ${commands.length} background commands…`, target: '' }
   }
   return { label: 'Running in the background…', target: backgroundCommandIntent(commands[0]) }
+}
+
+/**
+ * What a settled turn's row says while the session is in `background`. The
+ * task can have been launched by an earlier turn, so this turn may have no
+ * wait of its own to name — the row still says that work goes on. The label is
+ * a state marker here, not a sentence still being said, so it drops the
+ * trailing ellipsis the live row uses.
+ */
+export function settledBackgroundWait(items: GroupedItem[]): BackgroundWait {
+  const wait = describeBackgroundWait(items)
+  return {
+    label: (wait?.label ?? 'Running in the background').replace(/…$/, ''),
+    target: wait?.target ?? '',
+  }
 }
 
 /**
@@ -369,11 +392,13 @@ export function toolEndMs(tool: Message): number | undefined {
   return tool.backgroundTaskSettledAt ?? tool.toolCompletedAt
 }
 
-/** Total wall time the block covers, or null when no tool reported a completion
- *  time — the rail stays empty rather than printing a figure we don't have. */
-export function activityDurationMs(tools: Message[]): number | null {
+/** Total wall time the block covers. A live block has not ended, so its time
+ *  runs to `liveNow`, the clock; a settled block (`liveNow` null) ends at its
+ *  last completion. Null when there is no end to measure to — the rail stays
+ *  empty rather than printing a figure we don't have. */
+export function activityDurationMs(tools: Message[], liveNow: number | null): number | null {
   let start = Infinity
-  let end = -Infinity
+  let end = liveNow ?? -Infinity
   for (const tool of tools) {
     if (tool.thinkingMs) start = Math.min(start, tool.timestamp - tool.thinkingMs)
     start = Math.min(start, tool.timestamp)

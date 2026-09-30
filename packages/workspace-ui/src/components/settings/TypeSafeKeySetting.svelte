@@ -16,10 +16,10 @@
   const source = $derived(toolState?.typeSafe?.source ?? null);
   const disabled = $derived(!toolState?.typeSafe || toolState.saving || !!toolState.error);
   const description = $derived.by(() => {
-    if (!toolState?.typeSafe) return "Update or restart this host to configure a TypeSafe API key.";
-    if (source === "saved") return "A key is saved on this host. Enter a new key to replace it.";
-    if (source === "environment") return "This host uses TYPESAFE_API_KEY. A saved key takes priority.";
-    return "Add a key to make Ask Jev available to agents on this host.";
+    if (!toolState?.typeSafe) return "Update or restart this host to add a key.";
+    if (source === "saved") return "A key is saved. Enter a new one to replace it.";
+    if (source === "environment") return "Uses TYPESAFE_API_KEY. A saved key overrides it.";
+    return "Lets agents on this host use Ask Jev.";
   });
 
   async function save(value: string | null) {

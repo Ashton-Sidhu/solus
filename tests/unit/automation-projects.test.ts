@@ -17,7 +17,7 @@ function automation(id: string, cwd: string): Automation {
     trigger: { type: 'manual' },
     createdAt: '2026-08-11T00:00:00.000Z',
     updatedAt: '2026-08-11T00:00:00.000Z',
-    createdBy: { kind: 'user' },
+    createdBy: { kind: 'system' },
   }
 }
 
@@ -51,7 +51,7 @@ describe('automation project filter', () => {
     const projects = automationProjects(
       rows,
       [],
-      undefined,
+      () => null,
       (row) => serverIds.get(row.id) ?? null,
       (serverId) => (serverId === 'host-a' ? 'Laptop' : 'Build host'),
     )

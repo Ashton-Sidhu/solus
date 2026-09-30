@@ -29,39 +29,39 @@ export interface RosterPerson extends PresencePerson {
 }
 
 /**
- * Merge per-host rows into people. `identityOf` names the person behind a row:
- * the account id, or for a personal host's `host-owner` the account that linked
- * it, so the owner of a machine and the same person on the cloud are one.
+ * Merge per-host rows into people by their user key (plans/012 §1): a linked
+ * machine's owner is their account, so the owner of a machine and the same
+ * person on the cloud are one.
  */
-export function rosterPeople(rows: readonly HostPerson[], identityOf: (row: HostPerson) => string): RosterPerson[] {
+export function rosterPeople(rows: readonly HostPerson[]): RosterPerson[] {
   const byIdentity = new Map<string, RosterPerson>()
   for (const row of rows) {
-    const key = identityOf(row)
+    const key = row.userId
     const existing = byIdentity.get(key)
     if (existing) {
       existing.presences.push(row)
       existing.deviceCount += row.deviceCount
       existing.clientIds.push(...row.clientIds)
       if (row.isComposing) existing.isComposing = true
+      if (row.isEditing) existing.isEditing = true
       if ((!existing.focus || existing.focus.kind === 'none') && row.focus && row.focus.kind !== 'none') {
         existing.focus = row.focus
         if (row.activity) existing.activity = row.activity
         else delete existing.activity
       }
-      if (!existing.avatarUrl && row.avatarUrl) existing.avatarUrl = row.avatarUrl
+      if (!existing.user.avatarUrl && row.user.avatarUrl) existing.user = { ...existing.user, avatarUrl: row.user.avatarUrl }
       continue
     }
     const person: RosterPerson = {
+      user: row.user,
       userId: key,
       displayName: row.displayName,
-      initials: row.initials,
-      colorIndex: row.colorIndex,
       isComposing: row.isComposing,
+      isEditing: row.isEditing,
       deviceCount: row.deviceCount,
       clientIds: [...row.clientIds],
       presences: [row],
     }
-    if (row.avatarUrl) person.avatarUrl = row.avatarUrl
     if (row.focus) person.focus = row.focus
     if (row.activity) person.activity = row.activity
     byIdentity.set(key, person)
@@ -83,19 +83,26 @@ export function primaryPresence(person: RosterPerson): HostPerson {
  */
 export function focusLabel(
   focus: PresenceFocus | undefined,
-  names: { sessionLabel: (sessionId: string) => string | null },
+  names: { sessionLabel: (sessionId: string) => string | null; workLabel?: (workId: string) => string | null },
   activity?: SessionActivity,
+  isEditing = false,
 ): string {
   if (!focus || focus.kind === 'none') return 'Not in a session'
+  if (focus.kind === 'work') {
+    const title = names.workLabel?.(focus.workId) ?? 'a work'
+    return isEditing ? `Editing ${title}` : `In ${title}`
+  }
   const title = (activity?.sessionId === focus.sessionId ? activity.title : null) ?? names.sessionLabel(focus.sessionId) ?? 'a session'
   const doing = activityWords(activity?.sessionId === focus.sessionId ? activity : undefined)
   return doing ? `In ${title}, ${doing}` : `In ${title}`
 }
 
-/** What a roster can name things with: the mounted sessions, the sidebar's rows. */
+/** What a roster can name things with: the mounted sessions, the sidebar's rows, the known works. */
 export interface RosterNames {
   mountedSessions: Iterable<Session>
   sidebarSessions: Iterable<{ sessionId?: string | null; serverId?: string | null; label: string }>
+  /** A work's title, when this client knows the work. */
+  workTitle?: (workId: string) => string | null
 }
 
 /** A session's name as this client knows it: a mounted tab first, then the sidebar's rows. */
@@ -113,7 +120,8 @@ export function sessionLabelIn(names: RosterNames, serverId: string, sessionId: 
 export function whereIs(person: HostPerson, names: RosterNames): string {
   return focusLabel(person.focus, {
     sessionLabel: (sessionId) => sessionLabelIn(names, person.serverId, sessionId),
-  }, person.activity)
+    workLabel: (workId) => names.workTitle?.(workId) ?? null,
+  }, person.activity, person.isEditing)
 }
 
 /**

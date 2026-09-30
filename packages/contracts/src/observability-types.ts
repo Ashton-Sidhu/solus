@@ -277,6 +277,10 @@ export interface MetricsSpanAttrs {
   promptSource?: string
   requestedModel?: string
   contextWindow?: number
+  /** Tokens the context held after this turn, as the provider last reported
+   *  it: fresh input plus cache reads and writes. Absent on turns recorded
+   *  before it was captured, and on providers that do not report it. */
+  contextUsedTokens?: number
   isResume?: boolean
   hasThinking?: boolean
   prompt?: string
@@ -316,6 +320,9 @@ export interface MetricsSpanAttrs {
 
   // context_compaction
   trigger?: string
+
+  // thinking
+  thought?: string
 
   // background_task
   blocking?: boolean
@@ -400,7 +407,26 @@ export interface MetricsTurnSummary {
   costUsd: number | null
   inputTokens: number | null
   outputTokens: number | null
+  /** See `MetricsSpanAttrs.contextUsedTokens`. Absent from hosts that predate
+   *  the field, null when the turn did not record it. */
+  contextUsedTokens?: number | null
   toolCallCount: number | null
+}
+
+/** The marks a person can put on a turn. One per turn: a turn is one of these
+ *  or unmarked, and a second mark replaces the first. */
+export type TurnFlagKind = 'good' | 'bad_answer' | 'too_slow' | 'expensive'
+
+/** A person's mark on a turn, kept in solus.db beside saved queries — durable
+ *  user judgement, exempt from metrics.db rollover, host-local like the spans
+ *  it points at. */
+export interface TurnFlag {
+  traceId: string
+  kind: TurnFlagKind
+  /** Why, in the person's words. Empty when they marked without saying. */
+  note: string
+  createdAt: number
+  updatedAt: number
 }
 
 export interface MetricsSessionSummary {

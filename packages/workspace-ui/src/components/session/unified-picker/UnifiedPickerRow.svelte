@@ -16,10 +16,14 @@
   } from "../../tasks/lib/tasks-api";
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
+  import PresenceStack from "../../presence/PresenceStack.svelte";
+  import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
+  import { peopleOnSessions, pickerRowSessions } from "./lib/picker-presence";
   import {
     pickerSessionTitle,
     pickerSessionProject,
     pickerSessionActivity,
+    pickerSessionTaskTitle,
     isTaskGroup,
     projectLabel,
     taskShortIdLabel,
@@ -28,14 +32,14 @@
   } from "./lib/picker-rows";
 
   /**
-   * One row of the virtualised list: a section header, a task, or a session
-   * nested under its task. The virtualiser hands each row its position in
-   * `style`; the row's own height has to agree with `pickerRowHeight`, which
-   * is where the numbers in the classes below come from.
+   * One row of the virtualised list: a section header, a task, a session
+   * nested under its task, or the end of a list the hosts answer in pages. The
+   * virtualiser hands each row its position in `style`; the row's own height
+   * has to agree with `pickerRowHeight`, which is where the numbers in the
+   * classes below come from.
    *
    * Names are marked by the query's words, the rule the list matched them by.
-   * A passage from the index is marked by the index itself — its markers say
-   * which stemmed tokens hit, which the words alone cannot.
+   * A passage from a host comes marked by the host, by the same rule.
    */
   interface Props {
     row: PickerRow;
@@ -52,6 +56,8 @@
     revealedTaskId: string | null;
     onRevealChange: (taskId: string | null) => void;
     onSetStatus: (task: Task, status: TaskStatus) => void;
+    /** The end row came into view: read the next page. */
+    onReachEnd: () => void;
   }
   let {
     row,
@@ -68,7 +74,25 @@
     revealedTaskId,
     onRevealChange,
     onSetStatus,
+    onReachEnd,
   }: Props = $props();
+
+  /** The end row mounts only when the virtualiser brings it near the view, so
+   *  mounting reads the next page; a smaller remainder while it is still in
+   *  view reads the one after. */
+  function readsNextPage(remaining: number): () => void {
+    return () => {
+      if (remaining > 0) onReachEnd();
+    };
+  }
+
+  // Who is working here, from the host's own roster, the same faces the sidebar
+  // row shows: a task row gathers everyone in any of its sessions.
+  const people = $derived(
+    row.kind === "header" || row.kind === "more"
+      ? []
+      : peopleOnSessions(pickerRowSessions(row), (serverId, focus) => presenceStore.peopleFocusedOn(serverId, focus)),
+  );
 </script>
 
 {#snippet marked(runs: TextRun[])}
@@ -82,7 +106,7 @@
      that does not. Capped, so a long task title can never squeeze the row's
      own title out of its column. -->
 {#snippet byline(name: string | null, when: string)}
-  <span class="flex max-w-[45%] shrink-0 items-center gap-1 whitespace-nowrap font-mono text-micro tabular-nums text-(--solus-text-tertiary)">
+  <span class="flex max-w-[45%] shrink-0 items-center gap-1 whitespace-nowrap text-micro tabular-nums text-(--solus-text-tertiary)">
     {#if name}<span class="min-w-0 truncate">{name}</span><span class="shrink-0">·</span>{/if}
     <span class="shrink-0">{when}</span>
   </span>
@@ -94,9 +118,8 @@
     class="flex h-8 select-none items-center gap-3 px-3 pt-[5px] text-chrome-shelf font-medium uppercase text-(--solus-text-tertiary) max-md:h-[34px] max-md:px-2 max-md:pt-2"
     {style}
   >
-    <span class={row.accent ? 'text-(--solus-status-unread)' : ''}>{row.label}</span>
-    <!-- A "+" where the hosts stopped at their cap: the count is a floor. -->
-    <span class="font-mono tabular-nums opacity-60 max-md:order-3">{row.count}{row.capped ? "+" : ""}</span>
+    <span>{row.label}</span>
+    <span class="font-mono tabular-nums opacity-60 max-md:order-3">{row.count}</span>
     <span class="h-px flex-1 bg-(--solus-menu-hairline) max-md:order-2" aria-hidden="true"></span>
     <!-- The rule the section is in. Stated on every header so the order is
          something you read, not something you work out from the dates. -->
@@ -126,9 +149,12 @@
          title stepping to full ink. The row keeps an opaque background so
          the swipe controls under it on a phone stay hidden until revealed —
          which is why a done task dims its contents and never this box: an
-         opacity here thinned the background and the tray showed through. -->
+         opacity here thinned the background and the tray showed through.
+         Only a phone has the tray, and only a phone paints the card in
+         `background`; on the desktop card (`popover`) that fill showed as a
+         tinted slab behind every task. -->
     <div
-      class="menu-row group/row relative flex h-full items-center rounded-lg bg-background pr-3 data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? '*:opacity-60' : ''}"
+      class="menu-row group/row relative flex h-full items-center rounded-lg pr-3 max-md:bg-background data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? '*:opacity-60' : ''}"
       data-selected={isSelected ? '' : undefined}
       use:swipeActions={{
         revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
@@ -169,7 +195,7 @@
       onpointerup={onPressEnd}
       onpointercancel={onPressEnd}
     >
-      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)" title={taskStatus.label}>
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)" title={taskStatus.label}>
         <TaskStatusGlyph status={task.status} size={13} />
         <span class="sr-only">{taskStatus.label}</span>
       </span>
@@ -192,18 +218,28 @@
           >
         {/if}
       </span>
+      <PresenceStack {people} size={16} max={3} />
       {#if isRunning}
         <SessionStatusGlyph attention="running" />
       {:else}
         <!-- The key the list is ordered by. Tabular figures so a column of
              dates never reflows the titles beside them. -->
-        <span class="shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-(--solus-text-tertiary)">
+        <span class="shrink-0 whitespace-nowrap text-micro tabular-nums text-(--solus-text-tertiary)">
           {relativeTime(task.updatedAt)}
         </span>
       {/if}
       <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
       </button>
     </div>
+  </div>
+{:else if row.kind === "more"}
+  <div
+    class="flex h-8 items-center px-6 text-micro text-(--solus-text-tertiary) max-md:h-[34px] max-md:px-11"
+    {style}
+    role="status"
+    {@attach readsNextPage(row.remaining)}
+  >
+    Loading {row.remaining} more {row.remaining === 1 ? "session" : "sessions"}…
   </div>
 {:else if row.kind === "conversation" || !row.nested}
   {@const isSelected = row.entryIndex === selectedIndex}
@@ -224,7 +260,7 @@
       onpointerup={onPressEnd}
       onpointercancel={onPressEnd}
     >
-      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)">
         <ChatsIcon size={13} />
       </span>
       <span class="min-w-0 flex-1">
@@ -235,7 +271,9 @@
           >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span
         >
       </span>
-      {@render byline(null, relativeTime(pickerSessionActivity(row)))}
+      <PresenceStack {people} size={16} max={3} />
+      <!-- Its task, so two sessions with one name under two tasks can be told apart. -->
+      {@render byline(pickerSessionTaskTitle(row), relativeTime(pickerSessionActivity(row)))}
       <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
     </button>
   </div>
@@ -274,8 +312,9 @@
              how long ago this session last said anything. -->
         <span class="hidden truncate font-mono text-micro text-(--solus-text-tertiary) max-md:block">last reply {relativeTime(child.lastActivityAt || row.task.updatedAt)}</span>
       </span>
+      <PresenceStack {people} size={14} max={2} />
       <!-- The same age, so the phone shows it once — in the sub-line. -->
-      <span class="min-w-11 shrink-0 whitespace-nowrap text-right font-mono text-micro tabular-nums text-(--solus-text-tertiary) max-md:hidden">
+      <span class="min-w-11 shrink-0 whitespace-nowrap text-right text-micro tabular-nums text-(--solus-text-tertiary) max-md:hidden">
         {relativeTime(child.lastActivityAt || row.task.updatedAt)}
       </span>
     </button>

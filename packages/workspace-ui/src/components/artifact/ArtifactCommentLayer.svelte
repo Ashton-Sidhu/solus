@@ -4,10 +4,11 @@
   import type { CommentPin, PlanComment } from "@solus/contracts/types";
   import CommentThreadCard from "../comments/CommentThreadCard.svelte";
   import { CommentComposer } from "../ui/comment-composer";
-  import PresenceAvatar from "../presence/PresenceAvatar.svelte";
-  import { presenceTint } from "../presence/lib/presence-people";
+  import { userColorIndex } from "@solus/contracts/user";
+  import UserAvatar from "../users/UserAvatar.svelte";
+  import { presenceTint } from "../users/lib/users";
   import { getCommentViewer } from "../comments/lib/comment-viewer";
-  import { authorLabel, commentAuthor, isResolved, isUnread, messagePerson } from "../comments/lib/thread";
+  import { authorLabel, isAgentMessage, isResolved, isUnread, messageUser } from "../comments/lib/thread";
   import { threadTime } from "../../lib/relative-time";
   import {
     cardWidthFor,
@@ -71,7 +72,7 @@
   const box = $derived({ width, height });
 
   const viewer = getCommentViewer();
-  const self = $derived(viewer().selfUserIds);
+  const reader = $derived(viewer());
 
   let showResolved = $state(false);
   const pins = $derived(placePins(comments, box, showResolved));
@@ -123,8 +124,8 @@
    *  faces as the stack in the band; an agent's is the accent, a settled one sage. */
   function pinColor(comment: PlanComment, tone: PinTone): string {
     if (tone === "resolved") return "var(--solus-art-3)";
-    if (tone === "agent" || !comment.person) return "var(--solus-accent)";
-    return presenceTint(comment.person.colorIndex).color;
+    if (tone === "agent" || comment.author?.kind !== "user") return "var(--solus-accent)";
+    return presenceTint(userColorIndex(comment.author.user)).color;
   }
 </script>
 
@@ -150,7 +151,7 @@
       style="left:{pin.left - PIN_SIZE / 2}px;top:{pin.top - PIN_SIZE / 2}px;width:{PIN_SIZE}px;height:{PIN_SIZE}px;background:{pinColor(pin.comment, pin.tone)}"
       aria-label="Open thread {pin.number}: {pin.comment.comment}"
       title={pin.comment.comment}
-      data-unread={isUnread(pin.comment, self) || undefined}
+      data-unread={isUnread(pin.comment, reader) || undefined}
       onclick={() => (openThreadId === pin.comment.id ? closeCard() : openThreadCard(pin.comment.id))}
     >
       {pin.number}
@@ -261,7 +262,7 @@
           </p>
         {/if}
         {#each openList as thread (thread.id)}
-          {@const person = messagePerson(thread, self)}
+          {@const person = messageUser(thread, reader)}
           {@const number = pinNumber(thread)}
           <button
             type="button"
@@ -270,14 +271,14 @@
             onclick={() => openThreadCard(thread.id)}
           >
             <span class="flex items-center gap-1.5 text-xs text-(--solus-text-tertiary)">
-              {#if isUnread(thread, self)}
+              {#if isUnread(thread, reader)}
                 <span class="size-1.5 rounded-full bg-(--solus-accent)" aria-label="Unread"></span>
               {/if}
               <span class="font-mono">{number === null ? "Whole render" : `Pin ${number}`}</span>
-              {#if commentAuthor(thread) === "solus"}
-                <span class="text-(--solus-accent)">✦ {authorLabel(thread, self)}</span>
+              {#if isAgentMessage(thread)}
+                <span class="text-(--solus-accent)">✦ {authorLabel(thread, reader)}</span>
               {:else if person}
-                <PresenceAvatar {person} size={14} />
+                <UserAvatar user={person} size={14} />
                 <span class="truncate">{person.displayName}</span>
               {/if}
               {#if thread.createdAt}

@@ -33,10 +33,13 @@ export const RPC_PLANES = {
   prompt: 'execution',
   retry: 'execution',
   stopSession: 'execution',
+  stopBackgroundTasks: 'execution',
   resetSession: 'execution',
   switchSessionAgent: 'execution',
+  acceptPlan: 'execution',
   createHeadlessSession: 'execution',
-  promptSession: 'execution',
+  sessionMessagesSentBy: 'execution',
+  decideSessionPlan: 'execution',
 
   // Permission / interaction
   respondPermission: 'execution',
@@ -56,8 +59,10 @@ export const RPC_PLANES = {
   attachFiles: 'execution',
   attachFilePaths: 'execution',
   attachUpload: 'execution',
+  attachUploadToken: 'execution',
   assetUpload: 'execution',
   assetCreateUrl: 'execution',
+  assetFindUrl: 'execution',
   takeScreenshot: 'execution',
   pasteImage: 'execution',
   transcribeAudio: 'execution',
@@ -69,6 +74,7 @@ export const RPC_PLANES = {
   searchProjectContents: 'execution',
   listDirectory: 'execution',
   createDirectory: 'execution',
+  mutateHostPath: 'execution',
   readProjectFile: 'execution',
   listProjectFiles: 'execution',
   mutateProjectFile: 'execution',
@@ -85,11 +91,8 @@ export const RPC_PLANES = {
 
   // Sessions / plans / projects
   bindRuntimeSession: 'execution',
-  listSessions: 'collaboration',
-  searchSessions: 'collaboration',
   sharedSessionAvailable: 'collaboration',
   sharedSessionPrompt: 'collaboration',
-  sessionRecordList: 'collaboration',
   sessionRecordUpsert: 'collaboration',
   workspaceProjectList: 'collaboration',
   workspaceProjectAdd: 'collaboration',
@@ -107,6 +110,12 @@ export const RPC_PLANES = {
   generateSessionMetadata: 'collaboration',
   setSessionTitle: 'collaboration',
   setSessionBranch: 'collaboration',
+  sessionPullRequestsList: 'collaboration',
+  sessionPullRequestLink: 'collaboration',
+  sessionPullRequestUnlink: 'collaboration',
+  sessionShelfList: 'collaboration',
+  sessionSetSettled: 'collaboration',
+  sessionSnooze: 'collaboration',
   listRecentProjects: 'execution',
   trackRecentProject: 'execution',
   listPlans: 'collaboration',
@@ -138,6 +147,7 @@ export const RPC_PLANES = {
   worktreeBranches: 'execution',
   worktreeRestore: 'execution',
   continueInWorktree: 'execution',
+  checkoutSnapshot: 'execution',
   gitRefreshState: 'execution',
   gitIdentity: 'execution',
   gitRegisterEnvironment: 'execution',
@@ -185,7 +195,15 @@ export const RPC_PLANES = {
   // Personal Uplink
   uplinkLink: 'collaboration',
   uplinkUnlink: 'collaboration',
+  uplinkDetachOrganization: 'collaboration',
   uplinkStatus: 'collaboration',
+
+  // Organization scope: a machine's standing and its publications are execution-host facts;
+  // an organization's Insights are read where they are stored, on the Solus API.
+  hostOrganizations: 'execution',
+  hostSetInsightsOptIn: 'execution',
+  publicationStart: 'execution',
+  publicationList: 'execution',
 
   // Sharing
   shareGet: 'collaboration',
@@ -201,11 +219,15 @@ export const RPC_PLANES = {
   seatConnectToken: 'execution',
   seatDisconnect: 'execution',
   seatRemove: 'execution',
+  agentProfileRead: 'execution',
+  agentProfileApply: 'execution',
+  agentProfileStatus: 'execution',
 
   // Presence
   presenceSnapshot: 'collaboration',
   presenceSetFocus: 'collaboration',
   presenceSetComposing: 'collaboration',
+  presenceSetEditing: 'collaboration',
   setAnalyticsConsent: 'collaboration',
 
   // Host config
@@ -224,6 +246,7 @@ export const RPC_PLANES = {
   setupCloneProject: 'execution',
   setupSyncProject: 'execution',
   setupAdoptProject: 'execution',
+  setupCreateProject: 'execution',
   setupHostReadiness: 'execution',
   setupInstallGit: 'execution',
   setupInstallGh: 'execution',
@@ -238,6 +261,10 @@ export const RPC_PLANES = {
   hostInstallUpdate: 'execution',
   hostCancelUpdate: 'execution',
 
+  // Model list: every host that renders a model picker needs it
+  modelProfilesStatus: 'collaboration',
+  modelProfilesRefresh: 'collaboration',
+
   // Attention and push notifications
   listAttention: 'collaboration',
   pushGetPublicKey: 'collaboration',
@@ -245,19 +272,10 @@ export const RPC_PLANES = {
   pushUnsubscribe: 'collaboration',
 
   // Folio / works
-  createWork: 'collaboration',
-  saveWork: 'collaboration',
-  loadWork: 'collaboration',
-  loadWorkUpdatedAt: 'collaboration',
-  listWorks: 'collaboration',
-  deleteWork: 'collaboration',
   duplicateWork: 'collaboration',
   linkWorkSession: 'collaboration',
   // Writes a file on the machine that runs the call.
   worksExport: 'execution',
-  worksCloudExport: 'collaboration',
-  worksCloudImport: 'collaboration',
-  worksCloudRemove: 'collaboration',
   loadWorkAnnotations: 'collaboration',
   applyWorkComment: 'collaboration',
   markWorkCommentRead: 'collaboration',
@@ -268,8 +286,19 @@ export const RPC_PLANES = {
   refreshWorkExternalComments: 'collaboration',
   sendWorkExternalComment: 'collaboration',
   agentSaveWork: 'collaboration',
-  loadWorkPrevious: 'collaboration',
-  revertWork: 'collaboration',
+  loadWorkRevisions: 'collaboration',
+  loadWorkRevision: 'collaboration',
+  restoreWorkRevision: 'collaboration',
+  workReviewGet: 'collaboration',
+  workReviewRequest: 'collaboration',
+  workReviewRemove: 'collaboration',
+  workReviewDecide: 'collaboration',
+  workReviewInbox: 'collaboration',
+  workReviewStates: 'collaboration',
+  workLiveOpen: 'collaboration',
+  workLivePush: 'collaboration',
+  workLiveAwareness: 'collaboration',
+  workLiveClose: 'collaboration',
   setWorkPinned: 'collaboration',
 
   // Upstream doc mirror
@@ -314,7 +343,8 @@ export const RPC_PLANES = {
 
   // PR records
   prList: 'collaboration',
-  prNeedsReview: 'collaboration',
+  prListProjects: 'collaboration',
+  prSetInterest: 'collaboration',
   prGuideMetadata: 'collaboration',
   // Reading a pull request asks its code host alone, so the workspace service
   // serves it with no checkout behind it (docs/plans/project-model.md §5).
@@ -349,7 +379,7 @@ export const RPC_PLANES = {
   prDisableAutoMerge: 'collaboration',
   prRevert: 'collaboration',
   prPrepareConflictResolution: 'execution',
-  prInvalidate: 'collaboration',
+  prRefresh: 'collaboration',
 
   // Review guide (checkout-bound)
   readLedger: 'execution',
@@ -365,6 +395,17 @@ export const RPC_PLANES = {
   readReviewState: 'execution',
   writeReviewState: 'execution',
 
+  // Review lens (checkout-bound, like the guide; posting reaches the code host)
+  readReviewLens: 'execution',
+  prLensRevisions: 'execution',
+  requestReviewLens: 'execution',
+  editReviewLens: 'execution',
+  cancelReviewLens: 'execution',
+  restoreReviewLens: 'execution',
+  updateReviewLensComments: 'execution',
+  postReviewLensComment: 'collaboration',
+  retractReviewLensComment: 'collaboration',
+
   // Tasks
   tasksProviderStatus: 'collaboration',
   inboxListUpstream: 'collaboration',
@@ -377,14 +418,11 @@ export const RPC_PLANES = {
   tasksImport: 'collaboration',
   tasksPublish: 'collaboration',
   tasksSyncNow: 'collaboration',
-  tasksList: 'collaboration',
   tasksSidebarSnapshot: 'collaboration',
-  tasksGet: 'collaboration',
-  tasksCreate: 'collaboration',
-  tasksUpdate: 'collaboration',
+  tasksSearchComments: 'collaboration',
+  tasksReadExtras: 'collaboration',
   tasksMarkRead: 'collaboration',
   tasksRecordActivity: 'collaboration',
-  tasksDelete: 'collaboration',
   tasksComment: 'collaboration',
   tasksDeleteComment: 'collaboration',
   tasksPublishComments: 'collaboration',
@@ -417,9 +455,14 @@ export const RPC_PLANES = {
   automationListRuns: 'collaboration',
   automationReadRun: 'collaboration',
 
+  // Watches: the probe and the session it wakes are on one machine
+  watchList: 'execution',
+  watchPause: 'execution',
+  watchResume: 'execution',
+  watchCancel: 'execution',
+
   // PR checks
   prChecks: 'collaboration',
-  prChecksActivity: 'collaboration',
 
   // Subscription quota per agent provider
   usageLimits: 'execution',
@@ -443,6 +486,8 @@ export const RPC_PLANES = {
   browserSubscribeFrames: 'execution',
   browserUnsubscribeFrames: 'execution',
   browserCaptureEvidence: 'execution',
+  browserRecordingStart: 'execution',
+  browserRecordingStop: 'execution',
   browserEvidenceOptions: 'execution',
   browserOpenDevTools: 'execution',
   browserSetAnnotationTool: 'execution',
@@ -470,6 +515,9 @@ export const RPC_PLANES = {
   metricsDeleteQuery: 'execution',
   metricsSessionSummary: 'execution',
   metricsTurnTrace: 'execution',
+  metricsListTurnFlags: 'execution',
+  metricsSetTurnFlag: 'execution',
+  metricsClearTurnFlag: 'execution',
   logFilePath: 'execution',
 } as const satisfies Record<RpcMethod, RpcPlane>
 

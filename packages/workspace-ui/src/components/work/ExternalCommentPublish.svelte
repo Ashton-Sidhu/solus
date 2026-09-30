@@ -8,12 +8,13 @@
   import { docProviderLogo, docProviderLabel } from './lib/work-publish'
   import { outboundText, publishState, publishOperation } from './lib/external-comments-view'
 
-  let { workId, messageId, text, quote, author, externalThreadId }: {
+  let { workId, messageId, text, quote, byAgent = false, externalThreadId }: {
     workId: string
     messageId: string
     text: string
     quote: string
-    author?: 'you' | 'solus'
+    /** An agent wrote it: the published text says so, since the provider names the connected account. */
+    byAgent?: boolean
     /** The provider thread this message's local thread answers. Set, the
      *  message is published as a reply in that thread rather than as a new
      *  comment beside it. */
@@ -23,7 +24,7 @@
   const workspace = getSurfaceContext()
   const provider = $derived(workspace.worksStore.get(workId)?.mirroredDoc?.provider ?? 'gdrive')
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))
-  const message = $derived(outboundText(text, author))
+  const message = $derived(outboundText(text, byAgent))
   const busy = $derived(store.busy.get(workId) ?? false)
   const operation = $derived(publishOperation(store.stateFor(workId)?.operations, messageId, message, quote, externalThreadId))
   const state = $derived(publishState(operation, busy, message, providerLabel, !!externalThreadId))

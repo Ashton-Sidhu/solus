@@ -9,7 +9,7 @@ const CLOUD = 'workspace:org-1'
 
 function hosts(connected: string[]): SessionHomeHosts {
   return {
-    isCloudHost: (serverId) => serverId === CLOUD,
+    isSolusApi: (serverId) => serverId === CLOUD,
     isConnected: (serverId) => !!serverId && connected.includes(serverId),
   }
 }

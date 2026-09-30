@@ -329,6 +329,7 @@ export interface WaterfallBar {
   lineId: string
   spanId: string
   label: string
+  title: string
   color: string
   durationMs: number | null
   from: number
@@ -352,6 +353,7 @@ function barOf(row: WaterfallRow, lineId: string, totalMs: number, faded: boolea
     lineId,
     spanId: row.spanId,
     label: row.label,
+    title: row.title,
     color: barColor(row),
     durationMs: row.durationMs,
     from,

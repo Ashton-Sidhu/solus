@@ -7,7 +7,9 @@
   import MarkdownListItem from '../ui/MarkdownListItem.svelte'
   import MarkdownImage from '../conversation/MarkdownImage.svelte'
   import MarkdownLink from '../conversation/MarkdownLink.svelte'
-  import { alertKind, elementAttributes, nodeText, paragraphMediaSource, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
+  import MermaidBlock from '../conversation/MermaidBlock.svelte'
+  import PersonMention from '../mentions/PersonMention.svelte'
+  import { alertKind, elementAttributes, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
     node: RootContent
@@ -19,7 +21,12 @@
   const attributes = $derived(element ? elementAttributes(element) : {})
   const alert = $derived(element ? alertKind(element) : null)
   const media = $derived(element ? paragraphMediaSource(element) : '')
+  // Only a local document can name a file on its host.
+  const localVideo = $derived(element && policy === 'local' ? paragraphLocalVideoSource(element) : '')
   const checkbox = $derived(element ? taskCheckbox(element) : undefined)
+  const mermaid = $derived(element ? mermaidFenceSource(element) : null)
+  // Only a local document stores mentions of organization members.
+  const mention = $derived(element && policy === 'local' ? personMentionOf(element) : null)
 </script>
 
 {#snippet children()}
@@ -35,8 +42,12 @@
 {:else if element}
   {#if alert}
     <MarkdownAlert alertType={alert} content={children} />
+  {:else if mermaid !== null}
+    <MermaidBlock text={mermaid} />
   {:else if media}
     <MarkdownParagraph raw={media} />
+  {:else if localVideo}
+    <div class="my-3"><MarkdownImage href={localVideo} /></div>
   {:else if checkbox}
     <MarkdownListItem task checked={!!checkbox.properties.checked}>{@render children()}</MarkdownListItem>
   {:else if hideTaskCheckbox && element.tagName === 'input' && element.properties.type === 'checkbox'}
@@ -45,6 +56,8 @@
     <CodeSpan text={nodeText(element)} />
   {:else if element.tagName === 'img' && policy === 'local'}
     <MarkdownImage href={String(element.properties.src ?? '')} text={String(element.properties.alt ?? '')} title={typeof element.properties.title === 'string' ? element.properties.title : undefined} />
+  {:else if mention}
+    <PersonMention {mention} />
   {:else if element.tagName === 'a' && policy === 'local'}
     <MarkdownLink href={String(element.properties.href ?? '')} text={nodeText(element)}>{@render children()}</MarkdownLink>
   {:else if voidElements.has(element.tagName)}

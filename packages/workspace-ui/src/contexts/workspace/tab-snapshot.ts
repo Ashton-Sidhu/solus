@@ -1,5 +1,7 @@
+import type { Session } from '@solus/contracts/types'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import { taskTargetFields } from './session-draft.svelte'
+import { existingTaskId } from './session-draft.svelte'
+import { firstActivityAt } from './session-activity'
 import type { PersistedTab } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
@@ -43,9 +45,7 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         permissionMode:
           restoredSession?.run.permissionMode ?? session.config.globalDefaults.permissionMode,
         hasUnread: tab.hasUnread ?? false,
-        pendingTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingTaskId : null,
-        pendingParentTaskId: restoredSession ? taskTargetFields(restoredSession.task).pendingParentTaskId : null,
-        taskCreationDisabled: restoredSession ? taskTargetFields(restoredSession.task).taskCreationDisabled : false,
+        pendingTaskId: restoredSession ? existingTaskId(restoredSession.task) : null,
         terminalFailure: restoredSession?.terminalFailure
           ? { ...restoredSession.terminalFailure }
           : null,
@@ -56,6 +56,13 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
           ? 'idle'
           : restoredSession?.status ?? 'idle',
         currentTurnStartedAt: restoredSession?.currentTurnStartedAt ?? null,
+        startedAt: restoredSession ? knownStartedAt(restoredSession) : null,
       }
     })
+}
+
+/** A session with no dated message yet has no start to keep. */
+function knownStartedAt(session: Session): number | null {
+  const startedAt = firstActivityAt(session)
+  return startedAt === Number.MAX_SAFE_INTEGER ? null : startedAt
 }

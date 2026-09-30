@@ -1,9 +1,10 @@
 // Pull requests, keyed by project.
 //
-// Shared records and background refresh ownership. Every operation names a project first, because a pull
-// request only means anything inside one:
+// Shared records, and the interest that asks PR sync on the host to keep them
+// fresh. Nothing here polls. Every operation names a project first, because a
+// pull request only means anything inside one:
 //
-//   prsStore.get(api, serverId, ctx).list()          // this project's rows
+//   prsStore.get(api, serverId, ctx).loadMore()      // this project's next page
 //   prsStore.get(api, serverId, ctx).get(7).merge()  // one pull request in it
 //
 // How the user is *looking* at them — which project is on screen, how the list
@@ -13,47 +14,13 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { PrFilter } from '@solus/contracts/providers'
-import type { TaskPrSnapshot } from '@solus/contracts/task-types'
+import type { PrFilter, PrInterest, PrSyncChange } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
-import { ProjectPrs, projectPrsKey, type PrList } from './project-prs.svelte'
+import { detached, ProjectPrs, projectPrsKey } from './project-prs.svelte'
 import { afterStartupTranscriptPaint } from '../workspace/startup-transcript'
 import { linkedPrIdentity, latestPrObservation, type LinkedPr, type PrLink } from './linked-pr'
 import { readPrListSnapshot, writePrListSnapshot } from '../../components/prs/lib/pr-list-memory'
-
-export interface PrInterest {
-  /** Linked records must be recovered even when absent from the list page. */
-  linkedNumbers?: readonly number[]
-  branches?: readonly string[]
-  /** Saved links to enrich from the shared list; never a demand for details. */
-  numbers?: readonly number[]
-  /** Visible merge controls need detail fields even if the list knows the PR. */
-  details?: readonly number[]
-}
-
-interface PrObserver {
-  project: ProjectPrs
-  interest: PrInterest
-  changed?: () => void | Promise<void>
-}
-
-function listenForPrRefresh(refresh: () => void): () => void {
-  const visibleRefresh = () => {
-    if (document.visibilityState === 'visible') refresh()
-  }
-  const interval = window.setInterval(visibleRefresh, 60_000)
-  window.addEventListener('focus', visibleRefresh)
-  return () => {
-    window.clearInterval(interval)
-    window.removeEventListener('focus', visibleRefresh)
-  }
-}
-
-/** How many projects are read at once. Each is a host round trip that spends
- *  nearly all its time waiting, so the useful ceiling is well above the core
- *  count; four keeps a large workspace from opening a burst of requests. */
-const DEFAULT_CONCURRENCY = 4
 
 /** One project to read. Carries the handle needed to create its entry. */
 export interface PrProject {
@@ -64,79 +31,115 @@ export interface PrProject {
   ctx: IpcContext
 }
 
+/** What one project's surfaces want PR sync to keep fresh, by surface. */
+interface ProjectWants {
+  project: ProjectPrs
+  bySurface: Map<symbol, readonly PrInterest[]>
+}
+
+/** Heard for every `pr.changed` and every interest answer: the change, and
+ *  the projects on that host that read its repository. */
+type PrChangeListener = (change: PrSyncChange, projects: ProjectPrs[]) => void
+
 export class PrsStore {
   private readonly byProject = new SvelteMap<string, ProjectPrs>()
-  private readonly linkedSnapshots = new SvelteMap<string, TaskPrSnapshot>()
-  private readonly observers = new Set<PrObserver>()
-  private readonly pending = new Set<ProjectPrs>()
-  private draining: Promise<void> | undefined
-  private subscriptions = 0
-  private stopSubscriptions: (() => void) | undefined
-  private stopRefresh: (() => void) | undefined
+  private readonly wants = new Map<string, ProjectWants>()
+  private readonly unsent = new Set<ProjectWants>()
+  private sending: Promise<void> | undefined
+  private readonly listeners = new Set<PrChangeListener>()
+  private stopListening: (() => void) | undefined
 
   constructor(
     private readonly deferBackground: () => Promise<void> = afterStartupTranscriptPaint,
-    private readonly listenForRefresh: (refresh: () => void) => () => void = listenForPrRefresh,
   ) {}
 
-  /** Surfaces declare interest; only this store schedules background reads.
-   * Removing a surface removes its interest, including work not started yet. */
-  watch(project: ProjectPrs, interest: PrInterest, changed?: () => void | Promise<void>): () => void {
-    const observer = { project, interest, changed }
-    this.observers.add(observer)
-    const release = this.subscribeLifecycleChanges()
-    this.stopRefresh ??= this.listenForRefresh(() => {
-      for (const { project: target } of this.observers) this.enqueue(target)
-    })
-    this.enqueue(project)
+  /**
+   * Ask PR sync on the host to keep something fresh while a surface shows it
+   * (docs/plans/pr-sync.md). Nothing here polls: the host answers what it
+   * knows now, and what changes later arrives as `pr.changed`. All surfaces of
+   * one project are sent as one set, and releasing the last one tells the host
+   * to stop.
+   */
+  want(api: HostApi, serverId: string, ctx: IpcContext, interests: readonly PrInterest[]): () => void {
+    const project = this.get(api, serverId, ctx)
+    let wants = this.wants.get(project.key)
+    if (!wants) {
+      wants = { project, bySurface: new Map() }
+      this.wants.set(project.key, wants)
+    }
+    const surface = Symbol('pr-interest')
+    wants.bySurface.set(surface, detached(interests))
+    this.listen()
+    this.send(wants)
+    const held = wants
     return () => {
-      if (!this.observers.delete(observer)) return
-      if (!this.observers.size) {
-        this.stopRefresh?.()
-        this.stopRefresh = undefined
-      }
-      release()
+      if (!held.bySurface.delete(surface)) return
+      this.send(held)
     }
   }
 
-  private enqueue(project: ProjectPrs): void {
-    if (![...this.observers].some((observer) => observer.project === project)) return
-    this.pending.add(project)
-    if (this.draining) return
-    this.draining = this.deferBackground().then(async () => {
-      while (this.pending.size) {
-        const projects = [...this.pending].slice(0, DEFAULT_CONCURRENCY)
-        for (const target of projects) this.pending.delete(target)
-        await Promise.all(projects.map((target) => this.refreshObserved(target)))
-      }
-    }).finally(() => {
-      this.draining = undefined
-      const next = this.pending.values().next().value
-      if (next) this.enqueue(next)
-    })
+  /** Hear what PR sync reports. The checks and needs-review stores file their
+   *  parts of each change from here. */
+  onChange(listener: PrChangeListener): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 
-  private async refreshObserved(project: ProjectPrs): Promise<void> {
-    const observers = [...this.observers].filter((observer) => observer.project === project)
-    if (!observers.length) return
-    const numbers = [...new Set(observers.flatMap(({ interest }) => [...interest.numbers ?? []]))]
-    const branches = [...new Set(observers.flatMap(({ interest }) => [...interest.branches ?? []]))]
-    const details = [...new Set(observers.flatMap(({ interest }) => [...interest.details ?? []]))]
-    const linkedNumbers = [...new Set(observers.flatMap(({ interest }) => [...interest.linkedNumbers ?? []]))]
+  /** Send a project's interest after the current task, so the surfaces that
+   *  mount together cost one request. */
+  private send(wants: ProjectWants): void {
+    this.unsent.add(wants)
+    this.sending ??= this.deferBackground().then(async () => {
+      while (this.unsent.size) {
+        const batch = [...this.unsent]
+        this.unsent.clear()
+        await Promise.all(batch.map((next) => this.sendNow(next)))
+      }
+    }).finally(() => { this.sending = undefined })
+  }
+
+  private async sendNow({ project, bySurface }: ProjectWants): Promise<void> {
+    const byJson = new Map<string, PrInterest>()
+    for (const interests of bySurface.values()) {
+      for (const interest of interests) byJson.set(JSON.stringify(interest), interest)
+    }
+    if (!bySurface.size) this.wants.delete(project.key)
     try {
-      if (!await project.refreshObserved(numbers, branches, details, linkedNumbers)) return
-      for (const observer of observers) {
-        if (this.observers.has(observer)) await observer.changed?.()
-      }
+      const known = await project.hostApi.prSetInterest(detached(project.hostContext), [...byJson.values()])
+      this.applyChange(project.serverId, known, project)
     } catch {
-      // Keep known records; focus, reconnect and the next poll can retry.
+      // A project with no repository has nothing to keep fresh; a lost
+      // connection sends again when it returns.
     }
   }
 
-  /** Bumped on every `listAll`; a project's write is dropped if the generation
-   *  it began under is no longer current — the guard against a slow host
-   *  landing after a newer refresh has begun. */
-  private generation = 0
+  /** One subscription for the whole workspace, taken with the first interest. */
+  private listen(): void {
+    if (this.stopListening) return
+    const changed = subscribeAllHosts('pr.changed', (serverId, change) => this.applyChange(serverId, change))
+    // A host forgets a connection's interest when it drops, so say it again.
+    const reconnected = serverConnections.onStatusChange((serverId, status) => {
+      if (status !== 'connected') return
+      for (const wants of this.wants.values()) {
+        if (wants.project.serverId === serverId) this.send(wants)
+      }
+    })
+    this.stopListening = () => {
+      changed()
+      reconnected()
+    }
+  }
+
+  /** File a change in every project on that host that reads its repository. */
+  private applyChange(serverId: string, change: PrSyncChange, origin?: ProjectPrs): void {
+    if (origin) origin.repositoryKey ??= change.repo
+    const projects = [...this.byProject.values()].filter((project) =>
+      project.serverId === serverId && project.repositoryKey === change.repo)
+    for (const project of projects) {
+      for (const pullRequest of change.pullRequests) project.absorbSynced(pullRequest)
+    }
+    for (const listener of this.listeners) listener(change, projects)
+  }
 
   /**
    * This project's pull requests, created on first mention.
@@ -174,42 +177,31 @@ export class PrsStore {
     const identity = linkedPrIdentity(link, fallbackScope)
     if (!identity) return null
     const live = this.at(serverId, identity.targetScope)?.prFor(identity.number)
-    const cached = serverId ? this.linkedSnapshots.get(hostKey(serverId, identity.key)) : undefined
-    const saved = latestPrObservation(cached, 'snapshot' in link ? link.snapshot : undefined)
-    const pullRequest = latestPrObservation(live, saved)
+    const pullRequest = latestPrObservation(live, 'snapshot' in link ? link.snapshot : undefined)
     return {
       ...identity,
       title: pullRequest?.title || identity.title,
       url: identity.url ?? pullRequest?.url ?? null,
       pullRequest,
+      missing: link.missing === true && !live,
     }
   }
 
-  /** Own identity, batching and refresh for every surface displaying links.
-   * The caller supplies its host; the active project's branch is never inherited. */
-  watchLinkedPrs(api: HostApi, serverId: string, ctx: IpcContext, links: readonly PrLink[]): () => void {
-    const groups = new Map<string, Set<number>>()
+  /** Keep the pull requests these links name fresh while a surface shows
+   *  them. Each link names its own repository; the caller supplies the host. */
+  wantLinkedPrs(api: HostApi, serverId: string, ctx: IpcContext, links: readonly PrLink[]): () => void {
+    const byScope = new Map<string, PrInterest[]>()
     for (const link of links) {
       const identity = linkedPrIdentity(link, projectScopeOf(ctx.session))
       if (!identity) continue
-      if ('snapshot' in link && link.snapshot) {
-        const key = hostKey(serverId, identity.key)
-        const previous = this.linkedSnapshots.get(key)
-        if (!previous || Date.parse(link.snapshot.updatedAt) > Date.parse(previous.updatedAt)) {
-          this.linkedSnapshots.set(key, link.snapshot)
-        }
-      }
-      const numbers = groups.get(identity.targetScope) ?? new Set<number>()
-      numbers.add(identity.number)
-      groups.set(identity.targetScope, numbers)
+      const interests = byScope.get(identity.targetScope) ?? []
+      interests.push({ kind: 'pull-request', number: identity.number })
+      byScope.set(identity.targetScope, interests)
     }
-    const releases = [...groups].map(([scope, numbers]) => {
-      const scoped = {
-        ...ctx,
-        session: { ...ctx.session, projectPath: scope, workingDirectory: scope, gitContext: null },
-      }
-      return this.watch(this.get(api, serverId, scoped), { linkedNumbers: [...numbers] })
-    })
+    const releases = [...byScope].map(([scope, interests]) => this.want(api, serverId, {
+      ...ctx,
+      session: { ...ctx.session, projectPath: scope, workingDirectory: scope, gitContext: null },
+    }, interests))
     return () => { for (const release of releases) release() }
   }
 
@@ -218,48 +210,62 @@ export class PrsStore {
   }
 
   /**
-   * Read several projects at once, in parallel — the workspace-wide inbox.
+   * Read every named project's first page — the workspace-wide inbox.
    *
-   * Each lands in its own entry through the same `list`, so a project already
-   * open costs nothing. Projects not named here are dropped, except `keep` —
-   * the page's own project, which must not lose its rows because the inbox
-   * stopped naming it.
+   * One request per host, not per project: the host reads its projects side by
+   * side and answers for all of them together, so each host's rows land in one
+   * update instead of reordering the list as every project arrives. Each answer
+   * is filed in that project's own entry. Projects not named here are dropped,
+   * except those a surface is watching.
    */
-  async listAll(
-    targets: PrProject[],
-    filter: PrFilter,
-    opts: { force?: boolean; concurrency?: number; keep?: string } = {},
-  ): Promise<void> {
-    const generation = ++this.generation
+  async listProjects(targets: PrProject[], filter: PrFilter, opts: { force?: boolean } = {}): Promise<void> {
     const named = new Set(targets.map((target) => projectPrsKey(target.serverId, target.ctx)))
     for (const key of this.byProject.keys()) {
-      if (!named.has(key) && key !== opts.keep
-        && ![...this.observers].some(({ project }) => project.key === key)) this.byProject.delete(key)
+      if (!named.has(key) && !this.wants.has(key)) this.byProject.delete(key)
     }
-    const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY)
-    let index = 0
-    const worker = async (): Promise<void> => {
-      while (index < targets.length) {
-        const target = targets[index++]
-        if (generation !== this.generation) return
-        const project = this.get(target.api, target.serverId, target.ctx)
-        // A project the host has already said has no git remote — a plain
-        // folder — has nothing to list, and asking again on every refresh only
-        // spends a worker slot a real repository could use. An explicit refresh
-        // still retries it, so `git remote add` is one click from showing up.
-        if (!opts.force && project.error?.kind === 'no-repository') continue
-        const read: PrList = { filter }
-        if (opts.force !== undefined) read.force = opts.force
-        await project.list(read, () => generation === this.generation)
-        if (generation !== this.generation) return
+    const byHost = new Map<string, ProjectPrs[]>()
+    for (const target of targets) {
+      const project = this.get(target.api, target.serverId, target.ctx)
+      // A project the host has already said has no git remote — a plain folder
+      // — has nothing to list, and asking again on every refresh only spends a
+      // host read. An explicit refresh still retries it, so `git remote add` is
+      // one click from showing up.
+      if (!opts.force && project.error?.kind === 'no-repository') continue
+      const projects = byHost.get(target.serverId) ?? []
+      projects.push(project)
+      byHost.set(target.serverId, projects)
+    }
+    await Promise.all([...byHost.values()].map((projects) => this.listHost(projects, detached(filter), !!opts.force)))
+  }
+
+  /** One `prListProjects` for projects that share a host. The host also reads
+   *  each project's authored and review-requested pull requests, so those
+   *  sections are whole even when the first page is other people's work. */
+  private async listHost(projects: ProjectPrs[], filter: PrFilter, force: boolean): Promise<void> {
+    const reads = projects.map((project) => ({ project, token: project.beginListing(filter) }))
+    try {
+      if (force) await Promise.all(projects.map((project) => project.forgetListing(filter)))
+      const [first] = projects
+      const listings = await first.hostApi.prListProjects(
+        detached(first.hostContext),
+        projects.map((project) => project.projectScope),
+        filter,
+      )
+      const byRoot = new Map(listings.map((listing) => [listing.projectRoot, listing]))
+      for (const { project, token } of reads) {
+        const listing = byRoot.get(project.projectScope)
+        if (listing) project.acceptListing(token, filter, listing)
       }
+    } catch (error) {
+      for (const { project, token } of reads) project.failListing(token, error)
+    } finally {
+      for (const { project, token } of reads) project.endListing(token)
     }
-    await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker))
   }
 
   /**
    * Read the list a page is showing: one project, or every project through
-   * `listAll` when `targets` is given.
+   * `listProjects` when `targets` is given.
    *
    * An unsearched read first paints the list remembered from the last visit
    * under `memoryKey` into any project that has nothing yet, and remembers its
@@ -282,8 +288,8 @@ export class PrsStore {
         if (entry) scope.showCached(entry.items)
       }
     }
-    if (opts.targets) await this.listAll(opts.targets, filter, opts.force ? { force: true } : {})
-    else await scopes[0].list(opts.force ? { filter, force: true } : { filter })
+    if (opts.targets) await this.listProjects(opts.targets, filter, opts.force ? { force: true } : {})
+    else await this.listHost([scopes[0]], detached(filter), !!opts.force)
     const answered = scopes.filter((scope) => scope.loaded && !scope.error && !scope.filter.query)
     if (filter.query || answered.length === 0) return
     writePrListSnapshot(opts.memoryKey, {
@@ -296,51 +302,6 @@ export class PrsStore {
       })),
     })
   }
-
-  /** A lifecycle change anywhere reaches the project holding that pull request.
-   *  Wired once, for the whole workspace. */
-  subscribeLifecycleChanges(): () => void {
-    if (this.subscriptions++ === 0) this.startSubscriptions()
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      if (--this.subscriptions === 0) this.stopSubscriptions?.()
-    }
-  }
-
-  private startSubscriptions(): void {
-    const changed = subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
-      const { host, owner, repo } = event.detail.baseRepo
-      const projects = new Set([
-        this.at(serverId, event.projectRoot),
-        this.at(serverId, `${host}/${owner}/${repo}`.toLowerCase()),
-      ])
-      for (const project of projects) {
-        if (!project) continue
-        project.applyPullRequest(event.detail)
-        this.enqueue(project)
-      }
-    })
-    const invalidated = subscribeAllHosts('prs.invalidated', (serverId, { projectRoot }) => {
-      const project = this.at(serverId, projectRoot)
-      project?.forgetAll()
-      if (project) this.enqueue(project)
-    })
-    const reconnected = serverConnections.onStatusChange((serverId, status) => {
-      if (status !== 'connected') return
-      for (const project of this.byProject.values()) {
-        if (project.serverId !== serverId) continue
-        project.forgetAll()
-        this.enqueue(project)
-      }
-    })
-    this.stopSubscriptions = () => {
-      changed()
-      invalidated()
-      reconnected()
-    }
-  }
 }
 
-export { ProjectPrs, projectPrsKey, detached, type PrList, type PrQuery } from './project-prs.svelte'
+export { ProjectPrs, projectPrsKey, detached, type PrQuery } from './project-prs.svelte'

@@ -175,7 +175,10 @@ class PostgresDb implements RootDb {
 
   constructor(url: string) {
     this.client = postgres(url, {
-      max: 8,
+      // The Postgres is shared with the account site and has few slots (25 on the small
+      // PlanetScale sizes); a quiet service must not hold them. Idle connections close.
+      max: 3,
+      idle_timeout: 30,
       onnotice: () => {},
       // Every timestamp is a bigint of milliseconds; a JS number holds it exactly.
       types: { bigint: { to: 20, from: [20], serialize: (value: number) => String(value), parse: Number } },

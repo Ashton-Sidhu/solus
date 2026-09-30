@@ -104,7 +104,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh] pointer-fine:[.is-laptop-display_&]:pt-[14vh]"
+  class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]"
   onclick={onClose}
 >
   <div
@@ -113,7 +113,7 @@
   ></div>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
-    class="relative flex max-h-[min(40rem,68svh)] w-[clamp(28rem,36vw,32rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24)] outline-none pointer-fine:[.is-laptop-display_&]:max-h-[60svh] pointer-fine:[.is-laptop-display_&]:w-[28rem]"
+    class="relative flex max-h-[min(40rem,68svh)] w-[clamp(28rem,36vw,32rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24)] outline-none"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     tabindex="-1"
@@ -123,19 +123,19 @@
     <input
       bind:this={inputEl}
       bind:value={query}
-      class="h-12 shrink-0 border-b border-[var(--hairline)] bg-transparent px-4 outline-none placeholder:text-muted-foreground pointer-fine:[.is-laptop-display_&]:h-10 pointer-fine:[.is-laptop-display_&]:px-3.5"
+      class="h-12 shrink-0 border-b border-[var(--hairline)] bg-transparent px-4 outline-none placeholder:text-muted-foreground"
       placeholder="Link a doc, plan, automation or PR…"
     />
-    <div class="min-h-0 flex-1 overflow-y-auto p-2 pointer-fine:[.is-laptop-display_&]:p-1.5">
+    <div class="min-h-0 flex-1 overflow-y-auto p-2">
       {#if externalPr}
         <div
-          class="px-2.5 pt-2.5 pb-1.5 text-[0.875em] font-normal text-muted-foreground uppercase pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:pt-2 pointer-fine:[.is-laptop-display_&]:pb-1"
+          class="px-2.5 pt-2.5 pb-1.5 text-[0.875em] font-normal text-muted-foreground uppercase"
         >
           External pull request
         </div>
         <button
           type="button"
-          class="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-[background-color,scale] duration-120 hover:bg-[var(--wash-2)] active:scale-[0.96] pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2"
+          class="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-[background-color,scale] duration-120 hover:bg-[var(--wash-2)] active:scale-[0.96]"
           onclick={() => {
             onPick(externalPr!.input);
             onClose();
@@ -159,14 +159,14 @@
       {/if}
       {#each results as group (group.menuKind)}
         <div
-          class="px-2.5 pt-2.5 pb-1.5 text-[0.875em] font-normal text-muted-foreground uppercase pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:pt-2 pointer-fine:[.is-laptop-display_&]:pb-1"
+          class="px-2.5 pt-2.5 pb-1.5 text-[0.875em] font-normal text-muted-foreground uppercase"
         >
           {group.label}
         </div>
         {#each group.items as item (item.id)}
           <button
             type="button"
-            class="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-[background-color,scale] duration-120 hover:bg-[var(--wash-2)] active:scale-[0.96] pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2"
+            class="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-[background-color,scale] duration-120 hover:bg-[var(--wash-2)] active:scale-[0.96]"
             onclick={() => pick(item)}
           >
             <svg
@@ -194,11 +194,11 @@
       {/each}
     </div>
     <div
-      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-4 py-2.5 text-[0.875em] text-muted-foreground pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:py-2"
+      class="flex shrink-0 items-center gap-2 border-t border-[var(--hairline)] px-4 py-2.5 text-[0.875em] text-muted-foreground"
     >
       {Object.values(KIND_LABEL).join(" · ")}
       <span class="flex-1"></span>
-      <span class="">Esc</span>
+      <span>Esc</span>
     </div>
   </div>
 </div>

@@ -1,128 +1,137 @@
 ---
 name: visual-artifacts
-description: Author and render visual, interactive local HTML artifacts flush in the Solus conversation. Use when visual or interactive output is a better medium than chat text, including charts, dashboards, annotated PR/design walkthroughs, side-by-side alternatives, simulations, visualizations, tuning controls, progress trackers, decision editors, copy-back workflows, and explicit "show/render/visualize/make" requests. This skill owns artifact product patterns, the Solus design system, sandbox constraints, and the choice between a fenced ```html block (renders live in the reply, no tool call) and the render_artifact call (a saved artifact with a work id) — always author visual HTML through it rather than hand-writing it or calling render_artifact directly. For public web images, use a markdown image link instead.
+description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose, slides, and editable architecture or data diagrams; use web-building skills for deployed apps.
 ---
 
 # Visual artifacts
 
-Use this skill to build a VISUAL HTML deliverable that renders flush in the conversation: charts, dashboards, annotated walkthroughs, comparisons, interactive diagrams, simulations, visualizations, crisp diagrams, tuning controls, decision editors, progress trackers, and interactive widgets.
+Build a useful visual result, not a website around an answer. Start with what the user must inspect, compare, change, or copy. Use normal chat for short, linear answers.
 
-Reach for it when the result is easier to inspect, compare, tune, manipulate, or follow visually than to read as chat text. The user does not need to say "render" or "visualize" if the medium is clearly better. Use a normal chat answer when the output is short, linear, or mostly explanatory. Use a Solus work instead when the user needs a durable document, slide deck, or editable architecture/data diagram.
+**One authoring path: initialize React → develop → compile one HTML file → render a Solus work.** Use it for small charts and complex interactive tools alike. Complexity changes the components, not the pipeline. Sharing is an explicit action on the same work, not a second deployment.
 
-For public web images, keep using a markdown image link instead.
+The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
 
-This skill does NOT produce images. Generated images arrive only from a native image-generation tool, normalized into the same artifact path and rendered by the shared artifact view — never hand-author an `<img>`-based "generated image" here.
+## Quick start
 
-## Workflow
+Resolve this skill's directory from the path used to load it. Do not assume it lives inside the user's project. Node.js 22 or later and npm are required. Scripts install only in the new artifact directory; no global installs or changes to the user's app dependencies.
 
-1. Choose the smallest artifact pattern that makes the result useful.
-2. Decide the medium (see "Fence or tool call" below): a fenced ```` ```html ```` block for something the user looks at once, `render_artifact` for something that needs a work id.
-3. Author a single self-contained HTML document following the runtime contract and design philosophy below.
-4. Inline the data already gathered in the session. Fetch at view time only when the value really is live.
-5. Explain in chat what you built (keep explanatory prose in your response, not inside the render).
-6. Deliver it. A fence goes in your reply, after the explanation, and Solus renders it in place. A tool call is your LAST step: call `render_artifact` with the finished HTML and a short `title`, and set the document `<title>` to the same text (it is the fallback name when `title` is omitted). The artifact is saved as a work under that title: it appears in the works gallery, and `update_work` revises it by the `work_id` the tool returns — never render a second copy to change one. It is not filed on the session's task unless you pass `link_to_task: true`; do that when the user asked for it on the task or the pull request, and otherwise leave it to the reader, who can link or pin it from the render's rail.
+### 1. Initialize
 
-## Artifact patterns
+Choose a new directory outside the app source unless the user asked to keep artifact source in the project. Its parent must exist. For temporary source, create a temporary parent and give the initializer a new child path.
 
-- **Walkthrough:** annotated diffs, architecture changes, design changes, investigation timelines, or failure analysis. Put evidence and annotation side by side so the user does not reconstruct the reasoning from prose.
-- **Comparison:** multiple layouts, API shapes, copy variants, implementation approaches, or tradeoffs on one canvas. Make differences obvious; avoid near-duplicates.
-- **Dashboard:** metrics, grouped findings, status summaries, risk heatmaps, or run/test results from data already available in the session. Summarize large datasets rather than dumping every row.
-- **Tuning control:** sliders, toggles, segmented controls, inputs, or draggable handles for values the user needs to explore, such as animation timing, thresholds, filters, priorities, or layout density.
-- **Copy-back editor:** a local decision surface whose output can be pasted back into chat, such as a triage board, ordering tool, checklist, JSON builder, or prompt composer.
-- **Progress tracker:** a checklist or timeline that follows work as it proceeds. Render it once with `render_artifact`, then revise it in place with `update_work` by its `work_id` — the reader keeps one tracker, not a trail of superseded copies.
-
-## Playground explorers
-
-A playground is the richest copy-back pattern: interactive **controls** drive a **live preview**, and a **prompt output** panel builds a natural-language instruction the user copies back into chat. The user tunes visually, then pastes the generated prompt to act on it — no need to describe a large, visual, or structural input space in words.
-
-Reach for a playground when the input space is large, visual, or structural and hard to express as text. Six templates cover the common shapes — load the matching one from `templates/` and adapt it:
-
-- `templates/design-playground.md` — visual design decisions (components, layout, spacing, color, type)
-- `templates/data-explorer.md` — queries and structured config (SQL, APIs, pipelines, regex, cron)
-- `templates/concept-map.md` — learning and relationship mapping (concept maps, scope, dependencies)
-- `templates/document-critique.md` — document review with approve/reject/comment
-- `templates/diff-review.md` — code diffs with line-by-line comments
-- `templates/code-map.md` — codebase architecture with click-to-comment
-
-If the request doesn't fit a template cleanly, use the closest one and adapt. Every playground still obeys the runtime contract and design philosophy below — the templates give Solus-specific structure, not an exception to them. Two panels side by side with the prompt output flowing beneath is the default shape; use normal flow (no fixed positioning, no nested scrolling) so it renders correctly as content streams in.
-
-### State pattern
-
-Keep a single state object. Every control writes to it; every render reads from it. One `updateAll()` re-renders the preview and rebuilds the prompt on every change — no "Apply" button.
-
-```js
-const state = { /* all configurable values */ };
-const DEFAULTS = { ...state };
-function updateAll() { renderPreview(); updatePrompt(); }
-// every control calls updateAll() on change
+```sh
+node "<skill-dir>/scripts/init-artifact.mjs" "<new-artifact-directory>"
 ```
 
-### Prompt output
+The initializer refuses to replace an existing directory. It creates React + TypeScript source, Tailwind v4, an `@/` source alias, pinned dependencies, a lockfile through npm, a theme-aware starter, and the local bundling script. It does not launch a server or build the Solus app.
 
-The prompt is a natural-language instruction, not a value dump. Mention only non-default choices, add qualitative language alongside numbers, and include enough context to act on without seeing the playground. Put it in a selectable readonly `<textarea>` (required by the runtime contract) with a copy button as a convenience on top.
+### 2. Develop
 
-```js
-function updatePrompt() {
-  const parts = [];
-  if (state.radius !== DEFAULTS.radius) parts.push(`${state.radius}px corner radius`);
-  if (state.shadow > 16) parts.push('a pronounced shadow');
-  else if (state.shadow > 0) parts.push('a subtle shadow');
-  out.value = `Update the card to use ${parts.join(', ')}.`;
-}
+Edit `src/App.tsx`, sibling components, and `src/styles.css`. Set a meaningful title in `index.html`. Keep its mount and two artifact markers intact. Replace the example content and sample values with the requested visual and evidence.
+
+Use React state as the source of truth for controls, preview, and copy-back output. Add only the components and dependencies the task needs. Small artifacts still use React; do not switch to a hand-authored inline JavaScript path. Native controls work well; add shadcn/Radix components only when they improve the result. Bundle added dependencies rather than loading a UI kit from a CDN.
+
+Read [implementation guidance](references/implementation.md) for assets, data safety, state, and bundle limits. Read only a relevant playground template when the task needs it.
+
+### 3. Compile
+
+Run inside the artifact directory:
+
+```sh
+npm run bundle
 ```
 
-### Presets
+This typechecks, compiles Tailwind, bundles React and browser dependencies with esbuild, inlines CSS and local assets, escapes HTML-closing sequences, and atomically writes `bundle.html`. It rejects separate chunks, external bundle dependencies, invalid shells, and payloads over 8 MiB. A failed build leaves the last successful bundle intact; do not deliver that stale file as the new result.
 
-Look good on first load with sensible defaults, then offer 3–5 named presets that snap every control to a cohesive combination.
+No development server, global package install, or application build is required. If setup fails, fix the artifact directory or report the missing prerequisite. Do not silently fall back to another authoring path.
 
-## Runtime contract (required — the artifact breaks if you ignore this)
+### 4. Verify and render
 
-Pass a single self-contained HTML document.
+Check the final payload, then read the complete `bundle.html` text. A filesystem path is not the tool payload.
 
-- It runs in a sandboxed frame with no origin of its own. Inline `<script>`/`<style>` are allowed, and scripts, stylesheets, images, and fonts load from any `https:` origin — pick whichever CDN you prefer. Nothing loads over plain `http:`, and relative URLs resolve against nothing, so every external reference must be an absolute https URL.
-- `fetch`/XHR to any `https:` origin works. Still prefer inlining the data you already gathered in the session: a render that fetches is slower to appear, and it shows nothing at all when the reader is offline. Fetch only when the value really is live.
-- The frame has no access to the workspace: no `localStorage`, no cookies, no parent DOM. State lives in the page and is gone on reload.
-- It auto-sizes to its content; keep it self-contained and reasonably sized.
-- Avoid fixed positioning, hidden tabs, and nested scrolling — they break when content streams in.
-- Keep interactions fully client-side. Use inline scripts and deterministic page state only.
-- For copy-back workflows, do not rely only on clipboard APIs from the sandbox. Provide a visible readonly `<textarea>` or selectable `<pre>` containing the final prompt, JSON, or summary. A copy button is fine as a convenience, but the selectable fallback is required.
-- For controls, show immediate visual feedback and keep values visible. Prefer native controls for accessibility: buttons, sliders, checkboxes, radio groups, selects, textareas, and keyboard-reachable draggable alternatives.
+For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html` and a short `title` matching the document title. The returned work ID is its durable identity. Set `link_to_task: true` only when the user asked to file it on that task or its pull request. Do not also emit the same HTML in a fence.
 
-## Design philosophy
+Use the same compiled output in a rendered fence only when the result is a one-time inline explanation with no durable identity need, or the user explicitly does not want a saved work. This is a delivery option, not another build path. Use `html render artifact=<stable-name>`; names use letters, digits, hyphens, or underscores, up to 80 characters. Reuse the name for revisions of that inline visual. Emit one completed revision per identity per reply. `html source` shows code instead.
 
-The render must feel like a native part of the chat, not something embedded from elsewhere.
+Explain the result briefly. State material limits such as sample data, network requirements, or inputs that reset on reload. Do not claim checks that were not run.
 
-- **Design priority:** follow the user's prompt first, then the target product or project design system, then Solus chrome integration. When the artifact represents Solus-native data or a general assistant visualization, use Solus theme variables and the warm local palette below. When the artifact compares UI directions, mocks another product, or reviews a branded surface, match the target context enough for a fair evaluation while keeping the outer body transparent and respecting light/dark mode.
-- **Surfaces:** flat. No gradients, drop shadows, or glow effects. Generous whitespace and minimal, thin (1px) borders. Keep the OUTER body transparent (no dark/colored box, no border) — Solus renders the frame chrome-less so the host chat background shows straight through.
-- **Width:** the frame is as wide as the conversation. Either fill it, or cap a root card with a `max-width` and let Solus centre it (the frame centres every root block by default; do not set `margin: 0` on a capped card, or it hugs the left edge).
-- **Theme:** Solus injects its OWN warm palette into the frame as CSS variables and sets the matching color-scheme for the active light/dark theme — so just use them and the artifact matches the app in both modes. Text: `--solus-text-primary` / `--solus-text-secondary` / `--solus-text-tertiary`. Accent: `--solus-accent` plus `--solus-accent-soft` / `--solus-accent-light` / `--solus-accent-border`. Warm neutrals (USE THESE for surfaces, panels, fills and hairlines — NOT grey): `--solus-art-surface` and `--solus-art-raised` (parchment/sand panels), `--solus-art-border` and `--solus-art-border-strong` (warm hairlines). Drive every text/border/fill off these; keep the body background transparent and never hardcode a hex that would vanish on the opposite theme.
-- **Color:** NEVER use raw grey (no #888 / #ccc / gray-500 / rgba(0,0,0,…) neutrals) — the brand is warm parchment, so structural and "neutral" elements use the warm neutrals above (`--solus-art-border`, `--solus-text-tertiary`), not grey. For categorical / multi-series data use the brand data palette IN ORDER: `--solus-art-1` terracotta, `--solus-art-2` amber, `--solus-art-3` sage, `--solus-art-4` teal, `--solus-art-5` dusty blue, `--solus-art-6` plum (all tuned to the warm theme). For good/bad meaning use `--solus-art-positive` (green) and `--solus-art-negative`. Encode meaning, do not cycle a rainbow: same category → same colour; a single-series chart should be one colour (the accent), not many.
-- **Typography:** sentence case throughout. Two weights only — regular and medium (never heavy bold). Use a clear scale for headings vs body. No font size below 11px. No emoji (use an icon font if you need glyphs). Reserve bold for headings and labels, not mid-sentence emphasis.
-- **Content:** the widget stays PURELY visual — keep explanatory prose in your chat response, not inside the render. Round numbers before they hit the screen so floating-point artifacts don't leak.
-- **Motion:** animate by default so the artifact feels alive. Add purposeful entrance transitions (fade/slide/scale in), let bars/lines/arcs grow or draw on load, count numbers up, and transition every interaction (hover, toggle, slider) smoothly. Use CSS transitions/keyframes or requestAnimationFrame; keep it subtle and premium (~200–600ms, ease-out, no bounce or flashing), stagger multiple elements, and honour `@media (prefers-reduced-motion: reduce)` by disabling non-essential motion.
+## Revise the same work
 
-Do not design around cloud sharing, organization permissions, public links, or hosted export. Solus artifacts are local, in-chat renders.
+1. Use `find_works` if the work ID is unknown, then `read_work`. Read the current content and `content_version`, even if source files remain from the previous turn.
+2. Reuse artifact source if it is still available, but account for changes made directly to the saved work. If source is missing, initialize a new source directory and reconstruct the requested view from the saved content and evidence. Do not pretend minified HTML is the original TSX or overwrite edits from an old source copy.
+3. Develop and compile through the same pipeline.
+4. Call `update_work` with the same `work_id`, the full compiled HTML, and `expected_content_version` from the read. Do not call `render_artifact` again.
+5. On a conflict, read again and reapply the change to the latest content. If edits overlap in meaning or conflicts repeat, stop and ask which change to keep.
 
-## Common mistakes to avoid
+Preserve the existing design unless redesign is requested. Source directories are build inputs, not a second work or a promised permanent archive. The saved HTML is the portable deliverable. Keep source files when the user asks for them; otherwise do not promise cross-host source availability.
 
-- Prompt output is a value dump → write it as a natural instruction with enough context to act on alone.
-- Too many controls at once → group by concern; collapse advanced options.
-- Preview lags behind → every control change re-renders immediately; no "Apply" button.
-- Empty or broken on first load → ship sensible defaults and named presets.
-- Grey or hardcoded hex → drive every colour off the Solus variables (warm neutrals, not grey; accent for single-series).
-- Clipboard-only copy → always include the selectable `<textarea>`/`<pre>` fallback.
-- Emoji or icon characters in output → use an icon font glyph if you need one, never an emoji.
+To retain chosen settings, the user can copy them into chat and ask to make them new defaults. Recompile and update the same work. Saving HTML does not automatically persist page interaction state.
 
-## Fence or tool call
+## Solus Cloud sharing
 
-Solus renders a fenced ```` ```html ```` block in a reply live, in the same sandboxed frame, with no tool call at all. That is the lighter medium and it is often the right one: something visual the user reads once, glances at, and moves past.
+Keep new works private unless the user asks to share. Do not invent a URL or upload to another host.
 
-Use `render_artifact` when the render needs an identity: you will revise it by `work_id`, it should link to a task, it belongs in the works gallery, or the user asked to keep it. Use a fence when it does not. A reader can promote a fence to an artifact themselves with "Save as artifact", so choosing the fence is never a decision that traps them.
+Use the saved work's existing **Share** controls. A Local work may need explicit publication into the selected organization before it can be shared. Select the requested people or access scope; for a link intended for anyone holding it, use **Anyone with the link**, normally **Viewer** unless edit access was requested. Copy the actual returned link.
 
-A fence renders when its content carries a `<style>`, a `<script>`, or a whole document; a bare fragment (a lone `<div>` or `<table>`) shows as code, on the assumption that it was pasted to be read. When the content does not make that obvious, say it in the info string: ```` ```html render ```` always renders, ```` ```html source ```` always shows code.
+Agent work tools do not currently expose the share-link operation. If an authorized sharing tool becomes available, use its declared contract. Otherwise tell the user to open Share on the saved work, select access, and copy the link. Do not use private tokens, internal RPC calls, or database edits to bypass that boundary. Do not claim a link was created unless it was.
 
-Give each rendered fence a stable identity in its info string: ```` ```html render artifact=revenue-chart ````. Use letters, digits, hyphens, and underscores, up to 80 characters. Reuse the value when revising that visual in a later reply; give a separate visual or alternative a new value. Emit only one completed revision per identity in a reply. Solus shows the new version and collapses earlier versions, with controls to reopen them. This identity is local to the conversation; it does not save a work. Existing fences without an identity remain independent previews.
+Sharing refers to the same work. Updates keep that identity; access changes and link regeneration can invalidate earlier links. Explain the audience before widening access. Revocation uses the same Share controls. Do not confuse Solus Cloud sharing with `publish_work`, which publishes to Google Docs or Confluence.
 
-For saved artifacts, `update_work` displays a new inline revision and collapses earlier previews. Keep using the same work ID; do not call `render_artifact` again to update it.
+## Patterns and templates
 
-The runtime contract and design philosophy above apply to a fence too — it is the same frame and the same palette.
+- **Walkthrough:** put evidence next to annotations; separate facts from conclusions.
+- **Comparison:** use the same inputs and scale; make tradeoffs visible.
+- **Dashboard:** show units, denominators, source dates, and useful summaries rather than every row.
+- **Simulation:** expose meaningful bounded inputs; provide pause and reset when time is part of the model.
+- **Copy-back tool:** make output a complete instruction, JSON object, or summary that works without the preview.
+- **Tracker:** label snapshot versus live status; update the same work instead of creating new copies.
+
+For controls → preview → selectable output, adapt one template:
+[design playground](templates/design-playground.md), [data explorer](templates/data-explorer.md), [concept map](templates/concept-map.md), [document critique](templates/document-critique.md), [diff review](templates/diff-review.md), or [code map](templates/code-map.md).
+Translate template examples into React components; this file's pipeline and runtime rules take precedence.
+
+Include reset and meaningful presets where useful. Derive preview and output from the same state; preserve focus during updates. Prompt output must be a natural instruction, not a value dump. Say when no changes are selected. Provide a visible readonly `<textarea>` or selectable `<pre>`; clipboard buttons need a failure state and are not the only way to copy.
+
+## Sandbox contract
+
+- One complete HTML document, no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
+- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload.
+- Inline scripts and styles work. The build includes local assets and dependencies. Ordinary renders permit absolute HTTPS resources, but isolated review renders can block all network access.
+- HTTPS fetch/XHR still needs target CORS support for an opaque origin. Prefer session data inlined at build time; live data needs loading, error, source, and refresh states. Do not disguise a snapshot as live.
+- Never embed credentials or send private data to external services. Artifact creation is not permission for uploads or external writes.
+- The host measures content height and supplies theme variables. Use normal flow and content-driven height, not `100vh`, fixed page shells, or custom resize loops. Stack panels in narrow containers. Use bounded overflow only for content such as wide tables.
+- Local controls and copy-back text do not execute agent commands, update project files, or provide a persistence bridge. Explain incompatible requirements before building.
+
+## Design
+
+Follow the user's direction, then the target product's real design system, then Solus integration. Read real tokens and components before showing a product's current UI. Scope product-specific styles to the preview.
+
+For Solus-native visuals, keep the outer body transparent, use clear spacing and thin borders, and avoid a generic marketing-page shell, gradients, glow, and heavy shadows. Product mockups can reproduce their actual surface treatment.
+
+Use the injected palette:
+- Text: `--solus-text-primary`, `--solus-text-secondary`, `--solus-text-tertiary`.
+- Actions and single-series data: `--solus-accent`, `--solus-accent-soft`, `--solus-accent-light`, `--solus-accent-border`.
+- Structure: `--solus-art-surface`, `--solus-art-raised`, `--solus-art-border`, `--solus-art-border-strong`.
+- Categories: `--solus-art-1` through `--solus-art-6` in order. Semantic status: `--solus-art-positive` and `--solus-art-negative`.
+
+Use `--solus-font-family` with a system fallback. Use readable sentence-case labels and regular/medium weights for native views; no text below 11px. Use inline SVG for icons and accessible names for icon-only buttons. Do not override host theme variables or force light mode. The starter provides standalone fallback colors.
+
+Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Provide labels, visible keyboard focus, keyboard alternatives for dragging, and chart summaries or tables. Pair color with labels or shapes. Include the instructions, units, and assumptions needed to understand a saved visual.
+
+Use finite transitions only when they clarify change; respect reduced motion. No continuous decorative animation or repeated entrance effects on input changes.
+
+## Verification
+
+The bundle command checks types and packaging, not visual correctness or safety of authored code. Use the smallest additional proof:
+- First load, a representative control, reset, boundary values, empty selections, and invalid input.
+- Copy-back output matches the preview and remains selectable without clipboard permission.
+- Narrow and desktop layouts, keyboard focus, light and dark legibility.
+- No fake live status, hidden runtime failures, secrets, unsupported persistence claims, or missing assets.
+
+Use authorized browser tools when available; do not start a server without agreement. Inspect the final compiled payload, not only source. An ordinary browser preview does not prove Solus sandbox behavior. State any unverified runtime behavior. Do not create duplicate saved works for testing.
+
+## Documents and other media
+
+For a document containing a reusable interactive visual, render the artifact first and copy its returned embed token onto its own line in the document. Use `create_work` for a new document or slides; read and version-check updates to existing works. Revise the embedded artifact by its own work ID.
+
+Preserve live `work://embed` links and rendered HTML fences. Use the `diagrams` skill for editable architecture, system, data-flow, or ER diagrams. Use image generation for raster images and Markdown links for public web images. Google-linked works are read-only in Solus; edit upstream and pull rather than making duplicates.

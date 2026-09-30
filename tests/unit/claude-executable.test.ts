@@ -26,7 +26,7 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
     })
   },
 }))
-const { ClaudeAgent } = await import('@solus/server/agents/claude/claude-agent')
+const { ClaudeAgent } = await import('@solus/server/execution/agents/claude/claude-agent')
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'solus-claude-executable-'))
@@ -44,6 +44,25 @@ function installClaude(): string {
 }
 
 describe('installed Claude executable', () => {
+  test('requests visible summaries without changing the selected reasoning effort', async () => {
+    installClaude()
+    const run = new ClaudeAgent().run({ prompt: 'hello', cwd: directory, reasoningEffort: 'low' })
+    for await (const _ of run.events) { /* drain */ }
+    await run.result
+    expect(queries[0].settings).toEqual({ showThinkingSummaries: true })
+    expect(queries[0].effort).toBe('low')
+    expect(queries[0].thinking).toBeUndefined()
+  })
+
+  test('does not request summaries for runs that opt out of reasoning', async () => {
+    installClaude()
+    const run = new ClaudeAgent().run({ prompt: 'hello', cwd: directory, disableReasoning: true })
+    for await (const _ of run.events) { /* drain */ }
+    await run.result
+    expect(queries[0].settings).toBeUndefined()
+    expect(queries[0].effort).toBeUndefined()
+  })
+
   test('the first turn waits for PATH discovery and passes an explicit executable', async () => {
     const executable = installClaude()
     let finishLookup!: (path: string) => void

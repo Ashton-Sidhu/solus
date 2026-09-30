@@ -1,4 +1,5 @@
 import { formatClock, formatCost, formatDuration, singleLine } from './format'
+import { modelName, providerMark, type ProviderMarkId } from './provider'
 import { asStringOrNull } from './result-columns'
 import type { EventColumn, EventRow } from './result-shape'
 import type { TurnRow } from './turn-rows'
@@ -6,8 +7,9 @@ import type { TurnRow } from './turn-rows'
 /**
  * The list rail beside an open turn (docs/plans/observability.md).
  *
- * While the detail panel is open the full-width listing compresses to a 380px
- * rail, the way the pull-request list does. A rail item keeps two things: the
+ * While the detail panel is open the full-width listing compresses to a rail
+ * beside it, the way the pull-request list does: the panel opens at half the
+ * page and the reader drags its edge (`detail-panel-width`). A rail item keeps two things: the
  * identity a reader needs to hold their place (title, time, status), and the
  * drill identity a click or a step needs to move the panel (trace id, and the
  * span id when the listing is span-grained).
@@ -20,8 +22,16 @@ export interface RailItem {
   spanId: string | null
   title: string
   status: string
+  /** The backend's logo, leading the row the way a pull request's state glyph
+   *  does. Null on span-grained rows and on backends Solus has no mark for. */
+  mark: ProviderMarkId
+  /** The model's profile name (`Opus 5.5`); null on span-grained rows. */
+  modelLabel: string | null
   timeLabel: string
-  metaLabel: string
+  durationLabel: string
+  /** Null when the row recorded no cost, so the row says nothing rather than
+   *  a dash. */
+  costLabel: string | null
 }
 
 export function railItemsFromTurns(rows: TurnRow[]): RailItem[] {
@@ -32,10 +42,11 @@ export function railItemsFromTurns(rows: TurnRow[]): RailItem[] {
     spanId: null,
     title: singleLine(row.prompt) || '—',
     status: row.status,
+    mark: providerMark(row.provider),
+    modelLabel: modelName(row.provider, row.model),
     timeLabel: formatClock(row.startedAt),
-    metaLabel: [row.model ?? '—', formatDuration(row.durationMs), formatCost(row.costUsd)].join(
-      ' · ',
-    ),
+    durationLabel: formatDuration(row.durationMs),
+    costLabel: row.costUsd == null ? null : formatCost(row.costUsd),
   }))
 }
 
@@ -67,8 +78,11 @@ export function railItemsFromEvents(
             spanId: row.spanId,
             title: eventTitle(columns, row, fallback),
             status: row.status ?? 'ok',
+            mark: null,
+            modelLabel: null,
             timeLabel: formatClock(row.startedAt),
-            metaLabel: formatDuration(row.durationMs),
+            durationLabel: formatDuration(row.durationMs),
+            costLabel: null,
           },
         ]
       : [],

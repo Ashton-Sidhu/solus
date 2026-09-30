@@ -9,7 +9,7 @@
 
 import { execFile } from 'child_process'
 import { mkdtemp, rm } from 'fs/promises'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
 import { getCliEnv } from '../cli-env'
@@ -29,13 +29,37 @@ const CLI_TIMEOUT_MS = 120_000
 const SEARCH_API = 'https://skills.sh/api/search'
 const SEARCH_LIMIT = 20
 
+/**
+ * An organization member's global skills live in their own seat homes, where
+ * their agent looks for them (docs/skills.md). The CLI reads `CLAUDE_CONFIG_DIR`
+ * and `CODEX_HOME` for each agent's global folder, and keeps its own store and
+ * lock file under `HOME`, so `HOME` is the member's Claude seat home: nothing of
+ * one member's reaches the host's home or another member's.
+ */
+export interface MemberSkillHomes {
+  claudeHome: string
+  codexHome: string
+}
+
+function skillsEnv(member: MemberSkillHomes | undefined): NodeJS.ProcessEnv {
+  if (!member) return { DISABLE_TELEMETRY: '1' }
+  return {
+    DISABLE_TELEMETRY: '1',
+    CLAUDE_CONFIG_DIR: member.claudeHome,
+    CODEX_HOME: member.codexHome,
+    HOME: member.claudeHome,
+    // The npx cache stays the host's, so a member's first command does not fetch the CLI again.
+    npm_config_cache: process.env.npm_config_cache ?? join(homedir(), '.npm'),
+  }
+}
+
 /** Keep npm's project discovery out of the server's working directory. */
-async function runGlobalSkills(args: string[]): Promise<string> {
+async function runGlobalSkills(args: string[], member?: MemberSkillHomes): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), 'solus-skills-'))
   try {
     const { stdout } = await execFileAsync(NPX, [...BASE_ARGS, ...args], {
       cwd,
-      env: getCliEnv({ DISABLE_TELEMETRY: '1' }),
+      env: getCliEnv(skillsEnv(member)),
       timeout: CLI_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
     })
@@ -109,11 +133,11 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
 }
 
 /** A failed list must not appear as an empty installation. */
-export async function listInstalledSkills(): Promise<SkillListResult> {
+export async function listInstalledSkills(member?: MemberSkillHomes): Promise<SkillListResult> {
   try {
-    const stdout = await runGlobalSkills(['list', '-g', '--json'])
+    const stdout = await runGlobalSkills(['list', '-g', '--json'], member)
     const skills = installedSkillSchema.parse(JSON.parse(stdout.replace(ANSI, '')))
-    return { ok: true, skills }
+    return { ok: true, skills, scope: member ? 'member' : 'host' }
   } catch (err) {
     log.warn('skills_list_failed', { error: errorMessage(err) })
     return { ok: false, error: 'Could not load global skills. Try again.' }
@@ -121,18 +145,18 @@ export async function listInstalledSkills(): Promise<SkillListResult> {
 }
 
 /** Remove only a listed global skill; never accept CLI flags or path arguments. */
-export async function removeSkill(name: string): Promise<SkillRemoveResult> {
+export async function removeSkill(name: string, member?: MemberSkillHomes): Promise<SkillRemoveResult> {
   const parsed = removableSkillName.safeParse(name)
   if (!parsed.success) return { ok: false, error: 'Invalid skill name.' }
-  const installed = await listInstalledSkills()
+  const installed = await listInstalledSkills(member)
   if (!installed.ok) return installed
   if (!installed.skills.some((skill) => skill.name === name)) {
     return { ok: false, error: 'This global skill is no longer installed. Refresh the list.' }
   }
   try {
-    await runGlobalSkills(['remove', name, '-g', '-y'])
+    await runGlobalSkills(['remove', name, '-g', '-y'], member)
     // The CLI can report a partial failure with exit code zero. Verify the result.
-    const remaining = await listInstalledSkills()
+    const remaining = await listInstalledSkills(member)
     if (!remaining.ok) return remaining
     if (remaining.skills.some((skill) => skill.name === name)) {
       return { ok: false, error: 'The skill could not be removed from every agent. Refresh the list and try again.' }
@@ -147,8 +171,10 @@ export async function removeSkill(name: string): Promise<SkillRemoveResult> {
 /**
  * Installs `id` globally into every active provider via
  * `skills add <id> -g -y -a <agent>...`. Returns which agents it targeted.
+ * A member's install copies the files into each seat rather than linking them
+ * to the CLI's store, so each seat holds plain files the agent reads directly.
  */
-export async function installSkill(id: string, agentIds: AgentId[]): Promise<SkillInstallResult> {
+export async function installSkill(id: string, agentIds: AgentId[], member?: MemberSkillHomes): Promise<SkillInstallResult> {
   if (!id.trim()) return { ok: false, agents: [], error: 'No skill specified' }
   if (agentIds.length === 0) return { ok: false, agents: [], error: 'No active agent providers' }
 
@@ -156,7 +182,7 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
   log.info('skill_install_started', { skillId: id, agentIds })
 
   try {
-    await runGlobalSkills(['add', id, '-g', '-y', ...agentArgs])
+    await runGlobalSkills(['add', id, '-g', '-y', ...(member ? ['--copy'] : []), ...agentArgs], member)
     log.info('skill_installed', { skillId: id })
     captureServerEvent('skill_installed', {})
     return { ok: true, agents: agentIds }

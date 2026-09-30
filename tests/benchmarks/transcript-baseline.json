@@ -1,0 +1,81 @@
+{
+  "recorded": "2026-09-25",
+  "source": "whole-transcript turn build, 200-row history pages, all visited tabs mounted (before segment-local turns, turn pages and the conversation pool)",
+  "results": [
+    {
+      "name": "streamed chunk, 1,000-message transcript",
+      "unit": "ms / chunk",
+      "before": 0.8914169999999899
+    },
+    {
+      "name": "new tool call, 1,000-message transcript",
+      "unit": "ms / message",
+      "before": 0.8740000000000236
+    },
+    {
+      "name": "first build (tab mount), 1,000 messages",
+      "unit": "ms",
+      "before": 2.3247499999999945
+    },
+    {
+      "name": "streamed chunk, 5,000-message transcript",
+      "unit": "ms / chunk",
+      "before": 4.7910830000000715
+    },
+    {
+      "name": "new tool call, 5,000-message transcript",
+      "unit": "ms / message",
+      "before": 5.053666999999905
+    },
+    {
+      "name": "first build (tab mount), 5,000 messages",
+      "unit": "ms",
+      "before": 14.362125000000106
+    },
+    {
+      "name": "first page, quiet session (2 steps a turn)",
+      "unit": "messages",
+      "before": 201
+    },
+    {
+      "name": "first page wire size, quiet session",
+      "unit": "KB",
+      "before": 73.609375
+    },
+    {
+      "name": "first page build, quiet session",
+      "unit": "ms",
+      "before": 0.6806660000002012
+    },
+    {
+      "name": "first page, typical session (8 steps a turn)",
+      "unit": "messages",
+      "before": 207
+    },
+    {
+      "name": "first page wire size, typical session",
+      "unit": "KB",
+      "before": 94.80859375
+    },
+    {
+      "name": "first page build, typical session",
+      "unit": "ms",
+      "before": 0.7047919999999976
+    },
+    {
+      "name": "first page, busy session (40 steps a turn)",
+      "unit": "messages",
+      "before": 205
+    },
+    {
+      "name": "first page wire size, busy session",
+      "unit": "KB",
+      "before": 101.3828125
+    },
+    {
+      "name": "first page build, busy session",
+      "unit": "ms",
+      "before": 0.7067080000001624
+    }
+  ]
+}

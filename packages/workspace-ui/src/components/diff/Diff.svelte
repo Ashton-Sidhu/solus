@@ -24,9 +24,13 @@
     patch?: string;
     oldFile?: { name: string; contents: string };
     newFile?: { name: string; contents: string };
+    /** Side by side or stacked. A card is stacked unless its surface offers the choice. */
+    diffStyle?: "unified" | "split";
+    /** Word-level highlighting inside a changed line. */
+    tokenHighlight?: boolean;
   }
 
-  let { patch, oldFile, newFile }: Props = $props();
+  let { patch, oldFile, newFile, diffStyle = "unified", tokenHighlight = true }: Props = $props();
 
   const theme = getSettingsContext();
 
@@ -102,13 +106,15 @@
   function buildDiffOptions() {
     return diffRenderOptions({
       isDark: theme.isDark,
+      diffStyle,
+      lineDiffType: tokenHighlight ? "word-alt" : "none",
       hunkSeparators: hasFileContents ? "line-info-basic" : "metadata",
       onPostRender: (node: HTMLElement) => {
         if (!fileDiffMeta) return;
         decorateMovedLines(
           [{ id: fileDiffMeta.name, element: node }],
           moveAnalysis,
-          "unified",
+          diffStyle,
         );
       },
     });
@@ -145,6 +151,9 @@
       formatExpanded = false;
     }
     void instanceKey;
+    // The layout and the token highlight are construction options.
+    void diffStyle;
+    void tokenHighlight;
     void autoCollapse;
     void expanded;
     void displayFileDiffMeta;

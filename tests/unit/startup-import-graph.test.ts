@@ -18,6 +18,7 @@ const ALIASES: Array<[string, string]> = [
   ['@solus/workspace-ui/', 'packages/workspace-ui/src/'],
   ['@solus/client-core/', 'packages/client-core/src/'],
   ['@solus/contracts/', 'packages/contracts/src/'],
+  ['@solus/document-model/', 'packages/document-model/src/'],
 ]
 const EXTENSIONS = ['', '.ts', '.svelte.ts', '.js', '/index.ts']
 const transpiler = new Bun.Transpiler({ loader: 'ts', trimUnusedImports: false })

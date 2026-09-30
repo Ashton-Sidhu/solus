@@ -10,7 +10,9 @@ export type HomeRow =
   /** A clone URL recognised in the search box, offered before anything else. */
   | { key: string; kind: 'clone'; seed: string; repoName: string }
   | { key: string; kind: 'recent'; project: RecentProject }
-  | { key: string; kind: 'action'; action: 'browse' | 'github' | 'clone-url' }
+  | { key: string; kind: 'action'; action: HomeAction }
+
+export type HomeAction = 'new' | 'browse' | 'github' | 'clone-url'
 
 export function homeRows(options: {
   intent: CloneIntent
@@ -26,6 +28,7 @@ export function homeRows(options: {
   for (const project of options.recents) {
     rows.push({ key: `recent:${project.path}`, kind: 'recent', project })
   }
+  rows.push({ key: 'action:new', kind: 'action', action: 'new' })
   rows.push({ key: 'action:browse', kind: 'action', action: 'browse' })
   if (options.githubAvailable) rows.push({ key: 'action:github', kind: 'action', action: 'github' })
   rows.push({ key: 'action:clone-url', kind: 'action', action: 'clone-url' })

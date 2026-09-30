@@ -70,9 +70,15 @@ describe('remembered list preferences', () => {
       review: 'all' as const,
       checks: 'failing' as const,
       guide: 'all' as const,
+      lens: 'has-lens' as const,
     }
     writePrListPreferences(preferences, storage)
     expect(readPrListPreferences(storage)).toEqual(preferences)
+
+    // Preferences saved before the lens filter existed keep every other choice.
+    const { lens: _lens, ...beforeLens } = preferences
+    storage.values.set('solus.prs.preferences', JSON.stringify(beforeLens))
+    expect(readPrListPreferences(storage)).toEqual({ ...preferences, lens: 'all' })
 
     storage.values.set('solus.prs.preferences', JSON.stringify({ ...preferences, sortMode: 'size' }))
     expect(readPrListPreferences(storage)).toBeNull()

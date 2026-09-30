@@ -1,0 +1,695 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { HOST_ACTOR } from '@solus/server/admission/actor'
+import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput, WireNormalizedEvent } from '@solus/contracts/types'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+import { parseOrchestrationItems } from '@solus/contracts/session-exchange'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+type SessionRuntimeModule = typeof import('@solus/server/execution/session-runtime')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type DbModule = typeof import('@solus/server/db')
+type RuntimeModule = typeof import('@solus/server/execution/orchestration/orchestrate-sessions')
+
+const previousDataDir = process.env.SOLUS_DATA_DIR
+let dataDir: string
+let sessionRuntimeModule: SessionRuntimeModule
+let metricsDb: MetricsDbModule
+let db: DbModule
+let runtime: RuntimeModule
+
+beforeAll(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-observability-'))
+  process.env.SOLUS_DATA_DIR = dataDir
+  sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  db = await import('@solus/server/db')
+  runtime = await import('@solus/server/execution/orchestration/orchestrate-sessions')
+})
+
+beforeEach(() => {
+  metricsDb.getMetricsDb().prepare("DELETE FROM spans WHERE session_id IN ('solus-queue', 'solus-failed')").run()
+})
+
+afterEach(async () => {
+  await resetTestDatabase()
+  // Closed right before the files go: an await here would let a run still
+  // finishing reopen the metrics file under the delete.
+  metricsDb.closeMetricsDb()
+  for (const file of ['metrics.db', 'metrics.db-wal', 'metrics.db-shm', 'solus.db', 'solus.db-wal', 'solus.db-shm']) {
+    rmSync(join(dataDir, file), { force: true })
+  }
+})
+
+afterAll(() => {
+  metricsDb.closeMetricsDb()
+  db.closeDb()
+  rmSync(dataDir, { recursive: true, force: true })
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
+})
+
+class Permissions implements PermissionResponder {
+  getPendingInfo(): undefined { return undefined }
+  respondToPermission(): boolean { return false }
+  respondToQuestion(): boolean { return false }
+  clearPendingForSession(): void {}
+  setCurrentSessionId(): void {}
+}
+
+class Backend extends EventEmitter implements AgentBackend {
+  readonly id = 'codex' as const
+  readonly metadata: AgentMetadata = { id: 'codex', label: 'Codex', models: [], defaultModel: 'gpt-test' }
+  readonly permissions = new Permissions()
+  readonly handles = new Map<string, RunHandle>()
+  readonly pending = new Set<RunHandle>()
+  readonly requests: AgentRunRequest[] = []
+  starts = 0
+  onStart?: () => void
+  startupError?: Error
+  readonly loadedThreads: string[] = []
+
+  startRun(request: AgentRunRequest): RunHandle {
+    this.requests.push(request)
+    const resumedThreadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null)
+    const threadId = resumedThreadId ?? `thread-${this.starts + 1}`
+    let resolve!: () => void
+    let reject!: (error: Error) => void
+    const handle: RunHandle = {
+      agentSessionId: resumedThreadId ?? null,
+      persistence: request.persistence,
+      startedAt: Date.now(),
+      toolCallCount: 0,
+      sawPermissionRequest: false,
+      permissionDenials: [],
+      abortController: new AbortController(),
+      runPromise: new Promise<void>((res, rej) => { resolve = res; reject = rej }),
+      _resolveRun: resolve,
+      _rejectRun: reject,
+    }
+    this.pending.add(handle)
+    this.starts++
+    this.onStart?.()
+    queueMicrotask(() => {
+      if (this.startupError) {
+        this.emit('error', null, this.startupError)
+        this.pending.delete(handle)
+        handle._rejectRun(this.startupError)
+        return
+      }
+      handle.agentSessionId = threadId
+      this.pending.delete(handle)
+      this.handles.set(threadId, handle)
+      this.emit('normalized', threadId, {
+        type: 'session_init', sessionId: threadId, model: 'gpt-executed', skills: [],
+      } satisfies NormalizedEvent)
+    })
+    return handle
+  }
+
+  complete(threadId: string, code: number): void {
+    const handle = this.handles.get(threadId)!
+    this.emit('normalized', threadId, {
+      type: 'task_complete', result: 'done', costUsd: 0, durationMs: 1, numTurns: 1, usage: {}, sessionId: threadId,
+    } satisfies NormalizedEvent)
+    handle._resolveRun()
+    this.handles.delete(threadId)
+    this.emit('exit', threadId, code, null)
+  }
+
+  send(threadId: string, event: NormalizedEvent): void {
+    this.emit('normalized', threadId, event)
+  }
+
+  getSessionHandle(sessionId: string): RunHandle | undefined { return this.handles.get(sessionId) }
+  getPendingHandles(): RunHandle[] { return [...this.pending] }
+  cancelSession(sessionId: string): boolean {
+    const handle = this.handles.get(sessionId)
+    if (!handle) return false
+    handle.abortController.abort()
+    handle._rejectRun(new Error('Interrupted'))
+    this.emit('exit', sessionId, null, 'SIGINT')
+    return true
+  }
+  isSessionRunning(sessionId: string): boolean { return this.handles.has(sessionId) }
+  async steerSession(): Promise<null> { return null }
+  loadSession(sessionId: string): Promise<never[]> { this.loadedThreads.push(sessionId); return Promise.resolve([]) }
+  loadHistory(): Promise<never[]> { return Promise.resolve([]) }
+  loadSessionSkills(): Promise<never[]> { return Promise.resolve([]) }
+  getEnrichedError() { return { message: 'failed', isError: true, stderrTail: [] } }
+}
+
+function input(agentSessionId: string | null): SessionRunInput {
+  return {
+    provider: 'codex', agentSessionId, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
+    permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
+  }
+}
+
+/** A started session, as the start_session tool orders it. */
+function spawnOrder() {
+  return { prompt: 'target', provider: 'codex' as const, modelId: 'gpt-requested', reasoningEffort: 'medium' as const, contextWindow: null, cwd: process.cwd() }
+}
+
+function turnRows(sessionId: string): Array<{ status: string; origin: string; attrs: string }> {
+  return metricsDb.getMetricsDb().prepare("SELECT status, origin, attrs FROM spans WHERE kind = 'turn' AND session_id = ? ORDER BY started_at").all(sessionId) as Array<{ status: string; origin: string; attrs: string }>
+}
+
+describe.serial('SessionRuntime observability hooks', () => {
+  test('a failed worktree never launches in the checkout and explicit local recovery retains the full request', async () => {
+    const repository = mkdtempSync(join(dataDir, 'empty-repository-'))
+    execFileSync('git', ['init', '-b', 'main'], { cwd: repository, stdio: 'ignore' })
+    const backend = new Backend()
+    const startRun = backend.startRun.bind(backend)
+    backend.startRun = (request) => {
+      // Naming is optional setup work; this fixture has no model running it.
+      if (request.persistence === 'ephemeral') throw new Error('No naming model in this fixture')
+      return startRun(request)
+    }
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    type SetupEvent = NormalizedEvent | Extract<WireNormalizedEvent, { type: 'status_card' }>
+    const events: SetupEvent[] = []
+    plane.on('event', (_sessionId, event: SetupEvent) => events.push(event))
+    const sessionId = 'solus-failed-worktree'
+    const imageAttachments = [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,dGVzdA==' }]
+    const fullPrompt = 'Inspect the attachment.\n\nAttached reference: fixture.png'
+    try {
+      await expect(plane.runTurn({
+        target: { kind: 'new-session' }, sessionId, tools: [],
+        input: { ...input(null), workingDirectory: repository, projectPath: repository, worktreeBaseBranch: 'main' },
+        options: { prompt: fullPrompt, displayPrompt: 'Inspect the attachment.', imageAttachments },
+      })).rejects.toThrow('has no commit')
+      expect(backend.starts).toBe(0)
+      const cards = events.filter((event) => event.type === 'status_card')
+      expect(cards.at(-1)).toMatchObject({ type: 'status_card', card: { status: 'error', recovery: 'worktree' } })
+      expect(events.some((event) => event.type === 'session_init')).toBe(false)
+
+      // A second client need only send the visible prompt and explicit local choice.
+      // The host must supply the original expanded prompt and attachment bytes.
+      const context: IpcContext = {
+        session: {
+          sessionId, provider: 'codex', agentSessionId: null, status: 'failed',
+          workingDirectory: repository, projectPath: repository, additionalDirs: [],
+          preferredModel: 'gpt-test', reasoningEffort: 'medium', contextWindow: null,
+          fastMode: false, permissionMode: 'supervised', gitContext: null, worktreeBaseBranch: null,
+          sessionChangedFiles: [], readOnlyReason: null,
+        },
+        settings: {
+          themeMode: 'system', isDark: false, voiceModeEnabled: false,
+          vadSilenceMs: 500, defaultEditor: null, fallbackTerminal: null, activeAgent: 'codex',
+          reviewAgent: null, reviewModel: null, reviewReasoning: null, reviewGuideInstructions: '',
+          reviewWarmingEnabled: false, rateLimitBehavior: 'ask',
+          fontFamily: 'system', fontSize: 14, codeFontFamily: 'system-mono', codeFontSize: 12,
+          extraInstructions: '', modelInstructions: {},
+        },
+        statusBar: {
+          workingDirectory: repository, activeAgent: 'codex', permissionMode: 'supervised', model: 'gpt-test',
+          reasoningEffort: 'medium', defaultReasoningEffort: 'medium', reasoningLevels: ['medium'],
+          supportsFastMode: false, fastMode: false, contextWindows: [],
+        },
+      }
+      const started = new Promise<void>((resolve) => { backend.onStart = resolve })
+      const retry = plane.retry(context, { prompt: 'Inspect the attachment.' }, 'second-client', HOST_ACTOR)
+      await started
+      await Promise.resolve()
+      expect(backend.requests.at(-1)).toMatchObject({ cwd: repository, prompt: fullPrompt, imageAttachments })
+      backend.complete('thread-1', 0)
+      await retry
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('broadcasts a question answer only when the provider accepts it', async () => {
+    const backend = new Backend()
+    let accepted = false
+    backend.permissions.respondToQuestion = () => accepted
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const receipts: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
+    plane.on('event', (_sessionId, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+      if (event.type === 'question_answered') receipts.push({ event, to })
+    })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: 'solus-question-receipt' },
+        sessionId: 'solus-question-receipt', input: input(null), tools: [],
+        options: { prompt: 'Choose a branch' },
+      })
+      await lifecycle.agentSessionId
+      const questions = [{ id: 'branch', question: 'Which branch?', options: [{ label: 'main' }], multiSelect: false }]
+      backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
+      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(false)
+      expect(receipts).toHaveLength(0)
+      accepted = true
+      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
+      expect(receipts).toHaveLength(1)
+      expect(receipts[0].event).toMatchObject({ type: 'question_answered', answer: { questionId: 'q1', questions, answers: { branch: 'main' } } })
+      expect(receipts[0].to).toBeUndefined()
+      backend.complete('thread-1', 0)
+      await lifecycle.done
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('confirms a fresh turn to the sender even if it submitted a steer', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const confirmations: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
+    plane.on('event', (_sessionId, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+      if (event.type === 'user_message') confirmations.push({ event, to })
+    })
+    try {
+      // The client still shows busy, but the host has no active provider turn.
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: 'solus-prompt-confirmation' },
+        sessionId: 'solus-prompt-confirmation', input: input(null), tools: [],
+        sourceClientId: 'sender',
+        options: { prompt: 'Change direction', clientPromptId: 'prompt-1', delivery: 'steer', promptSource: 'typed' },
+      })
+      await lifecycle.agentSessionId
+      expect(lifecycle.disposition).toBe('started')
+      expect(confirmations).toHaveLength(1)
+      expect(confirmations[0].event).toMatchObject({ type: 'user_message', clientPromptId: 'prompt-1', text: 'Change direction' })
+      expect(confirmations[0].to?.except).toBeUndefined()
+      expect(confirmations[0].to?.only).toBeUndefined()
+      backend.complete('thread-1', 0)
+      await lifecycle.done
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('delivers finished Codex paragraphs at item completion and preserves tool updates', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const delivered: NormalizedEvent[] = []
+    plane.on('event', (_sessionId, event: NormalizedEvent) => delivered.push(event))
+
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-codex-complete-prose', input: input(null), tools: [],
+      options: { prompt: 'inspect it', promptSource: 'typed' },
+    })
+    await lifecycle.agentSessionId
+    await Promise.resolve()
+    delivered.splice(0, delivered.length)
+
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+    for (const raw of [
+      { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', itemId: 'msg-1', delta: 'Complete ' } },
+      { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', itemId: 'msg-1', delta: 'Codex prose.' } },
+      { method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'msg-1', type: 'agentMessage' } } },
+    ]) {
+      for (const event of normalizer.push(raw)) backend.send('thread-1', event)
+    }
+    expect(delivered.map((event) => event.type)).toEqual(['text_pending', 'text_chunk'])
+
+    for (const event of normalizer.push({
+      method: 'item/started',
+      params: { threadId: 'thread-1', item: { id: 'edit-1', type: 'fileChange', changes: [] } },
+    })) backend.send('thread-1', event)
+    for (const event of normalizer.push({
+      method: 'item/fileChange/patchUpdated',
+      params: { threadId: 'thread-1', itemId: 'edit-1', delta: 'patch update' },
+    })) backend.send('thread-1', event)
+
+    expect(delivered).toMatchObject([
+      { type: 'text_pending' },
+      { type: 'text_chunk', text: 'Complete Codex prose.\n\n', streaming: true },
+      { type: 'text_chunk', text: '', streaming: false },
+      { type: 'tool_call', toolId: 'edit-1' },
+      { type: 'tool_call_update', toolId: 'edit-1', toolInput: 'patch update' },
+    ])
+
+    for (const raw of [
+      { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', itemId: 'msg-2', delta: 'Final answer.' } },
+      { method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'msg-2', type: 'agentMessage' } } },
+    ]) {
+      for (const event of normalizer.push(raw)) backend.send('thread-1', event)
+    }
+    const finalPendingIndex = delivered.findLastIndex((event) => event.type === 'text_pending')
+    expect(delivered.slice(finalPendingIndex).map((event) => event.type)).toEqual(['text_pending', 'text_chunk'])
+
+    backend.complete('thread-1', 0)
+    await lifecycle.done
+    expect(delivered.slice(finalPendingIndex, finalPendingIndex + 4)).toMatchObject([
+      { type: 'text_pending' },
+      { type: 'text_chunk', text: 'Final answer.\n\n', streaming: true },
+      { type: 'text_chunk', text: '', streaming: false },
+      { type: 'status_change', status: 'completed' },
+    ])
+
+    const recorded = metricsDb.getMetricsDb()
+      .prepare('SELECT kind, attrs, started_at, ended_at FROM spans WHERE session_id = ? ORDER BY started_at, kind')
+      .all('solus-codex-complete-prose') as Array<{
+        kind: string
+        attrs: string
+        started_at: number
+        ended_at: number
+      }>
+    const turnAttrs = JSON.parse(recorded.find((row) => row.kind === 'turn')!.attrs)
+    expect(turnAttrs).toMatchObject({
+      timeToFirstTextMs: expect.any(Number),
+      timeToFirstActivityMs: expect.any(Number),
+      toolCallCount: 1,
+    })
+    const responseStreams = recorded.filter((row) => row.kind === 'response_stream')
+    expect(responseStreams).toHaveLength(2)
+    expect(responseStreams.every((row) => row.ended_at >= row.started_at)).toBe(true)
+    expect(JSON.parse(recorded.find((row) => row.kind === 'tool_call')!.attrs))
+      .toMatchObject({ input: 'patch update' })
+    plane.shutdown()
+  })
+
+  test('an update rejects a new automation before it creates a run record', async () => {
+    const { createAutomation, listRuns } = await import('@solus/server/data/automations/automations-store')
+    const { setAutomationUpdatesPaused, triggerAutomationRun, hasAutomationWork } = await import('@solus/server/execution/automations/automation-runner')
+    const automation = await createAutomation('Update guard', {
+      prompt: 'Run checks', agentProvider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: dataDir,
+    }, { kind: 'system' })
+    setAutomationUpdatesPaused(true)
+    try {
+      await expect(triggerAutomationRun(automation)).rejects.toThrow('waiting to update')
+      expect(await listRuns(automation.id)).toEqual([])
+      expect(hasAutomationWork()).toBe(false)
+    } finally { setAutomationUpdatesPaused(false) }
+  })
+
+  test('an update drains accepted turns and rejects new Claude, Codex, and utility work', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    try {
+      const request = {
+        target: { kind: 'new-session' as const }, sessionId: 'solus-update', input: input(null), tools: [],
+        options: { prompt: 'first' },
+      }
+      const first = await plane.runTurn(request)
+      await first.agentSessionId
+      const queued = await plane.runTurn({ ...request,
+        target: { kind: 'session', sessionId: 'solus-update' }, input: input('thread-1'),
+        options: { prompt: 'second', delivery: 'queue' },
+      })
+      plane.setUpdatePending(true)
+      expect(plane.hasWorkForUpdate()).toBe(true)
+      for (const provider of ['codex', 'claude-code'] as const) {
+        await expect(plane.runTurn({ ...request, input: { ...request.input, provider } })).rejects.toThrow('waiting to update')
+      }
+      const secondStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
+      backend.complete('thread-1', 0)
+      await first.done
+      await secondStarted
+      await Promise.resolve()
+      expect(plane.hasWorkForUpdate()).toBe(true)
+      backend.complete('thread-1', 0)
+      await queued.done
+      await Promise.resolve()
+      expect(plane.hasWorkForUpdate()).toBe(false)
+      expect(() => plane.runAgent({ provider: 'codex', prompt: 'utility', cwd: '/tmp', tools: [], permissionMode: 'plan', persistence: 'ephemeral' })).toThrow('waiting to update')
+      plane.setUpdatePending(false)
+      expect(() => plane.assertNewWorkAllowed()).not.toThrow()
+    } finally { plane.shutdown() }
+  })
+
+  test('threads enqueuedAt through queue drain into queue_wait', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const first = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-queue', input: input(null), tools: [],
+      options: { prompt: 'first', promptSource: 'typed' },
+    })
+    await first.agentSessionId
+    const queued = await plane.runTurn({
+      target: { kind: 'session', sessionId: 'solus-queue' }, sessionId: 'solus-queue', input: input('thread-1'), tools: [],
+      options: { prompt: 'second', promptSource: 'typed', delivery: 'queue' },
+    })
+    expect(queued.disposition).toBe('queued')
+    const secondStarted = new Promise<void>((resolve) => { backend.onStart = backend.starts === 1 ? resolve : undefined })
+    backend.complete('thread-1', 0)
+    await first.done
+    await secondStarted
+    await Promise.resolve()
+    backend.complete('thread-1', 0)
+    await queued.done
+
+    const turns = turnRows('solus-queue')
+    expect(turns).toHaveLength(2)
+    expect(JSON.parse(turns[1].attrs)).toMatchObject({ promptSource: 'queued' })
+    const queueWait = metricsDb.getMetricsDb().prepare("SELECT duration_ms FROM spans WHERE kind = 'queue_wait' AND session_id = ?").get('solus-queue') as { duration_ms: number }
+    expect(queueWait.duration_ms).toBeGreaterThanOrEqual(0)
+    plane.shutdown()
+  })
+
+  test('settles a created session\'s message after its live identity is torn down', async () => {
+    // WHY: a created run starts with no provider thread in its input. Its
+    // message must keep the thread learned when the session started, not look
+    // it up after the backend exit has removed the live session record.
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const orchestrator = runtime.orchestrateSessions(plane)
+    const delivered: Array<{ sessionId: string; event: NormalizedEvent }> = []
+    plane.on('event', (sessionId, event: NormalizedEvent) => delivered.push({ sessionId, event }))
+
+    const caller = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-caller', input: input(null), tools: [],
+      options: { prompt: 'caller', promptSource: 'typed' },
+    })
+    await caller.agentSessionId
+    const created = await orchestrator.spawn('thread-1', spawnOrder(), false)
+    expect(created.agentSessionId).toBe('thread-2')
+    const settled = new Promise<void>((resolve) => plane.on('event', (_sessionId, event: NormalizedEvent) => {
+      if (event.type === 'agent_conversation_update' && event.update.phase === 'settled') resolve()
+    }))
+    backend.complete('thread-2', 0)
+    await settled
+
+    const updates = delivered.filter(({ sessionId, event }) => sessionId === 'solus-caller' && event.type === 'agent_conversation_update')
+    const phases = updates.map(({ event }) => event.type === 'agent_conversation_update' && event.update.phase)
+    // Accepted and attached race with the provider; the card is bound before its reply lands.
+    expect(phases[0]).toBe('dispatched')
+    expect(phases.indexOf('attached')).toBeGreaterThan(0)
+    expect(phases.indexOf('attached')).toBeLessThan(phases.indexOf('settled'))
+    expect(updates.at(-1)?.event).toEqual({
+      type: 'agent_conversation_update',
+      update: expect.objectContaining({
+        phase: 'settled',
+        agentSessionId: 'thread-2',
+        messageId: created.exchangeId,
+        status: 'completed',
+        replyText: 'done',
+      }),
+    })
+
+    backend.complete('thread-1', 0)
+    await caller.done
+    plane.shutdown()
+  })
+
+  test('reports a delegated session\'s result back to an idle caller', async () => {
+    // WHY: card settlement alone is not enough for delegation. The completed
+    // target must resume the caller with a hidden session-report prompt after
+    // both runs have released their live provider mappings.
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const orchestrator = runtime.orchestrateSessions(plane)
+
+    const caller = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-caller', input: input(null), tools: [],
+      options: { prompt: 'caller', promptSource: 'typed' },
+    })
+    await caller.agentSessionId
+    const created = await orchestrator.spawn('thread-1', spawnOrder(), true)
+    // The caller's own turn ends while it waits: it is held running, not idle.
+    backend.complete('thread-1', 0)
+    await caller.done
+    expect(orchestrator.isAwaitingReplies('solus-caller')).toBe(true)
+    const reportStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
+    backend.complete('thread-2', 0)
+    await reportStarted
+    expect(backend.requests[2]?.conversation).toEqual({ kind: 'resume', threadId: 'thread-1' })
+    // WHY: the order names no task, and a session makes none of its own, so
+    // the delegated session and its report carry no task.
+    expect(created.taskId).toBeUndefined()
+    expect(parseOrchestrationItems(backend.requests[2]?.prompt ?? '')).toEqual([{ type: 'report', report: expect.objectContaining({
+      messageId: created.exchangeId, agentSessionId: 'thread-2', provider: 'codex', status: 'completed', reply: 'done',
+    }) }])
+
+    await Promise.resolve()
+    backend.complete('thread-1', 0)
+    plane.shutdown()
+  })
+
+  test('moves a queued completion route with the queued run that owns it', async () => {
+    // WHY: queue order must not be reconstructed during settlement. The route
+    // belongs to the queued request and follows that request into its run.
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const delivered: Array<{ sessionId: string; event: NormalizedEvent }> = []
+    plane.on('event', (sessionId, event: NormalizedEvent) => delivered.push({ sessionId, event }))
+
+    const caller = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-caller', input: input(null), tools: [],
+      options: { prompt: 'caller', promptSource: 'typed' },
+    })
+    await caller.agentSessionId
+    const first = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-target', input: input(null), tools: [],
+      options: { prompt: 'first', promptSource: 'typed' },
+    })
+    await first.agentSessionId
+    const orchestrator = runtime.orchestrateSessions(plane)
+    const queued = await orchestrator.send('thread-1', 'thread-2', { prompt: 'second', delivery: 'queue', notify: false })
+    expect(queued.disposition).toBe('queued')
+    const settledFor = (messageId: string) => delivered.some(({ event }) => (
+      event.type === 'agent_conversation_update' && event.update.phase === 'settled' && event.update.messageId === messageId
+    ))
+
+    const secondStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
+    backend.complete('thread-2', 0)
+    await first.done
+    await secondStarted
+    await Promise.resolve()
+    // The first run's end is not the queued message's reply.
+    expect(settledFor(queued.exchangeId)).toBe(false)
+    const secondSettled = new Promise<void>((resolve) => {
+      plane.on('event', (_sessionId, event: NormalizedEvent) => {
+        if (event.type === 'agent_conversation_update' && event.update.phase === 'settled') resolve()
+      })
+    })
+    backend.complete('thread-2', 0)
+    await secondSettled
+
+    expect(delivered).toContainEqual({
+      sessionId: 'solus-caller',
+      event: {
+        type: 'agent_conversation_update',
+        update: expect.objectContaining({
+          phase: 'settled',
+          agentSessionId: 'thread-2',
+          messageId: queued.exchangeId,
+          status: 'completed',
+          replyText: 'done',
+        }),
+      },
+    })
+
+    backend.complete('thread-1', 0)
+    await caller.done
+    plane.shutdown()
+  })
+
+  test('a resumed turn records the task its session is bound to', async () => {
+    // WHY: only a first dispatch carries a task in its options. Without the
+    // session's own binding standing in for later turns, every turn after the
+    // first records no task and "what did this task cost" cannot be asked.
+    const taskStore = await import('@solus/server/data/tasks/task-store')
+    const { Task } = await import('@solus/server/data/tasks/task')
+    const record = await taskStore.createTask('local', { title: 'Thread open in insights' })
+    await (await Task.byId('local', record.id)).linkSession('thread-1')
+
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const resumed = await plane.runTurn({
+      target: { kind: 'session', sessionId: 'solus-task' }, sessionId: 'solus-task', input: input('thread-1'), tools: [],
+      options: { prompt: 'keep going', promptSource: 'typed' },
+    })
+    await resumed.agentSessionId
+    backend.complete('thread-1', 0)
+    await resumed.done
+
+    const turns = turnRows('solus-task')
+    expect(turns).toHaveLength(1)
+    expect(JSON.parse(turns[0].attrs)).toMatchObject({
+      taskId: record.id,
+      taskTitle: 'Thread open in insights',
+    })
+    plane.shutdown()
+  })
+
+  test.each([false, true])('a first dispatch that names a task binds it and links one stable attempt (fork: %s)', async (forked) => {
+    // WHY: the host binds the task the prompt names — a todo task moves to in
+    // progress — and links the session once the provider initializes its
+    // thread, under the stable Solus id and not the provider's.
+    const taskSessions = await import('@solus/server/data/tasks/task-sessions')
+    const taskStore = await import('@solus/server/data/tasks/task-store')
+    const record = await taskStore.createTask('local', { title: 'Named by the first prompt', projectKey: '/repo' })
+
+    const backend = new Backend()
+    backend.onStart = () => {
+      void taskSessions.taskSessions('local', record.id).then((links) => expect(links[record.id] ?? []).toEqual([]))
+    }
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-task',
+      input: { ...input(forked ? 'source-thread' : null), forked }, tools: [],
+      options: { prompt: 'start', clientPromptId: 'first-send', promptSource: 'typed', taskId: record.id },
+    })
+    expect(await lifecycle.agentSessionId).toMatchObject({ agentSessionId: 'thread-1' })
+
+    expect((await taskSessions.taskSessions('local', record.id))[record.id]).toEqual([
+      expect.objectContaining({ sessionId: 'solus-task' }),
+    ])
+    expect(await taskStore.loadTaskRecord('local', record.id)).toMatchObject({ status: 'in_progress' })
+
+    backend.complete('thread-1', 0)
+    await lifecycle.done
+    plane.shutdown()
+  })
+
+  test('a first dispatch that names no task makes none', async () => {
+    // WHY: a session has a task only when it joins one. A task made from the
+    // first prompt of every session turns each session into a task in the
+    // sidebar (docs/plans/task-conversation.md, decision 8).
+    const taskSessions = await import('@solus/server/data/tasks/task-sessions')
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-no-task', input: input(null), tools: [],
+      options: { prompt: 'A first prompt with no task', promptSource: 'typed' },
+    })
+    await lifecycle.agentSessionId
+
+    expect(await taskSessions.tasksForSession('local', 'solus-no-task')).toBeNull()
+
+    backend.complete('thread-1', 0)
+    await lifecycle.done
+    plane.shutdown()
+  })
+
+  test('records a fulfilled Codex failed turn as error', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-failed', input: input(null), tools: [],
+      options: { prompt: 'fail', promptSource: 'typed' },
+    })
+    await lifecycle.agentSessionId
+    backend.complete('thread-1', 1)
+    await lifecycle.done
+    expect(turnRows('solus-failed')).toEqual([expect.objectContaining({ status: 'error', origin: 'typed' })])
+    plane.shutdown()
+  })
+})

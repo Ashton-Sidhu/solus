@@ -9,9 +9,9 @@ import {
   RpcAccessError,
   assertRpcAccess,
   rpcAccessMap,
-} from '@solus/server/server/access-policy'
-import type { Principal } from '@solus/server/server/principal'
-import { resetWorkspaceModeForTests } from '@solus/server/server/workspace-mode'
+} from '@solus/server/admission/access-policy'
+import type { Principal } from '@solus/server/admission/principal'
+import { resetApiModeForTests } from '@solus/server/host/api-mode'
 
 // docs/plans/multiplayer-sharing.md §3.7: every method has exactly one class; a call
 // that names a session or work is checked against the caller's role on it; a guest
@@ -37,8 +37,9 @@ describe('the access map', () => {
     expect([...map.keys()].sort()).toEqual([...RPC_INVOKE_METHODS].sort())
     // A method that names a session or a work in its name must carry a resource rule
     // unless it is a catalog read (listSessions, listWorks) or a creation.
-    // `tasksPrepareForSession` mints a task before any session exists; the others list or create.
-    const catalog = new Set(['listSessions', 'searchSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'worksCloudImport', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses'])
+    // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
+    // `sessionPullRequestsList` lists across sessions, and its handler keeps only the sessions the caller may open.
+    const catalog = new Set(['sessionPullRequestsList', 'sessionShelfList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !RESOURCE_RPC_RULES.has(method))
     expect(unclassified).toEqual([])
   })
@@ -59,22 +60,20 @@ describe('the host itself', () => {
     await expect(assertRpcAccess('sessionRecordUpsert', MEMBER, report)).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('sessionRecordUpsert', GUEST, report)).rejects.toThrow(RpcAccessError)
     expect(rpcAccessMap().get('sessionRecordUpsert')).toBe('system-only')
-    // Reading the records is a catalog read: members yes, guests never.
-    await expect(assertRpcAccess('sessionRecordList', MEMBER, [{}])).resolves.toBeUndefined()
-    await expect(assertRpcAccess('sessionRecordList', GUEST, [{}])).rejects.toThrow(/not available to a guest/)
+    // Stored record reads now use the authorized HTTP operations.
   })
 
   test('a runner of the organization makes the system-only writes and nothing else', async () => {
     // WHY (cloud-service-model.md §16): the runner grant is a machine's credential for
     // its organization's workspace; a machine that could list or read would be a
     // member without a person behind it.
-    const RUNNER: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'org1', deviceId: 'h1', expiresAt: 0, deviceLabel: 'Runner' }
+    const RUNNER: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'org1', ownerUserId: 'bob', deviceId: 'h1', expiresAt: 0, deviceLabel: 'Runner' }
     const report = [{ sessionId: 's1', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }]
     await expect(assertRpcAccess('sessionRecordUpsert', RUNNER, report)).resolves.toBeUndefined()
-    for (const method of ['sessionRecordList', 'tasksList', 'listWorks', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
+    for (const method of ['tasksSidebarSnapshot', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
       await expect(assertRpcAccess(method, RUNNER, [{}])).rejects.toThrow(/not available to a runner/)
     }
-    await expect(assertRpcAccess('loadWork', RUNNER, ['w1'], resources({ 'work:w1': 'owner' }))).rejects.toThrow(/not available to a runner/)
+    await expect(assertRpcAccess('loadWorkRevisions', RUNNER, ['w1'], resources({ 'work:w1': 'owner' }))).rejects.toThrow(/not available to a runner/)
   })
 })
 
@@ -87,15 +86,13 @@ describe('resource calls', () => {
     await expect(assertRpcAccess('loadSession', MEMBER, ['s3'], table)).rejects.toThrow(/not shared/)
   })
 
-  test('deleting a work takes the owner; an editor cannot', async () => {
+  test('transferring a work takes the owner; an editor cannot', async () => {
     const table = resources({ 'work:w1': 'editor', 'work:w2': 'owner' })
-    await expect(assertRpcAccess('deleteWork', MEMBER, ['w1'], table)).rejects.toThrow(RpcAccessError)
-    await expect(assertRpcAccess('deleteWork', MEMBER, ['w2'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w1' }, toUserId: 'x' }], table)).rejects.toThrow(RpcAccessError)
+    await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w2' }, toUserId: 'x' }], table)).resolves.toBeUndefined()
   })
 
   test('the host owner passes every resource check without a share table', async () => {
-    await expect(assertRpcAccess('deleteWork', OWNER, ['w1'])).resolves.toBeUndefined()
     await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({}))).resolves.toBeUndefined()
   })
 
@@ -112,7 +109,7 @@ describe('guests', () => {
     await expect(assertRpcAccess('watchSession', GUEST, [{ sessionId: 's1' }], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('prompt', GUEST, [ctx('s1'), {}], table)).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('connectionsGetServerInfo', GUEST, [], table)).resolves.toBeUndefined()
-    for (const method of ['listSessions', 'listWorks', 'listProjects', 'start', 'readProjectFile', 'gitRunAction'] as const) {
+    for (const method of ['pinnedSessionsList', 'listWorks', 'listProjects', 'start', 'readProjectFile', 'gitRunAction'] as const) {
       await expect(assertRpcAccess(method, GUEST, [], table)).rejects.toThrow(/not available to a guest/)
     }
   })
@@ -135,25 +132,20 @@ describe('tasks', () => {
     // WHY: a task shared with someone shares its page; a task page that a viewer
     // could edit, or a member could delete, would undo the share dialog's promise.
     const table = resources({ 'task:t1': 'viewer', 'task:t2': 'editor', 'task:t3': 'owner' })
-    await expect(assertRpcAccess('tasksGet', MEMBER, ['t1'], table)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('tasksReadExtras', MEMBER, ['t1'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('tasksSessions', MEMBER, ['t1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksUpdate', MEMBER, ['t1', {}], table)).rejects.toThrow(RpcAccessError)
-    await expect(assertRpcAccess('tasksUpdate', MEMBER, ['t2', {}], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('tasksComment', MEMBER, ['t2', 'hi'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksDelete', MEMBER, ['t2'], table)).rejects.toThrow(RpcAccessError)
-    await expect(assertRpcAccess('tasksDelete', MEMBER, ['t3'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksGet', MEMBER, ['t9'], table)).rejects.toThrow(/not shared/)
-    for (const method of ['tasksList', 'tasksSidebarSnapshot', 'tasksCreate'] as const) expect(rpcAccessMap().get(method)).toBe('host-wide')
+    await expect(assertRpcAccess('tasksReadExtras', MEMBER, ['t9'], table)).rejects.toThrow(/not shared/)
+    for (const method of ['tasksSidebarSnapshot'] as const) expect(rpcAccessMap().get(method)).toBe('host-wide')
   })
 
   test('a guest on a task reads its page and its filtered listing, and nothing else of the tasks', async () => {
     const taskGuest: Principal = { ...GUEST, share: { ...GUEST.share, resource: { kind: 'task', id: 't1' } } }
     const table = resources({ 'task:t1': 'viewer', 'session:s1': 'viewer' })
-    await expect(assertRpcAccess('tasksGet', taskGuest, ['t1'], table)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('tasksReadExtras', taskGuest, ['t1'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('tasksSidebarSnapshot', taskGuest, [], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('watchSession', taskGuest, [{ sessionId: 's1' }], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksGet', taskGuest, ['t2'], table)).rejects.toThrow(/not shared/)
-    await expect(assertRpcAccess('tasksCreate', taskGuest, [{}], table)).rejects.toThrow(/not available to a guest/)
+    await expect(assertRpcAccess('tasksReadExtras', taskGuest, ['t2'], table)).rejects.toThrow(/not shared/)
     await expect(assertRpcAccess('shareSet', taskGuest, [{ resource: { kind: 'task', id: 't1' }, grants: [] }], table)).rejects.toThrow(RpcAccessError)
   })
 })
@@ -231,8 +223,8 @@ describe('host administration', () => {
     expect(rpcAccessMap().get('providerConnect')).toBe('host-admin')
     await expect(assertRpcAccess('providerConnect', OWNER, [ctx('s1')])).resolves.toBeUndefined()
     await expect(assertRpcAccess('providerConnect', MEMBER, [ctx('s1')])).rejects.toThrow(RpcAccessError)
-    process.env.SOLUS_WORKSPACE = '1'
-    resetWorkspaceModeForTests()
+    process.env.SOLUS_API = '1'
+    resetApiModeForTests()
     try {
       for (const method of [...PER_PERSON_ON_SERVICE_RPC_METHODS]) {
         await expect(assertRpcAccess(method, MEMBER, [ctx('s1')], undefined, true)).resolves.toBeUndefined()
@@ -241,8 +233,8 @@ describe('host administration', () => {
       // Exporting the host's token stays the host's alone, service or not.
       await expect(assertRpcAccess('githubExportCredential', MEMBER, [], undefined, true)).rejects.toThrow(RpcAccessError)
     } finally {
-      delete process.env.SOLUS_WORKSPACE
-      resetWorkspaceModeForTests()
+      delete process.env.SOLUS_API
+      resetApiModeForTests()
     }
     await expect(assertRpcAccess('providerConnect', MEMBER, [ctx('s1')])).rejects.toThrow(RpcAccessError)
   })

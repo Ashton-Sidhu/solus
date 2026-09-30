@@ -9,7 +9,13 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
-  import { artifactHeightMessageSchema, expandScale } from "./lib/artifact-view";
+  import {
+    artifactHeightMessageSchema,
+    expandScale,
+    lastReportedHeight,
+    rememberReportedHeight,
+    scrollContainerOf,
+  } from "./lib/artifact-view";
 
   /**
    * The one place agent HTML runs: a sandboxed iframe carrying a
@@ -29,6 +35,8 @@
     children?: Snippet;
     /** Extra buttons for the hover action cluster, before Expand. */
     actions?: Snippet;
+    /** Shown in place of the default skeleton until the render loads. */
+    loading?: Snippet;
     /** Let a pane render use all available height while transcript, task, and
      *  document renders continue to size themselves to their content. */
     fillAvailable?: boolean;
@@ -52,12 +60,16 @@
        callers hand the theme in and ask for plain titles instead. */
     isDark?: boolean;
     tooltips?: boolean;
+    /** HTML someone other than the user can influence (a review lens): no
+     *  network, no popups, no forms, no downloads. */
+    isolated?: boolean;
   }
 
   let {
     html,
     children,
     actions,
+    loading,
     fillAvailable = false,
     expandable = true,
     lazy = true,
@@ -66,6 +78,7 @@
     isDark,
     tooltips = true,
     onExpandOnTouch,
+    isolated = false,
   }: Props = $props();
 
   // A caller is either inside the component tree or outside it for its whole
@@ -74,7 +87,7 @@
   // Theme updates are messages: assigning srcdoc would reset live state.
   const dark = $derived(isDark ?? settings!.isDark);
 
-  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark)));
+  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated));
 
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
   const frameSettled = $derived(frameResult?.srcdoc === srcdoc && frameResult?.reloadKey === reloadKey);
@@ -95,7 +108,7 @@
   });
 
   let frameEl = $state<HTMLDivElement | null>(null);
-  let contentHeight = $state(120);
+  let contentHeight = $state(untrack(() => (html === undefined ? undefined : lastReportedHeight(html))) ?? 120);
   let expanded = $state(false);
   let isNearViewport = $state(untrack(() => !lazy));
   // Inline content width, captured the moment we expand. Fullscreen pins the
@@ -121,7 +134,13 @@
           observer.disconnect();
         }
       },
-      { rootMargin: "320px" },
+      // The margin must apply to the frame's own scroller: against the page,
+      // the scroller clips the frame and it only counts as intersecting once
+      // it is on screen. Wider than the transcript's 600px overscan, so a
+      // frame starts loading as its row mounts and has reported its height
+      // before the reader reaches it. A frame that grows on screen moves what
+      // the reader sees.
+      { root: scrollContainerOf(element), rootMargin: "1000px 0px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
@@ -131,7 +150,11 @@
     function onMessage(e: MessageEvent) {
       if (!iframeEl || e.source !== iframeEl.contentWindow) return;
       const parsed = artifactHeightMessageSchema.safeParse(e.data);
-      if (!parsed.success) return;
+      // Zero is "not laid out yet", not a height: Chromium throttles an
+      // off-screen cross-origin frame, which is exactly where a frame now
+      // loads. Taking it collapsed the frame above the reader and grew it
+      // back a moment later.
+      if (!parsed.success || parsed.data.h <= 0) return;
       // ceil (no additive buffer) keeps the height a stable fixed point. Any
       // positive padding feeds back forever for renders whose body tracks the
       // viewport (min-height:100vh, html/body{height:100%}): the taller frame
@@ -140,6 +163,7 @@
       // iframe pinned to its inline width, so the reported height stays the
       // inline content height even while expanded.
       contentHeight = Math.max(40, Math.ceil(parsed.data.h));
+      if (html !== undefined) rememberReportedHeight(html, contentHeight);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -231,9 +255,10 @@
         title="Rendered artifact"
         class="artifact-iframe"
         class:invisible={!frameSettled || frameResult?.failed}
+        class:animates-height={frameSettled}
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
-        sandbox="allow-scripts allow-popups allow-forms allow-modals allow-downloads"
+        sandbox={isolated ? "allow-scripts" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
         allow="clipboard-write"
         style="color-scheme:{colorScheme};{expanded
           ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
@@ -251,7 +276,11 @@
     {/key}
     {#if !frameSettled}
       <div class="absolute inset-0 overflow-hidden bg-(--solus-container-bg)">
-        <ContentSkeleton label="Loading artifact" preview />
+        {#if loading}
+          {@render loading()}
+        {:else}
+          <ContentSkeleton label="Loading artifact" preview />
+        {/if}
       </div>
     {:else if frameResult?.failed}
       <div class="absolute inset-0 grid place-items-center text-sm text-destructive" role="alert">
@@ -363,10 +392,15 @@
     background: transparent;
     /* Zoom from the center when fullscreen scales it up. */
     transform-origin: center center;
-    /* Animate height changes so the frame growing/shrinking in response to an
-       interaction (content reflow inside the render) glides instead of
-       snapping — the jitter the user saw. contentHeight is a stable fixed
-       point, so this only smooths the transition between settled heights. */
+  }
+
+  /* Animate height changes so the frame growing/shrinking in response to an
+     interaction (content reflow inside the render) glides instead of
+     snapping — the jitter the user saw. contentHeight is a stable fixed
+     point, so this only smooths the transition between settled heights. The
+     first height lands while the frame is still loading and hidden: animating
+     it only stretched the transcript for 180ms around the reader. */
+  .artifact-iframe.animates-height {
     transition: height 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -380,7 +414,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .artifact-iframe {
+    .artifact-iframe.animates-height {
       transition: none;
     }
   }

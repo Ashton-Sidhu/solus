@@ -78,8 +78,8 @@
     ></span>
   {/if}
   <!-- The header line declares the shelf rung once, so the title, its detail and
-       whatever the section hangs beside them all step down together on a laptop
-       display rather than each pinning its own size. -->
+       whatever the section hangs beside them all share one size rather than
+       each pinning its own. -->
   <Sidebar.GroupLabel
     class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0 text-chrome-shelf"
   >

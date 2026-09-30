@@ -4,6 +4,7 @@
     ArrowUpDown as ArrowUpDownIcon,
     ListFilter as ListFilterIcon,
     Search as SearchIcon,
+    X as XIcon,
   } from "@lucide/svelte";
   import type { PrSortMode } from "./lib/pr-utils";
   import type { PrFilterGroup } from "./lib/pr-filter-menu";
@@ -38,6 +39,8 @@
     projectFilter?: Snippet;
     /** Counts the project scope into the active filters. */
     projectFilterActive?: boolean;
+    /** Offered in the Filters menu while a filter is active. */
+    onClearFilters?: () => void;
     /** Whether the search field holds focus — the page keeps this row
      *  unfolded while someone is typing in it. */
     onSearchFocusChange?: (focused: boolean) => void;
@@ -52,6 +55,7 @@
     filterGroups,
     projectFilter,
     projectFilterActive = false,
+    onClearFilters,
     onSearchFocusChange,
   }: Props = $props();
 
@@ -145,7 +149,7 @@
       align="end"
       alignOffset={400}
       sideOffset={6}
-      class="w-64 pointer-fine:[.is-laptop-display_&]:w-56"
+      class="w-64"
     >
       {#each filterGroups as group, index (group.key)}
         {@const Icon = group.icon}
@@ -162,6 +166,13 @@
       {#if projectFilter}
         <DropdownMenu.Separator />
         {@render projectFilter()}
+      {/if}
+      {#if onClearFilters && activeFilterCount > 0}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item onSelect={onClearFilters}>
+          <XIcon size={14} class="shrink-0 text-muted-foreground" />
+          <span class="min-w-0 flex-1 truncate">Clear filters</span>
+        </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>

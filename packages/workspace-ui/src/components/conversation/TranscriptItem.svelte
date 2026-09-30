@@ -1,26 +1,26 @@
 <script lang="ts">
-  import { modelLabelFor, type Message } from "@solus/contracts/types";
-  import { ArrowRight as ArrowRightIcon, Code as CodeIcon, GitFork as GitForkIcon,
-    CirclePlus as PlusCircleIcon, GitFork as TreeStructureIcon } from "@lucide/svelte";
+  import type { Message } from "@solus/contracts/types";
   import { getWorkspaceContext, getPlanStore, runtime } from "../../contexts";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import type { GroupedItem } from "./lib/turns";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import ThoughtRow from "./ThoughtRow.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import AnsweredQuestion from "./AnsweredQuestion.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
-  import ClaudeIcon from "../ClaudeIcon.svelte";
-  import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
+  import ActivityDivider from "./ActivityDivider.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
+  import WatchRefCard from "../watches/WatchRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
   import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
+  import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
@@ -28,7 +28,12 @@
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
-  import MarkdownImage from "./MarkdownImage.svelte";
+  import ReplyImage from "./ReplyImage.svelte";
+  import TranscriptTable from "./TranscriptTable.svelte";
+  import AssistantAlert from "./AssistantAlert.svelte";
+  import FootnoteRef from "./FootnoteRef.svelte";
+  import FootnoteSection from "./FootnoteSection.svelte";
+  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from "./lib/markdown-extensions";
   import { RAW_HTML_TOKEN } from "./lib/raw-html";
   import FencedBlock from "./FencedBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
@@ -50,11 +55,15 @@
   const markdownRenderers = {
     code: FencedBlock,
     codespan: CodeSpan,
-    image: MarkdownImage,
+    image: ReplyImage,
     link: MarkdownLink,
+    table: TranscriptTable,
     [RAW_HTML_TOKEN]: HtmlBlock,
+    [ALERT_TOKEN]: AssistantAlert,
+    [FOOTNOTE_REF_TOKEN]: FootnoteRef,
+    [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
   };
-  /** The store is the truth for a work's title, preview and type; the message's
+  /** The store is the truth for a work's title and type; the message's
    *  own ref is the fallback that keeps a historical row named. */
   function documentStackEntries(messages: Message[]): DocumentStackEntry[] {
     const entries: DocumentStackEntry[] = [];
@@ -66,7 +75,6 @@
         workId: ref.workId,
         title: work?.title ?? ref.title ?? "Untitled document",
         workType: work?.type ?? ref.workType,
-        preview: work?.preview,
         updatedAt: work?.updatedAt,
         streaming: session.worksStore.streaming[ref.workId] ?? false,
       });
@@ -100,7 +108,7 @@
     <!-- The rail hangs in the column's left margin; its copy
          control aligns with the first line of assistant prose. -->
     <div
-      class="py-2 relative cv-rail-host {skipMotion
+      class="py-0.5 relative cv-rail-host {skipMotion
         ? ''
         : 'animate-msg-in-side'}"
       data-testid="assistant-message"
@@ -123,108 +131,23 @@
       </div>
     </div>
   {/if}
+{:else if item.kind === "thought"}
+  <ThoughtRow message={item.message} {skipMotion} />
 {:else if item.kind === "question"}
   <AnsweredQuestion message={item.message} />
 {:else if item.kind === "tool-group"}
-  <ToolGroupItem tools={item.messages} history={session.toolHistory} {skipMotion} />
+  <ToolGroupItem tools={item.messages} steps={item.steps} history={session.toolHistory} {skipMotion} />
 {:else if item.kind === "subagent-group"}
   <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
 {:else if item.kind === "system"}
-  {#if item.message.forkSourceSessionId}
-    <TranscriptDivider
-      glyphClass="text-(--solus-accent)"
-      titleClass="text-(--solus-accent)"
-      ariaLabel="Navigate to source session"
-      onclick={() =>
-        navigateToSourceSession(item.message.forkSourceSessionId!)}
-      testid="fork-session-message"
+  {#if item.message.activity}
+    <ActivityDivider
+      activity={item.message.activity}
+      {tabId}
       {skipMotion}
-    >
-      {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
-      {item.message.forkSourceRunning
-        ? "Forked mid-run from"
-        : "Forked from"}
-      {#snippet title()}"{item.message.forkSourceTitle ||
-          "session"}"{/snippet}
-    </TranscriptDivider>
-  {:else if item.message.worktreeMovedTo}
-    <TranscriptDivider
-      glyphClass="text-(--solus-accent)"
-      titleClass="text-(--solus-accent)"
-      testid="worktree-moved-message"
-      {skipMotion}
-    >
-      {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
-      Continued in worktree
-      {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
-    </TranscriptDivider>
-  {:else if item.message.agentChangedTo}
-    {@const sourceModel = modelLabelFor(
-      item.message.agentChangedFromProvider,
-      item.message.agentChangedFromModel,
-    )}
-    {@const targetModel = item.message === activeHandoffDivider
-      ? activeHandoffTargetModel ?? item.message.agentChangedToModel
-      : modelLabelFor(
-          item.message.agentChangedToProvider,
-          item.message.agentChangedToModel,
-        )}
-    <TranscriptDivider
-      timestamp={item.message.timestamp}
-      testid="agent-handoff-message"
-      {skipMotion}
-    >
-      {#if sourceModel &&
-      targetModel &&
-      item.message.agentChangedFromProvider &&
-      item.message.agentChangedToProvider}
-        <span class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle leading-none">
-          <span class="inline-flex min-w-0 items-center gap-1">
-            {#if item.message.agentChangedFromProvider === "claude-code"}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-(--solus-accent)"><ClaudeIcon size={11} /></span>
-            {:else if item.message.agentChangedFromProvider === "codex"}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-white text-(--solus-accent)"><OpenAIBlossom size={11} /></span>
-            {:else}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-(--solus-accent)"><CodeIcon size={11} /></span>
-            {/if}
-            <span class="truncate">{sourceModel}</span>
-          </span>
-          <ArrowRightIcon size={12} class="flex-shrink-0 text-(--solus-text-tertiary)" />
-          <span class="inline-flex min-w-0 items-center gap-1 text-(--solus-accent)">
-            {#if item.message.agentChangedToProvider === "claude-code"}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center"><ClaudeIcon size={11} /></span>
-            {:else if item.message.agentChangedToProvider === "codex"}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-white"><OpenAIBlossom size={11} /></span>
-            {:else}
-              <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center"><CodeIcon size={11} /></span>
-            {/if}
-            <span class="truncate">{targetModel}</span>
-          </span>
-        </span>
-      {:else}
-        Continued with
-        {#snippet title()}{item.message.agentChangedTo}{/snippet}
-      {/if}
-    </TranscriptDivider>
-  {:else if item.message.newSessionForPlanId}
-    <!-- The implementation run keeps none of the planning
-           session's context, only the plan. Stating that is what
-           separates a deliberate restart from a lost thread. -->
-    {@const acceptedPlan = planStore.get(
-      item.message.newSessionForPlanId,
-    )}
-    <TranscriptDivider
-      glyphClass="text-(--solus-accent)"
-      titleClass="text-(--solus-accent)"
-      timestamp={item.message.timestamp}
-      testid="plan-new-session-message"
-      {skipMotion}
-    >
-      {#snippet glyph()}<PlusCircleIcon size={12} />{/snippet}
-      New session implementing
-      {#snippet title()}"{acceptedPlan?.title ||
-          "the plan"}"{/snippet}
-    </TranscriptDivider>
+      targetModel={item.message === activeHandoffDivider ? activeHandoffTargetModel : null}
+      {navigateToSourceSession}
+    />
   {:else}
     <!-- Cancellations, interrupts and errors alike: centred between
            hairlines, never a bubble and never tinted. A transient
@@ -270,7 +193,7 @@
         kind: "document",
         id: workMessage.workRef?.workId,
         title: work?.title ?? workMessage.workRef?.title,
-        content: work?.content,
+        content: session.worksStore.savedWork(workMessage.workRef?.workId ?? "")?.content,
         updatedAt: work?.updatedAt,
         workType: work?.type ?? workMessage.workRef?.workType,
         streaming: workMessage.workRef?.workId
@@ -290,6 +213,13 @@
       {skipMotion}
     />
   {/if}
+{:else if item.kind === "watch" && item.message.watchRef}
+  <WatchRefCard
+    ref={item.message.watchRef}
+    sessionId={sess?.id}
+    serverId={sess ? session.serverIdForSession(sess.id) : linkContext.serverId}
+    {skipMotion}
+  />
 {:else if item.kind === "automation" && item.message.automationRef}
   <AutomationRefCard
     ref={item.message.automationRef}
@@ -317,6 +247,12 @@
       {skipMotion}
     />
   {/if}
+{:else if item.kind === "browser-recording" && item.message.browserRecording}
+  <BrowserRecordingCard
+    recording={item.message.browserRecording}
+    serverId={sess?.run.serverId}
+    {skipMotion}
+  />
 {:else if item.kind === "agent-conversation-group"}
   <AgentConversationGroup
     messages={item.messages}

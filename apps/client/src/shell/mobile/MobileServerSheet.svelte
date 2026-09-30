@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import {
+    Building2 as OrganizationIcon,
     Check as CheckIcon,
     Settings as GearIcon,
     Database as HardDrivesIcon,
@@ -37,6 +38,12 @@
   function connect(serverId: string) {
     onClose();
     serversStore.switchTo(serverId);
+  }
+
+  /** The organization this view works in (organization-scope §2): a filter, never a move. */
+  function selectOrganization(organizationId: string) {
+    onClose();
+    serversStore.selectOrganization(organizationId);
   }
 
   function pairNearby(installationId: string) {
@@ -97,6 +104,33 @@
       </button>
     {/each}
   </div>
+
+  {#if serversStore.organizations.length > 0}
+    <span class="mt-3 mb-1 block px-1 text-xs font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Organization</span>
+    <div class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)" data-testid="mobile-organizations">
+      {#each serversStore.organizations as organization, index (organization.organizationId)}
+        {#if index > 0}
+          <div class="ml-12 h-px bg-(--solus-container-border) opacity-60"></div>
+        {/if}
+        <button
+          class="flex w-full min-h-12 cursor-pointer items-center gap-3.5 border-0 bg-transparent px-3.5 py-3 text-left transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
+          aria-current={organization.isActive ? "true" : undefined}
+          onclick={() => selectOrganization(organization.organizationId)}
+        >
+          <span class="flex w-5 shrink-0 items-center justify-center font-secondary text-(--solus-text-secondary)"><OrganizationIcon size={14} /></span>
+          <span class="flex-1 min-w-0 flex flex-col gap-px">
+            <span class="truncate text-sm font-medium text-(--solus-text-primary)">{organization.name}</span>
+            {#if !organization.policy.allowsPersonalHosts}
+              <span class="truncate text-xs text-(--solus-text-tertiary)">Personal computers not allowed</span>
+            {/if}
+          </span>
+          {#if organization.isActive}
+            <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if serversStore.nearbyHosts.length > 0}
     <span class="mt-3 mb-1 block px-1 text-xs font-semibold tracking-[0.03em] uppercase text-(--solus-text-tertiary)">Nearby</span>

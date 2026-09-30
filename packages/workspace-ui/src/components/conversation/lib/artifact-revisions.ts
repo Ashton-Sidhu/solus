@@ -1,6 +1,6 @@
 import { marked } from 'marked'
 import type { Message } from '@solus/contracts/types'
-import { resolveArtifactTitle } from '@solus/contracts/work-preview'
+import { artifactTitle } from '@solus/contracts/work-preview'
 import { fenceIsSettled, fenceRenderMode, isHtmlFence } from './html-block'
 
 export interface ArtifactRevision {
@@ -20,6 +20,13 @@ export function fenceArtifactIdentity(info: string | undefined): string | undefi
   return info?.match(/(?:^|\s)artifact=([a-zA-Z0-9][a-zA-Z0-9_-]{0,79})(?=\s|$)/)?.[1]
 }
 
+/** A fence without a `<title>` is still named by its author: `chart-token-uplift`
+ *  reads as "Chart token uplift" rather than "Untitled artifact". */
+function identityTitle(identity: string): string {
+  const words = identity.replace(/[-_]+/g, ' ').trim()
+  return words[0].toUpperCase() + words.slice(1)
+}
+
 function fenceArtifacts(message: Message): FenceArtifact[] {
   // The cache comes first: the index runs on every streamed token, and an
   // unchanged message must cost a reference comparison, not a content scan.
@@ -36,36 +43,54 @@ function fenceArtifacts(message: Message): FenceArtifact[] {
   return artifacts
 }
 
-/** One index per conversation, including virtualized/offscreen revisions. */
-export function artifactRevisionIndex(messages: Message[]): Map<string, ArtifactRevision[]> {
-  const index = new Map<string, ArtifactRevision[]>()
-  function append(revision: ArtifactRevision) {
-    const revisions = index.get(revision.identity)
-    if (revisions) revisions.push(revision)
-    else index.set(revision.identity, [revision])
-  }
+/** The revisions a run of messages holds, in the order they were made. */
+export function artifactRevisions(messages: Message[]): ArtifactRevision[] {
+  const revisions: ArtifactRevision[] = []
   for (const message of messages) {
     const artifact = message.artifact
     if (artifact?.kind === 'html' && artifact.html && !artifact.pending && !artifact.streaming && message.workRef) {
-      append({
+      revisions.push({
         identity: `work:${message.workRef.workId}`, messageId: message.id, html: artifact.html,
         title: message.workRef.title, workRef: message.workRef,
       })
     } else if (message.role === 'assistant' && !artifact) {
-      for (const fence of fenceArtifacts(message)) append({
+      for (const fence of fenceArtifacts(message)) revisions.push({
         identity: `fence:${fence.identity}`, messageId: message.id,
-        html: fence.html, title: resolveArtifactTitle(undefined, fence.html),
+        html: fence.html, title: artifactTitle(fence.html) || identityTitle(fence.identity),
       })
     }
+  }
+  return revisions
+}
+
+function sameRevision(a: ArtifactRevision, b: ArtifactRevision): boolean {
+  return a.identity === b.identity && a.messageId === b.messageId && a.html === b.html && a.title === b.title
+}
+
+/** The previous list when a run's revisions did not change — what a streamed
+ *  token almost always leaves — so nothing that reads the list recomputes. */
+export function reuseArtifactRevisions(next: ArtifactRevision[], previous: ArtifactRevision[]): ArtifactRevision[] {
+  return next.length === previous.length && next.every((revision, index) => sameRevision(revision, previous[index]))
+    ? previous
+    : next
+}
+
+/** One index per conversation, including virtualized/offscreen revisions. */
+export function artifactRevisionIndex(revisions: ArtifactRevision[]): Map<string, ArtifactRevision[]> {
+  const index = new Map<string, ArtifactRevision[]>()
+  for (const revision of revisions) {
+    const chain = index.get(revision.identity)
+    if (chain) chain.push(revision)
+    else index.set(revision.identity, [revision])
   }
   return index
 }
 
 /** Prose streaming must not invalidate every mounted artifact's controls. */
-export function createArtifactRevisionIndexer(): (messages: Message[]) => Map<string, ArtifactRevision[]> {
+export function createArtifactRevisionIndexer(): (revisions: ArtifactRevision[]) => Map<string, ArtifactRevision[]> {
   let previous = new Map<string, ArtifactRevision[]>()
-  return (messages) => {
-    const next = artifactRevisionIndex(messages)
+  return (revisions) => {
+    const next = artifactRevisionIndex(revisions)
     let unchanged = next.size === previous.size
     for (const [identity, revisions] of next) {
       const old = previous.get(identity)

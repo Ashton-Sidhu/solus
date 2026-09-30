@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { GitBranch as GitBranchIcon, Laptop as LaptopIcon } from "@lucide/svelte";
+  import {
+    GitBranch as GitBranchIcon,
+    Laptop as LaptopIcon,
+    ListChecks as ListChecksIcon,
+  } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../servers/lib/managed-host";
   import type { AttentionState } from "../../lib/sessionUtils";
@@ -8,6 +12,7 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { modelLabelFor, type AgentId } from "@solus/contracts/types";
   import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
@@ -17,6 +22,8 @@
     title: string;
     projectKey?: string;
     projectLabel?: string;
+    /** The task this session belongs to, when the row names one. */
+    taskTitle?: string;
     branchName?: string | null;
     serverId?: string | null;
     provider?: AgentId | null;
@@ -29,6 +36,7 @@
     title,
     projectKey,
     projectLabel,
+    taskTitle,
     branchName,
     serverId,
     provider,
@@ -58,9 +66,9 @@
   side="right"
   align="start"
   sideOffset={4}
-  class="items-stretch whitespace-normal p-0 text-left font-normal [.is-laptop-display_&]:max-w-80"
+  class="items-stretch whitespace-normal p-0 text-left font-normal"
 >
-  <div class="flex min-w-0 max-w-96 flex-col gap-2 p-3 [.is-laptop-display_&]:max-w-80 [.is-laptop-display_&]:p-2.5">
+  <div class="flex min-w-0 max-w-96 flex-col gap-2 p-3">
     <div class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
       {title}
     </div>
@@ -71,17 +79,23 @@
             <ProjectFavicon
               projectRoot={projectKey}
               {serverId}
-              class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+              class="size-3.5 shrink-0"
             />
           {:else}
-            <LaptopIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
+            <LaptopIcon class="size-3.5 shrink-0" />
           {/if}
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{resolvedProjectLabel}</span>
         </div>
       {/if}
+      {#if taskTitle}
+        <div class="flex min-w-0 items-center gap-2">
+          <ListChecksIcon class="size-3.5 shrink-0" />
+          <span class="min-w-0 truncate text-(--solus-text-secondary)">{taskTitle}</span>
+        </div>
+      {/if}
       {#if modelLabel}
         <div class="flex min-w-0 items-center gap-2">
-          <span class="flex w-3.5 shrink-0 items-center justify-center [.is-laptop-display_&]:w-3">
+          <span class="flex w-3.5 shrink-0 items-center justify-center">
             <ProviderMark mark={providerMark} size={11} transparent />
           </span>
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{modelLabel}</span>
@@ -92,10 +106,10 @@
           <HostOperatingSystemIcon
             os={remoteOs}
             managed={hostIsManaged(host)}
-            class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+            class="size-3.5 shrink-0"
           />
         {:else}
-          <LaptopIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
+          <LaptopIcon class="size-3.5 shrink-0" />
         {/if}
         <span class="min-w-0 truncate text-(--solus-text-secondary)">
           {isRemote ? host?.label : "Local"}
@@ -103,8 +117,8 @@
       </div>
       {#if resolvedBranchLabel}
         <div class="flex min-w-0 items-center gap-2">
-          <GitBranchIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
-          <span class="min-w-0 truncate text-(--solus-text-secondary)">{resolvedBranchLabel}</span>
+          <GitBranchIcon class="size-3.5 shrink-0" />
+          <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
       {#if attention}
@@ -118,7 +132,7 @@
         >
           <ReviewGuideGlyph
             weight={reviewGuideStatus === "ready" ? "fill" : "regular"}
-            class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
+            class="size-3.5 shrink-0"
           />
           <span>
             {reviewGuideStatus === "ready"

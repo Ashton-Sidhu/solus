@@ -27,7 +27,7 @@ export class VoiceModelStore {
 
   apply(status: VoiceModelStatus, serverId?: string): void {
     if (serverId) this.statusByHost.set(serverId, status)
-    if (!serverId || serverConnections.defaultServerId() === serverId) {
+    if (!serverId || serverConnections.defaultMachineId() === serverId) {
       this.status = status
     }
   }
@@ -51,7 +51,7 @@ export class VoiceModelStore {
 
   private applySupported(serverId: string, supported: boolean): void {
     this.supportedByHost.set(serverId, supported)
-    if (serverConnections.defaultServerId() === serverId) this.supported = supported
+    if (serverConnections.defaultMachineId() === serverId) this.supported = supported
   }
 
   progressFor(serverId: string): number | null {

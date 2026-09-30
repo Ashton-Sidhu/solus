@@ -14,6 +14,8 @@ const PHRASE_FOR = new Map<string, string>([
   ["browser_scroll", "scrolling this page"],
   ["browser_evaluate", "reading this page"],
   ["browser_wait_for", "waiting on this page"],
+  ["browser_record_start", "recording this page"],
+  ["browser_record_stop", "saving a recording of this page"],
 ])
 
 /** How the host's refusal reads: a verb in flight is one sentence, a turn

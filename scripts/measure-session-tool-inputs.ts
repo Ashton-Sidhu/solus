@@ -1,6 +1,6 @@
 /** Synthetic wire-byte comparison; no server or live session data is used. */
-import { projectSessionHistory, serializedBytes } from '../packages/server/src/server/result-projection'
-import { deferSessionToolInputs, selectSessionToolInputs } from '../packages/server/src/server/session-tool-inputs'
+import { projectSessionHistory, serializedBytes } from '../packages/server/src/data/sessions/result-projection'
+import { deferSessionToolInputs, selectSessionToolInputs } from '../packages/server/src/data/sessions/session-tool-inputs'
 
 const messages = Array.from({ length: 200 }, (_, index) => ({
   role: 'tool', toolId: `tool-${index}`, toolName: 'exec_command',

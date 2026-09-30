@@ -78,7 +78,7 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     },
     applyRuntimeConfig: () => {},
     nextMsgId: () => 'message',
-    RESTORED_TRANSCRIPT_LIMIT: 200,
+    INITIAL_HISTORY_TURNS: 10,
   }
   const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(metadataSource + '\n' + hydrationSource)
   // SAFETY: the extracted source returns these two production functions; the

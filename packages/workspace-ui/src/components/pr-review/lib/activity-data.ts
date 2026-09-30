@@ -13,6 +13,16 @@ import { labelChangeText } from '../../../lib/label-activity'
 import type { PrArtifact } from './pr-artifacts'
 
 /**
+ * Whether a thread's timeline row starts folded to one line. A resolved thread
+ * is settled, and an outdated one is anchored to code the branch has since
+ * changed; GitHub folds both. An open thread on current code asks the reader
+ * to act, so it shows in full.
+ */
+export function threadStartsFolded(thread: Pick<ReviewThread, 'isResolved' | 'isOutdated'>): boolean {
+  return thread.isResolved || thread.isOutdated
+}
+
+/**
  * One entry in the activity timeline. The opened event is rendered separately as
  * a fixed first row (it always leads and isn't gated on `detail` loading), so it
  * isn't part of this union — these are the events that interleave by time. A
@@ -86,20 +96,6 @@ export function visibleConversationCount(items: PrConversationItem[]): number {
     (count, item) => count + (item.kind !== 'label' && hasVisibleBody(item.body) ? 1 : 0),
     0,
   )
-}
-
-/**
- * A review verdict worth promoting to a timeline milestone. Non-null only for
- * approvals and change requests — COMMENTED/DISMISSED reviews stay ordinary
- * avatar rows since their state carries no verdict.
- */
-export function reviewMilestone(
-  item: PrCommentActivityItem,
-): { headline: string; tone: 'positive' | 'negative' } | null {
-  if (item.kind !== 'review') return null
-  if (item.reviewState === 'APPROVED') return { headline: 'approved these changes', tone: 'positive' }
-  if (item.reviewState === 'CHANGES_REQUESTED') return { headline: 'requested changes', tone: 'negative' }
-  return null
 }
 
 export const COMMIT_PREVIEW_COUNT = 3
@@ -237,6 +233,13 @@ export interface PrActivityTarget {
  */
 export function hunkToPatch(filePath: string, hunk: string): string {
   return `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${hunk}\n`
+}
+
+/** Rendered rows in a bare hunk: every line after the `@@` header. */
+export function diffLineCount(hunk: string): number {
+  const lines = hunk.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  return Math.max(0, lines.length - 1)
 }
 
 /** GitHub-sized context on each side of the reviewed line. */

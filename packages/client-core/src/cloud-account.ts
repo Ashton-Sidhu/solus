@@ -4,7 +4,11 @@ import {
   uplinkErrorBodySchema,
   type AccountResponse,
   type CreateManagedHostRequest,
+  type HostShareRequest,
+  type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
+import type { AccountProfile } from '@solus/contracts/account-types'
+import { z } from 'zod'
 
 /**
  * The signed-in Solus Cloud account, as cloud onboarding uses it
@@ -16,14 +20,27 @@ import {
 export interface CloudAccount {
   /** Null when signed out or the account origin could not be reached. */
   readAccount(): Promise<AccountResponse | null>
+  /** Who the cookie belongs to; null when signed out or the account origin could not be reached. */
+  readProfile(): Promise<AccountProfile | null>
+  /** Ends the cookie session; false when the account origin did not confirm it. */
+  signOut(): Promise<boolean>
   /** Records that the account finished or skipped onboarding; false when the call failed. */
   completeOnboarding(): Promise<boolean>
-  /** Creates the organization's managed host; its host id, or why Solus Cloud did not. */
-  createManagedHost(organizationId: string): Promise<CreateManagedHostOutcome>
-  /** Shares a machine the account linked with one organization, or takes it back with null. */
-  shareHost(hostId: string, organizationId: string | null): Promise<boolean>
+  /**
+   * Creates the organization's managed host; its host id, or why Solus Cloud did not.
+   * The label is the host's friendly name; whatever the spec leaves out is Solus
+   * Cloud's default, so no options at all is the generic host.
+   */
+  createManagedHost(
+    organizationId: string,
+    options?: { label?: string; spec?: ManagedHostSpecRequest },
+  ): Promise<CreateManagedHostOutcome>
+  /** Shares a machine the account linked with one organization, or takes that share back (R15). */
+  shareHost(hostId: string, organizationId: string, enabled: boolean): Promise<boolean>
   /** The account page where GitHub, Google and Atlassian are connected. */
   readonly connectionsUrl: string
+  /** The account website, where the account and its organizations are managed. */
+  readonly consoleUrl: string
 }
 
 /**
@@ -51,18 +68,32 @@ export function cookieCloudAccount(origin: string, fetchImpl: typeof fetch = fet
   }
   return {
     connectionsUrl: `${origin}/connections`,
+    consoleUrl: origin,
     async readAccount() {
       const response = await call('/v1/account')
       if (!response?.ok) return null
       const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
     },
+    async readProfile() {
+      const response = await call('/api/account/me')
+      return response?.ok ? profileFromResponse(response) : null
+    },
+    async signOut() {
+      const response = await call('/api/auth/sign-out', { method: 'POST' })
+      return !!response?.ok
+    },
     async completeOnboarding() {
       const response = await call('/v1/account/onboarding', { method: 'POST' })
       return !!response?.ok
     },
-    async createManagedHost(organizationId) {
-      const body: CreateManagedHostRequest = { organizationId }
+    async createManagedHost(organizationId, options = {}) {
+      const { label, spec } = options
+      const body: CreateManagedHostRequest = {
+        organizationId,
+        ...(label ? { label } : {}),
+        ...(spec && Object.keys(spec).length > 0 ? { spec } : {}),
+      }
       const response = await call('/v1/hosts', { method: 'POST', body: JSON.stringify(body) })
       if (!response) return { ok: false, code: null, message: null }
       const answer = await response.json().catch(() => null)
@@ -77,13 +108,33 @@ export function cookieCloudAccount(origin: string, fetchImpl: typeof fetch = fet
         ? { ok: true, hostId: parsed.data.hostId }
         : { ok: false, code: 'invalid_response', message: null }
     },
-    async shareHost(hostId, organizationId) {
-      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/organization`, {
-        method: 'PUT',
-        body: JSON.stringify({ organizationId }),
-      })
+    async shareHost(hostId, organizationId, enabled) {
+      const host = encodeURIComponent(hostId)
+      const body: HostShareRequest = { organizationId }
+      const response = enabled
+        ? await call(`/v1/hosts/${host}/organizations`, { method: 'POST', body: JSON.stringify(body) })
+        : await call(`/v1/hosts/${host}/organizations/${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
       return !!response?.ok
     },
+  }
+}
+
+const meResponseSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  name: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
+})
+
+/** Parses `GET /api/account/me` at the boundary; anything malformed reads as no profile. */
+export async function profileFromResponse(response: Response): Promise<AccountProfile | null> {
+  const parsed = meResponseSchema.safeParse(await response.json().catch(() => null))
+  if (!parsed.success) return null
+  return {
+    id: parsed.data.id,
+    email: parsed.data.email,
+    name: parsed.data.name ?? null,
+    avatarUrl: parsed.data.avatarUrl ?? null,
   }
 }
 

@@ -4,6 +4,7 @@ import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { SvelteMap } from 'svelte/reactivity'
+import { hostRolesStore } from './host-roles.store.svelte'
 
 export interface PairToken {
   token: string
@@ -43,6 +44,8 @@ export class ConnectionsStore {
   agentTaskLifecyclePolicyUpdating = $state(false)
   capabilities = $state<ServerCapabilities | null>(null)
   private capabilitiesByServer = new SvelteMap<string, ServerCapabilities>()
+  /** Hosts `chatFolderFor` already asked, so a label read never asks twice. */
+  private readonly chatFolderRequests = new Set<string>()
   private metadataServerId: string | null = null
 
   providerStatus = $state<AuthStatus | null>(null)
@@ -138,6 +141,31 @@ export class ConnectionsStore {
     return this.capabilitiesByServer.get(serverId) ?? null
   }
 
+  /**
+   * The folder behind Scratchpad on this host, for the caller — the host names
+   * it, the client never builds it. Null while the host has not answered, and
+   * when it offers no Scratchpad (its chat folder is inside a Git work tree).
+   * A read for a host not yet asked asks it once, so a label for a chat on any
+   * host settles to "Scratchpad" without a per-surface load.
+   */
+  chatFolderFor(serverId: string | null | undefined): string | null {
+    // A host that runs no sessions (the workspace service) has no Scratchpad.
+    if (!serverId || !hostRolesStore.hasExecution(serverId)) return null
+    const capabilities = this.capabilitiesByServer.get(serverId)
+    if (capabilities) return capabilities.workspacePath ?? null
+    if (!this.chatFolderRequests.has(serverId)) {
+      this.chatFolderRequests.add(serverId)
+      // Deferred: a label reads this inside a `$derived`, which may not write state.
+      queueMicrotask(() => {
+        void this.refreshCapabilities({ serverId }).finally(() => {
+          // A host that did not answer may be asked again on a later read.
+          if (!this.capabilitiesByServer.has(serverId)) this.chatFolderRequests.delete(serverId)
+        })
+      })
+    }
+    return null
+  }
+
   async refreshCapabilities(target: { serverId: string; api?: HostApi }): Promise<void> {
     try {
       const api = target.api ?? serverConnections.apiFor(target.serverId)
@@ -145,7 +173,7 @@ export class ConnectionsStore {
       this.capabilitiesByServer.set(target.serverId, capabilities)
       // The unqualified mirror backs client-wide gates and follows the
       // new-work default host.
-      if (target.serverId === serverConnections.defaultServerId()) this.capabilities = capabilities
+      if (target.serverId === serverConnections.defaultMachineId()) this.capabilities = capabilities
     } catch (e) {
       if (e instanceof TransportDisconnectedError) return
       console.error('getServerCapabilities failed', e)
@@ -156,13 +184,13 @@ export class ConnectionsStore {
     return this.capabilities?.desktopHandlers !== false
   }
 
-  /** Where this host's folder picker starts. Empty clears it back to the home folder. */
+  /** Where this host's new projects and clones land. Empty clears it back to the host default. */
   async setProjectsBaseDirectory(serverId: string, path: string): Promise<void> {
     const result = await serverConnections.apiFor(serverId).setProjectsBaseDirectory(path)
     const hostCapabilities = this.capabilitiesByServer.get(serverId)
-    if (hostCapabilities) hostCapabilities.projectsBaseDirectory = result.projectsBaseDirectory
-    if (this.capabilities && serverId === serverConnections.defaultServerId()) {
-      this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
+    if (hostCapabilities) Object.assign(hostCapabilities, result)
+    if (this.capabilities && serverId === serverConnections.defaultMachineId()) {
+      Object.assign(this.capabilities, result)
     }
   }
 
@@ -173,7 +201,7 @@ export class ConnectionsStore {
     // The unqualified mirror answers for the default host when its per-host
     // record was never loaded.
     const capabilities = this.capabilitiesFor(target.serverId)
-      ?? (target.serverId === serverConnections.defaultServerId() ? this.capabilities : null)
+      ?? (target.serverId === serverConnections.defaultMachineId() ? this.capabilities : null)
     if (!capabilities || this.agentTaskLifecyclePolicyUpdating) return
     const previousPolicy = capabilities.agentTaskLifecyclePolicy
     capabilities.agentTaskLifecyclePolicy = policy

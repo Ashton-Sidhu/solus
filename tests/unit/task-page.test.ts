@@ -3,26 +3,38 @@ import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/pr
 import { describe, expect, test } from 'bun:test'
 import {
   commentSessionName,
-  eventLine,
   linkGroups,
   linkRow,
-  linkedArtifactForEvent,
+  linkedArtifactForActivity,
   linkedTableLinks,
   linkedWorkProvider,
+  orderTaskSessions,
+  taskLeadSession,
   taskPageCapabilities,
   taskProviderLabel,
+  taskDetailsSummary,
+  taskSessionRow,
 } from '@solus/workspace-ui/components/tasks/task-page/lib/task-page'
+import { taskTabs } from '@solus/workspace-ui/components/tasks/task-page/lib/task-tabs'
 import {
   commentSyncState,
   heldBackCommentIds,
+  taskEpicRow,
   taskPublishTarget,
   taskUpstreamState,
 } from '@solus/workspace-ui/components/tasks/task-page/lib/task-upstream'
 import { taskPrRows } from '@solus/workspace-ui/components/tasks/task-page/lib/task-prs'
 import { taskRow } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
 import { upstreamTaskDetails } from '@solus/workspace-ui/contexts/tasks/upstream-task-details'
-import type { Task, TaskComment, TaskEvent, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Activity } from '@solus/contracts/activity'
+import { activityLine } from '@solus/workspace-ui/components/activity/lib/activity-line'
 import type { Work } from '@solus/contracts/types'
+import type { User } from '@solus/contracts/user'
+
+/** The reader on the task's host. */
+const ME: User = { id: { kind: 'account', accountId: 'me' }, displayName: 'Mina Reader' }
+const ALICE: User = { id: { kind: 'account', accountId: 'alice' }, displayName: 'Alice Chen' }
 
 // Attempt naming is `sessionDisplayName`, shared by every surface that lists a
 // session — see session-utils.test.ts.
@@ -40,17 +52,15 @@ describe('task page provider labels', () => {
 })
 
 describe('an artifact on the task activity feed', () => {
-  const linked: TaskEvent = {
+  const linked = {
     id: 'e1',
-    taskId: 't',
-    kind: 'linked',
-    actor: 'agent',
-    targetKind: 'work',
-    targetScope: '',
-    targetKey: 'work-1',
-    targetTitle: 'Latency report',
-    createdAt: 1,
-  }
+    subject: { kind: 'task', id: 't' },
+    kind: 'task_changed',
+    change: 'linked',
+    by: { kind: 'agent', sessionId: 's1' },
+    target: { kind: 'work', scope: '', key: 'work-1', title: 'Latency report' },
+    at: 1,
+  } satisfies Activity
   const artifact: TaskLink = {
     taskId: 't',
     kind: 'work',
@@ -58,7 +68,7 @@ describe('an artifact on the task activity feed', () => {
     targetKey: 'work-1',
     title: 'Latency report',
     liveStatus: 'artifact',
-    createdBy: 'agent',
+    createdBy: { kind: 'agent', sessionId: 's1' },
     linkedAt: 1,
   }
 
@@ -66,14 +76,14 @@ describe('an artifact on the task activity feed', () => {
     // WHY: a render is the one link worth seeing where it arrived. The feed
     // tells the story of the task, and "linked Latency report" with nothing
     // under it sends the reader to the Linked table to find out what it was.
-    expect(linkedArtifactForEvent(linked, [artifact])).toBe(artifact)
+    expect(linkedArtifactForActivity(linked, [artifact])).toBe(artifact)
   })
 
   test('a document, an unlinked work, and any other event get no card', () => {
-    expect(linkedArtifactForEvent(linked, [{ ...artifact, liveStatus: 'doc' }])).toBeNull()
-    expect(linkedArtifactForEvent(linked, [])).toBeNull()
-    expect(linkedArtifactForEvent({ ...linked, kind: 'unlinked' }, [artifact])).toBeNull()
-    expect(linkedArtifactForEvent({ ...linked, targetKind: 'plan' }, [artifact])).toBeNull()
+    expect(linkedArtifactForActivity(linked, [{ ...artifact, liveStatus: 'doc' }])).toBeNull()
+    expect(linkedArtifactForActivity(linked, [])).toBeNull()
+    expect(linkedArtifactForActivity({ ...linked, change: 'unlinked' }, [artifact])).toBeNull()
+    expect(linkedArtifactForActivity({ ...linked, target: { ...linked.target, kind: 'plan' } }, [artifact])).toBeNull()
   })
 })
 
@@ -101,39 +111,95 @@ describe('task comment session attribution', () => {
   })
 })
 
+describe('the task conversation', () => {
+  const link = (sessionId: string, role?: TaskSessionLink['role'], linkedAt = 1): TaskSessionLink => ({
+    sessionId,
+    sessionTitle: sessionId,
+    provider: 'claude-code',
+    model: null,
+    startedAt: linkedAt,
+    lastActivityAt: linkedAt,
+    linkedAt,
+    role,
+  })
+
+  test('the page offers Start lead until the task has one', () => {
+    // WHY: the Sessions section branches on exactly this answer. A `working`
+    // attempt or a `referenced` session is not a lead, so a task with only
+    // those still offers to start one (docs/plans/task-conversation.md).
+    expect(taskLeadSession([])).toBeNull()
+    expect(taskLeadSession([link('w', 'working'), link('r', 'referenced')])).toBeNull()
+    const lead = link('l', 'lead')
+    expect(taskLeadSession([link('w', 'working'), lead])).toBe(lead)
+  })
+
+  test('the Sessions list pins the lead first and marks it', () => {
+    const lead = link('l', 'lead', 3)
+    const ordered = orderTaskSessions([link('w1', 'working', 1), lead, link('w2', 'working', 2)])
+    expect(ordered.map((entry) => entry.sessionId)).toEqual(['l', 'w1', 'w2'])
+    expect(taskSessionRow(lead, null, null, false, 3).isLead).toBe(true)
+    expect(taskSessionRow(link('w1', 'working'), null, null, false, 3).isLead).toBe(false)
+  })
+
+  test('the stacked rung keeps the four record sections; the conversation is the lead\'s own tab', () => {
+    // WHY: the lead is talked to in its conversation pane, not on the page,
+    // so the page has no Conversation tab to steal the strip's first slot.
+    const tabs = taskTabs({ linked: 1, sessions: 2, activity: 3 })
+    expect(tabs[0]).toEqual({ id: 'overview', label: 'Overview' })
+    expect(tabs.map((tab) => tab.id)).toEqual(['overview', 'linked', 'sessions', 'activity'])
+  })
+})
+
 describe('task label activity', () => {
   const event = {
     id: 'event-1',
-    taskId: 'task-1',
-    kind: 'labels_changed',
-    actor: 'user',
-    createdAt: 1,
-  } satisfies TaskEvent
+    subject: { kind: 'task', id: 'task-1' },
+    kind: 'task_changed',
+    change: 'labels_changed',
+    by: { kind: 'user', user: ME },
+    at: 1,
+  } satisfies Activity
 
   test('names a label that was added or removed', () => {
     // WHY: the activity feed is an audit trail. "Changed labels" does not say
     // what changed and forces the reader to reconstruct old task state.
-    expect(eventLine({ ...event, from: '[]', to: '["bug"]' }).text)
+    expect(activityLine({ ...event, from: '[]', to: '["bug"]' }, ME.id).text)
       .toBe('You added label “bug”')
-    expect(eventLine({ ...event, from: '["bug"]', to: '[]' }).text)
+    expect(activityLine({ ...event, from: '["bug"]', to: '[]' }, ME.id).text)
       .toBe('You removed label “bug”')
   })
 
   test('names both sides of a replacement and handles several labels', () => {
-    expect(eventLine({
+    expect(activityLine({
       ...event,
       from: '["old"]',
       to: '["design","ready"]',
-    }).text).toBe('You added labels “design” and “ready” and removed label “old”')
+    }, ME.id).text).toBe('You added labels “design” and “ready” and removed label “old”')
+  })
+
+  test('names the person who did it, and "You" only for the reader', () => {
+    // WHY: on a shared task every change used to read "You" (plan 012 §2). The
+    // doer is a user; the reader is told apart by user id, not by name.
+    const added = { ...event, from: '[]', to: '["bug"]' }
+    expect(activityLine({ ...added, by: { kind: 'user', user: ALICE } }, ME.id).text).toBe('Alice Chen added label “bug”')
+    expect(activityLine({ ...added, by: { kind: 'user', user: { ...ME, displayName: 'Renamed' } } }, ME.id).text).toBe('You added label “bug”')
+    expect(activityLine(added, null).text).toBe('Mina Reader added label “bug”')
+  })
+
+  test('an agent’s change names whose agent it was', () => {
+    const added = { ...event, from: '[]', to: '["bug"]' }
+    expect(activityLine({ ...added, by: { kind: 'agent', sessionId: 's1', provider: 'codex', for: ALICE } }, ME.id).text).toBe("Alice's agent added label “bug”")
+    expect(activityLine({ ...added, by: { kind: 'agent', sessionId: 's1', for: ME } }, ME.id).text).toBe('Solus agent added label “bug”')
+    expect(activityLine({ ...added, by: { kind: 'agent', sessionId: 's1' } }, ME.id).text).toBe('An agent added label “bug”')
   })
 
   test('a row without a readable snapshot still reads, rather than taking the page down', () => {
     // WHY: this runs on a render path. One malformed or snapshot-less event
     // must not throw out of the derived that draws the whole activity list.
-    expect(eventLine({ ...event, from: null, to: '["bug"]' }).text).toBe('You changed the labels')
-    expect(eventLine({ ...event, from: '{', to: '["bug"]' }).text).toBe('You changed the labels')
-    expect(eventLine({ ...event, from: '[1]', to: '["bug"]' }).text).toBe('You changed the labels')
-    expect(eventLine({ ...event, from: '["bug"]', to: '["bug"]' }).text).toBe('You changed the labels')
+    expect(activityLine({ ...event, from: null, to: '["bug"]' }, ME.id).text).toBe('You changed the labels')
+    expect(activityLine({ ...event, from: '{', to: '["bug"]' }, ME.id).text).toBe('You changed the labels')
+    expect(activityLine({ ...event, from: '[1]', to: '["bug"]' }, ME.id).text).toBe('You changed the labels')
+    expect(activityLine({ ...event, from: '["bug"]', to: '["bug"]' }, ME.id).text).toBe('You changed the labels')
   })
 })
 
@@ -185,7 +251,6 @@ describe('task list assignee avatars', () => {
     const task = {
       id: '31',
       providerId: 'github',
-      kind: 'task',
       title: 'GitHub issue',
       body: '',
       status: 'todo',
@@ -214,7 +279,6 @@ describe('upstream task details', () => {
       id: '31',
       providerId: 'github',
       projectKey: '/workspace/solus',
-      kind: 'task',
       title: 'GitHub issue',
       body: 'Issue body',
       status: 'todo',
@@ -231,14 +295,14 @@ describe('upstream task details', () => {
       },
     }
 
-    expect(upstreamTaskDetails(task, [task])).toMatchObject({
+    expect(upstreamTaskDetails(task)).toMatchObject({
       task,
       links: [],
-      events: [],
+      activity: [],
       comments: [{
         id: 'comment-1',
         taskId: '31',
-        author: 'octocat',
+        externalAuthor: 'octocat',
         source: 'external',
         externalId: 'comment-1',
         body: 'A provider comment',
@@ -327,7 +391,7 @@ describe('linked pull requests', () => {
     targetScope: '/repo',
     targetKey,
     title,
-    createdBy: 'user',
+    createdBy: { kind: 'user', user: ME },
     linkedAt: 1,
   })
 
@@ -345,7 +409,7 @@ describe('linked pull requests', () => {
       targetScope: '',
       targetKey: 'w1',
       title: 'RFC',
-      createdBy: 'user',
+      createdBy: { kind: 'user', user: ME },
       linkedAt: 2,
     } satisfies TaskLink]
     expect(linkedTableLinks(links).map((link) => link.kind)).toEqual(['work'])
@@ -392,7 +456,7 @@ describe('linked pull requests', () => {
       title: 'Latency report',
       liveTitle: 'Latency report',
       liveStatus: 'artifact',
-      createdBy: 'agent',
+      createdBy: { kind: 'agent', sessionId: 's1' },
       linkedAt: 1,
     }
     expect(linkRow(artifact)).toMatchObject({ kindLabel: 'Artifact', isArtifact: true, meta: '' })
@@ -445,7 +509,7 @@ describe('linked work providers', () => {
     targetScope: '',
     targetKey: 'work-1',
     title: 'Published RFC',
-    createdBy: 'user',
+    createdBy: { kind: 'user', user: ME },
     linkedAt: 1,
   } satisfies TaskLink
 
@@ -470,7 +534,7 @@ describe('the Kind column becomes a group header where there is no column', () =
       targetScope: '',
       targetKey: 'k',
       title: 'Item',
-      createdBy: 'user',
+      createdBy: { kind: 'user', user: ME },
       linkedAt: 1,
       ...over,
     }) satisfies TaskLink
@@ -577,5 +641,59 @@ describe('publishing a task that has no ticket', () => {
       comments: [],
     })
     expect(taskPublishTarget({ task: localTask, upstream, status })).toBeNull()
+  })
+})
+
+describe('the Epic row', () => {
+  test('is absent for a task with no upstream epic', () => {
+    // WHY: Solus never assigns an epic, so an empty row would offer an action
+    // that does not exist.
+    expect(taskEpicRow({})).toBeNull()
+  })
+
+  test('names the epic by title and provider reference, and opens it upstream', () => {
+    expect(taskEpicRow({
+      epic: { provider: 'github', externalId: '3', url: 'https://github.com/acme/app/issues/3', title: 'Release 2.0', body: 'long description' },
+    })).toEqual({
+      providerId: 'github',
+      title: 'Release 2.0',
+      ref: '#3',
+      url: 'https://github.com/acme/app/issues/3',
+      hint: 'Open GitHub #3 — Release 2.0',
+    })
+    expect(taskEpicRow({
+      epic: { provider: 'jira', externalId: 'ACME-1', url: '', title: 'Release', body: '' },
+    })?.ref).toBe('ACME-1')
+  })
+})
+
+describe('taskDetailsSummary', () => {
+  const isoDay = (offsetDays: number) => {
+    const d = new Date()
+    d.setDate(d.getDate() + offsetDays)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  test('an untouched task has nothing to preview, so Details stands alone', () => {
+    expect(taskDetailsSummary({ labels: [] })).toEqual({ assignee: null, due: null, labels: null })
+  })
+
+  test('a blank assignee is not a person to show', () => {
+    expect(taskDetailsSummary({ assignee: '  ', labels: [] }).assignee).toBeNull()
+  })
+
+  test('previews who has it, when it is due, and its labels folded to one', () => {
+    const summary = taskDetailsSummary({ assignee: 'ada', dueDate: isoDay(-3), labels: ['bug', 'ui', 'p1'] })
+    expect(summary.assignee).toBe('ada')
+    expect(summary.due).toEqual({ label: '3d overdue', tone: 'overdue' })
+    expect(summary.labels).toBe('bug +2')
+  })
+
+  test('a single label is named without a count', () => {
+    expect(taskDetailsSummary({ dueDate: isoDay(0), labels: ['bug'] })).toEqual({
+      assignee: null,
+      due: { label: 'Today', tone: 'soon' },
+      labels: 'bug',
+    })
   })
 })

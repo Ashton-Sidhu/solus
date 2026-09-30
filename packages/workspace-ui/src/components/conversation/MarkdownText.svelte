@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import { tokenClassName } from "../editor/tokenStyle";
   import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from "../editor/fileIcons";
-  import { fileChipParts, tokenizeMarkdownText } from "./lib/markdown-text";
+  import { fileChipParts, fileMentionTarget, tokenizeMarkdownText } from "./lib/markdown-text";
 </script>
 
 <script lang="ts">
@@ -16,10 +16,10 @@
 
   const segments = $derived(tokenizeMarkdownText(text));
 
-  function handleFileClick(path: string) {
+  function handleFileClick(mention: string) {
     if (!session) return;
     requestFilePreview({
-      path,
+      ...fileMentionTarget(mention),
       tabId: session.focusedChatTabId ?? session.activeTabId,
     });
   }
@@ -31,7 +31,7 @@
       class={tokenClassName("file")}
       title={seg.path}
       onclick={() => handleFileClick(seg.path)}
-    ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={isDir ? FOLDER_ICON_PATH : getFileIconPath(parts.label)} /></svg></span><span
+    ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={isDir ? FOLDER_ICON_PATH : getFileIconPath(fileMentionTarget(seg.path).path)} /></svg></span><span
         class="solus-token__copy-only">{parts.prefix}</span>{parts.label}<span
         class="solus-token__copy-only">{parts.suffix}</span></button>{:else}<span class={tokenClassName("slash", true)}>{seg.command}</span>{/if}
 {/each}

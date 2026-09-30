@@ -10,7 +10,6 @@ import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { resolveProjectKey } from './project-config'
-import { listRecentProjects } from '../recent-projects'
 import { z } from 'zod'
 
 const log = createLogger('main', 'projects-manifest')
@@ -65,45 +64,15 @@ export async function recordProject(cwd: string): Promise<void> {
   `).run(key, cwd, basename(cwd) || cwd, Date.now())
 }
 
-/**
- * All known projects. Back-fills the manifest from recent projects so existing
- * users see their history, and drops entries whose folder no longer exists.
- */
+/** All known projects. Drops entries whose folder no longer exists. */
 export async function listProjects(): Promise<ManifestProject[]> {
   const manifest = await readManifest()
-  const byKey = new Map(manifest.map((project) => [project.key, project]))
-
-  let mutated = false
-  const recents = await listRecentProjects()
-  for (const recent of recents) {
-    const key = resolveProjectKey(recent.path)
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        key,
-        path: recent.path,
-        folderName: recent.folderName || basename(recent.path) || recent.path,
-        addedAt: recent.lastOpened || new Date().toISOString(),
-      })
-      mutated = true
-    }
-  }
-
-  const present = [...byKey.values()].filter(
-    (project) => !isRemoteDispatchCheckoutPath(project.path) && existsSync(project.path),
-  )
-  if (mutated || present.length !== manifest.length) {
+  const present = manifest.filter((project) => existsSync(project.path))
+  if (present.length !== manifest.length) {
     try {
+      const remove = getDb().prepare('DELETE FROM projects WHERE key = ?')
       withTx(() => {
-        const db = getDb()
-        const insert = db.prepare(`
-          INSERT OR IGNORE INTO projects (key, path, folder_name, added_at)
-          VALUES (?, ?, ?, ?)
-        `)
-        for (const project of present) {
-          insert.run(project.key, project.path, project.folderName, new Date(project.addedAt).getTime())
-        }
-        const remove = db.prepare('DELETE FROM projects WHERE key = ?')
-        for (const project of byKey.values()) {
+        for (const project of manifest) {
           if (!existsSync(project.path)) remove.run(project.key)
         }
       })
@@ -125,7 +94,6 @@ export async function deleteProject(projectPath: string): Promise<void> {
       db.prepare('DELETE FROM tasks WHERE project_key = ?').run(entry.key)
       db.prepare('DELETE FROM task_session_links WHERE project_key = ?').run(entry.key)
       db.prepare('DELETE FROM task_cache WHERE project_key = ?').run(entry.key)
-      db.prepare('DELETE FROM project_config WHERE project_key = ?').run(entry.key)
     }
     db.prepare('DELETE FROM recent_projects WHERE path = ?').run(projectPath)
     db.prepare('DELETE FROM projects WHERE path = ?').run(projectPath)

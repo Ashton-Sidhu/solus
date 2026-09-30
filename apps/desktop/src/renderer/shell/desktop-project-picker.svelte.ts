@@ -1,7 +1,7 @@
 import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
 
 import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
-import type { HostOption } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
+import type { HostOption, ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
 import {
   isRunOnHostLocked,
   moveTabToHost,
@@ -45,7 +45,7 @@ export function createDesktopProjectPicker(
       ui.directoryPickerForAddProject = false;
       ui.directoryPickerServerIdOverride = undefined;
       ui.directoryPickerDraftId = undefined;
-      const project = await projectsStore.addProject(
+      const project = projectsStore.addProject(
         addServerId,
         serverConnections.apiFor(addServerId),
         dir,
@@ -55,7 +55,8 @@ export function createDesktopProjectPicker(
       if (project) onProjectAdded?.(project);
       return;
     }
-    projectsStore.recordProject(directoryPickerServerId(), dir);
+    const pickedServerId = directoryPickerServerId();
+    projectsStore.addProject(pickedServerId, serverConnections.apiFor(pickedServerId), dir);
     const draftId = ui.directoryPickerDraftId;
     ui.directoryPickerDraftId = undefined;
     if (draftId) {
@@ -71,7 +72,7 @@ export function createDesktopProjectPicker(
           draftHostOverride && draft.run.serverId !== draftHostOverride
             ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
             : withCheckout(draft.run, dir, null);
-        if (draftIntent === "open-project") draft.task = { kind: "new" };
+        if (draftIntent === "open-project") draft.task = { kind: "none" };
         void session.environment.refresh(draft.run.serverId, dir);
       }
       requestInputFocus();
@@ -141,7 +142,6 @@ export function createDesktopProjectPicker(
       isLocalHost: serverId === serverConnections.localServerId(),
       path,
       intent: options.intent ?? "open-project",
-      isolate: serversStore.isolatesSessions(serverId),
     });
   }
 
@@ -154,8 +154,8 @@ export function createDesktopProjectPicker(
     intent: "dispatch" | "open-project",
   ): RunConfig {
     return intent === "dispatch"
-      ? withHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) })
-      : withProjectHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
+      ? withHost(run, serverId, { path })
+      : withProjectHost(run, serverId, { path });
   }
 
   /**
@@ -170,16 +170,18 @@ export function createDesktopProjectPicker(
     );
   }
 
-  function startOpenProject(options: { sourceId?: string } = {}) {
+  function startOpenProject(options: { sourceId?: string; source?: ProjectSource; serverId?: string } = {}) {
     const hosts = openProjectHosts();
     const targetServerId =
-      session.projectPageScope.kind === "project"
+      options.serverId ??
+      (session.projectPageScope.kind === "project"
         ? session.projectPageScope.checkout?.serverId
         : options.sourceId
           ? session.runFor(options.sourceId)?.serverId
-          : undefined;
+          : undefined);
     openProjectStore.open(hosts, {
       tabId: options.sourceId,
+      source: options.source,
       host: hosts.find((host) => host.id === targetServerId),
       onProjectOpened: session.hasProjectPageOpen
         ? (project) => {
@@ -190,7 +192,8 @@ export function createDesktopProjectPicker(
   }
 
   /** Lands the chosen project in a session on the host that holds it. */
-  async function openProjectAtPath(path: string, cloned: boolean) {
+  async function openProjectAtPath(path: string, source: ProjectSource | null) {
+    const cloned = source === "clone" || source === "github";
     const serverId = openProjectStore.serverId;
     const hostLabel = openProjectStore.hostLabel;
     const hostIsLocal = openProjectStore.hostIsLocal;
@@ -200,7 +203,7 @@ export function createDesktopProjectPicker(
     openProjectStore.close();
     if (!serverId) return;
 
-    const project = projectsStore.recordProject(serverId, path);
+    const project = projectsStore.addProject(serverId, serverConnections.apiFor(serverId), path);
     const name = path.split(/[\\/]/).pop() || path;
 
     // The flow may have been started from a draft (RunOnPicker passes its
@@ -223,9 +226,9 @@ export function createDesktopProjectPicker(
       requesterDraft.run = withProjectHost(
         withCheckout(requesterDraft.run, path, null),
         serverId,
-        { path, isolate: serversStore.isolatesSessions(serverId) },
+        { path },
       );
-      requesterDraft.task = { kind: "new" };
+      requesterDraft.task = { kind: "none" };
       void session.environment.refresh(serverId, path);
       requestInputFocus();
     } else if (reusableTabId) {
@@ -233,7 +236,7 @@ export function createDesktopProjectPicker(
       requestInputFocus({ tabId: reusableTabId });
     } else {
       const draft = session.drafts.openSessionDraft({ freshTask: true }, path);
-      draft.run = withProjectHost(draft.run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
+      draft.run = withProjectHost(draft.run, serverId, { path });
       requestInputFocus();
     }
 
@@ -253,11 +256,10 @@ export function createDesktopProjectPicker(
       return;
     }
 
-    if (!cloned && hostIsLocal) return;
+    if (source === "local" && hostIsLocal) return;
+    const verb = cloned ? "Cloned" : source === "new" ? "Created" : "Opened";
     toasts.success(
-      cloned
-        ? `Cloned ${name} on ${hostLabel || "host"}`
-        : `Opened ${name} on ${hostLabel || "host"}`,
+      `${verb} ${name} on ${hostLabel || "host"}`,
       {
         actions: [
           {
@@ -289,11 +291,16 @@ export function createDesktopProjectPicker(
     ui.directoryPickerIntent = "open-project";
     openProjectStore.back();
     if (openProjectStore.source === "local") {
-      await openProjectAtPath(dir, false);
+      await openProjectAtPath(dir, "local");
+      return;
+    }
+    // A new project only takes the folder as its location; "Create" still commits.
+    if (openProjectStore.source === "new") {
+      openProjectStore.newProjectParent = dir;
       return;
     }
     const clonedPath = await openProjectStore.cloneInto(dir);
-    if (clonedPath) await openProjectAtPath(clonedPath, true);
+    if (clonedPath) await openProjectAtPath(clonedPath, openProjectStore.source);
   }
 
   return {

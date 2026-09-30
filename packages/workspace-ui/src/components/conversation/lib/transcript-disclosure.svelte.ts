@@ -26,8 +26,8 @@ export class TranscriptDisclosure {
   }
 }
 
-export function provideTranscriptDisclosure(): void {
-  setContext(contextKey, new TranscriptDisclosure())
+export function provideTranscriptDisclosure(disclosure = new TranscriptDisclosure()): void {
+  setContext(contextKey, disclosure)
 }
 
 export function getTranscriptDisclosure(): TranscriptDisclosure {

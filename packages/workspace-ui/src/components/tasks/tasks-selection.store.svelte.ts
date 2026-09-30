@@ -12,7 +12,7 @@ export class TasksSelectionStore {
   /** Currently selected task ids. Reactive so cards re-render on change. */
   readonly ids = new SvelteSet<string>()
   #lastSelectedId: string | null = null
-  // Visible card order (epic children + standalone, in render order), kept in
+  // Visible card order (in render order), kept in
   // sync by TasksPage for Shift-range selection. Plain, non-reactive: it's only
   // read at toggle time, never rendered.
   #order: string[] = []

@@ -8,15 +8,19 @@
   import { Check as CheckIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { cn } from "../../lib/utils";
+  import { Button } from "../ui/button";
 
   interface Props {
     name: string;
     detail: string;
     /** Seconds of stagger, so a list of rows arrives in sequence. */
     delay?: number;
-    tint: string;
-    /** Two letters for an agent, or an icon for a provider or a choice. */
-    abbr?: string;
+    /**
+     * The colour of the disc behind an icon. Omit it for a brand logo, which
+     * carries its own colour and reads as a grey blob on a tinted disc.
+     */
+    tint?: string;
+    /** The agent or provider logo, or an icon for a choice. */
     mark?: Snippet;
     state: "available" | "busy" | "done";
     statusText?: string;
@@ -39,7 +43,6 @@
     detail,
     delay = 0,
     tint,
-    abbr,
     mark,
     state,
     statusText,
@@ -65,15 +68,18 @@
   <div class="flex min-h-[4.5rem] items-center gap-3 py-3 pl-4 pr-4 sm:gap-4 sm:pr-5">
     <span
       class="flex size-10 shrink-0 items-center justify-center rounded-full  font-medium transition-colors duration-150"
-      style="background: color-mix(in oklch, {tint} 16%, transparent); color: color-mix(in oklch, {tint} 72%, var(--foreground))"
+      style={tint
+        ? `background: color-mix(in oklch, ${tint} 16%, transparent); color: color-mix(in oklch, ${tint} 72%, var(--foreground))`
+        : undefined}
     >
-      {#if mark}{@render mark()}{:else}{abbr}{/if}
+      {@render mark?.()}
     </span>
 
     <span class="flex min-w-0 flex-col gap-1">
       <span class="text-sm font-medium ">{name}</span>
-      <span
-        class="truncate text-sm text-muted-foreground"
+      <!-- One line. Copy is written to fit; `truncate` only guards a long
+           account name or error, and the title keeps it readable. -->
+      <span class="truncate text-sm text-muted-foreground" title={detail}
         >{detail}</span
       >
     </span>
@@ -91,16 +97,18 @@
           {statusText}
         </span>
       {:else if actionLabel}
-        <button
-          type="button"
-          class="h-7 shrink-0 rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-[filter,transform] duration-150 hover:brightness-[1.06] active:scale-[0.96]"
-          onclick={(event) => {
+        <!-- Secondary, so the stage's Continue stays its one primary action. -->
+        <Button
+          variant="secondary"
+          size="sm"
+          class="rounded-full px-3.5"
+          onclick={(event: MouseEvent) => {
             event.stopPropagation();
             onaction?.();
           }}
         >
           {actionLabel}
-        </button>
+        </Button>
       {:else if statusText}
         <span class="text-muted-foreground">
           {statusText}

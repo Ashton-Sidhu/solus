@@ -4,7 +4,7 @@ import { parse } from 'path'
 
 const create = mock(() => ({ ok: false, error: 'Native indexing must not start for a broad root' }))
 mock.module('@ff-labs/fff-node', () => ({ FileFinder: { create } }))
-const { getFinder, getContentFinder } = await import('@solus/server/server/file-finder')
+const { getFinder, getContentFinder } = await import('@solus/server/files/file-finder')
 
 describe('all index entry points reject broad roots before native creation', () => {
   test('path finder rejects home and filesystem root', async () => {

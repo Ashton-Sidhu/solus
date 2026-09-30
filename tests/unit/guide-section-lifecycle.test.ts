@@ -21,6 +21,8 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
   try {
     const stub = component('<span></span>', 'stub')
     const button = component('<script>let { children, ...props } = $props();</script><button {...props}>{@render children?.()}</button>', 'button')
+    // The card header names its file; the jump assertion reads that name.
+    const cardHeader = component('<script>let { path } = $props();</script><span>{path}</span>', 'card-header')
     // Keep the actual card loop, bindings, actions and jump commands. The diff
     // and icon renderers do not own card lifecycle and need not run in this test.
     const source = readFileSync(new URL('packages/workspace-ui/src/components/pr-review/guide/GuideSection.svelte', root), 'utf8')
@@ -29,10 +31,11 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
         import { SvelteSet } from 'svelte/reactivity';
         import Stub from ${JSON.stringify(stub)};
         import Button from ${JSON.stringify(button)};
-        const Icon = Stub, ArrowSquareOutIcon = Stub;
+        import DiffFileCardHeader from ${JSON.stringify(cardHeader)};
+        const ArrowSquareOutIcon = Stub, DiffFileTypeBadge = Stub;
         const GuideFileDiff = Stub, GuideExplanation = Stub;
-        const ensureIconCollections = () => {};
-        const fileTypeIcon = () => null;
+        const fileName = (path) => path.split('/').pop() ?? path;
+        const dirName = () => '';
         const detectMovedBlocksInPatches = () => null;
         const resolveLedgerRefs = () => [];
       `)

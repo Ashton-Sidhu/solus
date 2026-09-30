@@ -34,7 +34,7 @@
 
   <div class="min-h-0 flex-1 overflow-hidden" aria-hidden="true">
     <div
-      class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[60rem]:flex-col @max-[60rem]:gap-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
+      class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[72rem]:flex-col @max-[72rem]:gap-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
     >
       <div class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-center gap-[13px] pb-[11px]">
@@ -93,7 +93,7 @@
       </div>
 
       <div
-        class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col overflow-hidden rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px] @max-[60rem]:hidden"
+        class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col overflow-hidden rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] @max-[72rem]:hidden"
       >
         <div class="flex flex-col gap-1 px-3.5 py-[15px]">
           {#each sidebarRows as width, index}

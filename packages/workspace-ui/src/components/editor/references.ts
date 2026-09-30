@@ -9,7 +9,12 @@ import type { WorkRefAttrs } from "./workRefExtension";
 import type { FileRefAttrs } from "./fileRefExtension";
 import type { SlashRefAttrs } from "./slashRefExtension";
 import type { SessionRefAttrs } from "./sessionRefExtension";
-import { serializeReferenceToken, type ReferenceToken } from "./reference-tokens";
+import type { PersonRefAttrs } from "./personRefExtension";
+import {
+  fileReferenceText,
+  serializeReferenceToken,
+  type ReferenceToken,
+} from "./reference-tokens";
 import type {
   PlanReference,
   WorkReference,
@@ -18,7 +23,7 @@ import type {
 
 type ProseMirrorNode = Editor["state"]["doc"];
 type ResolvedPos = Editor["state"]["selection"]["$head"];
-type ReferenceAttrs = PlanRefAttrs | PrRefAttrs | WorkRefAttrs | FileRefAttrs | SlashRefAttrs | SessionRefAttrs;
+type ReferenceAttrs = PlanRefAttrs | PrRefAttrs | WorkRefAttrs | FileRefAttrs | SlashRefAttrs | SessionRefAttrs | PersonRefAttrs;
 
 export function textBeforeCursor(editor: Editor | null): string {
   if (!editor) return "";
@@ -135,7 +140,7 @@ export function unwrapFileReference(editor: Editor | null, pos: number): boolean
   const node = editor.state.doc.nodeAt(pos);
   if (!node || node.type.name !== "fileReference") return false;
 
-  const text = `@${String(node.attrs.path ?? "").replace(/\/+$/, "")}`;
+  const text = fileReferenceText(String(node.attrs.path ?? "").replace(/\/+$/, ""));
   const { tr, schema } = editor.state;
   tr.replaceWith(pos, pos + node.nodeSize, schema.text(text));
   tr.setSelection(TextSelection.create(tr.doc, pos + text.length));
@@ -251,6 +256,13 @@ export function insertReference(
       const { kind: _, ...attrs } = token;
       return insertSessionReference(editor, attrs, triggerPattern);
     }
+    // Only an editor that registers the person node (a work body) takes one.
+    case "person": {
+      const { kind: _, ...attrs } = token;
+      return insertReferenceNode(editor, "personReference", attrs, triggerPattern);
+    }
+    case "login":
+      return updateTriggerText(editor, triggerPattern, `@${token.login} `);
     // Tasks and automations have no Tiptap node of their own — the document
     // editor is not where you act on them. Their markdown link round-trips
     // through the same parser the CodeMirror chip is built from.

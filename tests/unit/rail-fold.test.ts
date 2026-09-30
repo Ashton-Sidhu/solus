@@ -12,4 +12,6 @@ it('folds the task rail only after its pane is measured', () => {
   expect(isTaskRailFolded(0)).toBe(false)
   expect(isTaskRailFolded(TASK_RAIL_FOLD_MAX)).toBe(true)
   expect(isTaskRailFolded(TASK_RAIL_FOLD_MAX + 1)).toBe(false)
+  // A laptop pane beside the session sidebar is too narrow for the task and a 308px rail.
+  expect(isTaskRailFolded(1000)).toBe(true)
 })

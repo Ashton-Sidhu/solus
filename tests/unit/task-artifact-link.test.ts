@@ -5,12 +5,15 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 
+/** The person every change in this file is made by. */
+const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
+
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
-type TaskModule = typeof import('@solus/server/tasks/task')
-type LineageModule = typeof import('@solus/server/sessions/session-lineage')
+type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskModule = typeof import('@solus/server/data/tasks/task')
+type LineageModule = typeof import('@solus/server/data/sessions/session-lineage')
 
 let dataDir: string
 let db: DbModule
@@ -23,9 +26,9 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-artifact-link-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/tasks/task-store')
-  tasks = await import('@solus/server/tasks/task')
-  lineage = await import('@solus/server/sessions/session-lineage')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  tasks = await import('@solus/server/data/tasks/task')
+  lineage = await import('@solus/server/data/sessions/session-lineage')
 })
 
 afterEach(async () => {
@@ -59,7 +62,7 @@ describe('artifact linking across the session id boundary', () => {
       cwd: '/repo',
     })
 
-    const details = await tasks.Task.linkArtifactForSession('local', PROVIDER_SESSION_ID, {
+    const details = await tasks.Task.linkSessionOutput('local', PROVIDER_SESSION_ID, {
       kind: 'work',
       targetKey: 'work-613e21e7',
       title: 'Plan: Drive integration',
@@ -71,7 +74,7 @@ describe('artifact linking across the session id boundary', () => {
   })
 
   test('the stable Solus id still resolves its own task', async () => {
-    // WHY: the renderer and ControlPlane already pass the stable id. Resolving
+    // WHY: the renderer and SessionRuntime already pass the stable id. Resolving
     // the provider alias must not cost them their direct match.
     const record = await taskStore.createTask('local', { title: 'Drive integration' })
     const task = await tasks.Task.byId('local', record.id)
@@ -88,8 +91,8 @@ describe('artifact linking across the session id boundary', () => {
     // reader has no way to tell which pin they last set.
     const record = await taskStore.createTask('local', { title: 'Report latency' })
     const task = await tasks.Task.byId('local', record.id)
-    await task.linkWork('work-a', { title: 'A', pinned: true })
-    await task.linkWork('work-b', { title: 'B', pinned: true })
+    await task.linkWork('work-a', BY, { title: 'A', pinned: true })
+    await task.linkWork('work-b', BY, { title: 'B', pinned: true })
 
     const pinned = (await task.details()).links.filter((link) => link.pinned)
     expect(pinned.map((link) => link.targetKey)).toEqual(['work-b'])
@@ -101,8 +104,8 @@ describe('artifact linking across the session id boundary', () => {
     // absence meant "unpin", the reader's choice would not survive a save.
     const record = await taskStore.createTask('local', { title: 'Report latency' })
     const task = await tasks.Task.byId('local', record.id)
-    await task.linkWork('work-b', { title: 'B', pinned: true })
-    await task.linkWork('work-b', { title: 'B renamed' })
+    await task.linkWork('work-b', BY, { title: 'B', pinned: true })
+    await task.linkWork('work-b', BY, { title: 'B renamed' })
 
     const details = await task.details()
     expect(details.links.find((link) => link.targetKey === 'work-b')?.pinned).toBe(true)
@@ -113,23 +116,43 @@ describe('artifact linking across the session id boundary', () => {
     // "linked B" to the activity feed every time the reader changed the pin.
     const record = await taskStore.createTask('local', { title: 'Report latency' })
     const task = await tasks.Task.byId('local', record.id)
-    await task.linkWork('work-b', { title: 'B', pinned: true })
-    await task.linkWork('work-b', { title: 'B', pinned: false })
+    await task.linkWork('work-b', BY, { title: 'B', pinned: true })
+    await task.linkWork('work-b', BY, { title: 'B', pinned: false })
 
     const details = await task.details()
     expect(details.links.find((link) => link.targetKey === 'work-b')?.pinned).toBeUndefined()
-    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
+    expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
   })
 
   test('a session with no task links nothing', async () => {
     // WHY: loose conversations that predate session-born tasks are ordinary,
     // not an error, so the link stays a no-op instead of throwing.
-    const linked = await tasks.Task.linkArtifactForSession('local', 'loose-session', {
+    const linked = await tasks.Task.linkSessionOutput('local', 'loose-session', {
       kind: 'work',
       targetKey: 'work-orphan',
       title: 'Orphan',
     })
 
     expect(linked).toBeNull()
+  })
+})
+
+describe('what a task share reaches', () => {
+  test('one read answers for many tasks, and only for the tasks it names', async () => {
+    // WHY: a member's session and work lists ask what every task they own
+    // reaches. That question is batched, so a wrong IN list would either leak
+    // another task's sessions or drop the member's own.
+    const { taskShareContents } = await import('@solus/server/data/tasks/task-sharing')
+    const first = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'First' })).id)
+    const second = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Second' })).id)
+    const other = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Other' })).id)
+    await first.linkSession('session-first')
+    await second.linkSession('session-second')
+    await other.linkSession('session-other')
+
+    const reached = await taskShareContents('local', [first.id, second.id])
+
+    expect(reached.map((item) => `${item.kind}:${item.id}`).sort()).toEqual(['session:session-first', 'session:session-second'])
+    expect(await taskShareContents('local', [])).toEqual([])
   })
 })

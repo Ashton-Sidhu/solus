@@ -4,6 +4,7 @@
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
     Laptop as LaptopIcon,
+    ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Sun as SunIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -27,7 +28,6 @@
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     aggregateReviewGuideStatus,
-    hasDisclosure,
     resolveSidebarRowMark,
     taskRowBranchName,
     shouldEmphasizeTitle,
@@ -36,6 +36,7 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
+  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
     task: SidebarTask;
@@ -45,11 +46,12 @@
      *  task leads with full ink and weight; the rest rest at a legible tone. */
     onPath: boolean;
     bulkSelected?: boolean;
-    expanded: boolean;
+    /** Every session of the row, for the facts the row states about them. */
     sessions: SidebarSessionChild[];
-    /** Active session only when it belongs to this task. Keeping unrelated rows
-     *  at null prevents one click from updating every session list. */
-    selectedTabId: string | null;
+    /** The session on screen, listed under the row when the row does not
+     *  stand for it already. Null on every other row, so one click updates
+     *  two rows and not the whole list. */
+    disclosedSession: SidebarSessionChild | null;
     /** Tab whose session name is being edited in place. */
     renamingTabId: string | null;
     /** The same for rows the task store backs, which are named by the task
@@ -62,17 +64,22 @@
     onRename: (session: SidebarSessionChild | null, next: string) => void;
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
+    /** Whether the row can be snoozed: a session's row can, a task's cannot
+     *  (docs/plans/session-pull-requests.md). */
+    canSnooze: boolean;
     /** The snooze menu drops from the button that opened it. */
     onSnooze: (anchor: HTMLElement) => void;
-    /** Return a snoozed task to the active session list immediately. */
+    /** Return a snoozed session to the Sessions section immediately. */
     onWake: () => void;
     onComplete: () => void;
     onClose: () => void;
     onOpenPr: (choice: TaskPrChoice) => void;
+    /** Open a pull request's own menu. */
+    onMorePr: (event: MouseEvent, choice: TaskPrChoice) => void;
+    /** Open the task a session's chip names. */
+    onOpenLinkedTask: () => void;
     onSelectSession: (session: SidebarSessionChild) => void;
     onMoreSession: (event: MouseEvent, session: SidebarSessionChild) => void;
-    onSnoozeSession: (session: SidebarSessionChild, anchor: HTMLElement) => void;
-    onCompleteSession: (session: SidebarSessionChild) => void;
     onCloseSession: (session: SidebarSessionChild) => void;
   }
   let {
@@ -81,9 +88,8 @@
     prChoices,
     onPath,
     bulkSelected = false,
-    expanded,
     sessions,
-    selectedTabId,
+    disclosedSession,
     renamingTabId,
     renamingTaskId,
     onSelect,
@@ -91,17 +97,24 @@
     onRename,
     onRenameCancel,
     onMore,
+    canSnooze,
     onSnooze,
     onWake,
     onComplete,
     onClose,
     onOpenPr,
+    onMorePr,
+    onOpenLinkedTask,
     onSelectSession,
     onMoreSession,
-    onSnoozeSession,
-    onCompleteSession,
     onCloseSession,
   }: Props = $props();
+
+  const completeLabel = $derived(
+    task.status === "done"
+      ? task.taskId ? "Reopen task" : "Reopen session"
+      : task.taskId ? "Mark task completed" : "Mark session done",
+  );
 
   // A row on a quiet shelf collapses to a single line. Snoozed and completed
   // work is deliberately out of the way, and a full-height card spends the same
@@ -109,12 +122,6 @@
   // made the column read as a wall. The slim row keeps every affordance; it
   // just stops claiming the space of live work.
   const isSlim = $derived(task.lifecycle !== "active");
-  const hasSessions = $derived(task.taskId ? sessions.length > 0 : false);
-  /** Whether the row opens onto anything — and therefore whether it spends a
-   *  disclosure mark. A lone session of the task itself is already this row. */
-  const disclosable = $derived(
-    !isSlim && hasSessions && hasDisclosure(sessions),
-  );
   const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
   const reviewGuideTooltipStatus = $derived(
     aggregateReviewGuideStatus(
@@ -127,13 +134,12 @@
   // Which branch or worktree the work sits on. The row itself stays as it is;
   // the tooltip is where the answer belongs.
   const branchName = $derived(taskRowBranchName(task.branchName, sessions));
-  const tooltipSession = $derived(disclosable ? null : sessions[0]);
+  const tooltipSession = $derived(sessions.length === 1 ? sessions[0] : null);
 
   // Which machine, on the same rule as the elapsed readout: with one session
-  // under the task there is a single answer and the row states it, so you never
-  // have to expand a one-session task to learn where it runs. Several sessions
-  // can sit on different hosts, and no single mark is true of all of them — so
-  // the question moves down to the rows that can each answer it.
+  // under the row there is a single answer and the row states it. Several
+  // sessions can sit on different hosts, and no single mark is true of all of
+  // them — so the question moves to the task page, where each can answer it.
   const showsHost = $derived(sessions.length <= 1);
   const host = $derived(serversStore.hostFor(task.serverId));
   // A task with no server on it has nothing open, and nothing open runs here.
@@ -142,13 +148,10 @@
   // the icon falls back to a globe in that case.
   const remoteOs = $derived(host && "os" in host ? host.os : undefined);
 
-  // With no session rows on screen this row stands in for the session you are
-  // reading, so it carries the current-session weight and terracotta clock
-  // itself. Two ways that happens: the task discloses nothing (a lone plain
-  // session *is* this row), or it discloses but sits collapsed — a minimized
-  // task must still say that the session you are reading is one of its own,
-  // since the child row that would otherwise say so is not on screen.
-  const isCurrentSession = $derived(onPath && (!disclosable || !expanded));
+  // With no session listed under it, this row stands for the session you are
+  // reading, so it carries the current-session weight and clock itself. A row
+  // that lists the session on screen under it leaves both to that row.
+  const isCurrentSession = $derived(onPath && !disclosedSession);
   const titleIsEmphasized = $derived(
     shouldEmphasizeTitle(task.status, task.unread, isCurrentSession),
   );
@@ -187,23 +190,11 @@
     }),
   );
 
-  // A durable row is named by its task; a loose row is named by its only tab.
-  const renamingLead = $derived(
+  // A durable row is named by its task; a session's own row by its only tab.
+  const renamingRow = $derived(
     task.taskId
       ? renamingTaskId === task.taskId
-      : !!task.tabIds[0] &&
-          renamingTabId === task.tabIds[0] &&
-          !(hasSessions && expanded),
-  );
-
-  // Where the accent spine stops. The path is "task → … → the session you are
-  //  reading", so every row down to and including the selected one carries it —
-  //  which each row can draw for itself once it knows it is on the path, with no
-  //  arithmetic over row heights or gaps here.
-  const selectedIndex = $derived(
-    sessions.findIndex(
-      (child) => !!child.tabId && child.tabId === selectedTabId,
-    ),
+      : !!task.tabIds[0] && renamingTabId === task.tabIds[0],
   );
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -253,6 +244,7 @@
         ? 'text-(--solus-status-complete)'
         : 'text-chart-5'}"
       role="img"
+      onanimationstart={alignStatusAnimationPhase}
       aria-label={mark.state === "ready"
         ? "Review guide ready"
         : "Generating review guide"}
@@ -275,6 +267,7 @@
     <span
       class="flex shrink-0 items-center text-chart-5"
       role="img"
+      onanimationstart={alignStatusAnimationPhase}
       aria-label={attentionLabel(task.attention)}
     >
       <SpinnerGapIcon size={14} class="animate-spin" />
@@ -340,7 +333,7 @@
     <!-- A task with nothing open still owns its name and completion state, so
          completion and overflow remain available. The check finishes the task;
          the cross only removes the row from this client's sidebar. -->
-    {#if task.tabIds[0] || task.taskId}
+    {#if task.tabIds[0] || task.taskId || task.sessionId}
       <span
         class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:static pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:static pointer-fine:group-has-[:focus-visible]/row:opacity-100"
       >
@@ -348,14 +341,15 @@
              remove while aiming for the lifecycle action. Snooze is the one of
              the three a narrow column can drop: it is a move you make on a row
              you are leaving alone, and it stays on the context menu with the
-             rest of the task's lifecycle. Wake is not — it is a snoozed row's
-             only way back, so it holds at every width. -->
-        {#if task.status !== "done" && task.status !== "dropped"}
+             rest of the session's lifecycle. Wake is not — it is a snoozed
+             row's only way back, so it holds at every width. A task's row has
+             neither: only a session is snoozed. -->
+        {#if canSnooze && task.status !== "done" && task.status !== "dropped"}
           {#if task.lifecycle === "snoozed"}
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
               title="Wake now"
-              aria-label="Wake task now"
+              aria-label="Wake session now"
               onclick={(event) => {
                 event.stopPropagation();
                 onWake();
@@ -367,7 +361,7 @@
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground @max-[15rem]:hidden"
               title="Snooze"
-              aria-label="Snooze task"
+              aria-label="Snooze session"
               onclick={(event) => {
                 event.stopPropagation();
                 onSnooze(event.currentTarget);
@@ -379,8 +373,8 @@
         {/if}
         <button
           class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-          title={task.status === "done" ? "Reopen task" : "Mark task completed"}
-          aria-label={task.status === "done" ? "Reopen task" : "Mark task completed"}
+          title={completeLabel}
+          aria-label={completeLabel}
           onclick={(event) => {
             event.stopPropagation();
             onComplete();
@@ -392,11 +386,12 @@
             <CheckIcon size={14} weight="bold" />
           {/if}
         </button>
-        <!-- Close takes a row out of the working column. A finished row is not
+        <!-- Close takes a row out of the working column. A finished task is not
              in the working column any more — the shelf lists it from the task
-             store and retention decides when it goes — so on the shelf the
-             control only earns its place while there are still tabs to unload.
-             Otherwise it would be a button that visibly does nothing. -->
+             store and retention decides when it goes — and a shelved session
+             with no conversation here has nothing to unload. So on the shelf
+             the control only earns its place while there are still tabs to
+             unload. Otherwise it would be a button that visibly does nothing. -->
         {#if task.tabIds.length > 0 || (task.taskId && task.lifecycle !== "completed")}
           <button
             class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
@@ -420,7 +415,7 @@
      it. Colour is inherited from the row, so a receding row's title recedes
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
-  {#if renamingLead}
+  {#if renamingRow}
     <SessionNameInput
       value={task.title}
       class="text-workspace-chrome {titleIsEmphasized ? 'font-medium' : ''}"
@@ -457,8 +452,8 @@
     role="treeitem"
     tabindex="0"
     data-task-key={task.key}
-    aria-selected={onPath}
-    aria-expanded={disclosable ? expanded : undefined}
+    aria-selected={isCurrentSession}
+    aria-expanded={disclosedSession ? true : undefined}
     aria-label={mark?.kind === "glyph"
       ? `${task.title} — ${attentionLabel(task.attention)}`
       : task.title}
@@ -503,7 +498,7 @@
         <ProjectFavicon
           projectRoot={task.projectKey}
           serverId={task.serverId}
-          class="size-4 pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3"
+          class="size-4 pointer-fine:[&_.lucide-folder]:size-[82%]"
         />
       </span>
       {@render rowTitle()}
@@ -513,7 +508,7 @@
             ? 'opacity-75 group-hover/row:opacity-100'
             : ''}"
         >
-          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} />
+          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} />
         </span>
       {/if}
       {@render trailingSlot()}
@@ -541,7 +536,7 @@
             <ProjectFavicon
               projectRoot={task.projectKey}
               serverId={task.serverId}
-              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[.is-laptop-display_&]:[&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3"
+              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span
@@ -563,14 +558,14 @@
                     os={remoteOs}
                     managed={hostIsManaged(host)}
                     size={12}
-                    class="size-3 shrink-0 [.is-laptop-display_&]:size-2.5"
+                    class="size-3 shrink-0"
                   />
                   <span class="min-w-0 truncate">{host?.label}</span>
                 </span>
               {:else}
                 <LaptopIcon
                   size={12}
-                  class="size-3 shrink-0 @max-[15rem]:hidden [.is-laptop-display_&]:size-2.5"
+                  class="size-3 shrink-0 @max-[15rem]:hidden"
                   aria-label="Local"
                 />
               {/if}
@@ -598,15 +593,47 @@
           class="mt-2 flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5"
         >
           {@render rowTitle()}
+          {#if task.linkedTask}
+            <!-- This session belongs to a task that has no row in the Tasks
+                 section here, so the session names it. The chip is navigation,
+                 as the pull request token beside it is, so it takes the same
+                 bare form: glyph and label in one ink, no plate. Blue keeps it
+                 apart from every pull request state (green, plum, red). The
+                 title is what the row is for, so the chip names the task in at
+                 most 30% of the line, and not at all beside a pull request or
+                 on a narrow list: three names on one line left none readable.
+                 The tooltip still names it. -->
+            <button
+              type="button"
+              class="relative flex max-w-[30%] min-w-0 shrink cursor-pointer items-center gap-[0.21875rem] text-xs text-[color-mix(in_oklch,var(--solus-art-5)_72%,var(--foreground))] transition-[color,opacity,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring {recedes
+                ? 'opacity-75 group-hover/row:opacity-100'
+                : ''}"
+              title={`Task: ${task.linkedTask.title}`}
+              aria-label={`Open task ${task.linkedTask.title}`}
+              onkeydown={(event) => event.stopPropagation()}
+              onpointerdown={(event) => event.stopPropagation()}
+              onclick={(event) => {
+                event.stopPropagation();
+                onOpenLinkedTask();
+              }}
+            >
+              <ListChecksIcon size={12.5} class="shrink-0" />
+              {#if !prChip}
+                <span class="min-w-0 truncate @max-[15rem]:hidden"
+                  >{task.linkedTask.title}</span
+                >
+              {/if}
+            </button>
+          {/if}
           {#if prChip}
-            <!-- The one thing that shares the title's line, because it is the
-                 only mark that is navigation rather than state. -->
+            <!-- It shares the title's line because it is navigation rather
+                 than state. -->
             <span
               class="flex shrink-0 items-center transition-opacity duration-150 {recedes
                 ? 'opacity-75 group-hover/row:opacity-100'
                 : ''}"
             >
-              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} />
+              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} />
             </span>
           {/if}
         </span>
@@ -619,6 +646,7 @@
       title={task.title}
       projectKey={task.projectKey}
       projectLabel={task.projectLabel}
+      taskTitle={task.linkedTask?.title}
       {branchName}
       serverId={task.serverId}
       provider={tooltipSession?.provider}
@@ -628,37 +656,22 @@
     />
   </TooltipUI.Root>
 
-  {#if disclosable && expanded}
-    <div class="relative flex flex-col gap-[0.1875rem] pt-px pb-2">
-      <!-- The spine drops out of the title above and stops on the last row's
-           own elbow, so the tree reads as ending rather than running off.
-           1.375rem is that elbow measured from the bottom: a 2.875rem child
-           whose title line centres at 2rem leaves 0.875rem below it, plus this
-           container's own 0.5rem of bottom padding. It is the same measurement
-           `TaskSessionRow` draws the elbow from, so moving the title moves
-           both. -->
-      <span
-        class="absolute top-0 bottom-[1.375rem] left-2.5 w-px bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-      ></span>
-      {#each sessions as session, index (session.sessionId ?? session.tabId ?? session.taskId)}
-        <TaskSessionRow
-          {session}
-          projectLabel={task.projectLabel}
-          leadsToSelection={selectedIndex >= 0 && index <= selectedIndex}
-          renaming={!!session.tabId && renamingTabId === session.tabId}
-          selected={!!session.tabId && session.tabId === selectedTabId}
-          onRename={(next) => onRename(session, next)}
-          {onRenameCancel}
-          onStartRename={() => onStartRename(session)}
-          onSelect={() => onSelectSession(session)}
-          onMore={(event) => onMoreSession(event, session)}
-          onSnooze={(anchor) => onSnoozeSession(session, anchor)}
-          onComplete={session.isSubtask
-            ? () => onCompleteSession(session)
-            : undefined}
-          onClose={() => onCloseSession(session)}
-        />
-      {/each}
+  {#if disclosedSession && !isSlim}
+    <!-- The session on screen, one step in from the row it belongs to. The
+         row's other sessions are on the task page; the list names only the
+         one being read. -->
+    <div class="pt-px pb-2">
+      <TaskSessionRow
+        session={disclosedSession}
+        projectLabel={task.projectLabel}
+        renaming={!!disclosedSession.tabId && renamingTabId === disclosedSession.tabId}
+        onRename={(next) => onRename(disclosedSession, next)}
+        {onRenameCancel}
+        onStartRename={() => onStartRename(disclosedSession)}
+        onSelect={() => onSelectSession(disclosedSession)}
+        onMore={(event) => onMoreSession(event, disclosedSession)}
+        onClose={() => onCloseSession(disclosedSession)}
+      />
     </div>
   {/if}
 </div>

@@ -2,15 +2,12 @@
   import { untrack } from "svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import {
-    existingTaskId,
-    taskBindingSessionId,
-  } from "../../contexts/workspace/session-draft.svelte";
-  import {
     getWorkspaceContext,
     getPullRequestsContext,
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
+    getSessionSidebarStore,
     serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -30,24 +27,17 @@
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import SidePanel from "../layout/SidePanel.svelte";
-  import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";
   import GoalSection from "./GoalSection.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
-  import TaskSection from "./TaskSection.svelte";
+  import LinkedSection from "./LinkedSection.svelte";
   import SubagentsSection from "./SubagentsSection.svelte";
-  import AutomationsSection from "./AutomationsSection.svelte";
-  import {
-    automationMatchesProject,
-    automationProjectRoots,
-    buildAutomationBoard,
-  } from "./lib/automation-board";
+  import WatchesSection from "./WatchesSection.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
+  import { isWatchEnded } from "@solus/contracts/watch-types";
   import { sessionSubagents } from "./lib/rail-subagents";
-  import { taskRef } from "../tasks/task-page/lib/task-page";
-  import { taskRefTooltip } from "./lib/rail-task-card";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -91,6 +81,7 @@
   const pullRequests = getPullRequestsContext();
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
+  const sessionSidebar = getSessionSidebarStore();
   const outerScrollbar = getOuterScrollbarContext();
   let sectionsElement = $state<HTMLDivElement | null>(null);
 
@@ -174,8 +165,6 @@
     isProjectRailOpen(preferOpen, containerWidth, minimized),
   );
 
-  // Present only once a conversation has started: the goal and the session's own
-  // task links are the two things a draft genuinely does not have yet.
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   const panelServerId = $derived(
@@ -191,28 +180,14 @@
     serversStore.affinityFor(panelRun?.serverId),
   );
 
-  const cwd = $derived((panelRun ?? session.defaultRunConfig).workingDirectory);
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
-  // The task the session is working, or the one a draft will be filed under —
-  // which is why the target is read rather than the session's links alone. It
-  // covers the window between "started from a task" and the first agent session
-  // id existing, so the card is there from the tab's first frame.
-  const panelTaskTarget = $derived(
-    panelSession?.task ?? session.drafts.sessionDrafts.get(sourceId)?.task,
+  // The Linked card exists only while the session links a pull request. A
+  // draft has no session and therefore no links.
+  const panelLinks = $derived(
+    panelSession ? sessionSidebar.pullRequestLinksForTab(sourceId) : [],
   );
-  const namedTaskId = $derived(
-    panelTaskTarget ? existingTaskId(panelTaskTarget) : null,
-  );
-  const panelTaskSessionId = $derived(
-    panelSession ? taskBindingSessionId(panelSession) : null,
-  );
-  const panelTask = $derived(
-    session.tasksStore.peek(namedTaskId) ??
-      session.tasksStore.taskForSession(panelTaskSessionId),
-  );
-  const panelTaskCwd = $derived(panelTask?.projectKey ?? cwd);
 
   // The Subagents card exists only once the conversation has dispatched one,
   // so the read that decides it belongs here rather than in the card it would
@@ -221,63 +196,18 @@
     panelSession ? sessionSubagents(panelSession.messages) : [],
   );
 
-  // The Task card exists only while the task has something linked, so the read
-  // that decides it belongs here rather than in the card it would hide. Links
-  // are per-task IO the rail follows without a click of its own — the id
-  // changes whenever the focused session does — which is what $effect is for.
-  const panelTaskLinks = $derived(
-    panelTask ? session.tasksStore.get(panelTask.id).details?.links ?? [] : [],
-  );
-  let loadedTaskId: string | null = null;
-  $effect(() => {
-    const id = panelTask?.id;
-    if (!id || !active || !open) {
-      loadedTaskId = null;
-      return;
-    }
-    const stopWatching = session.tasksStore.get(id).watchDetails();
-    if (id !== loadedTaskId) {
-      loadedTaskId = id;
-      void session.tasksStore.get(id, panelTaskCwd).loadDetails().catch(() => {});
-    }
-    return stopWatching;
-  });
-
-  // Automations scoped to the focused project (its repo root, worktree, and cwd),
-  // so the panel shows what runs for this project.
-  const automationsStore = session.automationsStore;
-  const automationScopeRoots = $derived(
-    isUnconfiguredCwd(gitCwd)
-      ? []
-      : automationProjectRoots(gitCwd, panelEnvironment.repoRoot, cwd),
-  );
-  // A glanceable status board, not the full catalog: only automations that need
-  // attention right now (running, failed, pinned, soonest-scheduled) surface here.
-  const automationBoard = $derived(
-    buildAutomationBoard(
-      automationsStore.items.filter((a) =>
-        automationMatchesProject(
-          a,
-          automationsStore.hostFor(a.id),
-          panelServerId,
-          automationScopeRoots,
-        ),
-      ),
-    ),
-  );
-  // The automations store is otherwise only populated lazily (when the
-  // Automations page opens), so hydrating a session from disk would leave the
-  // section empty on a cold reload. Load only when the focused project's
-  // resolved Git cwd changes so focus events within a pane do not churn the
-  // project-scoped stores.
-  let loadedProjectCwd = $state<string>();
-  const shouldLoadProject = $derived(
-    active && open && !isUnconfiguredCwd(gitCwd) && gitCwd !== loadedProjectCwd,
+  // The Watches card exists only while the session has a watch that has not
+  // ended. The rail holds the session's watches loaded while it shows them.
+  const panelWatches = $derived(
+    panelSession
+      ? session.watchesStore.forSession(panelSession.id).filter((watch) => !isWatchEnded(watch.status))
+      : [],
   );
   $effect(() => {
-    if (!shouldLoadProject || !gitCwd) return;
-    loadedProjectCwd = gitCwd;
-    void automationsStore.loadAll(panelServerId ?? undefined);
+    const sessionId = panelSession?.id;
+    const serverId = panelServerId;
+    if (!sessionId || !serverId || !active) return;
+    return untrack(() => session.watchesStore.watchSession(serverId, sessionId));
   });
 
   // A split chat mounts a second rail, so both instances register these ids and
@@ -323,17 +253,6 @@
     );
   }
 
-  function completeTask() {
-    const task = panelTask;
-    if (!task) return;
-    void session.tasksStore.get(task.id).setStatus("done").catch((err) =>
-      toasts.error("Couldn't complete the task", {
-        description: err instanceof Error ? err.message : String(err),
-      }),
-    );
-    requestInputFocus();
-  }
-
   type RefreshState = "idle" | "spinning" | "success" | "error";
   let refreshState = $state<RefreshState>("idle");
   let refreshResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -370,10 +289,6 @@
     requestInputFocus();
   }
 
-  function newAutomation() {
-    session.openAutomationBuilder(null, "focused", sourceId);
-    requestInputFocus();
-  }
 </script>
 
 {#snippet environmentHeaderBadge()}
@@ -391,6 +306,23 @@
       >
     </span>
   {/if}
+{/snippet}
+
+{#snippet linkedHeaderExtra()}
+  <span class="header-extra">
+    <button
+      class="tiny-icon"
+      type="button"
+      title="Link a pull request"
+      aria-label="Link a pull request"
+      onclick={(e) => {
+        e.stopPropagation();
+        session.ui.linkPrompt = { kind: "session-pull-request", tabId: sourceId };
+      }}
+    >
+      <PlusIcon size={12} />
+    </button>
+  </span>
 {/snippet}
 
 {#snippet environmentHeaderExtra()}
@@ -439,58 +371,6 @@
         value={`Collapse project panel (${comboHint("global.toggle-project-panel")})`}
       />
     </TooltipUI.Root>
-  </span>
-{/snippet}
-
-{#snippet taskHeaderExtra()}
-  <!-- The card's own header carries the task's short ref in mono, the way the
-       Git card carries a branch: the one machine-readable name for what the
-       card is about, and the card's only way out to the task page. Complete and
-       Snooze follow it as glyphs, then the section's own disclosure caret. -->
-  <span class="header-extra">
-    <button
-      class="cursor-pointer underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
-      type="button"
-      title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
-      onclick={(e) => {
-        e.stopPropagation();
-        if (panelTask) session.goToTask(panelTask.id, "click", "secondary");
-      }}
-    >
-      {panelTask ? taskRef(panelTask) : ""}
-    </button>
-    <!-- Completing a task in Solus only moves its status — no session is
-         stopped by it — so the button acts rather than confirming. -->
-    <button
-      class="tiny-icon"
-      type="button"
-      title="Mark complete"
-      aria-label="Mark task complete"
-      onclick={(e) => {
-        e.stopPropagation();
-        completeTask();
-      }}
-    >
-      <CheckIcon size={12} />
-    </button>
-  </span>
-{/snippet}
-
-{#snippet automationsHeaderExtra()}
-  <span class="header-extra">
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      class="text-(--solus-text-tertiary)"
-      type="button"
-      aria-label="New automation"
-      onclick={(e) => {
-        e.stopPropagation();
-        newAutomation();
-      }}
-    >
-      <PlusIcon size={14} />
-    </Button>
   </span>
 {/snippet}
 
@@ -558,23 +438,16 @@
         onResizePointerDown={startResize}
       />
     {/if}
-    {#if panelTask && panelTaskLinks.length}
-      <!-- The header carries the whole of the task's identity — label, ref and
-           actions — and the body is its linked list. A task with nothing
-           linked has no card at all rather than an empty one: the task itself
-           is already named in the breadcrumb and on the task page. -->
+    {#if panelLinks.length > 0}
       <PanelSection
-        title="Task"
-        collapsed={collapsedSections.task}
-        onToggle={() => toggleSection("task")}
-        headerExtra={taskHeaderExtra}
+        title="Linked"
+        headerDetail={`${panelLinks.length}`}
+        collapsed={collapsedSections.linked}
+        onToggle={() => toggleSection("linked")}
+        headerExtra={linkedHeaderExtra}
         onResizePointerDown={startResize}
       >
-        <TaskSection
-          task={panelTask}
-          projectCwd={panelTaskCwd}
-          active={active && open}
-        />
+        <LinkedSection {sourceId} links={panelLinks} active={active && open} />
       </PanelSection>
     {/if}
     {#if panelSession && panelSubagents.length > 0}
@@ -589,16 +462,15 @@
         onResizePointerDown={startResize}
       />
     {/if}
-    {#if automationBoard.total > 0}
+    {#if panelWatches.length > 0}
       <PanelSection
-        title="Automations"
-        headerDetail={automationBoard.summary}
-        collapsed={collapsedSections.automations}
-        onToggle={() => toggleSection("automations")}
-        headerExtra={automationsHeaderExtra}
+        title="Watches"
+        headerDetail={`${panelWatches.length} active`}
+        collapsed={collapsedSections.watches}
+        onToggle={() => toggleSection("watches")}
         onResizePointerDown={startResize}
       >
-        <AutomationsSection board={automationBoard} />
+        <WatchesSection watches={panelWatches} />
       </PanelSection>
     {/if}
   </div>
@@ -628,18 +500,7 @@
     line-height: var(--text-workspace-chrome--line-height);
   }
 
-  /* The shelf rung is flat at 12px, so on a laptop it meets the chrome rung the
-     rows take and the section headings and their key hints stop reading as a
-     step under the rows they sit above. The rail restates the rung one notch
-     down for its own subtree rather than stepping it globally: a menu is a
-     decision surface and holds both of its sizes on either display. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display) .project-sections {
-      --text-chrome-shelf: 0.6875rem;
-    }
-  }
-
-  /* At the rail's narrow laptop measure the fixed gutter is a large share of
+  /* At the rail's narrow measure the fixed gutter is a large share of
      the column, so the cards give chrome back to their content. */
   @container (max-width: 17rem) {
     .project-sections {

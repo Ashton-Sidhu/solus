@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool } from '../agents/tools/agent-tool'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { resolveDocUrl } from './registry'
 
 const text = z.string().trim().min(1).max(10000)

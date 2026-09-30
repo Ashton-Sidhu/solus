@@ -22,11 +22,11 @@ mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => store 
 mock.module('@solus/server/atlassian/client-id', () => ({ ATLASSIAN_CLIENT_ID: 'test-client' }))
 mock.module('@solus/server/atlassian/client-secret', () => ({ ATLASSIAN_CLIENT_SECRET: 'test-secret' }))
 
-let SolusServer: typeof import('@solus/server/server/server')['SolusServer']
-let registerAtlassianHandlers: typeof import('@solus/server/server/handlers/atlassian-handlers')['registerAtlassianHandlers']
+let SolusServer: typeof import('@solus/server/transport/server')['SolusServer']
+let registerAtlassianHandlers: typeof import('@solus/server/transport/handlers/atlassian-handlers')['registerAtlassianHandlers']
 beforeAll(async () => {
-  ;({ SolusServer } = await import('@solus/server/server/server'))
-  ;({ registerAtlassianHandlers } = await import('@solus/server/server/handlers/atlassian-handlers'))
+  ;({ SolusServer } = await import('@solus/server/transport/server'))
+  ;({ registerAtlassianHandlers } = await import('@solus/server/transport/handlers/atlassian-handlers'))
 })
 
 beforeEach(() => {

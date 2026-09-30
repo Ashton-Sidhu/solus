@@ -17,9 +17,13 @@ describe('attentionActionForStatus — status → attention entry kind', () => {
     expect(attentionActionForStatus('completed', null)).toEqual({ type: 'set', kind: 'finished' })
     expect(attentionActionForStatus('failed', null)).toEqual({ type: 'set', kind: 'failed' })
     expect(attentionActionForStatus('dead', null)).toEqual({ type: 'set', kind: 'failed' })
-    // The agent is done even though its background task still runs; the user
-    // must not wait on a task that may never end to hear the turn finished.
-    expect(attentionActionForStatus('background', null)).toEqual({ type: 'set', kind: 'finished' })
+  })
+
+  test('a turn waiting on background work does not notify as finished', () => {
+    // WHY: background work often starts mid-task and the agent resumes when it
+    // settles. A "finished" entry here announced work that had not finished;
+    // the sidebar's background mark shows this state instead.
+    expect(attentionActionForStatus('background', null)).toEqual({ type: 'ignore' })
   })
 
   test('active/neutral states resolve — covers respond, next-prompt, and cancel', () => {

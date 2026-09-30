@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
-import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
-import { reconcileCodexSubagentHistory } from '@solus/server/agents/codex/codex-subagent-history'
-import { loadCodexHistory } from '@solus/server/agents/codex/codex-history'
-import { codexItemToMessage } from '@solus/server/agents/codex/codex-utils'
-import { projectSessionEvent, projectSessionHistory } from '@solus/server/server/result-projection'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+import { reconcileCodexSubagentHistory } from '@solus/server/execution/agents/codex/codex-subagent-history'
+import { loadCodexHistory } from '@solus/server/execution/agents/codex/codex-history'
+import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
+import { projectSessionEvent, projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
 const spawn = {

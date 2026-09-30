@@ -16,10 +16,11 @@
       "@solus/client-core/*": ["packages/client-core/src/*"],
       "@solus/server/*": ["packages/server/src/*"],
       "@solus/workspace-ui/*": ["packages/workspace-ui/src/*"],
+      "@solus/document-model/*": ["packages/document-model/src/*"],
       "@solus/lab/*": ["packages/lab/src/*"],
       "@solus/desktop-main/*": ["apps/desktop/src/main/*"]
     }
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts"],
-  "exclude": ["node_modules", "dist", "packages/server/src/agents/codex/generated/**"]
+  "exclude": ["node_modules", "dist", "packages/server/src/execution/agents/codex/generated/**"]
 }

@@ -8,16 +8,19 @@
     Search as MagnifyingGlassIcon,
     Folder as FolderIcon,
     FolderPlus as FolderPlusIcon,
-    House as HouseIcon,
     ChevronRight as CaretRightIcon,
-    History as ClockCounterClockwiseIcon,
     Eye as EyeIcon,
     EyeOff as EyeSlashIcon,
     HardDrive as DesktopTowerIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import VirtualList from "svelte-tiny-virtual-list";
+  import VirtualList from "../ui/list-page/VirtualList.svelte";
   import DirectoryRow from "./DirectoryRow.svelte";
+  import DirectoryEditStrip from "./DirectoryEditStrip.svelte";
+  import DirectoryPickerMenu from "./DirectoryPickerMenu.svelte";
+  import DirectoryPlaces from "./DirectoryPlaces.svelte";
+  import { placesFor, type Place } from "./lib/picker-places";
+  import { DirectoryEdits } from "./lib/directory-edits.svelte";
   import {
     projectsStore,
     connectionsStore,
@@ -26,9 +29,10 @@
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
+  import { eventMatches } from "../../lib/keybindings/match";
+  import { copyText, toasts } from "../../lib/toasts";
   import { abbreviateHome } from "../../lib/paths";
   import Kbd from "../ui/Kbd.svelte";
-  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import type { DirectoryEntry } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
   import { hostPolicy } from "@solus/client-core/host-policy";
@@ -82,9 +86,6 @@
     serverId,
   }: Props = $props();
 
-  /** Glyph a Places row carries — what kind of location it is, not its label. */
-  type PlaceIcon = "workspace" | "home" | "folder" | "recent";
-
   const layer = getPopoverLayer();
 
   /** The typed path is the only selection state; everything below derives from it. */
@@ -100,21 +101,34 @@
   let resolvedParentDirectory = $state<string | null>(null);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
-  /** Kept apart from `loadError` so a failed reveal never hides the folder list. */
-  let fileManagerError = $state<string | null>(null);
   let creating = $state(false);
   let reloadVersion = $state(0);
   let highlightedIndex = $state(-1);
   let showHidden = $state(false);
-  let sidebarLocations = $state<
-    Array<{ label: string; path: string; icon: PlaceIcon }>
-  >([]);
+  let sidebarLocations = $state<Place[]>([]);
   /** File mode only: the name being saved, edited independently of the folder. */
   let nameDraft = $state("");
   let popoverEl: HTMLDivElement | null = $state(null);
   let pathInputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let pathBarEl: HTMLElement | null = $state(null);
   let listHeight = $state(0);
+  /** Where a right-click or long-press opened the menu; `entry` null means the folder itself. */
+  let contextMenu = $state<{ x: number; y: number; entry: DirectoryEntry | null } | null>(null);
+  /** The entry a finished edit left behind, highlighted once the reload lands. */
+  let pendingHighlightPath: string | null = null;
+
+  const edits = new DirectoryEdits({
+    api: () => host,
+    directory: () => resolvedDirectory,
+    platform: () => hostPlatform,
+    siblingNames: () => entries.map((entry) => entry.name),
+    onChanged: (landedPath) => {
+      pendingHighlightPath = landedPath;
+      // Clear the filter so the new or renamed folder is in view.
+      path = directoryPath;
+      reloadVersion++;
+    },
+  });
 
   const directoryPath = $derived(browseDirectoryPath(path, hostPlatform));
   const leaf = $derived(browseLeafSegment(path, hostPlatform));
@@ -143,6 +157,9 @@
     return nextRows;
   });
   const highlightedRow = $derived(rows[highlightedIndex] ?? null);
+  const rowKey = (row: Row) => (row.kind === "up" ? ".." : row.entry.path);
+  const activeRow = $derived(rows[Math.max(highlightedIndex, 0)]);
+  const activeRowKey = $derived(activeRow ? rowKey(activeRow) : null);
 
   const exactEntry = $derived(
     leaf ? (dirEntries.find((e) => e.name === leaf) ?? null) : null,
@@ -179,9 +196,6 @@
     return willReplace ? "Replace" : actionLabel;
   });
   const targetName = $derived(inferFolderName(resolvedPath || path, hostPlatform));
-
-  /** Footer readout: what Enter commits, in the shorthand the user typed it in. */
-  const displayPath = $derived(abbreviateHome(resolvedPath || path));
 
   // The name belongs to the file the caller asked to save, so re-opening the
   // picker on a different target starts from that target's name.
@@ -233,6 +247,8 @@
     highlightedIndex = -1;
     loadError = null;
     sidebarLocations = [];
+    contextMenu = null;
+    edits.cancel();
 
     blurActiveTextInputOnMobile();
 
@@ -251,52 +267,7 @@
       hostSystem = capabilities?.platform ?? null;
       hostPlatform = browsePathPlatform(capabilities?.platform, initialPath);
 
-      const homePath = ensureDirectoryPath("~", hostPlatform);
-      const standardNames = ["Desktop", "Documents", "Downloads"];
-      const projectsPath = capabilities?.projectsBaseDirectory
-        ? ensureDirectoryPath(capabilities.projectsBaseDirectory, hostPlatform)
-        : null;
-      const resolvedHomePath = home?.currentPath
-        ? ensureDirectoryPath(home.currentPath, hostPlatform)
-        : homePath;
-      const filesystemRoot = breadcrumbTrail(
-        resolvedHomePath,
-        hostPlatform,
-      )[0]?.path;
-      // My Workspace pins to the top: it is the app's default working directory,
-      // always present on the host, and never surfaces in recents.
-      const workspaceLocation = capabilities?.workspacePath
-        ? {
-            label: "My Workspace",
-            path: ensureDirectoryPath(capabilities.workspacePath, hostPlatform),
-            icon: "workspace" as const,
-          }
-        : null;
-      sidebarLocations = [
-        ...(workspaceLocation ? [workspaceLocation] : []),
-        ...(projectsPath && projectsPath !== homePath && projectsPath !== resolvedHomePath
-          ? [{ label: "Projects", path: projectsPath, icon: "folder" as const }]
-          : []),
-        { label: "Home", path: homePath, icon: "home" as const },
-        ...(filesystemRoot &&
-        filesystemRoot !== homePath &&
-        filesystemRoot !== resolvedHomePath
-          ? [
-              {
-                label: hostPlatform === "win32" ? filesystemRoot : "Root",
-                path: filesystemRoot,
-                icon: "folder" as const,
-              },
-            ]
-          : []),
-        ...standardNames
-          .filter((name) => home?.entries.some((entry) => entry.isDir && entry.name === name))
-          .map((name) => ({
-            label: name,
-            path: appendPathSegment(homePath, name, hostPlatform),
-            icon: "folder" as const,
-          })),
-      ];
+      sidebarLocations = placesFor(hostPlatform, capabilities, home);
 
       const seed = initialPath || capabilities?.projectsBaseDirectory || "~";
       relativeAnchor = isRootedPath(seed, hostPlatform)
@@ -322,8 +293,8 @@
     let cancelled = false;
     loading = true;
     loadError = null;
-    fileManagerError = null;
     resolvedParentDirectory = null;
+    edits.cancel();
     browseApi
       // Annotated: which folders are checkouts and which Solus already knows is
       // exactly what you can't tell by name on a machine you've never used.
@@ -335,7 +306,11 @@
         resolvedParentDirectory = result.parentPath;
         loadError = result.error;
         loading = false;
-        highlightedIndex = -1;
+        const landedPath = pendingHighlightPath;
+        pendingHighlightPath = null;
+        highlightedIndex = landedPath
+          ? rows.findIndex((row) => row.kind === "dir" && row.entry.path === landedPath)
+          : -1;
       })
       .catch(() => {
         if (cancelled) return;
@@ -412,10 +387,43 @@
     }
   }
 
-  async function openInFileManager() {
-    if (!resolvedDirectory) return;
-    const opened = await host.openInFileManager(resolvedDirectory).catch(() => false);
-    fileManagerError = opened ? null : `Couldn’t open this folder in ${fileManagerName}.`;
+  async function openInFileManager(target = resolvedDirectory) {
+    if (!target) return;
+    const opened = await host.openInFileManager(target).catch(() => false);
+    if (!opened) toasts.error(`Couldn’t open this folder in ${fileManagerName}`);
+  }
+
+  function focusFilter() {
+    if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
+  }
+
+  /** A filter that names no folder yet is most likely the name to create. */
+  function startNewFolder() {
+    contextMenu = null;
+    edits.startCreate(willCreate ? leaf : "");
+  }
+
+  function openRowMenu(index: number, event: MouseEvent) {
+    const item = rows[index];
+    highlightedIndex = index;
+    contextMenu = { x: event.clientX, y: event.clientY, entry: item.kind === "dir" ? item.entry : null };
+  }
+
+  /** Shift+F10 or the menu key: the keyboard's right-click, on the highlighted row. */
+  function openMenuFromKeyboard() {
+    const rect = document.getElementById(`directory-option-${highlightedIndex}`)?.getBoundingClientRect();
+    const anchor = rect ?? pathInputEl?.getBoundingClientRect();
+    if (!anchor) return;
+    contextMenu = {
+      x: anchor.left + 24,
+      y: anchor.bottom,
+      entry: highlightedRow?.kind === "dir" ? highlightedRow.entry : null,
+    };
+  }
+
+  async function copyPath(target: string) {
+    await copyText(target);
+    toasts.success("Path copied", { description: abbreviateHome(target) });
   }
 
   // Keep Tab focus cycling inside the dialog so keyboard users can't fall
@@ -445,6 +453,18 @@
     }
   }
 
+  /** New folder, rename, trash, and the menu key. True when `e` was one of them. */
+  function runFolderShortcut(e: KeyboardEvent): boolean {
+    if (eventMatches(e, { code: "KeyN", alt: true })) startNewFolder();
+    else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) openMenuFromKeyboard();
+    // Only on a highlighted folder: otherwise ⌘⌫ is still line-delete in the filter.
+    else if (highlightedRow?.kind !== "dir") return false;
+    else if (e.key === "F2") edits.startRename(highlightedRow.entry);
+    else if (eventMatches(e, { code: "Backspace", mod: true })) edits.startTrash(highlightedRow.entry);
+    else return false;
+    return true;
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Tab") {
       trapFocus(e);
@@ -455,6 +475,11 @@
       e.preventDefault();
       e.stopPropagation();
       onClose();
+      return;
+    }
+
+    if (runFolderShortcut(e)) {
+      e.preventDefault();
       return;
     }
 
@@ -512,7 +537,6 @@
         rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
-        md:pointer-fine:[.is-laptop-display_&]:h-[72%] md:pointer-fine:[.is-laptop-display_&]:w-[88%]
         max-md:mt-auto max-md:h-[calc(100dvh-6rem)] max-md:w-full max-md:rounded-b-none max-md:rounded-t-[1.625rem]
         max-md:bg-background max-md:shadow-[shadow:0_-0.0625rem_0_var(--hairline-strong),0_-1.5rem_3.75rem_-1.25rem_rgba(0,0,0,0.5)]"
       role="dialog"
@@ -565,51 +589,15 @@
       </header>
 
       <div class="flex min-h-0 flex-1 max-md:flex-col">
-        <nav
-          class="places-rail flex w-49 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-r-border p-2
-            max-md:flex max-md:w-full max-md:flex-row max-md:gap-1.5 max-md:overflow-x-auto max-md:overflow-y-hidden
-            max-md:border-r-0 max-md:border-b max-md:border-b-(--solus-popover-border)/30 max-md:bg-transparent max-md:px-3 max-md:py-2
-            max-md:[touch-action:pan-x] max-md:[-webkit-overflow-scrolling:touch]"
-          aria-label="Places"
-        >
-          {#snippet place(label: string, target: string, icon: PlaceIcon)}
-            <button
-              type="button"
-              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.8125rem] outline-none
-                [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
-                focus-visible:ring-2 focus-visible:ring-(--solus-accent)
-                max-md:h-9 max-md:w-auto max-md:whitespace-nowrap max-md:rounded-full max-md:px-3.5 max-md:text-xs
-                {path === target
-                  ? 'bg-secondary text-primary'
-                  : icon === 'recent'
-                    ? 'text-muted-foreground hover:bg-muted'
-                    : 'hover:bg-muted'}"
-              onclick={() => navigateTo(target)}
-              title={target}
-            >
-              {#if icon === "workspace"}
-                <WorkspaceMark class="size-3.5 shrink-0" />
-              {:else if icon === "home"}
-                <HouseIcon size={14} class="shrink-0" />
-              {:else if icon === "recent"}
-                <ClockCounterClockwiseIcon size={14} class="shrink-0" />
-              {:else}
-                <FolderIcon size={14} class="shrink-0" />
-              {/if}
-              <span class="truncate">{label}</span>
-            </button>
-          {/snippet}
-
-          {#each sidebarLocations as loc (loc.path)}
-            {@render place(loc.label, loc.path, loc.icon)}
-          {/each}
-
-          <div class="my-2 h-px shrink-0 bg-border max-md:my-0 max-md:h-5 max-md:w-px max-md:self-center"></div>
-
-          {#each recentProjects.slice(0, 6) as project (project.path)}
-            {@render place(project.folderName, ensureDirectoryPath(project.path, hostPlatform), "recent")}
-          {/each}
-        </nav>
+        <DirectoryPlaces
+          locations={sidebarLocations}
+          recents={recentProjects.slice(0, 6).map((project) => ({
+            label: project.folderName,
+            path: ensureDirectoryPath(project.path, hostPlatform),
+          }))}
+          activePath={path}
+          onNavigate={navigateTo}
+        />
 
         <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <!-- Trail on top, filter under it: the trail says where the list is,
@@ -646,16 +634,17 @@
               {/each}
             </nav>
 
-            <!-- A soft pill rather than a bare row: icon, text and the hidden
-                 folder toggle read as one object instead of three loose parts. -->
+            <!-- The shell of ui/search-field, restated because this input is a
+                 combobox that field cannot carry. -->
             <div
-              class="flex h-8 items-center gap-2 rounded-lg bg-muted px-2.5
-                max-md:h-11 max-md:gap-[0.5625rem] max-md:bg-card max-md:px-3 max-md:shadow-[shadow:var(--elev-ring)]"
+              class="flex h-8 items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5
+                transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]
+                max-md:h-11 max-md:gap-[0.5625rem] max-md:px-3"
             >
               {#if willCreate}
                 <FolderPlusIcon size={14} weight="fill" class="shrink-0 text-primary" />
               {:else}
-                <MagnifyingGlassIcon size={14} class="shrink-0 text-muted-foreground" />
+                <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
               {/if}
               <!-- 16px on a phone, not the 13px the desktop field uses: iOS zooms
                    into any input under 16px and does not zoom back out, which
@@ -689,7 +678,7 @@
                 variant="ghost"
                 size="icon-xs"
                 tabindex={-1}
-                class="size-5 shrink-0 rounded text-muted-foreground hover:bg-card max-md:size-8 {showHidden ? '' : 'opacity-55'}"
+                class="-mr-1 size-5 shrink-0 rounded text-muted-foreground max-md:size-8 {showHidden ? '' : 'opacity-55'}"
                 onmousedown={(e) => e.preventDefault()}
                 onclick={() => (showHidden = !showHidden)}
                 title={showHidden ? "Hide hidden folders" : "Show hidden folders"}
@@ -699,6 +688,7 @@
                 {#if showHidden}<EyeSlashIcon size={14} />{:else}<EyeIcon size={14} />{/if}
               </Button>
             </div>
+            <DirectoryEditStrip {edits} onSettled={focusFilter} />
           </div>
 
           <div
@@ -707,6 +697,11 @@
             id="directory-picker-list"
             role="listbox"
             aria-label="Folders"
+            tabindex={-1}
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              contextMenu = { x: e.clientX, y: e.clientY, entry: null };
+            }}
           >
             {#snippet row(index: number, style?: string)}
               {@const item = rows[index]}
@@ -720,6 +715,7 @@
                 isProject={item.kind === "dir" && item.entry.isProject}
                 {style}
                 onclick={() => descend(item)}
+                onContextMenu={(event) => openRowMenu(index, event)}
               />
             {/snippet}
 
@@ -787,17 +783,18 @@
                 {/each}
               </div>
             {:else if listHeight > 0}
+              <!-- With nothing highlighted the first row is the active one, so a
+                   new listing starts at its top. -->
               <VirtualList
-                width="100%"
+                items={rows}
                 height={listHeight}
-                itemCount={rows.length}
-                itemSize={rowHeight}
-                scrollToIndex={Math.max(highlightedIndex, 0)}
-                scrollToAlignment="auto"
-                scrollToBehaviour="instant"
-                overscanCount={5}
+                itemSize={() => rowHeight}
+                keyOf={rowKey}
+                activeKey={activeRowKey}
+                overscan={5}
+                showScrollbar
               >
-                {#snippet item({ index, style }: { index: number; style: string })}
+                {#snippet children(_item, index, style)}
                   {@render row(index, style)}
                 {/snippet}
               </VirtualList>
@@ -809,6 +806,19 @@
       <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
         max-md:h-auto max-md:flex-wrap max-md:gap-2.5 max-md:border-t-[var(--hairline)] max-md:bg-[var(--wash-1)]
         max-md:py-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom,0))]">
+        <!-- The same in open and save mode: making a folder is part of
+             choosing one, whatever the picker is for. -->
+        <Button
+          variant="ghost"
+          class="shrink-0 gap-1.5 text-[0.8125rem] text-muted-foreground max-md:h-12"
+          disabled={loading || !resolvedDirectory}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={startNewFolder}
+          title="New folder (⌥N)"
+        >
+          <FolderPlusIcon size={14} />
+          New folder
+        </Button>
         {#if savingFile}
           <!-- The name of the file, not a filter: the crumbs above already say
                which folder it lands in, so this replaces the path readout. -->
@@ -837,29 +847,8 @@
               }}
             />
           </label>
-        {:else if fileManagerError}
-          <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground max-md:hidden">{fileManagerError}</span>
         {:else}
-          <!-- What Enter commits, spelled out — the typed path can be a prefix,
-               a "~", or a folder about to be created. On a phone it takes its
-               own line above the button rather than being dropped: there is no
-               hover to reveal it, so this is the only place the whole
-               destination is stated before you commit to it. -->
-          <span
-            class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground max-md:order-first max-md:basis-full
-              max-md:whitespace-normal max-md:break-all max-md:text-[0.6875rem] max-md:leading-[1.5]"
-            title={resolvedPath}
-          >
-            {displayPath}
-          </span>
-          <div class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground max-md:hidden">
-            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden pointer-fine:[.is-laptop-display_&]:hidden">
-              <Kbd variant="hint">↑↓</Kbd>navigate
-            </span>
-            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden pointer-fine:[.is-laptop-display_&]:hidden">
-              <Kbd variant="hint">→</Kbd>open
-            </span>
-          </div>
+          <div class="flex-1 max-md:hidden"></div>
         {/if}
         {#if canOpenFileManager}
           <Button
@@ -894,15 +883,32 @@
       </footer>
     </div>
   </div>
+  {#if contextMenu}
+    {@const menu = contextMenu}
+    <DirectoryPickerMenu
+      x={menu.x}
+      y={menu.y}
+      entry={menu.entry}
+      fileManagerName={canOpenFileManager ? fileManagerName : null}
+      portalTarget={layer.el}
+      onNewFolder={startNewFolder}
+      onRename={(entry) => edits.startRename(entry)}
+      onTrash={(entry) => edits.startTrash(entry)}
+      onCopyPath={() => void copyPath(menu.entry?.path ?? resolvedDirectory)}
+      onOpenInFileManager={() => void openInFileManager(menu.entry?.path)}
+      onClose={() => {
+        contextMenu = null;
+        // An edit that just opened takes focus itself; anything else returns to the filter.
+        if (!edits.edit) focusFilter();
+      }}
+    />
+  {/if}
 {/if}
 
 <style>
-  /* svelte-tiny-virtual-list renders its scroller outside this component, and
-     sets `overflow: auto` inline — which the row width rounds into a spurious
-     horizontal bar, so the axis is closed off here. */
-  .virtual-scroll :global(.virtual-list-wrapper) {
-    overflow-x: hidden !important;
-    overscroll-behavior-y: contain;
+  /* The virtual list renders its scroller outside this component. A drag on a
+     folder list only ever means scroll. */
+  .virtual-scroll :global([data-virtual-list]) {
     touch-action: pan-y;
   }
 
@@ -915,14 +921,4 @@
   .crumb-strip::-webkit-scrollbar {
     display: none;
   }
-
-  /* The places rail turns into a swipeable strip on mobile; a bar under it just
-     steals height from the row. */
-  @media (max-width: 767px) {
-    .places-rail::-webkit-scrollbar {
-      width: 0;
-      height: 0;
-    }
-  }
-
 </style>

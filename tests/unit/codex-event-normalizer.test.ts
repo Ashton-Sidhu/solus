@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
-import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '@solus/server/agents/codex/codex-utils'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '@solus/server/execution/agents/codex/codex-utils'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 type RawCodexEvent = { method: string; params: any }
@@ -27,6 +27,26 @@ async function normalizeCodexFixture(
 }
 
 describe('normalizeCodexNotification', () => {
+  test('keeps a native async question open without a provider callback', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+    const question = normalizer.push({ method: 'item/completed', params: {
+      threadId: 'thread-1',
+      item: {
+        type: 'agentMessage', id: 'question-1', text: 'Which package?', delivery: 'async',
+        questions: [{ title: 'Which package?', options: ['pnpm', 'npm'] }, { title: 'What name?' }],
+      },
+    } })
+    expect(question).toEqual([{
+      type: 'question_request', questionId: 'codex-async:thread-1:question-1', responseMode: 'message',
+      questions: [
+        { id: '0', header: 'Question', question: 'Which package?', options: [{ label: 'pnpm', description: '' }, { label: 'npm', description: '' }], multiSelect: false },
+        { id: '1', header: 'Question', question: 'What name?', options: [], multiSelect: false },
+      ],
+    }])
+    expect(normalizer.push({ method: 'item/agentMessage/delta', params: { delta: 'I will keep working.' } }))
+      .toEqual([{ type: 'text_chunk', text: 'I will keep working.' }])
+  })
+
   test('normalizes Codex agent message deltas as text chunks', () => {
     expect(normalizeCodexNotification('item/agentMessage/delta', {
       itemId: 'msg-1',
@@ -49,6 +69,47 @@ describe('normalizeCodexNotification', () => {
     })).toEqual([{
       type: 'context_compaction', state: 'stop', completedAtMs: 4_100, durationMs: 4_000,
     }])
+  })
+
+  test('closes a reasoning span with its summary, and without text when encrypted', () => {
+    // WHY: the activity row shows the first line of the thought. Codex sends
+    // it only on the completed item; encrypted reasoning has no readable text.
+    expect(normalizeCodexNotification('item/completed', {
+      item: { id: 'rs-1', type: 'reasoning', summary: ['**Checking the tests**'], content: ['raw chain'] },
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined, text: '**Checking the tests**' }])
+    expect(normalizeCodexNotification('item/completed', {
+      item: { id: 'rs-2', type: 'reasoning', summary: [], content: [] },
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined }])
+  })
+
+  test('keeps each summary part its own paragraph', () => {
+    // WHY: each part is a separate `**title**`. Joined by one newline, markdown
+    // renders them as a single run-on sentence.
+    expect(normalizeCodexNotification('item/completed', {
+      item: { id: 'rs-3', type: 'reasoning', summary: ['**Evaluating storage**', '**Inspecting identity**'] },
+    })).toEqual([{
+      type: 'thinking', state: 'stop', parentToolUseId: undefined, text: '**Evaluating storage**\n\n**Inspecting identity**',
+    }])
+  })
+
+  test('web calls replace empty start input with the completed action and results', () => {
+    for (const action of [
+      { type: 'search', query: null, queries: ['first query', 'second query'] },
+      { type: 'openPage', url: 'https://example.com/docs' },
+      { type: 'findInPage', url: 'https://example.com/docs', pattern: 'limits' },
+      { type: 'other' },
+    ]) {
+      const results = [{ type: 'text_result', title: 'Docs', url: 'https://example.com/docs' }]
+      const events = normalizeCodexNotification('item/completed', {
+        item: { id: 'web-1', type: 'webSearch', query: '', action, results },
+      })
+      expect(events[0]).toEqual({
+        type: 'tool_call_update', toolId: 'web-1',
+        toolInput: JSON.stringify({ query: '', action }),
+        content: JSON.stringify(results),
+      })
+      expect(events[1]).toMatchObject({ type: 'tool_call_complete', toolId: 'web-1' })
+    }
   })
 
   test('passes through MCP and web-search input, provider timestamps, outcomes, and model reroutes', () => {

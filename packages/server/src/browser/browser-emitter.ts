@@ -3,7 +3,7 @@ import {
   type BrowserPage,
   type BrowserWebVitals,
 } from '@solus/contracts/browser-types'
-import { SPAN_KINDS, SPAN_SERVICES, type SpanAttributes, type SpanStatus } from '../observability/registries'
+import { SPAN_KINDS, SPAN_SERVICES, type SpanAttributes, type SpanStatus } from '../data/insights/registries'
 
 /**
  * The browser domain's half of the observability facade.

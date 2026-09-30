@@ -1,18 +1,32 @@
 import { arg, optionalArg } from './args'
-import type { DraftReview } from '@solus/contracts/providers'
+import type { DraftReview, PrSyncChange, PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import type { PrInterdiffResult } from '@solus/contracts/git-types'
-import { projectScopeOf, type IpcContext, type PrReviewContext, type SessionCtx } from '@solus/contracts/types'
+import type { IpcContext, PrReviewContext, SessionCtx } from '@solus/contracts/types'
 import type { ReviewState } from '@solus/contracts/review'
-import { DEMO_PROJECT, DEMO_VIEWER, type DemoServer } from '../fixtures/types'
+import { DEMO_VIEWER, type DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
 
 export function registerPrHandlers(backend: DemoServer, store: DemoStore): void {
+  const repositoryKey = () => {
+    const { host, owner, repo } = store.prOverview().pullRequest.baseRepo
+    return `${host}/${owner}/${repo}`.toLowerCase()
+  }
+  /** What PR sync on a real host sends after a write. */
+  const announce = (detail: PullRequest) => {
+    detail.updatedAt = new Date().toISOString()
+    backend.broadcast('pr.changed', { repo: repositoryKey(), pullRequests: [detail], missing: [], checks: [] })
+  }
   backend.register('prList', (args) => {
     const page = (optionalArg<number>(args, 2)) ?? 1
     const items = page === 1 ? store.prList() : []
     return { items, page, hasMore: false }
   })
+  backend.register('prListProjects', (args) =>
+    arg<string[]>(args, 1).map((projectRoot) => ({
+      projectRoot,
+      page: { items: store.prList(), page: 1, hasMore: false },
+    })))
   backend.register('prGetOverview', () => store.prOverview())
   backend.register('prGetDetail', () => store.prOverview().pullRequest)
   backend.register('prUpdate', (args) => {
@@ -32,9 +46,9 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('prListCommits', () => store.prOverview().commits)
   backend.register('prListReviewers', () => store.prOverview().reviewers)
   backend.register('prListReviewerCandidates', () => [
-    { login: 'marisol' },
-    { login: 'niko' },
-    { login: 'rowan' },
+    { kind: 'user', login: 'marisol' },
+    { kind: 'user', login: 'niko' },
+    { kind: 'user', login: 'rowan' },
   ])
   backend.register('prRequestReviewers', (args) => {
     const reviewers = store.prOverview().reviewers
@@ -56,7 +70,6 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     { name: 'documentation', color: '0075ca' },
   ])
   backend.register('prSetLabels', (args) => {
-    const ctx = arg<IpcContext>(args, 0)
     const names = arg<string[]>(args, 2)
     const detail = store.prOverview().pullRequest
     const known = new Map([
@@ -65,18 +78,17 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
       ['documentation', '0075ca'],
     ])
     detail.labels = names.map((name) => ({ name, color: known.get(name) ?? 'ededed' }))
-    backend.broadcast('pr.lifecycleChanged', { projectRoot: projectCwd(ctx), detail })
+    announce(detail)
     return detail
   })
   backend.register('prUpdateLifecycle', (args) => {
-    const ctx = arg<IpcContext>(args, 0)
     const action = arg<'close' | 'reopen' | 'ready' | 'draft'>(args, 2)
     const detail = store.prOverview().pullRequest
     if (action === 'close') detail.state = 'closed'
     if (action === 'reopen') detail.state = 'open'
     if (action === 'ready') detail.draft = false
     if (action === 'draft') detail.draft = true
-    backend.broadcast('pr.lifecycleChanged', { projectRoot: projectCwd(ctx), detail })
+    announce(detail)
     return detail
   })
   backend.register('prChangedFiles', () => store.prChangedFiles())
@@ -84,7 +96,13 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('providerViewer', () => ({ login: DEMO_VIEWER }))
   // The demo's one pull request is the visitor's own, so the review queue is
   // empty — an inbox that listed your own branch back to you would be a lie.
-  backend.register('prNeedsReview', () => [])
+  backend.register('prSetInterest', (): PrSyncChange => ({
+    repo: repositoryKey(),
+    pullRequests: [],
+    missing: [],
+    checks: [],
+    needsReview: [],
+  }))
   // The capture carries no CI. Reporting an empty run is what keeps the row
   // free of a check chip, rather than a failed load that reads as a red build.
   backend.register('prChecks', (): PrChecksSnapshot => ({
@@ -92,8 +110,7 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     checks: [],
     loadFailed: false,
   }))
-  backend.register('prChecksActivity', () => undefined)
-  backend.register('prInvalidate', () => undefined)
+  backend.register('prRefresh', () => undefined)
   backend.register('prGenerateGuides', () => undefined)
   // Guides are per-pull-request reports an agent writes. The demo ships the one
   // report it has through `readGuide`, and has none of its own to describe.
@@ -116,25 +133,20 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
       commentMatches: [],
     }
   })
+  // A thread write is a new revision of the pull request, which is what makes
+  // an open review pane read its threads again.
   backend.register('prReplyThread', (args) => {
-    const ctx = arg<IpcContext>(args, 0)
-    const threadId = arg<string>(args, 2)
-    const body = arg<string>(args, 3)
-    const comment = store.replyToPrThread(threadId, body)
-    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
+    const comment = store.replyToPrThread(arg<string>(args, 2), arg<string>(args, 3))
+    announce(store.prOverview().pullRequest)
     return comment
   })
   backend.register('prResolveThread', (args) => {
-    const ctx = arg<IpcContext>(args, 0)
-    const threadId = arg<string>(args, 2)
-    store.setPrThreadResolved(threadId, true)
-    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
+    store.setPrThreadResolved(arg<string>(args, 2), true)
+    announce(store.prOverview().pullRequest)
   })
   backend.register('prUnresolveThread', (args) => {
-    const ctx = arg<IpcContext>(args, 0)
-    const threadId = arg<string>(args, 2)
-    store.setPrThreadResolved(threadId, false)
-    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
+    store.setPrThreadResolved(arg<string>(args, 2), false)
+    announce(store.prOverview().pullRequest)
   })
   backend.register('prSubmitReview', (args) => {
     const review = arg<DraftReview>(args, 2)
@@ -156,6 +168,8 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     arg<SessionCtx[]>(args, 0).map((session) => store.reviewGuideStatus({ session }, 'session')))
   backend.register('prGuideStatuses', (args) =>
     arg<unknown[]>(args, 1).map(() => store.reviewGuideStatus(arg<IpcContext>(args, 0), 'branch')))
+  // The demo has no lenses; a filled array keeps the lens filter honest.
+  backend.register('prLensRevisions', (args) => arg<unknown[]>(args, 1).map(() => 0))
   backend.register('requestReviewGuide', guideStatus)
   backend.register('generateGuide', (args) => ({
     key: guideStatus(args).key,
@@ -200,8 +214,4 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     conflictFiles: ['src/auth/session.ts'],
     headRef: 'feature/session-hardening',
   }))
-}
-
-function projectCwd(ctx: IpcContext): string {
-  return projectScopeOf(ctx.session) || DEMO_PROJECT
 }

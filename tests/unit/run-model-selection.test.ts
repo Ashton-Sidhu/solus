@@ -18,7 +18,7 @@ function run(provider: AgentId | null, modelId: string | null): RunConfig {
       contextWindow: null,
       fastMode: false,
     },
-    permissionMode: 'auto',
+    permissionMode: 'full-access',
     provider,
     serverId: 'local',
     taskServerId: 'local',
@@ -122,7 +122,7 @@ describe('new run resolution', () => {
   })
 
   test('ordinary inheritance keeps location but resets session-only choices', () => {
-    const defaults = { ...run('codex', 'gpt-5.6-sol'), permissionMode: 'ask' as const }
+    const defaults = { ...run('codex', 'gpt-5.6-sol'), permissionMode: 'supervised' as const }
     const source = {
       ...run('claude-code', 'claude-opus-5'),
       permissionMode: 'plan' as const,
@@ -133,7 +133,7 @@ describe('new run resolution', () => {
     const resolved = resolveNewRunConfig(defaults, source)
 
     expect(resolved.provider).toBe('claude-code')
-    expect(resolved.permissionMode).toBe('ask')
+    expect(resolved.permissionMode).toBe('supervised')
     expect(resolved.worktree).toBeNull()
     expect(resolved.pendingHostDispatch).toBeNull()
   })
@@ -162,14 +162,31 @@ describe('new run resolution', () => {
   })
 })
 
-describe('isolating sessions on a shared host', () => {
-  test('moving to a managed host asks for a new worktree; a personal host keeps the checkout', async () => {
-    // WHY: docs/plans/project-model.md §7 — several members share a managed host
-    // and its checkouts, so a session there works in its own worktree. On a
-    // person's own machine working in the checkout is the design.
-    const { withProjectHost } = await import('@solus/workspace-ui/contexts/workspace/run-config')
+describe('working in a checkout on a managed host', () => {
+  test('moving a run to a managed host keeps the checkout unless a worktree was asked for', async () => {
+    // WHY: each member has their own clone on a managed host, so working on a
+    // branch there is as safe as on their own machine. A worktree is the
+    // person's choice, never forced by the host.
+    const { withProjectHost, startsWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
     const base = { ...run('codex', 'gpt-5.6-sol'), serverId: 'laptop', taskServerId: 'laptop' }
-    expect(withProjectHost(base, 'team', { path: '/data/projects/web', isolate: true }).worktree).toEqual({ baseBranch: null })
-    expect(withProjectHost(base, 'desk', { path: '/home/me/web', isolate: false }).worktree).toBeNull()
+    const moved = withProjectHost(base, 'team', { path: '/data/projects/web' })
+    expect(moved.worktree).toBeNull()
+    expect(startsWorktree(moved)).toBe(false)
+    const asked = withProjectHost({ ...base, worktree: { baseBranch: 'main' } }, 'team', { path: '/data/projects/web' })
+    expect(asked.worktree).toEqual({ baseBranch: null })
+  })
+
+  test('a run on another host than its task home starts in the checkout unless a worktree was asked for', async () => {
+    // WHY: a cloud task's home is the workspace service, so every run of it is a
+    // dispatch. Forcing a worktree there kept people off their default branch.
+    const { startsWorktree, withDispatchCheckout, withDispatchWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
+    const cloudTask = { ...run('codex', 'gpt-5.6-sol'), serverId: 'managed', taskServerId: 'workspace', worktree: null }
+    expect(startsWorktree(cloudTask)).toBe(false)
+    const pending = { ...cloudTask, pendingHostDispatch: { serverId: 'managed', intent: 'dispatch' as const, repoKey: 'github.com/acme/web' } }
+    const worktree = withDispatchWorktree(pending, null)
+    expect(startsWorktree(worktree)).toBe(true)
+    const checkout = withDispatchCheckout(worktree)
+    expect(startsWorktree(checkout)).toBe(false)
+    expect(checkout.pendingHostDispatch).toEqual({ serverId: 'managed', intent: 'dispatch', repoKey: 'github.com/acme/web' })
   })
 })

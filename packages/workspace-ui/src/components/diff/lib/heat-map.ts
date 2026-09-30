@@ -201,6 +201,23 @@ export function heatIntensity(node: HeatMapNode, siblingMaxChanges: number): num
   return Math.log1p(changes) / Math.log1p(siblingMaxChanges)
 }
 
+/** What a changed node's lines are: mostly new code, mostly removed code, or
+ *  a rewrite. The tint's hue, where its strength is the heat. */
+export type HeatTone = 'added' | 'removed' | 'mixed'
+
+/**
+ * A node is "added" or "removed" when three quarters of its changed lines go
+ * one way. A pure rename changes no lines and reads as mixed.
+ */
+export function heatTone(node: HeatMapNode): HeatTone {
+  const changes = heatChanges(node)
+  if (changes === 0) return 'mixed'
+  const addedShare = node.additions / changes
+  if (addedShare >= 0.75) return 'added'
+  if (addedShare <= 0.25) return 'removed'
+  return 'mixed'
+}
+
 export type TreemapRect = {
   node: HeatMapNode
   left: number

@@ -19,19 +19,9 @@ export class SessionDraft {
   readonly id: string = uuid()
   prompt = $state<Prompt>(makePrompt())
   run: RunConfig
-  task = $state<TaskTarget>({ kind: 'new' })
+  task = $state<TaskTarget>({ kind: 'none' })
   boundWorkId = $state<string | null>(null)
   prReview = $state<PrReviewContext | null>(null)
-  /**
-   * The session this draft files under once that session has a task of its own.
-   * Set only by a background start, which leaves this draft behind aimed at the
-   * same place: the session it just fired is minting a task at that moment, so
-   * the id cannot be read yet and `task` still says `{ kind: 'new' }`. Resolved
-   * at send, by which time the task exists. Not part of `spec`, so it does not
-   * survive a reload — a restored draft mints its own task, which is the same
-   * answer `{ kind: 'new' }` gives.
-   */
-  taskFollowsSessionId = $state<string | null>(null)
 
   /**
    * @param defaults where a session starts when there is nothing to carry over.
@@ -67,22 +57,32 @@ export class SessionDraft {
 
 /**
  * Which task a draft opened from a given entry point files under.
- * `rootTaskId` is the task the session on screen belongs to — the default,
- * since a session started from inside a task is usually more of that task.
+ * `rootTaskId` is the task the session on screen belongs to: a session
+ * started from inside a task is more of that task, unless the entry point
+ * asks for a fresh one. A session with nothing to join has no task.
  */
 export function requestedTaskTarget(
-  options: { freshTask?: boolean; withoutTask?: boolean; taskId?: string },
+  options: { freshTask?: boolean; withoutTask?: boolean; taskId?: string; taskRole?: 'lead' },
   rootTaskId: string | null,
 ): TaskTarget {
   if (options.withoutTask) return { kind: 'none' }
-  if (options.taskId) return { kind: 'existing', taskId: options.taskId }
+  if (options.taskId) {
+    return options.taskRole
+      ? { kind: 'existing', taskId: options.taskId, role: options.taskRole }
+      : { kind: 'existing', taskId: options.taskId }
+  }
   if (!options.freshTask && rootTaskId) return { kind: 'existing', taskId: rootTaskId }
-  return { kind: 'new' }
+  return { kind: 'none' }
 }
 
 /** The task named, when the target names an existing one. */
 export function existingTaskId(task: TaskTarget): string | null {
   return task.kind === 'existing' ? task.taskId : null
+}
+
+/** `lead` when the session is to be its task's lead; undefined for an attempt. */
+export function taskRoleOf(task: TaskTarget): 'lead' | undefined {
+  return task.kind === 'existing' ? task.role : undefined
 }
 
 /** The durable identity that owns a session's task attempt. A handoff keeps one
@@ -94,51 +94,17 @@ export function taskBindingSessionId(
   return session.handoffId ?? session.id
 }
 
-/** The task a fallback minted after the first turn will hang under. */
-export function parentTaskId(task: TaskTarget): string | null {
-  return task.kind === 'new' ? task.parentTaskId ?? null : null
-}
-
-/** The id the first prompt will mint this session's task under, when it will
- *  mint one. `makeSession` assigns it; a draft's target has none. */
-export function newTaskId(task: TaskTarget): string | null {
-  return task.kind === 'new' ? task.taskId ?? null : null
-}
-
-/** Read the three fields a persisted tab still stores back into a target. */
-export function taskTargetFrom(fields: {
-  pendingTaskId?: string | null
-  pendingParentTaskId?: string | null
-  taskCreationDisabled?: boolean
-}): TaskTarget {
-  if (fields.pendingTaskId) return { kind: 'existing', taskId: fields.pendingTaskId }
-  if (fields.taskCreationDisabled) return { kind: 'none' }
-  return fields.pendingParentTaskId
-    ? { kind: 'new', parentTaskId: fields.pendingParentTaskId }
-    : { kind: 'new' }
-}
-
-/** The pre-`TaskTarget` encoding, for the persisted tab fields that still carry it. */
-export interface TaskTargetFields {
-  pendingTaskId: string | null
-  pendingParentTaskId: string | null
-  taskCreationDisabled: boolean
-}
-
-export function taskTargetFields(task: TaskTarget): TaskTargetFields {
-  return {
-    pendingTaskId: task.kind === 'existing' ? task.taskId : null,
-    pendingParentTaskId: task.kind === 'new' ? task.parentTaskId ?? null : null,
-    taskCreationDisabled: task.kind === 'none',
-  }
+/** Read the field a persisted tab stores back into a target. */
+export function taskTargetFrom(fields: { pendingTaskId?: string | null }): TaskTarget {
+  return fields.pendingTaskId ? { kind: 'existing', taskId: fields.pendingTaskId } : { kind: 'none' }
 }
 
 /**
  * The task a started session's prompts file under. The durable link is the
  * answer once there is one: the agent can move the session to another task
  * mid-turn, and the binding recorded at first dispatch would otherwise send
- * every later prompt back to the placeholder that transfer just removed.
- * Before the link lands, the binding is all there is.
+ * every later prompt back to the task the session left. Before the link
+ * lands, the binding is all there is.
  */
 export function ownedTaskId(tasksStore: { taskForSession(sessionId: string | null | undefined): { id: string } | null }, session: Session): string | undefined {
   return tasksStore.taskForSession(taskBindingSessionId(session))?.id

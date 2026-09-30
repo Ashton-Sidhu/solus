@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { runInputFromContext } from '@solus/server/agents/run-input'
+import { runInputFromContext } from '@solus/server/execution/agents/run-input'
 import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '@solus/contracts/types'
 
@@ -11,7 +11,7 @@ function statusBar(
   return {
     workingDirectory: '/repo',
     activeAgent: 'codex',
-    permissionMode: 'auto',
+    permissionMode: 'full-access',
     model,
     reasoningEffort,
     defaultReasoningEffort: 'high',
@@ -23,13 +23,33 @@ function statusBar(
 }
 
 describe('IPC context', () => {
+  test('outbound prompts use current checkout identity and honor removal', () => {
+    const run = {
+      workingDirectory: '/repo/tree',
+      gitContext: { repoRoot: '/repo', worktreePath: '/repo/tree', branch: 'temporary', targetBranch: 'main' },
+      worktree: null, permissionMode: 'full-access', provider: 'codex', serverId: 'host',
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+    }
+    const current = { ...run.gitContext, branch: 'renamed' }
+    const deps = {
+      sessionFor: () => undefined, runFor: () => run, hasDraft: () => false,
+      defaultRunConfig: () => run,
+      checkoutForRun: () => current,
+    } as unknown as IpcContextBuilderDeps
+    const builder = new IpcContextBuilder(deps)
+    expect(builder.sessionCtx('draft').gitContext?.branch).toBe('renamed')
+    deps.checkoutForRun = () => null
+    expect(builder.sessionCtx('draft').gitContext).toBeNull()
+    expect(run.gitContext.branch).toBe('temporary')
+  })
+
   test('marks a cross-host run as dispatched in SessionCtx', () => {
     const run = {
       workingDirectory: '/remote/repo',
       gitContext: null,
       worktree: { baseBranch: 'main' },
       modelConfig: { modelId: 'model', reasoningEffort: 'high', contextWindow: null, fastMode: false },
-      permissionMode: 'ask',
+      permissionMode: 'supervised',
       provider: 'codex',
       serverId: 'execution-host',
       taskServerId: 'project-host',
@@ -39,7 +59,7 @@ describe('IPC context', () => {
       runFor: () => run,
       hasDraft: () => false,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -58,7 +78,7 @@ describe('IPC context', () => {
       runFor: () => undefined,
       hasDraft: () => false,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: {
@@ -92,7 +112,7 @@ describe('IPC context', () => {
       runFor: () => undefined,
       hasDraft: (sourceId: string) => sourceId === 'draft-1',
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -117,7 +137,7 @@ describe('IPC context', () => {
       sessionFor: () => undefined,
       runFor: () => undefined,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'auto', provider: null,
+        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -130,5 +150,33 @@ describe('IPC context', () => {
     expect(ctx.session.sessionId).toBe('')
     expect(ctx.session.workingDirectory).toBe(checkout.worktreePath)
     expect(ctx.session.gitContext).toEqual(checkout)
+  })
+
+  // WHY: Insights reads a turn's change for a session that may have no tab.
+  // Any thread or checkout in the context would be the default run's — another
+  // session's — and the host would read that session's change as this turn's.
+  test('a session-record context names the session and nothing that could be another session’s', () => {
+    const deps = {
+      sessionFor: () => undefined,
+      runFor: () => undefined,
+      hasDraft: () => false,
+      defaultRunConfig: () => ({
+        workingDirectory: '/elsewhere', gitContext: { repoRoot: '/elsewhere', branch: 'other', targetBranch: 'main' },
+        worktree: null, permissionMode: 'full-access', provider: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      }),
+      settings: { ctx: { activeAgent: 'codex' } },
+      statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
+    } as unknown as IpcContextBuilderDeps
+
+    const ctx = new IpcContextBuilder(deps).forSessionRecord('session-1')
+
+    expect(ctx.session).toMatchObject({
+      sessionId: 'session-1',
+      agentSessionId: null,
+      workingDirectory: '',
+      projectPath: '',
+      gitContext: null,
+    })
   })
 })

@@ -222,6 +222,7 @@
           target,
           props: {
             comment: annotation.metadata.comment,
+            sendsWith: "review",
             onEdit: handleEditComment,
             onDelete: handleDeleteComment,
           },
@@ -395,6 +396,8 @@
       onFormValueChange={(v) => (draft.value = v)}
       placeholder="What should change here?"
       submitLabel="Add comment"
+      surface="embedded"
+      editorClass="min-h-16 rounded-lg border border-input bg-background px-2.5 py-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 dark:bg-input/32 [&_.cm-content]:![font-weight:400]"
     />
   {/if}
 </div>

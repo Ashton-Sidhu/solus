@@ -13,12 +13,14 @@ export interface PushReconciliation {
 export function pushHostRefs(
   savedServers: SavedServer[],
   primary?: PushHostRef | null,
+  workspaces: readonly PushHostRef[] = [],
 ): PushHostRef[] {
   const hosts = new Map(savedServers.map((server) => {
     const host: PushHostRef = { serverId: server.id }
     if (server.installationId) host.installationId = server.installationId
     return [server.id, host] as const
   }))
+  for (const workspace of workspaces) hosts.set(workspace.serverId, workspace)
   if (primary) hosts.set(primary.serverId, primary)
   return [...hosts.values()]
 }

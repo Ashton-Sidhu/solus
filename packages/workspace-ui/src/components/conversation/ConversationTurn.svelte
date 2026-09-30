@@ -2,21 +2,30 @@
   import type { Snippet } from "svelte";
   import type { TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
-  import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry } from "./lib/turns";
-  import { agentsAwaitingReply } from "./agent-conversation/lib/agent-conversation";
-  import { describeBackgroundWait } from "./lib/activity-summary";
+  import { getSettingsContext } from "../../contexts";
+  import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
+  import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
+  import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import TurnActivityRow from "./TurnActivityRow.svelte";
   import TurnBody from "./TurnBody.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   let { turn, index, total, expanded, isAwaitingInput, activityLabel, turnStart, attempt,
-    history, onToggle, onRetry, transcriptItem }: {
+    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId, sessionId }: {
     turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
-    activityLabel?: string; turnStart: TurnStartKind | null; attempt: number; history: ToolHistoryStore;
+    activityLabel?: string; turnStart: TurnStartKind | null; attempt: number;
+    /** The session's turn ended, but a task it launched is still running. */
+    hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
     onToggle: (expanded: boolean) => void; onRetry: () => void;
     transcriptItem: Snippet<[GroupedItem, boolean]>;
+    /** The session's host, for naming who stopped a turn. */
+    serverId?: string;
+    /** The session, for naming whose turn the live row works for. */
+    sessionId?: string;
   } = $props();
+  const settings = getSettingsContext();
+  const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
 </script>
 
 {#if turn}
@@ -38,7 +47,7 @@
    A failure keeps its row either way — it carries the error. -->
 {@const hasSummaryRow =
   !live &&
-  (turn.body.length > 0 || turn.end?.kind === "failed")}
+  (body.length > 0 || turn.end?.kind === "failed")}
 {#if turn.lead}
   {@render transcriptItem(turn.lead, skipMotion)}
 {/if}
@@ -60,15 +69,15 @@
 {/if}
 <!-- Folded history mounts on first expansion. Once shown, the
    body stays mounted so folding retains its local state. -->
-{#if turn.body.length > 0}
+{#if body.length > 0}
   <div
     class="turn-body space-y-2 @max-[30rem]/pane:space-y-3"
     class:is-folded={!live && !expanded}
     class:is-open={!live && expanded}
   >
     <TurnBody visible={live || expanded}>
-      {#if expanded}<ToolInputStatus tools={turn.tools} history={history} />{/if}
-      {#each turn.body as item, itemIdx (itemKey(item))}
+      {#if expanded && settings.showToolCalls}<ToolInputStatus tools={turn.tools} history={history} />{/if}
+      {#each body as item, itemIdx (itemKey(item))}
         {#if item.kind === "tool-group"}
           <!-- §16 — the transcript keeps its order, but the row at
              the tail of a working turn is where the run *is*: it
@@ -77,13 +86,11 @@
           <ToolGroupItem
             history={history}
             tools={item.messages}
+            steps={item.steps}
             {skipMotion}
-            working={working && itemIdx === turn.body.length - 1}
+            working={working && itemIdx === body.length - 1}
             {activityLabel}
             turnStart={working ? turnStart : null}
-            waitingOn={working
-              ? agentsAwaitingReply(turn.body)
-              : []}
             backgroundWait={working
               ? describeBackgroundWait(turn.body)
               : null}
@@ -117,17 +124,26 @@
     end={turn.end}
     onRetry={isLastTurn ? onRetry : undefined}
     {skipMotion}
+    {serverId}
   />
+{/if}
+<!-- Background work is the session's state, not this turn's: the last
+   turn states it, where the live row would be, even when an earlier turn
+   launched the task. -->
+{#if hasBackgroundWork && isLastTurn && !live}
+  <BackgroundWorkRow wait={settledBackgroundWait(turn.body)} onStop={onStopBackgroundWork} />
 {/if}
 <!-- Only when nothing else is reporting the run: a tool group at
    the tail already carries the spinner. -->
-{#if working && needsLiveRow(turn)}
+{#if working && needsLiveRow(turn, settings.showToolCalls)}
   <TurnActivityRow
     {turn}
     live
     {activityLabel}
     turnStart={turnStart}
     backgroundWait={describeBackgroundWait(turn.body)}
+    {serverId}
+    {sessionId}
     expanded={false}
     attempt={attempt}
     onToggle={() => {}}

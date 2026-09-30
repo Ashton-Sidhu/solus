@@ -1,4 +1,3 @@
-import type { Editor } from '@tiptap/core'
 import type { PlanComment } from '@solus/contracts/types'
 
 export interface MeasuredAnchor {
@@ -16,8 +15,8 @@ export interface MeasuredAnchor {
 }
 
 /**
- * Measure every comment mark, and every external thread whose quote the
- * highlight plugin found a place for in this text.
+ * Measure every local thread's highlight, and every external thread whose
+ * quote the highlight plugin found a place for in this text.
  *
  * Coordinates stay in the viewport space `getBoundingClientRect` returns, and
  * the rail converts them against its own box. That way the rail's distance
@@ -74,33 +73,6 @@ function measureOne(
     anchorRight: last.right,
     visible: last.bottom > containerRect.top && first.top < containerRect.bottom,
   }
-}
-
-/**
- * Document position of each comment mark — what the outline needs to say which
- * section a thread belongs to. Read from the doc rather than from the DOM, so
- * it survives a heading being scrolled out of view.
- */
-export function commentMarkPositions(editor: Editor | null): { id: string; pos: number }[] {
-  // Tiptap nulls its schema during destroy. A measurement queued with `tick`
-  // can still run during that teardown, so reject the stale editor before
-  // reading any of the fields destroy clears.
-  if (!editor || editor.isDestroyed) return []
-  const markType = editor.schema.marks.planComment
-  if (!markType) return []
-  const seen = new Set<string>()
-  const positions: { id: string; pos: number }[] = []
-  editor.state.doc.descendants((node, pos) => {
-    if (!node.isText) return
-    for (const mark of node.marks) {
-      if (mark.type !== markType) continue
-      const id = String(mark.attrs.commentId ?? '')
-      if (!id || seen.has(id)) continue
-      seen.add(id)
-      positions.push({ id, pos })
-    }
-  })
-  return positions
 }
 
 /**

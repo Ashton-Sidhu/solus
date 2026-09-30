@@ -25,7 +25,7 @@
     <span class="min-w-0 flex-1 truncate">{label}</span>
     <span class="max-w-24 truncate text-muted-foreground">{valueLabel}</span>
   </DropdownMenu.SubTrigger>
-  <DropdownMenu.SubContent side={narrowViewport.current ? "bottom" : "right"} align={narrowViewport.current ? "end" : "start"} collisionPadding={8} class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-y-auto p-2 pointer-fine:[.is-laptop-display_&]:w-60">
+  <DropdownMenu.SubContent side={narrowViewport.current ? "bottom" : "right"} align={narrowViewport.current ? "end" : "start"} collisionPadding={8} class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-y-auto p-2">
     <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">{label}</div>
     {#if multiple}
       {#each options as option (option.value)}

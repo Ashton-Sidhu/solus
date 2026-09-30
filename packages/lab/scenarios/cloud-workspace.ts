@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { ORGANIZATION_ID, personaForHost } from '../src/personas'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
-import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine, type WorkspaceService } from '../src/workspace'
+import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
 /**
  * The cloud workspace (docs/plans/cloud-service-model.md §15–§16): one service for
@@ -32,21 +32,16 @@ async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, t
   return last
 }
 
-/** The runner's own log says when it holds a grant for the organization. */
-async function runnerLinkedToOrganization(runner: LabHost, timeoutMs: number): Promise<boolean> {
+/** The runner's own log says when it traded a person's token for a delegation (plans/010-standard-oauth.md). */
+function runnerActsForSomeone(runner: LabHost): boolean {
   const logFile = join(runner.dataDir, 'dev.log')
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (existsSync(logFile) && readFileSync(logFile, 'utf8').includes('"msg":"runner_grant_minted"')) return true
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  return false
+  return existsSync(logFile) && readFileSync(logFile, 'utf8').includes('"msg":"delegation_held"')
 }
 
 interface Proof {
   ctx: ScenarioContext
   tag: string
-  service: WorkspaceService
+  service: LabSolusApi
   clients: LabClient[]
 }
 
@@ -55,7 +50,7 @@ function workspaceClient(proof: Proof, personaId: string): LabClient {
     persona: personaForHost(personaId, 'managed'),
     hostUrl: proof.service.url,
     issuer: proof.ctx.issuer,
-    hostId: WORKSPACE_AUDIENCE,
+    hostId: SOLUS_API_AUDIENCE,
     hostKind: 'cloud',
   })
   proof.clients.push(client)
@@ -76,11 +71,11 @@ async function membersStep(proof: Proof): Promise<{ alice: LabClient; bob: LabCl
   ctx.check(`${tag} pairing does not exist`, (await fetch(`${service.url}/pair/open`, { method: 'POST' })).status === 404)
 
   ctx.step(`${tag} alice creates a task on the service; bob sees it live`)
-  const task = await expectOk(ctx, `${tag} alice creates a task`, alice.rpc('tasksCreate', { title: 'Plan the launch', projectKey: ctx.cwd }))
+  const task = await expectOk(ctx, `${tag} alice creates a task`, alice.records.tasksCreate({ title: 'Plan the launch', projectKey: ctx.cwd }))
   await expectOk(ctx, `${tag} bob hears the tasks change`, bob.waitForEvent('tasks.invalidated'))
-  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('tasksList', {}))
+  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('tasksSidebarSnapshot'))
   ctx.check(`${tag} bob sees alice's task`, !!task && !!bobTasks?.tasks.some((row) => row.id === task.id))
-  await expectOk(ctx, `${tag} bob opens it`, bob.rpc('tasksGet', task?.id ?? ''))
+  await expectOk(ctx, `${tag} bob opens it`, bob.records.tasksGet(task?.id ?? ''))
   return { alice, bob, taskId: task?.id ?? '' }
 }
 
@@ -88,18 +83,19 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
   const { ctx, tag } = proof
   ctx.step(`${tag} a runner linked to the organization runs a turn whose task and work land on the service`)
   const runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_HOST_ID, runnerOf: ORGANIZATION_ID })
-  ctx.check(`${tag} the runner minted a grant for the organization`, await runnerLinkedToOrganization(runner, 20_000))
-  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.localUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', credentialFree: true })
+  // The owner comes through the proxied listener with her access token: the runner acts for her with it.
+  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal' })
   proof.clients.push(owner)
-  ctx.check(`${tag} the owner reaches the runner locally`, (await owner.connect()).ok)
-  const started = await expectOk(ctx, `${tag} the owner starts a mock-agent turn on the runner`, owner.rpc('createHeadlessSession', { prompt: 'cloud __MOCK_AGENT_TOOLS__', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd, skipTaskCreation: true }))
-  const runnerTask = await until(() => bob.rpc('tasksList', {}), (result) => result.tasks.some((row) => row.title === RUNNER_TASK_TITLE), 15_000)
+  ctx.check(`${tag} the owner reaches the runner`, (await owner.connect()).ok)
+  const started = await expectOk(ctx, `${tag} the owner starts a mock-agent turn on the runner`, owner.rpc('createHeadlessSession', { prompt: 'cloud __MOCK_AGENT_TOOLS__', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }))
+  ctx.check(`${tag} the runner acts for the owner in the organization`, runnerActsForSomeone(runner))
+  const runnerTask = await until(() => bob.rpc('tasksSidebarSnapshot'), (result) => result.tasks.some((row) => row.title === RUNNER_TASK_TITLE), 15_000)
   ctx.check(`${tag} bob sees the task the agent created on the service`, runnerTask.tasks.some((row) => row.title === RUNNER_TASK_TITLE), JSON.stringify(runnerTask.tasks.map((row) => row.title)))
-  const runnerWorks = await until(() => bob.rpc('listWorks'), (list) => list.some((row) => row.title === RUNNER_WORK_TITLE), 15_000)
+  const runnerWorks = await until(() => bob.records.listWorks(), (list) => list.some((row) => row.title === RUNNER_WORK_TITLE), 15_000)
   ctx.check(`${tag} bob sees the work the agent created on the service`, runnerWorks.some((row) => row.title === RUNNER_WORK_TITLE), JSON.stringify(runnerWorks.map((row) => row.title)))
-  const localTasks = await expectOk(ctx, `${tag} the owner lists the runner's own tasks`, owner.rpc('tasksList', {}))
+  const localTasks = await expectOk(ctx, `${tag} the owner lists the runner's own tasks`, owner.rpc('tasksSidebarSnapshot'))
   ctx.check(`${tag} the runner's own tables hold no such task`, localTasks?.tasks.every((row) => row.title !== RUNNER_TASK_TITLE) === true)
-  const localWorks = await expectOk(ctx, `${tag} the owner lists the runner's own works`, owner.rpc('listWorks'))
+  const localWorks = await expectOk(ctx, `${tag} the owner lists the runner's own works`, owner.records.listWorks())
   ctx.check(`${tag} nor such a work`, localWorks?.every((row) => row.title !== RUNNER_WORK_TITLE) === true)
   return { runner, sessionId: started?.agentSessionId ?? '' }
 }
@@ -107,15 +103,15 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
 async function recordStep(proof: Proof, bob: LabClient, runner: LabHost, sessionId: string): Promise<void> {
   const { ctx, tag } = proof
   ctx.step(`${tag} the runner reports the session; the service lists it, and keeps everything after the runner stops`)
-  const recorded = await until(() => bob.rpc('sessionRecordList', {}), (list) => list.some((record) => record.sessionId === sessionId), 15_000)
+  const recorded = await until(() => bob.records.sessionRecordList({}).then((list) => list.records), (list) => list.some((record) => record.sessionId === sessionId), 15_000)
   const record = recorded.find((row) => row.sessionId === sessionId)
   ctx.check(`${tag} the service lists the runner's session, naming the runner`, record?.runnerHostId === RUNNER_HOST_ID, JSON.stringify(record))
   await runner.stop()
-  const tasksAfter = await expectOk(ctx, `${tag} bob lists tasks after the runner stopped`, bob.rpc('tasksList', {}))
+  const tasksAfter = await expectOk(ctx, `${tag} bob lists tasks after the runner stopped`, bob.rpc('tasksSidebarSnapshot'))
   ctx.check(`${tag} the task is still there`, tasksAfter?.tasks.some((row) => row.title === RUNNER_TASK_TITLE) === true)
-  const worksAfter = await expectOk(ctx, `${tag} bob lists works after the runner stopped`, bob.rpc('listWorks'))
+  const worksAfter = await expectOk(ctx, `${tag} bob lists works after the runner stopped`, bob.records.listWorks())
   ctx.check(`${tag} the work is still there`, worksAfter?.some((row) => row.title === RUNNER_WORK_TITLE) === true)
-  const sessionsAfter = await expectOk(ctx, `${tag} bob lists session records after the runner stopped`, bob.rpc('sessionRecordList', {}))
+  const sessionsAfter = await expectOk(ctx, `${tag} bob lists session records after the runner stopped`, bob.records.sessionRecordList({}).then((list) => list.records))
   ctx.check(`${tag} the session is still there`, sessionsAfter?.some((row) => row.sessionId === sessionId) === true)
 }
 
@@ -124,15 +120,15 @@ async function otherOrganizationStep(proof: Proof, taskId: string): Promise<void
   ctx.step(`${tag} carol, of another organization, sees none of it`)
   const carol = workspaceClient(proof, 'carol')
   ctx.check(`${tag} carol connects`, (await carol.connect()).ok)
-  const carolTasks = await expectOk(ctx, `${tag} carol lists tasks`, carol.rpc('tasksList', {}))
+  const carolTasks = await expectOk(ctx, `${tag} carol lists tasks`, carol.rpc('tasksSidebarSnapshot'))
   ctx.check(`${tag} carol's task list is empty`, carolTasks?.tasks.length === 0, JSON.stringify(carolTasks?.tasks.map((row) => row.title)))
-  const carolWorks = await expectOk(ctx, `${tag} carol lists works`, carol.rpc('listWorks'))
+  const carolWorks = await expectOk(ctx, `${tag} carol lists works`, carol.records.listWorks())
   ctx.check(`${tag} carol's work list is empty`, carolWorks?.length === 0)
-  const carolSessions = await expectOk(ctx, `${tag} carol lists session records`, carol.rpc('sessionRecordList', {}))
+  const carolSessions = await expectOk(ctx, `${tag} carol lists session records`, carol.records.sessionRecordList({}).then((list) => list.records))
   ctx.check(`${tag} carol's session list is empty`, carolSessions?.length === 0)
-  await expectRefused(ctx, `${tag} carol cannot open alice's task`, carol.rpc('tasksGet', taskId))
+  await expectRefused(ctx, `${tag} carol cannot open alice's task`, carol.api.request('getTask', { id: taskId }), 'NOT_FOUND')
   const carolPresence = await expectOk(ctx, `${tag} carol reads presence`, carol.rpc('presenceSnapshot'))
-  ctx.check(`${tag} carol's room holds only her organization`, carolPresence?.host.participants.every((row) => row.displayName === 'Carol') === true, JSON.stringify(carolPresence?.host.participants.map((row) => row.displayName)))
+  ctx.check(`${tag} carol's room holds only her organization`, carolPresence?.host.participants.every((row) => row.user.displayName === 'Carol') === true, JSON.stringify(carolPresence?.host.participants.map((row) => row.user.displayName)))
 }
 
 async function executionStep(proof: Proof, alice: LabClient): Promise<void> {
@@ -142,8 +138,8 @@ async function executionStep(proof: Proof, alice: LabClient): Promise<void> {
   await expectRefused(ctx, `${tag} a headless session is refused with PLANE_DISABLED`, alice.rpc('createHeadlessSession', { prompt: 'x', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }), 'PLANE_DISABLED')
 }
 
-async function proveWorkspace(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
+async function proveWorkspace(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
+  const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   let runner: LabHost | null = null

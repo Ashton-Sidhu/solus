@@ -21,7 +21,7 @@ function restoredListView(): PrListView {
 
 /** Chat is NOT a content tab — it is the primary conversation, toggled by
  *  `maximized`. */
-export type PrReviewTab = 'activity' | 'map' | 'guide' | 'diff'
+export type PrReviewTab = 'activity' | 'map' | 'guide' | 'lens' | 'diff'
 
 export class PrView {
   /** The project the PRs page is showing, as a `projectPrsKey`. */

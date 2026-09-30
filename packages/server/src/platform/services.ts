@@ -15,6 +15,8 @@ export interface PlatformSafeStorage {
 export interface PlatformServices {
   appInfo?: PlatformAppInfo
   openExternal?: (url: string) => Promise<void>
+  /** The OS Trash through the shell that hosts the server, with "Put Back" metadata. */
+  trashItem?: (path: string) => Promise<void>
   safeStorage?: PlatformSafeStorage
 }
 

@@ -62,7 +62,6 @@ const db = {
 const upstreamTask: Task = {
   id: '42',
   providerId: 'github',
-  kind: 'task',
   title: 'Upstream issue',
   body: '',
   status: 'todo',
@@ -141,7 +140,7 @@ const adapter = {
   async createTicket() { throw new Error('not used') },
   async listCandidates() { return [] },
 }
-mock.module('@solus/server/tasks/adapters/registry', () => ({
+mock.module('@solus/server/data/tasks/adapters/registry', () => ({
   taskSyncAdapter: () => adapter,
   resolveTaskPublishTarget: async () => {
     if ((config?.taskProvider ?? 'local') === 'local') return null
@@ -152,10 +151,10 @@ mock.module('@solus/server/tasks/adapters/registry', () => ({
   },
 }))
 
-let service: typeof import('@solus/server/tasks/upstream')
+let service: typeof import('@solus/server/data/tasks/upstream')
 
 beforeAll(async () => {
-  service = await import('@solus/server/tasks/upstream')
+  service = await import('@solus/server/data/tasks/upstream')
 })
 
 beforeEach(() => {

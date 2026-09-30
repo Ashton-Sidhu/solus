@@ -19,12 +19,14 @@
     ChevronDown as CaretDownIcon,
     ChevronUp as CaretUpIcon,
     Columns3 as ColumnsIcon,
-    Highlighter as HighlighterIcon,
     RotateCw as ArrowClockwiseIcon,
     Shrink as ArrowsInLineVerticalIcon,
     Expand as ArrowsOutLineVerticalIcon,
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import DiffLayoutToggle from "./DiffLayoutToggle.svelte";
+  import DiffTokenToggle from "./DiffTokenToggle.svelte";
+  import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { Snippet } from "svelte";
   import type { TurnSnapshot } from "@solus/contracts/types";
@@ -187,19 +189,19 @@
           {#snippet child({ props: tooltipProps })}
             <div
               {...tooltipProps}
-              class="flex min-w-0 max-w-[24rem] shrink items-center gap-1 desktop-only [.is-laptop-display_&]:max-w-[14rem]"
+              class="flex min-w-0 max-w-[24rem] shrink items-center gap-1 desktop-only"
             >
               <GitBranchIcon
                 size={14}
                 class="text-(--solus-accent) flex-shrink-0"
                 weight="bold"
               />
-              <span
-                class="truncate font-medium text-(--solus-text-primary)"
+              <MiddleTruncate
+                value={branchLabel}
+                showTitle={false}
+                class="font-medium text-(--solus-text-primary)"
                 style="font-family:{MONO_FONT}"
-              >
-                {branchLabel}
-              </span>
+              />
             </div>
           {/snippet}
         </TooltipUI.Trigger>
@@ -394,36 +396,18 @@
 
     <!-- Layout choice leads the control cluster: it is the one setting that
          changes how the whole stream reads, so it sits ahead of the icon
-         actions. Desktop gets an explicit segmented control so the active
-         layout is legible without hovering for a tooltip. Below 768px the two
-         labels don't fit beside the rest of the strip, so the icon toggle
-         stands in. -->
+         actions. Desktop gets a segmented control of two icons so the active
+         layout is legible without hovering. Below 768px the pair doesn't fit
+         beside the rest of the strip, so the single icon toggle stands in. -->
     <!-- The view row leads: it decides whether the panel reads as a heat map
          of where the change landed, the guided walkthrough, or the line-level
          stream, so it sits ahead of the stream-only controls it hides. -->
     {@render viewTabs?.()}
 
     {#if view === "diff"}
-    <div class="view-toggle desktop-only" role="group" aria-label="Diff layout">
-      <button
-        type="button"
-        class="view-toggle-btn"
-        class:is-active={diffStyle === "unified"}
-        onclick={() => onSetStyle("unified")}
-        aria-pressed={diffStyle === "unified"}
-      >
-        Unified
-      </button>
-      <button
-        type="button"
-        class="view-toggle-btn"
-        class:is-active={diffStyle === "split"}
-        onclick={() => onSetStyle("split")}
-        aria-pressed={diffStyle === "split"}
-      >
-        Split
-      </button>
-    </div>
+    <span class="desktop-only layout-toggle-slot">
+      <DiffLayoutToggle {diffStyle} {onSetStyle} />
+    </span>
 
     <span class="mobile-only">
       <Button
@@ -525,37 +509,9 @@
       </TooltipUI.Root>
     {/if}
 
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <span {...tooltipProps}
-      class="desktop-only"
-    >
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        type="button"
-        onclick={onToggleTokenHighlight}
-        aria-label={tokenHighlight
-          ? "Disable token highlighting"
-          : "Enable token highlighting"}
-        aria-pressed={tokenHighlight}
-        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {tokenHighlight
-          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-          : 'text-(--solus-text-tertiary)'}"
-      >
-        <HighlighterIcon
-          size={14}
-          weight={tokenHighlight ? "fill" : "regular"}
-        />
-      </Button>
+    <span class="desktop-only">
+      <DiffTokenToggle {tokenHighlight} onToggle={onToggleTokenHighlight} shortcutHint="⌥H" />
     </span>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={tokenHighlight
-        ? "Token highlighting on (⌥H)"
-        : "Token highlighting off (⌥H)"} />
-    </TooltipUI.Root>
 
     {#if commentsCount > 0}
       <TooltipUI.Root>
@@ -696,44 +652,10 @@
 
   /* Segmented unified/split control. Sized to the icon actions beside it (1.75rem)
      so the whole right-hand cluster sits on one optical line. */
-  .view-toggle {
-    align-items: center;
-    height: 1.75rem;
-    padding: 0.125rem;
-    border-radius: 0.5rem;
-    background: var(--solus-surface-hover);
-    /* Reads as its own control, not the head of the icon run beside it. */
+  /* The layout control reads as its own control, not the head of the icon
+     run beside it. */
+  .layout-toggle-slot {
     margin-right: 0.375rem;
-    flex-shrink: 0;
-  }
-  .view-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    height: 100%;
-    padding: 0 0.625rem;
-    border: 0;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      color 120ms ease,
-      background-color 120ms ease;
-  }
-  .view-toggle-btn:hover {
-    color: var(--solus-text-secondary);
-  }
-  .view-toggle-btn.is-active {
-    background: var(--solus-container-bg);
-    color: var(--solus-text-primary);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.07);
-  }
-  .view-toggle-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.0625rem;
   }
 
   .refresh-spin {

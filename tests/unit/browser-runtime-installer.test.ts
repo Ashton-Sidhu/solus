@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { BrowserRuntimeInstaller } from '@solus/server/browser/browser-runtime'
-import { HOST_ADMIN_RPC_METHODS } from '@solus/server/server/access-policy'
+import { HOST_ADMIN_RPC_METHODS } from '@solus/server/admission/access-policy'
 
 // A turn of the event loop drains the mocked installer promises, without a
 // timer or a real subprocess. Production work is deliberately asynchronous.

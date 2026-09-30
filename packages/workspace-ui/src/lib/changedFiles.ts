@@ -1,23 +1,30 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
 
+const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;
+
+/** The command inside a login-shell wrapper — Codex records
+ *  `/bin/zsh -lc 'bun test'` — or the command itself when it has none. */
+export function unwrapShellCommand(command: string): string {
+  const trimmed = command.trim();
+  const shellWrapped = trimmed.match(SHELL_WRAPPED);
+  return shellWrapped ? unwrapShellCommand(shellWrapped[1] ?? shellWrapped[2] ?? shellWrapped[3] ?? "") : trimmed;
+}
+
 export function isGitCommand(command: string | undefined): boolean {
   if (!command?.trim()) return false;
-  const trimmed = command.trim();
-  const shellWrapped = trimmed.match(/^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/);
-  if (shellWrapped) {
-    return isGitCommand(shellWrapped[1] ?? shellWrapped[2] ?? shellWrapped[3] ?? "");
-  }
+  return /(?:^|[;&|]\s*|&&\s*|\|\|\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?git(?:\s|$)/.test(unwrapShellCommand(command));
+}
 
-  return /(?:^|[;&|]\s*|&&\s*|\|\|\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S+\/)?git(?:\s|$)/.test(trimmed);
+/** A path under the project, as the reader knows it: relative to the project. */
+export function projectRelativePath(path: string, projectPath?: string | null): string {
+  const prefix = projectPath ? projectPath.replace(/\/$/, "") + "/" : "";
+  return prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
 function addStringPath(paths: Set<string>, value: string | undefined, projectPath?: string): void {
   if (!value?.trim()) return;
-  let path = value.trim();
-  const prefix = projectPath ? projectPath.replace(/\/$/, "") + "/" : "";
-  if (prefix && path.startsWith(prefix)) path = path.slice(prefix.length);
-  paths.add(path);
+  paths.add(projectRelativePath(value.trim(), projectPath));
 }
 
 const changedPathSchema = z.object({

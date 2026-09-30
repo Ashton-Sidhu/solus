@@ -1,23 +1,23 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BaseAgentBackend } from '@solus/server/agents/base-backend'
+import { BaseAgentBackend } from '@solus/server/execution/agents/base-backend'
 import { solusDir } from '@solus/server/platform/paths'
-import { agentSaveWork, createWork } from '@solus/server/folio/works'
-import { executeAgentTool } from '@solus/server/agents/tools/agent-tool'
+import { createWork } from '@solus/server/data/works/works'
+import { Work } from '@solus/server/data/works/work'
+import { executeAgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { workPreview } from '@solus/contracts/work-preview'
-import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type {
   AgentId,
   AgentMetadata,
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
-  SessionMeta,
   UsageData,
 } from '@solus/contracts/types'
 import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
-import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
@@ -40,7 +40,7 @@ export interface MockRunRecord {
 /** The Lab's cloud proofs (docs/plans/cloud-service-model.md §5): the credential material a run saw. */
 function credentialSeenBy(request: AgentRunRequest): string | null {
   const seat = request.seat
-  if (!seat || seat.isHostLogin) return null
+  if (!seat || seat.seat.kind === 'host-login') return null
   if (seat.envToken) return `token:${seat.envToken}`
   const file = join(seat.home, '.credentials.json')
   try {
@@ -94,7 +94,7 @@ function appendTranscript(sessionId: string, message: SessionLoadMessage): void 
  */
 function refreshCredentialFile(request: AgentRunRequest): void {
   const seat = request.seat
-  if (!seat || seat.isHostLogin) return
+  if (!seat || seat.seat.kind === 'host-login') return
   const file = join(seat.home, '.credentials.json')
   if (!existsSync(file)) return
   try {
@@ -324,8 +324,8 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
 
     if (prompt.includes('__MOCK_ARTIFACT_IMAGE__')) {
-      // A 1x1 transparent PNG written to a temp file so the solus-artifact
-      // protocol has a real file to stream.
+      // A 1x1 transparent PNG written to a temp file so the host's signed asset
+      // URL has a real file to stream.
       const pngBytes = Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==',
         'base64',
@@ -341,11 +341,12 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
 
     // Emit a work_updated event (agent revised an existing work in place).
-    // Persist via agentSaveWork so a "previous version" snapshot exists for the
+    // Persist as an agent write so a "previous version" snapshot exists for the
     // revision-diff ("View changes"), mirroring the real update_work path.
     if (prompt.includes('__MOCK_WORK_UPDATE__')) {
       const content = '# Mock Test Document (updated)\n\nThe agent revised this document in place.'
-      void agentSaveWork('mock-work-001', { content, preview: workPreview('doc', content) })
+      void Work.byId('local', 'mock-work-001')
+        .then((work) => work.updateContent({ content, expectedContentVersion: work.contentVersion, author: { kind: 'agent', sessionId: MOCK_SESSION_ID }, reason: 'agent' }))
         .catch(() => {})
         .then(() => {
           this.emit('normalized', MOCK_SESSION_ID, {
@@ -643,10 +644,6 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
 
   protected override _errorMessage(_exitCode: number | null): string {
     return 'Mock error'
-  }
-
-  async listSessions(_projectPath: string): Promise<SessionMeta[]> {
-    return []
   }
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {

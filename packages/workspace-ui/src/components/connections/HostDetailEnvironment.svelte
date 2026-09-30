@@ -47,7 +47,8 @@
     label="Git"
     description={git?.installed
       ? "Installed"
-      : (readiness?.installGit?.display ??
+      : (readiness?.installGit?.followUp ??
+        readiness?.installGit?.display ??
         "Not installed — this host cannot clone anything")}
     body={setup.stepError?.step === "git" ? gitError : undefined}
   >
@@ -59,7 +60,7 @@
           disabled={!!setup.runningStep}
           onclick={() => void setup.installGit()}
         >
-          {setup.runningStep === "git" ? "Installing…" : "Install git"}
+          {setup.runningStep === "git" ? "Installing…" : (readiness.installGit?.label ?? "Install git")}
         </Button>
       {/if}
     {/snippet}

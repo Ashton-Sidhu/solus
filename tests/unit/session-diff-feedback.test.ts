@@ -32,7 +32,7 @@ function session(overrides: Partial<{
     diffComments: overrides.diffComments ?? [],
     diffCommentDraft: null,
     diffGeneralComment: overrides.diffGeneralComment ?? '',
-    task: { kind: 'new' as const },
+    task: { kind: 'none' as const },
     run: {
       workingDirectory: overrides.workingDirectory ?? '',
       gitContext: overrides.gitContext ?? null,

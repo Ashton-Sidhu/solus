@@ -16,7 +16,7 @@ import {
 
 const CLAUDE = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
@@ -38,7 +38,7 @@ describe('groupModels', () => {
   it('leaves the current generation as one list in the provider order, not a card per family', () => {
     // One heading for the generation on offer, whichever agent is active.
     // Grouping Claude by family gave it four cards where Codex has one.
-    const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5')
+    const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5-5')
     expect(groups.map((group) => group.label)).toEqual([
       'In this session',
       ALL_MODELS_LABEL,
@@ -48,7 +48,7 @@ describe('groupModels', () => {
   })
 
   it('takes the superseded generation off the main list into its own section', () => {
-    const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5')
+    const groups = groupModels('claude-code', CLAUDE, 'claude-sonnet-5-5')
     const legacy = groups.find((group) => group.isLegacy)
     expect(legacy?.label).toBe(LEGACY_MODELS_LABEL)
     expect(legacy?.models.map((model) => model.id)).toEqual(['claude-opus-4-8'])
@@ -106,7 +106,7 @@ describe('filterModelGroups', () => {
   it('drops groups that have nothing left rather than leaving empty headings', () => {
     const sonnet = filterModelGroups(groups, 'sonnet')
     expect(sonnet.every((group) => group.models.length > 0)).toBe(true)
-    expect(sonnet.flatMap((group) => group.models).map((model) => model.label)).toEqual(['Sonnet 5'])
+    expect(sonnet.flatMap((group) => group.models).map((model) => model.label)).toEqual(['Sonnet 5.5'])
   })
 
   it('returns everything for an empty query', () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Sun as SunIcon } from "@lucide/svelte";
+  import { ListChecks as ListChecksIcon, Sun as SunIcon } from "@lucide/svelte";
   import ReviewGuideGlyph from "@solus/workspace-ui/components/review/ReviewGuideGlyph.svelte";
   import ProjectFavicon from "@solus/workspace-ui/components/ui/ProjectFavicon.svelte";
   import {
@@ -85,6 +85,18 @@
           class="size-3.5 shrink-0"
         />
         <span class="min-w-0 truncate text-(--muted-foreground)">{task.projectLabel}</span>
+      {/if}
+      {#if task.linkedTask}
+        <!-- This session belongs to a task that has no row in the list, so
+             the session names it. -->
+        <span class="shrink-0 text-(--muted-foreground) opacity-40">·</span>
+        <span
+          class="flex min-w-0 items-center gap-1 text-[color-mix(in_oklch,var(--solus-art-5)_72%,var(--foreground))]"
+          aria-label={`Task ${task.linkedTask.title}`}
+        >
+          <ListChecksIcon size={12} class="shrink-0" />
+          <span class="min-w-0 truncate">{task.linkedTask.title}</span>
+        </span>
       {/if}
       {#if elapsed}
         {#if task.projectLabel}

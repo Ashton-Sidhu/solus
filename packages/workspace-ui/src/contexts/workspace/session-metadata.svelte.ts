@@ -1,18 +1,18 @@
-import type { SessionTitleChangedEvent } from '@solus/contracts/types'
+import type { Session, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { SvelteSet } from 'svelte/reactivity'
 import { sessionTitleRegenerationInput } from './session-title-regeneration'
-import { isDispatch } from './run-config'
 import { applySessionTitleChange } from './session-title-change'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { existingTaskId, taskRoleOf } from './session-draft.svelte'
+import { UNTITLED_TASK_TITLE, type Task } from '../tasks/task.svelte'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionMetadataWorkspace = Pick<WorkspaceContext,
   | 'addSystemMessage'
   | 'apiFor'
   | 'createThreadGoal'
-  | 'dispatch'
   | 'promptComposer'
   | 'refreshThreadGoal'
   | 'revealGoal'
@@ -115,9 +115,10 @@ export class SessionMetadata {
   }
 
   /**
-   * Name a thread and describe its session-born ticket from the opening prompt,
-   * once its agent session id exists to persist against. Silent on failure: the
-   * prompt-derived title and empty ticket body are valid fallbacks.
+   * Name a thread from the opening prompt, once its agent session id exists to
+   * persist against. The same answer names the untitled task a lead was opened
+   * for by New task. Silent on failure: the prompt-derived title and the
+   * placeholder task title are valid fallbacks.
    */
   async generateSessionMetadata(tabId: string): Promise<void> {
     const tab = this.workspace.tabs[tabId]
@@ -131,9 +132,10 @@ export class SessionMetadata {
       // nowhere to persist — this is the first moment there's an id to hang it on.
       this.metadataFinalizedTabs.add(tabId)
       await this.workspace.apiFor(tabId).setSessionTitle(agentSessionId, session.title, 'manual').catch(() => {})
-      return
     }
-    if (!this.workspace.settings.autoRenameSessions) return
+    const renamesSession = !session.titleCustom && this.workspace.settings.autoRenameSessions
+    const untitledTask = this.untitledLeadTask(session)
+    if (!renamesSession && !untitledTask) return
 
     // Only the opening turn names a thread — a later init is a resume, and a
     // resumed thread either has a name already or was deliberately left unnamed.
@@ -151,6 +153,8 @@ export class SessionMetadata {
       .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, metadataContext)
       .catch(() => null)
     if (!metadata) return
+    if (untitledTask) void untitledTask.nameFromLeadPrompt(metadata).catch(() => {})
+    if (!renamesSession) return
 
     // The tab may have been closed, reset, renamed by hand, or resumed into a
     // different session while the naming round trip was in flight.
@@ -158,20 +162,18 @@ export class SessionMetadata {
     if (!this.workspace.tabs[tabId] || !currentSession || currentSession.titleCustom) return
     if (currentSession.agentSessionId !== agentSessionId) return
     currentSession.title = metadata.title
-    // The session's host names the session-born task from this title itself,
-    // with its own race guards against a hand-typed name. A dispatched session's
-    // task sits on a host that never sees that call, so the client carries the
-    // name across — only to the task it minted, never to one the user chose.
-    const mintedTaskId = this.workspace.dispatch.mintedTaskIdBySession.get(currentSession)
-    if (mintedTaskId && isDispatch(currentSession.run)) {
-      void this.workspace.tasksStore.get(mintedTaskId).update({
-        title: metadata.title,
-        body: metadata.description,
-      }).catch(() => null)
-    }
     await this.workspace.apiFor(tabId)
       .setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description)
       .catch(() => {})
+  }
+
+  /** The task New task made for this session to lead, while it still has its
+   *  placeholder title. */
+  private untitledLeadTask(session: Session): Task | null {
+    const taskId = existingTaskId(session.task)
+    if (!taskId || taskRoleOf(session.task) !== 'lead') return null
+    const task = this.workspace.tasksStore.get(taskId)
+    return task.title === UNTITLED_TASK_TITLE ? task : null
   }
 
   /** Rename a session by hand, named by a tab showing it. An empty name clears

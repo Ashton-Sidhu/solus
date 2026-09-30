@@ -115,10 +115,10 @@
         .loadMetadata(api, targetServerId, ctx, [{ number }])
         .catch(() => {});
       if (!isActive) return;
-      return pullRequests.projects.watch(
-        pullRequests.projects.get(api, targetServerId, ctx),
-        { details: [number] },
-      );
+      // Merge controls need the host-computed fields only a detail read
+      // carries; PR sync keeps the rest fresh while the row is shown.
+      void pullRequests.projects.get(api, targetServerId, ctx).get(number).loadDetail().catch(() => {});
+      return pullRequests.projects.want(api, targetServerId, ctx, [{ kind: "pull-request", number }]);
     });
   });
 
@@ -250,11 +250,7 @@
         });
         return;
       }
-      const result = await pullRequest.merge(method);
-      if (!result.merged) {
-        toasts.error(result.message ?? "The code host refused the merge.");
-        return;
-      }
+      await pullRequest.merge(method);
       merged = true;
       toasts.success(`Merged #${number}`);
       onMerged();

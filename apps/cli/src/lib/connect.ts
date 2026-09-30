@@ -1,40 +1,53 @@
 import { spawn } from 'child_process'
-import { randomBytes } from 'crypto'
-import { z } from 'zod'
-import { io, type Socket } from 'socket.io-client'
 import {
   requestDeviceCode,
   waitForDeviceApproval,
   type DeviceCodeGrant,
 } from '@solus/client-core/device-authorization'
 import {
+  accountResponseSchema,
   enrollmentTicketResponseSchema,
+  parseLinkCode,
   uplinkStatusSchema,
-  type UplinkEnrollmentTicket,
+  type AccountOrganization,
+  type EnrollmentTicketRequest,
+  type UplinkLinkRequest,
   type UplinkStatus,
 } from '@solus/contracts/uplink'
-import { hostForUrl } from '@solus/contracts/entrypoint'
+import { hostOrganizationsStatusSchema, type HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { installCloudflared } from './cloudflared'
-import {
-  isProcessAlive,
-  localConnectHost,
-  readLockFile,
-  runtimePaths,
-  type RuntimePaths,
-} from './runtime'
+import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
+import { runtimePaths } from './runtime'
 
 export const CLI_DEVICE_CLIENT_ID = 'solus-cli'
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
 
+/**
+ * How this server links to Solus (plans/009-organization-vms.md §5). A link code
+ * carries its ticket and the account plane that issued it, so one string is
+ * enough: an organization's "Add your own VM" code attaches the server to that
+ * organization; a personal code links it for discovery and remote access. Without
+ * a code, the person signs in on another device and chooses.
+ */
 export interface ConnectOptions {
   dataDir: string
+  /** The account plane to sign in to when no code names one. */
   cloudUrl?: string
   noOpen: boolean
+  /** A link code a signed-in client or the account website issued. */
+  code?: string
 }
+
+/** What the person decides after signing in, when no code decided it. */
+export type ConnectChoice =
+  | { kind: 'personal' }
+  | { kind: 'organization'; organizationId: string }
 
 export interface ConnectReporter {
   deviceCode(grant: DeviceCodeGrant): void
   stage(message: string): void
+  /** After sign-in, when no code decided: a personal link, or an organization among the account's. */
+  choose(organizations: AccountOrganization[], current: UplinkStatus): Promise<ConnectChoice>
 }
 
 export function resolveCloudOrigin(value: string | undefined): string {
@@ -47,33 +60,70 @@ export function resolveCloudOrigin(value: string | undefined): string {
   return url.origin
 }
 
-export async function connectHost(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus> {
-  const paths = runtimePaths(options.dataDir)
-  const current = await withLocalHost(paths, (api) => api.uplinkStatus())
+/** The server's own link and organization calls, over the trusted loopback socket. */
+interface LocalHostApi {
+  uplinkStatus(): Promise<UplinkStatus>
+  uplinkLink(request: UplinkLinkRequest): Promise<UplinkStatus>
+  uplinkUnlink(): Promise<UplinkStatus>
+  uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
+  hostOrganizations(): Promise<HostOrganizationsStatus>
+}
 
+async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Promise<T>): Promise<T> {
+  return withLocalRpc(requireRunningServerUrl(runtimePaths(dataDir)), (call) => run({
+    uplinkStatus: async () => uplinkStatusSchema.parse(await call('uplinkStatus')),
+    uplinkLink: async (request) => uplinkStatusSchema.parse(await call('uplinkLink', [request])),
+    uplinkUnlink: async () => uplinkStatusSchema.parse(await call('uplinkUnlink')),
+    uplinkDetachOrganization: async (organizationId) => uplinkStatusSchema.parse(await call('uplinkDetachOrganization', [organizationId])),
+    hostOrganizations: async () => hostOrganizationsStatusSchema.parse(await call('hostOrganizations')),
+  }))
+}
+
+/**
+ * Links this server, or attaches it to an organization when it is already linked.
+ * A code needs nothing else. Without one, the person signs in with the device flow
+ * — whose URL and code they open on any device, so this works over SSH — and then
+ * chooses a personal link or one of their organizations.
+ */
+export async function connectHost(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus> {
+  const current = await withLocalHost(options.dataDir, (api) => api.uplinkStatus())
   reporter.stage('Checking cloudflared')
   await installCloudflared({ dataDir: options.dataDir })
   reporter.stage('cloudflared is ready')
-  if (current.linked) return current
 
-  const cloudOrigin = resolveCloudOrigin(options.cloudUrl)
+  if (options.code) {
+    const request = parseLinkCode(options.code, resolveCloudOrigin(options.cloudUrl))
+    return withLocalHost(options.dataDir, (api) => api.uplinkLink(request))
+  }
+  const cloudOrigin = current.linked ? current.link.directoryUrl : resolveCloudOrigin(options.cloudUrl)
   const sessionToken = await authorizeCli(cloudOrigin, options.noOpen, reporter)
   try {
-    const ticket = await issueEnrollmentTicket(cloudOrigin, sessionToken)
-    return await withLocalHost(paths, (api) => api.uplinkLink(ticket))
+    const choice = await reporter.choose(await accountOrganizations(cloudOrigin, sessionToken), current)
+    if (choice.kind === 'personal' && current.linked) return current
+    const ticket = await issueEnrollmentTicket(cloudOrigin, sessionToken, choice.kind === 'organization' ? { organizationIds: [choice.organizationId] } : {})
+    return await withLocalHost(options.dataDir, (api) => api.uplinkLink({ ticket, directoryUrl: cloudOrigin }))
   } finally {
     await signOutCloudSession(cloudOrigin, sessionToken)
   }
 }
 
-export async function connectStatus(dataDir: string): Promise<UplinkStatus> {
-  return withLocalHost(runtimePaths(dataDir), (api) => api.uplinkStatus())
+export async function connectStatus(dataDir: string): Promise<{ link: UplinkStatus; standing: HostOrganizationsStatus }> {
+  return withLocalHost(dataDir, async (api) => ({ link: await api.uplinkStatus(), standing: await api.hostOrganizations() }))
 }
 
+/** Unlinks this server; an attached server becomes personal again, and its organizations' records stay on the Solus API. */
 export async function disconnectHost(dataDir: string): Promise<UplinkStatus> {
-  return withLocalHost(runtimePaths(dataDir), async (api) => {
+  return withLocalHost(dataDir, async (api) => {
     const current = await api.uplinkStatus()
     return current.linked ? api.uplinkUnlink() : current
+  })
+}
+
+/** Takes this server's attachment back for one organization; the link and its other organizations stay. */
+export async function removeOrganization(dataDir: string, organizationId: string): Promise<HostOrganizationsStatus> {
+  return withLocalHost(dataDir, async (api) => {
+    await api.uplinkDetachOrganization(organizationId)
+    return api.hostOrganizations()
   })
 }
 
@@ -100,15 +150,27 @@ async function authorizeCli(
   return result.sessionToken
 }
 
-async function issueEnrollmentTicket(cloudOrigin: string, sessionToken: string): Promise<UplinkEnrollmentTicket> {
+async function accountOrganizations(cloudOrigin: string, sessionToken: string): Promise<AccountOrganization[]> {
+  const response = await fetch(`${cloudOrigin}/v1/account`, {
+    headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json' },
+    redirect: 'error',
+  })
+  if (!response.ok) throw new Error(`Solus Cloud could not read your organizations (${response.status})`)
+  return accountResponseSchema.parse(await response.json()).organizations
+}
+
+async function issueEnrollmentTicket(cloudOrigin: string, sessionToken: string, body: EnrollmentTicketRequest): Promise<string> {
   const response = await fetch(`${cloudOrigin}/v1/enrollment-tickets`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json' },
+    headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    redirect: 'error',
   })
-  if (!response.ok) throw new Error(`Solus Cloud could not issue an enrollment ticket (${response.status})`)
+  if (response.status === 403) throw new Error('Your account is not a member of that organization.')
+  if (!response.ok) throw new Error(`Solus Cloud could not issue a link code (${response.status})`)
   const parsed = enrollmentTicketResponseSchema.safeParse(await response.json().catch(() => null))
-  if (!parsed.success) throw new Error('Solus Cloud returned an invalid enrollment ticket')
-  return { ...parsed.data, directoryUrl: cloudOrigin }
+  if (!parsed.success) throw new Error('Solus Cloud returned an invalid link code')
+  return parsed.data.ticket
 }
 
 async function signOutCloudSession(cloudOrigin: string, sessionToken: string): Promise<void> {
@@ -121,78 +183,6 @@ async function signOutCloudSession(cloudOrigin: string, sessionToken: string): P
     // The short-lived setup client keeps no local copy. Server-side expiry remains the fallback.
   }
 }
-
-interface LocalHostApi {
-  uplinkStatus(): Promise<UplinkStatus>
-  uplinkLink(request: UplinkEnrollmentTicket): Promise<UplinkStatus>
-  uplinkUnlink(): Promise<UplinkStatus>
-}
-
-async function withLocalHost<T>(paths: RuntimePaths, run: (api: LocalHostApi) => Promise<T>): Promise<T> {
-  const lock = readLockFile(paths.lockFile)
-  if (!lock || !isProcessAlive(lock.pid)) {
-    throw new Error('The Solus server is not running. Start it with `solus start`, then run this command again.')
-  }
-  const serverUrl = `http://${hostForUrl(localConnectHost(lock.host))}:${lock.port}`
-  const socket = io(serverUrl, {
-    path: '/ws',
-    transports: ['websocket'],
-    reconnection: false,
-    auth: { clientInstanceId: `cli-${randomBytes(12).toString('hex')}` },
-  })
-  try {
-    await waitForSocket(socket)
-    const api: LocalHostApi = {
-      uplinkStatus: () => invokeUplink(socket, 'uplinkStatus', []),
-      uplinkLink: (request) => invokeUplink(socket, 'uplinkLink', [request]),
-      uplinkUnlink: () => invokeUplink(socket, 'uplinkUnlink', []),
-    }
-    return await run(api)
-  } finally {
-    socket.disconnect()
-  }
-}
-
-function waitForSocket(socket: Socket): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => finish(new Error('Timed out connecting to the local Solus server')), 10_000)
-    timeout.unref?.()
-    const finish = (error?: Error) => {
-      clearTimeout(timeout)
-      socket.off('connect', onConnect)
-      socket.off('connect_error', onError)
-      if (error) reject(error)
-      else resolve()
-    }
-    const onConnect = () => finish()
-    const onError = (error: Error) => finish(new Error(`The local Solus server refused the CLI connection: ${error.message}`))
-    socket.once('connect', onConnect)
-    socket.once('connect_error', onError)
-  })
-}
-
-type UplinkRpcMethod = 'uplinkStatus' | 'uplinkLink' | 'uplinkUnlink'
-
-const uplinkRpcEnvelopeSchema = z.object({
-  result: z.unknown().optional(),
-  error: z.object({ message: z.string().optional() }).optional(),
-})
-type UplinkRpcEnvelopeInput = z.input<typeof uplinkRpcEnvelopeSchema>
-
-function invokeUplink(socket: Socket, method: UplinkRpcMethod, args: unknown[]): Promise<UplinkStatus> {
-  return new Promise((resolve, reject) => {
-    const requestId = randomBytes(8).toString('hex')
-    socket.emit('rpc', requestId, method, args, (response: UplinkRpcEnvelopeInput) => {
-      const envelope = uplinkRpcEnvelopeSchema.safeParse(response)
-      if (!envelope.success) return reject(new Error(`The ${method} response was invalid`))
-      if (envelope.data.error) return reject(new Error(envelope.data.error.message ?? `${method} failed`))
-      const status = uplinkStatusSchema.safeParse(envelope.data.result)
-      if (!status.success) reject(new Error(`The ${method} result was invalid`))
-      else resolve(status.data)
-    })
-  })
-}
-
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

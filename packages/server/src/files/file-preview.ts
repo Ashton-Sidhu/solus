@@ -1,0 +1,122 @@
+import { open, readFile, realpath, stat } from 'fs/promises'
+import { relative, resolve } from 'path'
+import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '@solus/contracts/types'
+import { mediaTypeFor, mimeTypeFor } from '@solus/contracts/media-types'
+import { isInsideRoot } from '../paths'
+import { expandHome } from './host-path'
+import { resolveProjectPathBySuffix } from './path-suffix-match'
+
+/** Unlike `expandHome`, a bare relative path resolves against the *request's*
+ *  cwd rather than the server process's. Only the `~` rule is shared. */
+export function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
+  if (rawPath === '~' || rawPath.startsWith('~/')) return expandHome(rawPath)
+  if (rawPath.startsWith('/')) return resolve(rawPath)
+  return resolve(cwd || process.cwd(), rawPath)
+}
+
+export function projectRootForRequest(ctx: IpcContext, cwd?: string): string | null {
+  const raw =
+    cwd ||
+    ctx.session.gitContext?.worktreePath ||
+    (ctx.session.workingDirectory && ctx.session.workingDirectory !== '~'
+      ? ctx.session.workingDirectory
+      : undefined)
+  return raw ? resolvePreviewPath(raw, undefined) : null
+}
+
+function isBinaryBuffer(buffer: Buffer): boolean {
+  const sampleLength = Math.min(buffer.length, 8000)
+  for (let index = 0; index < sampleLength; index++) {
+    if (buffer[index] === 0) return true
+  }
+  return false
+}
+
+/** Beyond this the editor is asked to tokenize and render more than it can. */
+const PREVIEW_MAX_BYTES = 1024 * 1024
+
+async function readFilePrefix(path: string, size: number, cap = 8000): Promise<Buffer> {
+  const handle = await open(path, 'r')
+  try {
+    const sample = Buffer.alloc(Math.min(size, cap))
+    const result = await handle.read(sample, 0, sample.length, 0)
+    return sample.subarray(0, result.bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+/** The canonical file to read. The literal path wins; only a path that names
+ *  nothing is completed against the project index. */
+async function canonicalTarget(
+  resolved: string,
+  root: string | undefined,
+  requestedPath: string,
+): Promise<string> {
+  try {
+    return await realpath(resolved)
+  } catch (missing) {
+    const completed = root ? await resolveProjectPathBySuffix(root, requestedPath) : null
+    if (!completed) throw missing
+    return realpath(completed)
+  }
+}
+
+export async function readFilePreview(
+  ctx: IpcContext,
+  request: FilePreviewRequest,
+): Promise<FilePreviewResult> {
+  const rawRoot = projectRootForRequest(ctx, request.cwd) ?? undefined
+  const resolved = resolvePreviewPath(request.path, rawRoot)
+  let root: string | undefined
+  let target = resolved
+
+  try {
+    if (rawRoot) {
+      try {
+        root = await realpath(rawRoot)
+      } catch {
+        root = undefined
+      }
+    }
+    target = await canonicalTarget(resolved, root, request.path)
+
+    const fileStat = await stat(target)
+    if (!fileStat.isFile()) {
+      return { ok: false, path: target, error: 'Only files can be previewed.' }
+    }
+    const displayPath = root && isInsideRoot(root, target) ? relative(root, target) : target
+    // Media is named, not sent: the client loads it from a signed asset URL.
+    const media = mediaTypeFor(target)
+    if (media) return { ok: true, kind: 'media', path: target, displayPath, size: fileStat.size, media }
+
+    const sample = await readFilePrefix(target, fileStat.size)
+    if (isBinaryBuffer(sample)) return { ok: true, kind: 'binary', path: target, displayPath, size: fileStat.size }
+
+    // Project search can surface a hit in a generated bundle or a large log,
+    // which the editor would otherwise try to tokenize and render whole.
+    const truncated = fileStat.size > PREVIEW_MAX_BYTES
+    const buffer = truncated
+      ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
+      : await readFile(target)
+    const outsideRoot = !root || !isInsideRoot(root, target)
+    const result: FilePreviewResult = {
+      ok: true,
+      kind: 'text',
+      path: target,
+      displayPath,
+      contents: buffer.toString('utf-8'),
+      size: fileStat.size,
+      isReadOnly: outsideRoot || truncated,
+      mimeType: mimeTypeFor(target),
+    }
+    if (truncated) result.truncated = true
+    return result
+  } catch (error) {
+    return {
+      ok: false,
+      path: target,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}

@@ -1,5 +1,5 @@
-import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type Message } from '@solus/contracts/types'
-import { getToolDescription, participleFor } from './activity-summary'
+import { MODEL_PROFILES, REASONING_EFFORT_LABELS, modelLabelFor, type AgentId, type Message } from '@solus/contracts/types'
+import { formatActivityDuration, getToolDescription, participleFor } from './activity-summary'
 import { parseSubagentInput, subagentTodos } from './subagent'
 import { z } from 'zod'
 
@@ -31,9 +31,12 @@ export interface SubagentRow {
   /** What the live step is on. Mono, truncates, empty once settled. */
   target: string
   steps: SubagentSteps
-  /** Model and effort. Agents in one fan-out are routinely dispatched with
-   *  different ones, so this varies and therefore lives on the row. */
-  meta: string
+  /** The backend the agent runs on, for its mark on the card line. */
+  provider: AgentId
+  /** The model's display name, or empty when nothing names one. */
+  modelLabel: string
+  /** The reasoning effort's display name, or empty when nothing names one. */
+  effortLabel: string
   elapsedMs: number
 }
 
@@ -44,13 +47,10 @@ export interface SubagentGroupSummary {
   /** Agents that are neither running nor failed. */
   done: number
   elapsedMs: number
-  /** The shared objective, with the count. */
+  /** The shared objective. */
   title: string
   /** Counts, never names. */
   chip: string
-  /** Only what every agent genuinely shares: the count, where they run, and a
-   *  tally of how many are in each state. Anything that varies is on the row. */
-  meta: string[]
 }
 
 export interface SubagentModelFallback {
@@ -157,13 +157,34 @@ export function subagentRow(
     activity: live ? live.activity : resultSummary(message, subs),
     target: live?.target ?? '',
     steps: stepsFor(message, subs),
-    meta: [namedType(message), ...subagentModelMeta(message, fallback)].filter(Boolean).join(' · '),
+    ...subagentIdentity(message, fallback),
     elapsedMs: Math.max(
       0,
       (state === 'running' ? now : (message.toolCompletedAt ?? message.timestamp)) - message.timestamp,
       taskProgress?.durationMs ?? message.backgroundTaskProgress?.durationMs ?? 0,
     ),
   }
+}
+
+/**
+ * Which backend a sub-agent runs on and its model's name. The Agent call names
+ * the backend when it is not the parent's; otherwise the model says which
+ * provider's profile it belongs to.
+ */
+export function subagentIdentity(
+  message: Message,
+  fallback: SubagentModelFallback,
+): { provider: AgentId; modelLabel: string; effortLabel: string } {
+  const [model = '', effortLabel = ''] = subagentModelMeta(message, fallback)
+  const provider: AgentId =
+    message.subagentType === 'codex'
+      ? 'codex'
+      : message.subagentType === 'claude'
+        ? 'claude-code'
+        : model in (MODEL_PROFILES.codex ?? {})
+          ? 'codex'
+          : 'claude-code'
+  return { provider, modelLabel: modelLabelFor(provider, model) ?? '', effortLabel }
 }
 
 /**
@@ -197,33 +218,18 @@ function namedType(message: Message): string {
   return type === 'agent' || type === 'general-purpose' ? '' : type
 }
 
-/** The shared objective: the one thing every agent in the fan-out has in common. */
+/** The shared objective: the one thing every agent in the fan-out has in common.
+ *  The count is the card's type word, so the title does not repeat it. */
 function groupTitle(messages: Message[]): string {
   const types = new Set(messages.map(namedType))
   const shared = types.size === 1 ? [...types][0] : ''
-  return `${messages.length} ${shared ? `${shared} ` : ''}agents in parallel`
-}
-
-/**
- * The header carries only what is genuinely shared. The tally is the one place
- * the mixed states are spelled out, so it is dropped when every agent is in the
- * same state — there the chip has already said it.
- */
-function tallyOf(done: number, running: number, failed: number): string {
-  const parts = [
-    done > 0 ? `${done} done` : '',
-    running > 0 ? `${running} running` : '',
-    failed > 0 ? `${failed} failed` : '',
-  ].filter(Boolean)
-  return parts.length > 1 ? parts.join(', ') : ''
+  return shared ? `${shared} agents in parallel` : 'Agents in parallel'
 }
 
 export function subagentGroupSummary(
   messages: Message[],
   rows: SubagentRow[],
   now: number,
-  /** Where they all run — the one environment fact the fan-out shares. */
-  worktree: string,
 ): SubagentGroupSummary {
   let running = 0
   let failed = 0
@@ -255,10 +261,21 @@ export function subagentGroupSummary(
     elapsedMs: Math.max(0, (running > 0 ? now : settledAt) - startedAt),
     title: groupTitle(messages),
     chip,
-    meta: [
-      `${messages.length} agent${messages.length === 1 ? '' : 's'}`,
-      worktree ? `worktree ${worktree}` : '',
-      tallyOf(done, running, failed),
-    ].filter(Boolean),
   }
+}
+
+/** The group card's type word: how many agents the fan-out holds. */
+export function subagentGroupType(summary: SubagentGroupSummary): string {
+  return `${summary.total} sub-agent${summary.total === 1 ? '' : 's'}`
+}
+
+/** The group card's rail: counts and time only. */
+export function subagentGroupRail(summary: SubagentGroupSummary): string {
+  return [
+    `${summary.done} done`,
+    summary.failed > 0 ? `${summary.failed} failed` : '',
+    formatActivityDuration(summary.elapsedMs),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }

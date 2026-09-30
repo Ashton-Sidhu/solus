@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    connectionsStore,
     getWorkspaceContext,
     getSettingsContext,
     getSessionSidebarStore,
@@ -22,6 +23,8 @@
   import InputBar from "../input/InputBar.svelte";
   import InputBarHeader from "../input/InputBarHeader.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
+  import { projectHostId } from "../servers/run-on";
+  import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
   import { draftPluginCommandScope } from "./lib/plugin-command-scope";
   import { draftModelSelection } from "./lib/draft-selection";
 
@@ -106,8 +109,11 @@
   const projectRoot = $derived(
     gitHome.projectRoot ?? draft?.run.workingDirectory ?? "~",
   );
+  // The host the folder is on — a draft headed for another host names that
+  // host's folder — so a chat there reads "Scratchpad" too.
+  const projectHost = $derived(draft ? projectHostId(draft.run) : null);
   const projectName = $derived(
-    projectDirLabel(projectRoot, session.staticInfo?.workspacePath),
+    projectDirLabel(projectRoot, connectionsStore.chatFolderFor(projectHost)),
   );
   // No project chosen yet — "build in ~?" names nothing, so the question drops
   // its object and only the chip below is left to do the choosing.
@@ -226,7 +232,7 @@
 
   async function attachFile() {
     if (onAttachFile) {
-      await onAttachFile();
+      await onAttachFile(params.draftId);
       return;
     }
     const files = await session.apiForRun(draft?.run).attachFiles(
@@ -250,15 +256,14 @@
     )}
   >
     <!-- The headline is display type, not chrome, so it has no responsive rung.
-         A laptop display carries the same 36px at 0.9 zoom and the question
-         crowds the composer, so step it down there. Viewport breakpoints cannot
-         make this call: the zoom factor inflates the CSS viewport past `lg`. -->
+         The question shares the bar's measure, so it is never wider than the
+         composer under it on any display. -->
     <h1
       class={cn(
         "text-pretty text-2xl font-medium text-(--solus-text-primary)",
         isPhone
           ? "leading-[1.3] tracking-[-0.018em]"
-          : "max-w-[40rem] text-center leading-[1.25] lg:max-w-[52rem] lg:text-4xl [.is-laptop-display_&]:text-3xl",
+          : "w-full max-w-(--solus-reading-max) text-center leading-[1.25] lg:text-4xl",
       )}
     >
       {#if hasProject}
@@ -272,13 +277,18 @@
             projectPickerAnchor = event.currentTarget;
             projectPickerOpen = true;
           }}
-          class="group inline whitespace-nowrap focus-visible:outline-none"
+          title={projectName}
+          class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
           ><ProjectFavicon
             {projectRoot}
             serverId={draft?.run.serverId}
             class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
           /><span
             class={cn(
+              // A long name truncates rather than wrapping the headline into a
+              // paragraph. The clip is horizontal only, so the dotted rule
+              // below the baseline still paints.
+              "min-w-0 overflow-x-clip text-ellipsis",
               "transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium)",
               // A dotted rule under 23px type reads as a defect rather than an
               // affordance, and a phone has no hover to reveal it anyway.
@@ -346,6 +356,15 @@
           }
         }
       />
+
+      {#if current.run.serverId}
+        <!-- Before the first send, on a host that runs turns on the member's
+             own seat: the seat this draft's agent still needs there. -->
+        <SeatNeededNotice
+          serverId={current.run.pendingHostDispatch?.serverId ?? current.run.serverId}
+          provider={current.run.provider ?? session.defaultRunConfig.provider ?? theme.activeAgent}
+        />
+      {/if}
 
       <div
         class={cn(
@@ -442,10 +461,5 @@
      pane itself is narrower than the measure. */
   .draft-column {
     --solus-reading-max: 56rem;
-  }
-  /* A laptop display has less room to spend, so the wider desktop measure would
-     push the bar against the pane edges. Keep the original 52rem there. */
-  :global(html.is-laptop-display) .draft-column {
-    --solus-reading-max: 52rem;
   }
 </style>

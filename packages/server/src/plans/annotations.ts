@@ -1,20 +1,19 @@
 import { sql } from 'drizzle-orm'
 import type { PlanAnnotations } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../db/database'
+import { scopeAdmits, type RecordScope } from '../admission/principal'
+import { scopeClause } from '../data/scope'
+import { organizationOfSession } from '../data/sessions/session-records'
 import { z } from 'zod'
 import { workExternalLinkSchema } from '../docs/schema'
 import { planAnnotations } from './schema'
-
-const commentAgentAuthorSchema = z.object({
-  sessionId: z.string(),
-  title: z.string().optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
-})
+import { attributionSchema } from '@solus/contracts/user'
+import { readStoredComments, type StoredThread } from '../annotations/stored-comments'
+import { hostUser } from '../host/host-user'
 
 const commentReplySchema = z.object({
   id: z.string(),
-  author: z.enum(['you', 'solus']),
-  authorAgent: commentAgentAuthorSchema.optional(),
+  author: attributionSchema.optional(),
   text: z.string(),
   createdAt: z.number(),
 })
@@ -26,11 +25,10 @@ const planCommentSchema = z.object({
   textOffset: z.number().optional(),
   nodeId: z.string().optional(),
   edgeId: z.string().optional(),
-  author: z.enum(['you', 'solus']).optional(),
-  authorAgent: commentAgentAuthorSchema.optional(),
+  author: attributionSchema.optional(),
   createdAt: z.number().optional(),
   resolvedAt: z.number().optional(),
-  resolvedBy: z.enum(['you', 'solus']).optional(),
+  resolvedBy: attributionSchema.optional(),
   replies: z.array(commentReplySchema).optional(),
 })
 
@@ -64,7 +62,8 @@ function fromRow(row: AnnotationRow): PlanAnnotations {
     planToolUseId: row.plan_tool_use_id,
     title: row.title,
     status: row.status,
-    comments: z.array(planCommentSchema).parse(JSON.parse(row.comments)),
+    // SAFETY: `writeAnnotations` is the sole writer and stores `StoredThread[]`; the wire shape is checked below.
+    comments: z.array(planCommentSchema).parse(readStoredComments(JSON.parse(row.comments) as StoredThread[], hostUser())),
     bookmarked: row.bookmarked === 1,
     updatedAt: row.updated_at,
   }
@@ -75,14 +74,14 @@ function fromRow(row: AnnotationRow): PlanAnnotations {
 
 async function annotationRow(
   db: Db,
-  organizationId: string,
+  scope: RecordScope,
   sessionId: string,
   planToolUseId: string,
 ): Promise<AnnotationRow | undefined> {
   const parsed = annotationRowSchema.safeParse(await db.get(sql`
     SELECT ${ANNOTATION_COLUMNS}
     FROM ${planAnnotations}
-    WHERE organization_id = ${organizationId} AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
+    WHERE ${scopeClause(scope)} AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
   `))
   return parsed.success ? parsed.data : undefined
 }
@@ -112,31 +111,44 @@ async function writeAnnotations(db: Db, organizationId: string, ann: PlanAnnotat
 }
 
 export async function loadAnnotations(
-  organizationId: string,
+  scope: RecordScope,
   sessionId: string,
   planToolUseId: string,
 ): Promise<PlanAnnotations | null> {
   try {
-    const row = await annotationRow(getDatabase(), organizationId, sessionId, planToolUseId)
+    const row = await annotationRow(getDatabase(), scope, sessionId, planToolUseId)
     return row ? fromRow(row) : null
   } catch {
     return null
   }
 }
 
-export async function saveAnnotations(organizationId: string, ann: PlanAnnotations): Promise<void> {
+/** A plan's annotations belong to its session's organization (organization-scope §3). */
+async function organizationOfPlan(scope: RecordScope, sessionId: string, planToolUseId: string): Promise<string> {
+  const row = z.object({ organization_id: z.string() }).nullish().parse(await getDatabase().get(sql`
+    SELECT organization_id FROM ${planAnnotations}
+    WHERE ${scopeClause(scope)} AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
+  `))
+  if (row) return row.organization_id
+  const organizationId = await organizationOfSession(sessionId)
+  if (!scopeAdmits(scope, organizationId)) throw new Error('This plan is not in your organization.')
+  return organizationId
+}
+
+export async function saveAnnotations(scope: RecordScope, ann: PlanAnnotations): Promise<void> {
   const merged: PlanAnnotations = { ...ann, updatedAt: Date.now() }
-  await writeAnnotations(getDatabase(), organizationId, merged)
+  await writeAnnotations(getDatabase(), await organizationOfPlan(scope, ann.sessionId, ann.planToolUseId), merged)
 }
 
 export async function toggleBookmarkAnnotations(
-  organizationId: string,
+  scope: RecordScope,
   sessionId: string,
   projectPath: string,
   cwd: string,
   planToolUseId: string,
   title: string,
 ): Promise<PlanAnnotations> {
+  const organizationId = await organizationOfPlan(scope, sessionId, planToolUseId)
   return getDatabase().transaction(async (db) => {
     const row = await annotationRow(db, organizationId, sessionId, planToolUseId)
     const existing = row ? fromRow(row) : null
@@ -163,11 +175,11 @@ export async function toggleBookmarkAnnotations(
 export type AnnotationIndex = Map<string, PlanAnnotations>
 
 /** Load every annotation into a map keyed by `${sessionId}__${planToolUseId}`. Used once by the indexer. */
-export async function loadAllAnnotations(organizationId: string): Promise<AnnotationIndex> {
+export async function loadAllAnnotations(scope: RecordScope): Promise<AnnotationIndex> {
   const rows = z.array(annotationRowSchema).parse(await getDatabase().all(sql`
     SELECT ${ANNOTATION_COLUMNS}
     FROM ${planAnnotations}
-    WHERE organization_id = ${organizationId}
+    WHERE ${scopeClause(scope)}
   `))
   const out: AnnotationIndex = new Map()
   for (const row of rows) {

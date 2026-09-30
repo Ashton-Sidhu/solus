@@ -10,7 +10,7 @@
     ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Plus as PlusIcon,
-    Users as UsersIcon,
+    Share as ShareIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import {
@@ -23,6 +23,7 @@
   import { parseGitHubPullRequestUrl } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import {
+    connectionsStore,
     activeSessionShareTarget,
     getWorkspaceContext,
     getPullRequestsContext,
@@ -48,6 +49,7 @@
   import { liveActivityClock } from "@solus/workspace-ui/lib/shared-clock";
   import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
+  import { taskOfTab, unlinkTabFromTask } from "@solus/workspace-ui/contexts/workspace/session-task-link";
   import type { WorktreeEntry } from "@solus/contracts/types";
   import type { SidebarSessionChild } from "@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte";
   import MobileSheet from "./MobileSheet.svelte";
@@ -84,6 +86,17 @@
       : task?.status === "done",
   );
   const sessions = $derived(task ? sidebar.sessionsFor(task) : []);
+  const linkedTask = $derived(taskOfTab(session, tabId));
+
+  async function unlinkTask() {
+    try {
+      await unlinkTabFromTask(session, tabId);
+    } catch (error) {
+      toasts.error(
+        `Couldn't unlink the session from the task: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   const runningCount = $derived(
     sessions.filter((child) => child.attention === "running").length,
   );
@@ -91,7 +104,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "~",
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(sess?.run.serverId),
     ),
   );
   const host = $derived(serversStore.hostFor(sess?.run.serverId));
@@ -115,7 +128,7 @@
   const displayedWorktree = $derived(
     selectedDispatchWorktree?.branch ??
       selectedDispatchBaseBranch ??
-      (pendingDispatch ? "New worktree" : branch),
+      (pendingDispatch ? (sess?.run.worktree ? "New worktree" : "Checkout") : branch),
   );
   // What the rows print: the picker keeps the raw ref above, the rows drop a
   // worktree's `solus/` prefix the way the navbar and the desktop rail do.
@@ -210,6 +223,10 @@
     else session.config.setDispatchWorktree(null, tabId);
   }
 
+  function selectDispatchCheckout() {
+    session.config.setDispatchCheckout(tabId);
+  }
+
   async function completeTask() {
     if (!task) return;
     try {
@@ -276,13 +293,15 @@
         </button>
       {/if}
       <div class="flex gap-2">
-        <button
-          type="button"
-          class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
-          onclick={(e) => (snoozeAnchor = e.currentTarget)}
-        >
-          <MoonIcon size={15} />Snooze
-        </button>
+        {#if sidebar.canShelve(task)}
+          <button
+            type="button"
+            class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
+            onclick={(e) => (snoozeAnchor = e.currentTarget)}
+          >
+            <MoonIcon size={15} />Snooze
+          </button>
+        {/if}
         <button type="button" class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]" onclick={completeTask}>
           <CheckIcon size={15} style="color:{MOBILE_STATE_INK.success}" />{taskFinished ? "Reopen" : "Complete"}
         </button>
@@ -299,6 +318,46 @@
   {/if}
 
   <div class="flex flex-col gap-4 px-4 pt-4 text-sm">
+    <!-- What this session belongs to: the phone's form of the session menu's
+         link actions (docs/plans/session-pull-requests.md). A session joins a
+         task, and owns the pull requests it works on. -->
+    {#if sess}
+      <div class={SHEET_CARD}>
+        <button
+          type="button"
+          class="flex h-[3.125rem] w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
+          onclick={() => {
+            onClose();
+            if (linkedTask) void unlinkTask();
+            else session.ui.linkPrompt = { kind: "session-task", tabId };
+          }}
+        >
+          <ListChecksIcon size={15} class="shrink-0 text-(--muted-foreground)" />
+          <span class="min-w-0 flex-1 truncate {SHEET_ROW_LABEL}">
+            {linkedTask ? "Unlink from task" : "Link to task"}
+          </span>
+          {#if linkedTask}
+            <span class="min-w-0 max-w-[50%] truncate {SHEET_ROW_META}">{linkedTask.title}</span>
+          {/if}
+        </button>
+        {#if sess.agentSessionId}
+          <div class="h-px bg-(--hairline)"></div>
+          <button
+            type="button"
+            class="flex h-[3.125rem] w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
+            onclick={() => {
+              onClose();
+              session.ui.linkPrompt = { kind: "session-pull-request", tabId };
+            }}
+          >
+            <GitPullRequestIcon size={15} class="shrink-0 text-(--muted-foreground)" />
+            <span class="min-w-0 flex-1 truncate {SHEET_ROW_LABEL}">Link pull request</span>
+            <CaretRightIcon size={15} class="shrink-0 text-(--muted-foreground) opacity-70" />
+          </button>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Where this runs. The two rows the navbar used to stack as chips. -->
     <div class={SHEET_CARD}>
       <button
@@ -369,7 +428,7 @@
             sharesStore.open(shareTarget);
           }}
         >
-          <UsersIcon size={15} class="shrink-0 text-(--muted-foreground)" />
+          <ShareIcon size={15} class="shrink-0 text-(--muted-foreground)" />
           <span class="min-w-0 flex-1 truncate {SHEET_ROW_LABEL}">Share</span>
           <CaretRightIcon size={15} class="shrink-0 text-(--muted-foreground) opacity-70" />
         </button>
@@ -500,7 +559,7 @@
       class="flex h-[2.875rem] cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-transparent font-semibold text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.99] [-webkit-tap-highlight-color:transparent]"
       onclick={newSessionInTask}
     >
-      <PlusIcon size={16} />New session in this task
+      <PlusIcon size={16} />New session
     </button>
   </div>
 </MobileSheet>
@@ -532,5 +591,6 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
+    onSelectDispatchCheckout={selectDispatchCheckout}
   />
 {/if}

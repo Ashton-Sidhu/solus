@@ -7,6 +7,7 @@
   } from "@lucide/svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { formatClock, formatCost, formatTokens } from "./lib/format";
+  import { modelName } from "./lib/provider";
   import type { SessionTurnRow } from "./lib/session-summary";
 
   /**
@@ -46,7 +47,9 @@
       {#if row.model}
         <div class="flex min-w-0 items-center gap-2">
           <CpuIcon size={12} class="shrink-0" />
-          <span class="min-w-0 truncate text-(--solus-text-secondary)">{row.model}</span>
+          <span class="min-w-0 truncate text-(--solus-text-secondary)" title={row.model}
+            >{modelName(null, row.model)}</span
+          >
         </div>
       {/if}
       {#if row.tokens != null || row.costUsd != null}

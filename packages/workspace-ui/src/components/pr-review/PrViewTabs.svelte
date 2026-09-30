@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { ReviewGuideStatus } from "@solus/contracts/review";
+  import type { LensTabState } from "../review/lib/lens-surface";
   import { LoaderCircle, BookOpenCheck, BookOpen, TriangleAlert } from "@lucide/svelte";
   /**
-   * Which view of the change you are reading: Activity · Guide · Diff.
+   * Which view of the change you are reading: Activity · Map · Guide · Lens · Diff.
    *
    * Its own component because it has two homes — inside the masthead when the
    * review is a page (where it belongs to the content beneath it), and in the
@@ -15,6 +16,7 @@
     guideDisabled = false,
     guideStatus,
     guideDisabledReason,
+    lensState = "absent",
     tabsDisabled = false,
     diffHint,
     onSelect,
@@ -22,22 +24,25 @@
     /** The content tab showing in this column, or `null` when the change has
      *  the column to itself — Diff is tracked separately because a page-shaped
      *  review keeps reading Activity while the diff sits in the pane beside it. */
-    tab: "activity" | "map" | "guide" | null;
+    tab: "activity" | "map" | "guide" | "lens" | null;
     /** Whether the change is showing, wherever this surface puts it. */
     diffOpen: boolean;
     guideDisabled?: boolean;
     guideStatus?: ReviewGuideStatus;
     guideDisabledReason?: string;
+    /** The Lens tab carries its own state, as Guide does. */
+    lensState?: LensTabState;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
     diffHint?: string;
-    onSelect: (tab: "activity" | "map" | "guide" | "diff") => void;
+    onSelect: (tab: "activity" | "map" | "guide" | "lens" | "diff") => void;
   } = $props();
 
   const TABS = [
     { id: "activity" as const, label: "Activity" },
     { id: "map" as const, label: "Map" },
     { id: "guide" as const, label: "Guide" },
+    { id: "lens" as const, label: "Lens" },
     { id: "diff" as const, label: "Diff" },
   ];
 
@@ -57,6 +62,7 @@
 >
   {#each TABS as t (t.id)}
     {@const isActive = active(t.id)}
+    {@const isUnread = t.id === "lens" && lensState === "unread"}
     <button
       type="button"
       role="tab"
@@ -71,9 +77,11 @@
           : t.id === "diff"
             ? diffHint
             : undefined}
-      class="inline-flex items-center gap-1 h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 pointer-fine:[.is-laptop-display_&]:h-6.5 {isActive
+      class="inline-flex items-center gap-1 h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
-        : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+        : isUnread
+          ? 'bg-transparent font-medium text-(--success)'
+          : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(t.id)}
     >
       {t.label}
@@ -84,6 +92,12 @@
           <BookOpenCheck size={15} aria-hidden="true" />
         {:else if guideStatus === "outdated" || guideStatus === "failed" || guideStatus === "cancelled"}
           <BookOpen size={15} aria-hidden="true" /><TriangleAlert size={10} aria-hidden="true" />
+        {/if}
+      {:else if t.id === "lens"}
+        {#if lensState === "generating"}
+          <LoaderCircle size={12} aria-hidden="true" class="animate-spin motion-reduce:animate-none" />
+        {:else if lensState === "attention"}
+          <TriangleAlert size={10} aria-hidden="true" />
         {/if}
       {/if}
     </button>

@@ -7,8 +7,6 @@ const TABS_KEY = 'solus-open-tabs'
 const DRAFTS_KEY = 'solus-tab-drafts'
 const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
 const OPEN_SIDEBAR_TASKS_KEY = 'solus-open-sidebar-tasks'
-const SIDEBAR_ROW_SNOOZES_KEY = 'solus-sidebar-row-snoozes'
-const DONE_SIDEBAR_ROWS_KEY = 'solus-done-sidebar-rows'
 // Last successful start() payload, scoped to the server installation exactly
 // like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
@@ -51,10 +49,6 @@ export interface PersistedTab {
    *  has yet to dispatch — which, now that composers are ordinary tabs, is a tab
    *  that survives a refresh and must come back under the same task. */
   pendingTaskId?: string | null
-  pendingParentTaskId?: string | null
-  /** The user's explicit "No task" for this composer, which is a choice and not
-   *  an absence — restoring it as "mint one" would silently overrule them. */
-  taskCreationDisabled?: boolean
   /** Provider history may omit the synthetic terminal error emitted live. */
   terminalFailure?: { content: string; timestamp: number } | null
   /** Neither provider's transcript carries token counts, so a resumed session
@@ -65,6 +59,9 @@ export interface PersistedTab {
    * row show its status and turn clock on the first frame. */
   status?: SessionStatus
   currentTurnStartedAt?: number | null
+  /** The session's first dated message, so a restored row keeps its place in
+   *  the sidebar before its transcript loads. */
+  startedAt?: number | null
 }
 
 export interface PersistedTabs {
@@ -286,70 +283,6 @@ export function removeDismissedSidebarRows(rowKeys: Iterable<string>): void {
 export function clearDismissedSidebarRowKeys(): void {
   try {
     localStorage.removeItem(DISMISSED_SIDEBAR_TASKS_KEY)
-  } catch {}
-}
-
-/**
- * Snoozes for sidebar rows with no task behind them.
- *
- * A task carries its own `snoozedUntil`, which the host owns and every client
- * reads. A loose session has no such record, and snoozing one is a statement
- * about this sidebar rather than about the work — so it lives here, beside the
- * row dismissals it is a softer version of.
- */
-export interface SidebarRowSnooze {
-  until: number
-  note: string | null
-}
-
-const sidebarRowSnoozesSchema = z.record(
-  z.string(),
-  z.object({ until: z.number(), note: z.string().nullable() }),
-)
-
-/** Expired entries are dropped on read: an elapsed snooze has already done its
- *  whole job, so keeping it would grow the key without changing any row. */
-export function loadSidebarRowSnoozes(now = Date.now()): Map<string, SidebarRowSnooze> {
-  const live = new Map<string, SidebarRowSnooze>()
-  try {
-    const raw = localStorage.getItem(SIDEBAR_ROW_SNOOZES_KEY)
-    if (!raw) return live
-    const parsed = sidebarRowSnoozesSchema.safeParse(JSON.parse(raw))
-    if (!parsed.success) return live
-    for (const [rowKey, snooze] of Object.entries(parsed.data)) {
-      if (snooze.until > now) live.set(rowKey, snooze)
-    }
-    return live
-  } catch {
-    return live
-  }
-}
-
-export function persistSidebarRowSnoozes(snoozes: Map<string, SidebarRowSnooze>): void {
-  try {
-    localStorage.setItem(
-      SIDEBAR_ROW_SNOOZES_KEY,
-      JSON.stringify(Object.fromEntries(snoozes)),
-    )
-  } catch {}
-}
-
-/** Done marks for rows with no task behind them. A task's done state is the
- *  host's; a loose session has nowhere else to keep its check across a reload. */
-export function loadDoneSidebarRowKeys(): string[] {
-  try {
-    const raw = localStorage.getItem(DONE_SIDEBAR_ROWS_KEY)
-    if (!raw) return []
-    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : []
-  } catch {
-    return []
-  }
-}
-
-export function persistDoneSidebarRowKeys(rowKeys: Iterable<string>): void {
-  try {
-    localStorage.setItem(DONE_SIDEBAR_ROWS_KEY, JSON.stringify([...rowKeys]))
   } catch {}
 }
 

@@ -8,7 +8,7 @@ import type { MetricsQuerySpec } from '@solus/contracts/observability-types'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type SavedQueriesModule = typeof import('@solus/server/observability/saved-queries')
+type SavedQueriesModule = typeof import('@solus/server/data/insights/saved-queries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -25,7 +25,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-saved-queries-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  savedQueries = await import('@solus/server/observability/saved-queries')
+  savedQueries = await import('@solus/server/data/insights/saved-queries')
   db.closeDb()
 })
 

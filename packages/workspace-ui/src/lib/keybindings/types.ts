@@ -41,6 +41,8 @@ export type Scope =
   /** A capture from a snapshot plate, open at full size. Exclusive: while a
    *  frame is up the arrow keys step the reel rather than the transcript. */
   | 'snapshot-lightbox'
+  /** The browser pane while it has focus: its own sub-page keys. */
+  | 'browser-pane'
   /** First-run onboarding. Exclusive and empty: while it is up nothing behind
    *  it may fire, so the shortcuts stage can invite real key presses without
    *  the real commands running under the overlay. */

@@ -1,0 +1,22 @@
+{
+  "name": "@solus/document-model",
+  "private": true,
+  "type": "module",
+  "description": "The document schema, its version, and the markdown codec shared by the editor and the host. Imports no Svelte, browser, or Electron module.",
+  "exports": { "./*": "./src/*.ts" },
+  "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
+  "dependencies": {
+    "@solus/contracts": "workspace:*",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-code-block": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-task-item": "^3.31.3",
+    "@tiptap/extension-task-list": "^3.31.3",
+    "@tiptap/markdown": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "marked": "^18.0.11",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

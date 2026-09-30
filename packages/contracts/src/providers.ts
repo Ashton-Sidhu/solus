@@ -1,3 +1,5 @@
+import type { NumberedPrChecksSummary } from './checks-rpc-types'
+
 // Host-neutral code-host DTOs shared across main, preload, and renderer. These
 // never leak Octokit/GraphQL response types — that is the whole point of the
 // provider adapter. The main-side `Provider`/`ProviderAuth`/`ReviewProvider`
@@ -55,11 +57,41 @@ export interface PrFilter {
   query?: string
 }
 
+/** A reason to keep pull request state fresh. PR sync on the host reads a
+ *  repository only while some client or live task has interest in it
+ *  (docs/plans/pr-sync.md §3.1). */
+export type PrInterest =
+  | { kind: 'repository' }
+  | { kind: 'pull-request'; number: number }
+  | { kind: 'branch'; head: string }
+  /** An open review pane: a faster tick, and the pull request's check runs. */
+  | { kind: 'review'; number: number }
+  | { kind: 'needs-review' }
+
+/** What PR sync knows about one repository, or what changed in it. */
+export interface PrSyncChange {
+  /** Lowercase `host/owner/repo`. */
+  repo: string
+  pullRequests: PullRequest[]
+  /** Numbers the code host says do not exist. */
+  missing: number[]
+  checks: NumberedPrChecksSummary[]
+  /** Open pull requests waiting on the viewer's review. Absent when PR sync
+   *  has no answer, or when a change does not touch it. */
+  needsReview?: number[]
+}
+
 export interface PrListPage {
   items: PullRequest[]
   page: number
   hasMore: boolean
 }
+
+/** One project's first page from a read that covered several projects on one
+ *  host. A project that could not be read says why, and the others still answer. */
+export type PrProjectListing =
+  | { projectRoot: string; page: PrListPage }
+  | { projectRoot: string; error: string }
 
 /**
  * One pull request, as the host reports it.
@@ -182,10 +214,11 @@ export interface PrLabel {
   color: string
 }
 
-export interface PrReviewerCandidate {
-  login: string
-  avatarUrl?: string
-}
+export type PrReviewerKind = 'user' | 'team'
+
+export type PrReviewerCandidate =
+  | { kind: 'user'; login: string; avatarUrl?: string }
+  | { kind: 'team'; slug: string; name: string; avatarUrl?: string }
 
 /** The account the connected provider token belongs to, as a client shows it. */
 export interface ProviderViewer {

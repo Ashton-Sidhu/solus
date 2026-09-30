@@ -9,9 +9,10 @@
  */
 
 import type { WorkType } from './types'
+import type { Attribution } from './user'
 
 /** Domains that have registered an applier. Widens as domains join. */
-export type OutboxDomain = 'tasks' | 'works'
+export type OutboxDomain = 'tasks' | 'works' | 'sessions'
 
 export interface OutboxOp {
   /** ULID minted at record time; the idempotence key. */
@@ -49,21 +50,21 @@ export interface OutboxApplyResult {
 
 export interface TaskCommentOpPayload {
   body: string
-  /** Who wrote it, as stored on the comment row (agents record 'agent'). */
-  author: string
+  /** Who wrote it, as stored on the comment row. */
+  author: Attribution
   originSessionId?: string
 }
 
 export interface TaskSetStatusOpPayload {
   status: string
-  /** Actor label recorded with the status event (usually the session id). */
-  actorLabel?: string
+  /** Who changed it, recorded with the status event. */
+  actor?: Attribution
 }
 
 // ─── Task-domain op payloads a runner delivers to the workspace service ───
 //
 // On a runner linked to an organization the agent's task writes are cloud-owned
-// (docs/plans/cloud-service-model.md §16): `create_task` and `link_task` become
+// (docs/plans/cloud-service-model.md §16): `create_task` and `link` become
 // ops too. The op's resourceId is the task id, minted on the runner before the
 // tool answers, so the id the agent holds is the id the service writes.
 
@@ -71,8 +72,6 @@ export interface TaskCreateOpPayload {
   title: string
   projectKey: string | null
   body: string
-  kind: 'task' | 'epic'
-  parentId: string | null
   priority: string | null
   labels?: string[]
   dueDate: string | null
@@ -89,13 +88,29 @@ export interface TaskLinkOpPayload {
   title?: string
   url?: string
   originSessionId: string | null
-  /** Actor label recorded with the link event (usually the session id). */
-  actorLabel?: string
+  /** Who linked it, recorded with the link event. */
+  actor?: Attribution
 }
 
 export interface TaskLinkSessionOpPayload {
   sessionId: string
   role: 'working' | 'referenced'
+}
+
+// ─── Sessions-domain op payloads ───
+//
+// A session owns its pull request links (docs/plans/session-pull-requests.md).
+// An agent of an organization session on an attached machine links on that
+// machine, whose PR sync watches the pull request, and records the same change
+// for the workspace service. The op's resourceId is the stable Solus session id.
+
+/** `link-pull-request`. */
+export interface SessionPullRequestOpPayload {
+  /** The pull request's page; its repository and number are read from it. */
+  url: string
+  title?: string
+  /** The agent that made the change. */
+  actor: Attribution
 }
 
 // ─── Works-domain op payloads ───
@@ -129,4 +144,8 @@ export interface WorkUpdateOpPayload {
   taskId?: string
   content: string
   title?: string
+  /** The `contentVersion` the agent read, from the shipped copy. The owner
+   *  refuses the op, permanently, when its work has moved past it; an op
+   *  without one is refused, never applied against the current body. */
+  expectedContentVersion: number
 }

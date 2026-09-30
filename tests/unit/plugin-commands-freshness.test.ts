@@ -25,6 +25,9 @@ describe('plugin command freshness', () => {
     const loaded: PluginCommandsResult = { global: [{ name: 'review', description: 'Review', source: 'global' }], project: [] } as unknown as PluginCommandsResult
     const ctx = { session: { sessionId: 'session-one', provider: null } } as unknown as IpcContext
     const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
+    // Slash commands are read only from a machine.
+    const { hostRolesStore } = await import('@solus/workspace-ui/contexts/connections/host-roles.store.svelte')
+    hostRolesStore.accept('host-a', ['collaboration', 'execution'])
     const store = new WorkspaceLifecycleStore({
       registry: {
         activeTabId: 'tab-one',
@@ -46,6 +49,7 @@ describe('plugin command freshness', () => {
           return loaded
         },
       }) as never,
+      serverIdFor: () => 'host-a',
       loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
       rebuildAgentConversations: () => {},
     })

@@ -1,93 +1,123 @@
 <script lang="ts">
-  import { Check as CheckIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
-  import {
-    REVIEW_PROGRESS_STEPS,
-    type ReviewProgressStep,
-  } from "@solus/contracts/review";
+  import { Aperture as ApertureIcon, Check as CheckIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
+  import type { ReviewProgressStep } from "@solus/contracts/review";
 
   import { Button } from "../ui/button";
   import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
+  import {
+    REVIEW_PROGRESS_COPY,
+    progressFraction,
+    progressStepIndex,
+    type ReviewProgressSubject,
+  } from "./lib/review-progress";
 
-  // Stepped indicator shown while a review companion generates, in place of the
-  // bare spinner. `step` drives which row is active. It stands in the same
-  // canvas as the guide's empty offer, so it wears the same shape: one
-  // medallion, one headline, one line of copy, one action.
-  let { step, queued = false, onCancel }: { step: ReviewProgressStep; queued?: boolean; onCancel?: () => void } = $props();
+  // The one generation screen for the guide and the lens. It stands in the
+  // canvas where the empty offer was, so it keeps that shape — one medallion,
+  // one headline, one line of copy — and adds the host's steps below it. The
+  // ring around the medallion fills as the steps advance.
+  let {
+    subject,
+    step,
+    queued = false,
+    onCancel,
+  }: {
+    subject: ReviewProgressSubject;
+    step?: ReviewProgressStep;
+    queued?: boolean;
+    onCancel?: () => void;
+  } = $props();
 
-  const steps = REVIEW_PROGRESS_STEPS;
-  const activeIndex = $derived(Math.max(0, steps.findIndex((s) => s.id === step)));
+  const copy = $derived(REVIEW_PROGRESS_COPY[subject]);
+  const activeIndex = $derived(progressStepIndex(copy.steps, step));
+  const fraction = $derived(progressFraction(activeIndex, copy.steps.length, queued));
 </script>
 
 <!-- The chrome rung, not the surface's prose size: this is a state screen, and
-     it steps down with the rail and the notices on a laptop display. -->
+     it matches the rail and the notices. -->
 <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto px-[clamp(20px,2.6cqi,56px)] py-10 text-workspace-chrome">
-  <div class="prog-card flex max-w-[520px] flex-col items-center text-center">
-    <!-- The same neutral medallion the empty offer uses, so generating reads as
-         the next beat of that state rather than a different screen. -->
-    <span
-      class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground [.is-laptop-display_&]:size-10"
-      aria-hidden="true"
-    >
-      <ReviewGuideGlyph size={20} />
+  <div class="prog-card flex w-full max-w-[22rem] flex-col items-center text-center">
+    <span class="relative flex size-16 shrink-0 items-center justify-center" aria-hidden="true">
+      <svg viewBox="0 0 64 64" class="absolute inset-0 size-full -rotate-90">
+        <circle cx="32" cy="32" r="30" fill="none" stroke-width="2" class="stroke-(--hairline)" stroke-dasharray={queued ? "2 5" : undefined} />
+        <circle
+          cx="32"
+          cy="32"
+          r="30"
+          fill="none"
+          stroke-width="2"
+          stroke-linecap="round"
+          pathLength="100"
+          stroke-dasharray="100"
+          stroke-dashoffset={100 - fraction * 100}
+          class="stroke-(--solus-accent) transition-[stroke-dashoffset] duration-700 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none {fraction === 0 ? 'opacity-0' : ''}"
+        />
+      </svg>
+      <span class="flex size-12 items-center justify-center rounded-full bg-[color:color-mix(in_oklab,var(--solus-accent)_10%,transparent)] text-(--solus-accent)">
+        {#if subject === "lens"}
+          <ApertureIcon size={20} />
+        {:else}
+          <ReviewGuideGlyph size={20} />
+        {/if}
+      </span>
     </span>
 
-    <h2 role="status" class="mt-4 font-medium">
-      {queued ? "Guide queued" : steps[activeIndex].label}
+    <h2 role="status" class="mt-5 font-medium text-foreground">
+      {queued ? copy.queuedTitle : copy.steps[activeIndex].label}
     </h2>
 
-    <p class="mt-2 leading-[1.7] text-pretty text-muted-foreground">
-      {queued
-        ? "Generation will start when the review companion is available."
-        : "The review companion is reading the diff and writing the guide."}
+    <p class="mt-1.5 leading-[1.6] text-pretty text-muted-foreground">
+      {queued ? copy.queuedDescription : copy.description}
     </p>
 
-    {#if !queued}
-      <ul class="prog-steps mt-5 flex flex-col items-start gap-2.5 text-left" role="list">
-        {#each steps as s, i (s.id)}
-          {@const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending"}
-          <li class="flex items-center gap-2.5" style="--row: {i}">
-            <span class="flex size-4 shrink-0 items-center justify-center">
-              {#if state === "done"}
-                <CheckIcon size={14} class="text-muted-foreground" />
-              {:else if state === "active"}
-                <SpinnerIcon
-                  size={14}
-                  class="animate-spin text-(--solus-accent) motion-reduce:animate-none"
-                />
-              {:else}
-                <span class="size-1.5 rounded-full bg-current text-muted-foreground opacity-40"></span>
-              {/if}
-            </span>
-
-            <span
-              class="transition-colors {state === 'active'
-                ? 'font-medium text-foreground'
-                : state === 'done'
-                  ? 'text-muted-foreground'
-                  : 'text-muted-foreground/60'}"
-            >
-              {s.label}
-            </span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+    <ol class="prog-steps mt-6 flex w-full flex-col gap-0.5 text-left" aria-label="Steps">
+      {#each copy.steps as s, i (s.id)}
+        {@const state = queued ? "pending" : i < activeIndex ? "done" : i === activeIndex ? "active" : "pending"}
+        <li
+          class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-300 {state === 'active'
+            ? 'bg-[color:color-mix(in_oklab,var(--solus-accent)_8%,transparent)]'
+            : ''}"
+          style="--row: {i}"
+          aria-current={state === "active" ? "step" : undefined}
+        >
+          <span
+            class="flex size-5 shrink-0 items-center justify-center rounded-full transition-colors duration-300 {state === 'done'
+              ? 'bg-[color:color-mix(in_oklab,var(--solus-accent)_14%,transparent)] text-(--solus-accent)'
+              : state === 'active'
+                ? 'text-(--solus-accent)'
+                : 'border border-dashed border-[color:color-mix(in_oklch,var(--foreground)_18%,transparent)]'}"
+          >
+            {#if state === "done"}
+              <CheckIcon size={12} strokeWidth={2.5} />
+            {:else if state === "active"}
+              <SpinnerIcon size={14} class="animate-spin motion-reduce:animate-none" />
+            {/if}
+          </span>
+          <span
+            class="min-w-0 flex-1 truncate transition-colors duration-300 {state === 'active'
+              ? 'font-medium text-foreground'
+              : state === 'done'
+                ? 'text-muted-foreground'
+                : 'text-muted-foreground/60'}"
+          >
+            {s.label}
+          </span>
+          <span class="shrink-0 text-xs tabular-nums text-muted-foreground/60">{i + 1}/{copy.steps.length}</span>
+        </li>
+      {/each}
+    </ol>
 
     {#if onCancel}
-      <Button
-        type="button"
-        class="mt-5 inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3 font-medium text-muted-foreground transition-colors hover:text-foreground pointer-fine:[.is-laptop-display_&]:h-[30px]"
-        onclick={onCancel}
-      >
-        Cancel generation
+      <Button variant="ghost" size="xs" class="mt-4 text-muted-foreground" onclick={onCancel}>
+        Cancel
       </Button>
     {/if}
   </div>
 </div>
 
 <style>
-  /* The generation state fades up on mount, then its steps stagger in — so the
-     guide's loading screen resolves rather than snapping into place. Each step follows the host generation state. */
+  /* The screen fades up on mount, then its steps stagger in — so the loading
+     screen resolves rather than snapping into place. Each step then follows
+     the host's generation state. */
   .prog-card {
     animation: prog-card-in 0.3s ease-out backwards;
   }

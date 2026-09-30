@@ -2,15 +2,25 @@ import { cloudAccount, startupAccountRead } from '@solus/client-core/cloud-accou
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { ProviderRepository } from '@solus/contracts/providers'
-import type { AccountOrganization, AccountResponse, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
+import type {
+  AccountOrganization,
+  AccountResponse,
+  ManagedHostCatalog,
+  ManagedHostSpecRequest,
+  UplinkEnrollmentTicket,
+} from '@solus/contracts/uplink'
 import { connectionsStore, serversStore, workspaceProjectsStore } from '../../contexts'
-import { computeChoices, createHostFailureMessage, defaultComputeHost, type ComputeChoices } from './lib/cloud-compute'
-import { managedHostNeedsStart } from '@solus/client-core/server-registry'
+import {
+  computeChoices,
+  createHostFailureMessage,
+  defaultComputeHost,
+  type ComputeChoices,
+} from './lib/cloud-compute'
+import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
 import type { ServerItem } from '../../contexts/connections/servers.store.svelte'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
 import type { OnboardingStage } from './lib/onboarding-model'
 import type { GetStartedFacts } from './lib/get-started'
-import type { IpcContext } from '@solus/contracts/types'
 import { hostSetupStore } from '../servers/host-setup.store.svelte'
 
 /** How often the directory is read while a link code waits for its machine. */
@@ -80,6 +90,11 @@ class CloudOnboardingStore {
     return account.organizations.find((entry) => entry.organizationId === account.activeOrganizationId) ?? null
   }
 
+  /** What "Runs on" and "Size" offer for a new cloud host; absent from an older Solus Cloud. */
+  get managedHostCatalog(): ManagedHostCatalog | undefined {
+    return this.account?.managedHostCatalog
+  }
+
   get choices(): ComputeChoices<ServerItem> {
     return computeChoices(serversStore.servers, {
       userId: this.account?.userId ?? '',
@@ -107,13 +122,13 @@ class CloudOnboardingStore {
     const machines = this.machines
     const readiness = machines.map((server) => hostSetupStore.readinessByHost[server.id]).filter((answer) => !!answer)
     const workspaceServerId = this.workspaceServerId
-    const github = connectionsStore.providerStatusFor(workspaceServerId)
+    const github = this.account?.github
     return {
       hasMachine: machines.length > 0,
       hasSignedInAgent: readiness.length === 0
         ? null
         : readiness.some((answer) => Object.values(answer.agents).some((agent) => agent.signedIn)),
-      githubConnected: github ? github.connected : null,
+      githubConnected: github === undefined ? null : github !== null,
       hasProject: workspaceProjectsStore.hasLoaded(workspaceServerId)
         ? workspaceProjectsStore.projectsFor(workspaceServerId).length > 0
         : null,
@@ -121,12 +136,10 @@ class CloudOnboardingStore {
   }
 
   /** Asks the stores behind the list for what they do not know yet. */
-  refreshGetStarted(ctx: IpcContext): void {
+  refreshGetStarted(): void {
     const workspaceServerId = this.workspaceServerId
-    if (workspaceServerId) {
-      void connectionsStore.refreshProviderStatus(workspaceServerId, ctx)
-      void workspaceProjectsStore.load(workspaceServerId)
-    }
+    if (workspaceServerId) void workspaceProjectsStore.load(workspaceServerId)
+    void this.refreshGithub()
     void hostSetupStore.probeUnprobedOnline(this.machines)
   }
 
@@ -138,18 +151,28 @@ class CloudOnboardingStore {
     this.accountLoaded = true
   }
 
+  /**
+   * Reads the account's GitHub connection again: it is made on the account's
+   * Connections page in another tab. Only that field changes, and a failed read
+   * keeps the last answer rather than closing onboarding.
+   */
+  async refreshGithub(): Promise<void> {
+    const next = await cloudAccount()?.readAccount()
+    if (next && this.account) this.account.github = next.github
+  }
+
   /** At a cloud origin, true until the account has answered: the workspace must not paint yet. */
   get isAwaitingAccount(): boolean {
     return this.isCloud && !this.accountLoaded
   }
 
-  /** Picks the default machine once, after the directory has answered. */
+  /**
+   * Holds the default machine until the person picks one. Called again as the
+   * directory answers and machines connect, so the default follows what answers.
+   */
   chooseDefaultHost(): void {
     if (this.hasChosen) return
-    const host = defaultComputeHost(this.choices)
-    if (!host) return
-    this.hasChosen = true
-    this.chosenServerId = host.id
+    this.chosenServerId = defaultComputeHost(this.choices)?.id ?? null
   }
 
   choose(serverId: string | null): void {
@@ -157,14 +180,18 @@ class CloudOnboardingStore {
     this.chosenServerId = serverId
   }
 
-  async createCloudHost(): Promise<void> {
+  /**
+   * Creates the organization's cloud host with the name and spec the person gave
+   * (`newCloudHostRequest`); a spec field left out is Solus Cloud's default.
+   */
+  async createCloudHost(options: { label: string; spec?: ManagedHostSpecRequest }): Promise<void> {
     const organizationId = this.organization?.organizationId
     const account = cloudAccount()
     if (!organizationId || !account || this.hostBusy) return
     this.hostBusy = 'creating'
     this.hostError = null
     try {
-      const outcome = await account.createManagedHost(organizationId)
+      const outcome = await account.createManagedHost(organizationId, options)
       // Read both again whatever the answer: a create that did not answer may still have
       // made the host, and `managed_host_limit` means one exists. Either way the row
       // must show that host, not Create again.
@@ -180,17 +207,42 @@ class CloudOnboardingStore {
     }
   }
 
-  /** Starts the cloud host when it is stopped, and waits until this client is connected to it. */
-  async startCloudHost(serverId: string): Promise<void> {
+  /**
+   * Makes sure agents can run on the chosen machine: a stopped cloud host is started
+   * and waited for; any other machine is dialed now and given half a minute to answer.
+   * An unreachable machine ends in `hostError`, never in a wait with no end.
+   */
+  async reachHost(serverId: string): Promise<void> {
     if (this.hostBusy) return
-    const lifecycle = serversStore.servers.find((server) => server.id === serverId)?.uplink?.managedState
-    this.hostBusy = managedHostNeedsStart(lifecycle) ? 'starting' : 'connecting'
+    const host = serversStore.servers.find((server) => server.id === serverId)
+    if (!host) return
+    const managed = host.uplink?.kind === 'managed'
+    const lifecycle = host.uplink?.managedState
+    const needsCompute = managed && (managedHostNeedsStart(lifecycle) || awaitsManagedCompute(host.uplink))
+    this.hostBusy = managed && managedHostNeedsStart(lifecycle) ? 'starting' : 'connecting'
     this.hostError = null
     try {
-      const connected = await serversStore.startManagedHost(serverId, { timeoutMs: 300_000 })
-      if (!connected) this.hostError = 'Solus could not reach the cloud host. Open its page on Solus Cloud to see why.'
+      const connected = needsCompute
+        ? await serversStore.startManagedHost(serverId, { timeoutMs: 300_000 })
+        : await serversStore.connectNow(serverId, { timeoutMs: 30_000 })
+      if (connected) return
+      this.hostError = managed
+        ? 'Solus could not reach the cloud host. Try again, or open its page on Solus Cloud to see why.'
+        : `Solus could not reach ${host.label}. Check that Solus is running on it and try again, or choose another machine.`
     } finally {
       this.hostBusy = null
+    }
+  }
+
+  /**
+   * Dials every machine the picker lists now, so each row says whether it answers
+   * rather than what an old retry ladder last saw. A cloud host still coming up is
+   * left alone: there is nothing to answer yet.
+   */
+  dialMachines(): void {
+    for (const server of this.machines) {
+      if (server.status === 'online' || awaitsManagedCompute(server.uplink)) continue
+      serverConnections.dialNow(server.id)
     }
   }
 
@@ -239,7 +291,7 @@ class CloudOnboardingStore {
     if (!account || !hostId || !organizationId) return
     this.sharingServerId = server.id
     try {
-      const saved = await account.shareHost(hostId, shared ? organizationId : null)
+      const saved = await account.shareHost(hostId, organizationId, shared)
       if (!saved) this.hostError = 'Solus Cloud did not save the change. Try again.'
       await serversStore.refreshDirectory()
     } finally {
@@ -279,8 +331,8 @@ class CloudOnboardingStore {
 
   /**
    * Where the workspace opens when the flow ends: a new session in the chosen
-   * repository, or — without one — in the person's workspace (`my-workspace`)
-   * on the chosen machine. With no machine either, the new-tab home stays.
+   * repository, or — without one — in the person's Scratchpad (their chat
+   * folder) on the chosen machine. With no machine either, the new-tab home stays.
    */
   async land(workspace: Pick<WorkspaceContext, 'opening' | 'drafts' | 'router'>, withProject: boolean): Promise<void> {
     const repositoryKey = withProject ? this.chosenRepositoryKey : null

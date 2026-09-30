@@ -24,7 +24,7 @@
   let cloudSessionId = $state<string | null>(share.resource.kind === 'session' ? share.resource.id : null);
   let railOpen = $state(!window.matchMedia('(pointer: coarse)').matches);
   const list = $derived(sharesStore.listFor(serverId, share.resource));
-  const role = $derived(list?.callerRole === 'editor' ? 'editor' : list?.callerRole === 'viewer' ? 'viewer' : share.role);
+  const role = $derived(list?.callerRole === 'editor' || list?.callerRole === 'commenter' || list?.callerRole === 'viewer' ? list.callerRole : share.role);
   const task = $derived(share.resource.kind === 'task' ? session.tasksStore.get(share.resource.id) : null);
   const title = $derived(share.resource.kind === 'work' ? session.worksStore.get(share.resource.id)?.title ?? 'Shared document' : task?.isKnown ? task.title : 'Shared session');
   const activeWork = $derived.by(() => {
@@ -54,7 +54,7 @@
     <header class="flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) px-4 pt-[env(safe-area-inset-top)]" data-testid="guest-header">
       {#if cloudSessionId && share.resource.kind === 'task'}<Button variant="ghost" size="icon-sm" aria-label="Back to the task" onclick={openShared}><ArrowLeft size={14} /></Button>{/if}
       <span class="min-w-0 flex-1 truncate font-medium">{title}</span>
-      <span class="rounded-full border border-(--hairline) px-2 py-1 text-muted-foreground" data-testid="guest-role">{role === 'editor' ? 'Editor' : 'Viewer'}</span>
+      <span class="rounded-full border border-(--hairline) px-2 py-1 text-muted-foreground" data-testid="guest-role">{role === 'editor' ? 'Editor' : role === 'commenter' ? 'Reviewer' : 'Viewer'}</span>
       <span class="max-w-40 truncate" data-testid="guest-name-label">{displayName}</span>
       <Button variant="ghost" size="icon-sm" aria-label={railOpen ? 'Hide the panel' : 'Show the panel'} aria-pressed={railOpen} onclick={() => railOpen = !railOpen}><PanelRight size={14} /></Button>
     </header>

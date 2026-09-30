@@ -15,7 +15,7 @@
   } from "../ui/list-page/filter-styles";
   import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentPostingBar } from "../ui/comment-posting-bar";
-  import DocumentEditor from "../editor/DocumentEditor.svelte";
+  import PrDescriptionEditor from "./PrDescriptionEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext, type MergeMethod } from "@solus/contracts/types";
   import type {
     ReviewThread,
@@ -81,7 +81,6 @@
     threads,
     threadsFailed = false,
     diffPatch = null,
-    stackChain = [],
     showRemoteLink = false,
     addressCommentsReady = true,
     onAddressComments,
@@ -114,8 +113,6 @@
     threadsFailed?: boolean;
     /** Full PR patch used to provide context after review anchors. */
     diffPatch?: string | null;
-    /** Ordered PR numbers in this stack. The current PR is highlighted. */
-    stackChain?: number[];
     /** Render the Activity header's remote PR shortcut for embedded previews. */
     showRemoteLink?: boolean;
     /** The host has a checked-out PR worktree ready for the fix composer. */
@@ -170,8 +167,8 @@
   // The store's index, not a copy kept here. It already receives every detail
   // this tab produces — the optimistic value, the confirmed one, and the
   // rollback all go through `applyDetail` below — and `PrsStore` owns the
-  // `pr.lifecycleChanged` subscription for the whole workspace, so a merge
-  // landing anywhere reaches this feed without a second listener.
+  // `pr.changed` subscription for the whole workspace, so a merge landing
+  // anywhere reaches this feed without a second listener.
   const detail = $derived(
     pullRequests.projects.at(serverId, projectScopeOf(feedCtx().session))?.prFor(pr.number) ?? null,
   );
@@ -224,7 +221,7 @@
   let editing = $state(false);
   let titleDraft = $state("");
   let bodyDraft = $state("");
-  let descriptionEditor = $state<DocumentEditor | null>(null);
+  let descriptionEditor = $state<PrDescriptionEditor | null>(null);
   let saving = $state(false);
   let titleInput = $state<HTMLInputElement | null>(null);
   let addressingComments = $state(false);
@@ -528,12 +525,17 @@
     }
   }
 
-  async function removeReviewer(login: string): Promise<void> {
+  async function removeReviewer(reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<void> {
     if (reviewerMutation) return;
-    reviewerMutation = login;
+    reviewerMutation = kind === 'team' ? `team:${reviewerId}` : reviewerId;
     try {
-      reviewers = await pullRequest(pr.number).removeRequestedReviewer(login);
-      toasts.success(`Removed ${login} from requested reviewers`);
+      reviewers = await pullRequest(pr.number).removeRequestedReviewer(reviewerId, kind);
+      if (kind === 'team') {
+        reviewerCandidates = reviewerCandidates.filter((candidate) =>
+          candidate.kind !== 'team' || candidate.slug !== reviewerId,
+        );
+      }
+      toasts.success(`Removed ${reviewerId} from requested reviewers`);
     } catch (error) {
       toasts.error("Couldn't remove the reviewer", {
         description: error instanceof Error ? error.message : String(error),
@@ -587,8 +589,7 @@
   }
 
   async function mergeNow(method: MergeMethod): Promise<void> {
-    const result = await pullRequest(pr.number).merge(method);
-    if (!result.merged) throw new Error(result.message ?? "The code host refused the merge.");
+    await pullRequest(pr.number).merge(method);
   }
 
   async function revertPullRequest(): Promise<void> {
@@ -772,7 +773,7 @@
       <!-- The one failure said once for the whole tab: nothing below can
            load until the host has a credential, and the fix is one action. -->
       <div
-        class="mx-auto w-full max-w-[1386px] px-[52px] pt-6 [.is-laptop-display_&]:px-8"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-6"
       >
         <GithubConnectionRequired {serverId} />
       </div>
@@ -782,7 +783,7 @@
            status pill and the tabs line up with the title and the right rail
            instead of floating out at the pane's edges on wide windows. -->
       <div
-        class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px] [.is-laptop-display_&]:px-8 [.is-laptop-display_&]:pt-6"
+        class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px]"
       >
         {@render masthead()}
       </div>
@@ -801,9 +802,9 @@
       bind:this={contentRowEl}
       class="@container mx-auto flex w-full max-w-[1386px] flex-wrap items-start gap-14 px-[52px] {masthead
         ? 'pt-3.5'
-        : 'pt-[38px]'} [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-8 {masthead
+        : 'pt-[38px]'} {masthead
         ? ''
-        : '[.is-laptop-display_&]:pt-6'}"
+        : ''}"
     >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <!-- The column declares the review's type once, at the dense chrome
@@ -890,24 +891,6 @@
                 <span class="shrink-0">opened {openedTime}</span>
               {/if}
             </span>
-            {#if stackChain.length > 1}
-              <span class="opacity-40" aria-hidden="true">·</span>
-              <span
-                class="flex items-center gap-1.5 tabular-nums"
-                aria-label={`Stack containing PR #${pr.number}`}
-              >
-                <span class="font-medium">Stack</span>
-                {#each stackChain as number, i (number)}
-                  {#if i > 0}<span class="opacity-40" aria-hidden="true">→</span
-                    >{/if}
-                  <span
-                    class={number === pr.number
-                      ? "font-medium text-primary"
-                      : "text-foreground"}
-                  >#{number}</span>
-                {/each}
-              </span>
-            {/if}
             {#if detail && !editing}
               <span class="flex-1"></span>
               <Button
@@ -923,7 +906,7 @@
             {/if}
           </div>
 
-          <!-- The facts about the change — branch, files, churn — as captioned
+          <!-- The facts about the change — branch and churn — as captioned
                rows under the author. Reviewers, checks, and the file list are
                the rail's while it has a column; once it folds, the reviewers
                lead this list instead of sitting in a folded section below. -->
@@ -932,7 +915,6 @@
               leading={detail ? leadingFacts : undefined}
               {headBranch}
               {baseRef}
-              fileCount={changedFiles.length}
               {filesLoading}
               additions={diffStat.additions}
               deletions={diffStat.deletions}
@@ -940,13 +922,13 @@
           </div>
 
           <!-- The rail's inline home. With no column beside the conversation,
-               the status card and the reference sections sit here, under the
-               facts and above the description, so the state of the pull
-               request and the move that changes it are still in the first
-               screen rather than past every comment on it. -->
+               the status card sits here, under the facts and above the
+               description, so the state of the pull request and the move that
+               changes it are still in the first screen rather than past every
+               comment on it. Checks and changed files follow the description. -->
           {#if railFolded}
             <div class="mt-5">
-              {@render railPanel("inline")}
+              {@render railPanel("inline", "status")}
             </div>
           {/if}
         </header>
@@ -954,15 +936,10 @@
         <!-- PR description belongs to the PR header, not the activity stream. -->
         {#if editing}
           <div class="mt-8">
-            <DocumentEditor
+            <PrDescriptionEditor
               bind:this={descriptionEditor}
               value={bodyDraft}
               onValueChange={(markdown) => (bodyDraft = markdown)}
-              placeholder="Describe this pull request…"
-              dictation
-              dragHandle={false}
-              class="pr-description-editor prose-pr prose-pr-description"
-              style="max-height:26.25rem;overflow-y:auto"
             />
             <div class="mt-3 flex items-center justify-end gap-2">
               <Button
@@ -1022,12 +999,18 @@
           </section>
         {/if}
 
+        {#if railFolded}
+          <div class="mt-8">
+            {@render railPanel("inline", "sections")}
+          </div>
+        {/if}
+
         <!-- Activity timeline: an editorial rail — no cards; a continuous
              hairline spine with icon nodes, content set directly on the canvas
              with airy spacing. Commits, review threads, and the durable
              conversation interleave by time (see buildActivityTimeline); the
              opened event always leads. -->
-        <div class="mt-10 mb-4 flex items-center gap-2">
+        <div class="{railFolded ? 'mt-6' : 'mt-10'} mb-4 flex items-center gap-2">
           <h2
             class="text-xs font-medium st text-muted-foreground uppercase"
           >
@@ -1185,9 +1168,13 @@
 <!-- One definition, two homes: a column beside the conversation where there is
      room for one, and a block under the title where there is not. Rendering it
      twice would be twenty props kept in step by hand. -->
-{#snippet railPanel(variant: "column" | "inline")}
+{#snippet railPanel(
+  variant: "column" | "inline",
+  part: "all" | "status" | "sections" = "all",
+)}
   <PrActivityRail
     {variant}
+    {part}
     {detail}
     {reviewers}
     {reviewersLoading}

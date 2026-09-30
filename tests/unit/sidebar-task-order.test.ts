@@ -15,7 +15,6 @@ function sidebarTask(
 ): SidebarTask {
   return {
     id,
-    listKey: id,
     key: id,
     title: id,
     projectKey: '/repos/solus',
@@ -38,7 +37,6 @@ function task(id: string, shortId: number, createdAt: number, updatedAt = create
     shortId,
     providerId: 'local' as const,
     projectKey: '/repos/solus',
-    kind: 'task' as const,
     title: id,
     titleSource: 'manual' as const,
     body: '',
@@ -101,7 +99,6 @@ describe('sortSidebarRowsByCreation', () => {
     type DurableRowHarness = {
       session: {
         tasksStore: {
-          byParent: Map<string, ReturnType<typeof task>[]>
           projectKeyOf: (task: { projectKey?: string | null }) => string | null
           get: () => {
             serverId: null
@@ -120,7 +117,6 @@ describe('sortSidebarRowsByCreation', () => {
         sessionFor: () => null
       }
       pendingTabByTaskId: Map<string, string[]>
-      rowSnoozes: Map<string, never>
       lifecycleNow: number
       liveSessionStatuses: { stateFor: () => undefined }
       buildDurableTaskRow: (
@@ -132,7 +128,6 @@ describe('sortSidebarRowsByCreation', () => {
     const store = Object.create(SessionSidebarStore.prototype) as DurableRowHarness
     store.session = {
       tasksStore: {
-        byParent: new Map(),
         projectKeyOf: (task) => task.projectKey ?? null,
         get: () => ({
           serverId: null,
@@ -151,14 +146,10 @@ describe('sortSidebarRowsByCreation', () => {
       sessionFor: () => null,
     }
     store.pendingTabByTaskId = new Map()
-    store.rowSnoozes = new Map()
     store.lifecycleNow = 400
     store.liveSessionStatuses = { stateFor: () => undefined }
 
     const durableRow = store.buildDurableTaskRow(linkedTask, new Map())
-    // A durable row is listed under its task id — the id its loose row already
-    // carried when the session planned it — so the list updates it in place.
-    expect(durableRow.listKey).toBe(linkedTask.id)
     const newerLooseSession = sidebarTask('newer-session', 'idle', 200)
 
     expect(sortSidebarRowsByCreation([newerLooseSession, durableRow]).map((item) => item.id))

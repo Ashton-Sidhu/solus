@@ -275,33 +275,6 @@
     translate: -0.125rem 0;
   }
 
-  /* The rail floats over the canvas, so on a laptop it costs drawing area the
-     user cannot get back by resizing. Geometry only — the tab glyphs and the
-     tile keep their size, because a smaller hit target is not a smaller rail. */
-  :global(html.is-laptop-display) .diagram-rail {
-    right: 0.75rem;
-    top: 0.75rem;
-    gap: 0.5rem;
-    width: 2.625rem;
-    padding: 0.4375rem 0 0.375rem;
-    border-radius: 0.75rem;
-  }
-  :global(html.is-laptop-display) .diagram-rail__tile {
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 0.5rem;
-  }
-  :global(html.is-laptop-display) .diagram-rail__rule {
-    width: 1rem;
-  }
-  :global(html.is-laptop-display) .diagram-rail__tab {
-    width: 1.75rem;
-    height: 1.5rem;
-  }
-  :global(html.is-laptop-display) .diagram-rail__expand {
-    height: 1.25rem;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .diagram-rail,
     .diagram-rail__tab,

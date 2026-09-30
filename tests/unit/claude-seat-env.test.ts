@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { claudeEnv } from '@solus/server/agents/claude/claude-agent'
+import { claudeEnv } from '@solus/server/execution/agents/claude/claude-agent'
 
 // Step 2 plan §3.3 step 4: a member's turn runs on their own login and on nothing the
 // host process carries; the host's own turns are unchanged.

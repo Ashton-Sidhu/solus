@@ -25,6 +25,7 @@ export default defineConfig({
       '@solus/workspace-ui': resolve(__dirname, '../../packages/workspace-ui/src'),
       '@solus/contracts': resolve(__dirname, '../../packages/contracts/src'),
       '@solus/client-core': resolve(__dirname, '../../packages/client-core/src'),
+      '@solus/document-model': resolve(__dirname, '../../packages/document-model/src'),
       '@geist-fonts': geistFontsDir,
     },
     // ProseMirror classes rely on module identity. Keep editor nodes and table

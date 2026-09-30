@@ -18,7 +18,5 @@ export function recordQuestionAnswer(messages: Message[], answer: QuestionAnswer
       return
     }
   }
-  messages.push({
-    id: `question-answer-${answer.questionId}`, role: 'system', content: '', timestamp, questionAnswer: answer,
-  })
+  messages.push({ id: `question-answer-${answer.questionId}`, role: 'system', content: '', timestamp, questionAnswer: answer })
 }

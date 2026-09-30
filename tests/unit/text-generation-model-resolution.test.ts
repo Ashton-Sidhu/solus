@@ -18,7 +18,7 @@ describe('text-generation model resolution', () => {
         findOnPath: (bin) => bin === 'codex' ? '/bin/codex' : null,
       }))
 
-      const settings = await import('./packages/server/src/server/settings')
+      const settings = await import('./packages/server/src/host/settings')
       settings.setHostConfig({
         textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
         sourceControlWriterModel: { provider: 'claude-code', model: 'claude-sonnet-5' },
@@ -62,7 +62,7 @@ describe('text-generation model resolution', () => {
         findOnPath: (bin) => bin === 'claude' ? '/bin/claude' : null,
       }))
 
-      const settings = await import('./packages/server/src/server/settings')
+      const settings = await import('./packages/server/src/host/settings')
       settings.setHostConfig({
         textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
       })
@@ -104,7 +104,7 @@ describe('text-generation model resolution', () => {
         findOnPath: (bin) => '/bin/' + bin,
       }))
 
-      const settings = await import('./packages/server/src/server/settings')
+      const settings = await import('./packages/server/src/host/settings')
       settings.setHostConfig({
         textGenerationModel: { provider: 'codex', model: 'gpt-not-a-real-model' },
       })

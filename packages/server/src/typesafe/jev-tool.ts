@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool } from '../agents/tools/agent-tool'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import {
   APIError, APIUserAbortError, APITimeoutError, APIConnectionError,
   choice, noul, score, getTypeSafe,

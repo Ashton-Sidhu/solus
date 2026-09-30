@@ -1,10 +1,5 @@
 <script lang="ts">
-  import {
-    CircleCheck as CheckCircleIcon,
-    MessageCircle as ChatCircleIcon,
-    CornerUpLeft as ArrowBendUpLeftIcon,
-    ChevronDown as CaretDownIcon,
-  } from "@lucide/svelte";
+  import { CircleCheck as CheckCircleIcon, Circle as CircleIcon } from "@lucide/svelte";
   import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import type { ReviewComment } from "@solus/contracts/providers";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
@@ -38,15 +33,9 @@
     onSetCollapsed?: (threadId: string, collapsed: boolean) => void;
   } = $props();
 
-  const interactive = $derived(!!onReply || !!onToggleResolve);
-  const firstComment = $derived(thread.comments[0]);
-
-  // Comment bodies are GitHub markdown — the same `.prose-pr` typography as the
-  // PR description and the Activity tab's thread cards, stepped down to this
-  // card's 12px type by the compact modifier. Sizes/colour can't be set with
-  // utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-compact";
+  const statusLabel = $derived(
+    `${thread.isResolved ? "Resolved" : "Open"} · ${thread.comments.length} ${thread.comments.length === 1 ? "comment" : "comments"}`,
+  );
 
   let replying = $state(false);
   let replyText = $state("");
@@ -102,137 +91,103 @@
   <SinceReviewMarker {thread} />
 {:else}
 <!-- The card sits inside the diff's light DOM, which is set in the code font.
-     Conversation is prose, so the card restates the UI face and reads at the
-     same 12px the Activity tab's thread cards use on a laptop display. -->
+     Conversation is prose, so the card restates the UI face. -->
 <div
-  class="mx-3 my-1.5 overflow-hidden rounded-xl border border-border bg-card font-[family-name:var(--solus-font-family)] text-xs leading-normal text-foreground"
+  class="mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 font-[family-name:var(--solus-font-family)] text-sm leading-normal text-foreground shadow-sm"
 >
-  {#if thread.isResolved && collapsed}
-    <!-- A resolved thread is a settled fact: one line, in the voice of a
-         commit row, that opens the full card. -->
-    <button
-      type="button"
-      class="group/resolved flex min-h-8 w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
-      onclick={() => onSetCollapsed?.(thread.id, false)}
-      aria-expanded="false"
-    >
-      <CheckCircleIcon size={13} class="shrink-0 text-(--solus-art-positive)" />
-      <span class="min-w-0 flex-1 truncate">
-        <span class="font-medium text-foreground">{firstComment?.author}</span>
-        commented · resolved{#if thread.isOutdated} · outdated{/if}{#if firstComment}
-          · {formatTimeAgoFromTimestamp(new Date(firstComment.createdAt).getTime())}{/if}
-      </span>
-      <span
-        class="inline-flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/resolved:opacity-100 group-focus-visible/resolved:opacity-100 pointer-coarse:opacity-100"
+  <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+    {#if thread.isResolved}
+      <CheckCircleIcon class="size-3.5 shrink-0 text-(--solus-art-positive)" />
+    {:else}
+      <CircleIcon class="size-3.5 shrink-0" />
+    {/if}
+    <!-- Only a resolved thread folds; the host owns that state so the diff
+         re-measures around the changed height. -->
+    {#if thread.isResolved && onSetCollapsed}
+      <button
+        type="button"
+        class="cursor-pointer rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        aria-expanded={!collapsed}
+        onclick={() => onSetCollapsed?.(thread.id, !collapsed)}
       >
-        Show thread
-        <CaretDownIcon size={12} />
-      </span>
-    </button>
-  {:else}
-    <div class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-muted-foreground">
-      <ChatCircleIcon size={12} class="shrink-0" />
-      <span>
-        {thread.comments.length} comment{thread.comments.length === 1 ? "" : "s"}
-      </span>
-      <div class="ml-auto flex items-center gap-1">
-        {#if thread.isOutdated}
-          <span class="rounded-full bg-muted px-1.5 py-0.5 font-medium">Outdated</span>
-        {/if}
-        {#if thread.isResolved}
-          <span
-            class="inline-flex items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1 font-medium text-(--solus-art-positive)"
-          >
-            <CheckCircleIcon size={12} class="shrink-0" /> Resolved
-          </span>
-        {/if}
-      </div>
-    </div>
+        {statusLabel}
+      </button>
+    {:else}
+      <span>{statusLabel}</span>
+    {/if}
+    {#if thread.isOutdated}
+      <span>outdated</span>
+    {/if}
+    {#if onToggleResolve}
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        disabled={busy}
+        class="ml-auto cursor-pointer"
+        onclick={toggleResolve}
+      >
+        {thread.isResolved ? "Unresolve" : "Resolve"}
+      </Button>
+    {/if}
+  </div>
 
-    <div class="flex flex-col px-3 pt-2.5 pb-1">
-      {#each thread.comments as comment, ci (comment.id)}
-        <div class="flex gap-2.5">
-          <div class="flex flex-col items-center">
-            <PrAvatar name={comment.author} url={comment.authorAvatarUrl} size="size-5 text-xs" />
-            {#if ci < thread.comments.length - 1}
-              <span class="mt-1 w-px flex-1 bg-border"></span>
-            {/if}
-          </div>
-          <div class="min-w-0 flex-1 pb-2.5">
-            <div class="mb-0.5 flex items-baseline gap-1.5">
-              <span class="font-medium text-foreground">{comment.author}</span>
-              <span class="text-muted-foreground">
+  {#if !(thread.isResolved && collapsed)}
+    <!-- Each comment hangs from an avatar in a gutter, with a hairline between
+         comments: a long bot comment otherwise runs into the next author's
+         row, and the thread reads as one message. -->
+    <div class="mt-3 divide-y divide-border/60">
+      {#each thread.comments as comment (comment.id)}
+        <article class="flex min-w-0 gap-2.5 py-3 first:pt-0 last:pb-1">
+          <span class="mt-px shrink-0">
+            <PrAvatar name={comment.author} url={comment.authorAvatarUrl} size="size-6 text-[10px]" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground">
+              <span class="truncate text-sm font-semibold text-foreground">{comment.author}</span>
+              <span class="shrink-0">
                 {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
               </span>
             </div>
-            <div class={bodyProseClass}>
-              <GithubMarkdown
-                source={comment.body}
-              />
+            <!-- GitHub markdown: the `.prose-pr` typography of the PR description,
+                 stepped down by the compact modifier. The `.prose-cloud` rules are
+                 unlayered, so utilities cannot size this body. -->
+            <div class="mt-0.5 github-markdown prose-cloud prose-pr prose-pr-compact">
+              <GithubMarkdown source={comment.body} />
             </div>
           </div>
-        </div>
+        </article>
       {/each}
     </div>
 
-    {#if interactive}
-      <div class="border-t border-border px-2 py-1.5">
-        {#if replying}
-          <CommentComposer
-            surface="embedded"
-            initialValue={replyText}
-            onFormValueChange={(markdown) => (replyText = markdown)}
-            onSave={submitReply}
-            onCancel={cancelReply}
-            submitLabel={busy ? "Replying…" : "Reply"}
-            disabled={busy}
-            placeholder="Reply… ⌘↵"
-            maxHeight={120}
-            editorClass="min-h-8 rounded-lg border border-input bg-card px-2.5 transition-colors focus-within:border-ring [&_.cm-content]:![font-weight:400]"
-          />
-        {:else}
-          <div class="flex items-center gap-0.5">
-            {#if onReply}
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                class="cursor-pointer font-medium text-muted-foreground"
-                onclick={startReply}
-              >
-                <ArrowBendUpLeftIcon size={12} class="shrink-0" /> Reply
-              </Button>
-            {/if}
-            {#if onToggleResolve}
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                disabled={busy}
-                class="cursor-pointer font-medium text-muted-foreground"
-                onclick={toggleResolve}
-              >
-                {#if thread.isResolved}
-                  Unresolve
-                {:else}
-                  <CheckCircleIcon size={12} class="shrink-0" /> Resolve
-                {/if}
-              </Button>
-            {/if}
-            {#if thread.isResolved}
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                class="ml-auto cursor-pointer font-medium text-muted-foreground"
-                onclick={() => onSetCollapsed?.(thread.id, true)}
-              >
-                Hide
-              </Button>
-            {/if}
-          </div>
-        {/if}
-      </div>
+    <!-- Reply aligns with the comment bodies, past the avatar gutter. -->
+    {#if onReply}
+      {#if replying}
+        <CommentComposer
+          surface="embedded"
+          class="mt-2 pl-8.5"
+          initialValue={replyText}
+          onFormValueChange={(markdown) => (replyText = markdown)}
+          onSave={submitReply}
+          onCancel={cancelReply}
+          submitLabel={busy ? "Replying…" : "Reply"}
+          disabled={busy}
+          placeholder="Reply"
+          ariaLabel="Reply to this conversation"
+          maxHeight={120}
+          editorClass="min-h-16 rounded-lg border border-input bg-background px-2.5 py-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 dark:bg-input/32 [&_.cm-content]:![font-weight:400]"
+        />
+      {:else}
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          class="mt-2 ml-6.5 cursor-pointer"
+          onclick={startReply}
+        >
+          Reply
+        </Button>
+      {/if}
     {/if}
   {/if}
 </div>

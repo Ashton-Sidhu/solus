@@ -121,4 +121,4 @@ Thin borders, no raw grey, no gradients, sentence case, nothing below 11px, no e
 
 ## Finish
 
-Explain what you built in chat, then call `render_artifact` with the finished HTML as the last step.
+Implement the template in React and compile with `npm run bundle` as described in `SKILL.md`. Render the compiled HTML as a new work with `render_artifact`, or read and update the existing work. Use a compiled fence only for an explicitly unsaved or one-time inline result. Explain the result briefly; do not emit duplicate copies.

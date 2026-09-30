@@ -5,7 +5,7 @@
     Plus as PlusIcon,
   } from "@lucide/svelte";
   import type { TaskLink } from "@solus/contracts/task-types";
-  import { prStatusBadge } from "../../prs/lib/pr-utils";
+  import { PR_NOT_FOUND_BADGE, prStatusBadge } from "../../prs/lib/pr-utils";
   import type { TaskPrRow } from "./lib/task-prs";
 
   interface Props {
@@ -52,7 +52,7 @@
     class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
   >
     {#each rows as row, index (row.key)}
-      {@const badge = prStatusBadge(row.state)}
+      {@const badge = row.missing ? PR_NOT_FOUND_BADGE : prStatusBadge(row.state)}
       {#if stacked}
         <div
           class="flex cursor-pointer items-center gap-2.5 px-3 py-[11px] active:bg-[var(--wash-1)] [-webkit-tap-highlight-color:transparent] {index

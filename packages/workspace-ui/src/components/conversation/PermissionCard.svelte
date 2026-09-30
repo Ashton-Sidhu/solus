@@ -11,13 +11,17 @@
     permissionArgv,
     permissionCwd,
     permissionFooterOrder,
+    othersTurnTitle,
     permissionKicker,
     splitPathTail,
   } from './lib/interrupt'
+  import { presenceStore } from '../../contexts/presence/presence.store.svelte'
+  import { othersTurnLabel } from '../presence/lib/actor-name'
   import { formatReleaseTime } from './lib/queued-prompts'
   import InterruptCard from './InterruptCard.svelte'
   import TranscriptChip from './TranscriptChip.svelte'
   import { liveActivityClock } from '../../lib/shared-clock'
+  import { conversationIsVisible } from './lib/conversation-visibility'
   import { z } from 'zod'
 
   const editStringDetailsSchema = z.object({
@@ -29,9 +33,17 @@
     tabId: string
     permission: PermissionRequest
     queueLength?: number
+    /** Answers for another session — a child this conversation sent work to.
+     *  Unset, the answer goes to this tab's own session. */
+    respond?: (questionId: string, optionId: string) => void
+    /** The other session's directory, where the request runs. */
+    cwd?: string
+    /** Whether the card's global keys act. Off while the tab holds a request of
+     *  its own, so one keystroke never answers two cards. */
+    shortcuts?: boolean
   }
 
-  let { tabId, permission, queueLength = 1 }: Props = $props()
+  let { tabId, permission, queueLength = 1, respond, cwd: runCwd, shortcuts = true }: Props = $props()
 
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
@@ -49,8 +61,9 @@
     askedAt = Date.now()
   })
 
+  const onScreen = conversationIsVisible()
   $effect(() => {
-    if (responded) return
+    if (responded || !onScreen()) return
     return liveActivityClock.subscribe((value) => { now = value })
   })
 
@@ -68,7 +81,9 @@
   // can't fully read is the failure mode this card exists to prevent.
   const argv = $derived(permissionArgv(permission))
   const kicker = $derived(permissionKicker(permission))
-  const cwd = $derived(permissionCwd(permission, sess))
+  // Anyone may answer (D2); a teammate's turn says whose it is.
+  const title = $derived(othersTurnTitle(kicker.title, othersTurnLabel(permission.turnAuthor, sess ? presenceStore.currentUserId(sess.run.serverId) : null)))
+  const cwd = $derived(runCwd || permissionCwd(permission, sess))
   // The head can lose its middle; the worktree name never can.
   const cwdParts = $derived.by(() => {
     if (!cwd) return null
@@ -82,7 +97,8 @@
   function handleOption(optionId: string) {
     if (responded) return
     responded = true
-    session.controls.respondPermission(tabId, permission.questionId, optionId)
+    if (respond) respond(permission.questionId, optionId)
+    else session.controls.respondPermission(tabId, permission.questionId, optionId)
   }
 
   function classFor(option: PermissionOption): string {
@@ -95,7 +111,7 @@
 
   /** The key hints are the card's contract, so they act rather than decorate. */
   function handleKeydown(e: KeyboardEvent) {
-    if (tabId !== session.activeTabId || responded) return
+    if (!shortcuts || tabId !== session.activeTabId || responded) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const target = e.target
     if (target instanceof HTMLElement) {
@@ -121,7 +137,7 @@
 
 <InterruptCard
   eyebrow={kicker.label}
-  title={kicker.title}
+  {title}
   tone={kicker.tone === 'destructive' ? 'destructive' : 'neutral'}
   testId="permission-card"
 >
@@ -146,7 +162,7 @@
   {/snippet}
 
   <div
-    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-3"
+    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4"
   >
     {#if argv}
       <div class="interrupt-payload">

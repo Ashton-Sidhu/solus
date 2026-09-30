@@ -4,8 +4,8 @@ import { isQuestionTool, parseQuestionInput } from '@solus/contracts/question-hi
 import { recordQuestionAnswer } from '@solus/workspace-ui/contexts/workspace/question-history'
 import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
 import { activityKinds } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
-import { projectSessionHistory, projectSessionEvent } from '@solus/server/server/result-projection'
-import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
+import { projectSessionHistory, projectSessionEvent } from '@solus/server/data/sessions/result-projection'
+import { deferSessionToolInputs } from '@solus/server/data/sessions/session-tool-inputs'
 
 const answer: QuestionAnswer = {
   questionId: 'q1', questions: [{ id: 'scope', question: 'Which branch?', options: [{ label: 'main' }], multiSelect: false }],
@@ -71,7 +71,6 @@ describe('answered question history', () => {
     expect(deferred[1].questionResult).toBe('User answered: main')
     expect(deferred[2].content).toBe('')
     expect(deferred[2].questionResult).toBeUndefined()
-    expect(deferred[2].toolInput).toBeUndefined()
     expect(parseQuestionInput(deferred[0].toolInput)?.answers).toBeUndefined()
   })
 

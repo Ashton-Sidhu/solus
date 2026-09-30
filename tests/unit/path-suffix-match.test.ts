@@ -31,8 +31,8 @@ mock.module('@ff-labs/fff-node', () => ({
   },
 }))
 
-const { requestedRelativePath } = await import('@solus/server/server/handlers/lib/path-suffix-match')
-const { readFilePreview } = await import('@solus/server/server/handlers/lib/file-preview')
+const { requestedRelativePath } = await import('@solus/server/files/path-suffix-match')
+const { readFilePreview } = await import('@solus/server/files/file-preview')
 
 describe('a partial path', () => {
   test('is not looked for when the path already says where it lives', () => {

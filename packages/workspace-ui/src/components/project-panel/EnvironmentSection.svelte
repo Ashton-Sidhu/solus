@@ -23,6 +23,7 @@
   import { worktreeDisplayName } from "../../lib/git-context";
   import { copyText, toasts } from "../../lib/toasts";
   import GitDropdown from "../GitDropdown.svelte";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { withSelectedWorktree } from "../input/lib/worktree-destination";
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
@@ -76,9 +77,10 @@
   const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
   const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const isWorktree = $derived(env.isolated);
+  const dispatchStartLabel = $derived(sectionRun?.worktree ? "New worktree" : "Checkout");
   const displayedBranch = $derived.by(() => {
     const branch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ??
-      (pendingDispatch ? "New worktree" : env.pending ? env.name : (currentBranch ?? "detached HEAD"));
+      (pendingDispatch ? dispatchStartLabel : env.pending ? env.name : (currentBranch ?? "detached HEAD"));
     return selectedDispatchWorktree || isWorktree ? worktreeDisplayName(branch) : branch;
   });
   const copyableBranch = $derived(
@@ -217,6 +219,11 @@
     requestInputFocus();
   }
 
+  function selectDispatchCheckout() {
+    session.config.setDispatchCheckout(destinationDraft().id);
+    requestInputFocus();
+  }
+
   async function copyBranchName() {
     if (!copyableBranch) return;
     await copyText(copyableBranch);
@@ -266,9 +273,9 @@
               size={13}
             />{:else}<GitBranchIcon size={13} />{/if}</span
         >
-        <span class="branch-row-name" title={displayedBranch}
-          >{displayedBranch}</span
-        >
+        <!-- The branch is the section's anchor — a constant half-step heavier
+             than the action rows beneath it. -->
+        <MiddleTruncate value={displayedBranch} class="flex-1 font-medium" />
         {#if copyableBranch}
           <span class="branch-copy-indicator" aria-hidden="true">
             <CopyIcon size={11} />
@@ -307,13 +314,14 @@
         bind:open={branchPickerOpen}
         side="left"
         triggerEl={branchTriggerEl}
-        displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : currentBranch)}
+        displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? dispatchStartLabel : currentBranch)}
         selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? sectionRun?.worktree?.baseBranch ?? currentBranch}
         workingDirectory={branchRepoRoot}
         run={sectionRun}
         onSelectBranch={selectBranch}
         onSelectWorktree={selectWorktree}
         onSelectNewWorktree={selectNewDispatchWorktree}
+        onSelectDispatchCheckout={selectDispatchCheckout}
       />
     {/if}
     <div class="branch-divider" aria-hidden="true"></div>
@@ -425,16 +433,6 @@
   .branch-row:hover .branch-copy-indicator,
   .branch-row:focus-visible .branch-copy-indicator {
     opacity: 1;
-  }
-  /* The branch is the section's anchor — a constant half-step heavier than
-     the action rows beneath it. */
-  .branch-row-name {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
   }
   .branch-control {
     display: flex;

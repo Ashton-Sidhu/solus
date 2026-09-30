@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeThreadGoal } from '@solus/server/agents/codex/codex-event-normalizer'
+import { normalizeThreadGoal } from '@solus/server/execution/agents/codex/codex-event-normalizer'
 import { codexSlashCommands } from '@solus/workspace-ui/components/input/slash-commands'
 import { GoalSync } from '@solus/workspace-ui/contexts/workspace/goal-sync'
 import type { Session, ThreadGoal } from '@solus/contracts/types'

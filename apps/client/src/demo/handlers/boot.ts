@@ -6,8 +6,9 @@ import type {
   ServerCapabilities,
   VoiceModelStatus,
 } from '@solus/contracts/types'
+import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import type { DemoBackend } from '../server'
-import type { DemoStore } from '../store'
+import { DEMO_USER, type DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
@@ -54,6 +55,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     installationId: 'demo',
     remoteAccess: false,
     requireAuth: false,
+    user: DEMO_USER,
   }))
   const runtimeInfo = (preferredModel?: string | null): RuntimeSessionInfo => ({
     modelConfig: {
@@ -62,7 +64,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
       contextWindow: 1_000_000,
       fastMode: false,
     },
-    permissionMode: 'auto',
+    permissionMode: 'full-access',
     status: 'idle',
     rateLimitInfo: null,
     queuedPrompts: [],
@@ -94,6 +96,28 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     error: null,
   }))
   backend.register('usageLimits', () => [])
+  // Organization scope (organization-scope.md): the demo host is linked to no
+  // account, so it stands in no organization, publishes nothing, and has no
+  // organization Insights to answer.
+  const hostOrganizations = (): HostOrganizationsStatus => ({
+    linked: false,
+    hostId: null,
+    category: 'personal',
+    owner: null,
+    organizations: [],
+    insightsOptIn: [],
+    attachedAt: null,
+    apiUrl: null,
+    delivery: [],
+    deliveryError: null,
+  })
+  backend.register('hostOrganizations', hostOrganizations)
+  backend.register('hostSetInsightsOptIn', hostOrganizations)
+  backend.register('publicationList', () => [])
+  backend.register('publicationStart', () => {
+    throw new Error('Publishing is not available in the demo.')
+  })
+  backend.register('insightsList', () => ({ items: [], nextCursor: null, window: { since: new Date(Date.now() - 7 * 86400000).toISOString(), until: new Date().toISOString() } }))
   backend.register('outboxList', () => [])
   backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))

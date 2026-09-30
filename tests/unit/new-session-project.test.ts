@@ -32,7 +32,7 @@ describe('the project a session starts in when nothing on screen names one', () 
 // ─── ⌘N through the drafts controller ───
 
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
-  serversStore: { statusFor: () => 'online', isolatesSessions: () => false },
+  serversStore: { statusFor: () => 'online' },
 }))
 mock.module('@solus/workspace-ui/lib/git-actions.svelte', () => ({ disposeGitActions: () => {} }))
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))
@@ -59,7 +59,7 @@ function runIn(workingDirectory: string): RunConfig {
     gitContext: null,
     worktree: null,
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-    permissionMode: 'auto',
+    permissionMode: 'full-access',
     provider: 'claude-code',
     serverId: 'local',
     taskServerId: 'local',
@@ -83,7 +83,6 @@ function draftsInOnePane() {
     runFor: (sourceId: string) => drafts.sessionDrafts.get(sourceId)?.run,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
-    settings: { tasksEnabled: true },
     router: {
       focusedPaneId: pane.id,
       panes: [pane],

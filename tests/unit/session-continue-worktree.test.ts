@@ -161,5 +161,8 @@ describe('continue session in worktree', () => {
 
     expect(session.run.gitContext).toBe(gitContext)
     expect(refreshes).toEqual([{ sourceId: 'tab-1', level: 'full', force: true }])
+    // WHY: the host records the move; its activity row is the one divider every
+    // reader sees, so the client writes none of its own (plans/012 §5).
+    expect(session.messages).toHaveLength(1)
   })
 })

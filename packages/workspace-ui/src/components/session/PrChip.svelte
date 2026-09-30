@@ -10,8 +10,11 @@
     chip: PrChip;
     choices: TaskPrChoice[];
     onOpen: (choice: TaskPrChoice) => void;
+    /** Opens the pull request's own menu. With several pull requests, the
+     *  chip opens its list. */
+    onMore?: (event: MouseEvent, choice: TaskPrChoice) => void;
   }
-  let { chip, choices, onOpen }: Props = $props();
+  let { chip, choices, onOpen, onMore }: Props = $props();
   let menuOpen = $state(false);
 
   // Match Git host conventions: open is green and merged is purple. Review
@@ -68,7 +71,7 @@
         <button
           {...props}
           type="button"
-          class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs text-(--pr-color) transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-fine:[.is-laptop-display_&]:gap-0.5"
+          class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs text-(--pr-color) transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           style:--pr-color={tone}
           aria-label={actionLabel}
           title={actionLabel}
@@ -84,11 +87,16 @@
             event.stopPropagation();
             props.onclick?.(event);
           }}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            menuOpen = true;
+          }}
         >
           {#if chip.state === "merged"}
-            <GitMergeIcon size={12.5} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3" />
+            <GitMergeIcon size={12.5} class="shrink-0" />
           {:else}
-            <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3" />
+            <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0" />
           {/if}
           <span class="tabular-nums">{chip.count} PRs</span>
           <ChevronDownIcon size={11} aria-hidden="true" />
@@ -99,7 +107,7 @@
       side="bottom"
       align="end"
       sideOffset={7}
-      class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-dropdown-menu-content-available-height))] overscroll-contain text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-72"
+      class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-dropdown-menu-content-available-height))] overscroll-contain text-workspace-chrome"
     >
       <DropdownMenu.Label class="text-workspace-chrome">Pull requests</DropdownMenu.Label>
       {#each choices as choice (`${choice.targetScope}:${choice.number}`)}
@@ -121,7 +129,7 @@
 {:else}
   <button
     type="button"
-    class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs text-(--pr-color) transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-fine:[.is-laptop-display_&]:gap-0.5"
+    class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs text-(--pr-color) transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     style:--pr-color={tone}
     aria-label={actionLabel}
     title={actionLabel}
@@ -131,11 +139,17 @@
       event.stopPropagation();
       if (choices[0] && !openChoiceExternal(choices[0], event)) onOpen(choices[0]);
     }}
+    oncontextmenu={(event) => {
+      if (!onMore || !choices[0]) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onMore(event, choices[0]);
+    }}
   >
     {#if chip.state === "merged"}
-      <GitMergeIcon size={12.5} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3" />
+      <GitMergeIcon size={12.5} class="shrink-0" />
     {:else}
-      <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3 {chip.state === 'draft' ? 'opacity-70' : ''}" />
+      <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}" />
     {/if}
     <span class="tabular-nums">#{chip.number}</span>
   </button>

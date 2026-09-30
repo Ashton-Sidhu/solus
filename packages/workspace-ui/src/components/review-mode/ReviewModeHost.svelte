@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import {
     CircleCheck as CheckCircleIcon,
@@ -9,7 +9,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { PrReviewTarget, PullRequest } from "@solus/contracts/providers";
-  import type { IpcContext } from "@solus/contracts/types";
+  import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type { ReviewOutcome } from "@solus/contracts/review-session-types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -87,6 +87,15 @@
   const settledCount = $derived(
     state?.entries.filter((entry) => entry.outcome !== null).length ?? 0,
   );
+
+  // PR sync keeps the pull request under review and its check runs fresh.
+  $effect(() => {
+    const number = currentItem?.number;
+    const serverId = reviewServerId;
+    const api = reviewApi;
+    if (number === undefined || !serverId || !api) return;
+    return untrack(() => pullRequests.checks.wantReview(api, serverId, postingContext ?? session.ctx, number));
+  });
 
   function findSummary(number: number): PullRequest | null {
     const ctx = postingContext ?? session.ctx;
@@ -423,6 +432,8 @@
               <div class="absolute inset-0" class:hidden={currentEntry?.prNumber !== entry.prNumber}>
                 {#if prepared.has(entry.prNumber)}
                   {@const ready = prepared.get(entry.prNumber)!}
+                  <!-- Review Mode is a triage queue: like Map, the lens stays on
+                       the full review surface and has no key here. -->
                   <PrReviewPane
                     pr={ready.pr}
                     api={reviewApi}
@@ -430,7 +441,9 @@
                     target={ready.pr}
                     targetCtx={postingContext ?? session.ctx}
                     activeTab={views.get(entry.prNumber) ?? "guide"}
-                    onActiveTabChange={(view) => views.set(entry.prNumber, view)}
+                    onActiveTabChange={(view) => {
+                      if (view !== "lens") views.set(entry.prNumber, view);
+                    }}
                     onUnresolvedCountChange={(count) => unresolvedByPr.set(entry.prNumber, count)}
                     headless
                   />
@@ -470,8 +483,8 @@
               />
             </div>
             <div class="flex shrink-0 items-center gap-1.5">
-              <Button variant="outline" size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" onclick={cancelComposer}>Cancel</Button>
-              <Button size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
+              <Button variant="outline" size="sm" class="h-7.5" onclick={cancelComposer}>Cancel</Button>
+              <Button size="sm" class="h-7.5" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
             </div>
           </div>
         {:else}
@@ -495,8 +508,8 @@
               <ClockIcon data-icon="inline-start" /> Defer <kbd class="ml-1 text-xs opacity-70">d</kbd>
             </Button>
             <span class="ml-auto hidden items-center gap-2 text-xs text-(--solus-text-tertiary) 2xl:flex">
-              <span><kbd class="">j</kbd>/<kbd class="">k</kbd> next / prev</span>
-              <span><kbd class="">u</kbd> undo</span>
+              <span><kbd>j</kbd>/<kbd>k</kbd> next / prev</span>
+              <span><kbd>u</kbd> undo</span>
             </span>
           </div>
         {/if}

@@ -56,7 +56,7 @@ function ticket(issueKey: string): ExternalTicketRef {
   return { provider: 'jira', externalKey: `${CLOUD_ID}/ACME`, externalId: issueKey, url: '' }
 }
 
-type AdapterModule = typeof import('@solus/server/tasks/adapters/jira')
+type AdapterModule = typeof import('@solus/server/data/tasks/adapters/jira')
 type DbModule = typeof import('@solus/server/db')
 
 let adapter: InstanceType<AdapterModule['JiraTaskSyncAdapter']>
@@ -70,14 +70,14 @@ beforeAll(async () => {
   mkdirSync(join(dataDir, 'assets'), { recursive: true })
   writeFileSync(join(dataDir, 'assets', PNG_ID), Buffer.from('fake png bytes'))
   writeFileSync(join(dataDir, 'assets', HTML_ID), Buffer.from('<!doctype html><title>Report</title>'))
-  adapter = new (await import('@solus/server/tasks/adapters/jira')).JiraTaskSyncAdapter()
+  adapter = new (await import('@solus/server/data/tasks/adapters/jira')).JiraTaskSyncAdapter()
   db = await import('@solus/server/db')
 })
 
 beforeEach(async () => {
   requests = []
   attachmentCounter = 0
-  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/tasks/schema')).assetPublications}`)
+  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/data/tasks/schema')).assetPublications}`)
 })
 
 afterEach(async () => {

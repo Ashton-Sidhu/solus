@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    RefreshCcw as ArrowsCounterClockwiseIcon,
     ChevronDown as CaretDownIcon,
     CircleAlert as CircleAlertIcon,
     CircleCheck as CheckCircleIcon,
-    MessageCircle as ChatCircleIcon,
+    CircleDashed as CircleDashedIcon,
+    Ellipsis as EllipsisIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
     LayoutTemplate as ArtifactIcon,
@@ -12,7 +12,7 @@
     Tag as TagIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
+  import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
   import type { PrCommit, ReviewComment, ReviewThread } from "@solus/contracts/providers";
   import {
     formatTimeAgoFromTimestamp,
@@ -33,15 +33,16 @@
     hasVisibleBody,
     prLabelActivityText,
     reviewThreadDiffHunks,
-    reviewMilestone,
+    threadStartsFolded,
     type ActivityEvent,
   } from "./lib/activity-data";
+  import { TIMELINE_WINDOW_PAGE, windowTimeline } from "./lib/timeline-window";
 
   // The activity timeline proper: the opened event plus commits, review
   // threads, and conversation interleaved by time on one hairline spine.
-  // Signal hierarchy — milestone review verdicts (approved / changes
-  // requested) get tinted headline rows, conversations sit mid-weight, and
-  // commit runs demote to small tertiary nodes that collapse when long.
+  // Signal hierarchy — comments, reviews, and open threads are full-width
+  // cards that break the spine (a verdict is the badge in the card's header),
+  // and commit runs demote to small tertiary nodes that collapse when long.
   let {
     events,
     diffPatch = null,
@@ -95,11 +96,6 @@
 
   const threadDiffHunks = $derived(reviewThreadDiffHunks(diffPatch, events));
 
-  // Comment/review bodies are GitHub markdown — same pipeline *and* the same
-  // `.prose-pr` typography as the description above them. Sizes/colour can't be
-  // set with utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-activity";
-
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
   // previous PR are harmless — its runs simply start collapsed again.
@@ -120,6 +116,17 @@
   function toggleComment(key: string) {
     collapsedComments[key] = !collapsedComments[key];
   }
+
+  // Folded threads the reader opened, keyed by thread id. Lifted out of
+  // PrThreadCard because the row's shape depends on it: a folded thread is
+  // one line on the spine, an open thread is a full-width card that breaks
+  // the rail.
+  const unfoldedThreads = $state<Record<string, boolean>>({});
+
+  // How many events of a long timeline's folded middle the reader revealed.
+  // The feed remounts for another pull request, so this starts at zero there.
+  let revealedCount = $state(0);
+  const timelineWindow = $derived(windowTimeline(events, revealedCount));
 
   /** One live frame at a time: the artifact card the reader has open. */
   let openArtifactWorkId = $state<string | null>(null);
@@ -156,57 +163,6 @@
   </Button>
 {/snippet}
 
-<!-- A review verdict's words sit on a card under the verdict headline. An
-     ordinary comment builds the same card with its author row inside it (see
-     below), so every comment is one bounded object on the spine. The card is
-     the rail's status-card material: 14px corners and a hairline border. Not a
-     box-shadow ring: each timeline row has `content-visibility: auto`, whose
-     paint containment clips anything drawn outside the row's box, so a shadow
-     ring lost its right and bottom edges. -->
-{#snippet commentBody(body: string)}
-  <div class="mt-2 rounded-[14px] border border-[var(--hairline-strong)] bg-card px-4 py-3.5">
-    <div class={bodyProseClass}>
-      <GithubMarkdown
-        source={body}
-      />
-    </div>
-  </div>
-{/snippet}
-
-<!-- A person on the spine: their host avatar as the node, opaque over the
-     rail. A verdict, when the row carries one, is a small tinted badge on the
-     avatar's corner rather than a glyph in the person's place. The node is
-     pinned to the avatar's 22px: as a flex child it would otherwise stretch
-     to the row's full height, and its opaque background would blank the
-     spine for the whole row.
-
-     Rows that carry one are `-m-1 p-1`: the halo and the verdict badge reach
-     past the node's box, and the row's `content-visibility: auto` clips paint
-     to the row. The pair grows the row's box by 4px on every side without
-     moving anything in it. -->
-{#snippet avatarNode(author: string, avatarUrl: string | undefined, tone?: "positive" | "negative")}
-  <span
-    class="relative z-10 mt-0.5 size-[22px] shrink-0 self-start rounded-full bg-background shadow-[0_0_0_3px_var(--background)]"
-  >
-    <PrAvatar name={author} url={avatarUrl} size="size-[22px] text-xs" />
-    {#if tone}
-      <span
-        class="absolute -right-1 -bottom-1 grid size-[14px] place-items-center rounded-full bg-background {tone ===
-        'positive'
-          ? 'text-(--solus-art-positive)'
-          : 'text-(--solus-art-negative)'}"
-        aria-hidden="true"
-      >
-        {#if tone === "positive"}
-          <CheckCircleIcon size={12} weight="fill" />
-        {:else}
-          <ArrowsCounterClockwiseIcon size={11} weight="bold" />
-        {/if}
-      </span>
-    {/if}
-  </span>
-{/snippet}
-
 {#snippet deleteCommentButton(commentId: string, author: string)}
   <Button
     type="button"
@@ -226,13 +182,243 @@
   </Button>
 {/snippet}
 
+{#snippet eventRow(event: ActivityEvent)}
+  {#if event.kind === "commits"}
+    {@const preview = commitRunPreview(
+      event.commits,
+      expandedRuns[activityEventKey(event)] ?? false,
+    )}
+    <!-- Commit runs keep the spine's node size and type; the muted colour
+         alone demotes them. Long runs collapse behind a quiet expander. -->
+    <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+      <span
+        class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+      >
+        <GitCommitIcon size={12} weight="bold" />
+      </span>
+      <div class="min-w-0 flex-1 pt-1">
+        <p class="text-muted-foreground">
+          <span class="font-medium text-foreground"
+            >{commitRunAuthorLabel(event.commits, authorName)}</span
+          >
+          added {event.commits.length}
+          {event.commits.length === 1 ? "commit" : "commits"}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps}
+            >· {formatTimeAgoFromTimestamp(event.ts)}</span
+          >
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+          </TooltipUI.Root>
+        </p>
+        <!-- Sha + message only — the run header already credits the author,
+             and repeating the name at the row's far edge reads orphaned.
+             Plain rows, not chips: a run of commits is a list to scan, and
+             a ringed card per commit outweighed the comments around it. -->
+        <ul class="mt-1 flex flex-col" role="list">
+          {#each preview.visible as commit (commit.sha)}
+            <li>
+              <!-- Each row opens the diff scoped to that commit. Raw
+                   button by the list-row rule; the hover wash and the
+                   message's step to foreground say it is pressable. -->
+              <button
+                type="button"
+                class="group/commit -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2 py-1 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label="View changes in commit {commit.sha.slice(0, 7)}"
+                onclick={() => onOpenCommit?.(commit)}
+              >
+                <code class="shrink-0 font-mono text-[0.9em] text-primary"
+                  >{commit.sha.slice(0, 7)}</code
+                >
+                <span
+                  class="min-w-0 flex-1 truncate text-foreground/80 transition-colors group-hover/commit:text-foreground"
+                  >{commit.message}</span
+                >
+              </button>
+            </li>
+          {/each}
+        </ul>
+        {#if preview.hidden > 0}
+          <Button
+            type="button"
+            variant="ghost"
+            class="-mx-2 mt-1.5 h-[24px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onclick={() => expandRun(activityEventKey(event))}
+          >
+            Show {preview.hidden} more commit{preview.hidden === 1 ? "" : "s"}
+          </Button>
+        {/if}
+      </div>
+    </li>
+  {:else if event.kind === "label"}
+    <li class="relative flex gap-2">
+      <span
+        class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+        aria-hidden="true"
+      >
+        <TagIcon size={12} />
+      </span>
+      <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
+        {prLabelActivityText(event.item, viewerLogin)}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+        </TooltipUI.Root>
+      </p>
+    </li>
+  {:else if event.kind === "artifact"}
+    <!-- A render linked to a task on this pull request, collapsed at the
+         moment it was linked. The node is the artifact glyph; the card
+         below it opens the live frame in place. -->
+    <li class="relative flex gap-2">
+      <span
+        class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"
+        aria-hidden="true"
+      >
+        <ArtifactIcon size={12} />
+      </span>
+      <div class="min-w-0 flex-1 pt-0.5">
+        <p class="text-muted-foreground">
+          An artifact was linked
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+          </TooltipUI.Root>
+        </p>
+        <div class="mt-2">
+          <ArtifactActivityCard
+            workId={event.artifact.workId}
+            title={event.artifact.title}
+            via={event.artifact.taskTitle}
+            open={openArtifactWorkId === event.artifact.workId}
+            enabled={artifactsEnabled}
+            onToggle={() => toggleArtifact(event.artifact.workId)}
+          />
+        </div>
+      </div>
+    </li>
+  {:else if event.kind === "thread"}
+    {@const threadOffRail =
+      !threadStartsFolded(event.thread) || (unfoldedThreads[event.thread.id] ?? false)}
+    <!-- An open thread leaves the spine like a comment (see below). A
+         folded resolved or outdated thread stays one line beside its node.
+         One row for both shapes, so the card never remounts and keeps its
+         reply draft and diff state when the shape changes. -->
+    <li
+      class={threadOffRail
+        ? "relative -my-2.5 bg-background py-2.5 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]"
+        : "relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]"}
+    >
+      {#if !threadOffRail && event.thread.isResolved}
+        <span
+          class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-(--solus-art-positive)"
+        >
+          <CheckCircleIcon size={13} weight="fill" />
+        </span>
+      {:else if !threadOffRail}
+        <!-- Outdated but open: still a question, on code that has moved. -->
+        <span
+          class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+        >
+          <CircleDashedIcon size={13} />
+        </span>
+      {/if}
+      <div class="min-w-0 flex-1">
+        <PrThreadCard
+          thread={event.thread}
+          fullDiffHunk={threadDiffHunks.get(event.thread.id)}
+          bind:unfolded={
+            () => unfoldedThreads[event.thread.id] ?? false,
+            (shown) => (unfoldedThreads[event.thread.id] = shown)
+          }
+          {onJump}
+          {onReply}
+          {onResolve}
+        />
+      </div>
+    </li>
+  {:else}
+    {@const ts = commentTs(event.comment.createdAt)}
+    {@const eventKey = activityEventKey(event)}
+    {@const hasBody = hasVisibleBody(event.comment.body)}
+    {@const bodyOpen = hasBody && !collapsedComments[eventKey]}
+    <!-- A comment or review leaves the spine: the card takes the
+         timeline's full width, the author's avatar moves into its tinted
+         header, and a verdict is the badge beside the name. The rail
+         breaks around it: the row's opaque background reaches half a gap
+         past the card on each side (`-my-2.5 py-2.5`), so the rail stops
+         just above the card and resumes just below it, and two adjacent
+         cards leave no stub of rail between them. -->
+    <li class="relative -my-2.5 bg-background py-2.5 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+      <article class="group/comment overflow-hidden rounded-lg border border-border/60 bg-background">
+        <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
+          <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span class="inline-flex min-w-0 items-center gap-1.5">
+            <PrAvatar
+              name={event.comment.author}
+              url={event.comment.authorAvatarUrl}
+              size="size-4 text-[8px]"
+            />
+            <span class="truncate font-medium text-foreground"
+              >{event.comment.author}</span
+            >
+          </span>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps}
+            class="text-muted-foreground"
+          >{formatTimeAgoFromTimestamp(ts)}</span
+          >
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
+          </TooltipUI.Root>
+          <!-- A comment-only review is stored as `COMMENTED`; on a card
+               that is already a comment the badge says nothing. Only a
+               state that changes the review's standing gets one. -->
+          {#if event.comment.kind === "review" && event.comment.reviewState && event.comment.reviewState !== "COMMENTED"}
+            <span class="inline-flex">
+              <PrReviewStateBadge state={event.comment.reviewState} />
+            </span>
+          {/if}
+          </span>
+          {#if hasBody}
+            {@render collapseToggle(eventKey, event.comment.author)}
+          {/if}
+          {#if event.comment.kind === "comment" && viewerLogin && event.comment.author.toLowerCase() === viewerLogin.toLowerCase()}
+            {@render deleteCommentButton(event.comment.id, event.comment.author)}
+          {/if}
+        </div>
+        {#if bodyOpen}
+          <div class="p-3">
+            <CommentMarkdown source={event.comment.body} />
+          </div>
+        {/if}
+      </article>
+    </li>
+  {/if}
+{/snippet}
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
      starts 30px in (node + gap) and the rail runs through the node centers.
+     Comments, reviews, and open review threads are the exception: they span
+     the full width and break the rail.
      Every node is opaque — the muted wash is mixed over the page background
      rather than laid over it — so the rail stops at a node's edge instead of
      showing through it. -->
 <ol
-  class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4"
+  class="relative flex flex-col gap-5"
   role="list"
 >
   <span
@@ -307,258 +493,33 @@
       </li>
     {/each}
   {:else}
-    {#each events as event (activityEventKey(event))}
-      {#if event.kind === "commits"}
-        {@const preview = commitRunPreview(
-          event.commits,
-          expandedRuns[activityEventKey(event)] ?? false,
-        )}
-        <!-- Commit runs keep the spine's node size and type; the muted colour
-             alone demotes them. Long runs collapse behind a quiet expander. -->
-        <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-          <span
-            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
-          >
-            <GitCommitIcon size={12} weight="bold" />
-          </span>
-          <div class="min-w-0 flex-1 pt-1">
-            <p class="text-muted-foreground">
-              <span class="font-medium text-foreground"
-                >{commitRunAuthorLabel(event.commits, authorName)}</span
-              >
-              added {event.commits.length}
-              {event.commits.length === 1 ? "commit" : "commits"}
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props: tooltipProps })}
-                    <span {...tooltipProps}
-                >· {formatTimeAgoFromTimestamp(event.ts)}</span
-              >
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
-              </TooltipUI.Root>
-            </p>
-            <!-- Sha + message only — the run header already credits the author,
-                 and repeating the name at the row's far edge reads orphaned.
-                 Plain rows, not chips: a run of commits is a list to scan, and
-                 a ringed card per commit outweighed the comments around it. -->
-            <ul class="mt-1 flex flex-col" role="list">
-              {#each preview.visible as commit (commit.sha)}
-                <li>
-                  <!-- Each row opens the diff scoped to that commit. Raw
-                       button by the list-row rule; the hover wash and the
-                       message's step to foreground say it is pressable. -->
-                  <button
-                    type="button"
-                    class="group/commit -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2.5 overflow-hidden rounded-md px-2 py-1 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    aria-label="View changes in commit {commit.sha.slice(0, 7)}"
-                    onclick={() => onOpenCommit?.(commit)}
-                  >
-                    <code class="shrink-0 font-mono text-[0.9em] text-primary"
-                      >{commit.sha.slice(0, 7)}</code
-                    >
-                    <span
-                      class="min-w-0 flex-1 truncate text-foreground/80 transition-colors group-hover/commit:text-foreground"
-                      >{commit.message}</span
-                    >
-                  </button>
-                </li>
-              {/each}
-            </ul>
-            {#if preview.hidden > 0}
-              <Button
-                type="button"
-                variant="ghost"
-                class="-mx-2 mt-1.5 h-[24px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                onclick={() => expandRun(activityEventKey(event))}
-              >
-                Show {preview.hidden} more commit{preview.hidden === 1 ? "" : "s"}
-              </Button>
-            {/if}
-          </div>
-        </li>
-      {:else if event.kind === "label"}
-        <li class="relative flex gap-2">
-          <span
-            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
-            aria-hidden="true"
-          >
-            <TagIcon size={12} />
-          </span>
-          <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
-            {prLabelActivityText(event.item, viewerLogin)}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props: tooltipProps })}
-                  <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
-            </TooltipUI.Root>
-          </p>
-        </li>
-      {:else if event.kind === "artifact"}
-        <!-- A render linked to a task on this pull request, collapsed at the
-             moment it was linked. The node is the artifact glyph; the card
-             below it opens the live frame in place. -->
-        <li class="relative flex gap-2">
-          <span
-            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"
-            aria-hidden="true"
-          >
-            <ArtifactIcon size={12} />
-          </span>
-          <div class="min-w-0 flex-1 pt-0.5">
-            <p class="text-muted-foreground">
-              An artifact was linked
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props: tooltipProps })}
-                    <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
-              </TooltipUI.Root>
-            </p>
-            <div class="mt-2">
-              <ArtifactActivityCard
-                workId={event.artifact.workId}
-                title={event.artifact.title}
-                via={event.artifact.taskTitle}
-                open={openArtifactWorkId === event.artifact.workId}
-                enabled={artifactsEnabled}
-                onToggle={() => toggleArtifact(event.artifact.workId)}
-              />
-            </div>
-          </div>
-        </li>
-      {:else if event.kind === "thread"}
-        <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-          <span
-            class={event.thread.isResolved
-              ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-(--solus-art-positive)"
-              : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"}
-          >
-            {#if event.thread.isResolved}
-              <CheckCircleIcon size={13} weight="fill" />
-            {:else}
-              <ChatCircleIcon size={13} weight="fill" />
-            {/if}
-          </span>
-          <!-- Bare column: PrThreadCard brings its own raised surface. -->
-          <div class="min-w-0 flex-1">
-            <PrThreadCard
-              thread={event.thread}
-              fullDiffHunk={threadDiffHunks.get(event.thread.id)}
-              {onJump}
-              {onReply}
-              {onResolve}
-            />
-          </div>
-        </li>
-      {:else}
-        {@const milestone = reviewMilestone(event.comment)}
-        {@const ts = commentTs(event.comment.createdAt)}
-        {@const eventKey = activityEventKey(event)}
-        {@const hasBody = hasVisibleBody(event.comment.body)}
-        {#if milestone}
-          <!-- Milestone verdict: the single most important event in a PR's
-               life — the reviewer's avatar with the verdict as its badge, and
-               a bold headline (the headline IS the verdict). Same icons as
-               PrReviewStateBadge. -->
-          <li class="relative -m-1 flex gap-2 p-1 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-            {@render avatarNode(
-              event.comment.author,
-              event.comment.authorAvatarUrl,
-              milestone.tone,
-            )}
-            <div class="group/comment min-w-0 flex-1 pt-0.5">
-              <p class="flex items-start gap-2  font-medium">
-                <span class="min-w-0 flex-1">
-                  {event.comment.author}
-                  {milestone.headline}{" "}<TooltipUI.Root>
-                  <TooltipUI.Trigger>
-                    {#snippet child({ props: tooltipProps })}
-                      <span {...tooltipProps}
-                  class="font-normal text-muted-foreground"
-                >
-                  · {formatTimeAgoFromTimestamp(ts)}</span
-                >
-                    {/snippet}
-                  </TooltipUI.Trigger>
-                  <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
-                </TooltipUI.Root>
-                </span>
-                {#if hasBody}
-                  {@render collapseToggle(eventKey, event.comment.author)}
-                {/if}
-              </p>
-              {#if hasBody && !collapsedComments[eventKey]}
-                {@render commentBody(event.comment.body)}
-              {/if}
-            </div>
-          </li>
-        {:else}
-          {@const bodyOpen = hasBody && !collapsedComments[eventKey]}
-          <!-- GitHub's comment shape: the author row is the card's tinted
-               header, ruled off from the body, so where one comment ends and
-               the next event starts is never in doubt — however many rules and
-               callouts a bot puts inside it. -->
-          <li class="relative -m-1 flex gap-2 p-1 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-            <!-- Dropped so the avatar sits on the header's centre line. -->
-            <span class="flex shrink-0 self-start pt-[5px]">
-              {@render avatarNode(event.comment.author, event.comment.authorAvatarUrl)}
-            </span>
-            <div class="group/comment min-w-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card">
-              <div
-                class="flex min-h-9 items-center gap-2 py-1 pr-2 pl-4 {bodyOpen
-                  ? 'shadow-[inset_0_-0.5px_0_var(--hairline-strong)]'
-                  : ''}"
-              >
-                <span class="min-w-0 flex-1">
-                <span class="font-medium text-foreground"
-                  >{event.comment.author}</span
-                >
-                <TooltipUI.Root>
-                  <TooltipUI.Trigger>
-                    {#snippet child({ props: tooltipProps })}
-                      <span {...tooltipProps}
-                  class="text-muted-foreground"
-                >
-                  · {formatTimeAgoFromTimestamp(ts)}</span
-                >
-                    {/snippet}
-                  </TooltipUI.Trigger>
-                  <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
-                </TooltipUI.Root>
-                <!-- A comment-only review is stored as `COMMENTED`; on a card
-                     that is already a comment the badge says nothing. Only a
-                     state that changes the review's standing gets one. -->
-                {#if event.comment.kind === "review" && event.comment.reviewState && event.comment.reviewState !== "COMMENTED"}
-                  <span class="ml-2 inline-flex align-middle">
-                    <PrReviewStateBadge state={event.comment.reviewState} />
-                  </span>
-                {/if}
-                </span>
-                {#if hasBody}
-                  {@render collapseToggle(eventKey, event.comment.author)}
-                {/if}
-                {#if event.comment.kind === "comment" && viewerLogin && event.comment.author.toLowerCase() === viewerLogin.toLowerCase()}
-                  {@render deleteCommentButton(event.comment.id, event.comment.author)}
-                {/if}
-              </div>
-              {#if bodyOpen}
-                <div class="px-4 py-3.5">
-                  <div class={bodyProseClass}>
-                    <GithubMarkdown source={event.comment.body} />
-                  </div>
-                </div>
-              {/if}
-            </div>
-          </li>
-        {/if}
-      {/if}
+    {#each timelineWindow.before as event (activityEventKey(event))}
+      {@render eventRow(event)}
+    {/each}
+    {#if timelineWindow.hiddenCount > 0}
+      <!-- The folded middle of a long timeline: one row on the spine that
+           reveals it a page at a time. Focus stays on it, because it is the
+           control the reader presses again. -->
+      <li class="relative flex gap-2">
+        <span
+          class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+          aria-hidden="true"
+        >
+          <EllipsisIcon size={13} />
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          class="-mx-2 h-[26px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onclick={() => (revealedCount += TIMELINE_WINDOW_PAGE)}
+        >
+          Show {Math.min(timelineWindow.hiddenCount, TIMELINE_WINDOW_PAGE)} of {timelineWindow.hiddenCount} hidden
+          {timelineWindow.hiddenCount === 1 ? "event" : "events"}
+        </Button>
+      </li>
+    {/if}
+    {#each timelineWindow.after as event (activityEventKey(event))}
+      {@render eventRow(event)}
     {/each}
     {#if filtered && events.length === 0}
       <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">

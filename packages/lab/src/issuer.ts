@@ -1,17 +1,25 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto'
+import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { z } from 'zod'
 import {
-  HOST_GRANT_TTL_SECONDS,
-  WORKSPACE_AUDIENCE,
-  workspaceHostId,
+  ACCESS_TOKEN_TTL_SECONDS,
+  ACCESS_TOKEN_TYPE,
+  ACCOUNT_AUDIENCE,
+  accessTokenClaimsSchema,
+  DEFAULT_ORGANIZATION_POLICY,
+  GUEST_GRANT_TTL_SECONDS,
+  hostAudience,
+  type HostOrganizationsResponse,
+  TOKEN_EXCHANGE_GRANT_TYPE,
+  tokenAudiences,
+  SOLUS_API_AUDIENCE,
+  type AccessTokenClaims,
   type EnrollHostResponse,
-  type HostGrantClaims,
   type HostKind,
   type HostLinkResponse,
-  type RunnerGrantResponse,
+  type UplinkLinkConfig,
 } from '@solus/contracts/uplink'
-import type { Persona } from './personas'
+import { PERSONAS, type Persona } from './personas'
 
 const addressSchema = z.object({ port: z.number().int().positive() })
 
@@ -27,10 +35,11 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  * back at `GET /v1/hosts/:id/link` under the host token, so a rebooted host passes
  * its generation check exactly as it would against the real directory.
  *
- * For the cloud workspace (docs/plans/cloud-service-model.md §15–§16) it mints
- * workspace grants for members and runner grants for linked hosts, and answers
- * `POST /v1/hosts/:id/runner-grant` under the host token for a host it has
- * attached to an organization, naming the way to the workspace service.
+ * For the cloud workspace (plans/010-standard-oauth.md) it mints access tokens for
+ * members, gives each linked host an OAuth client, and answers the token endpoint as
+ * the real provider does: a host trades a person's access token for a delegated token
+ * for the organization its link names (token exchange, RFC 8693), and refreshes it.
+ * Every refresh is the live check: a host detached from the organization is refused.
  */
 
 function base64Url(value: string | Buffer): string {
@@ -40,14 +49,40 @@ function base64Url(value: string | Buffer): string {
 interface IssuedLink {
   hostToken: string
   link: HostLinkResponse
+  oauthClient: { clientId: string; clientSecret: string }
+  /** A managed host's: the organization it was provisioned for. */
+  organizationId?: string
+}
+
+type OrganizationMember = Extract<Persona, { kind: 'org-member' }>
+
+/** Whom a refresh token acts for, and through which host. */
+interface Delegation {
+  hostId: string
+  userId: string
+  organizationId: string
+}
+
+interface TokenAnswer {
+  access_token: string
+  token_type: 'Bearer'
+  expires_in: number
+  refresh_token: string
+  issued_token_type?: string
 }
 
 /** Everything the issuer answers with. */
 type IssuerReply =
   | { keys: Array<JsonWebKey & { kid: string }> }
   | HostLinkResponse
-  | RunnerGrantResponse
-  | { error: string; message?: string }
+  | HostOrganizationsResponse
+  | TokenAnswer
+  | { error: string; message?: string; error_description?: string }
+
+const tokenRequestSchema = z.discriminatedUnion('grant_type', [
+  z.object({ grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE), subject_token: z.string().min(1), subject_token_type: z.literal(ACCESS_TOKEN_TYPE), organization_id: z.string().min(1) }),
+  z.object({ grant_type: z.literal('refresh_token'), refresh_token: z.string().min(1) }),
+])
 
 function sendJson(response: ServerResponse, status: number, body: IssuerReply): void {
   response.statusCode = status
@@ -59,7 +94,7 @@ export interface MintOptions {
   hostId: string
   hostKind: HostKind
   hostOwnerUserId?: string
-  /** Seconds; defaults to the full grant TTL. */
+  /** Seconds; defaults to an access token's five minutes, or a guest grant's ten. */
   ttlSeconds?: number
 }
 
@@ -73,6 +108,8 @@ export class LabIssuer {
   private readonly links = new Map<string, IssuedLink>()
   /** Host id → the organization the owner shared it with. */
   private readonly hostOrganizations = new Map<string, string>()
+  /** Refresh token → whom it acts for. Rotated on every refresh. */
+  private readonly refreshTokens = new Map<string, Delegation>()
   private workspaceUrl: string | null = null
 
   /**
@@ -125,11 +162,12 @@ export class LabIssuer {
   }
 
   /**
-   * What the provisioner puts in a managed machine's environment (`SOLUS_MANAGED_LINK`):
+   * What the provisioner puts in a managed machine's environment (`SOLUS_HOST_LINK`):
    * the finished enrollment. A later generation supersedes an earlier one, as a
-   * recreated machine's would.
+   * recreated machine's would. A link that names the organization the machine was
+   * provisioned for is a managed host's; a runner's names none.
    */
-  issueManagedLink(hostId: string, proxiedPort: number, connectionGeneration = 1): EnrollHostResponse {
+  issueManagedLink(hostId: string, proxiedPort: number, connectionGeneration = 1, organizationId?: string): EnrollHostResponse {
     const hostToken = `sht_lab_${randomBytes(18).toString('base64url')}`
     const link: HostLinkResponse = {
       hostId,
@@ -138,20 +176,27 @@ export class LabIssuer {
       hostname: `h-${hostId}.lab.invalid`,
       proxiedPort,
     }
-    this.links.set(hostId, { hostToken, link })
+    const issued: UplinkLinkConfig = {
+      hostId,
+      issuer: this.issuer,
+      jwksUrl: this.jwksUrl,
+      directoryUrl: this.issuer,
+      hostname: link.hostname,
+      proxiedPort,
+      connectionGeneration,
+    }
+    if (organizationId) issued.organizationId = organizationId
+    if (this.workspaceUrl) issued.apiUrl = this.workspaceUrl
+    const oauthClient = { clientId: `host_${hostId}`, clientSecret: `shc_lab_${randomBytes(18).toString('base64url')}` }
+    // A new link is a new client: whatever the old one held is gone, as on the real account plane.
+    for (const [token, delegation] of this.refreshTokens) if (delegation.hostId === hostId) this.refreshTokens.delete(token)
+    this.links.set(hostId, { hostToken, link, oauthClient, organizationId })
     return {
-      link: {
-        hostId,
-        issuer: this.issuer,
-        jwksUrl: this.jwksUrl,
-        directoryUrl: this.issuer,
-        hostname: link.hostname,
-        proxiedPort,
-        connectionGeneration,
-      },
+      link: issued,
       // The Lab runs no tunnel; the host's connector gets a token it can never use.
       connectorToken: 'lab-connector-token',
       hostToken,
+      oauthClient,
     }
   }
 
@@ -166,34 +211,42 @@ export class LabIssuer {
     else this.hostOrganizations.set(hostId, organizationId)
   }
 
-  /** Where the workspace service is; the runner-grant answer names it as the tunnel route. */
+  /** Where the workspace service is; a link issued after this names it as the host's Solus API. */
   setWorkspaceRoute(url: string | null): void {
     this.workspaceUrl = url
   }
 
-  /** A workspace grant for a member (cloud-service-model.md §15): `aud: solus-workspace`, `hostKind: cloud`. */
+  /** A workspace access token for a member: `aud: urn:solus:api`, `hostKind: cloud`. */
   issueWorkspaceGrant(persona: Persona, ttlSeconds?: number): string {
-    return this.mint(persona, { hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', ttlSeconds })
+    return this.mint(persona, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', ttlSeconds })
   }
 
-  /** A runner grant for a linked host (§16): `sub: host:<id>`, the organization, and the `runner` claim. */
-  issueRunnerGrant(hostId: string, organizationId: string, ttlSeconds = HOST_GRANT_TTL_SECONDS, ownerUserId?: string) {
+  /**
+   * What a token exchange answers: a token the host `hostId` holds to act for the
+   * member in the organization. A scenario that seeds the Solus API as a host would
+   * uses it directly.
+   */
+  issueDelegatedToken(hostId: string, persona: OrganizationMember): string {
     const nowSeconds = Math.floor(Date.now() / 1000)
     this.minted += 1
-    const claims: HostGrantClaims = {
+    const clientId = `host_${hostId}`
+    return this.sign({
       iss: this.issuer,
-      aud: WORKSPACE_AUDIENCE,
-      sub: `host:${hostId}`,
+      aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE],
+      sub: persona.userId,
       deviceId: hostId,
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
-      exp: nowSeconds + ttlSeconds,
+      exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS,
+      client_id: clientId,
+      act: { sub: clientId, host_id: hostId },
+      access: 'org-member',
       hostKind: 'cloud',
-      organizationId,
-      runner: { hostId },
-      hostOwnerUserId: ownerUserId,
-    }
-    return { grant: this.sign(claims), expiresAt: claims.exp * 1000 }
+      organizationId: persona.organizationId,
+      organizationRole: persona.organizationRole,
+      teamIds: [...persona.teamIds],
+      displayName: persona.displayName,
+    })
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -202,27 +255,23 @@ export class LabIssuer {
       sendJson(response, 200, { keys: [this.jwk] })
       return
     }
-    const runnerGrantMatch = /^\/v1\/hosts\/([^/]+)\/runner-grant$/.exec(url.pathname)
-    if (runnerGrantMatch && request.method === 'POST') {
-      const hostId = runnerGrantMatch[1]!
+    const organizationsMatch = /^\/v1\/hosts\/([^/]+)\/organizations$/.exec(url.pathname)
+    if (organizationsMatch && request.method === 'GET') {
+      const hostId = organizationsMatch[1]!
       const issued = this.links.get(hostId)
-      const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '')
-      if (!issued || presented !== issued.hostToken) {
+      if (!issued || request.headers.authorization !== `Bearer ${issued.hostToken}`) {
         sendJson(response, 401, { error: 'invalid_host_token' })
         return
       }
       const organizationId = this.hostOrganizations.get(hostId)
-      if (!organizationId) {
-        sendJson(response, 404, { error: 'host_not_in_organization' })
-        return
-      }
-      if (!this.workspaceUrl) {
-        sendJson(response, 404, { error: 'workspace_not_configured' })
-        return
-      }
-      const { grant, expiresAt } = this.issueRunnerGrant(hostId, organizationId)
-      const answer: RunnerGrantResponse = { grant, hostId: workspaceHostId(organizationId), expiresAt, organizationId, routes: [{ kind: 'tunnel', url: this.workspaceUrl }] }
-      sendJson(response, 200, answer)
+      sendJson(response, 200, {
+        hostId, category: 'self-hosted', owner: { userId: PERSONAS.alice.userId, name: PERSONAS.alice.displayName },
+        organizations: organizationId ? [{ organizationId, name: 'Lab', shared: true, policy: DEFAULT_ORGANIZATION_POLICY }] : [],
+      })
+      return
+    }
+    if (url.pathname === '/api/auth/oauth2/token' && request.method === 'POST') {
+      await this.handleToken(request, response)
       return
     }
     const linkMatch = /^\/v1\/hosts\/([^/]+)\/link$/.exec(url.pathname)
@@ -249,29 +298,89 @@ export class LabIssuer {
     response.end()
   }
 
-  /** One grant per dial, exactly as the cloud would mint it for this persona. */
+  /** The OAuth token endpoint, for host clients only: token exchange and refresh. */
+  private async handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const refuse = (status: number, error: string, description: string) => sendJson(response, status, { error, error_description: description })
+    const client = this.clientOf(request.headers.authorization)
+    if (!client) return refuse(401, 'invalid_client', 'Unknown host client.')
+    let body = ''
+    for await (const chunk of request) body += chunk
+    const parsed = tokenRequestSchema.safeParse(Object.fromEntries(new URLSearchParams(body)))
+    if (!parsed.success) return refuse(400, 'invalid_request', 'Not a token exchange or a refresh.')
+    const form = parsed.data
+    let delegation: Delegation
+    if (form.grant_type === 'refresh_token') {
+      const held = this.refreshTokens.get(form.refresh_token)
+      if (!held || held.hostId !== client.hostId) return refuse(400, 'invalid_grant', 'Unknown refresh token.')
+      this.refreshTokens.delete(form.refresh_token)
+      delegation = held
+    } else {
+      const subject = this.verified(form.subject_token)
+      if (!subject || !tokenAudiences(subject).includes(hostAudience(client.hostId))) return refuse(400, 'invalid_grant', 'The subject token is not for this host.')
+      delegation = { hostId: client.hostId, userId: subject.sub, organizationId: form.organization_id }
+    }
+    // The live check, at the exchange and at every refresh.
+    const personas: readonly Persona[] = Object.values(PERSONAS)
+    const persona = personas.find((candidate): candidate is OrganizationMember => candidate.kind === 'org-member' && candidate.userId === delegation.userId)
+    if (!persona || persona.organizationId !== delegation.organizationId) return refuse(400, 'invalid_grant', 'The person is not a member of the organization.')
+    const hostOrganization = this.links.get(client.hostId)?.organizationId ?? this.hostOrganizations.get(client.hostId)
+    if (hostOrganization !== delegation.organizationId) return refuse(400, 'invalid_grant', 'The host does not work for the organization.')
+    const refreshToken = `lab_rt_${randomBytes(18).toString('base64url')}`
+    this.refreshTokens.set(refreshToken, delegation)
+    const answer: TokenAnswer = { access_token: this.issueDelegatedToken(client.hostId, persona), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS, refresh_token: refreshToken }
+    if (form.grant_type !== 'refresh_token') answer.issued_token_type = ACCESS_TOKEN_TYPE
+    sendJson(response, 200, answer)
+  }
+
+  /** The host whose OAuth client presented these Basic credentials, or null. */
+  private clientOf(authorization: string | undefined): { hostId: string } | null {
+    const encoded = /^Basic\s+(.+)$/i.exec(authorization ?? '')?.[1]
+    if (!encoded) return null
+    const [clientId = '', clientSecret = ''] = Buffer.from(encoded, 'base64').toString('utf8').split(':').map(decodeURIComponent)
+    for (const [hostId, issued] of this.links) {
+      if (issued.oauthClient.clientId === clientId && issued.oauthClient.clientSecret === clientSecret) return { hostId }
+    }
+    return null
+  }
+
+  /** The claims of a token this issuer signed and that has not run out, or null. */
+  private verified(token: string): AccessTokenClaims | null {
+    const [header, body, signature] = token.split('.')
+    if (!header || !body || !signature) return null
+    const publicKey = createPublicKey(this.privateKey)
+    if (!verify('sha256', Buffer.from(`${header}.${body}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))) return null
+    const claims = accessTokenClaimsSchema.safeParse(JSON.parse(Buffer.from(body, 'base64url').toString('utf8')))
+    return claims.success && claims.data.exp > Date.now() / 1000 ? claims.data : null
+  }
+
+  /**
+   * One access token per dial, exactly as the account plane would issue it for this
+   * persona: for one host (`hostAudience`), or for the Solus API when `hostId` is
+   * `SOLUS_API_AUDIENCE`. A guest's is a guest grant.
+   */
   mint(persona: Persona, options: MintOptions): string {
     const nowSeconds = Math.floor(Date.now() / 1000)
     this.minted += 1
     const base = {
       iss: this.issuer,
-      aud: options.hostId,
+      aud: options.hostId === SOLUS_API_AUDIENCE ? SOLUS_API_AUDIENCE : hostAudience(options.hostId),
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
-      exp: nowSeconds + (options.ttlSeconds ?? HOST_GRANT_TTL_SECONDS),
+      exp: nowSeconds + (options.ttlSeconds ?? (persona.kind === 'guest' ? GUEST_GRANT_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS)),
       hostKind: options.hostKind,
       displayName: persona.displayName,
     }
-    let claims: HostGrantClaims
+    let claims: AccessTokenClaims
     switch (persona.kind) {
       case 'host-owner':
-        claims = { ...base, sub: `user:${persona.userId}`, deviceId: `${persona.id}-session`, access: 'owner', hostOwnerUserId: persona.userId }
+        claims = { ...base, sub: persona.userId, deviceId: `${persona.id}-session`, client_id: 'solus-app', access: 'owner', hostOwnerUserId: persona.userId }
         break
       case 'org-member':
         claims = {
           ...base,
-          sub: `user:${persona.userId}`,
+          sub: persona.userId,
           deviceId: `${persona.id}-session`,
+          client_id: 'solus-app',
           access: 'org-member',
           organizationId: persona.organizationId,
           organizationRole: persona.organizationRole,
@@ -286,7 +395,7 @@ export class LabIssuer {
     return this.sign(claims)
   }
 
-  private sign(claims: HostGrantClaims): string {
+  private sign(claims: AccessTokenClaims): string {
     const header = base64Url(JSON.stringify({ alg: 'ES256', kid: this.kid, typ: 'JWT' }))
     const body = base64Url(JSON.stringify(claims))
     const signature = sign('sha256', Buffer.from(`${header}.${body}`), { key: this.privateKey, dsaEncoding: 'ieee-p1363' })

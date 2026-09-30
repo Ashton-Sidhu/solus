@@ -18,7 +18,7 @@
   import PlanActionBar from "./PlanActionBar.svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import CommentLayer from "../comments/CommentLayer.svelte";
-  import { CommentMark } from "../editor/commentMark";
+  import { CommentHighlights } from "../comments/lib/comment-highlights";
   import type { Plan, PlanComment, PlanCommentReply } from "@solus/contracts/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import Kbd from "../ui/Kbd.svelte";
@@ -27,7 +27,7 @@
   import { exportFileName } from "../pickers/lib/export-file-name";
   import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
 
-  const commentExtensions = [CommentMark];
+  const commentExtensions = [CommentHighlights];
 
   interface Props {
     plan: Plan;
@@ -68,7 +68,6 @@
   let shell: DocumentShell | null = $state(null);
   let tiptapEditor: Editor | null = $state(null);
   let scrollContainer: HTMLDivElement | null = $state(null);
-  let suppressSave = $state(false);
 
   // Comments. The layer itself is shared with the document editor — this
   // surface only says where the threads are persisted and what the margin's
@@ -151,7 +150,7 @@
     planStore.addReply(plan.id, commentId, reply);
   }
   function resolveComment(commentId: string, resolved: boolean) {
-    planStore.setCommentResolved(plan.id, commentId, resolved ? "you" : null);
+    planStore.setCommentResolved(plan.id, commentId, resolved);
   }
   function readComment(commentId: string) {
     planStore.markCommentRead(plan.id, commentId);
@@ -179,7 +178,6 @@
   railWidth="clamp(13.5rem, 26cqi, 18rem)"
   bind:tiptapEditor
   bind:scrollContainer
-  bind:suppressSave
   rootTestId="plan-modal"
   closeTestId="plan-modal-close"
   scrollAriaLabel="Plan document"
@@ -306,7 +304,6 @@
       onRead={readComment}
       startCommentBinding="plan-modal.start-comment"
       flushSave={() => shell?.flushSave() ?? Promise.resolve()}
-      bind:suppressSave
       bind:canComment
       bind:railOpen={commentsRailOpen}
       bind:threadAnchors

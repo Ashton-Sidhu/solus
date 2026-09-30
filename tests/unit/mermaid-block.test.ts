@@ -6,7 +6,7 @@ import {
 import {
   mermaidBlockFence,
   serializeMermaidBlock,
-} from '../../packages/workspace-ui/src/components/editor/lib/mermaid-block-fence'
+} from '@solus/document-model/fences'
 
 const FLOWCHART = 'flowchart TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]'
 

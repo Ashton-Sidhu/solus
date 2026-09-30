@@ -1,0 +1,282 @@
+import { EventEmitter } from 'events'
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { join } from 'node:path'
+import { findOnPath, getCliEnv, warmCliPath } from '../../../cli-env'
+import { SOLUS_PLUGINS_DIR } from '../plugins'
+import { createLogger } from '../../../logger'
+import type { GitIdentityEnv } from '../../../git/git-identity-manager'
+import type {
+  CodexResponseFor,
+  CodexClientParams,
+  CodexTypedMethod,
+  JsonRpcId,
+  JsonRpcMessage,
+  JsonRpcResponse,
+} from './codex-protocol'
+
+const log = createLogger('CodexAppServerClient', 'codex-agent.ts')
+const REQUEST_TIMEOUT_MS = 120_000
+
+interface PendingRequest {
+  resolve: (value: any) => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+type JsonRpcResult = JsonRpcResponse['result']
+type JsonRpcErrorData = NonNullable<JsonRpcResponse['error']>['data']
+
+export class CodexRpcError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly data?: JsonRpcErrorData,
+  ) {
+    super(message)
+    this.name = 'CodexRpcError'
+  }
+}
+
+export class CodexAppServerClient extends EventEmitter {
+  private proc: ChildProcessWithoutNullStreams | null = null
+  private buffer = ''
+  private nextId = 1
+  private pending = new Map<JsonRpcId, PendingRequest>()
+  private startPromise: Promise<void> | null = null
+  private didRestart = false
+  private stopped = false
+
+  /**
+   * One app-server is one login: it reads `auth.json` from its home at start. A
+   * member's seat therefore gets its own process with `CODEX_HOME` set to the
+   * seat's directory (Step 2 plan §3.3); the host's own login passes nothing.
+   */
+  /** `gitEnv` is a member's Git identity and credential helper, for a seat's app-server. */
+  constructor(private readonly options: { codexHome?: string; gitEnv?: GitIdentityEnv } = {}) {
+    super()
+  }
+
+  get codexHome(): string | undefined {
+    return this.options.codexHome
+  }
+
+  /** True only after an explicit Codex operation has started the runtime. */
+  get hasStarted(): boolean {
+    return !!this.proc || !!this.startPromise
+  }
+
+  async request<M extends CodexTypedMethod>(method: M, params?: CodexClientParams<M>, timeoutMs?: number): Promise<CodexResponseFor<M>>
+  async request<T = any, Params = never>(method: string, params?: Params, timeoutMs?: number): Promise<T>
+  async request<T = any, Params = never>(method: string, params?: Params, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+    await this.ensureStarted()
+    return this._send<T, Params>(method, params, timeoutMs)
+  }
+
+  /**
+   * Writes without waiting for startup. Only the handshake inside `start()` may
+   * use this: everything else has to go through `request`, or it reaches a
+   * spawned but uninitialized app-server and is answered "Not initialized".
+   */
+  private _send<T = any, Params = never>(method: string, params?: Params, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+    const proc = this.proc
+    if (!proc || proc.killed || !proc.stdin.writable) throw new Error('Codex app-server is not running')
+
+    const id = this.nextId++
+    const payload = { jsonrpc: '2.0', id, method }
+    if (params !== undefined) Object.assign(payload, { params })
+
+    const promise = new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Codex app-server request timed out: ${method}`))
+      }, timeoutMs)
+      this.pending.set(id, { resolve, reject, timer })
+    })
+
+    proc.stdin.write(`${JSON.stringify(payload)}\n`)
+    return promise
+  }
+
+  respond(id: JsonRpcId, result: JsonRpcResult): void {
+    const proc = this.proc
+    if (!proc || proc.killed || !proc.stdin.writable) return
+    proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
+  }
+
+  async ensureStarted(): Promise<void> {
+    // The in-flight start is checked first. `start()` assigns `this.proc` the
+    // moment it spawns, long before the `initialize` handshake lands, so
+    // checking the process first let every concurrent caller through that
+    // window — at boot the renderer asks for usage, sessions and skills at
+    // once, and whichever lost the race was answered "Not initialized" and
+    // showed the provider as unavailable.
+    if (this.startPromise) return this.startPromise
+    if (this.proc && !this.proc.killed) return
+
+    this.startPromise = this.start()
+      .finally(() => { this.startPromise = null })
+    return this.startPromise
+  }
+
+  shutdown(): void {
+    this.stopped = true
+    this.rejectAll(new Error('Codex app-server stopped'))
+    this.proc?.kill('SIGTERM')
+    this.proc = null
+  }
+
+  private async start(): Promise<void> {
+    this.stopped = false
+    const codexHome = this.options.codexHome
+    // The login-shell PATH, resolved off the main thread: a version-managed
+    // codex lives on it, and asking synchronously here blocks every request.
+    // Check it on every start so an install after boot works without a restart.
+    if (!findOnPath('codex', await warmCliPath())) {
+      throw new Error('Codex was not found on this host. Install it through Solus setup, then try again.')
+    }
+    const proc = spawn('codex', [
+      'app-server',
+      '--listen',
+      'stdio://',
+      '--enable',
+      'default_mode_request_user_input',
+    ], {
+      env: getCliEnv(codexHome ? { ...this.options.gitEnv, CODEX_HOME: codexHome } : undefined),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    this.proc = proc
+    this.buffer = ''
+
+    proc.stdout.setEncoding('utf8')
+    proc.stdout.on('data', (chunk) => this.onStdout(chunk))
+    proc.stderr.setEncoding('utf8')
+    proc.stderr.on('data', (chunk) => {
+      const text = String(chunk).trim()
+      if (text) log.warn('app_server_stderr', { text })
+    })
+    proc.on('error', (err) => {
+      log.error('app_server_start_failed', { error: err.message })
+      // A process that never spawned emits no `exit`. Keeping it would mark the
+      // client started forever, so the next request could not try again.
+      if (this.proc === proc) this.proc = null
+      this.rejectAll(err)
+      this.emit('error', err)
+    })
+    proc.on('exit', (code, signal) => {
+      log.warn('app_server_exited', { code, signal })
+      this.proc = null
+      const err = new Error(`Codex app-server exited code=${code} signal=${signal}`)
+      this.rejectAll(err)
+      this.emit('exit', code, signal)
+      if (!this.stopped && !this.didRestart) {
+        this.didRestart = true
+        this.ensureStarted().catch((restartErr) => this.emit('error', restartErr))
+      }
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out starting Codex app-server')), 5000)
+      proc.once('spawn', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      proc.once('error', (err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+    })
+
+    try {
+      await this._send('initialize', {
+        clientInfo: { name: 'Solus', title: null, version: '0.7.0' },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+      }, 15_000)
+    } catch (err) {
+      log.warn('app_server_initialize_failed', { error: err instanceof Error ? err.message : String(err) })
+    }
+
+    // Point Codex at the app-bundled skills via the live API rather than config,
+    // so every turn sees the Solus plugin's skills directory.
+    try {
+      await this._send('skills/extraRoots/set', {
+        extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
+      }, 15_000)
+    } catch (err) {
+      log.warn('skills_extra_roots_set_failed', { error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  private onStdout(chunk: string): void {
+    // The retained tail never contains a newline (every complete line is
+    // consumed below), so only the appended chunk needs scanning. Without this
+    // a multi-MB frame arriving in small chunks re-scans the whole accumulated
+    // buffer per chunk — O(n²) on large tool results — and the old
+    // slice-per-line loop copied the remaining buffer once per line on top.
+    const data = this.buffer ? this.buffer + chunk : chunk
+    const lines: string[] = []
+    let cursor = 0
+    let idx = data.indexOf('\n', this.buffer.length)
+    while (idx !== -1) {
+      const line = data.slice(cursor, idx).trim()
+      cursor = idx + 1
+      if (line) lines.push(line)
+      idx = data.indexOf('\n', cursor)
+    }
+    // Commit the tail before dispatching so a handler that resets the buffer
+    // (a process restart) is not clobbered after the loop.
+    this.buffer = cursor === 0 ? data : data.slice(cursor)
+    for (const line of lines) {
+      try {
+        // SAFETY: Codex app-server stdout is the generated JSON-RPC protocol transport.
+        this.onMessage(JSON.parse(line) as JsonRpcMessage)
+      } catch {
+        log.warn('non_json_stdout_ignored', { line })
+      }
+    }
+  }
+
+  private onMessage(message: JsonRpcMessage): void {
+    if ('id' in message && ('result' in message || 'error' in message)) {
+      this.onResponse(message)
+      return
+    }
+    if ('method' in message && 'id' in message) {
+      this.emit('server-request', message)
+      return
+    }
+    if ('method' in message) {
+      this.emit('notification', message)
+    }
+  }
+
+  private onResponse(response: JsonRpcResponse): void {
+    const pending = this.pending.get(response.id)
+    if (!pending) return
+    this.pending.delete(response.id)
+    clearTimeout(pending.timer)
+    if (response.error) {
+      pending.reject(new CodexRpcError(
+        response.error.message,
+        response.error.code,
+        response.error.data,
+      ))
+    } else {
+      pending.resolve(response.result)
+    }
+  }
+
+  private rejectAll(error: Error): void {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer)
+      pending.reject(error)
+      this.pending.delete(id)
+    }
+  }
+}
+
+let sharedClient: CodexAppServerClient | null = null
+
+export function getCodexAppServerClient(): CodexAppServerClient {
+  if (!sharedClient) sharedClient = new CodexAppServerClient()
+  return sharedClient
+}

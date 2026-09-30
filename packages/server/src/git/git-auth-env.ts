@@ -1,5 +1,5 @@
-import { sshConnectionOptions } from '../server/handlers/lib/ssh-options'
-import { writeTempSecretScript } from '../server/handlers/lib/temp-secret-script'
+import { sshConnectionOptions } from '../transport/handlers/lib/ssh-options'
+import { writeTempSecretScript } from '../transport/handlers/lib/temp-secret-script'
 
 /**
  * How Solus hands git a credential for one command. Shared by every git
@@ -42,6 +42,10 @@ export type GitAuthEnv = {
   SOLUS_GIT_PASSWORD?: string
   /** Set only for SSH remotes. */
   GIT_SSH_COMMAND?: string
+  /** Set only with `isolateHelpers`: clears every credential helper git would ask before the askpass. */
+  GIT_CONFIG_COUNT?: '1'
+  GIT_CONFIG_KEY_0?: 'credential.helper'
+  GIT_CONFIG_VALUE_0?: ''
 }
 
 export interface GitAuthEnvOptions {
@@ -51,6 +55,12 @@ export interface GitAuthEnvOptions {
   token: string | null
   /** Path from `createGitAskpassHelper`, when one was written for this command. */
   askpassPath: string | null
+  /**
+   * Git asks configured credential helpers before the askpass, so a helper the
+   * host configured would answer first. Set when the command acts for someone
+   * other than the host.
+   */
+  isolateHelpers?: boolean
 }
 
 /**
@@ -59,17 +69,22 @@ export interface GitAuthEnvOptions {
  * and SSH gets Solus's standard connection options.
  */
 export function gitAuthEnv(options: GitAuthEnvOptions): GitAuthEnv {
+  const helpers: Pick<GitAuthEnv, 'GIT_CONFIG_COUNT' | 'GIT_CONFIG_KEY_0' | 'GIT_CONFIG_VALUE_0'> = options.isolateHelpers
+    ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '' }
+    : {}
   if (options.askpassPath && options.token) {
     return {
       GIT_ASKPASS: options.askpassPath,
       GIT_TERMINAL_PROMPT: '0',
       SOLUS_GIT_USERNAME: 'x-access-token',
       SOLUS_GIT_PASSWORD: options.token,
+      ...helpers,
     }
   }
-  if (options.isHttps) return { GIT_TERMINAL_PROMPT: '0' }
+  if (options.isHttps) return { GIT_TERMINAL_PROMPT: '0', ...helpers }
   return {
     GIT_TERMINAL_PROMPT: '0',
     GIT_SSH_COMMAND: `ssh ${sshConnectionOptions().join(' ')}`,
+    ...helpers,
   }
 }

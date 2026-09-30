@@ -1,82 +1,8 @@
-// Pure, non-reactive helpers for the task composer: draft persistence, due-date
-// quick presets, and roving-focus keyboard navigation for the property pickers.
+// Pure, non-reactive helpers for the task composer: the "Create another"
+// preference, due-date quick presets, and roving-focus keyboard navigation for the property pickers.
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
-import type { TaskKind, TaskPriority, TaskStatus } from '@solus/contracts/task-types'
-import { z } from 'zod'
-
-/** Snapshot of the composer's fields, persisted so a closed-without-saving draft
- *  comes back. Only the plain "new task" case is persisted (no seed / no preset
- *  parent) — a session-seeded composer always starts from its seed.
- *
- *  Drafts live in sessionStorage, not localStorage: a half-written task should
- *  survive closing/reopening the modal (and window reloads) within a run, but
- *  must NOT outlive an app restart — a stale fragment resurrected days later
- *  reads as a bug, not a convenience. */
-interface ComposerDraft {
-  title: string
-  body: string
-  dueDate: string
-  priority: TaskPriority | ''
-  status: TaskStatus
-  kind: TaskKind
-  parentId: string
-  labels: string[]
-}
-
-const DRAFT_KEY = 'solus:task-composer-draft'
 const ANOTHER_KEY = 'solus:task-composer-create-another'
-const composerDraftSchema = z.object({
-  title: z.string().catch(''),
-  body: z.string().catch(''),
-  dueDate: z.string().catch(''),
-  priority: z.enum(['urgent', 'high', 'medium', 'low']).or(z.literal('')).catch(''),
-  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']).catch('todo'),
-  kind: z.enum(['task', 'epic']).catch('task'),
-  parentId: z.string().catch(''),
-  labels: z.array(z.string()).catch([]),
-})
-
-/** A draft is only worth restoring (or persisting) when the user actually typed
- *  something — an empty title/body/labels draft is noise. */
-function hasContent(d: Pick<ComposerDraft, 'title' | 'body' | 'labels'>): boolean {
-  return d.title.trim().length > 0 || d.body.trim().length > 0 || d.labels.length > 0
-}
-
-export function loadDraft(): ComposerDraft | null {
-  try {
-    // Purge legacy drafts: this key used to live in localStorage, which outlived
-    // app restarts. Drop any stale entry so an old draft can't resurface.
-    localStorage.removeItem(DRAFT_KEY)
-    const raw = sessionStorage.getItem(DRAFT_KEY)
-    if (!raw) return null
-    const draft: ComposerDraft = composerDraftSchema.parse(JSON.parse(raw))
-    return hasContent(draft) ? draft : null
-  } catch {
-    return null
-  }
-}
-
-export function saveDraft(d: ComposerDraft): void {
-  try {
-    // Don't leave an empty husk behind once the user clears their typing.
-    if (!hasContent(d)) {
-      sessionStorage.removeItem(DRAFT_KEY)
-      return
-    }
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d))
-  } catch {
-    // Storage disabled/full — drafts are best-effort, never block composing.
-  }
-}
-
-export function clearDraft(): void {
-  try {
-    sessionStorage.removeItem(DRAFT_KEY)
-  } catch {
-    // ignore
-  }
-}
 
 /** "Create another" is a sticky preference so rapid-entry users keep it on. */
 export function loadCreateAnother(): boolean {

@@ -36,8 +36,19 @@
 {:else if glyph === "completed"}
   <CheckIcon {size} />
 {:else if glyph === "unread"}
-  <span class="block rounded-full bg-current" style="width:{size * 0.45}px;height:{size * 0.45}px"
-  ></span>
+  <!-- The sidebar's unread ring: dashed, drawn in the tile's ink. -->
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <circle
+      cx="8"
+      cy="8"
+      r="6"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      pathLength="24"
+      stroke-dasharray="1.6 1.4"
+    />
+  </svg>
 {:else}
   <span
     class="block rounded-full bg-current opacity-70"

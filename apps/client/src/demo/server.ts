@@ -1,17 +1,17 @@
-import type { RpcInvokeMethod } from '@solus/contracts/rpc'
+import type { DemoInvokeMethod } from './fixtures/types'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { DemoRpcResult, DemoServer, RpcHandler } from './fixtures/types'
 
 export class DemoBackend implements DemoServer {
   readonly events = new HostEventSubscriber()
-  private handlers = new Map<RpcInvokeMethod, RpcHandler>()
+  private handlers = new Map<DemoInvokeMethod, RpcHandler>()
 
-  register(method: RpcInvokeMethod, fn: RpcHandler): void {
+  register(method: DemoInvokeMethod, fn: RpcHandler): void {
     this.handlers.set(method, fn)
   }
 
-  async handle(method: RpcInvokeMethod, args: unknown[]): Promise<DemoRpcResult> {
+  async handle(method: DemoInvokeMethod, args: unknown[]): Promise<DemoRpcResult> {
     const handler = this.handlers.get(method)
     if (handler) return handler(args)
     // The demo answers a deliberate subset of the RPC surface, so an unanswered

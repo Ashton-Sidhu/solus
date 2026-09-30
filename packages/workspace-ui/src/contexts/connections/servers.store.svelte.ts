@@ -12,17 +12,20 @@ import { sendOutbox } from '@solus/client-core/send-outbox'
 import { connectionState, subscribe } from '@solus/client-core/connection-state'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { LocalConnectionInfoLike, SolusServerTarget } from '@solus/client-core/server-connection'
+import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
+import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
+import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
+import { organizationSelection } from './organization-selection.store.svelte'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
-  isCloudServer,
   loadServers,
   LOCAL_SERVER_ID,
   managedHostNeedsStart,
+  markDirectoryAnswered,
   onServerRemoving,
   removeServer,
   savedServerRoutes,
@@ -34,7 +37,7 @@ import {
   type SavedServerUplink,
 } from '@solus/client-core/server-registry'
 import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
-import type { HostRoute } from '@solus/contracts/uplink'
+import { isSolusApiId, solusApiId, type HostRoute, type OrganizationPolicy } from '@solus/contracts/uplink'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
@@ -50,6 +53,8 @@ import { hostCapabilitiesStore } from './host-capabilities.store.svelte'
 import { hostRolesStore } from './host-roles.store.svelte'
 import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
+import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
+import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
 
@@ -60,6 +65,8 @@ interface ServerConnectionState {
   /** The supervisor's word on this host, when one supervises it. */
   phase?: HostPhase
   probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
+  /** What `/health` reported, for a host with no saved entry to carry it. */
+  os?: HostOperatingSystem
   attempt: number
   hasConnected: boolean
   /** When this host last stopped being connected, for the reconnect counter. */
@@ -90,6 +97,17 @@ export interface UnknownRemoteHost {
   unknown: true
 }
 
+/** One organization the account belongs to, as the switcher lists it (organization-scope §2). */
+export interface OrganizationChoice {
+  organizationId: string
+  name: string
+  policy: OrganizationPolicy
+  /** The organization this window works in. */
+  isActive: boolean
+}
+
+type OrganizationListener = (organizationId: string | null) => void
+
 class ServersStore {
   local = $state<LocalConnectionInfoLike | null>(null)
   /** What the local server calls itself — its hostname, from /health. Null
@@ -98,6 +116,9 @@ class ServersStore {
    *  at, and the local row keeps the plain device glyph everywhere. */
   private localIdentity = $state<{ name: string } | null>(null)
   remotes = $state<SavedServer[]>(loadServers())
+  /** The organizations' workspace services, as the account directory last listed them. */
+  workspaces = $state<SavedWorkspace[]>(loadWorkspaces())
+  private readonly organizationListeners = new Set<OrganizationListener>()
   activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
@@ -111,6 +132,8 @@ class ServersStore {
   /** What the account's host directory last said about being signed in: null until asked. */
   directorySignedIn = $state<boolean | null>(null)
   private directoryRefreshInFlight = false
+  private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private lastDirectoryReadAt = 0
   private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   probingHosts = $state(false)
@@ -124,22 +147,28 @@ class ServersStore {
   private lastHostProbeAt = 0
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
+  /** The workspace service connections this account holds, one per organization. */
+  get cloudConnections(): ServerItem[] {
+    return this.workspaces.map((workspace) => {
+      const target = workspaceTarget(workspace)
+      return {
+        id: target.id,
+        label: target.label,
+        url: target.url,
+        local: false,
+        status: this.statusFor(target.id),
+        routes: target.routes ?? [],
+      }
+    })
+  }
+
   /**
    * The machines: every host a person can see, pick, or open. The
-   * organization's workspace service is not one of them — it is the control
-   * plane the records live in (docs/plans/cloud-service-model.md §15), reached
+   * organization's workspace service is not one of them — it is the cloud
+   * service the records live in (docs/plans/cloud-service-model.md §15), reached
    * through `cloudConnections` and never listed beside a machine.
    */
   get servers(): ServerItem[] {
-    return this.rows.filter((row) => !isCloudServer(row))
-  }
-
-  /** The workspace service connections this account holds, one per organization. */
-  get cloudConnections(): ServerItem[] {
-    return this.rows.filter((row) => isCloudServer(row))
-  }
-
-  private get rows(): ServerItem[] {
     // Hosts are symmetric rows (dispatch-client step 5): the desktop's own
     // machine is the one genuinely local row; a web client has no machine of
     // its own, so every host — including the one it booted against — appears
@@ -163,7 +192,8 @@ class ServersStore {
       const row: ServerItem = {
         id: server.id,
         label: hostRowLabel(server, hostCapabilitiesStore.for(server.id)?.name),
-        url: server.url,
+        // A directory host saves no address of its own; its row shows the route it is dialed on.
+        url: preferredRouteUrl(server),
         installationId: server.installationId,
         os: server.os,
         local: false,
@@ -174,7 +204,7 @@ class ServersStore {
       rows.push(row)
     }
     for (const serverId of serverConnections.connectedServerIds()) {
-      if (serverId === LOCAL_SERVER_ID || rows.some((row) => row.id === serverId)) continue
+      if (serverId === LOCAL_SERVER_ID || isSolusApiId(serverId) || rows.some((row) => row.id === serverId)) continue
       const target = serverConnections.connectionFor(serverId)?.target
       if (!target || target.local) continue
       rows.push({
@@ -182,6 +212,7 @@ class ServersStore {
         label: hostRowLabel(target, hostCapabilitiesStore.for(serverId)?.name),
         url: target.url,
         installationId: target.installationId,
+        os: this.connectionStatesByServer[serverId]?.os,
         local: false,
         status: this.statusFor(serverId),
         routes: target.routes ?? savedServerRoutes({ url: target.url }),
@@ -209,33 +240,66 @@ class ServersStore {
     return this.executionServers.filter((server) => !server.local && server.status === 'online')
   }
 
-  /** The workspace service a work can move to: the first connection with a live transport. */
-  get connectedCloudServer(): ServerItem | null {
-    return this.cloudConnections.find((server) => server.status === 'online') ?? null
+  /**
+   * The organization this window works in (organization-scope §2): a filter on
+   * what the window shows beside Local, kept per window
+   * (`organization-selection.ts`). Null when the account holds no organization.
+   */
+  get activeOrganizationId(): string | null {
+    return organizationSelection.activeOrganizationId
   }
 
-  /** The workspace service of the organization the account is working in —
+  /** The workspace service of the organization this window works in —
    *  where that organization's projects and cloud tasks live — or null when
    *  the account holds none (docs/plans/project-model.md §2). */
   get activeCloudServerId(): string | null {
-    const connections = this.cloudConnections
-    return (connections.find((server) => server.uplink?.isActiveWorkspace) ?? connections[0])?.id ?? null
+    const organizationId = this.activeOrganizationId
+    return organizationId && this.workspaces.some((workspace) => workspace.organizationId === organizationId)
+      ? solusApiId(organizationId)
+      : null
   }
 
-  /** Whether new sessions on this host start in their own worktree: a managed
-   *  host is shared by the organization's members, so work there is isolated
-   *  (docs/plans/project-model.md §7). A person's own machine is not. */
-  isolatesSessions(serverId: string | null | undefined): boolean {
-    return !!serverId && this.remotes.some((server) => server.id === serverId && server.uplink?.kind === 'managed')
+  /** The organizations the account belongs to, with each one's policy, the window's marked. */
+  get organizations(): OrganizationChoice[] {
+    return this.workspaces.map((workspace) => ({
+      organizationId: workspace.organizationId,
+      name: workspace.label,
+      policy: workspace.policy,
+      isActive: workspace.organizationId === this.activeOrganizationId,
+    }))
   }
 
-  isCloudHost(serverId: string | null | undefined): boolean {
-    return isCloudServer(this.cloudConnections.find((server) => server.id === serverId))
+  /** The name of the organization this window works in; null with none. */
+  get activeOrganizationName(): string | null {
+    return this.workspaces.find((workspace) => workspace.organizationId === this.activeOrganizationId)?.label ?? null
+  }
+
+  /**
+   * Selects the organization this window works in (organization-scope §2, §7).
+   * A filter, not a move: no record, running session, or other window changes.
+   * The previous organization's workspace service is released and the new one
+   * dialed; stores that cache by that connection follow through
+   * `onOrganizationChange`. Typing is the natural next step, so the input bar
+   * takes focus back.
+   */
+  selectOrganization(organizationId: string): void {
+    if (!this.workspaces.some((workspace) => workspace.organizationId === organizationId)) return
+    const previousServiceId = this.activeCloudServerId
+    if (!windowOrganizationSelection.set(organizationId)) return
+    serverConnections.switchSolusApi(previousServiceId, solusApiId(organizationId))
+    for (const listener of this.organizationListeners) listener(organizationId)
+    requestInputFocus()
+  }
+
+  /** Called after the window's organization changed, with the new one. */
+  onOrganizationChange(listener: OrganizationListener): () => void {
+    this.organizationListeners.add(listener)
+    return () => this.organizationListeners.delete(listener)
   }
 
   /** "Solus Cloud" for a record whose home is the workspace service; null for a machine's. */
   cloudHomeLabel(serverId: string | null | undefined): string | null {
-    return this.isCloudHost(serverId) ? SOLUS_CLOUD_LABEL : null
+    return isSolusApiId(serverId) ? SOLUS_CLOUD_LABEL : null
   }
 
   /** On web the primary connection plays the local role; see `servers`.
@@ -312,6 +376,16 @@ class ServersStore {
     serverConnections.onPhaseChange((serverId, phase) => {
       this.connectionStateFor(serverId).phase = phase
     })
+
+    // Boot dials every saved host before the app mounts, so a fast host can
+    // connect before these listeners exist and never announce it again. Read
+    // where each dialed connection stands now; an undialed one has said nothing.
+    for (const serverId of serverConnections.connectedServerIds()) {
+      const connection = serverConnections.connectionFor(serverId)
+      if (!connection || connection.status === 'disconnected') continue
+      this.setConnectionStatus(serverId, connection.status, connection.attempt)
+      this.connectionStateFor(serverId).phase = connection.supervisor.phase
+    }
   }
 
   init(): void {
@@ -348,13 +422,31 @@ class ServersStore {
     })
 
     // The account's host directory is the fourth source of hosts (C1). It is
-    // read on boot, on sign-in changes, on wake, and when Connections opens;
-    // nothing pushes it. The account store mirrors main's sign-in state
+    // read on boot, on sign-in changes, on wake, when Connections opens, when the
+    // window gets focus, and on a timer while the window is active; nothing
+    // pushes it. The account store mirrors main's sign-in state
     // and has no other subscriber until a sign-in surface lands, so it starts here.
     accountStore.start()
     void this.refreshDirectory()
     onWakeSignal(() => void this.refreshDirectory())
     localApi.onAccountStateChange?.(() => void this.refreshDirectory())
+    // A host added on the account site in a browser is found when the person
+    // comes back to this window, which on desktop is a focus and not a wake.
+    window.addEventListener('focus', () => {
+      if (Date.now() - this.lastDirectoryReadAt >= DIRECTORY_FOCUS_GAP_MS) void this.refreshDirectory()
+    })
+  }
+
+  /** The next timed read, sooner while a managed host settles. An inactive
+   *  window skips its read and waits for the next tick or a focus. */
+  private scheduleDirectoryRefresh(): void {
+    if (!this.initialized) return
+    if (this.directoryRefreshTimer) clearTimeout(this.directoryRefreshTimer)
+    this.directoryRefreshTimer = setTimeout(() => {
+      this.directoryRefreshTimer = null
+      if (!document.hidden && document.hasFocus()) void this.refreshDirectory()
+      else this.scheduleDirectoryRefresh()
+    }, directoryRefreshDelayMs(this.remotes))
   }
 
   /**
@@ -374,20 +466,37 @@ class ServersStore {
         return
       }
       this.directorySignedIn = true
-      const before = loadServers()
-      const merged = mergeDirectoryIntoSaved(before, directory.hosts, directory.directoryUrl, Date.now())
+      const before = [
+        ...loadServers().map((server) => server.id),
+        ...loadWorkspaces().map((workspace) => solusApiId(workspace.organizationId)),
+      ]
+      const merged = mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now())
       saveServers(merged)
-      // A host the directory dropped is released only if nothing is talking to it:
-      // a refresh must never cut a working session, whatever the directory says.
-      const kept = new Set(merged.map((server) => server.id))
+      const workspaces = saveDirectoryWorkspaces(directory.workspaces, directory.directoryUrl)
+      // A host or workspace the directory dropped is released only if nothing is
+      // talking to it: a refresh must never cut a working session.
+      const kept = new Set([
+        ...merged.map((server) => server.id),
+        ...workspaces.map((workspace) => solusApiId(workspace.organizationId)),
+      ])
       const connected = new Set(serverConnections.connectedServerIds())
-      for (const server of before) {
-        if (!kept.has(server.id) && !connected.has(server.id)) serverConnections.release(server.id)
+      for (const serverId of before) {
+        if (!kept.has(serverId) && !connected.has(serverId)) serverConnections.release(serverId)
       }
+      this.workspaces = workspaces
+      // The window's choice stands while the directory still lists it; a
+      // dropped organization falls back to the account's active one.
+      const organizationChanged = organizationSelection.reconcile(workspaces)
       this.refreshServers()
       serverConnections.startCatalogSupervisors()
+      markDirectoryAnswered()
+      if (organizationChanged) {
+        for (const listener of this.organizationListeners) listener(this.activeOrganizationId)
+      }
     } finally {
       this.directoryRefreshInFlight = false
+      this.lastDirectoryReadAt = Date.now()
+      this.scheduleDirectoryRefresh()
     }
   }
 
@@ -409,14 +518,37 @@ class ServersStore {
       if (!lifecycle || lifecycle === 'failed' || lifecycle === 'deleting') return false
     }
     const deadline = Date.now() + (opts.timeoutMs ?? 180_000)
+    let dialedReady = false
     while (Date.now() < deadline) {
       await this.refreshDirectory()
       if (this.statusFor(serverId) === 'online') return true
       const state = this.remotes.find((server) => server.id === serverId)?.uplink?.managedState
       if (state === 'failed' || state === 'deleting') return false
+      // Dials made while the host was still starting left the ladder backed off for
+      // up to 30s; the moment it is ready, dial it anew.
+      if (state === 'ready' && !dialedReady) {
+        dialedReady = true
+        serverConnections.dialNow(serverId)
+      }
       await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 3_000))
     }
     return this.statusFor(serverId) === 'online'
+  }
+
+  /**
+   * Dial a host now, resetting its retry ladder, and wait until this client is
+   * connected to it or the time runs out. What "can agents run there" asks: the
+   * directory knows a machine is listed, only a connection says it answers.
+   */
+  async connectNow(serverId: string, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
+    if (this.statusFor(serverId) === 'online') return true
+    serverConnections.dialNow(serverId)
+    const deadline = Date.now() + (opts.timeoutMs ?? 30_000)
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 500))
+      if (this.statusFor(serverId) === 'online') return true
+    }
+    return false
   }
 
   /** The per-host version-skew notice, or null when versions match, the host
@@ -526,16 +658,17 @@ class ServersStore {
     requestInputFocus()
   }
 
-  remove(serverId: string): void {
+  remove(serverId: string, options: { discardUnsent?: boolean } = {}): void {
     if (serverId === LOCAL_SERVER_ID) return
+    // Edits to live works that only this device holds are not deleted without asking.
+    if (!options.discardUnsent && askBeforeDiscardingUnsent(serverId, () => this.remove(serverId, { discardUnsent: true }))) return
     if (serverId === this.activeServerId) {
       // The active host is only the new-work default now: step aside to
       // another catalog host in place, then forget as usual. Only the last
       // host has nowhere to step to.
-      // Another machine, never the workspace service: new work cannot start there.
       const fallbackId = this.local
         ? LOCAL_SERVER_ID
-        : this.remotes.find((server) => server.id !== serverId && !isCloudServer(server))?.id
+        : this.remotes.find((server) => server.id !== serverId)?.id
       if (!fallbackId) {
         const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
         toasts.error(`Pair another host before forgetting ${serverLabel}`)
@@ -590,6 +723,9 @@ class ServersStore {
       health = await serverConnections.probeHealth(serverId, true)
     } catch {}
     if (health?.os) {
+      // The host a web client booted against is never saved, so its OS lives
+      // on the connection state rather than a remote entry.
+      this.connectionStateFor(serverId).os = health.os
       const remote = this.remotes.find((server) => server.id === serverId)
       if (remote) remote.os = health.os
     }
@@ -641,7 +777,7 @@ class ServersStore {
   affinityFor(serverId: string | null | undefined): HostAffinityGlyph | null {
     // A record whose home is the workspace service runs nowhere; its row
     // carries the "Solus Cloud" home label instead of a machine badge.
-    if (this.isCloudHost(serverId)) return null
+    if (isSolusApiId(serverId)) return null
     const host = this.hostFor(serverId)
     if (!host || host.local) return null
     return hostAffinityGlyph(host, this.statusFor(host.id))
@@ -650,10 +786,13 @@ class ServersStore {
   /** A machine, or the workspace service by its id: a record's `serverId` may name either. */
   hostFor(serverId: string | null | undefined): ServerItem | UnknownRemoteHost | null {
     if (!serverId) return null
-    const host = this.rows.find((server) => server.id === serverId)
+    const host = isSolusApiId(serverId)
+      ? this.cloudConnections.find((connection) => connection.id === serverId)
+      : this.servers.find((server) => server.id === serverId)
     if (host) return host
     if (serverId === LOCAL_SERVER_ID) return null
-    return { id: serverId, label: 'Unknown host', local: false, unknown: true }
+    // Not saved and not connected: the host was deleted, or never listed at this origin.
+    return { id: serverId, label: 'Removed host', local: false, unknown: true }
   }
 
   statusFor(serverId: string): ServerItemStatus {
@@ -778,4 +917,12 @@ class ServersStore {
   }
 }
 
-export const serversStore = new ServersStore()
+/**
+ * One store per page, even across hot updates. A re-evaluated module would
+ * build a second `ServersStore` while the first keeps its discovery timer and
+ * focus listeners, so both scan on focus and announce the same host twice.
+ * `hot.data` survives re-evaluation; production takes the plain construction.
+ */
+export const serversStore: ServersStore = import.meta.hot
+  ? (import.meta.hot.data.serversStore ??= new ServersStore())
+  : new ServersStore()

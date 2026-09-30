@@ -1,0 +1,182 @@
+[
+  {
+    "name": "host search \"the\" (67547 messages)",
+    "unit": "ms",
+    "value": 11.995416999999975
+  },
+  {
+    "name": "host search \"session\" (67547 messages)",
+    "unit": "ms",
+    "value": 5.083708000000115
+  },
+  {
+    "name": "host search \"sess\" (67547 messages)",
+    "unit": "ms",
+    "value": 4.66929099999993
+  },
+  {
+    "name": "host search \"websocket reconnect\" (67547 messages)",
+    "unit": "ms",
+    "value": 4.645125000000007
+  },
+  {
+    "name": "host search \"fix sidebar scroll\" (67547 messages)",
+    "unit": "ms",
+    "value": 5.62883399999987
+  },
+  {
+    "name": "host search \"pelican\" (67547 messages)",
+    "unit": "ms",
+    "value": 0.7471669999999904
+  },
+  {
+    "name": "host search \"the\" in one project",
+    "unit": "ms",
+    "value": 11.820290999999997
+  },
+  {
+    "name": "host search \"sess\" in one project",
+    "unit": "ms",
+    "value": 4.676666000000068
+  },
+  {
+    "name": "host search \"websocket reconnect\" in one project",
+    "unit": "ms",
+    "value": 4.543666999999914
+  },
+  {
+    "name": "host search \"sess\", names only",
+    "unit": "ms",
+    "value": 0.7693750000000819
+  },
+  {
+    "name": "host search \"the\", second page",
+    "unit": "ms",
+    "value": 11.604084000000057
+  },
+  {
+    "name": "client list build per keystroke, mean (1260 tasks)",
+    "unit": "ms",
+    "value": 2.5782390526315364
+  },
+  {
+    "name": "client list build per keystroke, worst (1260 tasks)",
+    "unit": "ms",
+    "value": 5.451791999999841
+  },
+  {
+    "name": "client list build, no query",
+    "unit": "ms",
+    "value": 0.6195419999999103
+  },
+  {
+    "name": "relevance hit@1 (19 queries)",
+    "unit": "ratio",
+    "value": 0.9473684210526315
+  },
+  {
+    "name": "relevance hit@3 (19 queries)",
+    "unit": "ratio",
+    "value": 0.9473684210526315
+  },
+  {
+    "name": "relevance MRR (19 queries)",
+    "unit": "ratio",
+    "value": 0.9477364740522635
+  },
+  {
+    "name": "position of \"onboarding\" — exact short title under newer longer ones",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"websocket reconnect\" — session name buried under task titles",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"tab\" — whole word over prefix matches",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"T-42\" — task by its id",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"update dep\" — same title: current over done",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"pelican migration\" — conversation found by its words",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"rate lim ban\" — session name typed half-way",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"diff viewer word\" — title that starts with the query",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"wal checkpoint\" — task found by its body",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"tray icon blurry\" — task and its like-named session",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"flaky reconnect test\" — exact phrase in a conversation",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"picker relevance\" — session title among content hits",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"cheatsheet overlay\" — unclaimed session by its title only",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"jitter backoff\" — session by its branch",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"lighthouse cache header\" — words across two messages of a session",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"reconnect websocket\" — held out: a name with its words reversed",
+    "unit": "rank",
+    "value": 143
+  },
+  {
+    "name": "position of \"ONBOARDING\" — held out: a name typed in capitals",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"overflow menu\" — held out: the end of a title",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"flaky e2e\" — held out: a task among conversations that say \"flaky\"",
+    "unit": "rank",
+    "value": 1
+  }
+]

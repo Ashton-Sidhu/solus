@@ -13,7 +13,7 @@
     priorityBars,
     priorityLabel,
   } from "../../tasks/task-page/lib/task-page";
-  import { prStatusBadge } from "../../prs/lib/pr-utils";
+  import { PR_NOT_FOUND_BADGE, prStatusBadge } from "../../prs/lib/pr-utils";
   import {
     previewPrGlyph,
     previewPrRows,
@@ -84,7 +84,7 @@
     const { serverId, cwd } = prScope;
     const prLinks = session.tasksStore.get(task.id).prLinks;
     if (!serverId) return;
-    return untrack(() => pullRequests.projects.watchLinkedPrs(
+    return untrack(() => pullRequests.projects.wantLinkedPrs(
       serverConnections.apiFor(serverId), serverId,
       session.ctxForEnvironment(cwd ?? "~", null), prLinks,
     ));
@@ -184,7 +184,7 @@
             <span class="w-[88px] shrink-0 text-right">Status</span>
           </div>
           {#each prRows as row (row.key)}
-            {@const badge = prStatusBadge(row.state)}
+            {@const badge = row.missing ? PR_NOT_FOUND_BADGE : prStatusBadge(row.state)}
             {@const glyph = previewPrGlyph(row.state)}
             {@const PrIcon = glyph.Icon}
             <div

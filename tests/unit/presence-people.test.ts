@@ -1,20 +1,23 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostParticipant, SessionParticipant } from '@solus/contracts/presence'
-import { activeTurnAuthorOf, activityWords, composingLabel, followStep, newArrivals, peopleFocusedOn, peopleFrom, presenceTint, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
+import { activeTurnAuthorOf, activityWords, composingLabel, followStep, newArrivals, peopleFocusedOn, peopleFrom, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
 import { focusLabel, hostPeopleAcrossHosts, primaryPresence, rosterPeople, rosterWhere, sessionLabelIn, whereIs, type HostPerson } from '@solus/workspace-ui/components/presence/lib/host-people'
 import type { Session } from '@solus/contracts/types'
+import { parseUserKey } from '@solus/contracts/user'
 
 // docs/plans/multiplayer-presence.md §3: a stack shows people, not sockets; the
 // reader is never in their own stack, whichever door each of their clients came
 // through; the same person across hosts is one face; and the words for a room
 // follow the count.
 
-function participant(clientId: string, userId: string, extra: Partial<SessionParticipant & HostParticipant> = {}): SessionParticipant & HostParticipant {
-  return { clientId, userId, displayName: userId[0]!.toUpperCase() + userId.slice(1), colorIndex: 1, deviceLabel: 'Web', access: 'member', joinedAt: 0, isComposing: false, focus: { kind: 'none' }, ...extra }
+function participant(clientId: string, userId: string, extra: Partial<SessionParticipant & HostParticipant> & { displayName?: string } = {}): SessionParticipant & HostParticipant {
+  const { displayName, ...rest } = extra
+  const user = { id: parseUserKey(userId), displayName: displayName ?? userId[0]!.toUpperCase() + userId.slice(1) }
+  return { clientId, user, deviceLabel: 'Web', access: 'member', joinedAt: 0, isComposing: false, isEditing: false, focus: { kind: 'none' }, ...rest }
 }
 
-const nobody = { self: [] }
-const as = (...self: string[]) => ({ self })
+const nobody = { self: null }
+const as = (self: string) => ({ self: parseUserKey(self) })
 
 describe('people from participants', () => {
   test('the same person on two devices is one face with two devices; the reader is left out', () => {
@@ -24,25 +27,26 @@ describe('people from participants', () => {
       participant('c3', 'bob', { joinedAt: 3, deviceLabel: 'Solus cloud' }),
     ], as('alice'))
     expect(people.map((person) => person.userId)).toEqual(['bob'])
-    expect(people[0]).toMatchObject({ displayName: 'Bob', initials: 'BO', isComposing: true, deviceCount: 2, clientIds: ['c2', 'c3'] })
+    expect(people[0]).toMatchObject({ displayName: 'Bob', isComposing: true, deviceCount: 2, clientIds: ['c2', 'c3'] })
   })
 
-  test('the reader is left out under every id that is theirs on the host', () => {
-    // WHY: the desktop reaches its own machine as `host-owner` and the browser
-    // reaches it as the account; both are the reader, and neither is a teammate.
+  test('the reader is left out by the one user the host names them as (plans/012 §1)', () => {
+    // WHY: the host names each client once; the owner of a machine with no
+    // account is its `local` user on every client of theirs, so no second id is needed.
     const people = peopleFrom([
-      participant('c1', 'host-owner', { displayName: 'Host owner' }),
-      participant('c2', 'user_ashton'),
+      participant('c1', 'local:owner-1', { displayName: 'Ashton Sidhu' }),
+      participant('c2', 'local:owner-1', { displayName: 'Ashton Sidhu', deviceLabel: 'iPhone' }),
       participant('c3', 'bob'),
-    ], as('host-owner', 'user_ashton'))
+    ], as('local:owner-1'))
     expect(people.map((person) => person.userId)).toEqual(['bob'])
   })
 
-  test('a shared machine names its owner by the account the directory knows, not "Host owner"', () => {
-    const [owner] = peopleFrom([participant('c1', 'host-owner', { displayName: 'Host owner' })], { self: ['bob'], hostOwnerName: 'Ashton Sidhu' })
-    expect(owner).toMatchObject({ displayName: 'Ashton Sidhu', initials: 'AS' })
-    const [unnamed] = peopleFrom([participant('c1', 'host-owner', { displayName: 'Host owner' })], as('bob'))
-    expect(unnamed?.displayName).toBe('Host owner')
+  test('a machine\'s owner reads by the name the host gave them, and their avatar draws their user', () => {
+    // WHY: the host now names its owner; the client no longer patches "Host owner".
+    // The face and colour come from the user (plans/012 §6), so a person is one face everywhere.
+    const [owner] = peopleFrom([participant('c1', 'local:owner-1', { displayName: 'Ashton Sidhu' })], as('bob'))
+    expect(owner).toMatchObject({ userId: 'local:owner-1', displayName: 'Ashton Sidhu' })
+    expect(owner?.user).toEqual({ id: parseUserKey('local:owner-1'), displayName: 'Ashton Sidhu' })
   })
 
   test('arrival order holds so a stack does not reshuffle', () => {
@@ -106,7 +110,7 @@ describe('words', () => {
   })
 
   test('a task row rings the author of the turn running in the session its people have focused', () => {
-    const running = { sessionId: 's1', title: 'Fix login', taskId: 't1', state: 'running' as const, activeTurn: { authorUserId: 'cara', authorDisplayName: 'Cara', colorIndex: 2, provider: 'claude-code' as const } }
+    const running = { sessionId: 's1', title: 'Fix login', taskId: 't1', state: 'running' as const, activeTurn: { author: { id: parseUserKey('cara'), displayName: 'Cara' }, provider: 'claude-code' as const } }
     const people = peopleFrom([
       participant('c1', 'bob', { focus: { kind: 'session', sessionId: 's1' }, activity: running }),
       participant('c2', 'cara', { focus: { kind: 'session', sessionId: 's1' }, activity: running, joinedAt: 1 }),
@@ -134,7 +138,7 @@ describe('roster', () => {
       row('cloud', 'bob'),
       row('mini', 'bob', { focus: { kind: 'session', sessionId: 's1' }, isComposing: true }),
       row('cloud', 'cara'),
-    ], (each) => each.userId)
+    ])
     expect(people.map((person) => person.userId)).toEqual(['bob', 'cara'])
     expect(people[0]).toMatchObject({ deviceCount: 2, isComposing: true, focus: { kind: 'session', sessionId: 's1' } })
     expect(people[0]!.presences.map((presence) => presence.serverId)).toEqual(['cloud', 'mini'])
@@ -143,16 +147,16 @@ describe('roster', () => {
     expect(primaryPresence(people[1]!).serverId).toBe('cloud')
   })
 
-  test('a machine\'s owner and the same account on the cloud are one person; an unnamed owner stays apart', () => {
-    const identityOf = (each: HostPerson) => (each.userId === 'host-owner' ? (each.serverId === 'mini' ? 'user_ashton' : `host-owner@${each.serverId}`) : each.userId)
-    const people = rosterPeople([row('mini', 'host-owner'), row('cloud', 'user_ashton'), row('other', 'host-owner')], identityOf)
-    expect(people.map((person) => [person.userId, person.presences.length])).toEqual([['user_ashton', 2], ['host-owner@other', 1]])
+  test('a linked machine\'s owner and the same account on the cloud are one person; an unlinked machine\'s owner stays apart', () => {
+    // WHY: a linked host names its owner by their account (plans/012 U5), so the rows merge by user key alone.
+    const people = rosterPeople([row('mini', 'user_ashton'), row('cloud', 'user_ashton'), row('other', 'local:other-owner')])
+    expect(people.map((person) => [person.userId, person.presences.length])).toEqual([['user_ashton', 2], ['local:other-owner', 1]])
   })
 
   test('the where-line names the host only when the roster spans several', () => {
     const names = { mountedSessions: [], sidebarSessions: [{ sessionId: 's1', serverId: 'mini', label: 'Fix login' }], workTitle: () => undefined }
     const hostLabel = (serverId: string) => (serverId === 'mini' ? 'Ashton’s Mac mini' : 'Cloud')
-    const [bob] = rosterPeople([row('cloud', 'bob'), row('mini', 'bob', { focus: { kind: 'session', sessionId: 's1' } })], (each) => each.userId)
+    const [bob] = rosterPeople([row('cloud', 'bob'), row('mini', 'bob', { focus: { kind: 'session', sessionId: 's1' } })])
     expect(rosterWhere(bob!, names, true, hostLabel)).toBe('In Fix login · Ashton’s Mac mini')
     expect(rosterWhere(bob!, names, false, hostLabel)).toBe('In Fix login')
   })
@@ -160,7 +164,7 @@ describe('roster', () => {
   test('the merged person carries the description of the host where they have something open', () => {
     const names = { mountedSessions: [], sidebarSessions: [], workTitle: () => undefined }
     const activity = { sessionId: 's2', title: 'Roadmap sync', taskId: null, state: 'waiting' as const, activeTurn: null }
-    const [bob] = rosterPeople([row('cloud', 'bob'), row('mini', 'bob', { focus: { kind: 'session', sessionId: 's2' }, activity })], (each) => each.userId)
+    const [bob] = rosterPeople([row('cloud', 'bob'), row('mini', 'bob', { focus: { kind: 'session', sessionId: 's2' }, activity })])
     expect(bob?.activity).toBe(activity)
     expect(rosterWhere(bob!, names, true, () => 'Mini')).toBe('In Roadmap sync, waiting for input · Mini')
   })
@@ -215,11 +219,15 @@ describe('roster names', () => {
   })
 })
 
-describe('tint', () => {
-  test('every index has its own hue and wraps inside the palette', () => {
-    const hues = new Set(Array.from({ length: 8 }, (_, index) => presenceTint(index).color))
-    expect(hues.size).toBe(8)
-    expect(presenceTint(8).color).toBe(presenceTint(0).color)
-    expect(presenceTint(-1).color).toBe(presenceTint(7).color)
+describe('works in the roster', () => {
+  test('a person on a work is named by its title, and says so while they edit it', () => {
+    const names = { mountedSessions: [], sidebarSessions: [], workTitle: (workId: string) => (workId === 'w1' ? 'Launch plan' : null) }
+    const [bob] = hostPeopleAcrossHosts(['h1'], () => peopleFrom([participant('c1', 'bob', { focus: { kind: 'work', workId: 'w1' }, isEditing: true })], nobody))
+    expect(bob!.isEditing).toBe(true)
+    expect(whereIs(bob!, names)).toBe('Editing Launch plan')
+    const [cara] = hostPeopleAcrossHosts(['h1'], () => peopleFrom([participant('c2', 'cara', { focus: { kind: 'work', workId: 'w9' } })], nobody))
+    expect(whereIs(cara!, names)).toBe('In a work')
+    expect(peopleFocusedOn([bob!, cara!], { kind: 'work', workId: 'w1' }).map((person) => person.userId)).toEqual(['bob'])
+    expect(followStep({ person: bob!, lastOpened: null, mine: { serverId: 'h1', focus: { kind: 'none' } }, serverId: 'h1' })).toEqual({ kind: 'open', focus: { kind: 'work', workId: 'w1' } })
   })
 })

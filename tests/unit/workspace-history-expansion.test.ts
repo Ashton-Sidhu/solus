@@ -21,59 +21,6 @@ function message(role: Message['role'], content: string, timestamp: number): Mes
   return { id: `message-${timestamp}`, role, content, timestamp } as Message
 }
 
-describe('full history expansion', () => {
-  test('keeps handoff lineage and live events that arrive during the RPC', async () => {
-    const predecessor = message('user', 'before handoff', 1)
-    const current = message('assistant', 'after handoff', 2)
-    const live = message('assistant', 'arrived live', 3)
-    const session = {
-      agentSessionId: 'current-session',
-      run: {
-        provider: 'codex',
-        workingDirectory: '/repo',
-        gitContext: null,
-      } as Session['run'],
-      handoffFrom: { sessionId: 'previous-session', provider: 'claude-code' },
-      historyTruncated: true,
-      messages: [current],
-      progress: null,
-      sessionChangedFiles: [],
-    } as unknown as Session
-    const loaded: string[] = []
-    let trackerRebuilds = 0
-    const store = new WorkspaceLifecycleStore({
-      registry: {
-        sessionFor: () => session,
-      },
-      settings: { activeAgent: 'codex' },
-      config: {},
-      planStore: { hydrateAnnotations() {} },
-      refreshGitState: async () => ({ ok: true }),
-      ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
-      loadTranscript: async ({ sessionId }) => {
-        loaded.push(sessionId)
-        if (sessionId === 'previous-session') {
-          return { messages: [predecessor], progress: null, planIds: [], truncated: false }
-        }
-        session.messages.push(live)
-        return { messages: [current], progress: null, planIds: [], truncated: false }
-      },
-      rebuildAgentConversations: () => { trackerRebuilds += 1 },
-    } as never)
-
-    await store.expandHistory('tab-1', { full: true })
-
-    expect(loaded).toEqual(['previous-session', 'current-session'])
-    expect(session.messages.map((entry) => entry.content)).toEqual([
-      'before handoff',
-      'after handoff',
-      'arrived live',
-    ])
-    expect(session.historyTruncated).toBe(false)
-    expect(trackerRebuilds).toBe(1)
-  })
-})
-
 describe('paged history expansion', () => {
   test('cursor pages prepend only older rows, preserve live objects, and drain for Find', async () => {
     const current = message('assistant', 'newest', 3)
@@ -93,8 +40,8 @@ describe('paged history expansion', () => {
       settings: { activeAgent: 'codex' }, config: {},
       planStore: { hydrateAnnotations() {} },
       ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
-      loadTranscript: async ({ before, limit }) => {
-        expect(limit).toBe(200)
+      loadTranscript: async ({ before, turnLimit }) => {
+        expect(turnLimit).toBe(20)
         cursors.push(before)
         if (before === 'page-1') {
           session.messages.push(live)
@@ -130,74 +77,66 @@ describe('paged history expansion', () => {
     expect(session.messages).toEqual([current])
     expect(session.historyCursor).toBe('older')
   })
+})
 
-  test('scrolling widens the window instead of reading the whole session', async () => {
-    // A page of tool results can collapse into no new rendered rows, so the
-    // window has to grow off the last request. Growing off the message count
-    // would repeat the same request and loop the caller forever.
-    const only = message('assistant', 'only row', 1)
+describe('releasing older history', () => {
+  // WHY: a hidden tab must not keep every page the reader once scrolled into.
+  // Release goes back to the restored window and its cursor, so scrolling up
+  // reads the same pages again rather than skipping or repeating any.
+  function pagedSession(status: Session['status']) {
+    const current = message('assistant', 'newest', 3)
     const session = {
-      agentSessionId: 'current-session',
-      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null } as Session['run'],
-      historyTruncated: true,
-      messages: [only],
-      progress: null,
-      sessionChangedFiles: [],
+      agentSessionId: 'current-session', status,
+      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      historyTruncated: true, historyCursor: 'page-1', historyPendingMessages: undefined,
+      messages: [current], progress: null, sessionChangedFiles: [],
     } as unknown as Session
-    const requestedLimits: (number | undefined)[] = []
+    const cursors: (string | undefined)[] = []
     const store = new WorkspaceLifecycleStore({
       registry: { sessionFor: () => session },
-      settings: { activeAgent: 'codex' },
-      config: {},
+      settings: { activeAgent: 'codex' }, config: {},
       planStore: { hydrateAnnotations() {} },
-      refreshGitState: async () => ({ ok: true }),
       ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
-      loadTranscript: async ({ limit }) => {
-        requestedLimits.push(limit)
-        return { messages: [only], progress: null, planIds: [], truncated: true }
+      loadTranscript: async ({ before }) => {
+        cursors.push(before)
+        return before === 'page-1'
+          ? { messages: [message('user', 'older', 2)], before: 'page-2', truncated: true, progress: null, planIds: [] }
+          : { messages: [message('user', 'oldest', 1)], before: null, truncated: false, progress: null, planIds: [] }
       },
-      rebuildAgentConversations: () => {},
+      rebuildAgentConversations() {},
     } as never)
+    return { session, store, current, cursors }
+  }
 
-    await store.expandHistory('tab-1')
-    await store.expandHistory('tab-1')
-
-    expect(requestedLimits).toEqual([400, 600])
-    expect(session.historyTruncated).toBe(true)
-
-    // Find and the explicit reveal-all command can still request everything.
+  test('an idle tab drops back to its restored window and pages the same way again', async () => {
+    const { session, store, current, cursors } = pagedSession('idle')
     await store.expandHistory('tab-1', { full: true })
-    expect(requestedLimits[2]).toBeUndefined()
+    expect(session.messages).toHaveLength(3)
+    session.sessionChangedFiles = ['src/a.ts']
+
+    store.releaseOlderHistory('tab-1')
+    expect(session.messages).toEqual([current])
+    expect(session.messages[0]).toBe(current)
+    expect(session.historyCursor).toBe('page-1')
+    expect(session.historyTruncated).toBe(true)
+    expect(session.sessionChangedFiles).toEqual(['src/a.ts'])
+
+    await store.expandHistory('tab-1')
+    expect(cursors).toEqual(['page-1', 'page-2', 'page-1'])
+    expect(session.messages.map((entry) => entry.content)).toEqual(['older', 'newest'])
   })
 
-  test('a page that exhausts the session drops back to an unbounded read', async () => {
-    const only = message('assistant', 'only row', 1)
-    const session = {
-      agentSessionId: 'current-session',
-      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null } as Session['run'],
-      historyTruncated: true,
-      messages: [only],
-      progress: null,
-      sessionChangedFiles: [],
-    } as unknown as Session
-    const requestedLimits: (number | undefined)[] = []
-    const store = new WorkspaceLifecycleStore({
-      registry: { sessionFor: () => session },
-      settings: { activeAgent: 'codex' },
-      config: {},
-      planStore: { hydrateAnnotations() {} },
-      refreshGitState: async () => ({ ok: true }),
-      ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
-      loadTranscript: async ({ limit }) => {
-        requestedLimits.push(limit)
-        return { messages: [only], progress: null, planIds: [], truncated: false }
-      },
-      rebuildAgentConversations: () => {},
-    } as never)
+  test('a running tab keeps everything its turn may reach back to', async () => {
+    const { session, store } = pagedSession('running')
+    await store.expandHistory('tab-1', { full: true })
+    store.releaseOlderHistory('tab-1')
+    expect(session.messages).toHaveLength(3)
+  })
 
-    await store.expandHistory('tab-1')
-
-    expect(requestedLimits).toEqual([400])
-    expect(session.historyTruncated).toBe(false)
+  test('a tab that never paged has nothing to release', () => {
+    const { session, store, current } = pagedSession('idle')
+    store.releaseOlderHistory('tab-1')
+    expect(session.messages).toEqual([current])
+    expect(session.historyCursor).toBe('page-1')
   })
 })

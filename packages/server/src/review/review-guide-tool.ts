@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { GuideSignificance, ReviewGuideDraft } from '@solus/contracts/review'
 import { createLogger } from '../logger'
-import type { AgentTool } from '../agents/tools/agent-tool'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 
 const log = createLogger('review', 'review-guide-tool.ts')
 

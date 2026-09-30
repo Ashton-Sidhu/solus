@@ -31,6 +31,7 @@ export interface PrListFacts {
   viewerLogin: (pr: PullRequest) => string | null
   checksState: (pr: PullRequest) => PrChecksState | null
   hasGuide: (pr: PullRequest) => boolean
+  hasLens: (pr: PullRequest) => boolean
 }
 
 export interface ArrangedPrList {
@@ -52,7 +53,7 @@ export function arrangePrList(
   const filtered = filterPrFacets(
     searched.filter((pr) => statuses.has(prStatusOf(pr))),
     listView,
-    { viewerLogin: facts.viewerLogin, checksState: facts.checksState, hasGuide: facts.hasGuide },
+    { viewerLogin: facts.viewerLogin, checksState: facts.checksState, hasGuide: facts.hasGuide, hasLens: facts.hasLens },
   )
   const ordered = search.typed.text.trim() && listView.sortMode === 'ready'
     ? rankPrMatches(filtered, search.typed.text)

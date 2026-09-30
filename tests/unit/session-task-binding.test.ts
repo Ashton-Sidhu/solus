@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type { Prompt, Session } from '@solus/contracts/types'
-import type { TasksStore } from '@solus/workspace-ui/contexts/tasks/tasks.store.svelte'
 import type { PlanStore } from '@solus/workspace-ui/contexts/plans/plan.store.svelte'
 import type { WorksStore } from '@solus/workspace-ui/contexts/works/works.store.svelte'
 import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
@@ -31,21 +30,10 @@ describe('session task binding identity', () => {
     expect(taskBindingSessionId(session)).toBe('solus-session')
   })
 
-  test('the prompt keeps the original task after a provider handoff', () => {
-    const requestedSessionIds: Array<string | null | undefined> = []
-    const tasksStore = {
-      tasks: [{ id: 'task-1', title: 'Testing Handoff Feature' }],
-      taskForSession: (sessionId: string | null | undefined) => {
-        requestedSessionIds.push(sessionId)
-        return sessionId === 'solus-session'
-          ? { id: 'task-1', title: 'Testing Handoff Feature' }
-          : null
-      },
-    } as unknown as TasksStore
+  test('the message carries no task block; the task rides the system prompt', () => {
     const composer = new PromptComposer(
       { get: () => null } as unknown as PlanStore,
       { get: () => null } as unknown as WorksStore,
-      tasksStore,
     )
     const prompt = {
       planRefs: [],
@@ -54,16 +42,15 @@ describe('session task binding identity', () => {
       attachments: [],
     } as unknown as Prompt
     const session = {
-      id: 'original-solus-session',
-      handoffId: 'solus-session',
-      agentSessionId: null,
-      task: { kind: 'new' },
+      id: 'solus-session',
+      agentSessionId: 'provider-session',
+      task: { kind: 'existing', taskId: 'task-1' },
       boundWorkId: null,
     } as unknown as Session
 
-    const composed = composer.compose('Continue the work', prompt, session)
-
-    expect(requestedSessionIds).toEqual(['solus-session'])
-    expect(composed).toContain('[Working On Task "Testing Handoff Feature" (task_id: task-1)]')
+    // WHY: the server appends the task packet to every run's system prompt. A
+    // second block in each message repeated the header on every turn and told
+    // the agent to fetch the task it already had.
+    expect(composer.compose('Continue the work', prompt, session)).toBe('Continue the work')
   })
 })

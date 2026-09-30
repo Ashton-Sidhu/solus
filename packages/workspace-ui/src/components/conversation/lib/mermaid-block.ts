@@ -1,28 +1,8 @@
 import type { Mermaid } from "mermaid";
-import { fenceLanguage } from "./html-block";
 
-/**
- * How a fenced ```mermaid block reads in a reply or a document.
- *
- * A Mermaid fence is a diagram to look at, so a settled fence renders on its
- * own. The one way out is the info string: ```mermaid source keeps it as code,
- * the same word an html fence uses. There is no content test, because Mermaid
- * text has no reading other than "draw this".
- */
-export type MermaidRenderMode = "diagram" | "source";
-
-export function isMermaidFence(info: string | undefined): boolean {
-  return fenceLanguage(info) === "mermaid";
-}
-
-export function mermaidRenderMode(info: string | undefined): MermaidRenderMode {
-  const directives = (info ?? "").trim().toLowerCase().split(/\s+/).slice(1);
-  return directives.includes("source") ? "source" : "diagram";
-}
-
-/** The info string a diagram turns into when the reader asks to read it as
- *  code. `source` is what stops the next parse from rendering it again. */
-export const MERMAID_SOURCE_INFO = "mermaid source";
+/** How a fenced ```mermaid block reads is the document model's rule, so a
+ *  reply and a document make the same choice. */
+export { isMermaidFence, mermaidRenderMode, MERMAID_SOURCE_INFO, type MermaidRenderMode } from "@solus/document-model/fences";
 
 export type MermaidResult = { svg: string; error?: undefined } | { svg?: undefined; error: string };
 

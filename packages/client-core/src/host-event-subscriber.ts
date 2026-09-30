@@ -20,7 +20,8 @@ export class HostEventSubscriber {
       if (event.type !== type) return
       // SAFETY: The runtime discriminant check above proves this event matches the subscription's type parameter.
       const typedEvent = event as HostEvent<K>
-      listener(typedEvent.payload, typedEvent)
+      // SAFETY: the same discriminant fixes the payload's member of the map; the distributive union is too wide for the compiler to relate them.
+      listener(typedEvent.payload as HostEventMap[K], typedEvent)
     }
     listeners.add(dispatch)
     return () => {

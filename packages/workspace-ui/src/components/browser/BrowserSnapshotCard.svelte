@@ -1,21 +1,17 @@
 <script lang="ts">
   import type { BrowserSnapshotRef } from "@solus/contracts/browser-types";
-  import {
-    Camera as CameraIcon,
-    Maximize2 as MaximizeIcon,
-    Minimize2 as MinimizeIcon,
-    TriangleAlert as TriangleAlertIcon,
-  } from "@lucide/svelte";
+  import { Camera as CameraIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { relativeTime } from "../../lib/relative-time";
   import MarkdownImage from "../conversation/MarkdownImage.svelte";
+  import TranscriptCard from "../conversation/TranscriptCard.svelte";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import {
     snapshotAddress,
     snapshotCaption,
     snapshotErrorLabel,
-    snapshotFacts,
     snapshotStamp,
     snapshotTitle,
   } from "./lib/snapshot-card";
@@ -27,10 +23,11 @@
    * leaves nothing visual behind: the user gets a line saying the agent looked
    * at the page and has to take its word for it.
    *
-   * Header, frame, footer. The header says who captured it and why; the frame is
-   * the evidence, stamped with the viewport and the colour scheme it was taken
-   * under; the footer carries the address and the two ways back — annotate the
-   * page, or open it in the pane. A frame without that provenance is decoration.
+   * One card line and one frame (docs/transcript-cards.md). The line says what
+   * was captured and carries the two ways back — annotate the page, or open it
+   * in the pane. The frame is the evidence, stamped with the address, the
+   * viewport, and the colour scheme it was taken under. A frame without that
+   * provenance is decoration.
    *
    * The image is fetched from the host asset store on demand — the wire carries
    * an id, never pixels — so a long transcript of captures costs a few hundred
@@ -46,16 +43,11 @@
   let { snapshot, serverId, skipMotion = false }: Props = $props();
   const session = getWorkspaceContext();
 
-  const facts = $derived(snapshotFacts(snapshot));
   const caption = $derived(snapshotCaption(snapshot));
   const address = $derived(snapshotAddress(snapshot));
   const stamp = $derived(snapshotStamp(snapshot));
   const errorLabel = $derived(snapshotErrorLabel(snapshot));
   const title = $derived(snapshotTitle(snapshot));
-
-  /** The frame is a capped strip of the capture, top-anchored, until the reader
-   *  asks for the whole thing. Ephemeral and this card's alone. */
-  let expanded = $state(false);
 
   /** Whether the page this came from is still open. A capture outlives its page,
    *  and the two ways back only exist while there is something to go back to. */
@@ -94,135 +86,42 @@
   }
 </script>
 
-<div class="py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
-  <div
-    class="text-transcript-meta browser-snapshot-card group mx-auto w-[88%] overflow-hidden rounded-xl bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_0.0625rem_0.125rem_-0.0625rem_rgba(0,0,0,0.05)]"
-    data-testid="browser-snapshot-card"
-  >
-    <div class="flex items-center gap-2 px-3 py-2.5">
-      <span
-        class="flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_16%,transparent)] text-[var(--primary)]"
-        aria-hidden="true"
-      >
-        <CameraIcon size={10} strokeWidth={1.9} />
-      </span>
-      <span class="shrink-0 font-medium text-(--solus-text-primary)">
-        Snapshot
-      </span>
-      <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">
-        {caption}
-      </span>
-
-      {#if errorLabel}
-        <!-- A page can look right and be broken. This is the one fact the
-             picture cannot carry, so it sits beside it rather than in the tool
-             output — and it is the only colour on the card, so it is never
-             competing with a badge that is always there. -->
-        <span
-          class="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] px-2 py-0.5 text-[color:color-mix(in_oklch,var(--destructive)_78%,var(--foreground))]"
-        >
-          <TriangleAlertIcon size={11} aria-hidden="true" />
-          {errorLabel}
-        </span>
-      {/if}
-
-      <span class="shrink-0 text-(--solus-text-tertiary)">
-        {relativeTime(snapshot.capturedAt)}
-      </span>
-    </div>
-
-    <!-- Show the whole capture even in the collapsed preview. Expansion
-         increases its available size without cropping the image. -->
-    <div
-      class="browser-snapshot-card__frame relative overflow-hidden border-t border-[var(--hairline)] bg-[var(--wash-1)]"
-      class:browser-snapshot-card__frame--expanded={expanded}
-      class:browser-snapshot-card__frame--enters={!skipMotion}
-      style:--snapshot-ratio={facts.aspectRatio}
-    >
+<TranscriptCard
+  title="Snapshot"
+  target={caption}
+  actionLabel={openingPage ? "Opening…" : "Open"}
+  ariaLabel={`Open captured page: ${title}`}
+  onOpen={openPage}
+  bodyLayout="media"
+  data-testid="browser-snapshot-card"
+  {skipMotion}
+>
+  {#snippet glyph()}<CameraIcon />{/snippet}
+  {#snippet rail()}
+    <!-- A page can look right and be broken. This is the one fact the picture
+         cannot carry, so it is the only colour on the card, and absent at zero. -->
+    {#if errorLabel}
+      <span class="text-destructive">{errorLabel}</span>
+    {/if}
+    <span>{relativeTime(snapshot.capturedAt)}</span>
+  {/snippet}
+  {#snippet actions()}
+    {#if pageIsOpen}
+      <TranscriptCardAction kind="ghost" onclick={annotatePage}>Annotate</TranscriptCardAction>
+    {/if}
+  {/snippet}
+  {#snippet body()}
+    <div class="relative h-[9.375rem]">
       <div
         class="flex h-full w-full items-center justify-center [&_img]:h-full [&_img]:w-full [&_img]:object-contain"
       >
         <MarkdownImage href={`asset://${snapshot.assetId}`} text={title} />
       </div>
-
       <span
-        class="pointer-events-none absolute bottom-2 left-2 rounded-full bg-[color-mix(in_oklch,var(--foreground)_78%,transparent)] px-2 py-0.5 text-[color:var(--background)] tabular-nums"
+        class="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-(--solus-tx-card-bg) px-2 py-0.5 text-review-meta text-(--muted-foreground) tabular-nums shadow-[shadow:var(--solus-tx-quiet-ring)]"
       >
-        {stamp}
+        {address} · {stamp}
       </span>
-
-      <button
-        type="button"
-        class="absolute right-2 bottom-2 flex size-6 items-center justify-center rounded-lg bg-[color-mix(in_oklch,var(--background)_88%,transparent)] text-(--solus-text-secondary) opacity-0 shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] backdrop-blur-sm transition-opacity group-hover:opacity-100 hover:text-(--solus-text-primary) focus-visible:opacity-100"
-        aria-label={expanded ? "Collapse this capture" : "Expand this capture"}
-        aria-pressed={expanded}
-        onclick={() => (expanded = !expanded)}
-      >
-        {#if expanded}
-          <MinimizeIcon size={12} />
-        {:else}
-          <MaximizeIcon size={12} />
-        {/if}
-      </button>
     </div>
-
-    <div
-      class="flex items-center gap-1.5 border-t border-[var(--hairline)] py-2 pr-2 pl-3"
-    >
-      <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">
-        {address}
-      </span>
-      {#if pageIsOpen}
-        <button
-          type="button"
-          class="shrink-0 rounded-md px-2 py-1 font-medium text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary)"
-          onclick={annotatePage}
-        >
-          Annotate
-        </button>
-      {/if}
-      <button
-        type="button"
-        class="shrink-0 rounded-md bg-[var(--wash-2)] px-2.5 py-1 font-medium text-(--solus-text-primary) shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors hover:bg-[var(--wash-3)]"
-        onclick={openPage}
-        disabled={openingPage}
-      >
-        {openingPage ? "Opening…" : "Open in pane"}
-      </button>
-    </div>
-  </div>
-</div>
-
-<style>
-  /* Height, not a Tailwind rung: the cap is the spec's own number and it is
-     released — not merely raised — once the reader expands the capture. */
-  .browser-snapshot-card__frame {
-    height: 9.375rem;
-  }
-
-  .browser-snapshot-card__frame--enters {
-    animation: browser-frame-in 260ms ease-out;
-  }
-
-  .browser-snapshot-card__frame--expanded {
-    height: auto;
-    aspect-ratio: var(--snapshot-ratio);
-  }
-
-  @keyframes browser-frame-in {
-    from {
-      opacity: 0;
-      transform: scale(1.03);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .browser-snapshot-card__frame--enters {
-      animation: none;
-    }
-  }
-</style>
+  {/snippet}
+</TranscriptCard>

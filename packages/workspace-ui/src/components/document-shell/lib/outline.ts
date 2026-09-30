@@ -52,7 +52,7 @@ export function isOutlineVisible(
  *   rail sleeve   5.5  (`basis-22`) plus 0.75 (`ml-3`)
  *   page block    min(column, measure + 7), measure = clamp(66ch, 68cqi, 112ch)
  *   text gutter   3.5  (half of the page block's 7rem of side gutters)
- *   panel         16.375, or 14.5 on a laptop display
+ *   panel         16.375
  *
  * Room left of the prose is rail + (column − page) / 2 + gutter, which is
  * 0.16 × shell + 2.375rem while the 68cqi step of the measure binds. Narrower
@@ -60,18 +60,13 @@ export function isOutlineVisible(
  * the cqi step is the safe bound — and it needs no `ch`, which is font-relative
  * and cannot be resolved here. Solving it for the panel width gives 88rem.
  *
- * A laptop display holds a narrower measure (48cqi, index.css) precisely so the
- * margin can carry the outline. The conservative 62rem gate remains where the
- * measure's 66ch floor takes over and the margin stops growing.
- *
  * Below that the reveal would land on the first lines of the document, so it
  * waits for a hover, a pin, or a keyboard jump instead.
  */
-const OUTLINE_ROOM_MIN_PX = { standard: 1408, laptop: 992 }
+const OUTLINE_ROOM_MIN_PX = 1408
 
-export function hasOutlineMarginRoom(shellWidth: number, isLaptopDisplay: boolean): boolean {
-  const min = isLaptopDisplay ? OUTLINE_ROOM_MIN_PX.laptop : OUTLINE_ROOM_MIN_PX.standard
-  return shellWidth >= min
+export function hasOutlineMarginRoom(shellWidth: number): boolean {
+  return shellWidth >= OUTLINE_ROOM_MIN_PX
 }
 
 /**

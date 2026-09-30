@@ -9,7 +9,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
-  import { getAgentContext, getWorkspaceContext } from "../../contexts";
+  import { connectionsStore, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
@@ -92,12 +92,9 @@
     draftPrompt = text;
     draftingCwd = cwd;
     // Drafting has no narrower owner, so the new-work default host creates it.
-    draftingServerId =
-      serverConnections.defaultServerId() ??
-      serverConnections.connectedServerIds()[0] ??
-      null;
+    draftingServerId = serverConnections.defaultMachineId();
     if (!draftingServerId) {
-      toasts.error("Couldn't start a session", { description: "No host is connected" });
+      toasts.error("Couldn't start a session", { description: "No machine is connected" });
       dismissDraft();
       return;
     }
@@ -139,11 +136,9 @@
   async function seedTemplate(template: AutomationTemplate) {
     if (seedingId) return;
     // Seeding has no narrower owner, so the new-work default host creates it.
-    const serverId =
-      serverConnections.defaultServerId() ??
-      serverConnections.connectedServerIds()[0];
+    const serverId = serverConnections.defaultMachineId();
     if (!serverId) {
-      toasts.error("Couldn't create that automation", { description: "No host is connected" });
+      toasts.error("Couldn't create that automation", { description: "No machine is connected" });
       return;
     }
     seedingId = template.id;
@@ -168,7 +163,7 @@
           reasoningEffort: "medium",
           cwd:
             (template.runsInWorkspace
-              ? session.staticInfo?.workspacePath
+              ? connectionsStore.chatFolderFor(serverId)
               : null) ?? projectPath,
         },
         template.trigger,
@@ -318,7 +313,7 @@
     </div>
   {:else}
     <div
-      class="mt-2 flex h-11 w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] pointer-fine:[.is-laptop-display_&]:h-10 pointer-coarse:h-[46px]"
+      class="mt-2 flex h-11 w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] pointer-coarse:h-[46px]"
     >
       <PencilSimpleIcon size={14} class="shrink-0 text-[var(--primary)]" />
       <div class="flex min-w-0 flex-1 items-center gap-1">
@@ -340,7 +335,7 @@
         </div>
         <button
           type="button"
-          class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-fine:[.is-laptop-display_&]:h-6.5 pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
+          class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
           onclick={submitDescription}
           disabled={!description.trim()}
         >
@@ -354,7 +349,7 @@
     {#each AUTOMATION_TEMPLATES as template, i (template.id)}
       <button
         type="button"
-        class="group flex cursor-pointer items-center gap-4 rounded-lg border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left [.is-laptop-display_&]:py-2.5 transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
+        class="group flex cursor-pointer items-center gap-4 rounded-lg border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
         onclick={() => seedTemplate(template)}
         disabled={seedingId !== null}
       >

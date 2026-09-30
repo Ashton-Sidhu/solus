@@ -14,8 +14,8 @@ import {
 export const DEFAULT_ARROW_COLOR = "var(--diagram-edge-arrow)";
 
 export function toFlowNodes<TNodeHandlers extends object>(
-  diagNodes: DiagramNode[],
-  expandedNodeIds: Set<string>,
+  diagNodes: readonly DiagramNode[],
+  expandedNodeIds: ReadonlySet<string>,
   nodeHandlers: TNodeHandlers,
 ): Node[] {
   const byId = new Map(diagNodes.map((n) => [n.id, n]));
@@ -63,7 +63,7 @@ export function toFlowNodes<TNodeHandlers extends object>(
 }
 
 export function toFlowEdges<TEdgeHandlers extends object>(
-  diagEdges: DiagramEdge[],
+  diagEdges: readonly DiagramEdge[],
   edgeHandlers: TEdgeHandlers,
 ): Edge[] {
   return diagEdges.map((e) => {

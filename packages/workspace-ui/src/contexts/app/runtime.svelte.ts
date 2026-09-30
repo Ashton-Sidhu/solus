@@ -1,5 +1,4 @@
-import { isLaptopDisplay, isMobileLayout, MOBILE_QUERY } from './viewport'
-import { ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
+import { isMobileLayout, MOBILE_QUERY } from './viewport'
 
 // Input: primary pointer is imprecise (phone, tablet)
 const TOUCH_QUERY = '(pointer: coarse)'
@@ -25,16 +24,10 @@ class RuntimeStore {
     globalThis.screen?.height,
     globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false,
   ))
-  // Stays false until settings reports the boot zoom factor; there is no honest
-  // answer before then.
-  isLaptopDisplay = $state(false)
   isTouchDevice = $state(globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false)
   hasKeyboardPointer = $state(globalThis.window?.matchMedia(FINE_POINTER_QUERY).matches ?? true)
   /** The window is on screen and has focus: someone is looking at it. */
   isWindowForeground = $state(isWindowForeground())
-  // Not reactive: only `refreshLaptopDisplay` reads it. null means settings has
-  // not booted yet, which is what makes the first push identifiable.
-  private zoomFactor: number | null = null
   // A blur waiting to be believed. Cleared by a focus that arrives first.
   private awaySettleTimer: number | null = null
 
@@ -51,12 +44,7 @@ class RuntimeStore {
       mq.addEventListener('change', (e) => setter(e.matches))
     }
 
-    // A zoom change resizes the viewport, so this also covers the case the
-    // window never moves monitors.
-    window.addEventListener('resize', () => {
-      this.refreshMobileViewport()
-      this.refreshLaptopDisplay()
-    })
+    window.addEventListener('resize', () => this.refreshMobileViewport())
 
     listen(MOBILE_QUERY, () => this.refreshMobileViewport())
     listen(TOUCH_QUERY, (v) => {
@@ -88,20 +76,6 @@ class RuntimeStore {
     document.addEventListener('visibilitychange', refreshWindowForeground)
   }
 
-  /**
-   * Settings owns the zoom factor and pushes it here — once at boot, then on
-   * every change. Only the boot push recomputes. A later push arrives before
-   * Chromium has applied the new factor, so `screen.width` still carries the old
-   * one and the product would be wrong by a step — long enough to flip the
-   * responsive branch for a frame. Every zoom change resizes the
-   * viewport, so the resize listener does the real work.
-   */
-  setZoomFactor(zoomFactor: number): void {
-    const isBootPush = this.zoomFactor === null
-    this.zoomFactor = zoomFactor
-    if (isBootPush) this.refreshLaptopDisplay()
-  }
-
   private refreshMobileViewport(): void {
     const next = isMobileLayout(
       window.innerWidth,
@@ -110,13 +84,6 @@ class RuntimeStore {
       window.matchMedia(TOUCH_QUERY).matches,
     )
     if (next !== this.isMobileViewport) this.isMobileViewport = next
-  }
-
-  private refreshLaptopDisplay(): void {
-    const next = isLaptopDisplay(globalThis.screen?.width, this.zoomFactor ?? ZOOM_FACTOR_DEFAULT)
-    if (next === this.isLaptopDisplay) return
-    this.isLaptopDisplay = next
-    document.documentElement.classList.toggle('is-laptop-display', next)
   }
 }
 

@@ -1,3 +1,4 @@
+import { CheckoutStore } from './checkout.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
@@ -5,6 +6,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 
 export type GitRefreshLevel = 'status' | 'details' | 'full'
 
@@ -36,6 +38,18 @@ interface RegisteredGitEnvironment {
   cwd: string
   gitContext: GitCheckout | null
 }
+
+/** Which reads of a checkout another open session already keeps current. */
+interface LiveFacets {
+  status: boolean
+  details: boolean
+  refs: boolean
+}
+
+const NO_LIVE_FACETS: LiveFacets = { status: false, details: false, refs: false }
+
+/** How long a details read of a watched checkout is trusted without a change. */
+const DETAILS_CURRENT_MS = 60_000
 
 function withoutRefs({ refs: _refs, ...status }: GitState): GitState {
   return status
@@ -111,6 +125,7 @@ const PENDING_WORKTREE_NAME = 'New worktree'
 
 /** Renderer authority for session environment identity and live Git state. */
 export class SessionEnvironmentStore {
+  constructor(readonly checkouts = new CheckoutStore()) {}
   byCwd = $state<Record<string, GitState | null>>({})
   refsByRoot = $state<Record<string, GitProjectRefs>>({})
   private workspace: SessionEnvironmentWorkspace | null = null
@@ -149,7 +164,15 @@ export class SessionEnvironmentStore {
   }
 
   private refsForHost(serverId: string, projectRoot: string): GitProjectRefs {
-    return this.refsByRoot[hostKey(serverId, projectRoot)] ?? { worktrees: [], branches: [] }
+    const refs = this.refsByRoot[hostKey(serverId, projectRoot)]
+    if (!refs) return { worktrees: [], branches: [] }
+    return {
+      branches: refs.branches,
+      worktrees: refs.worktrees.map((entry) => {
+        const state = this.checkouts.get(serverId, entry.path)
+        return state ? { ...entry, branch: state.checkout?.branch ?? '' } : entry
+      }),
+    }
   }
 
   /**
@@ -170,7 +193,7 @@ export class SessionEnvironmentStore {
     const worktreeBaseBranch = target.worktree?.baseBranch ?? null
     const cwd = target.gitContext?.worktreePath ?? target.workingDirectory
     const status = this.statusFor(target.serverId, cwd)
-    const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout
+    const checkout = this.checkouts.resolve(target.serverId, cwd, gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout)
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
 
@@ -216,6 +239,12 @@ export class SessionEnvironmentStore {
    * yet, so both resolve through this one path — including a draft pointed at
    * another host, whose directory only that host can describe. With neither, an
    * empty workspace's own start defaults are the target.
+   *
+   * A refresh reads the host by default, which is what a caller needs after a
+   * Git mutation. `force: false` accepts the store's live state: when an open
+   * session is registered on the same host, directory, and checkout, the host's
+   * watcher already keeps that status live, so the source takes it instead of
+   * reading it again.
    */
   async refreshEnvironment(
     workspace: SessionEnvironmentWorkspace,
@@ -230,9 +259,13 @@ export class SessionEnvironmentStore {
     const level = opts.level ?? 'status'
     if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
     // The host that holds the directory is the only one that can read it, and
-    // the run is what names that host.
-    const api = workspace.apiFor?.(sourceId)
+    // the run is what names that host. A host this client does not know (it was
+    // deleted) or one that runs nothing (the workspace service) has no checkout.
     const serverId = workspace.serverIdFor?.(sourceId)
+    if (serverId && !hostRolesStore.hasExecution(serverId)) {
+      return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no machine to read Git from.' }
+    }
+    const api = workspace.apiFor?.(sourceId)
     if (!api || !serverId) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no host binding.' }
     }
@@ -263,8 +296,13 @@ export class SessionEnvironmentStore {
       }
     }
 
+    const reused = opts.force === false
+      ? this.liveFacets(workspace, serverId, cwd, run?.gitContext ?? null)
+      : NO_LIVE_FACETS
+
     const resolved = await this.resolveSessionStartTarget(serverId, cwd, {
       force: opts.force,
+      reuseKnownStatus: reused.status,
       worktreePath,
       worktreeRequested,
       fallbackGitContext: run?.gitContext ?? null,
@@ -300,14 +338,15 @@ export class SessionEnvironmentStore {
       }
     }
 
-    // A full refresh asks for refs on the same round trip as the details.
-    const detailsOutcome: GitStatusOutcome = level === 'status'
+    // A full refresh asks for refs on the same round trip as the details. A
+    // reused checkout skips each facet another source has already read.
+    const detailsOutcome: GitStatusOutcome = level === 'status' || reused.details
       ? { ok: true }
-      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true, refs: level === 'full' })
+      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true, refs: level === 'full' && !reused.refs })
     const currentStatus = this.statusForHost(serverId, cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
     // A host that predates refs-with-status answers without them; scan separately.
-    const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot || detailsOutcome.refsApplied
+    const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot || reused.refs || detailsOutcome.refsApplied
       ? { ok: true }
       : await this.refreshRefsOutcomeForHost(serverId, projectRoot, workspace.ctxFor(sourceId), { force: true })
     const error = !detailsOutcome.ok
@@ -366,6 +405,54 @@ export class SessionEnvironmentStore {
     return promise
   }
 
+  /** The facets of a checkout this store already holds live, so a source there
+   *  need not read them again. Nothing is live unless an open session keeps the
+   *  host watching the checkout. */
+  private liveFacets(
+    workspace: SessionEnvironmentWorkspace,
+    serverId: string,
+    cwd: string,
+    gitContext: GitCheckout | null,
+  ): LiveFacets {
+    const status = this.statusForHost(serverId, cwd)
+    if (status === undefined || !this.isWatchedByHost(workspace, serverId, cwd, gitContext)) {
+      return NO_LIVE_FACETS
+    }
+    return {
+      status: true,
+      details: this.hasCurrentDetails(hostKey(serverId, cwd)),
+      refs: !!status && hostKey(serverId, status.repoRoot) in this.refsByRoot,
+    }
+  }
+
+  /** Details are not pushed. A details read stays current until a status change
+   *  lands with no surface watching details, or until it is too old to trust. */
+  private hasCurrentDetails(key: string): boolean {
+    const readAt = this.detailsLastRefresh.get(key)
+    return readAt !== undefined && Date.now() - readAt < DETAILS_CURRENT_MS
+  }
+
+  /** Whether an open session is registered on this checkout with the current
+   *  host generation. The host watches every registered checkout and pushes its
+   *  status, so this is when a cached status is still live. A source with no
+   *  checkout yet is a new tab in that directory, which shares it. */
+  private isWatchedByHost(
+    workspace: SessionEnvironmentWorkspace,
+    serverId: string,
+    cwd: string,
+    gitContext: GitCheckout | null,
+  ): boolean {
+    const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
+    return workspace.tabOrder.some((tabId) => {
+      const session = workspace.sessionFor(tabId)
+      const registered = session ? this.registrations.get(session) : undefined
+      return registered?.serverId === serverId
+        && registered.generation === generation
+        && registered.cwd === cwd
+        && (!gitContext || sameGitCheckout(registered.gitContext, gitContext))
+    })
+  }
+
   /** Register a checkout the caller resolved itself — a resume reads identity on
    *  its critical path — so the refresh that follows finds it already known and
    *  does not register it a second time. Failure is left to that refresh. */
@@ -390,20 +477,24 @@ export class SessionEnvironmentStore {
     workingDirectory: string,
     options: {
       force?: boolean
+      reuseKnownStatus?: boolean
       worktreePath?: string
       worktreeRequested: boolean
       fallbackGitContext?: GitCheckout | null
     },
   ): Promise<{ target: SessionStartTarget | null; error?: string }> {
-    const statusOutcome = await this.refreshStatusForHost(serverId, workingDirectory, { force: options.force ?? true })
-    if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
+    if (!options.reuseKnownStatus) {
+      const statusOutcome = await this.refreshStatusForHost(serverId, workingDirectory, { force: options.force ?? true })
+      if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
+    }
 
+    await this.checkouts.ensure(serverId, workingDirectory)
     const status = this.statusForHost(serverId, workingDirectory) ?? null
     const detected = gitCheckoutFromState(status, options.worktreePath, options.fallbackGitContext?.repoRoot)
     // Retain worktree routing while detached instead of treating a valid
     // checkout as a non-repository.
-    const gitContext = detected
-      ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null)
+    const gitContext = this.checkouts.resolve(serverId, workingDirectory, detected
+      ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null))
     return {
       target: {
         workingDirectory,
@@ -436,6 +527,8 @@ export class SessionEnvironmentStore {
     const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
     const last = refreshTimes.get(key) ?? 0
     if (!opts.force && now - last < 2_000) return { ok: true }
+    // The host pushes a watched checkout's status, so the cache already holds it.
+    if (!opts.force && !includeDetails && this.isLive(serverId, cwd)) return { ok: true }
     const inflightKey = `${key}\0${includeRefs ? 'details+refs' : includeDetails ? 'details' : 'summary'}`
     const existing = this.inflight.get(inflightKey)
     // A forced lifecycle refresh must observe state after the existing scan,
@@ -461,10 +554,13 @@ export class SessionEnvironmentStore {
         const refs = answer?.refs
         const plainStatus = answer ? withoutRefs(answer) : null
         // A watcher push that landed while this request ran is newer.
-        if ((this.versions.get(key) ?? 0) === version) this.applyStatus(serverId, cwd, plainStatus, includeDetails)
+        const superseded = (this.versions.get(key) ?? 0) !== version
+        const applied = !superseded && this.applyStatus(serverId, cwd, plainStatus, includeDetails)
         this.lastRefresh.set(key, Date.now())
-        if (includeDetails) this.detailsLastRefresh.set(key, Date.now())
-        else this.scheduleDetailsRefresh(serverId, cwd)
+        // Details count as current only once they reach the store. A read a
+        // push superseded is read again for a surface that still shows them.
+        if (includeDetails && applied) this.detailsLastRefresh.set(key, Date.now())
+        else if (includeDetails && superseded) this.scheduleDetailsRefresh(serverId, cwd)
         if (plainStatus && refs) {
           const refsKey = hostKey(serverId, plainStatus.repoRoot)
           this.refsByRoot[refsKey] = refs
@@ -494,7 +590,22 @@ export class SessionEnvironmentStore {
     }
     this.byCwd[key] = next
     this.lastRefresh.set(key, Date.now())
-    this.scheduleDetailsRefresh(serverId, cwd)
+    this.onStatusChanged(serverId, cwd)
+  }
+
+  /** Whether the cached status of this checkout is kept current by host pushes. */
+  private isLive(serverId: string, cwd: string): boolean {
+    return !!this.workspace
+      && this.statusForHost(serverId, cwd) !== undefined
+      && this.isWatchedByHost(this.workspace, serverId, cwd, null)
+  }
+
+  /** A status change moves the details too: re-read them for a watching
+   *  surface, or mark them stale so the next surface to watch reads them. */
+  private onStatusChanged(serverId: string, cwd: string): void {
+    const key = hostKey(serverId, cwd)
+    if (this.detailWatchers.has(key)) this.scheduleDetailsRefresh(serverId, cwd)
+    else this.detailsLastRefresh.delete(key)
   }
 
   watchDetails(serverId: string, cwd: string): () => void {
@@ -503,8 +614,9 @@ export class SessionEnvironmentStore {
     this.detailWatchers.set(key, previousCount + 1)
     // A reactive consumer can unsubscribe and subscribe again while the same
     // checkout remains visible. Only the first live consumer starts a scan;
-    // later consumers share the same status and refresh timer.
-    if (previousCount === 0) {
+    // later consumers share the same status and refresh timer. A tab switch
+    // back to a watched checkout whose details are current reads nothing.
+    if (previousCount === 0 && !(this.isLive(serverId, cwd) && this.hasCurrentDetails(key))) {
       void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
     }
     return () => {
@@ -520,7 +632,8 @@ export class SessionEnvironmentStore {
     }
   }
 
-  private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): void {
+  /** Whether the answer landed; a details answer for another checkout does not. */
+  private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): boolean {
     const key = hostKey(serverId, cwd)
     const current = this.byCwd[key]
     if (includeDetails) {
@@ -529,10 +642,10 @@ export class SessionEnvironmentStore {
       // leaving the panel on its `undefined` (loading) sentinel forever.
       if (!status) {
         if (current === undefined) this.byCwd[key] = null
-        return
+        return true
       }
-      if (current === null) return
-      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return
+      if (current === null) return false
+      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return false
       const next = current
         ? {
             ...current,
@@ -546,10 +659,13 @@ export class SessionEnvironmentStore {
           }
         : status
       if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[key] = next
-      return
+      return true
     }
     const next = this.statusWithVisibleDetails(serverId, cwd, status)
-    if (JSON.stringify(this.byCwd[key]) !== JSON.stringify(next)) this.byCwd[key] = next
+    if (JSON.stringify(this.byCwd[key]) === JSON.stringify(next)) return true
+    this.byCwd[key] = next
+    this.onStatusChanged(serverId, cwd)
+    return true
   }
 
   private statusWithVisibleDetails(serverId: string, cwd: string, status: GitState | null): GitState | null {
@@ -581,7 +697,13 @@ export class SessionEnvironmentStore {
 
   statusFor(serverId: string, cwd: string | null | undefined): GitState | null | undefined {
     if (!cwd) return undefined
-    return this.statusForHost(serverId, cwd)
+    const status = this.statusForHost(serverId, cwd)
+    const state = this.checkouts.get(serverId, cwd)
+    if (!state || !status) return status
+    if (!state.checkout) return null
+    const checkout = state.checkout
+    if (status.branch === checkout.branch && (!checkout.detachedHeadSha || status.headSha === checkout.detachedHeadSha)) return status
+    return { ...status, branch: checkout.branch, headSha: checkout.detachedHeadSha ?? status.headSha, targetBranch: checkout.targetBranch, prUrl: undefined }
   }
 
   async refreshRefs(serverId: string, projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {

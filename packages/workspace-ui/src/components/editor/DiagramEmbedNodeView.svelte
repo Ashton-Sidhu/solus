@@ -17,6 +17,7 @@
   let loadFinished = $state(false);
 
   const work = $derived(worksStore.works[workId]);
+  const saved = $derived(worksStore.saved[workId]);
   const title = $derived(work?.title || fallbackTitle || "Untitled diagram");
   const isWrongType = $derived(!!work && work.type !== "diagram");
   const isMissing = $derived(loadFinished && !work);
@@ -86,7 +87,7 @@
     {/if}
   </div>
 
-  {#if !isNearViewport || (!loadFinished && !work?.content)}
+  {#if !isNearViewport || (!loadFinished && !saved?.content)}
     <div class="flex h-52 items-center justify-center bg-(--solus-container-bg)" role="status">
       <ContentSkeleton label="Loading diagram" preview />
     </div>
@@ -101,14 +102,14 @@
       <WarningCircleIcon size={20} class="text-(--solus-status-error)" />
       <span class="text-sm font-medium text-(--solus-text-secondary)">Referenced work is not a diagram</span>
     </div>
-  {:else if work?.content}
+  {:else if saved?.content}
     <!-- Mounted only once the card is near the viewport, so a document full of
          embeds costs one canvas per diagram the reader actually reaches. -->
     <div class="diagram-embed__canvas max-h-[55cqh]" draggable="false">
       {#await import("../diagram/DiagramPreview.svelte")}
         <ContentSkeleton label="Loading diagram" preview />
       {:then previewModule}
-        <previewModule.default content={work.content} {title} />
+        <previewModule.default content={saved.content} {title} />
       {/await}
     </div>
   {:else}
@@ -117,16 +118,8 @@
 </div>
 
 <style>
-  /* Geometry, so it follows the monitor rather than the window (ADR-0010): a
-     desktop display has the room to read a graph without zooming, a laptop
-     does not and keeps the shorter frame. `max-height` is what protects a
-     short pane and a phone. */
+  /* `max-height` is what protects a short pane and a phone. */
   .diagram-embed__canvas {
     height: 28rem;
     min-height: 14rem;
-  }
-
-  :global(html.is-laptop-display) .diagram-embed__canvas {
-    height: 20rem;
-  }
-</style>
+  }</style>

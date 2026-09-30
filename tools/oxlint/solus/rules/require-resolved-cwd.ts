@@ -9,7 +9,7 @@ import type { ESTree } from '@oxlint/plugins'
 // "the native binary exists but failed to launch" — naming the executable for a
 // fault in its working directory. The agents are where Solus launches
 // processes, so every `cwd` they hand out is resolved first.
-const guardedRoot = 'packages/server/src/agents/'
+const guardedRoot = 'packages/server/src/execution/agents/'
 
 const resolverName = 'resolveHomePath'
 

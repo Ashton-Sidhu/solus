@@ -28,6 +28,18 @@ describe('whether the fold tweens the card at all', () => {
     expect(foldTweenBounds({ previousHeight: 56, nextHeight: 56.2, reducedMotion: false })).toBeNull()
   })
 
+  test('a card that also changed width is a cut', () => {
+    // WHY: opening a task narrows the column in the same frame the bar takes
+    // focus. The height measured before belongs to the old width, so a tween
+    // from it stretched the bar far past any real fold and held it there.
+    expect(
+      foldTweenBounds({ previousHeight: 190, nextHeight: 110, previousWidth: 900, nextWidth: 460, reducedMotion: false }),
+    ).toBeNull()
+    expect(
+      foldTweenBounds({ previousHeight: 76, nextHeight: 110, previousWidth: 460, nextWidth: 460, reducedMotion: false }),
+    ).toEqual({ from: 76, to: 110 })
+  })
+
   test('reduced motion turns the tween into a cut', () => {
     expect(foldTweenBounds({ previousHeight: 104, nextHeight: 56, reducedMotion: true })).toBeNull()
   })

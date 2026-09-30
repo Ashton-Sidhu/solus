@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { isRepositoryKey, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from '@solus/contracts/workspace-projects'
+import type { RecordScope } from '../admission/principal'
+import { scopeClause } from '../data/scope'
 import { getDatabase } from '../db/database'
 import { ulid } from '@solus/contracts/ulid'
 import { workspaceProjects } from './schema'
@@ -49,10 +51,10 @@ function emitChanged(): void {
   for (const listener of changedListeners) listener()
 }
 
-export async function listWorkspaceProjects(organizationId: string): Promise<WorkspaceProject[]> {
+export async function listWorkspaceProjects(scope: RecordScope): Promise<WorkspaceProject[]> {
   const rows = projectRowSchema.array().parse(await getDatabase().all(sql`
     SELECT ${PROJECT_COLUMNS} FROM ${workspaceProjects}
-    WHERE organization_id = ${organizationId}
+    WHERE ${scopeClause(scope)}
     ORDER BY display_name
   `))
   return rows.map(projectFromRow)
@@ -105,7 +107,7 @@ export async function addWorkspaceProject(
 }
 
 export async function updateWorkspaceProject(
-  organizationId: string,
+  scope: RecordScope,
   projectId: string,
   patch: WorkspaceProjectPatch,
 ): Promise<WorkspaceProject> {
@@ -114,23 +116,23 @@ export async function updateWorkspaceProject(
   const defaultBranch = patch.defaultBranch === undefined ? undefined : patch.defaultBranch?.trim() || null
   const db = getDatabase()
   if (displayName !== undefined) {
-    await db.run(sql`UPDATE ${workspaceProjects} SET display_name = ${displayName} WHERE organization_id = ${organizationId} AND id = ${projectId}`)
+    await db.run(sql`UPDATE ${workspaceProjects} SET display_name = ${displayName} WHERE ${scopeClause(scope)} AND id = ${projectId}`)
   }
   if (defaultBranch !== undefined) {
-    await db.run(sql`UPDATE ${workspaceProjects} SET default_branch = ${defaultBranch} WHERE organization_id = ${organizationId} AND id = ${projectId}`)
+    await db.run(sql`UPDATE ${workspaceProjects} SET default_branch = ${defaultBranch} WHERE ${scopeClause(scope)} AND id = ${projectId}`)
   }
   const row = projectRowSchema.nullish().parse(await db.get(sql`
     SELECT ${PROJECT_COLUMNS} FROM ${workspaceProjects}
-    WHERE organization_id = ${organizationId} AND id = ${projectId}
+    WHERE ${scopeClause(scope)} AND id = ${projectId}
   `))
   if (!row) throw new Error('That project is no longer in the organization.')
   emitChanged()
   return projectFromRow(row)
 }
 
-export async function removeWorkspaceProject(organizationId: string, projectId: string): Promise<void> {
+export async function removeWorkspaceProject(scope: RecordScope, projectId: string): Promise<void> {
   await getDatabase().run(sql`
-    DELETE FROM ${workspaceProjects} WHERE organization_id = ${organizationId} AND id = ${projectId}
+    DELETE FROM ${workspaceProjects} WHERE ${scopeClause(scope)} AND id = ${projectId}
   `)
   emitChanged()
 }

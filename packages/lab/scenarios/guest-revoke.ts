@@ -13,13 +13,13 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   const bobUserId = PERSONAS.bob.kind === 'org-member' ? PERSONAS.bob.userId : ''
 
   ctx.step('alice shares a work by link and to bob')
-  const work = await alice.rpc('createWork', 'Notes', 'doc', 'hello', 'hello', undefined, 'claude-code', ctx.cwd)
+  const work = await alice.records.createWork('Notes', 'doc', 'hello', 'hello', undefined, 'claude-code', ctx.cwd)
   const resource = { kind: 'work', id: work.id } as const
   await alice.rpc('shareSet', { resource, grants: [{ subject: { kind: 'user', id: bobUserId }, role: 'editor' }] })
   const link = (await alice.rpc('shareSetLink', { resource, role: 'editor' }))!
   const maya = ctx.client('maya', { shareSecret: link.secret })
   ctx.check('maya joins as an editor', (await maya.connect()).ok)
-  await expectOk(ctx, 'maya edits', maya.rpc('saveWork', work.id, { content: 'maya was here' }, ctx.cwd))
+  await expectOk(ctx, 'maya edits', maya.records.saveWork(work.id, { content: 'maya was here' }, (await maya.records.loadWork(work.id))!))
 
   ctx.step('regenerating the link ends maya within a second and refuses the old secret')
   const rotated = (await alice.rpc('shareSetLink', { resource, role: 'editor', regenerate: true }))!
@@ -42,8 +42,8 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   ctx.check('a role change mints no new secret', roleOnly === null)
   await new Promise((r) => setTimeout(r, 300))
   ctx.check('maya stays connected', maya2.connected)
-  await expectRefused(ctx, 'maya is now a viewer and cannot edit', maya2.rpc('saveWork', work.id, { content: 'x' }, ctx.cwd))
-  await expectOk(ctx, 'maya still reads', maya2.rpc('loadWork', work.id, ctx.cwd))
+  await expectRefused(ctx, 'maya is now a viewer and cannot edit', maya2.records.saveWork(work.id, { content: 'x' }, work), 'NOT_FOUND')
+  await expectOk(ctx, 'maya still reads', maya2.api.request('getWork', { id: work.id }))
 
   ctx.step('turning the link off ends every guest')
   await alice.rpc('shareSetLink', { resource, role: null })
@@ -57,12 +57,12 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   ctx.check('no secret works once the link is off', !(await noLink.connect()).ok)
 
   ctx.step('removing bob\'s named row keeps his socket but takes the work from him')
-  await expectOk(ctx, 'bob edits while named', bob.rpc('saveWork', work.id, { content: 'bob was here' }, ctx.cwd))
+  await expectOk(ctx, 'bob edits while named', bob.records.saveWork(work.id, { content: 'bob was here' }, (await bob.records.loadWork(work.id))!))
   await alice.rpc('shareSet', { resource, grants: [] })
   const notice = await expectOk(ctx, 'bob receives the change that removed his row', bob.waitForEvent('share.changed', (event) => event.payload.resource.id === work.id && event.payload.removedUserIds.includes(bobUserId)))
-  ctx.check('the notice names alice', notice?.payload.changedBy.displayName === 'Alice')
+  ctx.check('the notice names alice', notice?.payload.changedBy?.displayName === 'Alice')
   ctx.check('bob\'s socket stays open', bob.connected)
-  await expectRefused(ctx, 'bob can no longer open the work', bob.rpc('loadWork', work.id, ctx.cwd))
-  await expectOk(ctx, 'bob still uses the host', bob.rpc('listWorks', ctx.cwd))
+  await expectRefused(ctx, 'bob can no longer open the work', bob.api.request('getWork', { id: work.id }), 'NOT_FOUND')
+  await expectOk(ctx, 'bob still uses the host', bob.records.listWorks())
   maya.close(); oldSecret.close(); maya2.close(); noLink.close()
 })

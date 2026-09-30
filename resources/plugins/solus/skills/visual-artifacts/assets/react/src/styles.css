@@ -1,0 +1,42 @@
+@import "tailwindcss" source(".");
+
+:root {
+  --artifact-border: var(--solus-art-border, #ddd5cc);
+  --artifact-text: var(--solus-text-primary, #302b26);
+  --artifact-accent: var(--solus-accent, #a84d35);
+  font-family: var(--solus-font-family, system-ui, sans-serif);
+  color: var(--artifact-text);
+}
+
+body {
+  margin: 0;
+  background: transparent;
+}
+
+input, meter {
+  accent-color: var(--artifact-accent);
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--artifact-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --artifact-border: var(--solus-art-border, #5d5147);
+    --artifact-text: var(--solus-text-primary, #efe9e0);
+    --artifact-accent: var(--solus-accent, #e89476);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

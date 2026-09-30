@@ -1,8 +1,7 @@
-import { prefetchSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers } from '@solus/client-core/server-registry'
 import { loadPersistedTabs } from './tab-persistence'
-import { isMobileLayout } from '../app/viewport'
 import { afterPaint } from '../../lib/after-paint'
 
 let startupTabId: string | undefined
@@ -35,21 +34,18 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
       ? loadServers().find((server) => server.installationId === tab.serverInstallationId)?.id ?? tab.serverId
       : tab.serverId
     const api = serverConnections.apiFor(serverId)
-    const deferToolInputs = isMobileLayout(window.innerWidth, screen.width, screen.height,
-      window.matchMedia('(pointer: coarse)').matches)
     startupTabId = tab.tabId
     performance.mark('solus.boot.transcript.requested')
     const result = prefetchSessionHistoryPage(api, {
       sessionId: tab.agentSessionId,
       projectPath: tab.gitContext?.worktreePath || tab.workingDirectory,
       provider: tab.provider,
-      limit: RESTORED_TRANSCRIPT_LIMIT,
-      deferToolInputs,
+      turnLimit: INITIAL_HISTORY_TURNS,
     })
-    return result?.then(() => { performance.mark('solus.boot.transcript.received') }).catch(() => {})
+    return result.then(() => { performance.mark('solus.boot.transcript.received') }).catch(() => {})
   } catch {
     // A missing host or stale snapshot must never stop boot. Normal restoration
-    // owns errors, legacy-host fallback, and reconnect retries.
+    // owns errors and reconnect retries.
   }
 }
 

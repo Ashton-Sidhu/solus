@@ -175,6 +175,24 @@ describe('trigger grammar', () => {
     })
   })
 
+  test('a revealed chip for a spaced path reopens the file menu', () => {
+    // WHY: Backspace on a file chip reveals its text to edit the pick. For a
+    // path with spaces that text is quoted; the menu must search the path, not
+    // the quotes, and the whole quoted run must be what a new pick replaces.
+    const text = 'see @"My Notes/plan v2.md"'
+    const anchor = findAnchor(text)
+    expect(anchor).toBe(4)
+    expect(readTrigger(text, anchor)).toMatchObject({
+      char: '@',
+      query: 'My Notes/plan v2.md',
+    })
+    expect(text.replace(triggerRunPattern(text, anchor!), 'CHIP')).toBe('see CHIP')
+
+    // Typing past the closing quote is the sentence again.
+    expect(readTrigger(`${text} next`, anchor)).toBeNull()
+    expect(findAnchor(`${text} next`)).toBeNull()
+  })
+
   test('accepting replaces the whole run, scope and spaces included', () => {
     // WHY: the run is what the user sees as one gesture. Leaving the scope slug
     // behind would put `#automations/` in the sent prompt beside the chip.
@@ -582,6 +600,16 @@ describe('menu rows', () => {
         (row) => row.type === 'item' && row.item.title === 'Session 2999',
       ),
     ).toBe(true)
+  })
+
+  test('a category whose host is still indexing does not pass its count off as a total', () => {
+    // WHY: on first launch a machine is still reading its sessions into its
+    // index. "2 sessions" would read as the whole history of the project.
+    const indexing = { indexingKinds: new Set(['session' as const]), counts: { plan: 0, doc: 0, pr: 0, session: 2, task: 0, automation: 0 } }
+    const root = buildRows(input('#', indexing))
+    expect(root.find((row) => row.type === 'category' && row.kind === 'session')).toMatchObject({ count: 'Indexing…' })
+    expect(root.find((row) => row.type === 'category' && row.kind === 'plan')).toMatchObject({ count: '0' })
+    expect(buildRows(input('#sessions/', indexing))[0]).toMatchObject({ type: 'header', meta: 'Indexing… 2 so far' })
   })
 
   test('the grey completion equals the text pressing → produces', () => {

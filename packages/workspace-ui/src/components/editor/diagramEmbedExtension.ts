@@ -1,6 +1,5 @@
-import { Node, mergeAttributes } from '@tiptap/core'
 import { mount, unmount, type getAllContexts } from 'svelte'
-import { parseDiagramEmbed, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import { DiagramEmbed } from '@solus/document-model/blocks'
 import DiagramEmbedNodeView from './DiagramEmbedNodeView.svelte'
 import type { WorkEmbedSource } from './lib/work-embed'
 
@@ -11,72 +10,10 @@ interface DiagramEmbedExtensionOptions {
   onOpenSecondary: (workId: string) => void
 }
 
-export const DiagramEmbedMarkdownExtension = Node.create({
-  name: 'diagramEmbed',
-  group: 'block',
-  atom: true,
-  selectable: true,
-  draggable: true,
-
-  addAttributes() {
-    return {
-      workId: { default: null },
-      title: { default: '' },
-    }
-  },
-
-  markdownTokenizer: {
-    name: 'diagramEmbed',
-    level: 'block',
-    start: (src: string) => /^\s*\[/.exec(src)?.index ?? -1,
-    tokenize(src: string) {
-      const newline = src.indexOf('\n')
-      const line = newline === -1 ? src : src.slice(0, newline)
-      const reference = parseDiagramEmbed(line)
-      if (!reference) return undefined
-      const raw = newline === -1 ? line : `${line}\n`
-      return { type: 'diagramEmbed', raw, reference }
-    },
-  },
-
-  parseMarkdown(token) {
-    return {
-      type: 'diagramEmbed',
-      attrs: {
-        workId: String(token.reference?.workId ?? ''),
-        title: String(token.reference?.title ?? ''),
-      },
-    }
-  },
-
-  renderMarkdown(node) {
-    return serializeDiagramEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-    })
-  },
-
-  renderText({ node }) {
-    return serializeDiagramEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-    })
-  },
-
-  parseHTML() {
-    return [{ tag: 'div[data-diagram-embed]' }]
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, {
-      'data-diagram-embed': node.attrs.workId,
-      'data-diagram-title': node.attrs.title,
-    })]
-  },
-})
-
+/** An embedded diagram, drawn from its work. The node and its markdown are
+ *  the document model's. */
 export function createDiagramEmbedExtension(options: DiagramEmbedExtensionOptions) {
-  return DiagramEmbedMarkdownExtension.extend({
+  return DiagramEmbed.extend({
     addNodeView() {
       return ({ node }) => {
         const dom = document.createElement('div')

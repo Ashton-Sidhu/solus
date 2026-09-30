@@ -52,6 +52,13 @@ describe('pull request facet filters', () => {
     expect(filterPrFacets(items, { ...selection, guide: 'all' }, saved)).toEqual(items);
   });
 
+  test('has-lens filter keeps only rows with a saved lens and composes with the guide filter', () => {
+    const saved = { ...context, hasGuide: (pr: PullRequest) => pr.number === 1, hasLens: (pr: PullRequest) => pr.number === 2 };
+    expect(filterPrFacets(items, { ...selection, lens: 'has-lens' }, saved).map((pr) => pr.number)).toEqual([2]);
+    expect(filterPrFacets(items, { ...selection, lens: 'has-lens', guide: 'has-guide' }, saved)).toEqual([]);
+    expect(filterPrFacets(items, { ...selection, lens: 'all' }, saved)).toEqual(items);
+  });
+
   test('narrows on each facet without treating missing viewer facts as a match', () => {
     // WHY: each row in the menu must change the list, not only reproduce the
     // reference's appearance. The current viewer can vary by host in the inbox.

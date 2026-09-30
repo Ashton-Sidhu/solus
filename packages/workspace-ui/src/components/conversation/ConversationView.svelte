@@ -5,8 +5,7 @@
   import TranscriptItem from "./TranscriptItem.svelte";
   import ConversationTurn from "./ConversationTurn.svelte";
   import VirtualTranscript from "./VirtualTranscript.svelte";
-  import { messageTurnIds, revealTranscriptMatch } from "./lib/transcript-navigation";
-  import { TranscriptVirtualizer } from "./lib/transcript-virtualizer.svelte";
+  import { revealTranscriptMatch } from "./lib/transcript-navigation";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack } from "svelte";
   import { modelLabelFor } from "@solus/contracts/types";
@@ -17,7 +16,6 @@
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
   import {
     getWorkspaceContext,
-    createSessionHistoryStore,
     getSettingsContext,
     getClientShellContext,
     runtime,
@@ -31,6 +29,9 @@
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import SeatConnectCard from "../seats/SeatConnectCard.svelte";
+  import TurnRefusalCard from "../connections/TurnRefusalCard.svelte";
+  import { turnRefusalStore } from "../../contexts/connections/turn-refusal.store.svelte";
+  import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
@@ -47,52 +48,55 @@
     findConversationMatches,
     type ConversationFindMatch,
   } from "./lib/find";
-  import { createResponseScroll, scrollConversationTo } from "./lib/response-scroll";
+  import { createEndFollow, scrollConversationTo } from "./lib/response-scroll";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFindHighlighter } from "./lib/find-highlight";
   import {
-    buildTurns,
-    groupMessages,
     hasVisibleTurnBody,
     runIsLive,
-    stabilizeTurns,
     type GroupedItem,
     type Turn,
   } from "./lib/turns";
-  import { SvelteMap } from "svelte/reactivity";
+  import { TranscriptTurns } from "./lib/transcript-turns.svelte";
+  import { ConversationViewState } from "./lib/conversation-view-state.svelte";
+  import { provideConversationVisibility } from "./lib/conversation-visibility";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { toasts } from "../../lib/toasts";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { readSessionMeta } from "@solus/client-core/session-meta";
 
-  provideTranscriptDisclosure();
   const session = getWorkspaceContext();
   const outerScrollbar = getOuterScrollbarContext();
   const settings = getSettingsContext();
   const shell = getClientShellContext();
-  const sourceSessionHistory = createSessionHistoryStore();
-  $effect(() => () => sourceSessionHistory.cancel());
   let {
     tabId,
     forceVisible = false,
     surfaceVisible = true,
-    retainTranscriptRows = true,
     bandAbove = true,
     showActions = true,
+    viewState = new ConversationViewState(),
   }: {
     tabId: string;
     forceVisible?: boolean;
     surfaceVisible?: boolean;
-    retainTranscriptRows?: boolean;
     bandAbove?: boolean;
     showActions?: boolean;
+    /** The pool hands back what the reader left open and where they were.
+     *  A split-pane view keeps its own. */
+    viewState?: ConversationViewState;
   } = $props();
+  // Read once: a view is mounted for one tab and keeps that tab's state.
+  const { disclosure, turnExpansion, virtualizer } = untrack(() => viewState);
+  provideTranscriptDisclosure(disclosure);
 
   // The pool instance is on screen only while its tab is active; the split-pane
   // instance (forceVisible) is always on screen. Visibility gates autoscroll and
@@ -101,15 +105,27 @@
   const isVisible = $derived(
     surfaceVisible && (forceVisible || tabId === session.activeTabId),
   );
+  provideConversationVisibility(() => isVisible);
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  // §16 — a turn collapses to one row when it ends. Until then it renders the
+  // transcript it always did, in the order it happened.
+  const isTurnLive = $derived(runIsLive(sess?.status));
+  // Built one segment at a time: a streamed token or a new tool call rebuilds
+  // only the segment it lands in, and settled turns keep their identity.
+  const transcript = new TranscriptTurns(
+    () => sess?.messages ?? [],
+    () => isTurnLive,
+  );
   const indexArtifactRevisions = createArtifactRevisionIndexer();
-  const artifactRevisions = $derived(indexArtifactRevisions(sess?.messages ?? []));
+  const artifactRevisions = $derived(
+    indexArtifactRevisions(transcript.segments.flatMap((segment) => segment.artifacts)),
+  );
   provideArtifactRevisions(() => artifactRevisions);
   const activeHandoffDivider = $derived(
     sess?.messages.findLast(
-      (message) => message.agentChangedToProvider === sess.run.provider,
+      (message) => message.activity?.kind === "agent_switched" && message.activity.provider === sess.run.provider,
     ),
   );
   const activeHandoffTargetModel = $derived.by(() => {
@@ -122,7 +138,6 @@
     cwd: () => sess?.run.workingDirectory,
     serverId: () => sess?.run.serverId,
     ctx: () => (sess ? session.ctxFor(tabId) : undefined),
-    isWeb: () => !shell.supportsLocalAttachments,
     api: () =>
       sess?.run.serverId
         ? serverConnections.apiFor(sess.run.serverId)
@@ -176,58 +191,24 @@
   const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
   let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
 
-  // A turn's fold sits below its row, so leaving the scroll alone is what makes
-  // it open downward: the row holds its place on screen and the content pushes
-  // everything under it down. Re-pinning to the bottom instead would drag the
-  // row the reader just clicked up and off the top of the view.
-  let holdScroll = false;
-  let holdScrollTimer: ReturnType<typeof setTimeout> | null = null;
-  function holdAutomaticScroll() {
-    holdScroll = true;
-    if (holdScrollTimer) clearTimeout(holdScrollTimer);
-    // Long enough for a newly revealed row or interrupt card to measure before
-    // the ResizeObserver is allowed to resume bottom pinning.
-    holdScrollTimer = setTimeout(() => {
-      holdScroll = false;
-      holdScrollTimer = null;
-    }, 160);
-  }
-  $effect(() => () => {
-    if (holdScrollTimer) clearTimeout(holdScrollTimer);
-  });
-
-  // Glue the view to the bottom after structural changes. Streaming growth is
-  // observed below so the reveal loop never forces a scrollHeight read itself.
-  function pinToBottom() {
-    const el = scrollEl;
-    if (holdScroll) return;
-    if (el && isVisible && isNearBottom) {
-      if (responseScroll && settings.responseStreamingMode === "paragraph" && sess?.isStreamingText) {
-        responseScroll.follow(true);
-        return;
-      }
-      el.scrollTop = el.scrollHeight;
-    }
-    // content-visibility:auto rows (e.g. UserMessageBubble) can still report
-    // their placeholder contain-intrinsic-size right after insertion, so the
-    // read above can undershoot the real bottom. Settle once more after the
-    // browser measures them, same retry used by the solus:scroll-conversation-bottom handler.
-    setTimeout(() => {
-      if (scrollEl && isVisible && isNearBottom && !holdScroll) {
-        scrollEl.scrollTop = scrollEl.scrollHeight;
-      }
-    }, 120);
-  }
-
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
-  let responseScroll: ReturnType<typeof createResponseScroll> | undefined;
+  let readingColumnEl: HTMLDivElement | null = $state(null);
+  // The one owner of following the end. It lives as long as the scroller, not
+  // its visibility, so a hidden view still knows whether the reader was at the
+  // end when it is shown again.
+  let endFollow: ReturnType<typeof createEndFollow> | undefined;
   $effect(() => {
-    if (!scrollEl || !isVisible) return;
-    const follower = createResponseScroll(scrollEl);
-    responseScroll = follower;
-    return () => { follower.destroy(); responseScroll = undefined; };
+    if (!scrollEl) return;
+    const follower = createEndFollow(scrollEl, untrack(() => viewState.position) === null);
+    endFollow = follower;
+    return () => { follower.destroy(); endFollow = undefined; };
   });
+  // Content grew. Paragraph streaming glides to each new paragraph.
+  function followEnd() {
+    if (!isVisible) return;
+    endFollow?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
+  }
   let hovered = $state(false);
   let findOpen = $state(false);
   let findQuery = $state("");
@@ -247,36 +228,58 @@
     // Track visibility and the element, not the target list changed by registration.
     return untrack(() => outerScrollbar.register(element));
   });
-  const virtualizer = new TranscriptVirtualizer();
   let historyError = $state("");
   let expandingHistory = $state(false);
-  let isNearBottom = true;
+  // Where the view stands is decided when the reader arrives — the view
+  // mounts, or a hidden one is shown again: at their saved place, or at the
+  // end. Chromium drops a `display: none` scroller's offset, so the scroll
+  // events of an arrival are the browser resetting layout, not the reader.
+  // Until it settles they must not unpin the view, save a place, or page in
+  // older history (a view reset to the top looked like a reader asking for it).
   let loadingOlder = false;
-  let savedScrollFromBottom: number | null = null;
-  let previouslyRetainedTranscriptRows = false;
-
-  $effect.pre(() => {
-    const retained = retainTranscriptRows;
-    if (previouslyRetainedTranscriptRows && !retained && scrollEl) {
-      savedScrollFromBottom =
-        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-    }
-    previouslyRetainedTranscriptRows = retained;
-  });
-
+  let arriving = false;
+  let wasShown = false;
   $effect(() => {
-    if (!retainTranscriptRows || savedScrollFromBottom === null) return;
-    const distanceFromBottom = savedScrollFromBottom;
-    void tick().then(() => {
-      requestAnimationFrame(() => {
-        if (!scrollEl || !retainTranscriptRows) return;
-        scrollEl.scrollTop = Math.max(
-          0,
-          scrollEl.scrollHeight - scrollEl.clientHeight - distanceFromBottom,
-        );
-      });
-    });
+    const shown = isVisible && !!scrollEl;
+    if (shown && !wasShown) untrack(arrive);
+    wasShown = shown;
   });
+
+  function arrive() {
+    const position = viewState.position;
+    arriving = true;
+    if (position) endFollow?.release();
+    void tick().then(() => requestAnimationFrame(async () => {
+      if (!position || !(await virtualizer.restore(position))) {
+        viewState.position = null;
+        endFollow?.jump();
+      }
+      // Rows mounted by the jump measure in the next frames, and the reading
+      // column's ResizeObserver follows them. The reader's own scrolling
+      // counts again once they settle.
+      setTimeout(() => {
+        arriving = false;
+        backfillShortTranscript();
+      }, 120);
+    }));
+  }
+
+  // A restored window can contain hundreds of tool events that collapse into
+  // only a few completed-turn rows. In that case there is no scrollbar and
+  // therefore no scroll event to request the history that precedes the
+  // window. Keep backfilling until the user has an actual scroll range (or
+  // the complete transcript is mounted).
+  function backfillShortTranscript() {
+    const el = scrollEl;
+    if (
+      el && isVisible && !arriving &&
+      el.clientHeight > 0 &&
+      el.scrollHeight <= el.clientHeight &&
+      hasOlderTurnsToLoad && !historyError
+    ) {
+      void maybeLoadOlder();
+    }
+  }
 
   // Infinite scroll reveals one bounded page whenever the user nears the top.
   // The scroll position is anchored across the insert so the previously-visible
@@ -292,7 +295,7 @@
 
     loadingOlder = true;
     historyError = "";
-    holdAutomaticScroll();
+    endFollow?.hold();
     try {
       expandingHistory = true;
       await session.lifecycle.expandHistory(tabId);
@@ -303,26 +306,16 @@
       expandingHistory = false;
       loadingOlder = false;
     }
-
-    // A restored window can contain hundreds of tool events that collapse into
-    // only a few completed-turn rows. In that case there is no scrollbar and
-    // therefore no scroll event to request the history that precedes the
-    // window. Keep backfilling until the user has an actual scroll range (or
-    // the complete transcript is mounted).
-    if (
-      isVisible &&
-      el.clientHeight > 0 &&
-      el.scrollHeight <= el.clientHeight &&
-      hasOlderTurnsToLoad && !historyError
-    ) {
-      void maybeLoadOlder();
-    }
+    backfillShortTranscript();
   }
 
   function handleScroll() {
     const el = scrollEl;
-    if (!el) return;
-    if (!responseScroll?.moving) isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    // A hidden view's scroll events are its layout being dropped, and an
+    // arriving view's are that layout coming back: neither is the reader.
+    if (!el || !isVisible || arriving) return;
+    endFollow?.measure();
+    viewState.position = endFollow?.atEnd ? null : virtualizer.position();
     if (el.scrollTop <= NEAR_TOP_PX) void maybeLoadOlder();
   }
 
@@ -356,12 +349,12 @@
     const questionCount = sess?.questionQueue?.length ?? 0;
     const questionMounted = previousQuestionCount === 0 && questionCount > 0;
     previousQuestionCount = questionCount;
-    if (isVisible && isNearBottom) {
+    if (isVisible && endFollow?.atEnd) {
       if (questionMounted) {
         // A question needs the turn that led to it. Keep a slice of that turn
         // above the card instead of pinning the card's (potentially very tall)
         // bottom to the viewport.
-        holdAutomaticScroll();
+        endFollow?.hold();
         requestAnimationFrame(() => {
           const el = scrollEl;
           const card = el?.querySelector<HTMLElement>(
@@ -377,54 +370,49 @@
           );
           // Keep card expansion and textarea growth from immediately undoing
           // this context-preserving anchor.
-          isNearBottom = false;
+          endFollow?.release();
         });
       } else {
-        requestAnimationFrame(pinToBottom);
+        requestAnimationFrame(followEnd);
       }
     }
   });
 
   const hasOlderTurnsToLoad = $derived(sess?.historyTruncated ?? false);
-  const visibleMessages = $derived(sess?.messages ?? []);
   const conversationFindMatches = $derived(
     findConversationMatches(sess?.messages ?? [], findQuery),
   );
 
-  const grouped = $derived(groupMessages(visibleMessages));
-
   // The message navigator is a right-gutter rail in wide layouts only. The rail
   // itself hides when the gutter is too narrow.
   const showMessageNavigation = $derived(shell.hasProjectPanel);
-  // Gate on showMessageNavigation: without this the derived rebuilds for every mounted
-  // tab on every message change in mobile layouts where it is never rendered.
+  // Gate on showMessageNavigation: without this the derived rebuilds on every
+  // message change in mobile layouts where it is never rendered.
   const buildNavItems = createNavItemBuilder();
   const navItems = $derived(
-    showMessageNavigation && retainTranscriptRows
-      ? buildNavItems(sess?.messages ?? [])
-      : [],
+    showMessageNavigation ? buildNavItems(sess?.messages ?? []) : [],
   );
 
   async function prepareMinimapNavigate(id: string) {
     const turnId = messageTurns.get(id);
     if (!turnId) return;
-    holdAutomaticScroll();
-    isNearBottom = false;
+    endFollow?.release();
     await virtualizer.reveal(turnId);
   }
   $effect(() => {
-    // Every tab stays mounted (hidden via display:none), so without this guard the
-    // effect would re-scan `grouped` for all tabs on every message tick. Hidden
-    // tabs don't need their work content eagerly hydrated — load on activation.
+    // A hidden pool view doesn't need its work content eagerly hydrated — load
+    // on activation.
     if (!isVisible) return;
-    for (const item of grouped) {
-      if (item.kind !== "document") continue;
-      for (const message of item.messages) {
-        const workId = message.workRef?.workId;
-        // Skip provisional (streaming) ids — their content lives in the store and
-        // there is nothing to load from disk yet.
-        if (workId && !session.worksStore.streaming[workId]) {
-          void session.worksStore.ensureContent(workId, "conversation-view");
+    for (const segment of transcript.segments) {
+      for (const item of segment.grouped) {
+        if (item.kind !== "document") continue;
+        for (const message of item.messages) {
+          const workId = message.workRef?.workId;
+          // Skip provisional (streaming) ids — their content lives in the store and
+          // there is nothing to load from disk yet.
+          if (workId && !session.worksStore.streaming[workId]) {
+            void session.worksStore.ensureContent(workId, "conversation-view");
+          }
         }
       }
     }
@@ -442,21 +430,8 @@
   const showActionOrb = $derived(!!tab && showActions);
   let activityReservedWidth = $state(0);
 
-  // §16 — a turn collapses to one row when it ends. Until then it renders the
-  // transcript it always did, in the order it happened.
-  const isTurnLive = $derived(runIsLive(sess?.status));
-  // Keep every settled turn's object identity when event-driven transcript
-  // changes rebuild the current turn.
-  let previousTurns: Turn[] = [];
-  const turns = $derived.by(() => {
-    const next = stabilizeTurns(
-      buildTurns(grouped, { running: isTurnLive }),
-      previousTurns,
-    );
-    previousTurns = next;
-    return next;
-  });
-  const messageTurns = $derived(messageTurnIds(turns));
+  const turns = $derived(transcript.turns);
+  const messageTurns = $derived(transcript.messageTurns);
   function navigationTop(id: string): number | undefined {
     const turnId = messageTurns.get(id);
     return turnId ? virtualizer.top(turnId) : undefined;
@@ -465,17 +440,18 @@
   // Only new work at the live edge may animate in.
   // Successful and historical work stays compact. The latest failed work opens
   // by default so its commands are immediately available; an explicit user
-  // choice then wins and survives transcript re-renders.
-  const turnExpansion = new SvelteMap<string, boolean>();
+  // choice then wins and survives transcript re-renders and remounts
+  // (`turnExpansion` belongs to the view state).
   function toggleTurn(id: string, expanded: boolean) {
-    holdAutomaticScroll();
+    // The fold opens below its row: holding the end lets it open downward
+    // instead of dragging the row the reader clicked off the top.
+    endFollow?.hold();
     turnExpansion.set(id, !expanded);
     if (!expanded) void session.toolHistory.load(turns.find((turn) => turn.id === id)?.tools ?? []);
   }
 
   async function revealFindMatch(match: ConversationFindMatch) {
-    holdAutomaticScroll();
-    isNearBottom = false;
+    endFollow?.release();
     await revealTranscriptMatch({
       match, turns, turnId: messageTurns.get(match.messageId), virtualizer,
       expand: (turn) => { turnExpansion.set(turn.id, true); void session.toolHistory.load(turn.tools); },
@@ -497,6 +473,19 @@
     }
     await tick();
     await findBarRef?.focusInput();
+  }
+
+  /** Ends only what the agent left running; its finished turn is untouched. */
+  async function stopBackgroundWork(): Promise<void> {
+    try {
+      const stopped = await session
+        .apiFor(tabId)
+        .stopBackgroundTasks(session.ctxFor(tabId).session.sessionId);
+      if (!stopped) toasts.error("The background task could not be stopped");
+    } catch {
+      toasts.error("The background task could not be stopped");
+    }
+    requestInputFocus({ tabId });
   }
 
   function closeFind() {
@@ -579,6 +568,7 @@
       if (!scrollEl) return;
       // Pull in any older messages first so "top" is the real first message.
       await revealAll();
+      endFollow?.release();
       if (scrollEl) scrollConversationTo(scrollEl, 0);
     },
     { enabled: () => tabId === session.focusedChatTabId },
@@ -586,11 +576,7 @@
 
   useKeybinding(
     "conversation.scroll-bottom",
-    () => {
-      if (!scrollEl) return;
-      scrollConversationTo(scrollEl, scrollEl.scrollHeight - scrollEl.clientHeight);
-      isNearBottom = true;
-    },
+    () => endFollow?.jump(true),
     { enabled: () => tabId === session.focusedChatTabId },
   );
 
@@ -618,9 +604,7 @@
     {
       enabled: () =>
         tabId === session.focusedChatTabId &&
-        (sess?.status === "running" ||
-          sess?.status === "connecting" ||
-          sess?.status === "background"),
+        (sess?.status === "running" || sess?.status === "connecting"),
     },
   );
 
@@ -630,43 +614,30 @@
       const detail: { tabId?: string } = e.detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (!isVisible) return;
-      const snap = () => {
-        if (scrollEl) {
-          scrollEl.scrollTop = scrollEl.scrollHeight;
-          isNearBottom = true;
-        }
-      };
-      requestAnimationFrame(() => {
-        snap();
-        // content-visibility:auto items settle after initial paint — retry
-        // so long sessions land at the true bottom.
-        setTimeout(snap, 120);
-      });
+      // Rows that settle after this frame grow the reading column, and its
+      // ResizeObserver follows them to the true end.
+      requestAnimationFrame(() => endFollow?.jump());
     };
     window.addEventListener("solus:scroll-conversation-bottom", handler);
     return () =>
       window.removeEventListener("solus:scroll-conversation-bottom", handler);
   });
 
-  // Re-anchor when either the input dock or message content changes the list
-  // height. ResizeObserver runs after layout and avoids a forced layout read.
+  // Re-anchor when either the input dock or the reading column changes height.
+  // Observe the whole column, not only the message list: the turn's diff
+  // summary and the action-row spacer mount below the list when a turn ends,
+  // and without a re-pin the action row covers them.
+  // ResizeObserver runs after layout and avoids a forced layout read.
   $effect(() => {
     const el = scrollEl;
-    const content = messagesEl;
+    const content = readingColumnEl;
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
-      if (
-        isVisible &&
-        el.clientHeight > 0 &&
-        el.scrollHeight <= el.clientHeight &&
-        hasOlderTurnsToLoad
-      ) {
-        void maybeLoadOlder();
+      if (el.clientHeight > 0 && el.scrollHeight <= el.clientHeight && hasOlderTurnsToLoad) {
+        backfillShortTranscript();
         return;
       }
-      if (isNearBottom && isVisible && !holdScroll) {
-        responseScroll?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
-      }
+      followEnd();
     });
     ro.observe(el);
     ro.observe(content);
@@ -683,17 +654,10 @@
       session.selectTab(matchingTabId);
       return;
     }
-    // Not open — scan history on this conversation's host and resume it. The
+    // Not open — read it on this conversation's host and resume it. The
     // source session delegated to this one, so it lives on the same host.
     if (!sess) return;
-    const meta = await sourceSessionHistory.findSession(
-      agentSessionId,
-      {
-        projectPath: sess.run.workingDirectory || "~",
-        serverId: sess.run.serverId,
-      },
-      session.ctx,
-    );
+    const meta = await readSessionMeta(sess.run.serverId, agentSessionId);
     if (meta) {
       await session.opening.resumeSession(meta);
     }
@@ -784,6 +748,7 @@
              share one fluid column (scales with the conversation pane via
              --solus-reading-max) so everything lines up. -->
         <div
+          bind:this={readingColumnEl}
           class="w-full"
           style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
@@ -810,24 +775,24 @@
             </div>
           {/if}
 
-          {#if retainTranscriptRows}
-            <VirtualTranscript {tabId}
-              {turns}
-              {virtualizer}
-              scrollElement={scrollEl}
-              active={isVisible}
-              bind:element={messagesEl}
-            >
-              {#snippet children(turn: Turn, turnIdx: number)}
-                <ConversationTurn {turn} index={turnIdx} total={turns.length}
-                  expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
-                  {isAwaitingInput} {activityLabel} turnStart={sess.currentTurnStart}
-                  attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
-                  onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
-                  {transcriptItem} />
-              {/snippet}
-            </VirtualTranscript>
-          {/if}
+          <VirtualTranscript {tabId}
+            {turns}
+            {virtualizer}
+            scrollElement={scrollEl}
+            active={isVisible}
+            bind:element={messagesEl}
+          >
+            {#snippet children(turn: Turn, turnIdx: number)}
+              <ConversationTurn {turn} index={turnIdx} total={turns.length}
+                expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
+                {isAwaitingInput} {activityLabel} turnStart={sess.currentTurnStart}
+                hasBackgroundWork={sess.status === "background"}
+                onStopBackgroundWork={stopBackgroundWork}
+                attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
+                onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
+                serverId={sess.run.serverId} sessionId={sess.id} {transcriptItem} />
+            {/snippet}
+          </VirtualTranscript>
 
           {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
             <TranscriptItem {item} {skipMotion} {tabId} {linkContext}
@@ -869,8 +834,16 @@
           {/if}
           <!-- The host refused this conversation's prompt for want of a seat; the
                card offers the connect flow where the turn would have run. -->
+          <!-- The organization model refused this reader's turn: which
+               organization it needs, and the control that fixes it. -->
+          {#if turnRefusalStore.visibleFor(sess.run.serverId, sess.id)}
+            <TurnRefusalCard />
+          {/if}
           {#if seatsStore.visibleFor(sess.run.serverId, sess.id)}
             <SeatConnectCard />
+          {:else if sess.run.serverId}
+            <!-- Before they send: the reader's seat for this agent on this host. -->
+            <SeatNeededNotice serverId={sess.run.serverId} provider={sess.run.provider} turnRunning={isTurnLive} />
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
@@ -897,7 +870,7 @@
         </div>
       </div>
 
-      {#if showMessageNavigation && retainTranscriptRows}
+      {#if showMessageNavigation}
         <ConversationMinimap
           items={navItems}
           windowStart={virtualizer.range.start}

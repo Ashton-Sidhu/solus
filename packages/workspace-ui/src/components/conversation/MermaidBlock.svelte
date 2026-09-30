@@ -11,7 +11,7 @@
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
-  import { nearViewport } from "./lib/near-viewport";
+  import { nearViewport } from "../../lib/near-viewport";
   import { renderMermaid, type MermaidResult } from "./lib/mermaid-block";
 
   /**

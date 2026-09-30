@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
-import { acquireHostGrant, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
+import { acquireHostAccessToken, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -15,7 +15,7 @@ export const ACCOUNT_CHANNELS = {
   retryVerify: 'solus:account-retry-verify',
   stateChanged: 'solus:account-state-changed',
   uplinkDirectory: 'solus:uplink-directory',
-  uplinkGrant: 'solus:uplink-grant',
+  uplinkAccessToken: 'solus:uplink-access-token',
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
@@ -79,9 +79,11 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.retryVerify, () => session.verify('retry'))
   // Personal Uplink on the account's behalf; the renderer gets answers, never the token.
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
-  ipcMain.handle(ACCOUNT_CHANNELS.uplinkGrant, (_event, rawHostId) => {
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkAccessToken, (_event, rawHostId, rawOrganizationId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
-    return hostId.success ? acquireHostGrant(session, hostId.data) : null
+    const organizationId = organizationIdSchema.optional().safeParse(rawOrganizationId)
+    if (!hostId.success || !organizationId.success) return null
+    return acquireHostAccessToken(session, hostId.data, organizationId.data)
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkStartManagedHost, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)

@@ -16,7 +16,16 @@
   } from "@solus/contracts/observability-types";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
-  import { PageCrumbLine } from "../ui/list-page";
+  import { ListPage, PageCrumbLine } from "../ui/list-page";
+  import DetailPanelResizeHandle from "../ui/list-page/DetailPanelResizeHandle.svelte";
+  import { FoldingToolbar } from "../ui/list-page/folding-toolbar.svelte";
+  import {
+    canSplitDetailPanel,
+    clampDetailPanelWidth,
+    detailPanelWidth,
+    readSavedDetailPanelWidth,
+    saveDetailPanelWidth,
+  } from "../ui/list-page/detail-panel-width";
   import { formatRowCount } from "./lib/format";
   import { presetsFor, type InsightsPreset } from "./lib/insights-queries";
   import { rangeHeading, type TimeRange } from "./lib/time-range";
@@ -35,6 +44,9 @@
     type RailItem,
   } from "./lib/rail";
   import {
+    countByStatus,
+    searchTurns,
+    sortTurns,
     toTurnRows,
     withStatus,
     type TurnRow,
@@ -52,6 +64,8 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import EventList from "./EventList.svelte";
   import InsightsRail from "./InsightsRail.svelte";
+  import InsightsRailToolbar from "./InsightsRailToolbar.svelte";
+  import InsightsCondensedCrumbs from "./InsightsCondensedCrumbs.svelte";
   import InsightsResultSkeleton from "./InsightsResultSkeleton.svelte";
   import QueryConsole from "./QueryConsole.svelte";
   import ResultRankingChart from "./ResultRankingChart.svelte";
@@ -59,9 +73,11 @@
   import SaveQueryDialog from "./SaveQueryDialog.svelte";
   import SchemaSheet from "./SchemaSheet.svelte";
   import ResultTrendChart from "./ResultTrendChart.svelte";
+  import SessionDetailPanel from "./SessionDetailPanel.svelte";
   import TurnDetailPanel from "./TurnDetailPanel.svelte";
   import TurnList from "./TurnList.svelte";
   import VolumeChart from "./VolumeChart.svelte";
+  import OrganizationTurns from "./OrganizationTurns.svelte";
 
   /**
    * Insights — the query surface over `metrics.db`.
@@ -88,6 +104,14 @@
 
   const open = $derived(workspace.router.at("insights"));
   const serverId = $derived(serverConnections.resolveId(serversStore.activeServerId));
+  // The Organization scope (organization-scope §6.1): the selected organization's
+  // turns from its workspace service, beside the host's own metrics. A toggle,
+  // not a redesign: the console and its answer stay as they are on the host scope.
+  let organizationScope = $state(false);
+  const organizationId = $derived(serversStore.activeOrganizationId);
+  const organizationServerId = $derived(serversStore.activeCloudServerId);
+  const organizationScopeAvailable = $derived(!!organizationId && !!organizationServerId);
+  const showsOrganization = $derived(organizationScope && organizationScopeAvailable);
   /** Composing a query on a phone is not a workflow worth its cost: mobile gets
    *  presets and saved queries, read-only (approved exception, docs/plans). */
   const readOnly = $derived(runtime.isMobileViewport);
@@ -131,10 +155,19 @@
     if (!open || loaded) return;
     loaded = true;
     void store.load().then(() => (schemaRevision += 1));
+    // The marks a person put on turns, for the chips on the rows. Small, and
+    // read once per host.
+    void store.loadTurnFlags();
   });
 
   $effect(() => {
     if (!open) loaded = false;
+  });
+
+  // The listing follows turns as they start and end while the page is open.
+  $effect(() => {
+    if (!open) return;
+    return store.watchTurns();
   });
 
   // Closing the page ends the question it was asking: the next entry opens on
@@ -154,8 +187,13 @@
       ? toEventTable(store.result)
       : null,
   );
+  /** One search for the turns, whichever of the list or the rail holds the
+   *  field: the host runs it on a paged listing; an answer that arrived whole
+   *  is searched here. */
+  let localTurnSearch = $state("");
+  const turnSearch = $derived(pagedTurns ? store.turnSearch : localTurnSearch);
   const visibleRows = $derived(
-    pagedTurns ? rows : withinSelection(rows, selection),
+    pagedTurns ? rows : searchTurns(withinSelection(rows, selection), localTurnSearch),
   );
   const visibleEventRows = $derived(
     eventTable ? eventsWithinSelection(eventTable.rows, selection) : [],
@@ -169,6 +207,8 @@
   // An answer that lists nothing at all — a rollup, a trend — has no histogram:
   // a bar chart of turns beside a question about spend per model counts
   // something nobody asked about, and its brush would narrow nothing.
+  /** The answer lists turns, so the rail can search, sort, and filter it. */
+  const listsTurns = $derived(rendering.rendering === "turns" || !store.result);
   const listsRows = $derived(rendering.rendering === "turns" || rendering.rendering === "events");
   const showVolume = $derived(listsRows || !store.result);
   // The status chips are a filter on the same answer, and they sit under the
@@ -227,6 +267,8 @@
   const emptyHint = $derived(
     selection
       ? "The selected window is empty — clear it or widen the range."
+      : turnSearch
+        ? "Clear or change the search."
       : statusFilter
         ? "Loosen the status filter."
         : "Metrics start when a version that records them runs; there is no backfill.",
@@ -292,6 +334,11 @@
     }
   }
 
+  function changeTurnSearch(next: string): void {
+    if (pagedTurns) store.setTurnSearch(next);
+    else localTurnSearch = next;
+  }
+
   function changeTurnStatus(next: TurnStatusFilter | null): void {
     statusFilter = next;
     if (pagedTurns) void store.setTurnStatus(next);
@@ -334,21 +381,53 @@
   // beside the list; below the width where both fit it covers the list instead.
   const openTraceId = $derived(params.traceId ?? null);
   const openSpanId = $derived(params.spanId ?? null);
-  const panelOpen = $derived(openTraceId !== null);
+  /** A session's own page, in the same panel a turn opens in. */
+  const openSessionId = $derived(params.sessionId ?? null);
+  const panelOpen = $derived(openTraceId !== null || openSessionId !== null);
 
   let pageWidth = $state(0);
   /** The reader's choice; forgotten when the panel closes. */
   let panelFullScreenChoice = $state(false);
-  const roomForSplit = $derived(pageWidth >= 1040);
+  // The split the Pull Requests page draws, opened wider: a turn is the thing
+  // being read and the rail is navigation. The drag is remembered per page.
+  const roomForSplit = $derived(canSplitDetailPanel(pageWidth));
+  let savedPanelWidth = $state(readSavedDetailPanelWidth("insights"));
+  const panelWidth = $derived(detailPanelWidth("insights", savedPanelWidth, pageWidth));
+  const maxPanelWidth = $derived(clampDetailPanelWidth(Number.POSITIVE_INFINITY, pageWidth));
   const panelFullScreen = $derived(panelOpen && (panelFullScreenChoice || !roomForSplit));
   const splitList = $derived(panelOpen && !panelFullScreen);
+
+  /** The turns the rail lists, narrowed and ordered the way the list beside
+   *  it would be. The host already filtered a paged listing; filtering it
+   *  again here makes a keystroke answer at once, before the page returns,
+   *  and never drops a row the host kept (`searchTurns`). The host's order
+   *  stands on a paged listing; an answer that arrived whole is sorted here. */
+  const railTurns = $derived.by(() => {
+    const narrowed = searchTurns(withStatus(visibleRows, statusFilter), turnSearch);
+    return pagedTurns ? narrowed : sortTurns(narrowed, sort);
+  });
+  // ── The folding rail head ──
+  // The pull request list's fold: scrolled past the narrowing row, the row
+  // folds into the crumb line as `Insights / All turns ▾ / Newest first ▾`.
+  let railScrollTop = $state(0);
+  let railSearchEl = $state<HTMLInputElement | null>(null);
+  const railFold = new FoldingToolbar(
+    () => railScrollTop,
+    () => !!turnSearch,
+    () => railSearchEl,
+  );
+  const railCondensed = $derived(railFold.condensed);
+
+  const railStatusCounts = $derived(
+    (pagedTurns ? store.turnPage?.statusCounts : undefined) ?? countByStatus(visibleRows),
+  );
 
   /** The rows the rail shows and the panel's stepper walks — the current
    *  answer's own order, turn- or span-grained to match its shape. */
   const railItems = $derived(
     rendering.rendering === "events" && eventTable
       ? railItemsFromEvents(eventTable.columns, visibleEventRows, rendering.kind)
-      : railItemsFromTurns(visibleRows),
+      : railItemsFromTurns(railTurns),
   );
   const railIndex = $derived(railIndexOf(railItems, openTraceId, openSpanId));
   /** What the current answer lists — the breadcrumb crumb and the rail heading
@@ -463,7 +542,7 @@
     <span class="text-insights-summary text-muted-foreground">{detail}</span>
     <button
       type="button"
-      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10 pointer-fine:[.is-laptop-display_&]:size-5.5"
+      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10"
       aria-label={queryChartExpanded ? "Collapse chart" : "Expand chart"}
       aria-controls={chartId}
       aria-expanded={queryChartExpanded}
@@ -478,9 +557,61 @@
   </header>
 {/snippet}
 
+<svelte:window
+  onpointerdown={railFold.pressStarted}
+  onpointerup={railFold.pressEnded}
+  onpointercancel={railFold.pressEnded}
+/>
+
+{#snippet railCrumbs()}
+  <InsightsCondensedCrumbs
+    {sort}
+    onSortChange={changeTurnSort}
+    {statusFilter}
+    onStatusFilterChange={changeTurnStatus}
+    onSearch={railFold.unfoldSearch}
+  />
+{/snippet}
+
+{#snippet resizeHandle()}
+  <DetailPanelResizeHandle
+    width={panelWidth}
+    maxWidth={maxPanelWidth}
+    label="Resize the Insights panel"
+    onResize={(width) => (savedPanelWidth = clampDetailPanelWidth(width, pageWidth))}
+    onCommit={(width) => saveDetailPanelWidth("insights", clampDetailPanelWidth(width, pageWidth))}
+  />
+{/snippet}
+
+<!-- The rail's narrowing row: the same search, sort, and status the
+     full-width list holds, in the pull request list's shape. -->
+{#snippet railFilters()}
+  <InsightsRailToolbar
+    bind:searchEl={railSearchEl}
+    onSearchFocusChange={railFold.searchFocusChanged}
+    search={turnSearch}
+    onSearchChange={changeTurnSearch}
+    {sort}
+    onSortChange={changeTurnSort}
+    {statusFilter}
+    onStatusFilterChange={changeTurnStatus}
+    counts={railStatusCounts}
+  />
+{/snippet}
+
 <!-- The console owns the question's controls — the range lives on it. The head
      keeps only the way back to the default question. -->
 {#snippet resetAction()}
+  {#if organizationScopeAvailable}
+    <button
+      type="button"
+      class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome transition-colors hover:bg-[var(--wash-1)] hover:text-foreground aria-pressed:bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] aria-pressed:text-foreground"
+      aria-pressed={organizationScope}
+      title={organizationScope ? "Back to this host's Insights" : `Show ${serversStore.activeOrganizationName}'s turns`}
+      data-testid="insights-organization-scope"
+      onclick={() => (organizationScope = !organizationScope)}>Organization</button
+    >
+  {/if}
   <button
     type="button"
     class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
@@ -490,7 +621,8 @@
 {/snippet}
 
 <div
-  class="@container relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground [--insights-list-width:380px]"
+  class="@container relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground"
+  style="--insights-list-width: {pageWidth - panelWidth}px"
   bind:clientWidth={pageWidth}
 >
   <!-- The same crumb line every page head leads with, in this page's own band:
@@ -505,7 +637,7 @@
   <!-- Match the Tasks header measure and keep the loading shell aligned. -->
   <div class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
   <header
-    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
+    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
   >
     <PageCrumbLine
       page="insights"
@@ -525,12 +657,23 @@
   <div class="relative flex min-h-0 flex-1 flex-col">
   <!-- Hidden rather than unmounted while the panel is open: the console holds
        a CodeMirror editor and the histogram a chart, and closing the panel must
-       not rebuild either or forget the draft being typed. -->
+       not rebuild either or forget the draft being typed. Under a full-screen
+       turn it stays in the flow, covered — so it is `inert`, or the tab order
+       and a screen reader would walk a console nobody can see. -->
   <div
     class="mx-auto flex min-h-0 w-full max-w-[72rem] flex-1 flex-col gap-3 px-8 pb-4.5 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 {splitList
       ? 'hidden'
       : ''}"
+    inert={panelFullScreen}
   >
+    {#if showsOrganization && organizationId && organizationServerId}
+      <OrganizationTurns
+        serverId={organizationServerId}
+        {organizationId}
+        organizationName={serversStore.activeOrganizationName ?? "Organization"}
+        range={store.range}
+      />
+    {:else}
     <QueryConsole
       bind:this={queryConsole}
       form={store.form}
@@ -598,6 +741,9 @@
           selectedTraceId={openTraceId}
           onOpenTurn={openTurn}
           onOpenSession={(sessionId) => void openSession(sessionId)}
+          onOpenSessionPage={(sessionId) => workspace.openInsightsSession(sessionId)}
+          sessionName={(sessionId) => store.sessionName(sessionId)}
+          flags={store.turnFlags}
           {emptyHint}
           totalRows={pagedTurns ? store.turnPage?.totalRows : undefined}
           pageIndex={pagedTurns ? store.turnPageIndex : undefined}
@@ -606,8 +752,8 @@
           onPageSizeChange={pagedTurns ? (size) => void store.setTurnPageSize(size) : undefined}
           fullStatusCounts={pagedTurns ? store.turnPage?.statusCounts : undefined}
           fullP95DurationMs={pagedTurns ? store.turnPage?.stats.p95DurationMs : undefined}
-          search={pagedTurns ? store.turnSearch : undefined}
-          onSearchChange={pagedTurns ? (value) => store.setTurnSearch(value) : undefined}
+          search={turnSearch}
+          onSearchChange={changeTurnSearch}
         />
       {:else if rendering.rendering === "events" && eventTable}
         <EventList
@@ -620,7 +766,7 @@
         />
       {:else if rendering.rendering === "trend"}
         <section
-          class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)] [.is-laptop-display_&]:px-3 [.is-laptop-display_&]:py-2.5"
+          class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
           aria-label="Trend"
         >
           {@render measureHeading(
@@ -643,7 +789,7 @@
         <ResultTable result={store.result} />
       {:else if rendering.rendering === "ranking"}
         <section
-          class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)] [.is-laptop-display_&]:px-3 [.is-laptop-display_&]:py-2.5"
+          class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
           aria-label="Ranking"
         >
           {@render measureHeading(
@@ -665,33 +811,71 @@
         <ResultTable result={store.result} />
       {/if}
     {/if}
+    {/if}
   </div>
 
   {#if splitList}
-    <!-- The rail now reaches the window's top edge, so it clears the window
-         controls itself, at the split measure the Pull Requests column uses. -->
-    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col pt-[max(26px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(1.25rem,var(--solus-page-top-inset,0px))]">
-      <InsightsRail
-        items={railItems}
-        heading={listLabel}
-        selectedIndex={railIndex}
-        onOpenItem={openRailItem}
-        onOpenSession={(sessionId) => void openSession(sessionId)}
-        {emptyHint}
-      />
+    <!-- The rail is the Pull Requests column beside an open review: the same
+         list shell in its split shape, with a chrome-row head that sits level
+         with the panel's band across the seam. -->
+    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col">
+      <ListPage
+        split
+        chromeHead
+        contentOwnsScroll
+        page="insights"
+        onRefresh={() => void store.refresh()}
+        refreshing={store.running}
+        onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
+        isLeading={pane.isLeading}
+        onClose={closePage}
+        filters={listsTurns ? railFilters : undefined}
+        toolbarFilters
+        wrapFilters
+        condensed={listsTurns && railCondensed}
+        condensedCrumbs={railCrumbs}
+      >
+        <InsightsRail
+          items={railItems}
+          heading={listLabel}
+          selectedIndex={railIndex}
+          onOpenItem={openRailItem}
+          onOpenSession={(sessionId) => void openSession(sessionId)}
+          flags={store.turnFlags}
+          {emptyHint}
+          bind:scrollTop={railScrollTop}
+        />
+      </ListPage>
     </div>
   {/if}
 
-  {#if panelOpen && openTraceId}
+  {#if panelOpen && openSessionId}
+    <div
+      class="flex flex-col bg-background {panelFullScreen
+        ? 'absolute inset-0 z-20'
+        : 'absolute inset-y-0 right-0 left-(--insights-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong)]'}"
+      transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
+    >
+      {#if !panelFullScreen}{@render resizeHandle()}{/if}
+      <SessionDetailPanel
+        sessionId={openSessionId}
+        fullScreen={panelFullScreen}
+        onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
+        {listLabel}
+        onClose={closePanel}
+      />
+    </div>
+  {:else if panelOpen && openTraceId}
     <!-- Out of the list's flow on purpose, not just when full screen: it covers
          the room the rail's width leaves rather than claiming its own, so the
          fly is transform and opacity alone and nothing relayouts. -->
     <div
       class="flex flex-col bg-background {panelFullScreen
         ? 'absolute inset-0 z-20'
-        : 'absolute inset-y-0 right-0 left-(--insights-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'}"
+        : 'absolute inset-y-0 right-0 left-(--insights-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong)]'}"
       transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
     >
+      {#if !panelFullScreen}{@render resizeHandle()}{/if}
       <TurnDetailPanel
         traceId={openTraceId}
         spanId={openSpanId}

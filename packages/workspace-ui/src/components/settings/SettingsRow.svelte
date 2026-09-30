@@ -2,7 +2,7 @@
   /** One setting inside a `SettingsSection` card: a medium-weight title and a
    *  quiet one-line description on the left, the control at the trailing edge,
    *  with an optional full-width `body` below. Sixteen pixels in from the
-   *  card's edge and twelve above and below; the card draws the hairline
+   *  card's edge and fourteen above and below; the card draws the hairline
    *  between rows. Under thirty rem of pane the control drops beneath the
    *  copy rather than squeezing it. */
   import type { Snippet } from "svelte";
@@ -24,6 +24,8 @@
      * reads the same rather than each surface inventing its own apology.
      */
     comingSoon?: boolean;
+    /** A setting that exists but cannot apply yet: dimmed and inert, no badge. */
+    disabled?: boolean;
     /** Hook for e2e selectors that need to scope into a single row. */
     testId?: string;
   }
@@ -37,17 +39,24 @@
     body,
     bodyVisible = true,
     comingSoon = false,
+    disabled = false,
     testId,
   }: Props = $props();
+  const isInert = $derived(comingSoon || disabled);
 </script>
 
 {#if visible}
   <div
     data-testid={testId}
-    class="px-4 py-3 {comingSoon ? 'opacity-55' : ''}"
+    class="px-4 py-3.5 {isInert ? 'opacity-55' : ''}"
+    aria-disabled={disabled || undefined}
   >
+    <!-- Only a row with a control reserves the trailing column; otherwise the
+         copy takes the full width instead of wrapping beside an empty cell. -->
     <div
-      class="flex flex-col gap-3 @min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8"
+      class="flex flex-col gap-3 {control
+        ? '@min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8'
+        : ''}"
     >
       <div class="min-w-0 flex-1 space-y-1">
         <div class="flex min-h-5 items-center gap-1.5">
@@ -63,7 +72,7 @@
           {/if}
         </div>
         {#if description}
-          <p class="max-w-xl text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">
+          <p class="text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">
             {description}
           </p>
         {/if}
@@ -71,7 +80,7 @@
       {#if control}
         <div
           class="flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
-          inert={comingSoon}
+          inert={isInert}
         >
           {@render control()}
         </div>

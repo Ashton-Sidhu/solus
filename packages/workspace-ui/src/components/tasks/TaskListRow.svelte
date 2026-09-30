@@ -135,6 +135,14 @@
         >
           {row.time}
         </span>
+        <!-- Where it lives, the wide row's place column folded into the line.
+             It gives up its tail before the sentence of machine state does. -->
+        {#if row.place?.project || row.place?.host}
+          <span class="shrink-0 text-muted-foreground opacity-40" aria-hidden="true">·</span>
+          <span class="min-w-0 max-w-[45%] truncate text-muted-foreground">
+            {[row.place?.project, row.place?.host].filter(Boolean).join(" · ")}
+          </span>
+        {/if}
         {#if row.meta}
           <span class="shrink-0 text-muted-foreground opacity-40" aria-hidden="true">·</span>
           <span class="min-w-0 truncate text-muted-foreground">{row.meta}</span>

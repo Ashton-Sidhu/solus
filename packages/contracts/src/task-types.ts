@@ -3,11 +3,10 @@
 // retaining provider ownership.
 
 import type { AgentId, WorkType } from './types'
+import type { Attribution } from './user'
+import type { Activity } from './activity'
 
 export type TaskProviderId = 'github' | 'jira' | 'local'
-
-/** `'epic'` = a parent that groups child tasks; `'task'` = a unit of work. */
-export type TaskKind = 'task' | 'epic'
 
 /** The one task lifecycle, shared by local tasks and upstream tickets. Upstream
  * providers normalize their states into this vocabulary at their own boundary
@@ -21,8 +20,12 @@ export type TaskStatus =
   | 'dropped'
 
 export type TaskTitleSource = 'prompt' | 'generated' | 'manual'
-export type TaskSource = 'user' | 'agent' | 'automation' | 'import' | 'session'
-export type TaskSessionRole = 'working' | 'referenced'
+export type TaskSource = 'user' | 'agent' | 'automation' | 'import'
+/** How a session relates to a task. `lead` is the one session that owns the
+ *  task's conversation (docs/plans/task-conversation.md); `working` is an
+ *  attempt; `referenced` is a relationship, not ownership. A task has at most
+ *  one lead. */
+export type TaskSessionRole = 'lead' | 'working' | 'referenced'
 export type TaskSyncState = 'ok' | 'dirty' | 'error' | 'auth_error'
 
 export interface ExternalTicketRef {
@@ -57,6 +60,21 @@ export interface NormalizedTaskComment {
   createdAt: number
 }
 
+/**
+ * The upstream epic (a Jira parent, a GitHub parent issue) a ticket belongs to,
+ * as a snapshot taken on each read. Solus shows it and gives its description to
+ * the agent; it never creates, moves, or closes one, and never writes this link
+ * upstream. The epic need not be a Solus task.
+ */
+export interface TaskEpic {
+  provider: Exclude<TaskProviderId, 'local'>
+  externalId: string
+  url: string
+  title: string
+  /** The epic's description, as the provider renders it. Injected into the task packet. */
+  body: string
+}
+
 export interface NormalizedTicket extends ExternalTicketRef {
   title: string
   body: string
@@ -73,6 +91,9 @@ export interface NormalizedTicket extends ExternalTicketRef {
   comments: NormalizedTaskComment[]
   snapshot?: unknown
   priorityHint?: TaskPriority
+  /** Null when the ticket has no epic; undefined when this read cannot tell
+   *  (a list read that does not carry the parent). */
+  epic?: TaskEpic | null
 }
 
 export interface TicketPatch {
@@ -134,17 +155,26 @@ export interface TaskPrSnapshot {
   baseRepo: { host: string; owner: string; repo: string }
 }
 
-/** One durable PR edge needed by the lightweight sidebar snapshot. */
+/**
+ * One pull request of a task, as the lightweight sidebar snapshot carries it:
+ * a link made on the task itself, or a link that one of the task's sessions
+ * owns (docs/plans/session-pull-requests.md).
+ */
 export interface TaskSidebarPrLink {
+  /** What PR sync last saw. Absent until it first answers. */
   snapshot?: TaskPrSnapshot
+  /** The code host says that this pull request does not exist. */
+  missing?: boolean
   number: number
   url?: string
   title?: string
   targetScope?: string
-  createdBy?: TaskActor | 'migration'
-  /** Session whose checkout established this automatic link. This lets a live
-   * checkout replace stale system discovery without distrusting user links. */
+  createdBy?: Attribution
+  /** The session that made a link on the task itself. */
   originSessionId?: string
+  /** The session that owns this link. Absent on a link made on the task
+   *  itself. Unlinking an owned link removes it from the session. */
+  ownerSessionId?: string
 }
 
 /**
@@ -168,9 +198,12 @@ export interface Task {
   providerId: TaskProviderId
   /** Human-referenceable per-install id, rendered as `T-<n>`. */
   shortId?: number
+  /** The organization the task's row belongs to (organization-scope §3):
+   * `local` while unassigned, else an organization id that never changes. Set
+   * on every native task read from a host's store; an upstream ticket has none. */
+  organizationId?: string
   /** Null/undefined means the global inbox. */
   projectKey?: string | null
-  kind: TaskKind
   title: string
   titleSource?: TaskTitleSource
   /** Markdown description. */
@@ -185,10 +218,8 @@ export interface Task {
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
   labels: string[]
-  /** The epic this task belongs to, if any. */
-  parentId?: string
-  /** Optional provider-supplied child ids for hydrated epics. The UI groups by parentId. */
-  childIds?: string[]
+  /** The upstream epic this ticket belongs to. Set only from a provider read. */
+  epic?: TaskEpic
   /** Due date as an ISO calendar day (`YYYY-MM-DD`); drives sorting + overdue cues. */
   dueDate?: string
   /** Priority; drives the "what's next" sort and the priority badge. */
@@ -216,17 +247,14 @@ export interface Task {
 export interface TaskListFilter {
   projectKey?: string | null
   status?: TaskStatus | TaskStatus[]
-  parentId?: string | null
   scope?: 'all' | 'inbox' | 'project' | 'up_next'
 }
 
 export interface TaskCreateInput {
   title: string
   projectKey?: string | null
-  parentId?: string | null
   body?: string
   status?: TaskStatus
-  kind?: TaskKind
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -238,11 +266,9 @@ export interface TaskCreateInput {
 
 export interface TaskUpdatePatch {
   projectKey?: string | null
-  parentId?: string | null
   title?: string
   body?: string
   status?: TaskStatus
-  kind?: TaskKind
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -254,7 +280,11 @@ export interface TaskUpdatePatch {
 export interface TaskComment {
   id: string
   taskId: string
-  author?: string | null
+  /** Who wrote a local comment. Absent on an upstream comment, which names its
+   *  author in the other system's words (`externalAuthor`). */
+  author?: Attribution
+  /** The upstream author's name or login, on an `external` comment only. */
+  externalAuthor?: string | null
   source: 'local' | 'external'
   externalId?: string | null
   originSessionId?: string | null
@@ -270,10 +300,6 @@ export interface TaskComment {
  *  keep living in `task_session_links`, which carries role/branch/injection
  *  state a plain link cannot. */
 export type TaskLinkKind = 'work' | 'plan' | 'pr' | 'automation'
-
-/** Who caused a task mutation. There is no user identity in Solus, so `user`
- *  means "someone acting in the app", not a named account. */
-export type TaskActor = 'user' | 'agent' | 'automation' | 'system'
 
 /** An explicit edge from a task to another workspace object.
  *
@@ -297,12 +323,22 @@ export interface TaskLink {
   url?: string | null
   liveTitle?: string
   liveStatus?: string
-  createdBy: TaskActor | 'migration'
+  /** Who made the link. `system` is a link Solus made by itself. */
+  createdBy: Attribution
   originSessionId?: string
+  /** The session of the task that the link comes from. For a `pr` link, the
+   *  session owns the link and the task reads it
+   *  (docs/plans/session-pull-requests.md). For a work, plan or automation,
+   *  the session made the item (docs/plans/session-outputs.md). Such a link
+   *  leaves the task when the session does. Absent on a link made on the task
+   *  itself. */
+  ownerSessionId?: string
   linkedAt: number
   /** The one `work` link a task page shows open by default. At most one link
    *  per task carries it; pinning another moves it. */
   pinned?: boolean
+  /** A `pr` link whose pull request the code host says does not exist. */
+  missing?: boolean
 }
 
 /** The identity of a link target — the key a reverse lookup takes. */
@@ -332,16 +368,20 @@ export interface TaskLinkInput {
    *  table; a `pr` without a title falls back to `#<number>`. */
   title?: string
   url?: string | null
-  createdBy?: TaskActor
+  /** Solus found this link by itself (a pull request a session is reviewing),
+   *  so a later checkout may replace it. The host records who made every other
+   *  link from the admitted request. */
+  automatic?: boolean
   originSessionId?: string | null
   /** Pin this link, or unpin it. Omitted leaves the current pin alone, so a
    *  re-link that knows nothing about pinning cannot clear one. */
   pinned?: boolean
 }
 
-/** Task history, interleaved with `TaskComment[]` to build the activity feed.
- *  Comments deliberately have no event of their own — `task_comments` already
- *  is that log, and a mirrored row would be a second thing to keep in sync. */
+/** What a `task_changed` activity says changed. Interleaved with
+ *  `TaskComment[]` to build the feed. Comments deliberately have no activity of
+ *  their own — `task_comments` already is that log, and a mirrored row would be
+ *  a second thing to keep in sync. */
 export type TaskEventKind =
   | 'created'
   | 'status_changed'
@@ -349,30 +389,12 @@ export type TaskEventKind =
   | 'assignee_changed'
   | 'due_date_changed'
   | 'title_changed'
-  | 'parent_changed'
   | 'labels_changed'
   | 'linked'
   | 'unlinked'
   | 'session_started'
 
 
-export interface TaskEvent {
-  id: string
-  taskId: string
-  kind: TaskEventKind
-  actor: TaskActor
-  /** Display name when there is one (an agent's session, an automation). */
-  actorLabel?: string
-  /** Previous / next scalar, already stringified. `labels_changed` holds JSON. */
-  from?: string | null
-  to?: string | null
-  /** Only on `linked` / `unlinked` / `session_started`. */
-  targetKind?: TaskLinkKind | 'session'
-  targetScope?: string
-  targetKey?: string
-  targetTitle?: string
-  createdAt: number
-}
 
 /** The detail read deliberately carries no session links. Attempts live in one
  * place — the renderer's `sessionsByTask`, fed by `taskSessions()` — because a
@@ -380,21 +402,17 @@ export interface TaskEvent {
  * surfaces that would render it are the ones that overwrite it. */
 export interface TaskDetails {
   task: Task
-  subtasks: Task[]
   comments: TaskComment[]
   links: TaskLink[]
-  /** Newest-last, capped at `TASK_EVENT_LIMIT`. Merge with `comments` by
-   *  timestamp to build the activity feed. */
-  events: TaskEvent[]
+  /** The task's `task_changed` activity, newest last, capped at
+   *  `TASK_ACTIVITY_LIMIT`. Merge with `comments` by time to build the feed. */
+  activity: Activity[]
   /** The external ticket this native task synchronizes with, when linked. */
   externalLink?: TaskExternalLink
 }
 
 export interface TaskForSessionResult {
   task: Task
-  parent: Task | null
-  subtasks: Task[]
-  siblings: Task[]
   attempts: TaskSessionLink[]
 }
 
@@ -402,33 +420,24 @@ export interface TaskForSessionResult {
  * ownership. These collections are read together so the sidebar never has to
  * reconcile independently timed task and link responses. */
 /**
- * What a client sends to a host to mint (or bind) the task a session is about
- * to start under.
+ * What a client sends to a host to bind the task a session is about to start
+ * under. A session never makes a task of its own, so the request always names
+ * one.
  *
  * There is no `sessionId`: the session does not exist yet at first dispatch, and
  * the execution host — which may be a different machine entirely — issues it.
  * The link is written afterwards through `tasksLinkSession`.
  */
 export interface PrepareSessionTaskRequest {
-  /** Bind this task instead of minting a new one. */
-  existingTaskId?: string | null
-  /** Mint the new task as a direct child of this one. */
-  parentTaskId?: string | null
-  /**
-   * The id to mint the new task under: a ULID the client minted when it made
-   * the session, so the row it already shows keeps its identity when the task
-   * arrives (docs/plans/sidebar-motion.md, step 1). Invalid with
-   * `existingTaskId`. The host rejects a malformed id and an id that already
-   * names a task. Absent, the host mints the id itself.
-   */
-  taskId?: string | null
+  /** The task the session joins. */
+  taskId: string
   projectKey?: string | null
-  /** The first prompt, whose first non-empty line deterministically names the task. */
-  prompt?: string
-  /** Also return a `TaskSnapshot` of the minted/bound task. Set by a client
-   *  about to dispatch to a different execution host, which needs the snapshot
-   *  to ride the prompt (see docs/plans/dispatch-parity.md). */
+  /** Also return a `TaskSnapshot` of the bound task. Set by a client about to
+   *  dispatch to a different execution host, which needs the snapshot to ride
+   *  the prompt (see docs/plans/dispatch-parity.md). */
   includeSnapshot?: boolean
+  /** Start this session as the task's lead. Refused when the task has one. */
+  role?: 'lead'
 }
 
 export interface PrepareSessionTaskResult {
@@ -443,18 +452,26 @@ export interface PrepareSessionTaskResult {
  *  `read_work`/`read_plan`/`find_works` answer from these copies. PR and
  *  automation links ship no content: their facts (title, url, live status)
  *  already ride `TaskDetails.links`. */
-export interface TaskLinkedItemSnapshot {
-  kind: 'work' | 'plan'
+interface LinkedItemSnapshotBase {
   /** The link's target key: a work id, or a plan's `planToolUseId`. */
   key: string
   /** The link's target scope: `''` for works; the plan's owning session id. */
   scope: string
   title: string
-  /** Works only: how the content renders. */
-  workType?: WorkType
   content: string
   updatedAt?: string
 }
+
+export type TaskLinkedItemSnapshot =
+  | (LinkedItemSnapshotBase & {
+    kind: 'work'
+    /** How the content renders. */
+    workType: WorkType
+    /** The `contentVersion` of `content`, the precondition an `update_work`
+     *  from the dispatched session names. */
+    contentVersion: number
+  })
+  | (LinkedItemSnapshotBase & { kind: 'plan' })
 
 /**
  * The serializable task state a dispatched prompt carries: exactly what
@@ -464,7 +481,6 @@ export interface TaskLinkedItemSnapshot {
  */
 export interface TaskSnapshot {
   details: TaskDetails
-  parent: TaskDetails | null
   sessions: TaskSessionLink[]
   /** Full content of the task's content-bearing linked items (works, plans),
    *  so the dispatched agent can read the documents its task points at.
@@ -480,6 +496,34 @@ export interface TaskSidebarSnapshot {
   /** Every durable PR edge, newest first. */
   prLinkListsByTask?: Record<string, TaskSidebarPrLink[]>
 }
+
+/** `tasksSearchComments`: the tasks whose comments hold every word of a query
+ *  (docs/plans/unified-search.md §7). */
+export interface TaskCommentSearchQuery {
+  query: string
+  /** One project; omit to search every project. */
+  projectKey?: string
+}
+
+/** One task found by its comments, with the passage of the comment that matched. */
+export interface TaskCommentHit {
+  taskId: string
+  commentId: string
+  /** The comment's passage, each matched word between the markers of `search-snippet.ts`. */
+  snippet: string
+  createdAt: number
+}
+
+/** Narrows a sidebar snapshot to named tasks, so one changed task costs one
+ *  row rather than the whole list. A named task absent from the answer was
+ *  deleted or is no longer visible to the caller. */
+export interface TaskSidebarFilter {
+  taskIds?: string[]
+}
+
+/** The most task ids one narrowed sidebar read may name. A client with more
+ *  changes waiting reads the whole list instead. */
+export const MAX_SIDEBAR_TASK_IDS = 200
 
 /** One comment on a task, as providers surface it (also the shape stored in a
  *  task's `raw.comments`). Returned from `postComment` so callers can patch a
@@ -611,6 +655,8 @@ export interface TaskSessionLink {
   role?: TaskSessionRole
   /** Session-owned checkout branch, projected through the relationship. */
   branch?: string
+  /** Checkout address on executionServerId (or the task host), when indexed. */
+  checkoutPath?: string
   /** Whether that branch is the session's own worktree rather than a clone it
    *  shares. Git state is held per working directory, so every attempt running
    *  in one checkout reports the same branch — a fact about the checkout, not

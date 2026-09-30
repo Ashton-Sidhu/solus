@@ -12,12 +12,11 @@
  */
 import { inspect } from 'node:util'
 import { z } from 'zod'
-import { estimateRetainedBytes } from '@solus/server/transports/response-receipt-cache'
+import { estimateRetainedBytes } from '@solus/server/transport/response-receipt-cache'
 import { parseToolInput } from '../packages/workspace-ui/src/components/conversation/lib/activity-summary'
 import { parseSubagentInput } from '../packages/workspace-ui/src/components/conversation/lib/subagent'
-import { buildTurns, groupMessages, stabilizeTurns } from '../packages/workspace-ui/src/components/conversation/lib/turns'
 import { dedupeHistoryEntries, FrozenEntryOrder } from '../packages/workspace-ui/src/lib/pickerEntries'
-import type { Message, Session, SessionMeta, Tab } from '@solus/contracts/types'
+import type { Session, SessionMeta, Tab } from '@solus/contracts/types'
 
 interface BenchResult {
   name: string
@@ -244,14 +243,14 @@ function sessionPayload(messageCount = 200): object[] {
   record('Codex stdout buffering of an 8 MB frame in 64 KiB chunks', '1 frame', before, after)
 }
 
-// Note: a chunk-array rewrite of control-plane pendingFlush was prototyped and
+// Note: a chunk-array rewrite of the session runtime's pendingFlush was prototyped and
 // measured HERE to be slower than the existing `+=` (engine rope strings make
 // unread concatenation O(1) per token), so that change was reverted. The
 // accumulation stays a plain string on purpose.
 
 // ───────────────────────────────────────────────────────────────────────────
 // 6. gitContext change detection — double JSON.stringify vs field compare
-//    (src/main/control-plane.ts watcher path, per session per watcher fire)
+//    (session-runtime.ts watcher path, per session per watcher fire)
 // ───────────────────────────────────────────────────────────────────────────
 {
   const gitContext = {
@@ -330,59 +329,6 @@ function sessionPayload(messageCount = 200): object[] {
     for (const input of subagentInputs) parseSubagentInput(input)
   })
   record('subagent-input parsing, 8 agents re-read over 2k ticks', '2k ticks', subBefore, subAfter)
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// 8. Streaming reveal frame — full Turn churn vs stabilized identities
-//    (turns.ts stabilizeTurns + ConversationView reveal ticker)
-// ───────────────────────────────────────────────────────────────────────────
-{
-  let clock = 0
-  const msg = (partial: Partial<Message> & Pick<Message, 'role'>): Message => {
-    clock += 1000
-    return { id: `m${clock}`, content: 'answer text', timestamp: clock, ...partial } as Message
-  }
-  const transcript: Message[] = []
-  for (let i = 0; i < 50; i++) {
-    transcript.push(msg({ role: 'user', content: `prompt ${i}` }))
-    transcript.push(msg({ role: 'tool', toolName: 'Read', toolInput: '{"file_path":"a.ts"}', toolStatus: 'completed' }))
-    transcript.push(msg({ role: 'assistant', content: `answer ${i}` }))
-  }
-  const grouped = groupMessages(transcript)
-
-  // What each reveal frame costs is buildTurns either way; what stabilization
-  // changes is how many Turn identities survive. Fresh identities are what
-  // re-run every row component's derived state downstream.
-  let previous = buildTurns(
-    [...grouped, { kind: 'live-assistant' as const, id: 'live-stream', content: 'st' }],
-    { running: true },
-  )
-  let churnedIdentities = 0
-  const frames = 300 // ten seconds of streaming at 30 fps
-  for (let frame = 0; frame < frames; frame++) {
-    const next = stabilizeTurns(
-      buildTurns(
-        [...grouped, { kind: 'live-assistant' as const, id: 'live-stream', content: 'st'.repeat(frame + 2) }],
-        { running: true },
-      ),
-      previous,
-    )
-    for (let i = 0; i < next.length; i++) if (next[i] !== previous[i]) churnedIdentities++
-    previous = next
-  }
-  const turnCount = previous.length
-  const beforeChurn = frames * turnCount // every turn object was fresh every frame
-  console.log(
-    `Turn identity churn over ${frames} reveal frames (${turnCount}-turn transcript)\n` +
-      `  before ${beforeChurn} fresh identities  after ${churnedIdentities}  ` +
-      `(${((1 - churnedIdentities / beforeChurn) * 100).toFixed(1)}% less downstream derived re-runs)\n`,
-  )
-  results.push({
-    name: 'Turn identity churn during streaming (downstream derived re-runs)',
-    beforeMs: beforeChurn,
-    afterMs: churnedIdentities,
-    unit: 'identities over 300 frames',
-  })
 }
 
 // ───────────────────────────────────────────────────────────────────────────

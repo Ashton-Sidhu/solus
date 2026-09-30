@@ -2,7 +2,13 @@
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
 import Icon from "@iconify/svelte";
   import { slide } from "svelte/transition";
-  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
+  import {
+    FolderPlus as FolderPlusIcon,
+    LoaderCircle as LoaderIcon,
+    Search as MagnifyingGlassIcon,
+  } from "@lucide/svelte";
+  import NewProjectNameField from "./NewProjectNameField.svelte";
+  import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import type { CloneProtocol } from "@solus/contracts/types";
@@ -49,7 +55,43 @@ import Icon from "@iconify/svelte";
   }
 </script>
 
-{#if isClone}
+{#if store.source === "new"}
+  <!-- The name is the whole step: typed as the end of its own path, in the same
+       card the onboarding "Name your project" stage uses. The folder in front
+       of it is where "Change location" lives. -->
+  <div class="text-xs flex flex-col gap-2 px-5 pb-5 pt-1">
+    <label
+      class="flex min-h-[4.5rem] cursor-text items-center gap-3 rounded-2xl bg-[var(--solus-tx-card-bg)] py-3 pl-4 pr-4 shadow-[shadow:var(--solus-tx-card-shadow)] transition-shadow duration-150 focus-within:shadow-[shadow:var(--solus-tx-card-shadow-hover)] sm:gap-4 sm:pr-5"
+    >
+      <span
+        class="flex size-10 shrink-0 items-center justify-center rounded-full"
+        style="background: color-mix(in oklch, var(--chart-2) 16%, transparent); color: color-mix(in oklch, var(--chart-2) 72%, var(--foreground))"
+      >
+        <FolderPlusIcon size={18} />
+      </span>
+      <NewProjectNameField
+        bind:value={store.newProjectName}
+        bind:inputEl
+        parent={store.newProjectParent ?? store.projectsRoot}
+        platform={store.platform}
+        disabled={store.creatingProject}
+        onchangeparent={() => { store.beginBrowse(); onBrowse(); }}
+        class="text-base"
+      />
+      {#if store.creatingProject}
+        <LoaderIcon size={15} class="shrink-0 animate-spin text-muted-foreground" aria-label="Creating" />
+      {:else if store.canCreate}
+        <Kbd variant="hint" class="shrink-0 pointer-coarse:hidden">↵</Kbd>
+      {/if}
+    </label>
+
+    {#if store.createError}
+      <p class="text-pretty leading-relaxed text-(--solus-status-error)" transition:slide={{ duration: 160 }}>
+        {store.createError}
+      </p>
+    {/if}
+  </div>
+{:else if isClone}
   <div class="text-xs flex flex-col gap-4 border-t border-border px-5 pb-5 pt-[1.125rem]">
     <label class="flex flex-col gap-1.5">
       <span class="text-muted-foreground">Repository URL</span>

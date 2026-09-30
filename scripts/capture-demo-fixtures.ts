@@ -397,17 +397,15 @@ async function captureWorks(workspace: string, db: Database | null): Promise<Dem
 }
 
 function rowToTask(row: DbRow): Task {
-  // SAFETY: `tasks.kind` is written only from `Task['kind']`.
-  const kind = row.kind as Task['kind']
   // SAFETY: `tasks.status` is written only from `Task['status']`.
   const status = row.status as Task['status']
   // SAFETY: `tasks.priority` is written only from `Task['priority']`.
   const priority = row.priority as Task['priority']
   return {
-    id: String(row.id), providerId: 'local', kind, title: String(row.title),
+    id: String(row.id), providerId: 'local', title: String(row.title),
     body: String(row.body ?? ''), status, url: null,
     assignee: row.assignee ? String(row.assignee) : undefined, labels: parseJson(row.labels, []),
-    parentId: row.parent_id ? String(row.parent_id) : undefined, dueDate: row.due_date ? String(row.due_date) : undefined,
+    dueDate: row.due_date ? String(row.due_date) : undefined,
     priority, branch: row.branch ? String(row.branch) : undefined,
     pr: parseJson(row.pr, undefined), canEditPlanningFields: true,
     updatedAt: Number(row.updated_at), raw: parseJson(row.raw, null),

@@ -13,7 +13,8 @@ import { type Task } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
 import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath } from '@solus/contracts/types'
-import { loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
+import { INITIAL_HISTORY_TURNS } from '@solus/client-core/session-history-page'
+import { loadSessionTranscript } from './session-transcript'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -27,7 +28,9 @@ import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
 import type { SessionEnvironmentWorkspace } from '../git/session-environment.store.svelte'
-import type { WorkspaceContext, ForkTabOptions } from './workspace.context.svelte'
+import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
+import type { NavTarget } from './routing/location'
+import type { SessionDraft } from './session-draft.svelte'
 
 /** The lineage and answering member's metadata for a saved session. One read on
  *  a current host; a host that predates `describeSession` rejects the method,
@@ -52,6 +55,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'adoptSessionId'
   | 'apiFor'
   | 'applyRuntimeAttach'
+  | 'applyPendingQuestions'
   | 'config'
   | 'createTab'
   | 'ctxFor'
@@ -59,7 +63,10 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'drafts'
   | 'environment'
   | 'eventReducer'
+  | 'goToTask'
+  | 'hasCompanionPanes'
   | 'lifecycle'
+  | 'onTaskOpened'
   | 'openSessionRecord'
   | 'openSplitChat'
   | 'planStore'
@@ -126,22 +133,14 @@ export class SessionOpening {
     // Forking mid-turn branches from the last settled point, not from the turn
     // still being written: its messages are half-formed (tools still spinning)
     // and the fork's own first prompt lands later anyway. Cut the in-flight turn
-    // out of the copy and say so on the divider.
+    // out of the copy. The host records the fork when it forks the provider
+    // thread, on the first prompt, and its activity row draws the divider.
     const sourceIsRunning = sourceSession.status === 'running' || sourceSession.status === 'connecting'
     const inFlightFrom = sourceIsRunning ? findLastUserIndex(sourceSession.messages) : -1
     const settledMessages = inFlightFrom === -1
       ? sourceSession.messages
       : sourceSession.messages.slice(0, inFlightFrom)
     const copiedMessages: Message[] = settledMessages.map((m) => ({ ...m, id: uuid() }))
-    const forkInfoMsg: Message = {
-      id: uuid(),
-      role: 'system',
-      content: '',
-      timestamp: Date.now(),
-      forkSourceSessionId: sourceSession.agentSessionId,
-      forkSourceTitle: originalTitle,
-    }
-    if (inFlightFrom !== -1) forkInfoMsg.forkSourceRunning = true
 
     const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
     const forkTask: Session['task'] = taskId
@@ -151,10 +150,10 @@ export class SessionOpening {
       agentSessionId: sourceSession.agentSessionId,
       forked: true,
       forkExcludeLatestTurn: sourceIsRunning && inFlightFrom !== -1,
-      // Source provenance lives on the divider. It is not an identity alias:
-      // this fork and its source remain separate sessions.
+      // Source provenance lives on the fork's activity. It is not an identity
+      // alias: this fork and its source remain separate sessions.
       forkedFromSessionId: null,
-      messages: [...copiedMessages, forkInfoMsg],
+      messages: copiedMessages,
       additionalDirs: [...sourceSession.additionalDirs],
       // A fork runs exactly where its source does.
       run: {
@@ -178,7 +177,7 @@ export class SessionOpening {
       this.workspace.setActiveTab(forkTab.id)
       this.workspace.resetOverlays()
     }
-    void this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId }).catch(() => null)
+    void this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, force: false }).catch(() => null)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
@@ -221,16 +220,17 @@ export class SessionOpening {
     const namePrompt = firstUser?.content.slice(0, 200) ?? ''
 
     this.workspace.ui.beginContinueInWorktree(tabId)
-    // Live status card while the (eager, ~1-2s) worktree setup runs — branch-name
-    // generation + `git worktree add` — mirroring the backend's new-session card
-    // so the wait shows progress instead of a bare "Creating Worktree…" label.
+    // Live status card while the (eager, ~1-2s) `git worktree add` runs,
+    // mirroring the backend's new-session card so the wait shows progress
+    // instead of a bare "Creating Worktree…" label. The host names the branch
+    // afterwards and sends the new name as a `git_context` event.
     session.statusCard = {
       id: `continue-worktree-${tabId}`,
       title: 'Moving into a new worktree…',
       icon: 'git-branch',
       status: 'active',
       steps: [
-        { id: 'worktree', label: 'Naming & creating the worktree', status: 'active' },
+        { id: 'worktree', label: 'Creating the worktree', status: 'active' },
         { id: 'session', label: 'Moving this.workspace session in', status: 'pending' },
       ],
     }
@@ -253,19 +253,13 @@ export class SessionOpening {
         level: 'full',
         force: true,
       }).catch(() => null)
+      // The host recorded the move; its activity row draws the divider.
       session.forkedFromSessionId = session.agentSessionId
       session.forked = true
-      session.messages.push({
-        id: uuid(),
-        role: 'system',
-        content: '',
-        timestamp: Date.now(),
-        worktreeMovedTo: result.gitContext.branch ?? result.gitContext.detachedHeadSha ?? 'detached HEAD',
-      })
       requestInputFocus()
     } finally {
-      // Clear the setup card whether we succeeded (the "Continued in worktree"
-      // divider now marks completion) or failed (toast already shown). Nothing
+      // Clear the setup card whether we succeeded (the host's "moved this
+      // session" activity now marks completion) or failed (toast already shown). Nothing
       // runs here, so no status_change will clear it for us.
       if (session.statusCard?.id === `continue-worktree-${tabId}`) session.statusCard = null
       this.workspace.ui.endContinueInWorktree(tabId)
@@ -274,7 +268,7 @@ export class SessionOpening {
 
   async resumeSession(
     meta: SessionMeta,
-    opts?: { background?: boolean; intoTabId?: string },
+    opts?: { background?: boolean; intoTabId?: string; keepAside?: boolean },
   ): Promise<string> {
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
@@ -327,8 +321,8 @@ export class SessionOpening {
           if (openTabId === this.workspace.activeTabId) {
             // Already the active tab, so nothing switches — but a draft or page
             // may still be sitting over the conversation being asked for.
-            this.workspace.resetOverlays({ closeArtifact: true })
-          } else this.workspace.selectTab(openTabId)
+            this.workspace.resetOverlays({ closeArtifact: true, keepAside: opts?.keepAside })
+          } else this.workspace.selectTab(openTabId, 'click', { keepAside: opts?.keepAside })
         }
         return openTabId
       }
@@ -406,7 +400,7 @@ export class SessionOpening {
       }
     }
     if (!background && !intoTabId) {
-      this.workspace.resetOverlays()
+      this.workspace.resetOverlays({ keepAside: opts?.keepAside })
     }
 
     // Main is authoritative on session identity. This client read the provider
@@ -433,6 +427,7 @@ export class SessionOpening {
         (watched) => {
           this.workspace.adoptSessionId(tabId, watched.sessionId)
           this.workspace.applyRuntimeAttach(tabId, watched.runtime)
+          this.workspace.applyPendingQuestions(tabId, watched.pendingQuestions)
           return null
         },
         // With no runtime to attach, a failed watch costs only the identity
@@ -465,7 +460,7 @@ export class SessionOpening {
         displayCwd: workingDirectory,
         provider,
         ctx: this.workspace.ctxFor(tabId),
-        limit: RESTORED_TRANSCRIPT_LIMIT,
+        turnLimit: INITIAL_HISTORY_TURNS,
       })
 
       const session = currentResumeTarget()
@@ -511,7 +506,7 @@ export class SessionOpening {
             restoredSession.run.gitContext = null
             restoredSession.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
           } else {
-            environmentRefresh = this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, level: 'full' })
+            environmentRefresh = this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, level: 'full', force: false })
           }
 
           void this.workspace.lifecycle.refreshPluginCommands(workingDirectory, tabId)
@@ -542,26 +537,48 @@ export class SessionOpening {
 
   /** Compose a fresh session bound to a task. The task target belongs to the
    *  draft until Send creates the session, so leaving the composer does not
-   *  leave an empty tab behind. */
-  async openTaskSession(task: Task): Promise<void> {
-    // The task's own project, not the one on screen: the sidebar spans projects,
-    // so the row you clicked is often not in the one the status bar names.
-    const cwd = task.projectKey ?? '~'
-    // The task's own host, not the focused tab's: the task's path names a
-    // folder on the host that holds it. A task in the cloud workspace service
-    // files there and runs on an execution host the run picker chooses.
-    const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
-    this.workspace.router.closeGroup('page')
-    if (!taskServerId || hostRolesStore.hasExecution(taskServerId)) {
-      this.workspace.drafts.openSessionDraft(
-        { taskId: task.id, target: this.workspace.router.leadingPane.id, serverId: taskServerId, taskServerId },
-        cwd,
-      )
-      requestInputFocus()
-      return
-    }
-    this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { taskId: task.id, taskServerId })
+   *  leave an empty tab behind. `role: 'lead'` composes the task's lead, with
+   *  the task page beside the draft: the prompt is about the task, so the
+   *  record is on screen while it is written (docs/plans/task-conversation.md). */
+  async openTaskSession(task: Task, options: { role?: 'lead' } = {}): Promise<void> {
+    // A task page already beside the conversation takes this task in place
+    // (`goToTask`), rather than closing and reopening the pane.
+    if (options.role === 'lead' && this.workspace.hasCompanionPanes) this.openTaskAside(task.id)
+    else this.workspace.router.closeGroup('page')
+    this.createTaskDraft(task, options.role, this.workspace.router.leadingPane.id)
     requestInputFocus()
+  }
+
+  /** The task page in the companion pane, where there is one. The phone has
+   *  one pane and the conversation keeps it; there the page is a tap away on
+   *  the session's task chip. */
+  private openTaskAside(taskId: string): void {
+    if (!this.workspace.hasCompanionPanes) return
+    this.workspace.goToTask(taskId, 'click', 'secondary')
+  }
+
+  /**
+   * Mint a draft bound to a task, in the task's own project and on the task's
+   * own host, and point `target` at it when one is given. The task page's
+   * conversation composer takes a draft with no pane of its own.
+   *
+   * The task's project, not the one on screen: the sidebar spans projects, so
+   * the row you clicked is often not in the one the status bar names. The
+   * task's host, not the focused tab's: the task's path names a folder on the
+   * host that holds it. A task in the cloud workspace service files there and
+   * runs on an execution host the run picker chooses.
+   */
+  createTaskDraft(task: Task, role: 'lead' | undefined, target?: NavTarget): SessionDraft {
+    const cwd = task.projectKey ?? '~'
+    const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
+    const binding = { taskId: task.id, taskRole: role, taskServerId }
+    if (!taskServerId || hostRolesStore.hasExecution(taskServerId)) {
+      const options = { ...binding, target, serverId: taskServerId }
+      return target
+        ? this.workspace.drafts.openSessionDraft(options, cwd)
+        : this.workspace.drafts.createSessionDraft(options, cwd)
+    }
+    return this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId }, undefined, target)
   }
 
   private get runOnHosts(): RunOnHost[] {
@@ -600,36 +617,69 @@ export class SessionOpening {
    * repository on Send. With neither, the draft names no machine and the run
    * picker says why. A `preferredServerId` — the machine cloud onboarding just
    * chose — is asked first, so a stale checkout elsewhere does not outrank it.
+   *
+   * `target` is the pane the draft opens in, the leading pane by default; null
+   * mints the draft without pointing any pane at it.
    */
   openRepositoryDraft(
     projectKey: string | null,
-    task?: { taskId: string; taskServerId: string },
+    task?: { taskId: string; taskRole?: 'lead'; taskServerId: string },
     preferredServerId?: string,
-  ): void {
+    target: NavTarget | undefined = this.workspace.router.leadingPane.id,
+  ): SessionDraft {
     const choice = projectKey
       ? chooseRunOnHost(projectsStore.checkoutsOf(projectKey), this.runOnHosts, preferredServerId)
       : null
-    const target = this.workspace.router.leadingPane.id
-    if (choice?.path) {
-      this.workspace.drafts.openSessionDraft({ ...task, target, serverId: choice.serverId }, choice.path)
-      return
-    }
-    const draft = this.workspace.drafts.openSessionDraft({ ...task, target }, choice ? '~' : (projectKey ?? '~'))
+    const open = (options: CreateTabOptions, cwd: string): SessionDraft => target
+      ? this.workspace.drafts.openSessionDraft({ ...options, target }, cwd)
+      : this.workspace.drafts.createSessionDraft(options, cwd)
+    if (choice?.path) return open({ ...task, serverId: choice.serverId }, choice.path)
+    const draft = open({ ...task }, choice ? '~' : (projectKey ?? '~'))
     if (choice && projectKey && isRepositoryKey(projectKey)) {
       draft.run.pendingHostDispatch = { serverId: choice.serverId, intent: 'dispatch', repoKey: projectKey }
     }
+    return draft
   }
 
-  /** Jump back to the work happening on a task: focus the most-recently-linked
-   *  session if it's open, else resume it from history. The back-link counterpart
-   *  to openTaskSession, driven by the persisted task↔session map. */
+  /**
+   * Open a task as the split view: its lead's conversation in the leading pane
+   * and the task page beside it. A task with no lead gets one — a lead draft,
+   * whatever else has run on it — so opening a task always means talking to
+   * it (docs/plans/task-conversation.md, decision 6). A provider ticket
+   * becomes a native task first, because a session binds only to one. The
+   * task is open on this client from then on, so the sidebar lists it.
+   */
+  async openTask(ticket: Task): Promise<void> {
+    const task = ticket.providerId === 'local'
+      ? ticket
+      : await this.workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
+    this.workspace.onTaskOpened?.(task.id)
+    const links = this.workspace.tasksStore.get(task.id).sessions
+    const hasLead = links?.some((candidate) => candidate.role === 'lead') ?? false
+    if (hasLead) await this.openTaskLinkedSession(task)
+    else await this.openTaskSession(task, { role: 'lead' })
+  }
+
+  /** Jump back to the work happening on a task: its lead when it has one, else
+   *  the most-recently-linked session — focused if it's open, else resumed from
+   *  history. The back-link counterpart to openTaskSession, driven by the
+   *  persisted task↔session map. A lead comes with the task page beside it, as
+   *  its draft did; a task nothing has run on starts its lead. */
   async openTaskLinkedSession(task: Task): Promise<void> {
     const links = this.workspace.tasksStore.get(task.id).sessions
-    const link = links?.[links.length - 1]
-    if (!link?.sessionId) return void this.openTaskSession(task)
+    const link = links?.find((candidate) => candidate.role === 'lead') ?? links?.[links.length - 1]
+    if (!link?.sessionId) return void this.openTaskSession(task, { role: 'lead' })
 
     const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
     if (!ownerServerId) return
+    // The page goes up before the session loads, and the session keeps it
+    // (`keepAside`). A resume reads the whole transcript, and the page used to
+    // wait behind it: the conversation filled the column, then the split opened.
+    // A task page already beside the conversation takes this task in place
+    // (`goToTask`); closing it and opening a new pane resized the column twice.
+    const keepAside = link.role === 'lead' && this.workspace.hasCompanionPanes
+    if (keepAside) this.openTaskAside(task.id)
+    else this.workspace.router.closeGroup('page')
     const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
     const openTab = findOpenTabForSession(
       link.sessionId,
@@ -641,7 +691,7 @@ export class SessionOpening {
     )
     if (openTab) {
       this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-      this.workspace.selectTab(openTab)
+      this.workspace.selectTab(openTab, 'click', { keepAside })
     }
     else {
       // The task link stores a session id, not its agent backend. Resolve the
@@ -651,10 +701,9 @@ export class SessionOpening {
       const meta = await readSessionMeta(sessionServerId, link.sessionId)
       if (meta) {
         this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-        await this.resumeSession(meta)
+        await this.resumeSession(meta, { keepAside })
       }
     }
-    this.workspace.router.closeGroup('page')
     requestInputFocus()
   }
 }

@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { isSolusApiId } from "@solus/contracts/uplink";
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
-  import VirtualList from "svelte-tiny-virtual-list";
+  import VirtualList from "../../ui/list-page/VirtualList.svelte";
   import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -17,7 +18,6 @@
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { blurActiveTextInputOnMobile } from "../../../lib/inputFocus";
   import { useKeybinding, useScope } from "../../../lib/keybindings/use-keybinding.svelte";
-  import { comboHint } from "../../../lib/keybindings/manifest";
   import { createSessionPreviewStore } from "../../../lib/preview.svelte";
   import { boundHitWindow } from "../../../lib/sessionPreviewMessages";
   import type { PickerEntry as PreviewSource } from "../../../lib/sessionUtils";
@@ -25,7 +25,6 @@
   import { getPopoverLayer } from "../../popoverLayer.svelte";
   import { portal } from "../../portal";
   import { Input } from "../../ui/input";
-  import Kbd from "../../ui/Kbd.svelte";
   import { relativeTime } from "../../tasks/lib/tasks-api";
   import SessionContextMenu from "../SessionContextMenu.svelte";
   import SessionPreview from "../SessionPreview.svelte";
@@ -40,10 +39,11 @@
   import { ListProjectSwitcher } from "../../ui/list-page";
   import type { ListProjectOption } from "../../ui/list-page/list-page";
   import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
-  import { ConversationSearch } from "./lib/conversation-search.svelte";
-  import { mergeSessionHomes } from "../lib/session-home";
+  import { PickerSearches } from "./lib/conversation-search.svelte";
+  import { mergeSessionHomes, type SessionHomeHosts } from "../lib/session-home";
   import { serversStore } from "../../../contexts";
   import type { PickerSearchMode, PickerSort } from "./lib/picker-search";
+  import type { PickerFilters } from "./lib/picker-filters";
   import {
     buildPickerRows,
     collapseTarget,
@@ -74,10 +74,10 @@
   const sidebarStore = getSessionSidebarStore();
   const layer = getPopoverLayer();
   const preview = createSessionPreviewStore();
-  // What was said, not just what things are called. The title match above is
-  // instant and local; this one asks every connected host and lands a beat
-  // later as its own section.
-  const conversationSearch = new ConversationSearch();
+  // What was said, not just what things are called, and every session while
+  // the box is empty. The title match is instant and local; the hosts' answer
+  // lands a beat later.
+  const searches = new PickerSearches();
   let query = $state("");
   let selectedKey = $state<string | null>(null);
   let revealedTaskId = $state<string | null>(null);
@@ -99,7 +99,7 @@
   let peekTarget = $state<
     | { kind: "task"; task: Task }
     | { kind: "session"; session: SidebarSessionChild; task: Task }
-    | { kind: "conversation"; meta: SessionMeta; hit: ConversationHit }
+    | { kind: "conversation"; meta: SessionMeta; hit?: ConversationHit }
     | null
   >(null);
   /** Which tasks the reader opened. A search opens its own hits on top of
@@ -109,25 +109,32 @@
   // Newest work first, and the row now states the date it is sorted by, so the
   // order is readable rather than something you have to take on trust.
   const tasks = $derived(
-    sidebarStore.pickableTasks.toSorted(
+    session.tasksStore.tasks.toSorted(
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     ),
   );
   // One row per session across its homes (session-home.ts): a hit from the
   // cloud record and the same session from its connected runner are one
   // conversation, and the runner is the one that can open it.
+  const sessionHomes: SessionHomeHosts = {
+    isSolusApi: isSolusApiId,
+    isConnected: (serverId) => !!serverId && serverConnections.statusFor(serverId) === "connected",
+  };
   const conversationHits = $derived(
     mergeSessionHomes(
-      conversationSearch.results.map((result) => ({
+      searches.sessions.results.map((result) => ({
         sessionId: result.session.sessionId,
         serverId: result.session.serverId ?? null,
         result,
       })),
-      {
-        isCloudHost: (serverId) => serversStore.isCloudHost(serverId),
-        isConnected: (serverId) => !!serverId && serverConnections.statusFor(serverId) === "connected",
-      },
+      sessionHomes,
     ).map((row) => row.result),
+  );
+  const recentSessionMetas = $derived(
+    mergeSessionHomes(
+      searches.everySession.sessions.map((meta) => ({ sessionId: meta.sessionId, serverId: meta.serverId ?? null, meta })),
+      sessionHomes,
+    ).map((row) => row.meta),
   );
   // The sidebar already knows every session a task owns — links, mounted tabs
   // and their attention — so the picker asks it rather than keeping a second
@@ -154,7 +161,7 @@
     projectChoices.map<ListProjectOption>((choice) => ({
       key: choice.projectKey,
       projectKey: choice.projectKey,
-      serverId: serverConnections.defaultServerId() ?? "",
+      serverId: serverConnections.defaultMachineId() ?? "",
       label: choice.label,
       available: true,
     })),
@@ -166,9 +173,11 @@
       projectKey: scopeProjectKey,
       sort: session.ui.pickerSort,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
-      snoozedTaskIds: new Set(sidebarStore.snoozedTasks.flatMap((row) => row.taskId ?? [])),
       conversations: conversationHits,
-      conversationsCapped: conversationSearch.capped,
+      conversationsRemaining: searches.sessions.remaining,
+      recentSessions: recentSessionMetas,
+      commentPassages: searches.comments.passages,
+      filters: session.ui.pickerFilters,
     }),
   );
   const selectedIndex = $derived(
@@ -285,13 +294,24 @@
     if (open) void scrollSelectionIntoView();
   });
 
-  // The scope is read here too, so widening to all projects re-asks the hosts.
-  // Under the keywords mode the hosts are not asked at all: the reader chose to
-  // match names only, and a section of passages would contradict that choice.
+  // The scope, the mode and the filters are read here too, so a change to any
+  // of them asks the hosts again. The keywords mode asks for names only.
   $effect(() => {
     if (!open) return;
-    if (session.ui.pickerSearchMode === "keywords" || session.ui.pickerResultType === "tasks") conversationSearch.reset();
-    else conversationSearch.search(query, scopeProjectKey);
+    searches.update({
+      query,
+      scope: scopeProjectKey,
+      resultType: session.ui.pickerResultType,
+      mode: session.ui.pickerSearchMode,
+      filters: session.ui.pickerFilters,
+      now: Date.now(),
+    });
+  });
+
+  // Read on open and on a new scope, not on each keystroke: a query lists
+  // what it found instead.
+  $effect(() => {
+    if (open) searches.loadEverySession(scopeProjectKey, session.ui.pickerResultType);
   });
 
   $effect(() => {
@@ -322,7 +342,7 @@
     revealedTaskId = null;
     open = false;
     preview.reset();
-    conversationSearch.reset();
+    searches.reset();
     sessionMetas.clear();
     onClose();
     requestAnimationFrame(() => blurActiveTextInputOnMobile());
@@ -358,6 +378,13 @@
     searchEl?.focus();
   }
 
+  function chooseFilters(filters: PickerFilters): void {
+    session.ui.pickerFilters = filters;
+    selectedKey = null;
+    void scrollSelectionIntoView();
+    searchEl?.focus();
+  }
+
   /** The chosen scope is held on the workspace, so it survives a close and
    *  every other mounted picker. Landing back on the composer's own project
    *  resumes following it rather than pinning it — see `scopeForChoice`. */
@@ -369,10 +396,10 @@
     searchEl?.focus();
   }
 
-  /** ⏎ on a task: its latest session, or a new draft if it has none. */
+  /** ⏎ on a task: the same move as clicking its row in the sidebar. */
   function select(task: Task): void {
     window.dispatchEvent(
-      new CustomEvent("solus:expand-sidebar-task", { detail: task.id }),
+      new CustomEvent("solus:reveal-sidebar-task", { detail: task.id }),
     );
     void sidebarStore.selectTaskRecord(task);
     close();
@@ -434,12 +461,8 @@
   // ── Managing a task without leaving the picker ──
   // Every move below is the same one the sidebar's row menu makes, on the same
   // store calls, so a task looks identical whichever surface changed it. The
-  // picker stays open for status, snooze and unread — they are edits to a row
+  // picker stays open for status and unread — they are edits to a row
   // you are still choosing between — and closes for anything that navigates.
-
-  function isSnoozed(task: Task): boolean {
-    return sidebarStore.snoozedTasks.some((row) => row.taskId === task.id);
-  }
 
   function openTaskPage(task: Task): void {
     const taskId = task.id;
@@ -491,7 +514,7 @@
   }
 
   function deleteTask(task: Task): void {
-    const pending = session.tasksStore.softRemove([task.id]);
+    const pending = sidebarStore.deleteTasks([task.id]);
     if (!pending.length) return;
     toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
       onDismiss: () =>
@@ -589,7 +612,7 @@
     // A phone has no preview column, so a tap raises the same detail and action
     // surface that desktop keeps beside the list, whatever kind of row it is.
     // The sheet owns the explicit Open or Resume action; desktop keeps the
-    // direct row activation promised by its footer and preview pane.
+    // direct row activation promised by its preview pane.
     if (runtime.isMobileViewport) openPeek(entry);
     else if (entry.kind === "conversation") resumeConversation(entry.meta);
     else if (entry.kind === "session") selectSession(entry.session);
@@ -676,25 +699,34 @@
   }
 
   const counts = $derived.by(() => {
-    // A "+" where the hosts stopped at their cap: the number is a floor.
-    const sessions = `${list.sessionCount}${list.sessionsCapped ? "+" : ""}`;
+    const sessions = `${list.sessionCount} ${list.sessionCount === 1 ? "session" : "sessions"}`;
     const base = session.ui.pickerResultType === "sessions"
-      ? `${sessions} ${list.sessionCount === 1 && !list.sessionsCapped ? "session" : "sessions"}`
+      ? sessions
       : session.ui.pickerResultType === "tasks" ? `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"}`
-      : `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${sessions} ${list.sessionCount === 1 && !list.sessionsCapped ? "session" : "sessions"}`;
+      : `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${sessions}`;
     // What the scope withheld, so widening it is a known quantity.
     return scopeProject && list.hiddenTaskCount > 0
       ? `${base} · ${list.hiddenTaskCount} more in other projects`
       : base;
   });
-  const isSearchingConversations = $derived(!!query.trim() && conversationSearch.loading);
+  const isSearchingConversations = $derived(!!query.trim() && searches.sessions.loading);
+  /** A host answered while still reading its sessions for the first time. */
+  const isIndexingConversations = $derived(!!query.trim() && !searches.sessions.loading && searches.sessions.indexing);
 
   /** An empty list has to say *why* it is empty, because the project scope is
    *  the most likely reason and ⌥A is the answer. */
   const emptyMessage = $derived.by(() => {
     if (session.tasksStore.loading) return "Loading tasks…";
+    if (!query.trim() && searches.everySession.loading && session.ui.pickerResultType !== "tasks") return "Loading sessions…";
+    // An empty list must not claim there is nothing when a host did not answer.
+    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.error) return `Could not read sessions: ${searches.everySession.error}`;
+    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.asked === 0) return "No host to read sessions from";
+    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.asked && searches.everySession.passedOver === searches.everySession.asked) {
+      return `No connected host has a checkout of ${scopeProject?.label ?? "this project"}`;
+    }
     const where = scopeProject ? ` in ${scopeProject.label}` : "";
     if (isSearchingConversations) return "Searching conversations…";
+    if (isIndexingConversations && session.ui.pickerResultType !== "tasks") return "Indexing sessions… Search again in a moment";
     if (session.ui.pickerResultType === "sessions") {
       return query.trim() ? `No sessions match “${query}”${where}` : `No sessions${where} yet`;
     }
@@ -702,7 +734,7 @@
       return query.trim() ? `No tasks match “${query}”${where}` : `No tasks${where} yet`;
     }
     if (query.trim()) return `No tasks or conversations match “${query}”${where}`;
-    return scopeProject ? `No tasks in ${scopeProject.label} yet` : "No tasks yet";
+    return `No tasks or sessions${where} yet`;
   });
 </script>
 
@@ -754,7 +786,7 @@
       />
     </div>
     <!-- The order and the mode, last on the row, at the far end of the box
-         they act on. The counts live in the footer alone. -->
+         they act on. The counts live under the list alone. -->
     <PickerResultMenu
       value={session.ui.pickerResultType}
       onChange={(value) => { session.ui.pickerResultType = value; }}
@@ -764,8 +796,10 @@
     <PickerSearchOptions
       sort={session.ui.pickerSort}
       mode={session.ui.pickerSearchMode}
+      filters={session.ui.pickerFilters}
       onSort={chooseSort}
       onMode={chooseSearchMode}
+      onFilters={chooseFilters}
       portalTarget={layer.el}
       bind:open={searchOptionsOpen}
     />
@@ -791,18 +825,16 @@
           </div>
         {:else if listHeight > 0}
           <VirtualList
-            width="100%"
+            items={list.rows}
             height={listHeight}
-            itemCount={list.rows.length}
-            itemSize={rowSizes}
-            scrollToIndex={scrollTargetIndex}
-            scrollToAlignment="auto"
-            scrollToBehaviour="instant"
-            overscanCount={6}
+            itemSize={(index) => rowSizes[index]}
+            keyOf={(row) => row.key}
+            activeKey={scrollTargetIndex === undefined ? null : (list.rows[scrollTargetIndex]?.key ?? null)}
+            showScrollbar
           >
-            {#snippet item({ index, style }: { index: number; style: string })}
+            {#snippet children(row, _index, style)}
               <UnifiedPickerRow
-                row={list.rows[index]}
+                {row}
                 {style}
                 {selectedIndex}
                 {query}
@@ -816,6 +848,7 @@
                 {revealedTaskId}
                 onRevealChange={(taskId) => (revealedTaskId = taskId)}
                 onSetStatus={(task, status) => void setStatus(task, status)}
+                onReachEnd={() => void searches.sessions.loadMore()}
               />
             {/snippet}
           </VirtualList>
@@ -826,6 +859,17 @@
       {#if isSearchingConversations && list.entries.length > 0}
         <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
           Searching conversations…
+        </div>
+      {:else if isIndexingConversations && list.entries.length > 0}
+        <!-- A machine's first index sweep: its hits are real but not all of them. -->
+        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
+          Indexing sessions… Some conversations may be missing
+        </div>
+      {:else if list.entries.length > 0}
+        <!-- The total sits under the list it counts, in the same line the
+             search notices use while they have something to say. -->
+        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground tabular-nums">
+          {counts}
         </div>
       {/if}
     </div>
@@ -905,29 +949,6 @@
     </div>
   </div>
 
-  <div class="flex shrink-0 items-center gap-5 border-t border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2.5 text-chrome-shelf text-muted-foreground max-md:hidden">
-    <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">↑↓</Kbd> navigate</span>
-    {#if selectedConversation}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
-    {:else if selectedSession}
-      {#if selectedEntry?.kind === "session" && selectedEntry.nested}
-        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">←</Kbd> back to task</span>
-      {/if}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
-    {:else}
-      {#if !query.trim() && session.ui.pickerResultType !== "tasks"}
-        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">→</Kbd> expand sessions</span>
-        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">Space</Kbd> expand sessions</span>
-      {/if}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> {selectedTask && sessionsFor(selectedTask).length ? "resume latest" : "open new draft"}</span>
-    {/if}
-    {#if projectChoices.length > 0}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">{comboHint("task-picker.choose-project")}</Kbd> project</span>
-    {/if}
-    <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">{comboHint("task-picker.search-options")}</Kbd> sort</span>
-    <span class="flex-1" aria-hidden="true"></span>
-    <span class="tabular-nums">{counts}</span>
-  </div>
 {/snippet}
 
 {#if open && taskContextMenu}
@@ -944,8 +965,6 @@
     onOpenTask={() => openTaskPage(menuTask)}
     onOpenSource={menuTask.url ? () => openSourceTicket(menuTask) : undefined}
     onSetStatus={(status) => void setStatus(menuTask, status)}
-    onSnoozeUntil={isSnoozed(menuTask) ? undefined : (until) => sidebarStore.snoozeRow(menuTask.id, until)}
-    onWake={isSnoozed(menuTask) ? () => sidebarStore.snoozeRow(menuTask.id, null) : undefined}
     onMarkUnread={() => void sidebarStore.markTaskUnread(menuTask.id)}
     onDelete={menuTask.providerId === "local" ? () => deleteTask(menuTask) : undefined}
     portalTarget={layer.el}
@@ -1004,8 +1023,8 @@
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
     <!-- `text-menu`, not the chrome rung, for the same reason the command
-         palette holds it: a decision surface keeps 14px on a laptop display. -->
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] md:pointer-fine:[.is-laptop-display_&]:h-[74%] md:pointer-fine:[.is-laptop-display_&]:w-[89%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+         palette holds it: this is a decision surface. -->
+    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

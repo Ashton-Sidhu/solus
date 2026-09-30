@@ -33,12 +33,15 @@
     ChevronRight as CaretRightIcon,
     Database as HardDrivesIcon,
     Monitor as MonitorIcon,
+    Plus as PlusIcon,
+    Unlink as UnlinkIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
     getPullRequestsContext,
+    getSessionSidebarStore,
     hostCapabilitiesStore,
     serversStore,
   } from "@solus/workspace-ui/contexts";
@@ -48,6 +51,13 @@
     isPullRequestRunning,
   } from "@solus/workspace-ui/components/project-panel/lib/git-action-selection";
   import { repositorySetupStore } from "@solus/workspace-ui/contexts/git/repository-setup.store.svelte";
+  import { sessionPrLink, sessionPullRequestsStore } from "@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte";
+  import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
+  import {
+    linkedPullRequestRows,
+    pullRequestOpenTarget,
+  } from "@solus/workspace-ui/components/project-panel/lib/linked-pull-requests";
+  import { toasts } from "@solus/workspace-ui/lib/toasts";
   import PublishRepositoryDialog from "@solus/workspace-ui/components/project-panel/publish-repository/PublishRepositoryDialog.svelte";
   import MobileSheet from "./MobileSheet.svelte";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -94,7 +104,7 @@
 
   const attachmentServerId = $derived(
     composerRun?.serverId ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   const attachmentCapabilities = $derived(
@@ -138,6 +148,33 @@
   const gitCwd = $derived(gitEnvironment.cwd);
   const gitApi = $derived(session.apiFor(composerSourceId));
   const gitServerId = $derived(serverConnections.serverIdForApi(gitApi));
+
+  // The pull requests this session links — the rail's Linked card on desktop.
+  // A draft has no session, so it has no group.
+  const sessionSidebar = getSessionSidebarStore();
+  const hasSession = $derived(!!session.sessionFor(composerSourceId));
+  const linkedRows = $derived(
+    linkedPullRequestRows(
+      hasSession ? sessionSidebar.pullRequestLinksForTab(composerSourceId) : [],
+      (link) => pullRequests.projects.linkedPr(gitServerId, sessionPrLink(link), gitCwd),
+    ),
+  );
+
+  function openLinkedPullRequest(link: SessionPullRequestLink) {
+    void session.prReview.openPullRequest(pullRequestOpenTarget(link), {
+      ctx: session.ctxForEnvironment(gitEnvironment.cwd, gitEnvironment.checkout, composerSourceId),
+      serverId: gitServerId ?? undefined,
+    });
+  }
+
+  function unlinkPullRequest(link: SessionPullRequestLink) {
+    if (!gitServerId) return;
+    void sessionPullRequestsStore.unlink(gitServerId, link).catch((error) =>
+      toasts.error("Couldn't unlink this pull request", {
+        description: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
   // The same readiness model the project panel renders: an unpublished project
   // publishes from this row rather than offering a push into nowhere.
   const gitModel = $derived(
@@ -492,6 +529,45 @@
               </button>
             {/if}
           {/if}
+        </div>
+      {/if}
+
+      {#if hasSession}
+        <div class="flex flex-col gap-2">
+          <span class={SHEET_SECTION_LABEL}>Linked</span>
+          <div class={SHEET_CARD}>
+            {#each linkedRows as row (row.key)}
+              <div class="flex items-center {row.isSettled ? 'opacity-60' : ''}">
+                <button
+                  class={LIST_ROW}
+                  title={row.detailLabel}
+                  onclick={() => handleAction(() => openLinkedPullRequest(row.link))}
+                >
+                  <span class={LIST_ICON}><GitPullRequestIcon size={16} /></span>
+                  <span class={LIST_LABEL}>#{row.number} {row.title}</span>
+                  {#if row.state}<span class={LIST_VALUE}>{row.state}</span>{/if}
+                </button>
+                <button
+                  type="button"
+                  class="grid size-11 shrink-0 place-items-center text-(--muted-foreground) [-webkit-tap-highlight-color:transparent]"
+                  aria-label={`Unlink pull request #${row.number}`}
+                  onclick={() => unlinkPullRequest(row.link)}
+                >
+                  <UnlinkIcon size={16} />
+                </button>
+              </div>
+              <div class={ROW_DIVIDER}></div>
+            {/each}
+            <button
+              class={LIST_ROW}
+              onclick={() => handleAction(() => {
+                session.ui.linkPrompt = { kind: "session-pull-request", tabId: composerSourceId };
+              })}
+            >
+              <span class={LIST_ICON}><PlusIcon size={16} /></span>
+              <span class={LIST_LABEL}>Link a pull request</span>
+            </button>
+          </div>
         </div>
       {/if}
 

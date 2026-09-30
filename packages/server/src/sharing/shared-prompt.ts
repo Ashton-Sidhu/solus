@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { Principal } from '../server/principal'
-import { organizationOf } from '../server/principal'
-import { getSessionRecord } from '../sessions/session-records'
+import type { Principal } from '../admission/principal'
+import { recordScopeOf } from '../admission/principal'
+import { getSessionRecord } from '../data/sessions/session-records'
 import type { ShareManager } from './share-manager'
 
 export const sharedPromptRequestSchema = z.object({
@@ -42,17 +42,16 @@ export class SharedPromptRelay {
 
   async available(principal: Principal, sessionId: string): Promise<boolean> {
     await this.shares.assertRole(principal, { kind: 'session', id: sessionId }, 'viewer')
-    const organizationId = organizationOf(principal)
-    const record = await getSessionRecord(organizationId, sessionId)
-    return !!record?.runnerHostId && Date.now() - (this.seen.get(`${organizationId}:${record.runnerHostId}`) ?? 0) <= 6_000
+    const record = await getSessionRecord(recordScopeOf(principal), sessionId)
+    return !!record?.runnerHostId && Date.now() - (this.seen.get(`${record.organizationId}:${record.runnerHostId}`) ?? 0) <= 6_000
   }
 
   async prompt(principal: Principal, request: z.infer<typeof sharedPromptRequestSchema>): Promise<{ accepted: true }> {
     if (principal.kind !== 'guest') throw new Error('This action is for a shared session visitor.')
     await this.shares.assertRole(principal, { kind: 'session', id: request.sessionId }, 'editor')
-    const organizationId = organizationOf(principal)
-    const record = await getSessionRecord(organizationId, request.sessionId)
-    if (!record?.runnerHostId || Date.now() - (this.seen.get(`${organizationId}:${record.runnerHostId}`) ?? 0) > 6_000) {
+    const record = await getSessionRecord(recordScopeOf(principal), request.sessionId)
+    const organizationId = record?.organizationId
+    if (!record?.runnerHostId || !organizationId || Date.now() - (this.seen.get(`${organizationId}:${record.runnerHostId}`) ?? 0) > 6_000) {
       throw new Error('This session’s runner is offline. No prompt was sent.')
     }
     if (this.pending.size >= 100 || [...this.pending.values()].some((item) => item.principal.guestId === principal.guestId)) {

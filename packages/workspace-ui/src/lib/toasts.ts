@@ -1,3 +1,4 @@
+import type { Component } from "svelte"
 import { toast, type ExternalToast } from "svelte-sonner"
 
 export type ToastId = string | number
@@ -37,6 +38,8 @@ export interface ToastSpec {
   id?: ToastId
   /** Class on the toast element. Absent clears the class of a reused slot. */
   class?: string
+  /** Leading glyph that replaces the variant's icon. Sonner mounts it without props. */
+  icon?: Component
 }
 
 /** Live handle on a running operation's toast. */
@@ -100,6 +103,7 @@ class ToastService {
     const toastOptions: ExternalToast = {
       id: spec.id,
       class: spec.class,
+      icon: spec.icon,
       closeButton: spec.closeButton,
       description: spec.description,
       duration: spec.duration,

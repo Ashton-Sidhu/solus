@@ -4,7 +4,6 @@
     Square as StopIcon,
     LoaderCircle as CircleNotchIcon,
     Check as CheckIcon,
-    MessageCircleMore as ChatCircleDotsIcon,
     Pen as PencilSimpleIcon,
   } from "@lucide/svelte";
   import type {
@@ -62,7 +61,12 @@
   import AutomationRunHistory from "./AutomationRunHistory.svelte";
   import AutomationScheduleFields from "./AutomationScheduleFields.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
-  import { automationCapableHosts } from "@solus/client-core/host-capabilities";
+  import {
+    automationMachineOptions,
+    canSaveAutomationTo,
+    NO_MACHINE_LABEL,
+    selectableAutomationMachine,
+  } from "./lib/automation-machines";
 
   import { tick, untrack } from "svelte";
 
@@ -92,10 +96,8 @@
   const session = getWorkspaceContext();
   const store = session.automationsStore;
   // With no owning automation and no origin, the picker starts on the
-  // new-work default host; the menu itself still lists every connected host.
-  const defaultServerId =
-    serverConnections.defaultServerId() ??
-    serverConnections.connectedServerIds()[0];
+  // new-work default machine; the menu lists every execution machine.
+  const defaultServerId = serverConnections.defaultMachineId() ?? undefined;
   let selectedServerId = $state(
     untrack(
       () =>
@@ -105,27 +107,25 @@
         "",
     ),
   );
-  const connectedHosts = $derived.by(() => {
-    // The host directory is reactive; the connection registry supplies only
-    // hosts the app already has open and never creates a socket for this menu.
-    void serversStore.servers;
-    return serverConnections.connectedServerIds().map((serverId) => ({
-      serverId,
-      label:
-        serversStore.hostFor(serverId)?.label ??
-        serverConnections.connectionFor(serverId)?.target.label ??
-        serverId,
-    }));
-  });
-  const hostOptions = $derived(
-    automationCapableHosts(
-      connectedHosts,
-      (serverId) => hostCapabilitiesStore.for(serverId),
-    ).map((host) => ({ value: host.serverId, label: host.label })),
+  // Automations live on execution machines (plan 004, item 2). A connected
+  // machine is offered once it says it stores automations; a Solus-provisioned
+  // machine that is not ready is listed with its state and cannot be chosen.
+  const onlineMachines = $derived(
+    serversStore.executionServers.filter((machine) => machine.status === "online"),
   );
-  const selectedHostLabel = $derived(
-    hostOptions.find((option) => option.value === selectedServerId)?.label ??
-      "Selected host",
+  const hostOptions = $derived(
+    automationMachineOptions(serversStore.executionServers, (serverId) =>
+      hostCapabilitiesStore.supports(serverId, "automations"),
+    ),
+  );
+  // Only a new automation needs a machine to save to; a saved one keeps its own.
+  const canSaveNew = $derived(canSaveAutomationTo(hostOptions, selectedServerId));
+  const selectedHostLabel = $derived.by(
+    () =>
+      hostOptions.find((option) => option.value === selectedServerId)?.label ??
+      (current
+        ? (serversStore.hostFor(selectedServerId)?.label ?? selectedServerId)
+        : NO_MACHINE_LABEL),
   );
   const selectedHostSupportsAutomations = $derived(
     hostCapabilitiesStore.supports(selectedServerId, "automations"),
@@ -137,14 +137,13 @@
   );
 
   $effect(() => {
-    for (const host of connectedHosts) void hostCapabilitiesStore.load(host.serverId);
+    for (const machine of onlineMachines) void hostCapabilitiesStore.load(machine.id);
   });
 
   $effect(() => {
-    if (connectedHosts.some((host) => hostCapabilitiesStore.for(host.serverId) === undefined)) return;
-    if (!hostOptions.some((option) => option.value === selectedServerId)) {
-      selectedServerId = hostOptions[0]?.value ?? "";
-    }
+    if (current) return;
+    if (onlineMachines.some((machine) => hostCapabilitiesStore.for(machine.id) === undefined)) return;
+    selectedServerId = selectableAutomationMachine(hostOptions, selectedServerId);
   });
 
   // Inline (pane) breadcrumb: leave the builder and reopen the full-page list.
@@ -254,11 +253,6 @@
     label: REASONING_EFFORT_LABELS[r] ?? r,
   }));
   const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
-  // In-session ("heartbeat") automations run inside the chat thread they were
-  // created in. The builder can't create them (agent-only), but it must show
-  // what they are — and hide the worktree toggle, which is ignored for them.
-  const inSession = $derived(!!current?.action.sessionId);
-
   // Run history for the live automation. Keyed on the id (not `current`, which
   // is replaced on every save/push) so history only reloads when the id changes;
   // subsequent run updates arrive through `automation.changed`.
@@ -306,7 +300,6 @@
     const duration = lastRun ? runDuration(lastRun) : "";
     if (status === "running") return `${day} · still running`;
     if (status === "cancelled") return `${day} · cancelled`;
-    if (status === "dispatched") return `${day} · sent to chat`;
     if (status === "failed") return duration ? `${day} · failed after ${duration}` : `${day} · failed`;
     return duration ? `${day} · finished in ${duration}` : day;
   });
@@ -314,7 +307,7 @@
   const metaBits = $derived(
     [
       current?.updatedAt ? `Edited ${relativeTime(current.updatedAt, nowTick)}` : "",
-      inSession ? "Runs in chat thread" : useWorktree ? "Isolated worktree" : "Runs in place",
+      useWorktree ? "Isolated worktree" : "Runs in place",
       `${REASONING_EFFORT_LABELS[reasoningEffort] ?? reasoningEffort} reasoning`,
     ].filter(Boolean),
   );
@@ -402,9 +395,8 @@
    *  update. Returns the id, or null on failure. */
   async function ensureCreated(): Promise<string | null> {
     if (current) return current.id;
-    if (!selectedServerId || !selectedHostSupportsAutomations) {
-      throw new Error("No connected host supports automations");
-    }
+    // No machine to save to: the rail says "Choose a machine" and nothing is written.
+    if (!canSaveNew) return null;
     const trigger = schedule.build();
     const created = await store.create(
       selectedServerId,
@@ -428,6 +420,7 @@
     // don't materialize it just because a field blurred or a select changed.
     // (Run now still creates via ensureCreated: running IS an intent to keep it.)
     if (!current && !name.trim() && !prompt.trim()) return;
+    if (!current && !canSaveNew) return;
     isSaving = true;
     try {
       // First edit on a new automation: the lazy create already saved every draft.
@@ -566,6 +559,8 @@
     {#if isSaving}
       <CircleNotchIcon size={11} class="animate-spin" aria-hidden="true" />
       <span>Saving…</span>
+    {:else if !current && !canSaveNew}
+      <span>{NO_MACHINE_LABEL}</span>
     {:else if lastSavedAt !== null}
       <CheckIcon size={11} />
       <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
@@ -629,7 +624,7 @@
       {#if isEditing}
         <Button
           variant="outline"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={endEdit}
         >
           <CheckIcon size={12} weight="bold" />
@@ -638,7 +633,7 @@
       {:else}
         <Button
           variant="outline"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] [.is-laptop-display_&]:px-2.5 dark:bg-transparent"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={beginEdit}
         >
           <PencilSimpleIcon size={12} />
@@ -649,7 +644,7 @@
       {#if isRunning}
         <Button
           variant="destructive"
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-1.5 px-3.5 font-medium [.is-laptop-display_&]:px-2.5"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 px-3.5 font-medium"
           onclick={cancelRun}
           disabled={cancelling}
           aria-label="Stop run"
@@ -664,8 +659,9 @@
         </Button>
       {:else}
         <Button
-          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome [.is-laptop-display_&]:h-[1.875rem] gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)] [.is-laptop-display_&]:pr-[0.6875rem] [.is-laptop-display_&]:pl-[0.625rem]"
+          class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
           onclick={runNow}
+          disabled={!current && !canSaveNew}
           aria-label="Run now"
         >
           <PlayIcon size={11} weight="fill" />
@@ -679,7 +675,7 @@
 <!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
 {#snippet statStrip()}
   <div
-    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 [.is-laptop-display_&]:mt-5 [.is-laptop-display_&]:gap-x-8 [.is-laptop-display_&]:py-3.5 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
   >
     <div class="flex min-w-0 flex-col gap-1">
       <span class={EYEBROW}>Next</span>
@@ -718,7 +714,7 @@
 
 <!-- ── The reading column: what the agent is told, every run ── -->
 {#snippet instructionsBlock()}
-  <div class="mt-8.5 flex flex-col gap-4.5 [.is-laptop-display_&]:mt-7 [.is-laptop-display_&]:gap-4">
+  <div class="mt-8.5 flex flex-col gap-4.5">
     <div class="flex items-baseline gap-2.5">
       <span class={EYEBROW}>Instructions</span>
       <span class="text-xs text-muted-foreground/80"
@@ -768,9 +764,9 @@
 <!-- ── The rail: machine facts, set like data ── -->
 {#snippet railCard()}
   <div
-    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 [.is-laptop-display_&]:gap-5 [.is-laptop-display_&]:p-4 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
   >
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationScheduleFields
         {schedule}
         {enabled}
@@ -779,18 +775,19 @@
       />
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <span class={EYEBROW}>Setup</span>
       <div class="flex flex-col">
         <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Host</span>
+          <span class="shrink-0 text-muted-foreground">Machine</span>
           {#if current}
             <span class={VALUE}>{selectedHostLabel}</span>
           {:else}
             <AutomationRailSelect
-              label="Automation host"
+              label="Automation machine"
               value={selectedServerId}
               options={hostOptions}
+              placeholder={NO_MACHINE_LABEL}
               onSelect={(serverId) => {
                 selectedServerId = serverId;
                 pickerOpen = false;
@@ -853,40 +850,23 @@
           />
         </div>
 
-        {#if inSession}
-          <!-- Agent-created heartbeat automation: runs resume its chat thread
-               (full context) instead of spawning isolated background runs.
-               Worktree doesn't apply — the thread runs where it runs. -->
-          <div class={ROW}>
-            <span class="shrink-0 text-muted-foreground">Runs in</span>
-            <span
-              class="{VALUE} inline-flex items-center gap-1.5"
-              title="Each run resumes the chat thread this automation was created in, with full conversation context"
-            >
-              <ChatCircleDotsIcon size={13} class="shrink-0" />
-              Chat thread
-            </span>
-          </div>
-        {:else}
-          <div class={ROW}>
-            <span class="shrink-0 text-muted-foreground">Worktree</span>
-            <Switch
-              checked={useWorktree}
-              onCheckedChange={(v) => {
-                useWorktree = v;
-                commitAction();
-              }}
-              size="default"
-              class="[.is-laptop-display_&]:h-[14px] [.is-laptop-display_&]:w-6 [.is-laptop-display_&]:[&_[data-slot=switch-thumb]]:size-3"
-              aria-label="Run each fire on an isolated git branch"
-              title="Run each fire on an isolated git branch"
-            />
-          </div>
-        {/if}
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Worktree</span>
+          <Switch
+            checked={useWorktree}
+            onCheckedChange={(v) => {
+              useWorktree = v;
+              commitAction();
+            }}
+            size="default"
+            aria-label="Run each fire on an isolated git branch"
+            title="Run each fire on an isolated git branch"
+          />
+        </div>
       </div>
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationRunHistory
         {runs}
         expanded={isRunHistoryExpanded}
@@ -913,13 +893,13 @@
        blocks. `justify-center` centers the two columns horizontally while
        they're a row; once stacked it would center them *vertically*, so it is
        reset to start. -->
-  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain pointer-fine:[.is-laptop-display_&]:gap-10 pointer-fine:[.is-laptop-display_&]:px-9 pointer-fine:[.is-laptop-display_&]:pt-8 pointer-fine:[.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
+  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
     <main class="flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none">
       {@render titleBlock()}
       {@render statStrip()}
       {@render instructionsBlock()}
     </main>
-    <aside class="w-[21.25rem] shrink-0 [.is-laptop-display_&]:w-[19rem] @max-[65rem]:w-auto">
+    <aside class="w-[21.25rem] shrink-0 @max-[65rem]:w-auto">
       {@render railCard()}
     </aside>
   </div>

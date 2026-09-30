@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { tick, untrack, type Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
   import type { Task, TaskPriority, TaskStatus } from "@solus/contracts/task-types";
   import { getAgentContext, getSurfaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
   import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
-  import { Button } from '../../ui/button';
   import { Input } from "../../ui/input";
   import { relativeTime, STATUS_META } from "../lib/tasks-api";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
@@ -23,11 +22,11 @@
     canEditPriority: boolean;
     onSaveStatus: (status: TaskStatus) => void;
     onSavePriority: (priority: TaskPriority | null) => void;
-    /** Who owns the task, which branch it runs on, and which ticket it mirrors —
-     *  one row between the title and the body. It is the record rung's stand-in
-     *  for the sidebar's top three fields, so it is absent wherever that column
-     *  is actually on screen. */
-    identity?: Snippet;
+    /** The folded rung's stand-in for the rail: a Details disclosure at the end
+     *  of the status line, and the panel it opens under the title. Both are
+     *  absent wherever the rail's column is actually on screen. */
+    detailsTrigger?: Snippet;
+    detailsPanel?: Snippet;
   }
 
   let {
@@ -39,7 +38,8 @@
     canEditPriority,
     onSaveStatus,
     onSavePriority,
-    identity,
+    detailsTrigger,
+    detailsPanel,
   }: Props = $props();
 
   // The description reuses the document editor so a task can embed @files,
@@ -57,12 +57,10 @@
 
   let titleDraft = $state(untrack(() => task.title));
   let bodyDraft = $state(untrack(() => task.body));
-  let editingBody = $state(false);
   // The body editor completes @ and # references against the workspace; a
   // client without one (the cloud console) reads the body and edits the rest.
   const canEditBody = $derived(canEdit && !!session.workspace);
   let bodyEditor: DocumentPromptEditor | undefined = $state();
-  let editBodyButton: HTMLButtonElement | null = $state(null);
   // Re-seed when the route swaps to another task: the same component instance
   // is reused, so drafts must follow the id rather than the mount.
   let seededId = untrack(() => task.id);
@@ -71,7 +69,6 @@
     seededId = task.id;
     titleDraft = task.title;
     bodyDraft = task.body;
-    editingBody = false;
   });
 
   function commitTitle() {
@@ -83,11 +80,12 @@
     onSaveTitle(next);
   }
 
-  async function finishBodyEdit(save: boolean) {
-    if (save && bodyDraft !== task.body) onSaveBody(bodyDraft);
-    editingBody = false;
-    await tick();
-    editBodyButton?.focus();
+  // Reads the editor itself rather than the draft: `onValueChange` is
+  // debounced, so the last keystrokes before the blur may not be in it yet.
+  function commitBody() {
+    const next = bodyEditor?.getMarkdown() ?? bodyDraft;
+    bodyDraft = next;
+    if (next !== task.body) onSaveBody(next);
   }
 </script>
 
@@ -95,13 +93,15 @@
      so they are the menus that make them. The negative inline margin keeps each
      label optically where it sat as plain text while giving the control a
      padded hit area, and a task whose provider will not take the change keeps
-     the label and loses only the affordance. -->
-<div class="flex items-center gap-[13px] pb-[11px] [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:pb-2">
+     the label and loses only the affordance. The row is workspace chrome, so it
+     sets `text-workspace-chrome` once and every label and control in it — the
+     Details disclosure too — inherits the one size. It wraps in a narrow pane. -->
+<div class="flex flex-wrap items-center gap-x-[13px] gap-y-1 pb-[11px] text-workspace-chrome">
   <TaskStatusMenu
     status={task.status}
     options={editableStatuses}
     onSelect={onSaveStatus}
-    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent [.is-laptop-display_&]:h-[22px]"
+    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
     {#snippet trigger()}
       <span
@@ -119,7 +119,7 @@
           stroke-width="1.45"
           stroke-linecap="round"
           stroke-linejoin="round"
-          class="size-[13px] shrink-0 [.is-laptop-display_&]:size-3"
+          class="size-[13px] shrink-0"
           aria-hidden="true"><path d={status.glyph} /></svg
         >
         {status.label}
@@ -128,7 +128,7 @@
   </TaskStatusMenu>
 
   <span
-    class="h-[11px] w-px bg-[var(--hairline-strong)] [.is-laptop-display_&]:h-2.5"
+    class="h-[11px] w-px bg-[var(--hairline-strong)]"
     aria-hidden="true"
   ></span>
 
@@ -136,11 +136,11 @@
     priority={task.priority}
     disabled={!canEditPriority}
     onSelect={onSavePriority}
-    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal text-muted-foreground transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent [.is-laptop-display_&]:h-[22px]"
+    triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal text-muted-foreground transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
     {#snippet trigger()}
       <span
-        class="flex h-[9px] shrink-0 items-end gap-[1.5px] [.is-laptop-display_&]:h-2"
+        class="flex h-[9px] shrink-0 items-end gap-[1.5px]"
         aria-hidden="true"
       >
         {#each bars as bar (bar.height)}
@@ -156,10 +156,17 @@
 
   {#if openedAt}
     <span
-      class="h-[11px] w-px bg-[var(--hairline-strong)] [.is-laptop-display_&]:h-2.5"
+      class="h-[11px] w-px bg-[var(--hairline-strong)]"
       aria-hidden="true"
     ></span>
-    <span class="text-xs text-muted-foreground opacity-75">opened {openedAt}</span>
+    <span class="text-muted-foreground opacity-75">opened {openedAt}</span>
+  {/if}
+
+  <!-- No rule before Details: the row wraps in a narrow pane, and a rule
+       there is left dangling at the end of the first line. Its avatar or its
+       chevron already sets it apart. -->
+  {#if detailsTrigger}
+    {@render detailsTrigger()}
   {/if}
 </div>
 
@@ -183,39 +190,33 @@
   </h1>
 {/if}
 
-{#if identity}
-  <div class="pt-[14px]">{@render identity()}</div>
+{#if detailsPanel}
+  {@render detailsPanel()}
 {/if}
 
+<!-- The description is edited where it is read, like the title above it: no
+     edit mode, no Save or Cancel. It saves when focus leaves it. The editor
+     takes the pull request description's type (workspace.css), so reading and
+     editing are one surface. -->
 <div class="task-description-prose pt-[18px]">
-  {#if editingBody && canEditBody}
-  <DocumentPromptEditor
-    bind:this={bodyEditor}
-    value={bodyDraft}
-    onValueChange={(v) => (bodyDraft = v)}
-    readOnly={!canEditBody}
-    dragHandle={false}
-    placeholder="Describe the work…"
-    dictation
-    pluginCommands={session.pluginCommands}
-    provider={editorProvider}
-    workingDirectory={editorCwd}
-    menuPlacement="down"
-    maxHeight={4000}
-  />
-    <Button variant="ghost" size="sm" onclick={() => finishBodyEdit(true)}>Save description</Button>
-    <Button variant="ghost" size="sm" onclick={() => finishBodyEdit(false)}>Cancel</Button>
-  {:else}
-    <div class="github-markdown prose-cloud prose-pr">
+  {#if canEditBody}
+    <DocumentPromptEditor
+      bind:this={bodyEditor}
+      value={bodyDraft}
+      onValueChange={(v) => (bodyDraft = v)}
+      onBlur={commitBody}
+      dragHandle={false}
+      placeholder="Describe the work…"
+      dictation
+      pluginCommands={session.pluginCommands}
+      provider={editorProvider}
+      workingDirectory={editorCwd}
+      menuPlacement="down"
+      maxHeight={4000}
+    />
+  {:else if task.body.trim()}
+    <div class="github-markdown prose-cloud prose-pr prose-pr-description">
       <GithubMarkdown source={task.body} policy="local" />
     </div>
-    {#if canEditBody}
-      <Button bind:ref={editBodyButton} variant="ghost" size="sm" onclick={async () => {
-        bodyDraft = task.body;
-        editingBody = true;
-        await tick();
-        bodyEditor?.focus();
-      }}>{task.body ? 'Edit description' : 'Add description'}</Button>
-    {/if}
   {/if}
 </div>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '@solus/server/server/endpoints'
-import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '@solus/server/server/lan-discovery'
+import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '@solus/server/transport/endpoints'
+import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '@solus/server/transport/lan-discovery'
 import {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,

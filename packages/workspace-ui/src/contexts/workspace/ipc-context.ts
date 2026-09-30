@@ -12,6 +12,9 @@ export interface IpcContextBuilderDeps {
   hasDraft(sourceId: string): boolean
   /** The run a source with none of its own stands on — `WorkspaceContext.defaultRunConfig`. */
   defaultRunConfig(): RunConfig
+  checkoutForRun?(run: RunConfig): GitCheckout | null
+  /** The organization this window works in (organization-scope R11); null with none. */
+  activeOrganizationId?(): string | null
   settings: SettingsContext
   statusBar: StatusBarContext
 }
@@ -48,6 +51,37 @@ export class IpcContextBuilder {
     return context
   }
 
+  /**
+   * Context for a session the surface knows only by its Solus id — Insights
+   * reading a turn's change with no tab for the session. It names the session
+   * and nothing else: the host resolves the provider thread and the checkout
+   * from the id, so no field of the active tab can stand in for them.
+   */
+  forSessionRecord(sessionId: string): IpcContext {
+    const base = this.sessionCtx('')
+    return {
+      session: {
+        ...base,
+        sessionId,
+        agentSessionId: null,
+        handoffFrom: undefined,
+        workingDirectory: '',
+        projectPath: '',
+        additionalDirs: [],
+        gitContext: null,
+        sessionChangedFiles: [],
+      },
+      settings: this.deps.settings.ctx,
+      statusBar: this.deps.statusBar.ctx,
+    }
+  }
+
+  /** The window's organization rides every prompt (R11): the host assigns an
+   *  unassigned session to it once, when Insights apply, and never reassigns. */
+  private windowOrganizationId(): string | undefined {
+    return this.deps.activeOrganizationId?.() ?? undefined
+  }
+
   sessionCtx(sourceId: string): SessionCtx {
     const session = this.deps.sessionFor(sourceId)
     // Where the work happens comes from the run — a started session's or a
@@ -55,7 +89,8 @@ export class IpcContextBuilder {
     // conversation and so only exists once one has started.
     const ownRun = this.deps.runFor(sourceId)
     const run = ownRun ?? this.deps.defaultRunConfig()
-    const { workingDirectory, modelConfig, gitContext } = run
+    const { workingDirectory, modelConfig } = run
+    const gitContext = this.deps.checkoutForRun ? this.deps.checkoutForRun(run) : run.gitContext
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
@@ -88,6 +123,7 @@ export class IpcContextBuilder {
       sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
       readOnlyReason: session ? session.readOnlyReason : null,
       title: session?.title ?? null,
+      organizationId: this.windowOrganizationId(),
       ...sessionExtras,
     }
     if (ownRun && isDispatch(ownRun)) context.origin = 'dispatch'

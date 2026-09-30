@@ -18,8 +18,8 @@ function detectSource(): UplinkAccountSource | null {
   const native = (globalThis as { window?: { solusNative?: NativeSolusAPI } }).window?.solusNative
   if (!native) return null
   return {
-    listDirectory: () => native.uplinkListDirectoryHosts(),
-    acquireHostGrant: (hostId) => native.uplinkAcquireHostGrant(hostId),
+    listDirectory: () => native.uplinkListDirectory(),
+    acquireHostAccessToken: (hostId, organizationId) => native.uplinkAcquireHostAccessToken(hostId, organizationId),
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),

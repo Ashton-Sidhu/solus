@@ -6,9 +6,9 @@ import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@so
 
 // A disposable data dir: these tests persist host config, and the live ~/.solus
 // holds the developer's real settings.
-type SettingsModule = typeof import('@solus/server/server/settings')
-type RunInputModule = typeof import('@solus/server/agents/run-input')
-type AgentToolModule = typeof import('@solus/server/agents/tools/agent-tool')
+type SettingsModule = typeof import('@solus/server/host/settings')
+type RunInputModule = typeof import('@solus/server/execution/agents/run-input')
+type AgentToolModule = typeof import('@solus/server/execution/agents/tools/agent-tool')
 
 /** The real call path, so these exercise the tools' own argument validation
  *  rather than a shape the provider would never actually send. */
@@ -32,9 +32,9 @@ let runInput: RunInputModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-host-config-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  settings = await import('@solus/server/server/settings')
-  runInput = await import('@solus/server/agents/run-input')
-  ;({ executeAgentTool: runTool } = await import('@solus/server/agents/tools/agent-tool'))
+  settings = await import('@solus/server/host/settings')
+  runInput = await import('@solus/server/execution/agents/run-input')
+  ;({ executeAgentTool: runTool } = await import('@solus/server/execution/agents/tools/agent-tool'))
 })
 
 afterAll(() => {
@@ -115,6 +115,18 @@ describe('host config', () => {
     expect(hostConfigPatchSchema.parse({ fontSmoothing: 'no' }).fontSmoothing).toBe(true)
   })
 
+  test('reply text opacity defaults to full strength and stays readable', () => {
+    // WHY: a missing key must not fade every existing install, and a value
+    // below the floor would make reply text fail contrast.
+    expect(DEFAULT_HOST_CONFIG.assistantTextOpacity).toBe(100)
+    expect(hostConfigPatchSchema.parse({ assistantTextOpacity: 80 }).assistantTextOpacity).toBe(80)
+    expect(hostConfigPatchSchema.parse({ assistantTextOpacity: 10 }).assistantTextOpacity).toBe(100)
+  })
+
+  test('the interface font defaults to the platform system face', () => {
+    expect(DEFAULT_HOST_CONFIG.fontFamily).toBe('system')
+  })
+
   test('an unknown key is dropped rather than persisted', () => {
     const parsed = hostConfigPatchSchema.parse({ remoteAccess: true, fontSize: 14 })
     expect('remoteAccess' in parsed).toBe(false)
@@ -124,10 +136,10 @@ describe('host config', () => {
   test('permission and notification defaults preserve existing behavior', () => {
     // Before preferences existed the sound and system alert were on and the
     // background toast was off; an upgrade must not change what a user hears.
-    expect(DEFAULT_HOST_CONFIG.defaultPermissionMode).toBe('auto')
+    expect(DEFAULT_HOST_CONFIG.defaultPermissionMode).toBe('full-access')
     expect(DEFAULT_HOST_CONFIG.notifications.channels).toEqual({ sound: true, toast: false, system: true })
     expect(Object.values(DEFAULT_HOST_CONFIG.notifications.events).every(Boolean)).toBe(true)
-    expect(hostConfigPatchSchema.parse({ defaultPermissionMode: 'invalid' }).defaultPermissionMode).toBe('auto')
+    expect(hostConfigPatchSchema.parse({ defaultPermissionMode: 'invalid' }).defaultPermissionMode).toBe('full-access')
   })
 
   test('permission and notification choices are saved on the host', () => {
@@ -206,7 +218,7 @@ describe('analytics consent', () => {
     process.env.SOLUS_DATA_DIR = legacyDir
     try {
       // A fresh module instance so the legacy file is what it loads.
-      const legacySettings = await import(`@solus/server/server/settings?legacy=${Date.now()}`) as SettingsModule
+      const legacySettings = await import(`@solus/server/host/settings?legacy=${Date.now()}`) as SettingsModule
       expect(legacySettings.getHostConfig().config.analyticsEnabled).toBe(false)
     } finally {
       process.env.SOLUS_DATA_DIR = previous
@@ -217,7 +229,7 @@ describe('analytics consent', () => {
 
 describe('the agent write policy', () => {
   test('an agent can set a presentation key', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const result = await runTool(tools.updateConfigAgentTool, { patch: '{"themeMode":"light"}' }, context)
 
     expect(result.ok).toBe(true)
@@ -228,7 +240,7 @@ describe('the agent write policy', () => {
     // An agent reads issues, pages, and diffs written by other people. Text in
     // any of them could ask it to append a persistent instruction, and the
     // change would outlive the conversation that caused it.
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     settings.setHostConfig({ extraInstructions: 'Written by the user.' })
 
     const result = await runTool(tools.updateConfigAgentTool,
@@ -242,7 +254,7 @@ describe('the agent write policy', () => {
   })
 
   test('an agent cannot move analytics consent', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const result = await runTool(tools.updateConfigAgentTool, { patch: '{"analyticsEnabled":true}' }, context)
 
     expect(result.ok).toBe(false)
@@ -252,7 +264,7 @@ describe('the agent write policy', () => {
   test('a refused key blocks the whole patch rather than applying half of it', async () => {
     // Half-applying would leave the agent reporting a change it did not fully
     // make, and the user with settings nobody chose.
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     settings.setHostConfig({ fontSize: 13 })
 
     const result = await runTool(tools.updateConfigAgentTool,
@@ -265,7 +277,7 @@ describe('the agent write policy', () => {
   })
 
   test('a malformed patch comes back as a message, not a throw', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
 
     expect((await runTool(tools.updateConfigAgentTool, { patch: 'not json' }, context)).ok).toBe(false)
     expect((await runTool(tools.updateConfigAgentTool, { patch: '["themeMode"]' }, context)).ok).toBe(false)
@@ -273,7 +285,7 @@ describe('the agent write policy', () => {
   })
 
   test('read_config tells the agent what it is allowed to change', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const result = await runTool(tools.readConfigAgentTool, {}, context)
     const payload = JSON.parse(result.text) as { writableKeys: string[] }
 
@@ -297,7 +309,7 @@ describe('operator settings folded in from the legacy file shape', () => {
     process.env.SOLUS_DATA_DIR = legacyDir
     try {
       const legacySettings = await import(
-        `@solus/server/server/settings?operator=${Date.now()}`
+        `@solus/server/host/settings?operator=${Date.now()}`
       ) as SettingsModule
       const { config, seeded } = legacySettings.getHostConfig()
 
@@ -324,7 +336,7 @@ describe('nested keys', () => {
   })
 
   test('an agent is never shown the collector credentials', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     settings.setHostConfig({ otel: { endpoint: 'https://collector.example.com', headers: 'authorization=secret' } })
 
     const payload = JSON.parse((await runTool(tools.readConfigAgentTool, {}, context)).text) as {
@@ -338,7 +350,7 @@ describe('nested keys', () => {
   })
 
   test('an agent cannot set an operator key', async () => {
-    const tools = await import('@solus/server/server/config-tools')
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const result = await runTool(
       tools.updateConfigAgentTool,
       { patch: '{"otel":{"endpoint":"https://attacker.example.com"}}' },

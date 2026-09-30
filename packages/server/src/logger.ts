@@ -5,7 +5,7 @@ import { trace, type AttributeValue, type Attributes } from '@opentelemetry/api'
 import { isPackagedRuntime, logsDir } from './platform/paths'
 import { platformServices } from './platform/services'
 import { installBrokenPipeGuard } from './broken-pipe'
-import { LOG_EVENT_ATTRS } from './observability/registries'
+import { LOG_EVENT_ATTRS } from './data/insights/registries'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -149,11 +149,13 @@ export function productionLogFilePath(): string {
  * The file this host writes its log to: `<repo root>/dev.log` in development,
  * `<logsDir>/solus.log` when packaged. Resolving it also creates (and, in
  * development, truncates) the file, exactly as the first log write would.
+ * `SOLUS_DEV_LOG` names another development file: the test run sets it so a
+ * test never truncates or writes into the running dev server's `dev.log`.
  */
 export function logFilePath(): string {
   if (!logPath) {
     if (isDevRuntime()) {
-      logPath = join(process.cwd(), 'dev.log')
+      logPath = process.env.SOLUS_DEV_LOG || join(process.cwd(), 'dev.log')
       try { writeFileSync(logPath, '') } catch {}
     } else {
       const dir = logsDir()

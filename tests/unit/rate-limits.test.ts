@@ -5,7 +5,7 @@ import {
   isWindowClosed,
   normalizeResetNumber,
   RateLimitState,
-} from '@solus/server/rate-limits'
+} from '@solus/server/execution/rate-limits'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 type RateLimitEvent = Extract<NormalizedEvent, { type: 'rate_limit' }>

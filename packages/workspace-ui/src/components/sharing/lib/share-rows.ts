@@ -1,5 +1,7 @@
-import type { OrganizationDirectory, UplinkStatus } from '@solus/contracts/uplink'
-import { cloudShareUrl, HOST_OWNER_USER_ID, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
+import type { UplinkStatus } from '@solus/contracts/uplink'
+import { cloudShareUrl, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
+import { parseUserKey, userKey, type User } from '@solus/contracts/user'
+import { memberByKey, type OrganizationPeople } from '../../users/lib/organization-people'
 
 /**
  * The share dialog's view model (docs/plans/multiplayer-sharing.md §4.1): the
@@ -60,7 +62,7 @@ export interface ScopeOption {
   role: ShareRole | null
 }
 
-const can = (role: ShareRole) => (role === 'editor' ? 'edit' : 'view')
+const can = (role: ShareRole) => (role === 'editor' ? 'edit' : role === 'commenter' ? 'comment' : 'view')
 
 /** A row's words for its role: `detail(role)` is the line under the name. */
 function option(scope: ShareScope, name: string, detail: (role: ShareRole) => string, currentRole: ShareRole | null, startRole: ShareRole): ScopeOption {
@@ -77,7 +79,7 @@ function option(scope: ShareScope, name: string, detail: (role: ShareRole) => st
  * not on starts people as editors, and the link as viewers, so the guest door
  * never runs a turn unless someone asks it to.
  */
-export function scopeOptions(list: ShareList, directory: OrganizationDirectory | null, organizationId: string | null, ownerLabel: string): ScopeOption[] {
+export function scopeOptions(list: ShareList, directory: OrganizationPeople | null, organizationId: string | null, ownerLabel: string): ScopeOption[] {
   const current = scopeOf(list)
   const roleIfCurrent = (scope: ShareScope) => (scopeKey(scope) === scopeKey(current) ? scopeRole(current) : null)
   const options: ScopeOption[] = [
@@ -142,48 +144,52 @@ export function linkRoleFor(scope: ShareScope): ShareRole | null {
 }
 
 /** Who "Only …" names: the reader when they own it, else the owner by name. */
-export function ownerLabel(list: Pick<ShareList, 'ownerUserId' | 'callerRole'>, directory: OrganizationDirectory | null): string {
+export function ownerLabel(list: Pick<ShareList, 'ownerUserId' | 'callerRole'>, directory: OrganizationPeople | null): string {
   if (list.callerRole === 'owner') return 'you'
-  if (list.ownerUserId === HOST_OWNER_USER_ID) return 'the host owner'
-  return directory?.members.find((entry) => entry.userId === list.ownerUserId)?.name ?? 'the owner'
+  return memberByKey(directory, list.ownerUserId)?.displayName ?? 'the owner'
 }
 
 // ── People named on the list ────────────────────────────────────────────────
 
 /** One person on the list: the owner first, then everyone invited by name. */
 export interface PersonRow {
+  /** The user key the list names them by. */
   userId: string
-  name: string
+  user: User
   /** An email under the name; empty when the directory has none. */
   detail: string
-  avatarUrl: string | null
   role: ShareRole | 'owner'
   isSelf: boolean
 }
 
-function memberOf(directory: OrganizationDirectory | null, userId: string) {
-  return directory?.members.find((entry) => entry.userId === userId)
+/** A person the list names but the directory no longer lists. */
+function formerMember(key: string): User {
+  return { id: parseUserKey(key), displayName: 'Former member' }
 }
 
-/** The owner, then the people with a row of their own, named from the directory. */
-export function personRows(list: ShareList, directory: OrganizationDirectory | null, selfUserId: string | null): PersonRow[] {
-  const ownerMember = memberOf(directory, list.ownerUserId)
+/**
+ * The owner, then the people with a row of their own, named from the directory.
+ * The reader's own row takes the name their host gave them (plans/012 §1), so the
+ * owner of a host with no account reads as themselves.
+ */
+export function personRows(list: ShareList, directory: OrganizationPeople | null, self: User | null): PersonRow[] {
+  const selfUserId = self ? userKey(self.id) : null
+  const ownerMember = memberByKey(directory, list.ownerUserId)
+  const ownerIsSelf = list.callerRole === 'owner'
   const rows: PersonRow[] = [{
     userId: list.ownerUserId,
-    name: list.ownerUserId === HOST_OWNER_USER_ID ? 'Host owner' : ownerMember?.name ?? 'Former member',
+    user: ownerMember ?? (ownerIsSelf && self ? self : formerMember(list.ownerUserId)),
     detail: ownerMember?.email ?? '',
-    avatarUrl: ownerMember?.image ?? null,
     role: 'owner',
-    isSelf: list.callerRole === 'owner',
+    isSelf: ownerIsSelf,
   }]
   for (const grant of list.grants) {
     if (grant.subject.kind !== 'user') continue
-    const member = memberOf(directory, grant.subject.id)
+    const member = memberByKey(directory, grant.subject.id)
     rows.push({
       userId: grant.subject.id,
-      name: member?.name ?? 'Former member',
+      user: member ?? formerMember(grant.subject.id),
       detail: member?.email ?? '',
-      avatarUrl: member?.image ?? null,
       role: grant.role,
       isSelf: selfUserId !== null && grant.subject.id === selfUserId,
     })
@@ -191,25 +197,16 @@ export function personRows(list: ShareList, directory: OrganizationDirectory | n
   return rows
 }
 
-export interface PersonCandidate {
-  userId: string
-  name: string
-  detail: string
-  avatarUrl: string | null
-}
-
 /** Everyone in the directory who is not the owner and not yet on the list, narrowed by the search. */
-export function personCandidates(list: ShareList, directory: OrganizationDirectory | null, query: string): PersonCandidate[] {
+export function personCandidates(list: ShareList, directory: OrganizationPeople | null, query: string): User[] {
   if (!directory) return []
   const taken = new Set(list.grants.flatMap((grant) => (grant.subject.kind === 'user' ? [grant.subject.id] : [])))
   const needle = query.trim().toLowerCase()
-  const candidates: PersonCandidate[] = []
-  for (const member of directory.members) {
-    if (member.userId === list.ownerUserId || taken.has(member.userId)) continue
-    if (needle && !member.name.toLowerCase().includes(needle) && !(member.email ?? '').toLowerCase().includes(needle)) continue
-    candidates.push({ userId: member.userId, name: member.name, detail: member.email ?? '', avatarUrl: member.image ?? null })
-  }
-  return candidates
+  return directory.members.filter((member) => {
+    const key = userKey(member.id)
+    if (key === list.ownerUserId || taken.has(key)) return false
+    return !needle || member.displayName.toLowerCase().includes(needle) || (member.email ?? '').toLowerCase().includes(needle)
+  })
 }
 
 /** The whole list with one person set to a role (added when absent); every other row stays. */

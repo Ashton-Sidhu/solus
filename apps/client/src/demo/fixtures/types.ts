@@ -53,6 +53,8 @@ export interface DemoFixtures {
   works: Array<{
     meta: WorkMeta & { id: string }
     content: string
+    /** The body's version; a fixture starts at 1. */
+    contentVersion?: number
     annotations?: WorkAnnotations
     previous?: WorkPrevious
   }>
@@ -108,11 +110,13 @@ export interface ReplayStep {
  * each caller narrows it by the method it invoked — the same shape the real
  * WebSocket transport uses.
  */
-export type DemoRpcResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
+export const DEMO_RECORD_METHODS = ['tasksGet', 'tasksCreate', 'tasksUpdate', 'tasksDelete', 'createWork', 'saveWork', 'loadWork', 'listWorks', 'deleteWork', 'sessionRecordList', 'sessionRecordSearch', 'insightsList'] as const
+export type DemoInvokeMethod = RpcInvokeMethod | typeof DEMO_RECORD_METHODS[number]
+export type DemoRpcResult = Awaited<ReturnType<SolusAPI[DemoInvokeMethod]>>
 
 export type RpcHandler = (args: unknown[]) => DemoRpcResult | Promise<DemoRpcResult>
 
 export interface DemoServer {
-  register(method: RpcInvokeMethod, fn: RpcHandler): void
+  register(method: DemoInvokeMethod, fn: RpcHandler): void
   broadcast<K extends HostEventName>(type: K, payload: HostEventMap[K]): void
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { composingLabel } from "./lib/presence-people";
-  import PresenceAvatar from "./PresenceAvatar.svelte";
+  import UserAvatar from "../users/UserAvatar.svelte";
 
   /**
    * "Alice is typing…" at the tail of the transcript, where her prompt will
@@ -27,7 +27,7 @@
   >
     <span class="inline-flex items-center">
       {#each typing.slice(0, 3) as person (person.userId)}
-        <PresenceAvatar {person} size={14} class="-ml-1 first:ml-0 ring-[1.5px] ring-background" />
+        <UserAvatar user={person.user} size={14} class="-ml-1 first:ml-0 ring-[1.5px] ring-background" />
       {/each}
     </span>
     <span>{label}</span>

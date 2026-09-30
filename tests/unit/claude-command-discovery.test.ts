@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentSlashCommand } from '@solus/contracts/types'
-import { ClaudeCommandDiscovery } from '@solus/server/agents/claude/claude-command-discovery'
+import { ClaudeCommandDiscovery } from '@solus/server/execution/agents/claude/claude-command-discovery'
 
 function deferred<T>() {
   let resolve!: (value: T) => void

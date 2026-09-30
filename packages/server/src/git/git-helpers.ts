@@ -3,6 +3,7 @@ import type { GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@s
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
+import { GitUnavailableError } from './git-availability'
 import { getWorkingTreeStats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
@@ -220,6 +221,8 @@ export async function resolveRepoRoot(workTree: string): Promise<string | null> 
     const absolute = path.isAbsolute(commonDir) ? commonDir : path.resolve(workTree, commonDir)
     return path.dirname(absolute)
   } catch (err: any) {
+    // A host without git has no repositories. That is its normal state, not a failure.
+    if (err instanceof GitUnavailableError) return null
     const parsedError = gitCommandErrorSchema.safeParse(err)
     const commandError = parsedError.success ? parsedError.data : {}
     log.warn('resolve_repo_root_failed', {

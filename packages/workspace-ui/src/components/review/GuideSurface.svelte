@@ -107,7 +107,7 @@
     </div>
   {/if}
   {#if !hasGuide && !unavailable && (loader.loading || generationInProgress)}
-    <ReviewProgress {step} queued={status === "queued"} onCancel={generationInProgress ? onCancel : undefined} />
+    <ReviewProgress subject="guide" {step} queued={status === "queued"} onCancel={generationInProgress ? onCancel : undefined} />
   {:else if loader.guide}
     <GuideView
       guide={loader.guide}
@@ -129,7 +129,7 @@
         <!-- A neutral medallion, not an accent one: the accent belongs to the
              Generate button below, which is the actual offer. -->
         <span
-          class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground [.is-laptop-display_&]:size-10"
+          class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground"
           aria-hidden="true"
         >
           <ReviewGuideGlyph size={20} />
@@ -149,7 +149,7 @@
         <div class="mt-5 flex flex-wrap items-center justify-center gap-2.5">
           <Button
             type="button"
-            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5  font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07] pointer-fine:[.is-laptop-display_&]:h-[30px]"
+            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5  font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
             disabled={generationInProgress || unavailable}
             onclick={() => (onGenerate ? onGenerate() : loader.refresh())}
           >
@@ -158,7 +158,7 @@
           {#if onAlwaysGenerate}
             <Button
               type="button"
-              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3  font-medium text-muted-foreground transition-colors hover:text-foreground pointer-fine:[.is-laptop-display_&]:h-[30px]"
+              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3  font-medium text-muted-foreground transition-colors hover:text-foreground"
               disabled={unavailable}
               onclick={onAlwaysGenerate}
             >

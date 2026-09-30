@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Plan, RunConfig, Session, Tab } from '@solus/contracts/types'
+import type { AcceptPlanRequest, AcceptPlanResult, PermissionMode, Plan, RunConfig, Session, Tab } from '@solus/contracts/types'
 import { approvePlanWithModel, rejectPlan } from '@solus/workspace-ui/contexts/workspace/session-plan-operations'
 
 const previousWindow = globalThis.window
@@ -25,7 +25,7 @@ function approvalContext() {
     run: {
       provider: 'claude-code',
       modelConfig: { modelId: 'claude-opus-4-6', reasoningEffort: 'high' },
-      permissionMode: 'ask',
+      permissionMode: 'supervised',
     } as Session['run'],
     messages: [],
   } as unknown as Session
@@ -33,7 +33,7 @@ function approvalContext() {
     sessionId: 'renderer-session-1',
     input: { planRefs: [], workRefs: [] },
   } as unknown as Tab
-  let resetCount = 0
+  const accepts: AcceptPlanRequest[] = []
   const handoffs: Array<{ provider: string; tabId: string }> = []
   const notices: Array<boolean | undefined> = []
 
@@ -55,33 +55,31 @@ function approvalContext() {
     router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
-      resetSession: () => { resetCount++ },
-      stopSession: async () => true,
+      // The host stops, hands over or resets, and records the decision in one call.
+      acceptPlan: async (_ipc: unknown, request: AcceptPlanRequest): Promise<AcceptPlanResult> => {
+        accepts.push(request)
+        if (!request.provider) return {}
+        return { handoff: { fromProvider: session.run.provider!, fromSessionId: session.agentSessionId!, handoffId: 'handoff-1', taskSessionMove: { sourceSessionId: 'a', targetSessionId: 'b' } } }
+      },
     }),
     ctxFor: () => ({ session: { sessionId: session.id } }),
     controls: { interruptTabSession: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) } },
-    settings: { update: () => {} },
-    config: { switchActiveAgent: async (provider: string, tabId: string) => {
-      handoffs.push({ provider, tabId })
-      const fromProvider = session.run.provider!
-      const fromSessionId = session.agentSessionId!
-      const agentChangedTo = provider === 'claude-code' ? 'Claude Code' : 'Codex'
-      session.run.provider = provider as RunConfig['provider']
-      session.agentSessionId = null
-      session.handoffFrom = { provider: fromProvider, sessionId: fromSessionId }
-      session.messages.push({
-        id: 'agent-change-1',
-        role: 'system',
-        content: `Switched to ${agentChangedTo}`,
-        timestamp: Date.now(),
-        agentChangedTo,
-      })
-    } },
+    settings: { update: () => {}, defaultPermissionMode: 'accept-edits' as PermissionMode },
+    config: {
+      switchActiveAgent: async () => { throw new Error('a session with a provider thread is handed over by the host') },
+      adoptHandoff: (target: Session, provider: string, _result: AcceptPlanResult['handoff'], tabId: string) => {
+        handoffs.push({ provider, tabId })
+        target.run.provider = provider as RunConfig['provider']
+        target.agentSessionId = null
+      },
+      followActiveSessionAgent: () => {},
+      handoffFailed: () => {},
+    },
     notifySessionUnavailable: () => {},
     dispatch: { sendMessage: () => {} },
   }
 
-  return { ctx, session, handoffs, notices, resetCount: () => resetCount }
+  return { ctx, session, handoffs, notices, accepts }
 }
 
 function revisionContext(status: Session['status']) {
@@ -109,6 +107,7 @@ function revisionContext(status: Session['status']) {
     prompts: [] as string[],
     permissionModeTabIds: [] as Array<string | undefined>,
     promptTabIds: [] as Array<string | undefined>,
+    answeredFor: [] as string[],
   }
 
   Object.defineProperty(globalThis, 'window', {
@@ -129,10 +128,13 @@ function revisionContext(status: Session['status']) {
     router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
-      respondPermission: async (_c: unknown, _q: string, optionId: string) => { calls.denied.push(optionId) },
+      respondPermission: async (_c: unknown, askingSessionId: string, _q: string, optionId: string) => {
+        calls.denied.push(optionId)
+        calls.answeredFor.push(askingSessionId)
+      },
       stopSession: async () => { calls.stops++ },
     }),
-    ctxFor: () => ({ session: { sessionId: session.id } }),
+    ctxFor: () => ({ session: { sessionId: 'renderer-session-1' } }),
     controls: { interruptTabSession: () => { calls.interrupts++ } },
     setPermissionMode: (_mode: string, tabId?: string) => { calls.permissionModeTabIds.push(tabId) },
     dispatch: { sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
@@ -155,6 +157,8 @@ describe('plan revision', () => {
     // "Stopped by you" across the transcript and folded the planning work away —
     // the revise note then read as a thread that had forgotten everything.
     expect(calls.denied).toEqual(['opt-deny'])
+    // The tab answers its own session's plan, never another session's.
+    expect(calls.answeredFor).toEqual(['renderer-session-1'])
     expect(calls.stops).toBe(0)
     expect(calls.interrupts).toBe(0)
     expect(plan.status).toBe('rejected')
@@ -178,51 +182,48 @@ describe('plan revision', () => {
 
 describe('plan approval session choice', () => {
   test('does not approve into another tab when the saved plan session is gone', async () => {
-    const { ctx, session, resetCount } = approvalContext()
+    const { ctx, session, accepts } = approvalContext()
     Object.assign(ctx.planStore, { previewDescriptor: {
       provider: 'claude-code',
       sessionId: 'agent-session-1',
       sessionAvailable: false,
     } })
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto')
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default')
 
     // WHY: a missing source session used to leave resume on the current tab;
     // approval then submitted the saved plan into that unrelated conversation.
-    expect(resetCount()).toBe(0)
+    expect(accepts).toEqual([])
     expect(session.agentSessionId).toBe('agent-session-1')
     expect(ctx.planStore.plans['plan-1'].status).toBe('pending')
   })
 
-  test('starts a new agent session by default', async () => {
-    const { ctx, session, resetCount } = approvalContext()
+  test('asks the host for a new agent session by default, in one call', async () => {
+    const { ctx, session, accepts } = approvalContext()
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto')
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default')
 
-    expect(resetCount()).toBe(1)
+    // WHY: the host stops, resets and records the decision (plans/012 §5); the
+    // divider is its `plan_decided` activity, so the client writes none.
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: undefined, startNewSession: true }])
     expect(session.agentSessionId).toBeNull()
-    // WHY: the implementation run carries the plan and nothing else. Without a
-    // divider saying so, a deliberate restart is indistinguishable from the
-    // conversation silently losing its context.
-    expect(session.messages.at(-1)).toMatchObject({
-      role: 'system',
-      newSessionForPlanId: 'plan-1',
-    })
+    expect(session.messages).toEqual([])
   })
 
-  test('adds no session boundary when the plan session is kept', async () => {
-    const { ctx, session } = approvalContext()
+  test('keeps the plan session when starting a new session is disabled', async () => {
+    const { ctx, session, accepts } = approvalContext()
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto', { startNewSession: false })
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', { startNewSession: false })
 
-    expect(session.messages.some((m) => m.newSessionForPlanId)).toBe(false)
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: undefined, startNewSession: false }])
+    expect(session.agentSessionId).toBe('agent-session-1')
   })
 
   test('never reports the accepted plan run as stopped by the reader', async () => {
     const { ctx, session, notices } = approvalContext()
     session.status = 'awaiting_plan'
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto', {
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
       provider: 'codex',
       modelId: 'gpt-5.5',
     })
@@ -234,59 +235,77 @@ describe('plan approval session choice', () => {
     expect(notices).toEqual([false])
   })
 
-  test('retains the plan session when starting a new session is disabled', async () => {
-    const { ctx, session, resetCount } = approvalContext()
+  test('hands the session over through the host when the implementation provider changes', async () => {
+    const { ctx, session, handoffs, accepts } = approvalContext()
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto', { startNewSession: false })
-
-    expect(resetCount()).toBe(0)
-    expect(session.agentSessionId).toBe('agent-session-1')
-  })
-
-  test('uses the normal handoff path when the implementation provider changes', async () => {
-    const { ctx, session, handoffs, resetCount } = approvalContext()
-
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto', {
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
       provider: 'codex',
       modelId: 'gpt-5.5',
     })
 
     // WHY: a provider change at plan approval is still a continuation of this
-    // conversation, so it must retain handoff lineage and the same UI boundary
-    // as a provider change made from the session picker.
+    // conversation, so it keeps handoff lineage (no reset) and takes on the
+    // switch the host made, like a switch from the agent picker.
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: 'codex', startNewSession: false }])
     expect(handoffs).toEqual([{ provider: 'codex', tabId: 'tab-1' }])
-    expect(resetCount()).toBe(0)
-    expect(session.handoffFrom).toEqual({
-      provider: 'claude-code',
-      sessionId: 'agent-session-1',
-    })
-    expect(session.messages.at(-1)).toMatchObject({
-      role: 'system',
-      agentChangedTo: 'Codex',
-    })
     expect(session.run.modelConfig.modelId).toBe('gpt-5.5')
   })
 
   test('hands a Codex-authored plan to Claude through the same path', async () => {
-    const { ctx, session, handoffs, resetCount } = approvalContext()
+    const { ctx, session, handoffs, accepts } = approvalContext()
     session.run.provider = 'codex'
     session.run.modelConfig.modelId = 'gpt-5.5'
 
-    await approvePlanWithModel(ctx as any, 'plan-1', 'auto', {
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
       provider: 'claude-code',
       modelId: 'claude-opus-4-6',
     })
 
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: 'claude-code', startNewSession: false }])
     expect(handoffs).toEqual([{ provider: 'claude-code', tabId: 'tab-1' }])
-    expect(resetCount()).toBe(0)
-    expect(session.handoffFrom).toEqual({
-      provider: 'codex',
-      sessionId: 'agent-session-1',
-    })
-    expect(session.messages.at(-1)).toMatchObject({
-      role: 'system',
-      agentChangedTo: 'Claude Code',
-    })
     expect(session.run.modelConfig.modelId).toBe('claude-opus-4-6')
+  })
+
+  test('a failed handoff leaves the plan pending and sends nothing', async () => {
+    const { ctx } = approvalContext()
+    const sent: string[] = []
+    ctx.dispatch.sendMessage = ((text: string) => { sent.push(text) }) as typeof ctx.dispatch.sendMessage
+    ctx.apiFor = () => ({ acceptPlan: async () => { throw new Error('queued prompts') } }) as unknown as ReturnType<typeof ctx.apiFor>
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', { provider: 'codex', modelId: 'gpt-5.5' })
+
+    // WHY: the original provider is still in place; the approved work must not go to it.
+    expect(ctx.planStore.plans['plan-1'].status).toBe('pending')
+    expect(sent).toEqual([])
+  })
+})
+
+describe('plan approval permission mode', () => {
+  test('approve runs the plan in the default mode from Settings', async () => {
+    const { ctx, session } = approvalContext()
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default')
+
+    // WHY: the plan is only the planning step; the work runs with the
+    // permissions the user chose for new sessions, not with one Solus picks.
+    expect(session.run.permissionMode).toBe('accept-edits')
+  })
+
+  test('a default of plan implements in full access, never in plan again', async () => {
+    const { ctx, session } = approvalContext()
+    ctx.settings.defaultPermissionMode = 'plan'
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default')
+
+    // WHY: implementing in plan mode would only produce another plan.
+    expect(session.run.permissionMode).toBe('full-access')
+  })
+
+  test('approve with ask-each-step runs supervised', async () => {
+    const { ctx, session } = approvalContext()
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'supervised')
+
+    expect(session.run.permissionMode).toBe('supervised')
   })
 })

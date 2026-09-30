@@ -57,11 +57,16 @@ export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): 
   })
 
   backend.register('stopSession', () => true)
+  backend.register('stopBackgroundTasks', () => true)
+  // The demo carries no messages between sessions, so a rebuilt card reads as settled.
+  backend.register('sessionMessagesSentBy', () => [])
+  backend.register('decideSessionPlan', () => false)
   backend.register('respondQuestion', () => true)
   backend.register('rateLimitDecision', () => true)
   backend.register('cancelQueuedPrompt', () => true)
   backend.register('editQueuedPrompt', () => true)
   backend.register('resetSession', () => undefined)
+  backend.register('acceptPlan', () => ({}))
 
   const interceptGitMutation = (): GitMutationRefusal => {
     showCta()

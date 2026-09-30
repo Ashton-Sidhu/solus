@@ -110,7 +110,7 @@ export class PrReviewActions {
     session.run.workingDirectory = worktreeProjectRoot(review.worktreePath)
     session.run.gitContext = prReviewGitCheckout(review)
     session.run.worktree = null
-    session.run.permissionMode = 'auto'
+    session.run.permissionMode = 'full-access'
     session.prReview = review
     session.statusCard = buildConflictResolverCard(pr.number, 'session')
     const prompt = buildConflictResolutionPrompt({
@@ -275,26 +275,6 @@ export class PrReviewActions {
     return { pr }
   }
 
-  /** Step to the PR before or after the open one, in the list's own order —
-   *  what J / K and the chrome band's stepper walk. */
-  stepPrReview(delta: number, ctx: IpcContext = this.workspace.ctx): void {
-    const open = this.workspace.router.params('prReview')?.number
-    const order = this.workspace.pullRequests.view.listOrder
-    if (open === undefined || order.length === 0) return
-    const index = order.indexOf(open)
-    if (index === -1) return
-    const next = order[(index + delta + order.length) % order.length]
-    if (next === open) return
-    void this.openPullRequest(
-      this.workspace.pullRequests.projects.at(this.workspace.serverIdForContext(ctx), projectScopeOf(ctx.session))?.prFor(next) ?? { number: next },
-      {
-        ctx,
-        tab: this.workspace.pullRequests.view.tab,
-        serverId: this.workspace.router.params('prReview')?.serverId,
-      },
-    )
-  }
-
   /** Route prepared PR work to a real session composer. No tab or session exists
    *  until Send; the checkout, PR context, prompt, and task choice stay on the
    *  draft and cross that boundary together. */
@@ -330,7 +310,7 @@ export class PrReviewActions {
     draft.run.taskServerId = serverId
     draft.run.projectGroupPath = null
     draft.run.worktree = null
-    draft.run.permissionMode = 'auto'
+    draft.run.permissionMode = 'full-access'
     draft.prReview = pr
     if (opts.prompt) draft.prompt.text = opts.prompt
     return draft

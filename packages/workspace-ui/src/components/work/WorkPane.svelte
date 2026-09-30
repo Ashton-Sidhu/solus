@@ -1,14 +1,13 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { CloudWorkCopy } from "../../contexts/works/cloud-work-copy.store.svelte";
-  import { hostRolesStore } from "../../contexts/connections/host-roles.store.svelte";
   import type { Work } from "@solus/contracts/types";
-  import { getSurfaceContext, getClientShellContext, serversStore, sharesStore } from "../../contexts";
+  import { getSurfaceContext, getClientShellContext, presenceStore, sharesStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import { Button } from "../ui/button";
   // Eager, unlike the shells they cover: these are what stand in for an async
   // boundary, so they cannot sit behind one themselves.
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
@@ -19,9 +18,15 @@
   import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { storedExportExtension, type WorkExportRequest } from "./lib/work-export";
+  import { holdWorkForPane, unavailableMessage, type WorkPaneHold } from "./lib/work-draft.svelte";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import type { FilePayload } from "../diagram/lib/diagram-export";
   import { toasts } from "../../lib/toasts";
+  import { recentCommentAuthors, type MentionScope } from "../mentions/lib/mentions";
+  import { provideMentionScope } from "../mentions/lib/mention-scope.svelte";
+  import { setWorkPaneContext } from "./lib/work-pane-context";
+  import { isLiveEditable, type WorkLiveLease } from "../../contexts/works/work-live.store.svelte";
+  import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
 
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
@@ -29,79 +34,108 @@
   const pane = paneActions(() => paneId);
   const shell = getClientShellContext();
 
-  let loadedWorkId = $state<string | null>(null);
   const workMetadata = $derived(session.worksStore.get(params.workId));
-  // Manifest entries have no body. Do not mount an empty editor while the
-  // content read is pending; a successfully loaded empty document is valid.
-  let cloudCopy = $state.raw<CloudWorkCopy | null>(null);
-  const workServerId = $derived(params.serverId ?? session.worksStore.hostFor(params.workId));
-  const isCloudWork = $derived(!!workServerId && (serversStore.isCloudHost(workServerId) || !hostRolesStore.hasExecution(workServerId)));
-  const work = $derived(
-    cloudCopy?.work ?? (workMetadata && (workMetadata.content || loadedWorkId === params.workId)
-      ? workMetadata
-      : null),
-  );
+  // The store's host for the work wins over the route's: after a Share the
+  // route still names the machine, the store the organization's service.
+  const workServerId = $derived(session.worksStore.hostFor(params.workId) ?? params.serverId ?? null);
   const sess = $derived(session.activeSession);
-  let workLoadAttempt = $state(0);
-  let workLoadError = $state<Error | null>(null);
 
-  // A browser route can outlive the list that first discovered this work. Keep
-  // its host affinity before loading so a cloud client never falls back to the
-  // default host for a host-local id.
+  // One hold per open work id: the store's shared, subscribed saved record, and
+  // this pane's own draft over it. Local and cloud works take the same path.
+  let hold = $state.raw<WorkPaneHold | null>(null);
+  // Leaving the work ends editing on purpose; the host would clear it anyway.
   $effect(() => {
     const workId = params.workId;
-    const serverId = params.serverId;
-    void workLoadAttempt;
-    if (serverId) session.worksStore.rememberHost(workId, serverId);
-    workLoadError = null;
-    let active = true;
-    void session.worksStore.ensureContent(workId, "work-pane").then((loaded) => {
-      if (!active) return;
-      if (loaded) loadedWorkId = workId;
-      else workLoadError = new Error("This work could not be loaded from its host.");
-    });
-    return () => {
-      active = false;
-    };
+    return () => presenceStore.stopEditing(untrack(() => workServerId), workId);
   });
+  $effect(() => {
+    const workId = params.workId;
+    const serverIdHint = params.serverId;
+    return untrack(() => {
+      const next = holdWorkForPane(session.worksStore, workId, serverIdHint, signalLiveUpdate);
+      hold = next;
+      return () => next.close();
+    });
+  });
+  const openWork = $derived(hold?.work ?? null);
+  const draft = $derived(hold?.draft ?? null);
+  // The editor mounts once the pane has a saved body. Manifest entries have
+  // none, and an empty editor must not stand in while the read is pending.
+  const work = $derived(draft?.loaded ? (workMetadata ?? session.worksStore.savedWork(params.workId) ?? null) : null);
 
-  const viewerReadOnly = $derived(!!workServerId && sharesStore.listFor(workServerId, { kind: "work", id: params.workId })?.callerRole === "viewer");
+  // Live editing (work review plan, phase 3b): documents and diagrams are
+  // edited in a shared doc on the work's host. A host from before live editing
+  // answers `unsupported`, and the pane keeps saving whole bodies.
+  const liveType = $derived.by(() => {
+    const type = work?.type;
+    if (type !== "doc" && type !== "diagram") return null;
+    return isLiveEditable(type, work?.mirroredDoc?.provider === "gdrive") ? type : null;
+  });
+  let liveLease = $state.raw<WorkLiveLease | null>(null);
+  $effect(() => {
+    const serverId = workServerId;
+    const workId = params.workId;
+    const type = liveType;
+    if (!serverId || !type) return;
+    return untrack(() => {
+      const lease = session.worksStore.live.acquire(serverId, workId, type, () => presenceStore.noteEditing(serverId, workId));
+      liveLease = lease;
+      return () => {
+        lease.release();
+        if (liveLease === lease) liveLease = null;
+      };
+    });
+  });
+  const live = $derived(liveLease?.live ?? null);
+  const liveActive = $derived(!!live && live.connection !== "unsupported");
+  // The editor mounts once the shared doc has content, from the device or the host.
+  const liveReady = $derived(!liveType || (!!live && (!liveActive || live.ready)));
+  const liveBinding = $derived<LiveEditorBinding | null>(
+    live && liveActive ? { live, user: liveCaretUser(workServerId ? sharesStore.identities.get(workServerId)?.user ?? null : null) } : null,
+  );
+
+  const callerRole = $derived(workServerId ? sharesStore.listFor(workServerId, { kind: "work", id: params.workId })?.callerRole ?? null : null);
+  // A commenter reads and reviews; only an editor changes the body.
+  const viewerReadOnly = $derived(callerRole === "viewer" || callerRole === "commenter");
   $effect(() => {
     const serverId = workServerId;
     const workId = params.workId;
     if (serverId) untrack(() => { void sharesStore.load(serverId, { kind: "work", id: workId }); });
   });
 
-  const hasLoadedContent = $derived(!!workMetadata?.content || loadedWorkId === params.workId);
-  $effect(() => {
-    const workId = params.workId;
-    const serverId = workServerId;
-    if (!isCloudWork || !serverId || !hasLoadedContent) { cloudCopy = null; return; }
-    const copy = untrack(() => new CloudWorkCopy(session.worksStore.get(workId)!, serverConnections.apiFor(serverId)));
-    cloudCopy = copy;
-    return untrack(() => { void copy.reload(); return copy.watch(); });
+  // Every work surface's composers mention the people of the work's
+  // organization; a Local work has none (plan 004 item 13).
+  const mentionScope = $derived.by((): MentionScope | null => {
+    const meta = work ?? workMetadata;
+    if (!workServerId || !meta) return null;
+    return {
+      serverId: workServerId,
+      organizationId: meta.organizationId,
+      resource: { kind: "work", id: params.workId },
+      title: meta.title,
+      recentUserIds: recentCommentAuthors(session.worksStore.annotationComments(params.workId)),
+    };
   });
+  provideMentionScope(() => mentionScope);
 
   let discardingShell = false;
   async function saveCopy(updates: Partial<Pick<Work, "title" | "preview" | "content">>) {
     // DiagramShell flushes its draft on teardown. An explicit reload must not
     // save that discarded draft over the version we just loaded.
-    if (discardingShell) return;
+    if (discardingShell || !draft) return;
+    // The host writes a live doc's body; only a rename is the pane's to save.
+    if (liveActive && updates.content !== undefined) return;
+    if (openWork?.status === "unavailable") throw new Error(unavailableMessage(openWork.unavailableReason));
     const workId = params.workId;
-    if (cloudCopy) await cloudCopy.save(updates, (write, version) => session.worksStore.save(workId, write, version));
-    else await session.worksStore.save(workId, updates);
+    // A save follows an edit by a moment: the roster says who is editing.
+    if (updates.content !== undefined) presenceStore.noteEditing(workServerId, workId);
+    await draft.save(updates, (write, base) => session.worksStore.save(workId, write, base));
   }
 
-  async function reloadCloudCopy() {
-    if (await cloudCopy?.reload()) {
-      await remountSavedCopy();
-    }
-  }
-
-  async function remountSavedCopy() {
+  /** Drop this pane's edits and show the saved copy. */
+  async function reloadSavedCopy() {
+    draft?.discard();
     discardingShell = true;
-    shellDirty = false;
-    conflict = false;
     renderKey++;
     try { await tick(); } finally { discardingShell = false; }
   }
@@ -127,55 +161,28 @@
     return null;
   });
 
-  // ─── Live-refresh + dirty-conflict for the active work shell ───
-  // The shells parse their content once at mount, so an agent update is applied
-  // by remounting (bumping renderKey) — but only when the shell has no unsaved
-  // edits. If it's dirty, we surface a refresh pill instead of clobbering.
-  let shellDirty = $state(false);
-  let conflict = $state(false);
+  // A clean editor takes each newer saved body through its `content` prop; a
+  // remount (renderKey) happens only on an explicit reload, a restore, or a
+  // retry after a failed shell load.
   let renderKey = $state(0);
-  // Briefly true right after a clean live-refresh, to play the "Updated live"
-  // signal (edge-glow + ephemeral pill). Cleared on a timer so the animation
-  // runs once per agent update.
+  // Briefly true right after a clean editor accepted someone else's save, to
+  // play the "Updated live" signal (edge-glow + ephemeral pill). Cleared on a
+  // timer so the animation runs once per accepted version.
   let justUpdated = $state(false);
   // The save picker in flight: the file a shell encoded, or a `null` payload
   // when the host writes the stored work itself.
   let exportDraft = $state<{ fileName: string; payload: FilePayload | null } | null>(null);
   let justUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
-  let trackedWorkId: string | null = null;
-  let trackedAgentRev = 0;
-
-  const agentRev = $derived(session.worksStore.agentRevisions[params.workId] ?? 0);
 
   function signalLiveUpdate() {
+    // A live doc shows every edit as it happens; the saved body it projects is not news.
+    if (liveActive) return;
     if (justUpdatedTimer) clearTimeout(justUpdatedTimer);
     justUpdated = true;
     justUpdatedTimer = setTimeout(() => {
       justUpdated = false;
     }, 1900);
   }
-
-  $effect(() => {
-    const workId = params.workId;
-    const rev = agentRev;
-    if (isCloudWork) return;
-    if (workId !== trackedWorkId) {
-      trackedWorkId = workId;
-      trackedAgentRev = rev;
-      shellDirty = false;
-      conflict = false;
-      justUpdated = false;
-      return;
-    }
-    if (rev !== trackedAgentRev) {
-      trackedAgentRev = rev;
-      if (shellDirty) conflict = true;
-      else {
-        renderKey++;
-        signalLiveUpdate();
-      }
-    }
-  });
 
   $effect(() => () => {
     if (justUpdatedTimer) clearTimeout(justUpdatedTimer);
@@ -189,12 +196,6 @@
   // there is nothing a browser download would add; when it is not, downloading
   // is the only way to get the file onto the device the user is holding.
   const hostIsRemote = $derived(!!sess && !hostPolicy.isClientMachine(sess.run.serverId));
-
-  function refreshFromAgent() {
-    conflict = false;
-    shellDirty = false;
-    renderKey++;
-  }
 
   // The crumb's way back: leave this pane, then show the page the work is a
   // row on — the same two steps the automation builder takes.
@@ -219,12 +220,23 @@
     void saveCopy({ title: newTitle }).catch((error) => toasts.error(error.message));
   }
 
-  async function handleRevert() {
-    const reverted = await session.worksStore.revert(params.workId);
-    if (!reverted) return;
-    if (cloudCopy) await cloudCopy.reload();
-    await remountSavedCopy();
-  }
+  // The header's History and Review name the body this pane is based on.
+  setWorkPaneContext({
+    contentVersion: async () => {
+      if (liveActive) await openWork?.refresh();
+      return draft?.baseContentVersion ?? 0;
+    },
+    isDirty: () => !!draft?.dirty,
+    canEdit: () => !viewerReadOnly && workMetadata?.mirroredDoc?.provider !== "gdrive",
+    restoreRevision: async (revisionId) => {
+      if (!draft) return;
+      // Live: the reader sees every edit as it lands; read the body the host
+      // wrote from them, so the restore names that version.
+      if (liveActive) await openWork?.refresh();
+      await session.worksStore.restoreRevision(params.workId, revisionId, draft.baseContentVersion);
+      await reloadSavedCopy();
+    },
+  });
 
   function handleDelete() {
     const target = session.worksStore.get(params.workId);
@@ -254,48 +266,54 @@
 </script>
 
 {#snippet liveBadge()}
-  <div class="work-live-badge" role="status" aria-label="Work updated live by the agent">
+  <div class="work-live-badge" role="status" aria-label="Work updated live">
     <span class="work-live-badge__dot"></span>
     Updated live
   </div>
 {/snippet}
 
-{#snippet refreshPill()}
-  <div class="work-refresh-banner" role="status">
-    <span class="work-refresh-banner__text">The agent updated this work.</span>
-    <button
-      type="button"
-      class="work-refresh-banner__btn"
-      data-testid="work-refresh"
-      onclick={refreshFromAgent}
-    >
-      Refresh
-    </button>
+<!-- One status line for the saved copy: gone, changed under unsaved edits,
+     waiting on the host, or not refreshed. The draft always stays on screen. -->
+{#snippet savedCopyStatus(message: string, action: { label: string; testId: string; run: () => void } | null)}
+  <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--solus-accent-border) bg-(--solus-accent-light) px-4 py-2 text-workspace-chrome" role="status">
+    <span class="min-w-0">{message}</span>
+    {#if action}
+      <Button
+        variant="outline"
+        size="xs"
+        class="shrink-0 pointer-coarse:min-h-11"
+        data-testid={action.testId}
+        disabled={openWork?.refreshing}
+        onclick={action.run}
+      >
+        {action.label}
+      </Button>
+    {/if}
   </div>
 {/snippet}
 
-{#if work && (!isCloudWork || cloudCopy?.ready)}
+{#if work && draft}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
-    {#if cloudCopy?.changed || cloudCopy?.error}
-      <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--solus-accent-border) bg-(--solus-accent-light) px-4 py-2 text-workspace-chrome" role="status">
-        <span>{cloudCopy.error ?? "This work changed in the cloud. You are viewing an older copy."}</span>
-        <button type="button" class="rounded-md border border-(--solus-accent-border) px-3 py-1 hover:bg-(--solus-surface-hover) focus-visible:outline-2 pointer-coarse:min-h-11" disabled={cloudCopy.reloading} onclick={() => void reloadCloudCopy()}>
-          {cloudCopy.reloading ? "Reloading…" : shellDirty ? "Discard edits and reload" : "Reload saved copy"}
-        </button>
-      </div>
-    {/if}
-    {#if conflict}
-      {@render refreshPill()}
+    {#if openWork?.status === "unavailable"}
+      {@render savedCopyStatus(unavailableMessage(openWork.unavailableReason), { label: "Check again", testId: "work-check-again", run: () => openWork?.retry() })}
+    {:else if draft.conflict}
+      {@render savedCopyStatus("This work changed since you started editing. Your edits are not saved.", { label: "Discard edits and reload", testId: "work-refresh", run: () => void reloadSavedCopy() })}
+    {:else if openWork?.reconnecting}
+      {@render savedCopyStatus("Reconnecting to this work's host. Your edits are kept.", null)}
+    {:else if openWork?.error}
+      {@render savedCopyStatus("Could not refresh this work. You are viewing the last saved copy.", { label: openWork.refreshing ? "Retrying…" : "Retry", testId: "work-retry-refresh", run: () => openWork?.retry() })}
     {/if}
     {#if justUpdated}
       {@render liveBadge()}
     {/if}
-    {#key `${work.id}-${renderKey}`}
+    {#key `${work.id}-${renderKey}-${liveBinding ? "live" : "saved"}-${liveReady}`}
       <div class="flex-1 min-h-0">
         {#if work.type === "diagram" && viewerReadOnly}
           {#await import("../diagram/DiagramPreview.svelte") then previewModule}
-            <previewModule.default content={work.content} title={work.title} />
+            <previewModule.default content={draft.content} title={work.title} />
           {/await}
+        {:else if work.type === "diagram" && !liveReady}
+          <DiagramShellSkeleton />
         {:else if work.type === "diagram"}
           {#await import("../diagram/DiagramShell.svelte")}
             <DiagramShellSkeleton />
@@ -304,25 +322,23 @@
             <!-- See the note on the document branch below: workId is read from
                  DOM handlers that can outlive `work` by a tick. -->
             <DiagramShell
-              content={work.content ?? ""}
+              content={draft.content}
               title={work.title}
               workId={work?.id}
               onSave={async (c) => {
                 await saveCopy({ content: c });
               }}
-              onDirtyChange={(d) => {
-                shellDirty = d;
-              }}
+              onDirtyChange={(d) => draft?.setDirty(d)}
               onClose={handleClose}
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
               onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
-              onRevert={handleRevert}
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
+              live={liveBinding}
             />
           {:catch error}
             <RouteLoadError
@@ -333,7 +349,7 @@
           {/await}
         {:else if work.type === "artifact"}
           <ArtifactShell
-            content={work.content ?? ""}
+            content={draft.content}
             title={work.title}
             workId={work.id}
             onClose={handleClose}
@@ -341,12 +357,13 @@
             onOpenChat={canOpenChat ? handleOpenChat : undefined}
             {originalSessionMeta}
             onRename={handleRename}
-            onRevert={handleRevert}
             onDelete={handleDelete}
             onDuplicate={handleDuplicate}
             onExport={exportStartPath ? handleExport : undefined}
             {hostIsRemote}
           />
+        {:else if !liveReady}
+          <DocumentModalSkeleton inline title={work.title} />
         {:else}
           {#await import("../document-modal/DocumentModal.svelte")}
             <DocumentModalSkeleton inline title={work.title} />
@@ -359,14 +376,12 @@
                  comments". `document` stays eager — resolving it to empty
                  mid-teardown would push a blank doc into the editor. -->
             <DocumentModal
-              document={{ title: work.title, content: work.content }}
+              document={{ title: work.title, content: draft.content }}
               workId={work?.id}
               onSave={async (c) => {
                 await saveCopy({ content: c });
               }}
-              onDirtyChange={(d) => {
-                shellDirty = d;
-              }}
+              onDirtyChange={(d) => draft?.setDirty(d)}
               onClose={handleClose}
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
               inline
@@ -374,11 +389,11 @@
               onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
-              onRevert={handleRevert}
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
+              live={liveBinding}
             />
           {:catch error}
             <RouteLoadError
@@ -409,13 +424,13 @@
       />
     {/if}
   </div>
-{:else if cloudCopy?.error && !cloudCopy.ready}
-  <RouteLoadError error={new Error(cloudCopy.error)} compact onRetry={() => void cloudCopy?.reload()} />
-{:else if workLoadError}
+{:else if openWork?.status === "unavailable"}
+  <RouteLoadError error={new Error(unavailableMessage(openWork.unavailableReason))} compact onRetry={() => openWork?.retry()} />
+{:else if openWork?.status === "error"}
   <RouteLoadError
-    error={workLoadError}
+    error={new Error(openWork.error ?? "This work could not be loaded from its host.")}
     compact
-    onRetry={() => (workLoadAttempt += 1)}
+    onRetry={() => openWork?.retry()}
   />
 {:else}
   {#if workMetadata?.type === "diagram"}
@@ -456,40 +471,6 @@
 {/if}
 
 <style>
-  .work-refresh-banner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 1rem;
-    flex-shrink: 0;
-    background: var(--solus-accent-light);
-    border-bottom: 0.0625rem solid var(--solus-accent-border);
-  }
-  .work-refresh-banner__text {
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--solus-text-primary);
-  }
-  .work-refresh-banner__btn {
-    font-size: var(--text-xs);
-    font-weight: 500;
-    padding: 0.25rem 0.75rem;
-    border-radius: 0.375rem;
-    border: 0.0625rem solid var(--solus-accent-border);
-    background: var(--solus-accent);
-    color: var(--solus-on-accent, #fff);
-    cursor: pointer;
-    transition: opacity var(--duration-quick) var(--ease-premium);
-  }
-  .work-refresh-banner__btn:hover {
-    opacity: 0.85;
-  }
-  .work-refresh-banner__btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
   /* ─── Live-update signal: edge-glow sweep + ephemeral "Updated live" pill ─── */
   .work-live-host {
     position: relative;

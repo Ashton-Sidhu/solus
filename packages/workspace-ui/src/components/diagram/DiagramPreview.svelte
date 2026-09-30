@@ -37,9 +37,18 @@
     renderAllElements?: boolean;
     /** Hands the flow instance to a host that captures or drives the canvas. */
     onFlowReady?: (flow: ReturnType<typeof useSvelteFlow>) => void;
+    /** Node and edge ids to outline as changed, for the history comparison. */
+    marks?: { added: ReadonlySet<string>; removed: ReadonlySet<string>; changed: ReadonlySet<string> };
   }
 
-  let { content, title = "Diagram", renderAllElements = false, onFlowReady }: Props = $props();
+  let { content, title = "Diagram", renderAllElements = false, onFlowReady, marks }: Props = $props();
+
+  function markClass(id: string): string | undefined {
+    if (marks?.added.has(id)) return "diagram-mark diagram-mark--added";
+    if (marks?.removed.has(id)) return "diagram-mark diagram-mark--removed";
+    if (marks?.changed.has(id)) return "diagram-mark diagram-mark--changed";
+    return undefined;
+  }
 
   const theme = getSettingsContext();
   const nodeTypes = DIAGRAM_NODE_TYPES;
@@ -90,6 +99,10 @@
     viewDoc = doc;
     nodes = toFlowNodes(doc.nodes, expandedNodeIds, nodeHandlers);
     edges = toFlowEdges(doc.edges, {});
+    if (marks && drillPath.length === 0) {
+      nodes = nodes.map((node) => ({ ...node, class: [node.class, markClass(node.id)].filter(Boolean).join(" ") }));
+      edges = edges.map((edge) => ({ ...edge, class: [edge.class, markClass(edge.id)].filter(Boolean).join(" ") }));
+    }
     // The canvas keeps the previous view's viewport until told otherwise, so a
     // swapped view has to re-fit or it opens scrolled off its own graph.
     requestAnimationFrame(() =>
@@ -229,6 +242,26 @@
   .diagram-preview__board {
     border: none;
     border-radius: 0;
+  }
+
+  /* History marks: an outline in the change's colour, never a fill, so the
+     card stays readable in both themes. */
+  .diagram-preview :global(.svelte-flow__node.diagram-mark) {
+    border-radius: 0.75rem;
+    outline: 0.125rem solid var(--diagram-mark-color);
+    outline-offset: 0.25rem;
+  }
+  .diagram-preview :global(.svelte-flow__edge.diagram-mark path) {
+    stroke: var(--diagram-mark-color) !important;
+  }
+  .diagram-preview :global(.diagram-mark--added) {
+    --diagram-mark-color: var(--solus-diff-added-text);
+  }
+  .diagram-preview :global(.diagram-mark--removed) {
+    --diagram-mark-color: var(--solus-diff-removed-text);
+  }
+  .diagram-preview :global(.diagram-mark--changed) {
+    --diagram-mark-color: var(--solus-accent);
   }
 
   .diagram-preview__notice {

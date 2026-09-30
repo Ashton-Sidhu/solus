@@ -1,6 +1,8 @@
 <script lang="ts">
   import { CornerLeftUp as ArrowElbowLeftUpIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { worktreeDisplayName } from "../../lib/git-context";
+  import { MiddleTruncate } from "../ui/middle-truncate";
+  import { TouchLongPress } from "../../lib/touch-long-press";
 
   interface Props {
     id: string;
@@ -17,6 +19,8 @@
     /** Absolute positioning handed down by the virtual list. */
     style?: string;
     onclick: () => void;
+    /** Right-click, or a touch long-press: the phone's way to the same menu. */
+    onContextMenu?: (event: MouseEvent) => void;
   }
 
   let {
@@ -29,7 +33,10 @@
     isProject = false,
     style,
     onclick,
+    onContextMenu,
   }: Props = $props();
+
+  const longPress = new TouchLongPress((event) => onContextMenu?.(event));
 </script>
 
 <button
@@ -39,11 +46,24 @@
   class="mx-2 flex h-8 w-[calc(100%-1rem)] items-center gap-2.5 rounded-md border-0 px-2.5 text-left
     max-md:h-13 max-md:gap-[0.6875rem] max-md:rounded-[0.875rem] max-md:px-3
     [transition:background-color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
+    select-none [-webkit-touch-callout:none]
     {selected ? 'bg-muted' : 'bg-transparent hover:bg-muted'}"
   role="option"
   aria-selected={selected}
   tabindex={-1}
-  {onclick}
+  onclick={() => {
+    if (!longPress.consumeClick()) onclick();
+  }}
+  oncontextmenu={(event) => {
+    if (!onContextMenu) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onContextMenu(event);
+  }}
+  onpointerdown={(event) => longPress.start(event)}
+  onpointerup={() => longPress.cancel()}
+  onpointercancel={() => longPress.cancel()}
+  onpointermove={() => longPress.cancel()}
 >
   {#if isUpRow}
     <ArrowElbowLeftUpIcon size={13} class="shrink-0 text-muted-foreground max-md:size-4" />
@@ -58,12 +78,12 @@
     {/if}
     <span class="min-w-0 shrink truncate text-[0.8125rem] max-md:text-sm max-md:font-medium max-md:tracking-[-0.005em]">{name}</span>
     {#if branch}
-      <span
-        class="shrink-0 truncate font-mono text-xs text-muted-foreground max-md:text-[0.6875rem]"
+      <MiddleTruncate
+        value={worktreeDisplayName(branch)}
+        showTitle={false}
         title="On branch {worktreeDisplayName(branch)}"
-      >
-        {worktreeDisplayName(branch)}
-      </span>
+        class="max-w-[45%] shrink-0 font-mono text-xs text-muted-foreground max-md:text-[0.6875rem]"
+      />
     {/if}
     {#if isProject}
       <!-- A folder Solus already tracks is a different kind of thing, not a

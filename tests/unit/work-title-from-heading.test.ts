@@ -32,6 +32,9 @@ function work(overrides: Partial<Work> = {}): Work {
     id: 'work-a',
     title: 'Untitled document',
     content: '',
+    contentVersion: 1,
+    contentHash: 'hash-1',
+    contentAuthor: { kind: 'unknown' },
     preview: '',
     type: 'doc',
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -45,13 +48,14 @@ function work(overrides: Partial<Work> = {}): Work {
 
 type WorkUpdates = Partial<Pick<Work, 'title' | 'preview' | 'content'>>
 
-/** Register a host whose saveWork records what the store asked it to write. */
-function hostRecordingSaves() {
+/** Register a host whose saveWork records what the store asked it to write
+ *  and answers the stored record with that write applied, as a host does. */
+function hostRecordingSaves(stored: Work) {
   const updates: WorkUpdates[] = []
   connections.registerPrimary('host-a', {
-    saveWork: async (workId: string, update: WorkUpdates) => {
+    saveWork: async (_workId: string, update: WorkUpdates) => {
       updates.push(update)
-      return work({ id: workId, ...update, updatedAt: '2026-01-02T00:00:00.000Z' })
+      return { ...stored, ...update, contentVersion: stored.contentVersion + (update.content === undefined ? 0 : 1), updatedAt: '2026-01-02T00:00:00.000Z' }
     },
   })
   return { updates }
@@ -60,8 +64,7 @@ function hostRecordingSaves() {
 async function storeWith(entry: Work) {
   const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
   const store = new WorksStore()
-  store.works[entry.id] = entry
-  store.rememberHost(entry.id, 'host-a')
+  store.acceptCreated(entry, 'host-a')
   return store
 }
 
@@ -92,10 +95,11 @@ describe('first heading', () => {
 
 describe('naming a work from its first heading', () => {
   test('a still-unnamed document takes the heading the user typed', async () => {
-    const host = hostRecordingSaves()
-    const store = await storeWith(work())
+    const entry = work()
+    const host = hostRecordingSaves(entry)
+    const store = await storeWith(entry)
 
-    await store.save('work-a', { content: '# Release plan\n\nBody' })
+    await store.save('work-a', { content: '# Release plan\n\nBody' }, entry.updatedAt)
 
     expect(host.updates[0].title).toBe('Release plan')
     expect(store.get('work-a')?.title).toBe('Release plan')
@@ -104,10 +108,11 @@ describe('naming a work from its first heading', () => {
   test('a named document keeps its name', async () => {
     // WHY: the title is the user's or the agent's choice once it is set. A
     // heading typed later must not silently rename their document.
-    const host = hostRecordingSaves()
-    const store = await storeWith(work({ title: 'Release plan' }))
+    const entry = work({ title: 'Release plan' })
+    const host = hostRecordingSaves(entry)
+    const store = await storeWith(entry)
 
-    await store.save('work-a', { content: '# Appendix\n\nBody' })
+    await store.save('work-a', { content: '# Appendix\n\nBody' }, entry.updatedAt)
 
     expect(host.updates[0].title).toBeUndefined()
     expect(store.get('work-a')?.title).toBe('Release plan')
@@ -115,20 +120,22 @@ describe('naming a work from its first heading', () => {
 
   test('a diagram is never named from its content', async () => {
     // WHY: diagram content is JSON, so a heading match there is a coincidence.
-    const host = hostRecordingSaves()
-    const store = await storeWith(work({ title: 'Untitled diagram', type: 'diagram' }))
+    const entry = work({ title: 'Untitled diagram', type: 'diagram' })
+    const host = hostRecordingSaves(entry)
+    const store = await storeWith(entry)
 
-    await store.save('work-a', { content: '{"nodes":[{"label":"# Release plan"}],"edges":[]}' })
+    await store.save('work-a', { content: '{"nodes":[{"label":"# Release plan"}],"edges":[]}' }, entry.updatedAt)
 
     expect(host.updates[0].title).toBeUndefined()
     expect(store.get('work-a')?.title).toBe('Untitled diagram')
   })
 
   test('an explicit rename still wins', async () => {
-    const host = hostRecordingSaves()
-    const store = await storeWith(work({ content: '# Release plan' }))
+    const entry = work({ content: '# Release plan' })
+    const host = hostRecordingSaves(entry)
+    const store = await storeWith(entry)
 
-    await store.save('work-a', { title: 'Q3 launch' })
+    await store.save('work-a', { title: 'Q3 launch' }, entry.updatedAt)
 
     expect(host.updates[0].title).toBe('Q3 launch')
     expect(store.get('work-a')?.title).toBe('Q3 launch')

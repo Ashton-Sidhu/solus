@@ -34,7 +34,6 @@ const attentionFileSchema = z.object({
     since: z.number(),
     summary: z.string(),
     projectKey: z.string().optional(),
-    resolvedBy: z.string().optional(),
   })),
 })
 
@@ -58,11 +57,13 @@ export function attentionActionForStatus(
       if (pending === 'question') return { type: 'set', kind: 'question' }
       if (pending === 'permission') return { type: 'set', kind: 'needs_approval' }
       return { type: 'ignore' }
-    // A turn that ends with background work still running is finished for the
-    // user: the agent is not doing anything they need to wait for.
+    // A turn that ends with background work still running is not finished: the
+    // agent usually resumes when that work settles, often mid-task. The
+    // sidebar's background mark shows that state; only the real end notifies.
     case 'completed':
-    case 'background':
       return { type: 'set', kind: 'finished' }
+    case 'background':
+      return { type: 'ignore' }
     case 'failed':
     case 'dead':
       return { type: 'set', kind: 'failed' }

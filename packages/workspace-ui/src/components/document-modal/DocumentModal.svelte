@@ -7,14 +7,13 @@
   import { googleQuoteRange } from "../work/lib/google-comment-quote";
   import { ExternalCommentHighlights, updateExternalCommentHighlights, externalCommentRange } from "../work/lib/external-comment-highlights";
   import { formatExternalThreadsForAgent, localCommentsForDisplay } from "../work/lib/external-comments-view";
-  import { removeCommentMark } from "../plan/lib/comments";
   import type { DocCommentThread } from "@solus/contracts/work-comments";
   import { uuid } from "@solus/contracts/uuid";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
-  import { CommentMark } from "../editor/commentMark";
-  import { getClientShellContext, getSurfaceContext, sharesStore } from "../../contexts";
+  import { CommentHighlights } from "../comments/lib/comment-highlights";
+  import { getSurfaceContext, sharesStore } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -22,6 +21,16 @@
   import { openThreads } from "../comments/lib/thread";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import type { PlanComment, PlanCommentReply, SessionMeta } from "@solus/contracts/types";
+  import type { PersonMention } from "@solus/contracts/mentions";
+  import { createPersonRefExtension } from "../editor/personRefExtension";
+  import { personStanding } from "../mentions/lib/mentions";
+  import { MentionPicker, organizationMentionSource } from "../mentions/lib/mention-picker.svelte";
+  import { getMentionContext } from "../mentions/lib/mention-context";
+  import { warmMentionSources } from "../mentions/lib/mention-scope.svelte";
+  import { createMentionPickerExtension, tiptapMentionEditor } from "../mentions/lib/tiptap-mention-picker";
+  import MentionPickerMenu from "../mentions/MentionPickerMenu.svelte";
+  import MentionAccessNotice from "../mentions/MentionAccessNotice.svelte";
+  import type { LiveEditorBinding } from "../editor/lib/live-editor";
 
   interface DocumentModalProps {
     document: { title: string; content: string };
@@ -34,8 +43,6 @@
     minimizeOutline?: boolean;
     onOpenChat?: (mode: 'resume' | 'new') => void;
     originalSessionMeta?: SessionMeta | null;
-    /** Restore the previous snapshot. */
-    onRevert?: () => void;
     /** Delete the work (closes the pane + offers undo). */
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
@@ -47,20 +54,22 @@
     onRename?: (title: string) => void;
     /** Leave the document for the Workspace page it lives in. */
     onOpenWorkspace?: () => void;
+    /** The work is edited live; read once, when the editor mounts. */
+    live?: LiveEditorBinding | null;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace, live = null }: DocumentModalProps = $props();
+  // Live: the agent edit lock, a reader's role, or an older schema stops typing.
+  const liveLocked = $derived(!!live && !live.live.canEdit);
 
   // The console mounts this too, with no workspace: the comments and the editor
   // work there, and the verbs that open a chat are omitted.
   const session = getSurfaceContext();
   const workspace = session.workspace;
-  const clientShell = getClientShellContext();
   setMarkdownImageContext({
     cwd: () => undefined,
     serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
     ctx: () => undefined,
-    isWeb: () => !clientShell.supportsLocalAttachments,
     api: () => {
       const serverId = workId ? session.worksStore.hostFor(workId) : null;
       return serverId ? serverConnections.apiFor(serverId) : undefined;
@@ -69,7 +78,29 @@
   // Who reads the threads: their own carry no byline, other people's do, and the
   // verbs on someone else's appear only for the work's owner.
   setCommentViewer(() => workCommentViewer(workId ? session.worksStore.hostFor(workId) : null, { kind: "work", id: workId ?? "" }));
-  const commentExtensions = [CommentMark, ExternalCommentHighlights];
+  // `@` in the body mentions a member of the work's organization (plan 004
+  // item 13). The chip shows the member's current name when it renders.
+  const mentionContext = getMentionContext();
+  // The people this editing session mentioned; the notice names those who
+  // cannot open the work.
+  let bodyMentions = $state<PersonMention[]>([]);
+  const mentionPicker = new MentionPicker({
+    source: organizationMentionSource({
+      directory: mentionContext.directory,
+      recentUserIds: () => mentionContext.scope()?.recentUserIds ?? [],
+      warm: () => warmMentionSources(mentionContext.scope()),
+      onMention: (mention) => {
+        if (!bodyMentions.some((person) => person.userId === mention.userId)) bodyMentions.push(mention);
+      },
+    }),
+    editor: () => (tiptapEditor && !tiptapEditor.isDestroyed ? tiptapMentionEditor(tiptapEditor) : null),
+  });
+  const commentExtensions = [
+    CommentHighlights,
+    ExternalCommentHighlights,
+    createMentionPickerExtension(mentionPicker),
+  ];
+  const personReferenceView = createPersonRefExtension((userId) => personStanding(userId, mentionContext.directory()));
 
   // A document is one file: its own markdown. The header still renders it
   // through the shared format list so Save and Download read the same way here
@@ -96,25 +127,28 @@
   let commentLayer: CommentLayer | null = $state(null);
   let tiptapEditor: Editor | null = $state(null);
   let scrollContainer: HTMLDivElement | null = $state(null);
-  let suppressSave = $state(false);
   // Owned by CommentLayer, read by the shell's selection bubble.
   let canComment = $state(false);
   // The threads' own visibility. Its toggle lives in the header, because the
   // count is one of the few things the design keeps on screen at every width.
   let railOpen = $state(true);
   const mirroredReadOnly = $derived(workId ? session.worksStore.get(workId)?.mirroredDoc?.provider === "gdrive" : false);
-  // A viewer on the share list (docs/plans/multiplayer-sharing.md §3.4) reads; the
-  // host would refuse the save anyway, so the editor says so before a keystroke.
-  const viewerReadOnly = $derived.by(() => {
-    if (!workId) return false;
+  // A viewer or a commenter on the share list (docs/plans/multiplayer-sharing.md
+  // §3.4) reads; the host would refuse the save anyway, so the editor says so
+  // before a keystroke. A commenter still comments and reviews.
+  const callerRole = $derived.by(() => {
+    if (!workId) return null;
     const serverId = session.worksStore.hostFor(workId);
-    return !!serverId && sharesStore.listFor(serverId, { kind: "work", id: workId })?.callerRole === "viewer";
+    return serverId ? sharesStore.listFor(serverId, { kind: "work", id: workId })?.callerRole ?? null : null;
   });
+  const viewerReadOnly = $derived(callerRole === "viewer" || callerRole === "commenter");
   const readOnly = $derived(mirroredReadOnly || viewerReadOnly);
   const readOnlyReason = $derived(
     mirroredReadOnly
       ? "Edit in Google Docs, then Pull latest. Comments remain available."
-      : "Shared with you to view.",
+      : callerRole === "commenter"
+        ? "Shared with you to comment and review."
+        : "Shared with you to view.",
   );
   const hasExternalDoc = $derived(workId ? !!session.worksStore.get(workId)?.mirroredDoc : false);
   const externalSnapshot = $derived(workId && hasExternalDoc ? session.worksStore.externalComments.stateFor(workId) : undefined);
@@ -148,16 +182,9 @@
   }
 
   const localComments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
+  // Only these threads are highlighted: the comment layer shows exactly the
+  // set it is given, so a thread folded into its external one has none.
   const comments = $derived(localCommentsForDisplay(localComments, externalSnapshot));
-  $effect(() => {
-    if (!tiptapEditor || tiptapEditor.isDestroyed) return;
-    const visible = new Set(comments.map(comment => comment.id));
-    suppressSave = true;
-    for (const comment of localComments) {
-      if (!visible.has(comment.id)) removeCommentMark(tiptapEditor, comment.id);
-    }
-    suppressSave = false;
-  });
   // The count is the whole surface, which holds both kinds of thread: the
   // header reads it, and the send bar sends exactly what it counts.
   const openThreadCount = $derived(openThreads(comments).length + externalThreads.filter(thread => !thread.resolved).length);
@@ -256,7 +283,8 @@
   {onOpenWorkspace}
   content={doc.content}
   onRenameTitle={readOnly ? undefined : onRename}
-  {readOnly}
+  readOnly={readOnly || liveLocked}
+  {live}
   {inline}
   {minimizeOutline}
   editorClass="doc-document-editor"
@@ -264,6 +292,7 @@
   scope="document-modal"
   bindings={{ close: "document-modal.close", save: "document-modal.save", copy: "document-modal.copy", find: "document-modal.find", pinOutline: "document-modal.pin-outline" }}
   extraExtensions={workId ? commentExtensions : []}
+  {personReferenceView}
   onSave={(md) => onSave?.(md)}
   {onDirtyChange}
   onClose={() => onClose?.()}
@@ -274,7 +303,6 @@
   onAskSolus={workId && workspace ? askSolusAbout : undefined}
   bind:tiptapEditor
   bind:scrollContainer
-  bind:suppressSave
   rootTestId="document-modal"
   closeTestId="document-modal-close"
   scrollAriaLabel="Document"
@@ -311,6 +339,12 @@
     {/if}
   {/snippet}
 
+  {#snippet footer()}
+    {#if bodyMentions.length > 0}
+      <div class="px-6 pb-2"><MentionAccessNotice people={bodyMentions} /></div>
+    {/if}
+  {/snippet}
+
   {#snippet documentActions({ copied, copy, startRename })}
     <WorkHeaderActions
       {onOpenChat}
@@ -323,7 +357,6 @@
       currentContent={doc.content}
       getCurrentContent={() => shell?.getCurrentMarkdown() ?? doc.content}
       flushSave={() => shell?.flushSave() ?? Promise.resolve()}
-      onRevert={readOnly ? undefined : onRevert}
       {onDelete}
       {onDuplicate}
       {exportFormats}
@@ -378,7 +411,6 @@
         onRead={readComment}
         startCommentBinding="document-modal.start-comment"
         flushSave={() => shell?.flushSave() ?? Promise.resolve()}
-        bind:suppressSave
         bind:canComment
         bind:railOpen
         bind:threadAnchors
@@ -387,6 +419,8 @@
     {/if}
   {/snippet}
 </DocumentShell>
+
+<MentionPickerMenu picker={mentionPicker} />
 
 <style>
   /* Reading typography (measure, type scale, heading rhythm, code and table

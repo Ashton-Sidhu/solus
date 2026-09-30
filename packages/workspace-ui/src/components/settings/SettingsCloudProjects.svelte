@@ -53,7 +53,7 @@
 
 <SettingsSection
   label="Solus Cloud projects"
-  description="Every member sees these projects and their pull requests. Tasks stay on the machine that made them; tasks made on a Cloud host are shared."
+  description="All members see these projects and PRs. Only tasks made on a Cloud host are shared."
   visible={!!cloudServerId}
 >
   {#if !online}

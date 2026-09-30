@@ -9,7 +9,7 @@
    * Most list pages are reached by a lazy import, and moving one between panes
    * remounts them, so this is what the user actually looks at on each swap. It
    * mirrors `ListPage`'s own measures (the same container width, the same head
-   * padding including the laptop rungs) so the real page lands on the geometry
+   * padding) so the real page lands on the geometry
    * the skeleton drew instead of settling a second time.
    *
    * Which controls a page's head holds is stated per page rather than assumed:
@@ -60,7 +60,7 @@
          crumb, the 26px chips — or the row below lands at a different y when
          the real page arrives. -->
     <div
-      class="box-content flex h-[31px] shrink-0 items-center gap-2 pt-[42px] pb-[13px] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
+      class="box-content flex h-[31px] shrink-0 items-center gap-2 pt-[42px] pb-[13px] pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
     >
       <Skeleton class="h-[15px] w-20 rounded opacity-60" />
       <span class="flex-1"></span>
@@ -73,7 +73,7 @@
     <div
       class="box-content flex shrink-0 items-center gap-2 {toolbarFilters
         ? 'h-8 pb-[14px]'
-        : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'}"
+        : 'h-[30px] pb-[14px]'}"
     >
       {#if hasViewSwitcher}
         <Skeleton class="h-[30px] w-48 shrink-0 rounded-full opacity-60" />
@@ -88,7 +88,7 @@
       {/each}
       {#if hasPrimaryAction}
         <Skeleton
-          class="h-[30px] w-32 shrink-0 rounded-lg opacity-60 [.is-laptop-display_&]:h-[26px]"
+          class="h-[30px] w-32 shrink-0 rounded-lg opacity-60"
         />
       {/if}
     </div>

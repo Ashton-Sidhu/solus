@@ -12,7 +12,7 @@
  */
 
 export interface SessionHomeHosts {
-  isCloudHost(serverId: string | null | undefined): boolean
+  isSolusApi(serverId: string | null | undefined): boolean
   isConnected(serverId: string | null | undefined): boolean
 }
 
@@ -49,8 +49,8 @@ export function mergeSessionHomes<Row extends SessionHomeRow>(rows: readonly Row
       continue
     }
     const group = entry.homes
-    const runners = group.filter((row) => !hosts.isCloudHost(row.serverId))
-    const record = group.find((row) => hosts.isCloudHost(row.serverId))
+    const runners = group.filter((row) => !hosts.isSolusApi(row.serverId))
+    const record = group.find((row) => hosts.isSolusApi(row.serverId))
     const connectedRunner = runners.find((row) => hosts.isConnected(row.serverId))
     if (connectedRunner) {
       merged.push(connectedRunner)

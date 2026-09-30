@@ -1,7 +1,5 @@
 import type { HostParticipant, HostPresenceSnapshot, PresenceFocus, PresenceParticipant, SessionActivity, SessionParticipant } from '@solus/contracts/presence'
-import { PRESENCE_COLOR_COUNT } from '@solus/contracts/presence'
-import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
-import { initialsFor } from '../../ui/list-page/list-page'
+import { sameUser, userKey, type User, type UserId } from '@solus/contracts/user'
 
 /**
  * The view model of every presence surface (docs/plans/multiplayer-presence.md
@@ -11,13 +9,14 @@ import { initialsFor } from '../../ui/list-page/list-page'
  */
 
 export interface PresencePerson {
+  /** The person as `UserAvatar` draws them. */
+  user: User
   userId: string
   displayName: string
-  initials: string
-  avatarUrl?: string
-  colorIndex: number
-  /** Any of this person's clients has a draft in the session the stack is for. */
+  /** Any of this person's clients is typing in the session the stack is for. */
   isComposing: boolean
+  /** Any of this person's clients is editing the work it has focused. */
+  isEditing: boolean
   /** How many of this person's clients are in the room. */
   deviceCount: number
   /** What the person has focused, when the stack is host-wide; the first client's answer. */
@@ -27,55 +26,47 @@ export interface PresencePerson {
   clientIds: string[]
 }
 
-type AnyParticipant = PresenceParticipant & Partial<Pick<SessionParticipant, 'isComposing'>> & Partial<Pick<HostParticipant, 'focus' | 'activity'>>
+type AnyParticipant = PresenceParticipant & Partial<Pick<SessionParticipant, 'isComposing'>> & Partial<Pick<HostParticipant, 'focus' | 'activity' | 'isEditing'>>
 
-/**
- * Who the reader is on a host: every user id that is theirs there. The host names
- * a client by the principal it admitted — `host-owner` on a local or owner
- * connection, the account id on a member connection — so the same person can
- * carry two ids on one host, and the account id is one of them on every host.
- * Empty while the reader does not know who they are.
- */
-export type SelfIds = readonly string[]
-
-/**
- * How a host's participants are read: who the reader is there, and what the
- * personal host's owner is called. The host says `Host owner` for its owner
- * because a local connection knows no account; the client knows the account
- * from the directory and names the person instead.
- */
+/** How a host's participants are read: who the reader is there (plans/012 §1); null until the host has said. */
 export interface PeopleOptions {
-  self: SelfIds
-  hostOwnerName?: string
+  self: UserId | null
+}
+
+/** One user as a presence stack counts them: one face for all their clients. */
+export function personOf(user: User): PresencePerson {
+  return {
+    user,
+    userId: userKey(user.id),
+    displayName: user.displayName,
+    isComposing: false,
+    isEditing: false,
+    deviceCount: 1,
+    clientIds: [],
+  }
 }
 
 /** Group clients into people, oldest arrival first, leaving the reader out. */
 export function peopleFrom(participants: readonly AnyParticipant[], options: PeopleOptions): PresencePerson[] {
-  const self = new Set(options.self)
   const byUser = new Map<string, PresencePerson>()
   for (const participant of [...participants].sort((a, b) => a.joinedAt - b.joinedAt)) {
-    if (self.has(participant.userId)) continue
-    const existing = byUser.get(participant.userId)
+    if (options.self && sameUser(participant.user.id, options.self)) continue
+    const key = userKey(participant.user.id)
+    const existing = byUser.get(key)
     if (existing) {
       existing.deviceCount += 1
       existing.clientIds.push(participant.clientId)
       if (participant.isComposing) existing.isComposing = true
+      if (participant.isEditing) existing.isEditing = true
       continue
     }
-    const displayName = participant.userId === HOST_OWNER_USER_ID && options.hostOwnerName ? options.hostOwnerName : participant.displayName
-    const person: PresencePerson = {
-      userId: participant.userId,
-      displayName,
-      initials: initialsFor(displayName),
-      colorIndex: participant.colorIndex,
-      isComposing: participant.isComposing === true,
-      deviceCount: 1,
-      clientIds: [participant.clientId],
-    }
-    if (participant.avatarUrl) person.avatarUrl = participant.avatarUrl
+    const person = personOf(participant.user)
+    person.isComposing = participant.isComposing === true
+    person.isEditing = participant.isEditing === true
+    person.clientIds.push(participant.clientId)
     if (participant.focus) person.focus = participant.focus
     if (participant.activity) person.activity = participant.activity
-    byUser.set(participant.userId, person)
+    byUser.set(key, person)
   }
   return [...byUser.values()]
 }
@@ -92,7 +83,7 @@ export function peopleFocusedOn(people: readonly PresencePerson[], focus: Presen
  */
 export function activeTurnAuthorOf(people: readonly PresencePerson[]): string | null {
   for (const person of people) {
-    if (person.activity) return person.activity.activeTurn?.authorUserId ?? null
+    if (person.activity) return person.activity.activeTurn ? userKey(person.activity.activeTurn.author.id) : null
   }
   return null
 }
@@ -107,6 +98,7 @@ export function activityWords(activity: SessionActivity | undefined): string | n
 export function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
+  if (a.kind === 'work' && b.kind === 'work') return a.workId === b.workId
   return true
 }
 
@@ -116,8 +108,8 @@ export function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
  * because until then their own second device would be announced as a stranger.
  */
 export function newArrivals(previous: HostPresenceSnapshot | undefined, next: HostPresenceSnapshot, options: PeopleOptions): PresencePerson[] {
-  if (!previous || options.self.length === 0) return []
-  const before = new Set(previous.participants.map((participant) => participant.userId))
+  if (!previous || !options.self) return []
+  const before = new Set(previous.participants.map((participant) => userKey(participant.user.id)))
   return peopleFrom(next.participants, options).filter((person) => !before.has(person.userId))
 }
 
@@ -177,30 +169,4 @@ export interface StackedPeople<T extends PresencePerson = PresencePerson> {
 export function stackPeople<T extends PresencePerson>(people: readonly T[], max: number): StackedPeople<T> {
   if (people.length <= max) return { shown: [...people], overflow: 0 }
   return { shown: people.slice(0, max), overflow: people.length - max }
-}
-
-/**
- * The palette: eight hues at one lightness and chroma, spaced so neighbours are
- * telling-apart distinct, and mixed against the foreground for text so each
- * reads on paper and on ink alike. A person's index comes from the host.
- */
-const PRESENCE_HUES = [25, 70, 120, 165, 205, 250, 295, 340] as const
-
-export interface PresenceTint {
-  /** The person's colour itself, for rings and dots. */
-  color: string
-  /** A wash of it, for an avatar's fill behind initials. */
-  fill: string
-  /** Initials over the wash. */
-  ink: string
-}
-
-export function presenceTint(colorIndex: number): PresenceTint {
-  const hue = PRESENCE_HUES[((colorIndex % PRESENCE_COLOR_COUNT) + PRESENCE_COLOR_COUNT) % PRESENCE_COLOR_COUNT]
-  const color = `oklch(0.66 0.15 ${hue})`
-  return {
-    color,
-    fill: `color-mix(in oklch, ${color} 26%, transparent)`,
-    ink: `color-mix(in oklch, ${color} 70%, var(--foreground))`,
-  }
 }

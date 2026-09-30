@@ -392,6 +392,12 @@ export interface BrowserPage {
   devToolsOpen: boolean
   /** Which annotation tool is armed, or null when the user is not annotating. */
   annotationTool: BrowserAnnotationTool | null
+  /** Present while the host records this page. Page state, not client state:
+   *  every pane, phone, and agent must see that a recording is running and be
+   *  able to stop it. Absent on hosts older than recordings. */
+  recording?: BrowserRecordingState | null
+  /** Automatic labels follow checkout identity; explicit labels stay as entered. */
+  automaticLabel?: boolean
   /** Label for the page strip — the worktree branch when the target has one. */
   label: string
   createdAt: number
@@ -693,6 +699,46 @@ export interface BrowserEvidence {
   url: string
   viewport: string
   capturedAt: number
+}
+
+export interface BrowserRecordingState {
+  /** Host clock, epoch milliseconds. */
+  startedAt: number
+  startedBy: 'user' | 'agent'
+}
+
+/** A finished recording, as the conversation card and the composer see it. */
+export interface BrowserRecordingRef {
+  browserPageId: string
+  /** An `.mp4` asset. Clients resolve it as `asset://<assetId>`. */
+  assetId: string
+  /** Absolute path on the host that owns the recording. Opaque to clients;
+   *  a composer attachment carries it back to an agent on that host. */
+  hostPath: string
+  url: string
+  title: string
+  viewport: string
+  durationMs: number
+  sizeBytes: number
+  /** Why the recording ended before Stop, when a limit ended it. */
+  stoppedBy?: 'duration-limit' | 'size-limit' | 'page-closed'
+  capturedAt: number
+}
+
+export interface BrowserRecordingStopRequest {
+  browserPageId: string
+  /** Omitted stores the recording without filing it anywhere. */
+  attach?: BrowserEvidenceTarget
+  caption?: string
+}
+
+export interface BrowserRecordingResult {
+  recording: BrowserRecordingRef
+  /** Set when the recording was filed. */
+  attachedTo?: string
+  publishedUrl?: string
+  /** Filing failed; the recording is still stored. */
+  attachError?: string
 }
 
 export interface BrowserCaptureRequest {

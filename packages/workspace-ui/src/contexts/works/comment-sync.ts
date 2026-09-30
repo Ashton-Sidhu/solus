@@ -30,7 +30,7 @@ export function reconcileComments(target: PlanComment[], next: readonly PlanComm
  *  reconcile touches exactly the contract and nothing a stale host added. */
 const COMMENT_FIELDS: readonly (keyof PlanComment)[] = [
   'externalThreadId', 'googleThreadId', 'id', 'selectedText', 'comment', 'textOffset', 'nodeId', 'edgeId', 'pin',
-  'author', 'authorAgent', 'person', 'createdAt', 'resolvedAt', 'resolvedBy', 'resolvedByPerson', 'replies', 'readAt', 'readBy',
+  'author', 'createdAt', 'resolvedAt', 'resolvedBy', 'replies', 'readAt', 'readBy',
 ]
 
 function assignChanged(current: PlanComment, incoming: PlanComment): void {

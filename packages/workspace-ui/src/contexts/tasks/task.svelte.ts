@@ -13,7 +13,7 @@
 //
 // `TaskRecord` is the same shape as the wire, and this class implements it — a
 // Task *is* a task, so a surface reads `task.title`, not `task.record.title`.
-// That mirrors the server's own `Task` (packages/server/src/tasks/task.ts). The
+// That mirrors the server's own `Task` (packages/server/src/data/tasks/task.ts). The
 // fields are `$state`, so a snapshot that changes only `status` notifies only
 // what reads `status`. Everything this *client* knows on top of the row — the
 // host serving it, its detail payload, its attempts — is private, so the public
@@ -25,7 +25,7 @@ import type {
   SessionExecutionHost,
   Task as TaskRecord,
   TaskDetails,
-  TaskKind,
+  TaskEpic,
   TaskLinkInput,
   TaskLinkKind,
   TaskMirroredTicket,
@@ -40,10 +40,14 @@ import type {
   TaskTitleSource,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
-import { sameMirroredTicket, samePr, samePrLinks, sameStrings } from './task-reconcile'
+import { sameEpic, sameMirroredTicket, samePr, samePrLinks, sameStrings } from './task-reconcile'
 import { upstreamTaskDetails } from './upstream-task-details'
 import { taskTitleRegenerationInput } from './task-title-regeneration'
 import type { TasksStore } from './tasks.store.svelte'
+import type { SessionGeneratedMetadata } from '@solus/contracts/types'
+
+/** The title New task gives a task before its lead's first prompt names it. */
+export const UNTITLED_TASK_TITLE = 'Untitled task'
 
 export class Task implements TaskRecord {
   // --- The task -----------------------------------------------------------
@@ -52,8 +56,8 @@ export class Task implements TaskRecord {
   readonly id: string
   providerId = $state<TaskProviderId>('local')
   shortId = $state<number | undefined>()
+  organizationId = $state<string | undefined>()
   projectKey = $state<string | null | undefined>()
-  kind = $state<TaskKind>('task')
   title = $state('')
   titleSource = $state<TaskTitleSource | undefined>()
   body = $state('')
@@ -63,8 +67,7 @@ export class Task implements TaskRecord {
   assignee = $state<string | undefined>()
   assigneeAvatarUrl = $state<string | undefined>()
   labels = $state<string[]>([])
-  parentId = $state<string | undefined>()
-  childIds = $state<string[] | undefined>()
+  epic = $state<TaskEpic | undefined>()
   dueDate = $state<string | undefined>()
   priority = $state<TaskPriority | undefined>()
   pr = $state<TaskPr | undefined>()
@@ -168,16 +171,6 @@ export class Task implements TaskRecord {
     return this.prLinks[0] ?? null
   }
 
-  /** Every session shown under this task in the session tree — its own, plus
-   *  every sibling subtask's, since the tree renders them under one root. */
-  get attempts(): TaskSessionLink[] {
-    if (!this.#known) return this.#sessions
-    const rootId = this.parentId ?? this.id
-    const tree = [rootId, ...(this.#store.byParent.get(rootId) ?? []).map((child) => child.id)]
-    const links = tree.flatMap((id) => this.#store.peek(id)?.sessions ?? [])
-    return [...new Map(links.map((link) => [link.sessionId, link])).values()]
-  }
-
   /** True while a visible surface is rendering this task's detail. */
   get isDetailWatched(): boolean {
     return this.#watchCount > 0
@@ -249,7 +242,7 @@ export class Task implements TaskRecord {
       if (this.#known ? this.isUpstream : await this.#looksUpstream()) {
         const cwd = this.#upstreamCwd
         this.hydrate(await this.#api.tasksGetUpstream(cwd, this.id))
-        const details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
+        const details = upstreamTaskDetails(this)
         this.#details = details
         return details
       }
@@ -288,7 +281,7 @@ export class Task implements TaskRecord {
     try {
       this.hydrate(this.isUpstream
         ? await this.#api.tasksUpdateUpstream(this.#upstreamCwd, this.id, { status })
-        : await this.#api.tasksUpdate(this.id, { status }))
+        : await this.#api.tasksUpdate(this.id, { status }, this.updatedAt))
     } catch (err) {
       this.status = previous
       throw err
@@ -298,7 +291,7 @@ export class Task implements TaskRecord {
   async update(patch: TaskUpdatePatch): Promise<this> {
     this.hydrate(this.isUpstream
       ? await this.#api.tasksUpdateUpstream(this.#upstreamCwd, this.id, patch)
-      : await this.#api.tasksUpdate(this.id, patch))
+      : await this.#api.tasksUpdate(this.id, patch, this.updatedAt))
     return this
   }
 
@@ -318,6 +311,15 @@ export class Task implements TaskRecord {
     } finally {
       this.#regeneratingTitle = false
     }
+  }
+
+  /** Name a task New task made from its lead's first prompt. A title or
+   *  description a person already wrote is kept. */
+  async nameFromLeadPrompt(metadata: SessionGeneratedMetadata): Promise<void> {
+    if (this.title !== UNTITLED_TASK_TITLE) return
+    const patch: TaskUpdatePatch = { title: metadata.title }
+    if (!this.body.trim()) patch.body = metadata.description
+    await this.update(patch)
   }
 
   async markRead(read: boolean): Promise<this> {
@@ -343,7 +345,7 @@ export class Task implements TaskRecord {
     if (this.isUpstream) {
       const cwd = this.#upstreamCwd
       this.hydrate(await this.#api.tasksCommentUpstream(cwd, this.id, body))
-      this.#details = upstreamTaskDetails(this, this.#store.tasksForCheckout(this.serverId, cwd))
+      this.#details = upstreamTaskDetails(this)
       return this
     }
     this.applyDetails(await this.#api.tasksComment(this.id, body, opts))
@@ -428,10 +430,8 @@ export class Task implements TaskRecord {
   /**
    * Bind a started session to this task, on the host that owns it.
    *
-   * For an explicit task, the bind prepares before the prompt and the durable
-   * link follows `session_init`. For a fallback task, minting and linking both
-   * happen after turn settlement. A dispatch can involve different machines in
-   * either case.
+   * The bind prepares before the prompt and the durable link follows
+   * `session_init`. A dispatch can involve different machines.
    *
    * That second machine is also the only thing neither host can work out for
    * itself, so the client states it in `execution` and the task's host records a
@@ -442,14 +442,18 @@ export class Task implements TaskRecord {
    * `serverId` names this task's own host for the dispatch boundary, where the
    * caller knows it from the run and this client may not have placed the task
    * yet. Given, it is remembered.
+   *
+   * `role` is `lead` for the session composed on the task page's conversation;
+   * every other session links as a `working` attempt.
    */
   async linkSession(
     sessionId: string,
     execution: SessionExecutionHost | null,
     serverId?: string,
+    role: 'lead' | 'working' = 'working',
   ): Promise<void> {
     if (serverId) this.#serverId = serverId
-    await this.#api.tasksLinkSession(this.id, sessionId, 'working', execution)
+    await this.#api.tasksLinkSession(this.id, sessionId, role, execution)
   }
 
   /**
@@ -607,8 +611,8 @@ export class Task implements TaskRecord {
     this.#known = true
     this.providerId = record.providerId
     this.shortId = record.shortId
+    this.organizationId = record.organizationId
     this.projectKey = record.projectKey
-    this.kind = record.kind
     this.title = record.title
     this.titleSource = record.titleSource
     this.body = record.body
@@ -616,7 +620,6 @@ export class Task implements TaskRecord {
     this.url = record.url
     this.assignee = record.assignee
     this.assigneeAvatarUrl = record.assigneeAvatarUrl
-    this.parentId = record.parentId
     this.dueDate = record.dueDate
     this.priority = record.priority
     this.canEditPlanningFields = record.canEditPlanningFields
@@ -637,7 +640,7 @@ export class Task implements TaskRecord {
       this.mirroredTicket = record.mirroredTicket
     }
     if (!sameStrings(this.labels, record.labels)) this.labels = record.labels
-    if (!sameStrings(this.childIds, record.childIds)) this.childIds = record.childIds
+    if (!sameEpic(this.epic, record.epic)) this.epic = record.epic
     if (!samePr(this.pr, record.pr)) this.pr = record.pr
     this.raw = record.raw
     this.#file()
@@ -658,8 +661,7 @@ export class Task implements TaskRecord {
       if (!rows.some((row) => row.id === this.id)) rows.push(this)
       return
     }
-    const listed = this.#store.tasks
-    if (!listed.some((row) => row.id === this.id)) listed.push(this)
+    this.#store.list(this)
   }
 
   /** Leave the project's live provider list — this ticket has been imported or
@@ -681,8 +683,8 @@ export class Task implements TaskRecord {
   }
 
   /**
-   * Take a detail payload: this task, its subtasks, its pull request links and
-   * the detail itself.
+   * Take a detail payload: this task, its pull request links and the detail
+   * itself.
    *
    * Session links are deliberately not part of this. A task's attempts are
    * written by the sidebar snapshot and the focused session-tree read and by
@@ -695,7 +697,6 @@ export class Task implements TaskRecord {
       snapshot: this.#prLinks.find((current) => current.number === link.number
         && current.targetScope === link.targetScope)?.snapshot,
     })))
-    for (const subtask of details.subtasks) this.#store.get(subtask.id).hydrate(subtask)
     this.#details = details
   }
 }
@@ -713,6 +714,7 @@ function prLinksOf(details: TaskDetails): TaskSidebarPrLink[] {
       }
       if (pr.url) prLink.url = pr.url
       if (pr.originSessionId) prLink.originSessionId = pr.originSessionId
+      if (pr.ownerSessionId) prLink.ownerSessionId = pr.ownerSessionId
       return prLink
     })
 }

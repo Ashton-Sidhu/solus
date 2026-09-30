@@ -1,0 +1,185 @@
+import { request as httpRequest } from 'node:http'
+import type { HostActivityReport, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { FetchLike } from '../admission/access-tokens'
+import { createLogger } from '../logger'
+import { hostCategory } from './host-category'
+
+const log = createLogger('main', 'sprite-activity')
+
+/**
+ * Keeps a managed machine awake while it has work (plan 004 item 3). A Sprite pauses
+ * when no inbound request arrives, and an agent turn makes only outbound calls, so a
+ * turn with no client connected would pause with it.
+ *
+ * - The hold. The Sprites Tasks API is served inside the Sprite on a management
+ *   socket and needs no token, so the machine holds itself: one task, renewed while
+ *   the host is busy or an automation is due soon, deleted when neither holds. The
+ *   Fly token stays in the control plane.
+ * - The report. A paused machine cannot wake itself for a scheduled automation, so
+ *   the host tells the control plane when the next one is due, and whether it is
+ *   busy (the control plane puts off a restart for a new release while it is). Sent
+ *   when either value changes and renewed every hour.
+ *
+ * Only on a managed host; every other machine is left to its owner.
+ */
+
+/** The Sprites management socket (docs.fly.io/sprites/keeping-sprites-running). */
+export const SPRITE_API_SOCKET = '/.sprite/api.sock'
+const HOLD_TASK_PATH = '/v1/tasks/solus-work'
+/** A task lives this long unless renewed: a host that dies frees the Sprite within it. */
+const HOLD_EXPIRE_SECONDS = 600
+const HOLD_RENEW_MS = 4 * 60_000
+const REPORT_RENEW_MS = 60 * 60_000
+const CHECK_MS = 30_000
+const REQUEST_TIMEOUT_MS = 15_000
+/**
+ * The machine holds itself this long before an automation is due. The control plane
+ * wakes it between ten and five minutes before (its sweep runs every five minutes),
+ * so the hold must start earlier than the earliest wake.
+ */
+export const DUE_HOLD_LEAD_MS = 15 * 60_000
+
+export interface SpriteActivityFacts {
+  busy: boolean
+  nextDueAt: number | null
+}
+
+/** Whether the machine must stay awake now: busy, or an automation due within the lead. */
+export function shouldHold(facts: SpriteActivityFacts, now: number): boolean {
+  return facts.busy || (facts.nextDueAt !== null && facts.nextDueAt - now <= DUE_HOLD_LEAD_MS)
+}
+
+/** One call to the Sprites Tasks API; answers the HTTP status. */
+export type SpriteTaskCall = (method: 'PUT' | 'DELETE', path: string, body?: string) => Promise<number>
+
+export interface SpriteActivityDeps {
+  isBusy: () => boolean
+  nextDueAt: () => number | null
+  link: () => UplinkLinkConfig | null
+  hostToken: () => string | null
+  fetchImpl?: FetchLike
+  spriteTask?: SpriteTaskCall
+  now?: () => number
+}
+
+export class SpriteActivity {
+  private heldAt: number | null = null
+  private holdFailed = false
+  private reported: HostActivityReport | null = null
+  private reportedAt = 0
+  private timer: ReturnType<typeof setInterval> | null = null
+  private checking: Promise<void> | null = null
+
+  constructor(private readonly deps: SpriteActivityDeps) {}
+
+  start(): void {
+    if (this.timer) return
+    void this.check()
+    this.timer = setInterval(() => void this.check(), CHECK_MS)
+    this.timer.unref?.()
+  }
+
+  async stop(): Promise<void> {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    await this.checking
+    await this.release()
+  }
+
+  /** One pass: hold or release, then report what changed. */
+  check(): Promise<void> {
+    this.checking ??= this.checkNow().finally(() => { this.checking = null })
+    return this.checking
+  }
+
+  private async checkNow(): Promise<void> {
+    if (hostCategory() !== 'managed') {
+      await this.release()
+      return
+    }
+    const now = this.now()
+    const facts: SpriteActivityFacts = { busy: this.deps.isBusy(), nextDueAt: this.deps.nextDueAt() }
+    if (shouldHold(facts, now)) await this.hold(now)
+    else await this.release()
+    await this.report({ busy: facts.busy, nextWakeAt: facts.nextDueAt }, now)
+  }
+
+  private async hold(now: number): Promise<void> {
+    if (this.heldAt !== null && now - this.heldAt < HOLD_RENEW_MS) return
+    const status = await this.task('PUT', HOLD_TASK_PATH, JSON.stringify({ expire: HOLD_EXPIRE_SECONDS }))
+    if (status >= 200 && status < 300) {
+      if (this.heldAt === null) log.info('sprite_hold_started')
+      this.heldAt = now
+      this.holdFailed = false
+    } else if (!this.holdFailed) {
+      // Logged once per failure run: a socket this user cannot open fails every pass.
+      log.warn('sprite_hold_failed', { status })
+      this.holdFailed = true
+    }
+  }
+
+  private async release(): Promise<void> {
+    if (this.heldAt === null) return
+    this.heldAt = null
+    const status = await this.task('DELETE', HOLD_TASK_PATH)
+    // 404: the task expired already. Either way the Sprite may pause now.
+    log.info('sprite_hold_released', { status })
+  }
+
+  private async report(next: HostActivityReport, now: number): Promise<void> {
+    const unchanged = this.reported && this.reported.busy === next.busy && this.reported.nextWakeAt === next.nextWakeAt
+    if (unchanged && now - this.reportedAt < REPORT_RENEW_MS) return
+    const link = this.deps.link()
+    const hostToken = link ? this.deps.hostToken() : null
+    if (!link || !hostToken) return
+    const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
+    try {
+      const response = await fetchImpl(`${link.directoryUrl}/v1/hosts/${link.hostId}/activity`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${hostToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(next),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        log.warn('host_activity_report_refused', { status: response.status })
+        return
+      }
+      this.reported = next
+      this.reportedAt = now
+    } catch (error) {
+      // The next pass sends it again.
+      log.warn('host_activity_report_failed', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  private async task(method: 'PUT' | 'DELETE', path: string, body?: string): Promise<number> {
+    try {
+      return await (this.deps.spriteTask ?? spriteSocketTask)(method, path, body)
+    } catch (error) {
+      log.warn('sprite_task_unreachable', { method, error: error instanceof Error ? error.message : String(error) })
+      return 0
+    }
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
+  }
+}
+
+/** Plain HTTP over the Sprite's management socket, virtual host `sprite`. */
+const spriteSocketTask: SpriteTaskCall = (method, path, body) => new Promise((resolve, reject) => {
+  const request = httpRequest({
+    socketPath: SPRITE_API_SOCKET,
+    host: 'sprite',
+    path,
+    method,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    timeout: REQUEST_TIMEOUT_MS,
+  }, (response) => {
+    response.resume()
+    response.on('end', () => resolve(response.statusCode ?? 0))
+  })
+  request.on('timeout', () => request.destroy(new Error('Sprite task request timed out')))
+  request.on('error', reject)
+  request.end(body)
+})

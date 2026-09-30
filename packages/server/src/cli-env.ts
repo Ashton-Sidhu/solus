@@ -1,5 +1,6 @@
 import { execSync, spawn } from 'child_process'
 import { accessSync, constants } from 'fs'
+import { homedir } from 'os'
 import { join } from 'path'
 
 let cachedPath: string | null = null
@@ -32,8 +33,7 @@ function baseEntries(): PathEntries {
   const ordered: string[] = []
   const seen = new Set<string>()
   appendPathEntries(ordered, seen, process.env.PATH)
-  const home = require('os').homedir()
-  appendPathEntries(ordered, seen, `${home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)
+  appendPathEntries(ordered, seen, `${homedir()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)
   return { ordered, seen }
 }
 

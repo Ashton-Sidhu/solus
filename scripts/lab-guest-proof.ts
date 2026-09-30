@@ -18,8 +18,8 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { z } from 'zod'
-import { bootWorkspaceService, type WorkspaceService } from '@solus/lab/workspace'
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { bootLabSolusApi, type LabSolusApi } from '@solus/lab/solus-api'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '@solus/lab/client'
 import { LabIssuer } from '@solus/lab/issuer'
 import { personaForHost } from '@solus/lab/personas'
@@ -42,7 +42,7 @@ const addressSchema = z.object({ port: z.number().int().positive() })
 const guestRequestSchema = z.object({ guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(), displayName: z.string().max(160).optional() })
 
 /** The account origin in miniature: the bundle at `/`, guest grants at `/v1`. */
-function startOrigin(issuer: LabIssuer, host: WorkspaceService): Promise<{ server: Server; origin: string }> {
+function startOrigin(issuer: LabIssuer, host: LabSolusApi): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
     const guestGrant = url.pathname === '/v1/workspace/guest-grant'
@@ -59,10 +59,10 @@ function startOrigin(issuer: LabIssuer, host: WorkspaceService): Promise<{ serve
         }
         const guestId = parsed.data.guestId ?? 'web-guest-0123456789abcd'
         const displayName = parsed.data.displayName?.trim() || 'Guest'
-        const grant = issuer.mint({ id: 'web-guest', kind: 'guest', guestId, displayName }, { hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud' })
+        const grant = issuer.mint({ id: 'web-guest', kind: 'guest', guestId, displayName }, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
         response.setHeader('content-type', 'application/json')
         response.setHeader('cache-control', 'no-store')
-        response.end(JSON.stringify({ grant, hostId: WORKSPACE_AUDIENCE, expiresAt: Date.now() + 600_000, guestId, displayName, routes: [{ kind: 'tunnel', url: host.url }] }))
+        response.end(JSON.stringify({ grant, hostId: SOLUS_API_AUDIENCE, expiresAt: Date.now() + 600_000, guestId, displayName, routes: [{ kind: 'tunnel', url: host.url }] }))
       })
       return
     }
@@ -109,9 +109,9 @@ async function main(): Promise<void> {
   if (built.status !== 0) throw new Error('Client build failed')
   const issuer = new LabIssuer()
   await issuer.start()
-  const service = await bootWorkspaceService({ issuer, engine: 'sqlite', entry: process.env.SOLUS_LAB_ENTRY })
+  const service = await bootLabSolusApi({ issuer, engine: 'sqlite', entry: process.env.SOLUS_LAB_ENTRY })
   const account = await startOrigin(issuer, service)
-  const alice = new LabClient({ persona: personaForHost('alice', 'managed'), hostUrl: service.url, issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud' })
+  const alice = new LabClient({ persona: personaForHost('alice', 'managed'), hostUrl: service.url, issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
   let browser: Browser | null = null
   try {
     if (!(await alice.connect()).ok) throw new Error('Owner could not connect')

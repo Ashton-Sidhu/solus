@@ -1,3 +1,5 @@
+import { checkoutStore } from '../git/checkout.store.svelte'
+import { browserPageForCheckout } from '@solus/contracts/browser-checkout'
 import { SvelteMap } from 'svelte/reactivity'
 import { resolveViewport } from '@solus/contracts/browser-types'
 import type {
@@ -22,6 +24,8 @@ import type {
   BrowserOpenRequest,
   BrowserPage,
   BrowserProfileSet,
+  BrowserRecordingResult,
+  BrowserRecordingStopRequest,
   BrowserSnapshotRef,
   BrowserSurfaceReport,
   BrowserViewport,
@@ -98,11 +102,19 @@ export class BrowserStore {
   onSurfaceRequested: ((key: string) => void) | null = null
 
   get entries(): BrowserPageEntry[] {
-    return [...this.pages.values()].sort((a, b) => a.page.createdAt - b.page.createdAt)
+    return [...this.pages.values()].map((entry) => this.projectEntry(entry)).sort((a, b) => a.page.createdAt - b.page.createdAt)
   }
 
   get activeEntry(): BrowserPageEntry | null {
-    return this.activeKey ? this.pages.get(this.activeKey) ?? null : null
+    const entry = this.activeKey ? this.pages.get(this.activeKey) : undefined
+    return entry ? this.projectEntry(entry) : null
+  }
+
+  private projectEntry(entry: BrowserPageEntry): BrowserPageEntry {
+    const target = entry.page.target
+    const state = target.kind === 'url' && target.worktreePath ? checkoutStore.get(entry.serverId, target.worktreePath) : undefined
+    const page = browserPageForCheckout(entry.page, state)
+    return page === entry.page ? entry : { ...entry, page }
   }
 
   keyOf(serverId: string, browserPageId: string): string {
@@ -116,10 +128,12 @@ export class BrowserStore {
   subscribe(): () => void {
     const unsubscribers = [
       subscribeAllHosts('browser.pageChanged', (serverId, { page }) => {
-        this.pages.set(hostKey(serverId, page.browserPageId), { serverId, page })
+        this.adoptPage(serverId, page)
       }),
       subscribeAllHosts('browser.pageClosed', (serverId, { browserPageId }) => {
         this.forget(hostKey(serverId, browserPageId))
+        // Closing the page ends its recording, and the host keeps the file.
+        this.collectEndedRecording(serverId, browserPageId)
       }),
       subscribeAllHosts('browser.surfaceRequested', (serverId, { browserPageId }) => {
         const key = hostKey(serverId, browserPageId)
@@ -151,10 +165,21 @@ export class BrowserStore {
       pages.map((page) => hostKey(serverId, page.browserPageId)),
     )
     for (const [key, entry] of this.pages) {
-      if (entry.serverId === serverId && !present.has(key)) this.forget(key)
+      if (entry.serverId !== serverId || present.has(key)) continue
+      this.forget(key)
+      this.collectEndedRecording(serverId, entry.page.browserPageId)
     }
-    for (const page of pages) this.pages.set(hostKey(serverId, page.browserPageId), { serverId, page })
+    // A limit can end a recording while this client is disconnected, so the
+    // list is checked for ended recordings the same way an event is.
+    for (const page of pages) this.adoptPage(serverId, page)
     if (!this.activeKey && pages[0]) this.activeKey = hostKey(serverId, pages[0].browserPageId)
+  }
+
+  private adoptPage(serverId: string, page: BrowserPage): void {
+    const key = hostKey(serverId, page.browserPageId)
+    const wasRecording = !!this.pages.get(key)?.page.recording
+    this.pages.set(key, { serverId, page })
+    if (wasRecording && !page.recording) this.collectEndedRecording(serverId, page.browserPageId)
   }
 
   async loadTargets(serverId: string): Promise<void> {
@@ -211,6 +236,7 @@ export class BrowserStore {
     this.requestedViewports.delete(key)
     this.annotations.delete(key)
     this.cachedFrames.delete(key)
+    this.recordingErrors.delete(key)
     if (this.activeKey !== key) return
     const next = this.entries[0]
     this.activeKey = next ? hostKey(next.serverId, next.page.browserPageId) : null
@@ -473,6 +499,81 @@ export class BrowserStore {
   evidenceOptions(key: string): Promise<BrowserEvidenceOptions> {
     const { serverId, path } = splitHostKey(key)
     return serverConnections.apiFor(serverId).browserEvidenceOptions(path)
+  }
+
+  /**
+   * Recording.
+   *
+   * Whether a page records is page state (`page.recording`), so every client
+   * sees it. This store adds only what one client knows: a start or stop it is
+   * waiting on, the last error, and which recordings it started. A limit or a
+   * page close ends a recording on the host; the client that started it then
+   * asks for the saved file once, so the user still gets it in the composer.
+   */
+  recordingRequests = new SvelteMap<string, 'starting' | 'stopping'>()
+  recordingErrors = new SvelteMap<string, string>()
+  private startedRecordings = new Set<string>()
+  /** Set by the shell: a stopped recording goes to the active composer. */
+  onRecordingSaved: ((serverId: string, result: BrowserRecordingResult) => void) | null = null
+
+  recordingRequest(key: string | null): 'starting' | 'stopping' | null {
+    return key ? this.recordingRequests.get(key) ?? null : null
+  }
+
+  async startRecording(serverId: string, browserPageId: string): Promise<void> {
+    const key = hostKey(serverId, browserPageId)
+    if (this.recordingRequests.has(key)) return
+    this.recordingRequests.set(key, 'starting')
+    this.recordingErrors.delete(key)
+    try {
+      await serverConnections.apiFor(serverId).browserRecordingStart(browserPageId)
+      this.startedRecordings.add(key)
+    } catch (error) {
+      this.recordingErrors.set(key, error instanceof Error ? error.message : String(error))
+      throw error
+    } finally {
+      this.recordingRequests.delete(key)
+    }
+  }
+
+  /** Stop, save, and hand the file to `onRecordingSaved`. Resolves null when
+   *  a stop for this page is already in flight. */
+  async stopRecording(
+    serverId: string,
+    browserPageId: string,
+    attach?: BrowserEvidenceTarget,
+  ): Promise<BrowserRecordingResult | null> {
+    const key = hostKey(serverId, browserPageId)
+    if (this.recordingRequests.get(key) === 'stopping') return null
+    // Deleted before the call: the host clears `page.recording` before it
+    // answers, and that event must not start a second stop.
+    this.startedRecordings.delete(key)
+    this.recordingRequests.set(key, 'stopping')
+    this.recordingErrors.delete(key)
+    const request: BrowserRecordingStopRequest = { browserPageId }
+    if (attach) request.attach = attach
+    try {
+      const result = await serverConnections.apiFor(serverId).browserRecordingStop(request)
+      this.onRecordingSaved?.(serverId, result)
+      return result
+    } catch (error) {
+      this.recordingErrors.set(key, error instanceof Error ? error.message : String(error))
+      throw error
+    } finally {
+      this.recordingRequests.delete(key)
+    }
+  }
+
+  /** A recording this client started ended without a stop from this client:
+   *  a limit or a page close. Ask for the saved file once. When an agent or
+   *  another client stopped it, the host has nothing to return; that is not
+   *  an error the user must see. */
+  private collectEndedRecording(serverId: string, browserPageId: string): void {
+    const key = hostKey(serverId, browserPageId)
+    if (!this.startedRecordings.has(key)) return
+    void this.stopRecording(serverId, browserPageId).catch(() => {
+      this.recordingErrors.delete(key)
+    })
   }
 
   /** Open the browser's own DevTools on this page's guest. Costs the CDP

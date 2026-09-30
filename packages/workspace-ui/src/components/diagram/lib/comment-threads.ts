@@ -1,6 +1,5 @@
 import type { PlanComment } from '@solus/contracts/types'
-import { commentAuthor, isResolved, isUnread } from '../../comments/lib/thread'
-import type { SelfIds } from '../../presence/lib/presence-people'
+import { isAgentMessage, isResolved, isUnread, SINGLE_READER, type CommentReader } from '../../comments/lib/thread'
 
 /**
  * What a thread reads as. One rule, four surfaces — the canvas pin, the thread
@@ -11,7 +10,7 @@ export type ThreadTone = 'open' | 'resolved' | 'agent'
 
 export function threadTone(comment: PlanComment): ThreadTone {
   if (isResolved(comment)) return 'resolved'
-  return commentAuthor(comment) === 'solus' ? 'agent' : 'open'
+  return isAgentMessage(comment) ? 'agent' : 'open'
 }
 
 /** The single pin a node carries, however many threads are attached to it. */
@@ -27,7 +26,7 @@ export interface PinSummary {
  * count while `showResolved` is on — and a node whose threads are all resolved
  * then has no pin at all.
  */
-export function pinSummary(threads: PlanComment[], showResolved: boolean, self: SelfIds = []): PinSummary | null {
+export function pinSummary(threads: PlanComment[], showResolved: boolean, reader: CommentReader = SINGLE_READER): PinSummary | null {
   const visible = showResolved ? threads : threads.filter((t) => !isResolved(t))
   if (visible.length === 0) return null
   const tones = visible.map(threadTone)
@@ -39,7 +38,7 @@ export function pinSummary(threads: PlanComment[], showResolved: boolean, self: 
     : tones.includes('agent')
       ? 'agent'
       : 'resolved'
-  return { tone, count: visible.length, unread: visible.some((t) => isUnread(t, self)) }
+  return { tone, count: visible.length, unread: visible.some((t) => isUnread(t, reader)) }
 }
 
 /** The anchor a thread is attached to: a node, an edge, or the diagram itself. */
@@ -70,12 +69,12 @@ export interface ThreadCounts {
   unread: number
 }
 
-export function threadCounts(comments: PlanComment[], self: SelfIds = []): ThreadCounts {
+export function threadCounts(comments: PlanComment[], reader: CommentReader = SINGLE_READER): ThreadCounts {
   const open = comments.filter((c) => !isResolved(c))
-  return { total: open.length, unread: open.filter((c) => isUnread(c, self)).length }
+  return { total: open.length, unread: open.filter((c) => isUnread(c, reader)).length }
 }
 
 /** The thread the threads pill scopes to. */
-export function firstUnreadThread(comments: PlanComment[], self: SelfIds = []): PlanComment | undefined {
-  return comments.find((c) => !isResolved(c) && isUnread(c, self))
+export function firstUnreadThread(comments: PlanComment[], reader: CommentReader = SINGLE_READER): PlanComment | undefined {
+  return comments.find((c) => !isResolved(c) && isUnread(c, reader))
 }

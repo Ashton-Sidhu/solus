@@ -1,7 +1,8 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { IpcContext } from '@solus/contracts/types'
+import type { IpcContext, TurnSnapshot } from '@solus/contracts/types'
 import type {
   MetricsQueryResult,
   MetricsQuerySpec,
@@ -14,6 +15,8 @@ import type {
   MetricsTurnTrace,
   MetricsValue,
   SavedMetricsQuery,
+  TurnFlag,
+  TurnFlagKind,
 } from '@solus/contracts/observability-types'
 import {
   defaultExploreSql,
@@ -31,6 +34,7 @@ import {
   type TimeRange,
 } from './lib/time-range'
 import { toTurnRows, type TurnRow } from './lib/turn-rows'
+import { repoFileLoader } from '../diff/lib/repo-file-loader'
 
 /**
  * Insights query state, owned in one place.
@@ -49,6 +53,7 @@ const HISTORY_LIMIT = 24
 const VALUES_TTL_MS = 60_000
 const RANGE_KEY = 'solus.insights.timeRange'
 const SOLUS_INTERNALS_KEY = 'solus.insights.showSolusInternals'
+const TURNS_CHANGED_DEBOUNCE_MS = 300
 
 export type QueryForm = 'nl' | 'sql'
 
@@ -97,6 +102,18 @@ async function formatGeneratedSqlLazily(sql: string): Promise<string> {
     return sql
   }
 }
+
+/**
+ * What a turn changed, as git recorded it: the snapshot the host wrote when the
+ * turn ended, and that snapshot's patch. `missing` is an answer — no snapshot
+ * carries this trace, because the project is not a git repository or the turn
+ * ran before snapshots recorded their trace.
+ */
+export type TurnChange =
+  | { status: 'loading' }
+  | { status: 'ready'; snapshot: TurnSnapshot; patch: string }
+  | { status: 'missing' }
+  | { status: 'failed' }
 
 export class InsightsStore {
   /** Which host's `metrics.db` is being read. */
@@ -174,6 +191,11 @@ export class InsightsStore {
   windowFrom = $state(resolveRange(this.range, Date.now()).from)
   windowTo = $state(Date.now())
 
+  /** A person's marks on turns, by trace. Read once per host: the list is
+   *  small and every surface that shows a chip reads the same map. */
+  readonly turnFlags = new SvelteMap<string, TurnFlag>()
+  private turnFlagsLoaded = false
+
   private valuesByColumn = new SvelteMap<string, CachedValues>()
   private valuesInFlight = new Set<string>()
   private traces = new SvelteMap<string, MetricsTurnTrace>()
@@ -182,15 +204,69 @@ export class InsightsStore {
    *  after its spans were recorded. Re-asking on every render would then be one
    *  RPC per frame. */
   private sessionNames = new SvelteMap<string, string | null>()
+  /** By trace. A finished turn's change never moves, so one read is enough. */
+  private turnChanges = new SvelteMap<string, TurnChange>()
   private lastRun: LastRun | null = null
   private loadToken = 0
   private turnPageToken = 0
   private turnSearchTimer: ReturnType<typeof setTimeout> | null = null
+  private turnsChangedTimer: ReturnType<typeof setTimeout> | null = null
+
+  private get hostId(): string | null {
+    return this.serverId ?? serverConnections.defaultMachineId()
+  }
 
   private get api(): HostApi {
-    const serverId = this.serverId ?? serverConnections.defaultServerId()
+    const serverId = this.hostId
     if (!serverId) throw new Error('No Solus connection has been registered')
     return serverConnections.apiFor(serverId)
+  }
+
+  /**
+   * Keeps the turn listing live while the page is open. The host announces a
+   * turn's row when the turn starts and again when it ends, after the write,
+   * so a re-read here always sees the new row. Only Solus's own paged listing
+   * is re-read: SQL the user wrote can be expensive, and re-running it without
+   * being asked would change the answer under them.
+   */
+  watchTurns(): () => void {
+    // A new session is named after its first turn, so a name the listing asked
+    // for too early arrives here rather than never.
+    const unsubscribeTitles = subscribeAllHosts('session.titleChanged', (serverId, change) => {
+      if (serverId !== this.hostId || !this.sessionNames.has(change.sessionId)) return
+      const name = change.title?.trim()
+      if (name) this.sessionNames.set(change.sessionId, name)
+      else this.sessionNames.delete(change.sessionId)
+    })
+    const unsubscribe = subscribeAllHosts('metrics.turnsChanged', (serverId, change) => {
+      if (serverId !== this.hostId) return
+      // A cached trace or session total that counted this turn is now old. The
+      // trace is re-read in place, not dropped, so a panel showing it keeps it.
+      // A change read while the turn ran found no snapshot yet; the next read
+      // after it ends finds it.
+      this.turnChanges.delete(change.traceId)
+      if (this.traces.has(change.traceId)) void this.reloadTrace(change.traceId)
+      else if (change.sessionId) this.sessionSummaries.delete(change.sessionId)
+      this.scheduleTurnsReload()
+    })
+    return () => {
+      unsubscribe()
+      unsubscribeTitles()
+      if (this.turnsChangedTimer) clearTimeout(this.turnsChangedTimer)
+      this.turnsChangedTimer = null
+    }
+  }
+
+  /** Several turns that end together cause one read. A read the user started
+   *  is left to finish; the reload waits for it rather than replacing it. */
+  private scheduleTurnsReload(): void {
+    if (this.turnsChangedTimer) clearTimeout(this.turnsChangedTimer)
+    this.turnsChangedTimer = setTimeout(() => {
+      this.turnsChangedTimer = null
+      if (!this.generatedTurnScope() || !this.turnPage) return
+      if (this.running) this.scheduleTurnsReload()
+      else void this.runTurnPage({ quiet: true })
+    }, TURNS_CHANGED_DEBOUNCE_MS)
   }
 
   /** Points the store at a host. A different host is a different database, so
@@ -212,6 +288,9 @@ export class InsightsStore {
     this.traces.clear()
     this.sessionSummaries.clear()
     this.sessionNames.clear()
+    this.turnChanges.clear()
+    this.turnFlags.clear()
+    this.turnFlagsLoaded = false
     this.resetTurnControls()
   }
 
@@ -436,13 +515,17 @@ export class InsightsStore {
     this.history = [entry, ...this.history.filter((run) => run.text !== text)].slice(0, HISTORY_LIMIT)
   }
 
-  private async runTurnPage(): Promise<void> {
+  /** `quiet` is a re-read the user did not ask for: the rows change in place,
+   *  with no loading state, and a failure keeps the rows already on screen. */
+  private async runTurnPage({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
     const scope = this.generatedTurnScope()
     if (!scope) return
     const requestToken = ++this.turnPageToken
     const selectedWindow = this.turnSelection ?? resolveRange(this.range, Date.now())
-    this.running = true
-    this.error = null
+    if (!quiet) {
+      this.running = true
+      this.error = null
+    }
     const startedAt = performance.now()
     try {
       const page = await this.api.metricsTurnPage({
@@ -462,15 +545,20 @@ export class InsightsStore {
       // Detail surfaces use these only as nearby turn context. Keeping the
       // current page bounded avoids rebuilding them from the whole range.
       this.volumeRows = toTurnRows(page.page)
+      // A turn with no task is listed under its session's name. A page is a
+      // bounded set of sessions, and each name is read once per host.
+      for (const row of this.volumeRows) {
+        if (row.sessionId && !row.taskTitle) void this.loadSessionName(row.sessionId)
+      }
       this.answerWindowStale = false
-      this.lastRunMs = Math.round(performance.now() - startedAt)
+      if (!quiet) this.lastRunMs = Math.round(performance.now() - startedAt)
     } catch (cause) {
-      if (requestToken !== this.turnPageToken) return
+      if (requestToken !== this.turnPageToken || quiet) return
       this.result = null
       this.turnPage = null
       this.error = cause instanceof Error ? cause.message : String(cause)
     } finally {
-      if (requestToken === this.turnPageToken) this.running = false
+      if (requestToken === this.turnPageToken && !quiet) this.running = false
     }
   }
 
@@ -652,6 +740,33 @@ export class InsightsStore {
     this.savedQueries = await this.api.metricsDeleteQuery(id)
   }
 
+  // ── Turn flags ──
+
+  private replaceTurnFlags(flags: TurnFlag[]): void {
+    this.turnFlags.clear()
+    for (const flag of flags) this.turnFlags.set(flag.traceId, flag)
+    this.turnFlagsLoaded = true
+  }
+
+  async loadTurnFlags(): Promise<void> {
+    if (this.turnFlagsLoaded) return
+    // Claimed before the await so two surfaces mounting together ask once.
+    this.turnFlagsLoaded = true
+    try {
+      this.replaceTurnFlags(await this.api.metricsListTurnFlags())
+    } catch {
+      this.turnFlagsLoaded = false
+    }
+  }
+
+  async setTurnFlag(traceId: string, kind: TurnFlagKind, note: string): Promise<void> {
+    this.replaceTurnFlags(await this.api.metricsSetTurnFlag({ traceId, kind, note }))
+  }
+
+  async clearTurnFlag(traceId: string): Promise<void> {
+    this.replaceTurnFlags(await this.api.metricsClearTurnFlag(traceId))
+  }
+
   // ── Trace and session rollups ──
 
   trace(traceId: string): MetricsTurnTrace | null {
@@ -661,9 +776,18 @@ export class InsightsStore {
   async loadTrace(traceId: string): Promise<MetricsTurnTrace | null> {
     const cached = this.traces.get(traceId)
     if (cached) return cached
+    return this.reloadTrace(traceId)
+  }
+
+  /** Re-reads a trace the host is still writing — a running turn's spans
+   *  arrive as it works — and drops the session rollup that counted it, so the
+   *  session card's totals move with it. */
+  async reloadTrace(traceId: string): Promise<MetricsTurnTrace | null> {
     try {
       const trace = await this.api.metricsTurnTrace(traceId)
       this.traces.set(traceId, trace)
+      const sessionId = trace.spans.find((span) => span.sessionId)?.sessionId
+      if (sessionId) this.sessionSummaries.delete(sessionId)
       return trace
     } catch {
       return null
@@ -696,6 +820,44 @@ export class InsightsStore {
    */
   sessionName(sessionId: string): string | null {
     return this.sessionNames.get(sessionId) ?? null
+  }
+
+  // ── What a turn changed ──
+
+  turnChange(traceId: string): TurnChange | null {
+    return this.turnChanges.get(traceId) ?? null
+  }
+
+  /**
+   * Finds the snapshot the host wrote for this trace and reads its patch. The
+   * snapshot index counts snapshots, not turns, so the trace id is the join —
+   * never the turn's position in the session. `ctx` names the turn's session
+   * alone (`ctxForSessionRecord`): the host resolves its thread and checkout.
+   */
+  /** The change map's repository listing, read on this store's host. */
+  repoFileLoader(ctx: IpcContext): (repoRoot: string) => Promise<readonly string[] | null> {
+    return repoFileLoader(() => this.api, () => ctx)
+  }
+
+  async loadTurnChange(ctx: IpcContext, traceId: string): Promise<void> {
+    if (this.turnChanges.has(traceId)) return
+    const hostId = this.hostId
+    // Claimed before the await so two mounts of one turn read once.
+    this.turnChanges.set(traceId, { status: 'loading' })
+    const settle = (change: TurnChange) => {
+      // A host switch cleared the cache; this answer is about the other host.
+      if (this.hostId === hostId) this.turnChanges.set(traceId, change)
+    }
+    try {
+      const snapshot = (await this.api.listTurnSnapshots(ctx)).find((turn) => turn.traceId === traceId)
+      if (!snapshot) return settle({ status: 'missing' })
+      const diff = snapshot.filesChanged > 0
+        ? await this.api.diff(ctx, { scope: { kind: 'turn', index: snapshot.index } })
+        : null
+      settle({ status: 'ready', snapshot, patch: diff?.patch ?? '' })
+    } catch {
+      settle({ status: 'failed' })
+    }
   }
 
   async loadSessionName(sessionId: string): Promise<void> {

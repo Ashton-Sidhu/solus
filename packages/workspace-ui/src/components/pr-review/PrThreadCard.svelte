@@ -1,22 +1,25 @@
 <script lang="ts">
   import {
     CircleCheck as CheckCircleIcon,
+    Circle as CircleIcon,
     ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
     ChevronUp as CaretUpIcon,
-    CornerUpLeft as ArrowBendUpLeftIcon,
   } from "@lucide/svelte";
-  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
+  import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
   import { CommentComposer } from "../ui/comment-composer";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import { Button } from "../ui/button";
   import {
     activityDiffPreview,
+    diffLineCount,
     dirName,
     fileName,
     hunkToPatch,
+    threadStartsFolded,
   } from "./lib/activity-data";
+  import { nearViewport } from "../../lib/near-viewport";
   import { toasts } from "../../lib/toasts";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -28,6 +31,7 @@
   let {
     thread,
     fullDiffHunk,
+    unfolded = $bindable(false),
     onJump,
     onReply,
     onResolve,
@@ -35,6 +39,11 @@
     thread: ReviewThread;
     /** Complete containing hunk from the PR patch, when it has loaded. */
     fullDiffHunk?: string;
+    /** A resolved or outdated thread folds to one line (hiding its diff hunk
+     *  and conversation), as GitHub folds them. True while the reader has
+     *  opened it; resolving folds it again. Bindable because the timeline row
+     *  takes a different shape for each state. */
+    unfolded?: boolean;
     /** Jump to the thread's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
@@ -42,22 +51,21 @@
   } = $props();
 
   const firstComment = $derived(thread.comments[0]);
+  const statusLabel = $derived(
+    `${thread.isResolved ? "Resolved" : "Open"} · ${thread.comments.length} ${thread.comments.length === 1 ? "comment" : "comments"}`,
+  );
   const diffHunk = $derived(fullDiffHunk ?? firstComment?.diffHunk);
-
-  // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
-  // typography as the PR description and the timeline's conversation rows.
-  const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-activity";
 
   let replying = $state(false);
   let replyText = $state("");
   let busy = $state(false);
-  // A resolved thread collapses to a "Marked as resolved" bar (hiding its diff
-  // hunk + conversation), matching the inline Diff tab. This tracks whether the
-  // user re-expanded it; always re-collapses on resolve.
-  let showResolved = $state(false);
-  const collapsed = $derived(thread.isResolved && !showResolved);
+  const startsFolded = $derived(threadStartsFolded(thread));
+  const collapsed = $derived(startsFolded && !unfolded);
   let diffOpen = $state(true);
+  // The diff engine is the heaviest thing on the card, so it mounts the first
+  // time the card comes near the viewport. A long timeline then builds the
+  // diffs the reader reaches, not one per open thread.
+  let diffNearViewport = $state(false);
   let diffBeforeExpanded = $state(false);
   let diffAfterExpanded = $state(false);
   const collapsedDiffPreview = $derived(
@@ -103,7 +111,7 @@
     try {
       await onResolve(thread.id, !thread.isResolved);
       thread.isResolved = !thread.isResolved;
-      if (thread.isResolved) showResolved = false;
+      if (thread.isResolved) unfolded = false;
     } catch (err) {
       toasts.error("Couldn't update thread", {
         description: err instanceof Error ? err.message : String(err),
@@ -121,21 +129,21 @@
 </script>
 
 {#if collapsed}
-  <!-- A resolved thread is a settled fact, not an open surface: one prose line
-       on the spine in the same voice as a commit row (the spine node already
-       carries the green check), so a run of resolved threads reads as a list
-       rather than a stack of empty cards. The row opens the full card. -->
+  <!-- A resolved or outdated thread is not the open question on the page: one
+       prose line on the spine in the same voice as a commit row (the spine
+       node carries its state), so a run of them reads as a list rather than a
+       stack of cards. The row opens the full card. -->
   <button
     type="button"
     class="group/resolved flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pt-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    onclick={() => (showResolved = true)}
+    onclick={() => (unfolded = true)}
     aria-expanded="false"
   >
     <span class="min-w-0 flex-1 truncate">
       <span class="font-medium text-foreground">{firstComment?.author}</span>
       commented on
       <span class="text-foreground">{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}</span>
-      · resolved{#if thread.isOutdated} · outdated{/if}{#if firstComment}
+      {#if thread.isResolved}· resolved{/if}{#if thread.isOutdated} · outdated{/if}{#if firstComment}
         · {formatTimeAgoFromTimestamp(new Date(firstComment.createdAt).getTime())}{/if}
     </span>
     <span
@@ -146,11 +154,13 @@
     </span>
   </button>
 {:else}
+<!-- The same card as a thread in the Diff tab (DiffThreadComment), with the
+     anchored file and hunk as its head. -->
 <div
-  class="overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
+  class="overflow-hidden rounded-xl border border-border/70 bg-background text-sm shadow-sm"
 >
   <div
-    class="flex items-center gap-2 border-b border-border px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
+    class="flex items-center gap-2 border-b border-border/60 px-2 py-1"
   >
     {#if diffHunk}
       <Button
@@ -179,26 +189,14 @@
     >
       <span class="text-muted-foreground">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}
     </Button>
-    {#if thread.isOutdated}
-      <span class="shrink-0 rounded-full bg-muted px-1.5 py-0.5  font-medium text-muted-foreground"
-        >Outdated</span
-      >
-    {/if}
-    {#if thread.isResolved}
-      <span
-        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1  font-medium text-(--solus-art-positive)"
-      >
-        <CheckCircleIcon size={14} weight="fill" class="shrink-0" /> Resolved
-      </span>
-    {/if}
   </div>
 
     <!-- The diff GitHub anchored the thread to (first comment's hunk),
          rendered through the same @pierre/diffs engine as the Diff tab. -->
     {#if diffHunk && diffOpen}
-      <div class="border-b border-border">
+      <div class="border-b border-border/60">
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenBeforeLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -217,16 +215,27 @@
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
           </div>
         {/if}
-        <GuideFileDiff
-          patch={hunkToPatch(
-            thread.filePath,
-            visibleDiffPreview?.hunk ?? diffHunk,
-          )}
-          filePath={thread.filePath}
-          hunkSeparators="simple"
-        />
+        {#if diffNearViewport}
+          <GuideFileDiff
+            patch={hunkToPatch(
+              thread.filePath,
+              visibleDiffPreview?.hunk ?? diffHunk,
+            )}
+            filePath={thread.filePath}
+            hunkSeparators="simple"
+          />
+        {:else}
+          <!-- Holds about the diff's height so the page does not jump when
+               it mounts. -->
+          <div
+            class="h-[calc(var(--lines)*1.25rem+0.5rem)]"
+            style:--lines={diffLineCount(visibleDiffPreview?.hunk ?? diffHunk)}
+            aria-hidden="true"
+            use:nearViewport={() => (diffNearViewport = true)}
+          ></div>
+        {/if}
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenAfterLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -248,43 +257,75 @@
       </div>
     {/if}
 
-    <div
-      class="flex flex-col px-3 py-2.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
-    >
-      {#each thread.comments as comment, ci (comment.id)}
-        <div class="flex gap-2.5">
-          <div class="flex flex-col items-center">
-            <PrAvatar
-              name={comment.author}
-              url={comment.authorAvatarUrl}
-              size="size-6 "
-            />
-            {#if ci < thread.comments.length - 1}
-              <span class="mt-1 w-px flex-1 bg-border"></span>
-            {/if}
-          </div>
-          <div class="min-w-0 flex-1 pb-3">
-            <div class="mb-0.5 flex items-baseline gap-1.5 ">
-              <span class="font-medium text-foreground">{comment.author}</span>
-              <span class="text-muted-foreground"
-                >{formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}</span
-              >
-            </div>
-            <div class={bodyProseClass}>
-              <GithubMarkdown
-                source={comment.body}
-              />
-            </div>
-          </div>
-        </div>
-      {/each}
+    <div class="p-3">
+      <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        {#if thread.isResolved}
+          <CheckCircleIcon class="size-3.5 shrink-0 text-(--solus-art-positive)" />
+        {:else}
+          <CircleIcon class="size-3.5 shrink-0" />
+        {/if}
+        <!-- A thread that folds by default folds again from its status. -->
+        {#if startsFolded}
+          <button
+            type="button"
+            class="cursor-pointer rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-expanded="true"
+            onclick={() => (unfolded = false)}
+          >
+            {statusLabel}
+          </button>
+        {:else}
+          <span>{statusLabel}</span>
+        {/if}
+        {#if thread.isOutdated}
+          <span>outdated</span>
+        {/if}
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={busy}
+          class="ml-auto cursor-pointer"
+          onclick={toggleResolved}
+        >
+          {thread.isResolved ? "Unresolve" : "Resolve"}
+        </Button>
+      </div>
 
+      <!-- Each comment hangs from an avatar in a gutter, with a hairline
+           between comments: a long bot comment otherwise runs into the next
+           author's row, and the thread reads as one message. -->
+      <div class="mt-3 divide-y divide-border/60">
+        {#each thread.comments as comment (comment.id)}
+          <article class="flex min-w-0 gap-2.5 py-3 first:pt-0 last:pb-1">
+            <span class="mt-px shrink-0">
+              <PrAvatar
+                name={comment.author}
+                url={comment.authorAvatarUrl}
+                size="size-6 text-[10px]"
+              />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground">
+                <span class="truncate text-sm font-semibold text-foreground">{comment.author}</span>
+                <span class="shrink-0">
+                  {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
+                </span>
+              </div>
+              <div class="mt-0.5">
+                <CommentMarkdown source={comment.body} />
+              </div>
+            </div>
+          </article>
+        {/each}
+      </div>
+
+      <!-- Reply aligns with the comment bodies, past the avatar gutter. -->
       {#if replying}
-        <!-- The reply field reads like the message composer: bordered
-             transparent card, forced 400 weight so typed text never reads
-             bold. -->
+        <!-- Forced 400 weight so typed text never reads bold. -->
         <CommentComposer
           surface="embedded"
+          class="mt-2 pl-8.5"
           initialValue={replyText}
           onFormValueChange={(markdown) => (replyText = markdown)}
           onSave={submitReply}
@@ -292,39 +333,20 @@
           submitLabel={busy ? "Replying…" : "Reply"}
           disabled={busy}
           maxHeight={140}
-          placeholder="Reply…"
-          editorClass="rounded-lg border border-input bg-card px-2.5 transition-colors focus-within:border-ring [&_.cm-content]:![min-height:2.5rem] [&_.cm-content]:![padding:0.5rem_0] [&_.cm-content]:![font-weight:400]"
+          placeholder="Reply"
+          ariaLabel="Reply to this conversation"
+          editorClass="min-h-16 rounded-lg border border-input bg-background px-2.5 py-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 dark:bg-input/32 [&_.cm-content]:![font-weight:400]"
         />
       {:else}
-        <div class="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg py-1 pr-3 pl-2.5  font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-            onclick={() => (replying = true)}
-          >
-            <ArrowBendUpLeftIcon size={14} class="shrink-0" /> Reply
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={busy}
-            class="inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1  font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            onclick={toggleResolved}
-          >
-            {thread.isResolved ? "Unresolve" : "Resolve"}
-          </Button>
-          {#if thread.isResolved}
-            <Button
-              type="button"
-              variant="ghost"
-              class="ml-auto inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-lg px-3 py-1  font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-              onclick={() => (showResolved = false)}
-            >
-              Hide
-            </Button>
-          {/if}
-        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          class="mt-2 ml-6.5 cursor-pointer"
+          onclick={() => (replying = true)}
+        >
+          Reply
+        </Button>
       {/if}
     </div>
 </div>

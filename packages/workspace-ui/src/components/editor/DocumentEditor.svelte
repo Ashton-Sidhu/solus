@@ -1,27 +1,22 @@
 <script lang="ts">
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { untrack } from "svelte";
   import { Editor, Extension, type AnyExtension } from "@tiptap/core";
-  import StarterKit from "@tiptap/starter-kit";
   import { Markdown } from "@tiptap/markdown";
-  import { createMarkdownParser } from "./markdownParser";
+  import { Dropcursor, UndoRedo } from "@tiptap/extensions";
+  import Collaboration from "@tiptap/extension-collaboration";
+  import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+  import { DOCUMENT_LIVE_FIELD } from "@solus/contracts/work-live";
+  import type { LiveEditorBinding } from "./lib/live-editor";
+  import { createMarkdownParser } from "@solus/document-model/markdown";
+  import type { DocumentBlockViews } from "@solus/document-model/schema";
+  import { editorSchemaExtensions } from "./lib/editor-schema";
+  import { assetImageResolver } from "./lib/document-image-view";
   import Placeholder from "@tiptap/extension-placeholder";
   import Typography from "@tiptap/extension-typography";
-  import TaskList from "@tiptap/extension-task-list";
-  import TaskItem from "@tiptap/extension-task-item";
-  import { DocumentImage as Image } from "./lib/document-image";
-  import {
-    Table,
-    TableRow,
-    TableHeader,
-    TableCell,
-  } from "@tiptap/extension-table";
   import { CellFocus } from "./cellFocus";
-  import { DocCodeBlock } from "./codeBlockView";
   import DragHandle from "@tiptap/extension-drag-handle";
-  import { lowlight } from "../../lib/lowlight";
   import { SearchExtension } from "./searchExtension";
   import { readAsDataUrl } from "./images";
   import {
@@ -30,11 +25,7 @@
     isInlineAssetImage,
     uploadAsset,
   } from "../../lib/asset-upload";
-  import {
-    getMarkdownImageContext,
-    markdownAssetId,
-  } from "../conversation/lib/markdown-image";
-  import { assetUrlCache } from "../artifact/lib/asset-url";
+  import { getMarkdownImageContext } from "../conversation/lib/markdown-image";
   import {
     SlashCommandExtension,
     filterCommands,
@@ -57,13 +48,10 @@
   const imageContext = getMarkdownImageContext();
   import { portal } from "../portal";
   import { installLiveTableResize } from "./lib/live-table-resize";
-  import { z } from "zod";
   import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
   import WorkEmbedPicker from "./WorkEmbedPicker.svelte";
   import type { WorkEmbedChoice } from "./lib/work-embed";
   import { linkActivationAction } from "./lib/link-preview";
-
-  const imageSourceSchema = z.string();
 
   interface Props {
     value: string;
@@ -77,6 +65,9 @@
      *  hosts that want a visible mic mount their own control in the header. */
     dictation?: boolean;
     extraExtensions?: AnyExtension[];
+    /** Node views for the blocks of a work or a plan. Given, the editor uses
+     *  the full document schema; omitted, the markdown schema. Read once. */
+    documentBlocks?: DocumentBlockViews;
     onEditorReady?: (editor: Editor) => void;
     onModeChange?: (mode: "rich" | "raw") => void;
     /** Forwarded keydown for an autocomplete host. Return true to consume the
@@ -98,6 +89,9 @@
     /** Whether the hover-to-grab block drag handle is mounted. Off for surfaces
      *  like the task description where reordering blocks isn't wanted. */
     dragHandle?: boolean;
+    /** A work edited live: the body is the shared doc, not `value`, and undo
+     *  reverses only the reader's own edits. Read once, at mount. */
+    live?: LiveEditorBinding | null;
   }
 
   let {
@@ -108,6 +102,7 @@
     readOnly = false,
     dictation = false,
     extraExtensions = [],
+    documentBlocks,
     onEditorReady,
     onModeChange,
     onKeyDown,
@@ -123,7 +118,13 @@
     class: klass = "",
     style = "",
     dragHandle = true,
+    live = null,
   }: Props = $props();
+
+  // Live: the Markdown source is a view of the shared doc. Its edits go into
+  // the doc as a structural change; the host's updates refresh it.
+  const liveBinding = untrack(() => live);
+  let liveRawValue = $state("");
 
   // Matches a URL pasted onto a selection (smart-paste → link).
   const URL_RE = /^(https?:\/\/|mailto:)[^\s]+$/i;
@@ -139,7 +140,6 @@
   let rawEditorRef: RawMarkdownEditor | null = $state(null);
   // Skip the value-sync diff pass when the incoming `value` is our own echo.
   let lastEmittedMd = "";
-  const persistedAssetUris = new Map<string, string>();
 
   let slashActive = $state(false);
   let slashQuery = $state("");
@@ -183,55 +183,6 @@
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
   const slashMenuOpen = $derived(slashMenuIsOpen(slashActive, slashFiltered.length));
 
-  function getMd(editor: Editor): string {
-    let markdown = editor.getMarkdown();
-    for (const [displayUrl, assetUri] of persistedAssetUris) {
-      markdown = markdown.replaceAll(displayUrl, assetUri);
-    }
-    return markdown;
-  }
-
-  async function displayUrlForAsset(assetUri: string): Promise<string> {
-    const assetId = markdownAssetId(assetUri);
-    const serverId = imageContext?.serverId();
-    const api = imageContext?.api();
-    if (!assetId || !serverId || !api) return assetUri;
-    const displayUrl = await assetUrlCache.resolve({
-      serverId,
-      assetId,
-      origin: serverConnections.httpOriginFor(serverId),
-      api,
-      ctx: imageContext?.ctx(),
-    });
-    persistedAssetUris.set(displayUrl, assetUri);
-    return displayUrl;
-  }
-
-  async function hydrateAssetImages(editor: Editor) {
-    const assetUris: string[] = [];
-    editor.state.doc.descendants((node) => {
-      if (node.type.name !== "image") return;
-      const src = imageSourceSchema.safeParse(node.attrs.src);
-      if (src.success && markdownAssetId(src.data)) assetUris.push(src.data);
-    });
-    for (const assetUri of assetUris) {
-      let displayUrl: string;
-      try {
-        displayUrl = await displayUrlForAsset(assetUri);
-      } catch {
-        continue;
-      }
-      if (displayUrl === assetUri || editor.isDestroyed) continue;
-      const transaction = editor.state.tr;
-      editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === "image" && node.attrs.src === assetUri) {
-          transaction.setNodeMarkup(pos, undefined, { ...node.attrs, src: displayUrl });
-        }
-      });
-      if (transaction.docChanged) editor.view.dispatch(transaction);
-    }
-  }
-
   $effect(() => {
     if (!editorDiv) return;
 
@@ -241,26 +192,29 @@
     const initialValue = untrack(() => value);
     const initialEditable = untrack(() => !readOnly);
     const dragEnabled = untrack(() => dragHandle);
+    const blocks = untrack(() => documentBlocks);
 
     const editor = new Editor({
       element: editorDiv,
       extensions: [
-        StarterKit.configure({
-          codeBlock: false,
-          trailingNode: false,
-          undoRedo: { depth: 100 },
-          link: { openOnClick: false, autolink: true },
-          // Drop indicator shown while dragging a block — accent-tinted, thicker
-          // and rounded (styled via .solus-dropcursor) so the landing spot reads
-          // clearly instead of the default 1px black line.
-          dropcursor: {
-            width: 2,
-            color: "var(--solus-accent)",
-            class: "solus-dropcursor",
-          },
+        ...editorSchemaExtensions(assetImageResolver(imageContext), blocks),
+        // A live doc takes Collaboration's undo, which reverses only the
+        // reader's own edits; the local history would undo a teammate's.
+        ...(liveBinding
+          ? [
+              Collaboration.configure({ document: liveBinding.live.doc, field: DOCUMENT_LIVE_FIELD }),
+              CollaborationCaret.configure({ provider: { awareness: liveBinding.live.awareness }, user: liveBinding.user }),
+            ]
+          : [UndoRedo.configure({ depth: 100 })]),
+        // Drop indicator shown while dragging a block — accent-tinted, thicker
+        // and rounded (styled via .solus-dropcursor) so the landing spot reads
+        // clearly instead of the default 1px black line.
+        Dropcursor.configure({
+          width: 2,
+          color: "var(--solus-accent)",
+          class: "solus-dropcursor",
         }),
         Markdown.configure({ marked: createMarkdownParser() }),
-        DocCodeBlock.configure({ lowlight }),
         // Whole-doc placeholder when empty, otherwise a "/" command hint on the
         // current empty line so the slash menu is discoverable.
         Placeholder.configure({
@@ -280,16 +234,6 @@
           openSingleQuote: false,
           closeSingleQuote: false,
         }),
-        TaskList,
-        TaskItem.configure({ nested: true }),
-        Image.configure({ allowBase64: true }),
-        // 5.5px either side of the rule is the design's 11px hit zone, hung on
-        // the 1px border itself rather than on a strip beside it. cellMinWidth
-        // keeps resized columns readable.
-        Table.configure({ resizable: true, handleWidth: 5.5, cellMinWidth: 96 }),
-        TableRow,
-        TableHeader,
-        TableCell,
         CellFocus,
         TableFlow,
         SlashCommandExtension,
@@ -314,7 +258,8 @@
         }),
         ...exts,
       ],
-      content: initialValue || "",
+      // A live editor takes its content from the shared doc.
+      content: liveBinding ? undefined : initialValue || "",
       contentType: "markdown",
       editable: initialEditable,
       // Read-only text still needs focus for selection-based comments and copy.
@@ -508,7 +453,6 @@
     };
 
     editorInstance = editor;
-    void hydrateAssetImages(editor);
     untrack(() => onEditorReady?.(editor));
     const stopLiveTableResize = installLiveTableResize(editor);
 
@@ -571,7 +515,8 @@
             chain.run();
             continue;
           }
-          src = await displayUrlForAsset(asset.uri);
+          // The node keeps the stable reference; the image view signs it.
+          src = asset.uri;
         } else if (isImage) {
           src = await readAsDataUrl(file);
         } else {
@@ -608,7 +553,7 @@
   // text verbatim (raw edits aren't mirrored into the rich doc until a switch).
   export function getCurrentMarkdown(): string {
     if (mode === "raw") return rawEditorRef?.getValue() ?? lastEmittedMd;
-    return editorInstance ? getMd(editorInstance) : lastEmittedMd;
+    return editorInstance ? editorInstance.getMarkdown() : lastEmittedMd;
   }
 
   // P1 emit: cheap synchronous dirty signal + debounced markdown serialization.
@@ -639,7 +584,8 @@
     emitTimer = null;
     const md = getCurrentMarkdown();
     lastEmittedMd = md;
-    onValueChange(md);
+    if (liveBinding && mode === "raw") applyRawToLive(md);
+    else onValueChange(md);
   }
 
   // Mirror external value resets (e.g. cancel discards editBuffer) and raw-mode edits
@@ -649,21 +595,50 @@
   $effect(() => {
     const ext = value;
     const m = mode;
-    if (!editorInstance || m !== "rich") return;
+    if (!editorInstance || m !== "rich" || liveBinding) return;
     if (ext === lastEmittedMd) return;
     // P4: compare on normalized whitespace so a benign re-serialization diff
     // (trailing spaces, list-marker normalization) never triggers a full
     // setContent — which would reset the cursor + undo stack while the user is
     // mid-type. Only genuine content changes reconcile.
-    const cur = getMd(editorInstance);
+    const cur = editorInstance.getMarkdown();
     if (normalizeMd(cur) !== normalizeMd(ext)) {
       editorInstance.commands.setContent(ext || "", {
         emitUpdate: false,
         contentType: "markdown",
       });
-      void hydrateAssetImages(editorInstance);
     }
   });
+
+  /** Live: a Markdown edit becomes a structural change to the shared doc. */
+  function applyRawToLive(md: string) {
+    if (!editorInstance || md === editorInstance.getMarkdown()) return;
+    editorInstance.commands.setContent(md, { contentType: "markdown" });
+  }
+
+  // A host update lands after the reader's pending Markdown edit, never under
+  // it, so neither is lost; then the source shows the merged document.
+  $effect(() => {
+    if (!liveBinding) return;
+    const target = liveBinding.live;
+    target.beforeRemote = () => {
+      if (mode === "raw" && emitTimer) flushPendingRaw();
+    };
+    target.afterRemote = () => {
+      if (mode === "raw" && !emitTimer && editorInstance) liveRawValue = editorInstance.getMarkdown();
+    };
+    return () => {
+      target.beforeRemote = null;
+      target.afterRemote = null;
+    };
+  });
+
+  function flushPendingRaw() {
+    if (!emitTimer) return;
+    clearTimeout(emitTimer);
+    emitTimer = null;
+    applyRawToLive(getCurrentMarkdown());
+  }
 
   function normalizeMd(s: string): string {
     return s.replace(/\s+/g, " ").trim();
@@ -721,6 +696,7 @@
   export function toggleMode() {
     // Push current content into `value` so the surface we switch to reads it.
     flushPendingEmit();
+    if (liveBinding && mode === "rich" && editorInstance) liveRawValue = editorInstance.getMarkdown();
     mode = mode === "rich" ? "raw" : "rich";
     onModeChange?.(mode);
     queueMicrotask(() => {
@@ -851,8 +827,8 @@
 
   <RawMarkdownEditor
     bind:this={rawEditorRef}
-    {value}
-    onValueChange={() => scheduleEmit(onValueChange)}
+    value={liveBinding ? liveRawValue : value}
+    onValueChange={() => scheduleEmit(liveBinding ? applyRawToLive : onValueChange)}
     onFocus={() => announceFocus(true)}
     onBlur={() => announceFocus(false)}
     {readOnly}

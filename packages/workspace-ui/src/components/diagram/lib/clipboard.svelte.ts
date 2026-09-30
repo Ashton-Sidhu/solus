@@ -1,8 +1,9 @@
-import type { Edge, Node } from "@xyflow/svelte";
+import type { DiagramEdge, DiagramNode } from "@solus/contracts/diagram-types";
 
-let diagramClipboard: { nodes: Node[]; edges: Edge[] } | null = null;
+// Copied content, not canvas nodes: a paste keeps every field of the original.
+let diagramClipboard: { nodes: readonly DiagramNode[]; edges: readonly DiagramEdge[] } | null = null;
 
-export function setDiagramClipboard(nodes: Node[], edges: Edge[]) {
+export function setDiagramClipboard(nodes: readonly DiagramNode[], edges: readonly DiagramEdge[]) {
   diagramClipboard = { nodes, edges };
 }
 
@@ -10,11 +11,10 @@ export function hasDiagramClipboard(): boolean {
   return !!diagramClipboard?.nodes.length;
 }
 
-export function buildClipboardPaste<TNodeHandlers extends object, TEdgeHandlers extends object>(
-  nodeHandlers: TNodeHandlers,
-  edgeHandlers: TEdgeHandlers,
+/** Fresh copies of the clipboard with new ids, offset unless their parent came along. */
+export function buildClipboardPaste(
   stamp = Date.now(),
-): { nodes: Node[]; edges: Edge[] } | null {
+): { nodes: DiagramNode[]; edges: DiagramEdge[] } | null {
   if (!diagramClipboard?.nodes.length) return null;
 
   const idMap = new Map<string, string>();
@@ -22,40 +22,24 @@ export function buildClipboardPaste<TNodeHandlers extends object, TEdgeHandlers 
     idMap.set(n.id, `node-${stamp}-${i}`);
   });
 
-  const nodes: Node[] = diagramClipboard.nodes.map((n) => {
-    const newId = idMap.get(n.id)!;
+  const nodes: DiagramNode[] = diagramClipboard.nodes.map((n) => {
     const parentCopied = !!(n.parentId && idMap.has(n.parentId));
-    const newParentId = n.parentId ? (idMap.get(n.parentId) ?? n.parentId) : undefined;
-    const position = parentCopied
-      ? n.position
-      : { x: (n.position?.x ?? 0) + 24, y: (n.position?.y ?? 0) + 24 };
-
-    const copiedNode: Node = {
-      ...n,
-      id: newId,
-      selected: true,
-      position,
-      data: {
-        ...n.data,
-        id: newId,
-        parentId: newParentId,
-        ...nodeHandlers,
-      },
+    const copied: DiagramNode = {
+      ...structuredClone(n),
+      id: idMap.get(n.id)!,
+      position: parentCopied
+        ? n.position
+        : { x: (n.position?.x ?? 0) + 24, y: (n.position?.y ?? 0) + 24 },
     };
-    if (newParentId) copiedNode.parentId = newParentId;
-    return copiedNode;
+    if (n.parentId) copied.parentId = idMap.get(n.parentId) ?? n.parentId;
+    return copied;
   });
 
-  const edges: Edge[] = diagramClipboard.edges.map((e, i) => ({
-    ...e,
+  const edges: DiagramEdge[] = diagramClipboard.edges.map((e, i) => ({
+    ...structuredClone(e),
     id: `e-${stamp}-${i}`,
     source: idMap.get(e.source) ?? e.source,
     target: idMap.get(e.target) ?? e.target,
-    selected: false,
-    data: {
-      ...e.data,
-      ...edgeHandlers,
-    },
   }));
 
   return { nodes, edges };

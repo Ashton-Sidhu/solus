@@ -1,6 +1,6 @@
 <script lang="ts">
-  /** A settings group: a quiet sentence-case heading over a card of rows, a
-   *  hairline between one row and the next. Renders nothing when `visible` is
+  /** A settings group: a sentence-case heading over a card of rows, a hairline
+   *  between one row and the next, inset to the rows' text column. Renders nothing when `visible` is
    *  false, so a group whose rows are all filtered out by search disappears
    *  instead of leaving an empty card. */
   import type { Snippet } from "svelte";
@@ -23,13 +23,13 @@
 </script>
 
 {#if visible}
-  <section class="flex flex-col gap-2.5">
+  <section class="flex flex-col gap-3">
     {#if label || icon || action}
-      <!-- The heading starts on the rows' text column, sixteen pixels in, so
-           it reads as the group's name rather than a label floating above. -->
-      <div class="flex min-h-7 items-start justify-between gap-4 px-4">
+      <!-- The heading starts on the card's edge, one step outside the rows, so
+           it reads as the name of the whole card. -->
+      <div class="flex min-h-7 items-start justify-between gap-4">
         <h2
-          class="flex min-h-7 min-w-0 items-center gap-2 text-sm font-normal tracking-[-0.005em] text-foreground/70"
+          class="flex min-h-7 min-w-0 items-center gap-2 text-sm font-medium tracking-[-0.005em] text-foreground"
         >
           {#if icon}
             <span class="flex size-3.5 shrink-0 items-center justify-center">
@@ -44,13 +44,13 @@
       </div>
     {/if}
     {#if description}
-      <p class="max-w-xl px-4 text-pretty text-[13px] leading-[1.45] text-muted-foreground/80">{description}</p>
+      <p class="-mt-1.5 max-w-xl text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">{description}</p>
     {/if}
     {#if plain}
       {@render children()}
     {:else}
       <div
-        class="overflow-hidden rounded-xl border border-border/60 bg-card/40 text-foreground shadow-xs/5 [&>*+*]:border-t [&>*+*]:border-border/50"
+        class="overflow-hidden rounded-xl border border-border/50 bg-card text-foreground [&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-4 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/40"
       >
         {@render children()}
       </div>

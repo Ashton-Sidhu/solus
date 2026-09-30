@@ -6,9 +6,21 @@
   import { fly } from "svelte/transition";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import { formatDuration, formatPercent } from "./lib/format";
+  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import CodeBlock from "../ui/CodeBlock.svelte";
+  import CodeSpan from "../ui/CodeSpan.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import { colorForStatus, labelForKind } from "./lib/span-palette";
-  import { spanAttributes, spanPayload, visibleRows, type TraceView } from "./lib/waterfall";
+  import { subagentRollup, type SubagentRollup } from "./lib/turn-analysis";
+  import {
+    barExtent,
+    spanAttributes,
+    spanPayload,
+    startOffsetLabel,
+    visibleRows,
+    type TraceView,
+  } from "./lib/waterfall";
   import {
     activation,
     barsForLines,
@@ -65,6 +77,11 @@
 
   let { trace, selectedSpanId = null, showInternals = false }: Props = $props();
 
+  const markdownRenderers = { code: CodeBlock, codespan: CodeSpan };
+  // A thought stored before Codex joined its summary parts as paragraphs has
+  // one title per line; a single newline must stay a line break.
+  const thoughtMarkdownOptions = { breaks: true };
+
   /** Row height, shared by the band scale and the HTML columns beside it —
    *  the one number that keeps the three columns on the same lines. */
   const ROW_HEIGHT = 30;
@@ -72,7 +89,19 @@
   const AXIS_HEIGHT = TIME_AXIS_INSET_PX;
   const BAR_HEIGHT = 12;
 
-  const rows = $derived(visibleRows(trace.rows, showInternals));
+  const rows = $derived(visibleRows(trace.rows, showInternals, selectedSpanId));
+  /** What each subagent run holds, for its row: a run is a fold, so it never
+   *  opens the dock, and its shape has to be readable from the lane itself. */
+  const subagentRollups = $derived(
+    new Map<string, SubagentRollup>(
+      rows
+        .filter((row) => row.kind === "agent_run")
+        .flatMap((row) => {
+          const rollup = subagentRollup(trace, row.spanId);
+          return rollup ? [[row.spanId, rollup] as const] : [];
+        }),
+    ),
+  );
   const tree = $derived(buildWaterfallTree(rows, trace.totalMs));
   const expandable = $derived(expandableIds(tree));
   /** Spans that are folds — a bar on one unfolds it, as its row does, rather
@@ -178,6 +207,16 @@
     return line.type === "group" ? line.group.label : line.row.label;
   }
 
+  /** The row's tooltip: a lane says what is inside it, a span keeps the detail
+   *  its label compacted — the whole command, the whole path. */
+  function titleOf(line: WaterfallLine): string {
+    if (hoveredBar?.lineId === line.id) return hoveredBar.title;
+    if (line.type === "group") {
+      return line.group.detail ? `${line.group.label} — ${line.group.detail}` : line.group.label;
+    }
+    return line.row.title;
+  }
+
   function durationOf(line: WaterfallLine): number | null {
     if (hoveredBar?.lineId === line.id) return hoveredBar.durationMs;
     return line.type === "group" ? line.group.totalMs : line.row.durationMs;
@@ -201,14 +240,13 @@
   /** Where the open span sits in the trace, as the dock's position track. The
    *  detail is at the foot of the plot rather than beside its row, so this is
    *  the only thing left saying when in the turn the span ran. */
-  const openExtent = $derived(
-    openRow && trace.totalMs > 0
-      ? {
-          left: (openRow.startOffsetMs / trace.totalMs) * 100,
-          width: Math.max((openRow.durationMs ?? 0) / trace.totalMs, 0.006) * 100,
-        }
-      : null,
-  );
+  const openExtent = $derived.by(() => {
+    if (!openRow || trace.totalMs <= 0) return null;
+    // The plot's own extent, so the track and the bar agree — a span that
+    // began before the turn is drawn from the turn's start on both.
+    const [from, to] = barExtent(openRow, trace.totalMs);
+    return { left: (from / trace.totalMs) * 100, width: ((to - from) / trace.totalMs) * 100 };
+  });
 
   function onDockKeydown(event: KeyboardEvent): void {
     if (event.key !== "Escape") return;
@@ -221,13 +259,18 @@
   const fullWidth = (): [number, number] => [0, trace.totalMs];
 </script>
 
+<!-- Three columns on one row height. The label and duration columns are fixed
+     so the plot between them is the one thing that flexes — and at a narrow
+     container they step down rather than starve it: the label column gives up
+     half its width and the share column folds, so a phone-wide panel still
+     draws bars instead of a list of durations beside an empty plot. -->
 <div class="flex w-full items-start">
-  <div class="w-52 shrink-0">
+  <div class="w-52 shrink-0 @max-[40rem]:w-28">
     <div class="flex items-center" style="height:{AXIS_HEIGHT}px">
       {#if expandable.length > 0}
         <button
           type="button"
-          class="cursor-pointer rounded-sm pr-1 py-0.5 text-[0.625rem] text-muted-foreground outline-none transition-colors select-none hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
+          class="cursor-pointer rounded-sm pr-1 py-0.5 text-insights-chrome text-muted-foreground outline-none transition-colors select-none hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
           onclick={toggleAll}>{allExpanded ? "Collapse all" : "Expand all"}</button
         >
       {/if}
@@ -241,14 +284,12 @@
            triangle sits outside the text rather than pushing every name right. -->
       <button
         type="button"
-        class="-ml-3.5 flex w-full cursor-pointer items-center gap-1 rounded-sm pr-2 text-left text-xs outline-none transition-colors select-none hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
+        class="-ml-3.5 flex w-full cursor-pointer items-center gap-1 rounded-sm pr-2 text-left text-insights-chrome outline-none transition-colors select-none hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
         class:font-medium={line.type === "group" || isOpen}
         style="height:{ROW_HEIGHT}px;color:{line.depth === 0
           ? 'var(--muted-foreground)'
           : 'var(--foreground)'};background:{isOpen ? 'var(--wash-2)' : 'transparent'}"
-        title={line.type === "group" && line.group.detail
-          ? `${line.group.label} — ${line.group.detail}`
-          : labelOf(line)}
+        title={titleOf(line)}
         aria-expanded={isExpandable ? line.expanded : undefined}
         onclick={() => activate(line)}
         onkeydown={(event) => onLineKeydown(event, line)}
@@ -270,19 +311,41 @@
         <span class="truncate">{labelOf(line)}</span>
         {#if line.type === "group"}
           <span
-            class="shrink-0 rounded-sm bg-[var(--wash-2)] px-1 text-[0.625rem] font-normal tabular-nums text-muted-foreground"
+            class="shrink-0 rounded-sm bg-[var(--wash-2)] px-1 text-insights-chrome font-normal tabular-nums text-muted-foreground"
             >{line.group.memberCount}</span
           >
           {#if line.group.errorCount > 0}
             <span
-              class="shrink-0 rounded-sm px-1 text-[0.625rem] font-normal tabular-nums"
+              class="shrink-0 rounded-sm px-1 text-insights-chrome font-normal tabular-nums"
               style="background:color-mix(in oklch, var(--failure) 12%, transparent);color:var(--failure)"
               title="{line.group.errorCount} failed">{line.group.errorCount}</span
             >
           {/if}
+        {:else if line.row.kind === "agent_run" && subagentRollups.has(line.row.spanId)}
+          {@const rollup = subagentRollups.get(line.row.spanId)!}
+          <!-- A subagent is its own trace inside this one. Its lane says what
+               it holds — tool calls, active time, failures — because the
+               provider reports tokens per turn and a run has no cost of its
+               own to show. -->
+          <span
+            class="shrink-0 rounded-sm bg-[var(--wash-2)] px-1 text-insights-chrome font-normal tabular-nums text-muted-foreground"
+            title="Subagent: {rollup.spanCount} spans, {rollup.toolCallCount} tool calls, {formatDuration(
+              rollup.activeMs,
+            )} active"
+            >{rollup.toolCallCount} {rollup.toolCallCount === 1 ? "tool" : "tools"} · {formatDuration(
+              rollup.activeMs,
+            )}</span
+          >
+          {#if rollup.errorCount > 0}
+            <span
+              class="shrink-0 rounded-sm px-1 text-insights-chrome font-normal tabular-nums"
+              style="background:color-mix(in oklch, var(--failure) 12%, transparent);color:var(--failure)"
+              title="{rollup.errorCount} failed inside the subagent">{rollup.errorCount}</span
+            >
+          {/if}
         {:else if !line.expanded && line.hiddenCount > 0}
           <span
-            class="shrink-0 rounded-sm bg-[var(--wash-2)] px-1 text-[0.625rem] font-normal tabular-nums text-muted-foreground"
+            class="shrink-0 rounded-sm bg-[var(--wash-2)] px-1 text-insights-chrome font-normal tabular-nums text-muted-foreground"
             title="{line.hiddenCount} nested spans">+{line.hiddenCount}</span
           >
         {/if}
@@ -290,7 +353,7 @@
     {/each}
   </div>
 
-  <div class="min-w-0 flex-1" style="height:{plotHeight}px">
+  <div class="min-w-24 flex-1" style="height:{plotHeight}px">
     {#key trace.traceId}
       <Chart
         data={bars}
@@ -310,7 +373,7 @@
             tickLength={0}
             tickLabelProps={{ dy: -TIME_AXIS_LABEL_GAP_PX }}
             format={(value: unknown) => formatDuration(Number(value))}
-            classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+            classes={{ tickLabel: "text-[length:var(--text-insights-chrome)] tabular-nums fill-[var(--muted-foreground)]" }}
           />
           <!-- Row wash first, so the selected and hovered rows sit behind the
                bars rather than tinting them. -->
@@ -334,7 +397,7 @@
     {/key}
   </div>
 
-  <div class="w-30 shrink-0">
+  <div class="w-30 shrink-0 @max-[40rem]:w-16">
     <div style="height:{AXIS_HEIGHT}px"></div>
     {#each lines as line (line.id)}
       {@const share = shareOf(line)}
@@ -352,10 +415,11 @@
           ? `Expand ${labelOf(line)}`
           : `Toggle details for ${labelOf(line)}`}
       >
-        <span class="text-xs tabular-nums" style="color:{durationColor(line)}"
+        <span class="text-insights-chrome tabular-nums" style="color:{durationColor(line)}"
           >{formatDuration(durationOf(line))}</span
         >
-        <span class="w-8 text-right text-[0.625rem] tabular-nums text-muted-foreground"
+        <span
+          class="w-8 text-right text-insights-chrome tabular-nums text-muted-foreground @max-[40rem]:hidden"
           >{share == null ? "" : formatPercent(share)}</span
         >
       </button>
@@ -388,7 +452,7 @@
            a fact: a failed status. -->
       <div class="shrink-0 shadow-[inset_0_-0.5px_0_var(--hairline)]">
         <div class="flex items-center gap-3 px-4 pt-3">
-          <span class="min-w-0 truncate text-[0.6875rem] text-muted-foreground"
+          <span class="min-w-0 truncate text-insights-chrome text-muted-foreground"
             >{labelForKind(openRow.span.kind)} · {openRow.span.service}</span
           >
           <span class="flex-1"></span>
@@ -400,20 +464,20 @@
             onclick={() => (openSpanIdOverride = null)}><XIcon size={12} weight="bold" /></button
           >
         </div>
-        <div class="truncate px-4 pt-0.5 text-sm font-medium">{openRow.span.name}</div>
+        <div class="truncate px-4 pt-0.5 text-insights-summary font-medium">{openRow.span.name}</div>
         <div class="flex items-baseline gap-2.5 px-4 pt-1.5 pb-2.5">
-          <span class="text-sm font-medium tabular-nums">{formatDuration(openRow.durationMs)}</span>
+          <span class="text-insights-summary font-medium tabular-nums">{formatDuration(openRow.durationMs)}</span>
           {#if openRow.share != null}
-            <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
+            <span class="text-insights-chrome tabular-nums text-muted-foreground"
               >{formatPercent(openRow.share)} of turn</span
             >
           {/if}
-          <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
-            >starts +{formatDuration(openRow.startOffsetMs)}</span
+          <span class="text-insights-chrome tabular-nums text-muted-foreground"
+            >{startOffsetLabel(openRow.startOffsetMs)}</span
           >
           <span class="flex-1"></span>
           <span
-            class="shrink-0 text-[0.6875rem]"
+            class="shrink-0 text-insights-chrome"
             style="color:{openRow.span.status === 'error'
               ? colorForStatus(openRow.span.status)
               : 'var(--muted-foreground)'}">{openRow.span.status}</span
@@ -432,27 +496,45 @@
         </div>
       </div>
       <div class="flex min-h-0 flex-col gap-3.5 overflow-y-auto px-4 pt-3.5 pb-3.5" data-sb>
+        {#if attributes.length === 0 && !payload}
+          <!-- Said, not left blank: an empty body under a full head reads as a
+               body that was cut off. -->
+          <p class="m-0 text-insights-chrome text-muted-foreground">
+            This span recorded no attributes beyond its timing.
+          </p>
+        {/if}
         {#if attributes.length > 0}
           <div class="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-4">
             {#each attributes as attribute (attribute.key)}
               <div class="flex min-w-0 flex-col gap-1">
-                <span class="text-[0.6875rem] text-muted-foreground">{attribute.key}</span>
+                <span class="text-insights-chrome text-muted-foreground">{attribute.key}</span>
                 <!-- Wraps rather than truncates: a value clipped by CSS cannot be
                      dragged over, and this block exists to be read and copied. -->
-                <span class="text-xs tabular-nums wrap-anywhere select-text">{attribute.value}</span>
+                <span class="text-insights-chrome tabular-nums wrap-anywhere select-text">{attribute.value}</span>
               </div>
             {/each}
           </div>
         {/if}
         {#if payload}
           <div class="flex flex-col gap-1.5">
-            <span class="flex items-center gap-1 text-[0.6875rem] text-muted-foreground"
+            <span class="flex items-center gap-1 text-insights-chrome text-muted-foreground"
               >{payload.label}
               <CopyButton text={payload.text} title="Copy {payload.label.toLowerCase()}" iconOnly />
             </span>
-            <pre
-              class="overflow-x-auto rounded-md bg-[var(--wash-1)] px-3 py-2 text-[0.6875rem] leading-[1.7] whitespace-pre-wrap select-text shadow-[shadow:var(--elev-flat)]"
-              data-sb>{payload.text}</pre>
+            {#if payload.isMarkdown}
+              <div class="prose-cloud prose-reading prose-transcript min-w-0 max-w-none text-insights-summary select-text">
+                <SvelteMarkdown
+                  source={payload.text}
+                  options={thoughtMarkdownOptions}
+                  renderers={markdownRenderers}
+                  sanitizeUrl={markdownSanitizeUrl}
+                />
+              </div>
+            {:else}
+              <pre
+                class="overflow-x-auto rounded-md bg-[var(--wash-1)] px-3 py-2 text-insights-chrome leading-[1.7] whitespace-pre-wrap select-text shadow-[shadow:var(--elev-flat)]"
+                data-sb>{payload.text}</pre>
+            {/if}
           </div>
         {/if}
       </div>

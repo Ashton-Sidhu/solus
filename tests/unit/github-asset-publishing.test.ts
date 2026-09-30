@@ -35,10 +35,11 @@ const PNG_ID = `${digest('a')}.png`
 const PDF_ID = `${digest('b')}.pdf`
 const MP4_ID = `${digest('c')}.mp4`
 const SVG_ID = `${digest('d')}.svg`
+const WEBM_ID = `${digest('e')}.webm`
 
 type UploadModule = typeof import('@solus/server/providers/github/asset-upload')
-type AdapterModule = typeof import('@solus/server/tasks/adapters/github')
-type AssetsModule = typeof import('@solus/server/tasks/task-assets')
+type AdapterModule = typeof import('@solus/server/data/tasks/adapters/github')
+type AssetsModule = typeof import('@solus/server/data/tasks/task-assets')
 type DbModule = typeof import('@solus/server/db')
 
 let upload: UploadModule
@@ -68,10 +69,11 @@ beforeAll(async () => {
   writeFileSync(join(dataDir, 'assets', PDF_ID), Buffer.from('fake pdf bytes'))
   writeFileSync(join(dataDir, 'assets', MP4_ID), Buffer.from('fake mp4 bytes'))
   writeFileSync(join(dataDir, 'assets', SVG_ID), Buffer.from('<svg />'))
+  writeFileSync(join(dataDir, 'assets', WEBM_ID), Buffer.from('fake webm bytes'))
 
   upload = await import('@solus/server/providers/github/asset-upload')
-  adapter = new (await import('@solus/server/tasks/adapters/github')).GitHubTaskSyncAdapter()
-  assets = await import('@solus/server/tasks/task-assets')
+  adapter = new (await import('@solus/server/data/tasks/adapters/github')).GitHubTaskSyncAdapter()
+  assets = await import('@solus/server/data/tasks/task-assets')
   db = await import('@solus/server/db')
 
   // SAFETY: the stub accepts the same arguments and returns the same Response
@@ -109,7 +111,7 @@ beforeEach(async () => {
   upload.forgetUploadTarget('solus', 'site')
   // Publications are durable by design, so each test starts from none rather
   // than inheriting what an earlier one uploaded.
-  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/tasks/schema')).assetPublications}`)
+  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/data/tasks/schema')).assetPublications}`)
 })
 
 afterEach(async () => {
@@ -154,6 +156,27 @@ describe('github asset upload request', () => {
   test('reports a 422 as a rejected file', async () => {
     respond = () => new Response('content_type is not included in the list', { status: 422 })
     expect(await uploadFailureReason(PNG_ID)).toBe('rejected-file')
+  })
+
+  // The same answer gh gives: the caller learns when it may try again.
+  test('reports a 429 as rate limited with the wait GitHub asked for', async () => {
+    respond = () => new Response('', { status: 429, headers: { 'retry-after': '30' } })
+    const client = mockedGithubClient()
+    const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
+    const failure = await upload.uploadGithubAsset(client, target, PNG_ID).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(upload.GithubAssetUploadError)
+    expect((failure as InstanceType<UploadModule['GithubAssetUploadError']>).reason).toBe('rate-limited')
+    expect((failure as Error).message).toContain('retry after 30 seconds')
+  })
+
+  // gh accepts WebM, so a WebM a user attached can reach a pull request.
+  test('uploads a WebM video with its video content type', async () => {
+    const client = mockedGithubClient()
+    const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
+    await upload.uploadGithubAsset(client, target, WEBM_ID)
+
+    expect(new URL(requests[0].url).searchParams.get('content_type')).toBe('video/webm')
   })
 
   test('treats an accepted upload with no URL as a failure', async () => {

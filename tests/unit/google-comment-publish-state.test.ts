@@ -25,7 +25,7 @@ test('a shared receipt belongs to one message, so an identical sibling still rea
 
 test('a retry matches its own receipt through the trimming the card applies before sending', () => {
   const operations = [sent('note', 'Solus: needs a source', 'quote')]
-  expect(publishOperation(operations, 'note', outboundText('needs a source  ', 'solus'), ' quote ')?.status).toBe('sent')
+  expect(publishOperation(operations, 'note', outboundText('needs a source  ', true), ' quote ')?.status).toBe('sent')
 })
 
 test('a message answering a provider thread is receipted as a reply in that thread, never as a new comment', () => {
@@ -43,8 +43,8 @@ test('a message answering a provider thread is receipted as a reply in that thre
 })
 
 test('an agent message names itself, because Google credits the connected account', () => {
-  expect(outboundText('needs a source', 'solus')).toBe('Solus: needs a source')
-  expect(outboundText(' needs a source ', 'you')).toBe('needs a source')
+  expect(outboundText('needs a source', true)).toBe('Solus: needs a source')
+  expect(outboundText(' needs a source ', false)).toBe('needs a source')
   expect(outboundText('needs a source')).toBe('needs a source')
 })
 

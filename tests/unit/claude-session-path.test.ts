@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveClaudeSessionFilePath } from '@solus/server/agents/claude/claude-session-helpers'
+import { resolveClaudeSessionFilePath } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { encodePathAsFolder } from '@solus/contracts/types'
 
 const tempDirs: string[] = []

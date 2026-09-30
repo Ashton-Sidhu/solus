@@ -1,7 +1,7 @@
-import { Node, mergeAttributes } from '@tiptap/core'
 import { mount, unmount } from 'svelte'
+import { HtmlBlock } from '@solus/document-model/blocks'
+import { HTML_SOURCE_INFO } from '@solus/document-model/fences'
 import HtmlBlockNodeView from './HtmlBlockNodeView.svelte'
-import { HTML_SOURCE_INFO, htmlBlockFence, serializeHtmlBlock } from './lib/html-block-fence'
 
 interface HtmlBlockExtensionOptions {
   /** The app theme, read through the shell that built this extension: a node
@@ -9,69 +9,10 @@ interface HtmlBlockExtensionOptions {
   isDark: () => boolean
 }
 
-/**
- * A ```html fence in a document or plan, rendered live.
- *
- * The node holds the markup as an attribute rather than as editable content:
- * it is one payload the frame runs, not prose the schema should be splitting
- * into paragraphs. Its markdown never changes shape, so the file stays as
- * portable as it was before Solus opened it.
- */
-export const HtmlBlockMarkdownExtension = Node.create({
-  name: 'htmlBlock',
-  group: 'block',
-  atom: true,
-  selectable: true,
-  draggable: true,
-
-  addAttributes() {
-    return {
-      html: { default: '' },
-      /** The author or the reader asked for a render in the info string, and
-       *  the fence writes that word back so the choice survives a save. */
-      explicit: { default: false },
-    }
-  },
-
-  markdownTokenizer: {
-    name: 'htmlBlock',
-    level: 'block',
-    start: (src: string) => src.search(/(?:^|\n)[ \t]{0,3}(?:`{3,}|~{3,})/),
-    tokenize(src: string) {
-      const block = htmlBlockFence(src)
-      // Anything else — a snippet, another language, an unclosed fence — falls
-      // through to marked's own fence rule and stays a code block.
-      if (!block) return undefined
-      return { type: 'htmlBlock', raw: block.raw, html: block.html, explicit: block.explicit }
-    },
-  },
-
-  parseMarkdown(token) {
-    return {
-      type: 'htmlBlock',
-      attrs: { html: String(token.html ?? ''), explicit: token.explicit === true },
-    }
-  },
-
-  renderMarkdown(node) {
-    return serializeHtmlBlock(String(node.attrs?.html ?? ''), node.attrs?.explicit === true)
-  },
-
-  renderText({ node }) {
-    return serializeHtmlBlock(String(node.attrs?.html ?? ''), node.attrs?.explicit === true)
-  },
-
-  parseHTML() {
-    return [{ tag: 'div[data-html-block]' }]
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-html-block': '' }), node.attrs.html]
-  },
-})
-
+/** A ```html fence rendered live. The node and its markdown are the
+ *  document model's; this adds the frame and its source editor. */
 export function createHtmlBlockExtension(options: HtmlBlockExtensionOptions) {
-  return HtmlBlockMarkdownExtension.extend({
+  return HtmlBlock.extend({
     addNodeView() {
       return ({ node, editor, getPos }) => {
         const dom = document.createElement('div')

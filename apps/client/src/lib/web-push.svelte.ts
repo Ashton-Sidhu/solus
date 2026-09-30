@@ -3,6 +3,8 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WebPushSubscriptionJSON } from '@solus/contracts/types'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { activeWorkspace, loadWorkspaces } from '@solus/client-core/workspace-registry'
+import { solusApiId } from '@solus/contracts/uplink'
 import {
   loadServers,
   onServerRemoving,
@@ -156,7 +158,14 @@ class WebPushState {
       bootHost = { serverId: boot.serverId }
       if (boot.target.installationId) bootHost.installationId = boot.target.installationId
     }
-    return pushHostRefs(loadServers(), bootHost)
+    // The window's organization's workspace service sends that organization's
+    // notifications, so it is subscribed beside the machines. Another
+    // organization's service is not dialed for this (organization-scope §7):
+    // borrowing a socket to it would look like a connection change and start
+    // the reconciliation again.
+    const active = activeWorkspace(loadWorkspaces())
+    const workspaces = active ? [{ serverId: solusApiId(active.organizationId) }] : []
+    return pushHostRefs(loadServers(), bootHost, workspaces)
   }
 
   private scheduleReconcile(): void {

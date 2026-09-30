@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostEvent } from '@solus/contracts/host-events'
-import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
-import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
+import { ClientEventRegistry } from '@solus/server/transport/events/client-event-registry'
+import { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 
 function captureClient(registry: ClientEventRegistry, clientId: string): {
   events: HostEvent[]

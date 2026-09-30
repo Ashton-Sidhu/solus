@@ -18,6 +18,7 @@ beforeAll(async () => {
 const TASKS: RouteRef = { name: 'tasks', params: {} }
 const PRS: RouteRef = { name: 'prs', params: {} }
 const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
+const CHAT: RouteRef = { name: 'chat', params: {} }
 
 describe('history', () => {
   test('back and forward walk the locations that were visited', () => {
@@ -284,6 +285,79 @@ describe('closing the leading pane', () => {
   })
 })
 
+describe('closing Settings', () => {
+  const DRAFT: RouteRef = { name: 'draft', params: { draftId: 'd_home' } }
+  const settings = (tab: 'general' | 'tools' | 'voice'): RouteRef => ({ name: 'settings', params: { tab } })
+
+  test('returns to the main page it was opened from', () => {
+    // WHY: Settings is a detour. Opened from Tasks, closing it must put the
+    // user back on Tasks, not drop them into the conversation.
+    const router = new RouterStore()
+    router.leadingHome = () => DRAFT
+    router.navigate(TASKS)
+    router.navigate(settings('general'))
+
+    router.close('settings')
+
+    expect(router.leadingPane.base).toEqual(TASKS)
+  })
+
+  test('moving between settings tabs does not change where it returns', () => {
+    // WHY: each tab replaces Settings with itself. If that counted as the step
+    // in, closing would land on another settings tab instead of the way out.
+    const router = new RouterStore()
+    router.leadingHome = () => DRAFT
+    router.navigate(PRS)
+    router.navigate(settings('general'))
+    router.navigate(settings('tools'), { replace: true })
+    router.navigate(settings('voice'), { replace: true })
+
+    router.close('settings')
+
+    expect(router.leadingPane.base).toEqual(PRS)
+  })
+
+  test('with nothing remembered it rests on home', () => {
+    // WHY: an app opened straight into Settings has no main page behind it.
+    const router = new RouterStore(new MemoryRouteHistory('/settings/tools'))
+    router.leadingHome = () => DRAFT
+
+    router.close('settings')
+
+    expect(router.leadingPane.base).toEqual(DRAFT)
+  })
+
+  test('a remembered route that can no longer show falls back to home', () => {
+    // WHY: the conversation the user left may have closed while Settings was
+    // open. Returning to it would show an empty pool or a dead draft.
+    const router = new RouterStore()
+    const pinned: RouteRef = { name: 'chat', params: { sessionId: 'sess_gone' } }
+    router.leadingHome = () => DRAFT
+    router.canReturnTo = (ref) => ref.name !== 'chat'
+    router.navigate(pinned)
+    router.navigate(settings('general'))
+
+    router.close('settings')
+
+    expect(router.leadingPane.base).toEqual(DRAFT)
+  })
+
+  test('a later visit does not return to an earlier one\'s page', () => {
+    // WHY: the remembered route belongs to one visit. Opened again from the
+    // conversation, Settings must not send the user back to Tasks.
+    const router = new RouterStore()
+    router.leadingHome = () => DRAFT
+    router.navigate(TASKS)
+    router.navigate(settings('general'))
+    router.navigate(CHAT)
+    router.navigate(settings('general'))
+
+    router.close('settings')
+
+    expect(router.leadingPane.base).toEqual(CHAT)
+  })
+})
+
 describe('resolved payloads', () => {
   test('a route resolves once and is served from the cache after that', async () => {
     const router = new RouterStore()
@@ -356,5 +430,24 @@ describe('injected route history', () => {
 
     router.forward()
     expect(router.params('chat')).toEqual({ sessionId: 'b' })
+  })
+})
+
+describe('the insights route', () => {
+  // WHY: a turn and a session open in the same panel from the same route
+  // name, so the segment grammar has to keep them apart. "session" is a
+  // reserved first segment; a trace id is a hex hash and never reads that.
+  test('a session page round-trips beside a turn and a span', () => {
+    const turn: RouteRef = { name: 'insights', params: { traceId: 'abc123' } }
+    const span: RouteRef = { name: 'insights', params: { traceId: 'abc123', spanId: 'sp9' } }
+    const session: RouteRef = { name: 'insights', params: { sessionId: 's-1' } }
+    for (const ref of [turn, span, session]) {
+      expect(parseRef(serializeRef(ref))).toEqual(ref)
+    }
+    expect(serializeRef(session)).toBe('insights/session/s-1')
+  })
+
+  test('a bare "session" segment is the list, not a page with no session', () => {
+    expect(parseRef('insights/session')).toEqual({ name: 'insights', params: {} })
   })
 })

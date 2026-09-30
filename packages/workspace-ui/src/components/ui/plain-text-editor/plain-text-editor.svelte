@@ -66,6 +66,8 @@
     maxHeight?: number;
     enterInsertsNewline?: boolean;
     referenceChips?: boolean;
+    /** Only these kinds become chips; unset, every kind does. */
+    referenceKinds?: ReadonlySet<ReferenceToken["kind"]>;
     slashCommands?: string[];
     class?: string;
     style?: string;
@@ -95,6 +97,7 @@
     maxHeight = 140,
     enterInsertsNewline = false,
     referenceChips = false,
+    referenceKinds,
     slashCommands = [],
     class: klass = "",
     style = "",
@@ -119,6 +122,7 @@
 
   const referenceConfig = $derived<ReferenceDecorationConfig>({
     slashCommands,
+    kinds: referenceKinds,
     onPlanRefClick,
     onWorkRefClick,
     onPrRefClick,

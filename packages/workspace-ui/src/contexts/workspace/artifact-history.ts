@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Message, Work } from '@solus/contracts/types'
+import type { Message, WorkMeta } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { resolveArtifactTitle } from '@solus/contracts/work-preview'
 import { nextMsgId } from './session.utils'
@@ -11,7 +11,7 @@ const updateInput = z.object({ work_id: z.string(), content: z.string(), title: 
 export function artifactUpdateFromHistory(
   tool: WireSessionLoadMessage,
   result: WireSessionLoadMessage,
-  getWork: (workId: string) => Work | undefined,
+  getWork: (workId: string) => Pick<WorkMeta, 'type'> | undefined,
 ): Message | undefined {
   if (result.status === 'error' || tool.toolStatus === 'error' || tool.toolStatus === 'running') return
   try {

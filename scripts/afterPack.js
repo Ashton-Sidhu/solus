@@ -65,7 +65,7 @@ console.log('claude-sdk-probe-ok')
  * Fails the build when the packaged native libraries or Claude SDK cannot load.
  *
  * The library lives in app.asar.unpacked, but fff resolves it from its own
- * location inside app.asar; `patches/@ff-labs%2Ffff-node@0.9.6.patch` redirects
+ * location inside app.asar; `patches/@ff-labs%2Ffff-node@0.11.0.patch` redirects
  * that lookup. Nothing in dev exercises the patch — an unpacked checkout has no
  * archive to resolve out of — so a bad rebase stays invisible until file search
  * is dead in a shipped build. This runs the real resolution against the real
@@ -94,7 +94,7 @@ function probePackagedRuntime(context, appPath) {
   }
 
   const executable = path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
-  const fffEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@ff-labs', 'fff-node', 'dist', 'src', 'index.js')
+  const fffEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@ff-labs', 'fff-node', 'dist', 'index.js')
   const onnxEntry = path.join(resourcesDir, 'app.asar', 'node_modules', 'onnxruntime-node', 'dist', 'index.js')
   const claudeEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'sdk.mjs')
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solus-runtime-probe-'))

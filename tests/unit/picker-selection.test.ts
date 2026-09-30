@@ -11,7 +11,7 @@ describe("legacy model disclosure", () => {
   const CLAUDE = [
     { id: "claude-opus-5-5", label: "Opus 5.5" },
     { id: "claude-opus-4-8", label: "Opus 4.8" },
-    { id: "claude-sonnet-5", label: "Sonnet 5" },
+    { id: "claude-sonnet-5-5", label: "Sonnet 5.5" },
     { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
   ];
 
@@ -19,7 +19,7 @@ describe("legacy model disclosure", () => {
     // WHY: the model column is a shortlist. Every profile stays selectable, but
     // only the generation we expect people to pick is on screen by default.
     const { current, legacy } = splitLegacyModels("claude-code", CLAUDE);
-    expect(current.map((model) => model.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+    expect(current.map((model) => model.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
     expect(legacy.map((model) => model.id)).toEqual(["claude-opus-4-8", "claude-sonnet-4-6"]);
   });
 
@@ -27,7 +27,7 @@ describe("legacy model disclosure", () => {
     // WHY: the backend lists newest first. Sorting either half would bury the
     // model most people came for under the one they were avoiding.
     const { current } = splitLegacyModels("claude-code", [...CLAUDE].reverse());
-    expect(current.map((model) => model.id)).toEqual(["claude-sonnet-5", "claude-opus-5-5"]);
+    expect(current.map((model) => model.id)).toEqual(["claude-sonnet-5-5", "claude-opus-5-5"]);
   });
 
   test("treats a model the profile table does not know as current", () => {

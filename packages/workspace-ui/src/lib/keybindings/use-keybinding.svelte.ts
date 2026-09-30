@@ -1,6 +1,7 @@
 import { getKeybindingsContext, type KeybindingsContext } from './dispatcher.svelte'
 import type { BindingId } from './manifest'
-import type { Handler, KeyCombo, RegisterOptions, Scope } from './types'
+import type { BindingOverrides } from './editing'
+import type { Handler, RegisterOptions, Scope } from './types'
 
 /**
  * Register a handler for a named binding.
@@ -61,7 +62,7 @@ export function useScope(
  */
 export function installGlobalDispatcher(
   ctx: KeybindingsContext,
-  getOverrides: () => Record<string, KeyCombo>,
+  getOverrides: () => BindingOverrides,
 ): void {
   useScope('global')
   $effect(() => {

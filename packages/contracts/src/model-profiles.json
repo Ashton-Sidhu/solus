@@ -18,9 +18,18 @@
       "contextWindows": [1000000],
       "defaultContextWindow": 1000000
     },
+    "claude-sonnet-5-5": {
+      "label": "Sonnet 5.5",
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
     "claude-sonnet-5": {
       "label": "Sonnet 5",
       "isDefault": false,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "max"],
       "defaultReasoningEffort": "high",
       "supportsFastMode": false,
@@ -101,9 +110,18 @@
       "contextWindows": [1050000],
       "defaultContextWindow": 1050000
     },
+    "gpt-6.1-sol": {
+      "label": "Gpt 6.1 Sol",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
     "gpt-6-sol": {
       "label": "Gpt 6 Sol",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,

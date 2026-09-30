@@ -5,7 +5,7 @@
     ChevronLeft as CaretLeftIcon,
     LoaderCircle as CircleNotchIcon,
     MoreHorizontal as DotsIcon,
-    Users as UsersIcon,
+    Share as ShareIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
@@ -62,7 +62,7 @@
      back arrow returns to, so the one control on the left never has to be
      guessed at. -->
 <div
-  class="flex h-14 shrink-0 items-center gap-1 border-b border-[var(--hairline)] px-2 text-workspace-chrome"
+  class="flex h-14 shrink-0 items-center gap-1 px-2 text-workspace-chrome"
 >
   <button
     type="button"
@@ -126,7 +126,7 @@
       {/if}
       {#if onShare}
         <DropdownMenu.Item onSelect={() => onShare?.()} data-testid="task-share">
-          <UsersIcon size={14} />
+          <ShareIcon size={14} />
           <span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>
       {/if}

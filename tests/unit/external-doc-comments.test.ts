@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import type { DocRef } from '@solus/contracts/docs'
 import type { DocCommentsAdapter } from '@solus/server/docs/types'
-import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
 mock.module('@solus/server/google/oauth', () => ({ getAccessToken: async () => 'fixture-token' }))
 const { GoogleDocComments } = await import('@solus/server/docs/gdrive/comments')

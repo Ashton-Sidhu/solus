@@ -1,3 +1,4 @@
+import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
 import type { PullRequest } from '@solus/contracts/providers'
 import {
@@ -6,19 +7,21 @@ import {
   type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
-import { fetchAndCheckoutPr, listProjectWorktrees } from '../git/worktree-manager'
+import { listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider, RepoRef } from '../providers/types'
+import { prIndex } from '../prs/pr-index'
 import { prGuideJobs } from './pr-guide-jobs'
 import { readPrGuide } from './pr-guide-store'
 import { currentPrGuideTarget } from './pr-guide-context'
-import type { AgentDispatcher } from '../agents/agent-runner'
+import type { AgentDispatcher } from '../execution/agents/agent-runner'
 
 const log = createLogger('review', 'guide-warmer.ts')
 const HEAD_STABLE_MS = 60_000
 const PREFETCH_COUNT = 3
 
 interface GuideWarmerInput {
+  checkouts: CheckoutService
   dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
@@ -45,6 +48,7 @@ const queuedPrefetches = new Set<string>()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
+  checkouts: CheckoutService
   dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
@@ -192,10 +196,10 @@ async function prefetchWorktree(repoRoot: string, number: number, headSha: strin
   if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
   // Prefetch is creation-only. An existing worktree may back a live review or
   // agent session, so leave all existing checkouts to their foreground owner.
-  const detail = await input.provider.review.getPullRequest(input.repo, number)
+  const detail = await prIndex.pullRequest(input.repo, input.provider, number).read()
   if (detail.state !== 'open' || detail.draft || detail.headSha !== headSha) return
   if (findPrWorktree(repoRoot, detail)) return
-  await fetchAndCheckoutPr(repoRoot, number, detail.baseRef, {
+  await input.checkouts.preparePullRequest(repoRoot, number, detail.baseRef, {
     headRef: detail.headRef,
     isFork: detail.headRepo.isFork,
   })

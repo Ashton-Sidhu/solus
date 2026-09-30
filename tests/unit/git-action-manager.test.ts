@@ -32,6 +32,8 @@ describe('Git action manager', () => {
         { branch: 'main', targetBranch: 'main' },
         '/tmp/solus-semantic-branch',
         {
+          identity: { kind: 'host' },
+          holdIdentity: () => () => {},
           generateCommitSubject: async () => 'feat(git): publish Git actions',
           findPullRequest: async () => providerPullRequest,
           publish: (event) => events.push(event),
@@ -103,6 +105,8 @@ describe('Git action manager', () => {
             createInputs.push(input)
             return providerPullRequest
           },
+          identity: { kind: 'host' },
+          holdIdentity: () => () => {},
           generateCommitSubject: async () => 'unused',
           publish: () => {},
           writer: {

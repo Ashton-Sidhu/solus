@@ -26,7 +26,8 @@ describe('queuedCaption', () => {
       now: NOW,
     })
     expect(caption?.label).toBe('3 queued')
-    expect(caption?.detail).toStartWith('rate limit resets ')
+    // The detail leads into the live clock: "limit resets in 30:12".
+    expect(caption?.detail).toBe('limit resets in')
     expect(caption?.clock).toBe('30:12')
     expect(caption?.canSendNow).toBe(true)
   })
@@ -34,14 +35,14 @@ describe('queuedCaption', () => {
   // Which window ran out decides whether the wait is worth sitting through: a
   // 5h reset is a coffee break, a weekly one is not. Naming it is the whole
   // difference between an informed wait and an unexplained pause.
-  it('names the window that ran out ahead of "rate limit"', () => {
+  it('names the window that ran out ahead of "limit"', () => {
     const weekly = queuedCaption([heldPrompt()], {
       isRateLimited: true,
       resetsAt: NOW / 1000 + 60,
       rateLimitType: 'weekly',
       now: NOW,
     })
-    expect(weekly?.detail).toStartWith('weekly rate limit resets ')
+    expect(weekly?.detail).toBe('weekly limit resets in')
 
     // The provider's own prefix is not the user's business — only the window is.
     const fiveHour = queuedCaption([heldPrompt()], {
@@ -50,7 +51,7 @@ describe('queuedCaption', () => {
       rateLimitType: 'Codex 5h',
       now: NOW,
     })
-    expect(fiveHour?.detail).toStartWith('5h rate limit resets ')
+    expect(fiveHour?.detail).toBe('5h limit resets in')
   })
 
   // A provider that reports no window must not leave a gap where the label was.
@@ -61,7 +62,7 @@ describe('queuedCaption', () => {
       rateLimitType: '   ',
       now: NOW,
     })
-    expect(caption?.detail).toStartWith('rate limit resets ')
+    expect(caption?.detail).toBe('limit resets in')
   })
 
   // The countdown only earns its place while there is a reset to count to.

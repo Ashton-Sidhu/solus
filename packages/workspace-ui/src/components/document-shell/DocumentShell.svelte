@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Editor, AnyExtension } from "@tiptap/core";
+  import type { Editor, AnyExtension, Node } from "@tiptap/core";
   import type { Snippet } from "svelte";
   import { getAllContexts, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
@@ -37,6 +37,8 @@
   import { hasOutlineMarginRoom, sectionJumpIndex } from "./lib/outline";
   import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
+  import { liveStatus } from "../work/lib/live-status";
+  import type { LiveEditorBinding } from "../editor/lib/live-editor";
   import { isActive, cmd } from "./toolbar";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
@@ -70,12 +72,18 @@
     /** Consumer-specific class on the editor, used to own its content width/typography. */
     editorClass: string;
     extraExtensions?: AnyExtension[];
+    /** The chip a work puts on a person mention. The node is always in the
+     *  document schema; without this view it shows the saved name. */
+    personReferenceView?: Node;
 
     /** Keybinding scope pushed while mounted, and the close/save/copy ids within it. */
     scope: Scope;
     bindings: { close: BindingId; save: BindingId; copy: BindingId; find?: BindingId; pinOutline?: BindingId };
 
     readOnly?: boolean;
+    /** A work edited live: the editor binds to the shared doc, the host writes
+     *  the body, and the header shows the live status instead of saves. */
+    live?: LiveEditorBinding | null;
     onSave: (md: string) => void | Promise<void>;
     /** Fires true when there are unsaved edits, false once saved. Lets the host
         decide whether an agent update can safely refresh the editor. */
@@ -122,8 +130,6 @@
     /** Bindable so consumers can drive editor-coupled features (e.g. comments). */
     tiptapEditor?: Editor | null;
     scrollContainer?: HTMLDivElement | null;
-    /** Consumers set true around programmatic edits to suppress autosave. */
-    suppressSave?: boolean;
 
     /** Surface-specific status rendered in the header's action cluster (e.g.
      *  the plan's revision picker). */
@@ -152,9 +158,11 @@
     minimizeOutline = false,
     editorClass,
     extraExtensions = [],
+    personReferenceView,
     scope,
     bindings,
     readOnly = false,
+    live = null,
     onSave,
     onDirtyChange,
     onClose,
@@ -172,7 +180,6 @@
     onEditorReady,
     tiptapEditor = $bindable(null),
     scrollContainer = $bindable(null),
-    suppressSave = $bindable(false),
     documentMeta,
     documentActions,
     rail,
@@ -188,27 +195,19 @@
     onOpen: (workId: string) => session.openWork(workId, "focused"),
     onOpenSecondary: (workId: string) => session.openWork(workId, "aside"),
   };
-  const diagramEmbedExtension = createDiagramEmbedExtension({
-    ...embedOptions,
-    contexts: getAllContexts(),
-  });
-  // A node view is mounted outside the component tree, so it reads the theme
-  // through this getter rather than the settings context.
-  const artifactEmbedExtension = createArtifactEmbedExtension({
-    ...embedOptions,
-    isDark: () => theme.isDark,
-  });
-  const htmlBlockExtension = createHtmlBlockExtension({ isDark: () => theme.isDark });
-  const mermaidBlockExtension = createMermaidBlockExtension({ isDark: () => theme.isDark });
-  const editorExtensions = $derived([
-    ...extraExtensions,
-    diagramEmbedExtension,
-    artifactEmbedExtension,
-    htmlBlockExtension,
-    mermaidBlockExtension,
-  ]);
+  // The document schema's block views. The editor reads them once, when it
+  // builds its schema from the document model's list.
+  const documentBlocks = {
+    personReference: untrack(() => personReferenceView),
+    diagramEmbed: createDiagramEmbedExtension({ ...embedOptions, contexts: getAllContexts() }),
+    // A node view is mounted outside the component tree, so it reads the theme
+    // through this getter rather than the settings context.
+    artifactEmbed: createArtifactEmbedExtension({ ...embedOptions, isDark: () => theme.isDark }),
+    htmlBlock: createHtmlBlockExtension({ isDark: () => theme.isDark }),
+    mermaidBlock: createMermaidBlockExtension({ isDark: () => theme.isDark }),
+  };
   const embedChoices = $derived.by(() => {
-    const works = Object.values(session.worksStore.works).sort((a, b) =>
+    const works = session.worksStore.visibleWorks.sort((a, b) =>
       b.updatedAt.localeCompare(a.updatedAt),
     );
     const pick = (type: string) =>
@@ -382,7 +381,7 @@
   let outlineAtTop = $state(true);
   // A narrow pane on a wide monitor has no margin for the panel to unfold into.
   const outlineHasMarginRoom = $derived(
-    hasOutlineMarginRoom(shellWidth, runtime.isLaptopDisplay),
+    hasOutlineMarginRoom(shellWidth),
   );
   // The fit rule's other half. Where the panel cannot render beside the prose
   // it does not render over it either: the gutter keeps its at-rest bars, and
@@ -566,7 +565,7 @@
   // (debounced, serialized) save arrives via handleEditorChange.
   function handleEditorInput() {
     if (keyboardInset > 0) requestAnimationFrame(ensureCaretVisible);
-    if (suppressSave || readOnly) return;
+    if (readOnly || live) return;
     if (!hasPendingSave) {
       hasPendingSave = true;
       onDirtyChange?.(true);
@@ -575,12 +574,14 @@
 
   function handleEditorChange(md: string) {
     // Already debounced inside the editor (off the keystroke hot path).
-    if (suppressSave || readOnly) return;
+    if (readOnly || live) return;
     void saveContent(md);
   }
 
   /** Flush any pending debounced save immediately (save keybinding + consumers). */
   export async function flushSave() {
+    // A live doc's edits are the host's to write; nothing waits here.
+    if (live) return;
     // Drop the editor's pending debounced emit; we serialize current content
     // here. getCurrentMarkdown is mode-aware (rich serialized OR raw textarea).
     editorRef?.cancelPendingEmit();
@@ -615,7 +616,8 @@
       saveFailed = false;
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
-      onDirtyChange?.(false);
+      // An edit made while this save was in flight is still unsaved.
+      if (!hasPendingSave) onDirtyChange?.(false);
     } catch (err) {
       // Keep the dirty flag on failure — clearing it would let the host treat
       // unsaved edits as clean (and an agent refresh clobber them). The header
@@ -674,7 +676,11 @@
 
 {#snippet saveStatusChip()}
   <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
-    {#if showSaving}
+    {#if live}
+      {@const status = liveStatus(live.live)}
+      <span class="size-[0.3125rem] shrink-0 rounded-full {status.tone === 'ok' ? 'bg-(--solus-art-3)' : status.tone === 'busy' ? 'bg-(--solus-accent)' : 'bg-(--solus-status-error)'}" aria-hidden="true"></span>
+      <span data-testid="live-status">{status.label}</span>
+    {:else if showSaving}
       <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
       <span>Saving…</span>
     {:else if saveFailed}
@@ -987,6 +993,7 @@
           bind:this={editorRef}
           value={content}
           {readOnly}
+          {live}
           onValueChange={handleEditorChange}
           onInput={handleEditorInput}
           onFocus={() => (editorFocused = true)}
@@ -994,7 +1001,8 @@
           onEditorReady={handleEditorReady}
           onModeChange={(m) => (editorMode = m)}
           onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}
-          extraExtensions={editorExtensions}
+          {extraExtensions}
+          {documentBlocks}
           diagramChoices={embedChoices.diagram}
           artifactChoices={embedChoices.artifact}
           {placeholder}

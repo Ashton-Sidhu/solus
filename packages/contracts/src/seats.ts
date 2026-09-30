@@ -7,6 +7,16 @@
  */
 
 import { z } from 'zod'
+import type { UserId } from './user'
+
+/**
+ * Whose credential a turn runs on (plans/012-user-actor-and-activity.md §3): the
+ * machine's own provider login, or one user's seat. The host login is a kind of
+ * seat, not a user.
+ */
+export type Seat = { kind: 'host-login' } | { kind: 'user'; userId: UserId }
+
+export const HOST_LOGIN_SEAT: Seat = { kind: 'host-login' }
 
 export const seatProviderSchema = z.enum(['claude-code', 'codex'])
 export type SeatProvider = z.infer<typeof seatProviderSchema>
@@ -68,7 +78,7 @@ export const seatConnectTokenRequestSchema = z.object({
 }).strict()
 export type SeatConnectTokenRequest = z.infer<typeof seatConnectTokenRequestSchema>
 
-/** `seatRemove` (host administrator): every seat of a member, or one provider's. */
+/** `seatRemove` (host administrator): every seat of a member, or one provider's. `userId` is the member's user key; the host login is never removed. */
 export const seatRemoveRequestSchema = z.object({
   userId: z.string().min(1),
   provider: seatProviderSchema.optional(),
@@ -77,7 +87,7 @@ export type SeatRemoveRequest = z.infer<typeof seatRemoveRequestSchema>
 
 /** Sent to the member whose seat changed; other clients never hear it. */
 export interface SeatChangedEvent {
-  userId: string
+  seat: Seat
   provider: SeatProvider
   state: SeatState
   error?: string

@@ -4,7 +4,7 @@ import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
 import { isInsideRoot } from '../paths'
-import { gitCommitExists, runAsync } from './exec'
+import { runAsync } from './exec'
 import type {
   ChangedFileStat,
   DiffFileContent,
@@ -171,6 +171,8 @@ async function diffStats(repoRoot: string, fromTreeish: string, toTreeish: strin
 export interface SnapshotOpts {
   partial?: boolean
   userMessagePreview?: string
+  /** The Insights trace of the turn being closed. */
+  traceId?: string
   /** Files this session modified. When provided, only these paths are staged
    *  instead of the full working tree — prevents cross-session leakage when
    *  multiple sessions share the same branch. */
@@ -301,6 +303,7 @@ async function snapshotTurnQueued(
         additions: turnStats.additions,
         deletions: turnStats.deletions,
       }
+      if (opts.traceId) snap.traceId = opts.traceId
       sidecar.turns.push(snap)
       sidecar.latestTreeSha = treeSha
       if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
@@ -334,6 +337,7 @@ async function snapshotTurnQueued(
       additions: turnStats.additions,
       deletions: turnStats.deletions,
     }
+    if (opts.traceId) snap.traceId = opts.traceId
     sidecar.turns.push(snap)
     const sessionChangedFiles = await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, commitSha)
     sidecar.latestTreeSha = treeSha
@@ -653,30 +657,6 @@ function resolveNumstatPath(raw: string): string {
   return arrow.length === 2 ? arrow[1] : raw
 }
 
-/** Resolve a stacked comparison to the same merge-base semantics as a normal
- * PR diff. Stack detection fetches these objects into the shared repository;
- * the targeted fallback covers a cold worktree opened before that fetch. */
-export async function resolvePrDiffBase(
-  workTree: string,
-  repoRoot: string,
-  scope: Extract<DiffScope, { kind: 'pr' }>,
-): Promise<string> {
-  if (!scope.ownDeltaBaseSha) return scope.baseSha
-
-  const parentHead = scope.ownDeltaBaseSha
-  const available = await gitCommitExists(repoRoot, parentHead)
-  if (!available && scope.parentPr) {
-    const ref = `refs/solus/pr/${scope.parentPr}`
-    await runAsync('git', ['fetch', 'origin', `pull/${scope.parentPr}/head:${ref}`], repoRoot)
-    // The graph's SHA is the contract. If the parent moved remotely, do not
-    // silently diff against the newly fetched head under the stale guide key.
-    await runAsync('git', ['rev-parse', '--verify', `${parentHead}^{commit}`], repoRoot)
-  }
-
-  const childHead = await runAsync('git', ['rev-parse', '--verify', 'HEAD'], workTree)
-  return runAsync('git', ['merge-base', parentHead, childHead], repoRoot)
-}
-
 /**
  * The single diff entry point for every scope. Resolves the scope to one
  * combined raw `git diff` patch:
@@ -708,8 +688,7 @@ export async function getDiff(
   // patch is exactly the PR's change set (same engine as the review companion).
   if (scope.kind === 'pr') {
     if (!workTree) return null
-    const base = await resolvePrDiffBase(workTree, repoRoot, scope)
-    return getEpisodeDiff(workTree, repoRoot, base)
+    return getEpisodeDiff(workTree, repoRoot, scope.baseSha)
   }
 
   if (!sessionId) return null
@@ -836,7 +815,7 @@ export async function getDiffFileContents(
     ])
   } else if (request.scope.kind === 'pr') {
     if (!workTree) return null
-    const base = await resolvePrDiffBase(workTree, repoRoot, request.scope)
+    const base = request.scope.baseSha
     ;[oldFile, newFile] = await Promise.all([
       readBlobAt(repoRoot, base, oldPath),
       readWorktreeFile(workTree, request.path),
@@ -905,7 +884,7 @@ export async function getDiffStats(
 
   if (scope.kind === 'pr') {
     if (!workTree) return []
-    return getEpisodeNumstat(workTree, repoRoot, await resolvePrDiffBase(workTree, repoRoot, scope))
+    return getEpisodeNumstat(workTree, repoRoot, scope.baseSha)
   }
 
   if (!sessionId) return []

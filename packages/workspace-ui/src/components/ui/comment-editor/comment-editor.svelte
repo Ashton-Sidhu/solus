@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  /** A comment reads `@name` and `/word` as prose: only a mention is a chip. */
+  const PERSON_CHIPS: ReadonlySet<"person"> = new Set(["person"]);
+</script>
+
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { uuid } from "@solus/contracts/uuid";
@@ -12,6 +17,18 @@
   import { getMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import AttachmentChips from "../../input/AttachmentChips.svelte";
   import PlainTextEditor from "../plain-text-editor/plain-text-editor.svelte";
+  import { mentionedPeople } from "@solus/contracts/mentions";
+  import { hasOrganization } from "../../mentions/lib/mentions";
+  import {
+    MentionPicker,
+    organizationMentionSource,
+    plainTextMentionEditor,
+  } from "../../mentions/lib/mention-picker.svelte";
+  import { codeHostMentionSource, getCodeHostMentions } from "../../mentions/lib/code-host-mentions";
+  import { getMentionContext } from "../../mentions/lib/mention-context";
+  import { warmMentionSources } from "../../mentions/lib/mention-scope.svelte";
+  import MentionPickerMenu from "../../mentions/MentionPickerMenu.svelte";
+  import MentionAccessNotice from "../../mentions/MentionAccessNotice.svelte";
 
   interface Props {
     value: string;
@@ -54,6 +71,26 @@
 
   let editor: ReturnType<typeof PlainTextEditor> | null = $state(null);
   const imageContext = getMarkdownImageContext();
+
+  // `@` names a member of the record's organization. The comment stores the
+  // person token; a surface with no organization record sets no scope, and
+  // then `@` stays plain text. On a code-host surface (a pull request) `@`
+  // names an account on that host instead and writes `@login`.
+  const mentionContext = getMentionContext();
+  const codeHostMentions = getCodeHostMentions();
+  const mentionPicker = new MentionPicker({
+    source: codeHostMentions
+      ? codeHostMentionSource(codeHostMentions)
+      : organizationMentionSource({
+          directory: mentionContext.directory,
+          recentUserIds: () => mentionContext.scope()?.recentUserIds ?? [],
+          warm: () => warmMentionSources(mentionContext.scope()),
+        }),
+    editor: () => (editor ? plainTextMentionEditor(editor) : null),
+  });
+  const mentions = $derived(
+    !codeHostMentions && hasOrganization(mentionContext.scope()) ? mentionedPeople(value) : [],
+  );
 
   interface Preview extends Attachment {
     markdown?: string;
@@ -192,9 +229,14 @@
     bind:this={editor}
     {value}
     {onValueChange}
-    {onInput}
+    onInput={() => {
+      onInput?.();
+      mentionPicker.handleEditorChange(editor?.textBeforeCursor() ?? "");
+    }}
     {onEmptyChange}
-    {onKeyDown}
+    onKeyDown={(event) => {
+      if (!mentionPicker.handleKeyDown(event)) onKeyDown?.(event);
+    }}
     onPaste={handlePaste}
     onDrop={handleDrop}
     {onFocus}
@@ -206,6 +248,11 @@
     micPlacement="beside"
     {maxHeight}
     enterInsertsNewline
+    referenceChips
+    referenceKinds={PERSON_CHIPS}
     {style}
   />
+  <MentionAccessNotice people={mentions} />
 </div>
+
+<MentionPickerMenu picker={mentionPicker} />

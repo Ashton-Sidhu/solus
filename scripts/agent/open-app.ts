@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
 
-export async function openApp(baseURL: string, opts: { videoDir?: string } = {}) {
+export async function openApp(baseURL: string, opts: { videoDir?: string; skipOnboarding?: boolean } = {}) {
   const browser = await chromium.launch()
   const contextOptions: Parameters<typeof browser.newContext>[0] = {
     viewport: { width: 1440, height: 900 },
@@ -14,7 +14,9 @@ export async function openApp(baseURL: string, opts: { videoDir?: string } = {})
     localStorage.setItem('solus.activeServerId', 'local')
   }, baseURL)
   const page = await context.newPage()
-  await page.goto(baseURL)
+  const url = new URL(baseURL)
+  if (opts.skipOnboarding !== false) url.searchParams.set('skip-onboarding', '')
+  await page.goto(url.toString())
   await page.locator('[data-testid="message-input"]').first().waitFor({ timeout: 15_000 })
   return { browser, context, page }
 }

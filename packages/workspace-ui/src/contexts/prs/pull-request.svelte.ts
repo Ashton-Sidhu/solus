@@ -37,7 +37,6 @@ import type {
   IpcContext,
   MergeMethod,
   PrInterdiffResult,
-  PrMergeResult,
   PrReviewContext,
 } from '@solus/contracts/types'
 import { detached, type ProjectPrs } from './project-prs.svelte'
@@ -118,6 +117,19 @@ export class PullRequest implements Contracts.PullRequest {
   needsMyReview = $state<boolean>()
   autoMergeEnabled = $state<boolean>()
   autoMergeMethod = $state<Contracts.PrMergeMethod>()
+  /** The reviewers and the accounts that can be asked, as last read. Undefined
+   *  until the first read. Every read and write below keeps them current, so
+   *  another surface (the `@` picker) reads them here and does not ask again. */
+  reviewers = $state<PrReviewer[]>()
+  reviewerCandidates = $state<PrReviewerCandidate[]>()
+  /** The activity as last read, held the same way. The mirrors only pace the
+   *  round trips and forget an answer after thirty seconds; these keep it, so
+   *  a surface that mounts again paints the last answer at once and replaces
+   *  it when the re-read lands. Undefined until the first read. */
+  commits = $state<PrCommit[]>()
+  comments = $state<PrConversationItem[]>()
+  threads = $state<ReviewThread[]>()
+  changedFileStats = $state<ChangedFileStat[]>()
 
   /**
    * False between a number entering the index and the first response about it.
@@ -128,6 +140,10 @@ export class PullRequest implements Contracts.PullRequest {
    * than anything the host said.
    */
   #described = $state(false)
+
+  /** Each write in flight re-shows its outcome over whatever a read says in
+   *  the meantime: until the host answers the write, the write is newer. */
+  readonly #shownWhileWriting = new Set<() => void>()
 
   constructor(
     private readonly store: ProjectPrs,
@@ -193,6 +209,9 @@ export class PullRequest implements Contracts.PullRequest {
     this.autoMergeEnabled = source.autoMergeEnabled
     this.autoMergeMethod = source.autoMergeMethod
     this.#described = true
+    // A read that left the host before a write it has not yet answered would
+    // otherwise put the write's outcome back the way it was.
+    for (const show of this.#shownWhileWriting) show()
   }
 
   /** The host and context this project reads through. */
@@ -210,20 +229,21 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   /**
-   * The parts of the Activity tab already held and still worth showing.
+   * The parts of the Activity tab already held.
    *
    * Awaiting the loaders would flash every section's skeleton for a microtask
    * even when nothing needs fetching, so the view seeds from this and marks
-   * only the misses as loading.
+   * only the misses as loading. A held answer may be older than the mirror's
+   * window; the view re-reads anyway and replaces it when the answer lands.
    */
   cachedActivity(): CachedPrActivity {
     return {
       detail: this.store.mirrors.detail.fresh(this.key),
-      commits: this.store.mirrors.commits.fresh(this.key),
-      reviewers: this.store.mirrors.reviewers.fresh(this.key),
-      reviewerCandidates: this.store.mirrors.reviewerCandidates.fresh(this.key),
-      comments: this.store.mirrors.comments.fresh(this.key),
-      changedFiles: this.store.mirrors.changedFiles.fresh(this.key),
+      commits: this.commits,
+      reviewers: this.reviewers,
+      reviewerCandidates: this.reviewerCandidates,
+      comments: this.comments,
+      changedFiles: this.changedFileStats,
     }
   }
 
@@ -247,6 +267,8 @@ export class PullRequest implements Contracts.PullRequest {
     this.store.mirrors.detail.seed(this.key, overview.pullRequest)
     this.store.mirrors.commits.seed(this.key, overview.commits)
     this.store.mirrors.reviewers.seed(this.key, overview.reviewers)
+    this.commits = overview.commits
+    this.reviewers = overview.reviewers
     this.store.absorb(overview.pullRequest)
     return overview
   }
@@ -271,42 +293,54 @@ export class PullRequest implements Contracts.PullRequest {
    * pre-merge refresh must invalidate both layers before it reads again.
    */
   async refreshDetail(): Promise<PullRequest> {
-    await this.store.forgetHostCache()
+    await this.store.refreshHost()
     return this.loadDetail({ force: true })
   }
 
   async loadCommits(opts: ReadOptions = {}): Promise<PrCommit[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.commits.read(this.key, !!opts.force, () => this.api.prListCommits(ctx, this.number))
+    const commits = await this.store.mirrors.commits.read(this.key, !!opts.force, () => this.api.prListCommits(ctx, this.number))
+    if (this.store.mirrors.commits.holds(this.key, commits)) this.commits = commits
+    return commits
   }
 
   async loadReviewers(opts: ReadOptions = {}): Promise<PrReviewer[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.reviewers.read(this.key, !!opts.force, () => this.api.prListReviewers(ctx, this.number))
+    const reviewers = await this.store.mirrors.reviewers.read(this.key, !!opts.force, () => this.api.prListReviewers(ctx, this.number))
+    if (this.store.mirrors.reviewers.holds(this.key, reviewers)) this.reviewers = reviewers
+    return reviewers
   }
 
   async loadReviewerCandidates(opts: ReadOptions = {}): Promise<PrReviewerCandidate[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.reviewerCandidates.read(
+    const candidates = await this.store.mirrors.reviewerCandidates.read(
       this.key,
       !!opts.force,
       () => this.api.prListReviewerCandidates(ctx, this.number),
     )
+    if (this.store.mirrors.reviewerCandidates.holds(this.key, candidates)) this.reviewerCandidates = candidates
+    return candidates
   }
 
   async loadThreads(opts: ReadOptions = {}): Promise<ReviewThread[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.threads.read(this.key, !!opts.force, () => this.api.prListThreads(ctx, this.number))
+    const threads = await this.store.mirrors.threads.read(this.key, !!opts.force, () => this.api.prListThreads(ctx, this.number))
+    if (this.store.mirrors.threads.holds(this.key, threads)) this.threads = threads
+    return threads
   }
 
   async loadComments(opts: ReadOptions = {}): Promise<PrConversationItem[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.comments.read(this.key, !!opts.force, () => this.api.prListComments(ctx, this.number))
+    const comments = await this.store.mirrors.comments.read(this.key, !!opts.force, () => this.api.prListComments(ctx, this.number))
+    if (this.store.mirrors.comments.holds(this.key, comments)) this.comments = comments
+    return comments
   }
 
   async loadChangedFiles(opts: ReadOptions = {}): Promise<ChangedFileStat[]> {
     const ctx = detached(this.ctx)
-    return this.store.mirrors.changedFiles.read(this.key, !!opts.force, () => this.api.prChangedFiles(ctx, this.number))
+    const files = await this.store.mirrors.changedFiles.read(this.key, !!opts.force, () => this.api.prChangedFiles(ctx, this.number))
+    if (this.store.mirrors.changedFiles.holds(this.key, files)) this.changedFileStats = files
+    return files
   }
 
   async loadInterdiff(pr: PrReviewContext, opts: ReadOptions = {}): Promise<PrInterdiffResult> {
@@ -345,12 +379,15 @@ export class PullRequest implements Contracts.PullRequest {
   async requestReviewers(logins: string[]): Promise<PrReviewer[]> {
     const reviewers = await this.api.prRequestReviewers(detached(this.ctx), this.number, logins)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
+    this.reviewers = reviewers
     return reviewers
   }
 
-  async removeRequestedReviewer(login: string): Promise<PrReviewer[]> {
-    const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, login)
+  async removeRequestedReviewer(reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<PrReviewer[]> {
+    const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, reviewerId, kind)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
+    this.reviewers = reviewers
+    this.store.mirrors.reviewerCandidates.delete(this.key)
     return reviewers
   }
 
@@ -381,20 +418,28 @@ export class PullRequest implements Contracts.PullRequest {
    *
    * Field by field, not a copied object: the fields are `$state` accessors, so
    * a spread of this instance holds none of them.
+   *
+   * A write the host accepts without describing the result keeps what it
+   * showed; the next read replaces it.
    */
   async #writeOptimistically(
     show: () => void,
     stillShown: () => boolean,
     restore: () => void,
-    write: () => Promise<Contracts.PullRequest>,
+    write: () => Promise<Contracts.PullRequest | undefined>,
   ): Promise<PullRequest> {
     show()
+    this.#shownWhileWriting.add(show)
+    let source: Contracts.PullRequest | undefined
     try {
-      return this.store.applyPullRequest(await write())
+      source = await write()
     } catch (error) {
       if (stillShown()) restore()
       throw error
+    } finally {
+      this.#shownWhileWriting.delete(show)
     }
+    return source ? this.store.applyPullRequest(source) : this
   }
 
   /** Close, reopen, mark ready, or return to draft. */
@@ -420,18 +465,32 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   /**
-   * Merge, and index whatever the host says the pull request became.
+   * Merge: show the pull request merged at once, and index whatever the host
+   * says it became. A refusal — thrown, or answered with `merged: false` —
+   * takes the merged state back and rejects with the host's reason.
    *
    * The head this client last saw is the concurrency token, so it is read here
    * rather than passed in: a caller holding an older copy than the index would
    * otherwise send a head the user never actually looked at.
    */
-  async merge(method: MergeMethod): Promise<PrMergeResult> {
+  async merge(method: MergeMethod): Promise<PullRequest> {
     const expectedHeadSha = this.headSha
     if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
-    const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
-    if (result.detail) this.store.applyPullRequest(result.detail)
-    return result
+    const before = this.state
+    return this.#writeOptimistically(
+      () => {
+        this.state = 'merged'
+      },
+      () => this.state === 'merged',
+      () => {
+        this.state = before
+      },
+      async () => {
+        const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
+        if (!result.merged) throw new Error(result.message ?? 'The code host refused the merge.')
+        return result.detail
+      },
+    )
   }
 
   /** Ask the host to merge with `method` once its requirements pass. The head

@@ -2,11 +2,12 @@
   /** The sidebar footer: one row. Settings, keyboard shortcuts, and Docs sit on
    *  the left as icon buttons; the account sits on the right. Signed in, that is
    *  a quiet user icon that matches the row (the avatar waits in the menu, so a
-   *  bright profile picture does not pull the eye), and its menu holds the account and organization pages and
-   *  sign-out. Signed out it is a small "Sign in" button — the desktop app is
+   *  bright profile picture does not pull the eye), and its menu holds the
+   *  organization picker, the account and organization pages, and sign-out. Signed out it is a small "Sign in" button — the desktop app is
    *  free without an account, so it reads as a quiet control, never a pitch.
-   *  Web and mobile cannot hold an account yet (`accountStore.isAvailable`), so
-   *  their row has the icon buttons alone. */
+   *  Web and mobile cannot start a sign-in (`accountStore.isAvailable`); served
+   *  by the account origin they show the cookie's account and its menu, and
+   *  anywhere else their row has the icon buttons alone. */
   import { localApi } from "@solus/client-core/local-api";
   import {
     Settings as GearIcon,
@@ -15,11 +16,12 @@
     Building2 as OrganizationIcon,
     LibraryBig as BooksIcon,
     ArrowUpRight as ExternalIcon,
+    Check as CheckIcon,
     LogIn as LogInIcon,
     LogOut as LogOutIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { accountStore, getWorkspaceContext } from "../../contexts";
+  import { accountStore, getWorkspaceContext, serversStore } from "../../contexts";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
@@ -38,6 +40,10 @@
   const offersSignIn = $derived(
     accountStore.isAvailable && !signedIn && account.kind !== "unavailable",
   );
+  // The organization this window works in (organization-scope §2): a filter on
+  // what the window shows beside Local. Listed only when the account holds one.
+  const organizations = $derived(serversStore.organizations);
+  const activeOrganizationName = $derived(serversStore.activeOrganizationName);
 </script>
 
 {#snippet utilityButton(
@@ -106,7 +112,9 @@
               {...props}
               variant="ghost"
               size="icon-sm"
-              aria-label={`Account: ${signedIn.profile.email}`}
+              aria-label={activeOrganizationName
+                ? `Account: ${signedIn.profile.email}, organization: ${activeOrganizationName}`
+                : `Account: ${signedIn.profile.email}`}
               class="rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground"
             >
               <UserIcon size={15} />
@@ -142,6 +150,31 @@
             </div>
           </div>
           <DropdownMenu.Separator />
+          {#if organizations.length > 0}
+            <DropdownMenu.Label
+              class="flex items-center justify-between text-xs font-normal text-muted-foreground"
+            >
+              Organization
+              <span>{comboHint("global.switch-organization")}</span>
+            </DropdownMenu.Label>
+            {#each organizations as organization (organization.organizationId)}
+              <DropdownMenu.Item
+                data-testid="organization-option"
+                data-organization-id={organization.organizationId}
+                onSelect={() => serversStore.selectOrganization(organization.organizationId)}
+              >
+                <OrganizationIcon />
+                <span class="flex min-w-0 flex-1 flex-col leading-tight">
+                  <span class="truncate">{organization.name}</span>
+                  {#if !organization.policy.allowsPersonalHosts}
+                    <span class="truncate text-xs text-muted-foreground">Personal computers not allowed</span>
+                  {/if}
+                </span>
+                {#if organization.isActive}<CheckIcon class="ml-auto shrink-0" />{/if}
+              </DropdownMenu.Item>
+            {/each}
+            <DropdownMenu.Separator />
+          {/if}
           <!-- A main process older than `consoleUrl` sends none; the links go
                rather than open a page that cannot be named. -->
           {#if signedIn.consoleUrl}
@@ -154,7 +187,7 @@
               <ExternalIcon class="ml-auto text-muted-foreground" />
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              onSelect={() => void localApi.openExternal(consolePageUrl(consoleUrl, "teams"))}
+              onSelect={() => void localApi.openExternal(consolePageUrl(consoleUrl, "organizations"))}
             >
               <OrganizationIcon />
               Organization settings

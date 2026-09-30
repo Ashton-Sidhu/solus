@@ -1,25 +1,25 @@
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from './client'
 import { personaForHost } from './personas'
 import { scenario, type ScenarioContext, type ScenarioDefinition } from './scenario'
-import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine } from './workspace'
+import { bootLabSolusApi, createLabDatabase, type SolusApiEngine } from './solus-api'
 
 /** Resource permissions belong to the workspace service. Run their matrix on
  * each database engine without letting the fixture admit a human host owner. */
 export function cloudScenario(name: string, run: (ctx: ScenarioContext) => Promise<void>): ScenarioDefinition {
   return scenario(name, async (parent) => {
-    async function prove(engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-      const service = await bootWorkspaceService({ issuer: parent.issuer, engine, databaseUrl })
+    async function prove(engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
+      const service = await bootLabSolusApi({ issuer: parent.issuer, engine, databaseUrl })
       const clients: LabClient[] = []
       const connected = new Map<string, LabClient>()
       const client: ScenarioContext['client'] = (personaId, options = {}) => {
-        const value = new LabClient({ persona: personaForHost(personaId, 'managed'), issuer: parent.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret: options.shareSecret })
+        const value = new LabClient({ persona: personaForHost(personaId, 'managed'), issuer: parent.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret: options.shareSecret })
         clients.push(value)
         return value
       }
       const ctx: ScenarioContext = {
         ...parent, hostKind: 'cloud',
-        host: { ...parent.host, hostId: WORKSPACE_AUDIENCE, tunnelUrl: service.url, localUrl: service.url },
+        host: { ...parent.host, hostId: SOLUS_API_AUDIENCE, tunnelUrl: service.url, localUrl: service.url },
         check: (label, ok, detail) => parent.check(`${engine}: ${label}`, ok, detail),
         client,
         async as(personaId) {

@@ -1,4 +1,7 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 
@@ -66,17 +69,28 @@ class FakeCodexClient extends EventEmitter {
 
 const client = new FakeCodexClient()
 
-mock.module('@solus/server/agents/codex/codex-agent', () => ({
+mock.module('@solus/server/execution/agents/codex/codex-agent', () => ({
   CodexRpcError: FakeCodexRpcError,
   // The backend constructs one app-server per member seat; no seat runs here, so the class is never instantiated.
   CodexAppServerClient: FakeCodexClient,
   getCodexAppServerClient: () => client,
 }))
 
-let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
+let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
 
+const previousDataDir = process.env.SOLUS_DATA_DIR
+const dataDir = mkdtempSync(join(tmpdir(), 'solus-codex-history-'))
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
+  process.env.SOLUS_DATA_DIR = dataDir
+  ;({ CodexBackend } = await import('@solus/server/execution/agents/codex/codex-backend'))
+})
+
+afterAll(async () => {
+  const { closeDb } = await import('@solus/server/db')
+  closeDb()
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
+  rmSync(dataDir, { recursive: true, force: true })
 })
 
 beforeEach(() => {

@@ -7,8 +7,8 @@ import {
 } from '@solus/workspace-ui/components/session/lib/sidebar-list-items'
 
 /**
- * One entry of the phone's task list. The phone lists the same tasks as the
- * desktop sidebar, in the same one-list shape (docs/plans/sidebar-motion.md,
+ * One entry of the phone's list. The phone lists the same tasks and sessions as
+ * the desktop sidebar, in the same one-list shape (docs/plans/sidebar-motion.md,
  * step 3), and leads it with the entries only the phone shows here: labelled
  * drafts, pinned sessions, and who else is on the connected hosts.
  */
@@ -18,10 +18,10 @@ export type MobileListItem =
   | { kind: 'pin'; key: string; pin: PinnedSession }
   | { kind: 'here-now'; key: string }
 
-export interface MobileListInput extends Omit<SidebarListInput, 'drafts' | 'isSnoozedOpen'> {
+export interface MobileListInput extends Omit<SidebarListInput, 'drafts' | 'isTasksOpen' | 'isSessionsOpen' | 'isSnoozedOpen'> {
   drafts: readonly DraftRow[]
   pinned: readonly PinnedSession[]
-  /** False while searching: a search lists tasks only. */
+  /** False while searching: a search lists tasks and sessions only. */
   showsLead: boolean
 }
 
@@ -40,9 +40,16 @@ export function buildMobileListItems(input: MobileListInput): MobileListItem[] {
     }
     lead.push({ kind: 'here-now', key: 'here-now' })
   }
-  // The phone has no control to collapse Snoozed, so it is always open. The
-  // desktop's drafts come from the lead above, never from the shared list.
-  const tasks = buildSidebarListItems({ ...input, drafts: [], isSnoozedOpen: true })
+  // The phone has no control to collapse Tasks, Sessions or Snoozed, so they
+  // are always open. The desktop's drafts come from the lead above, never from
+  // the shared list.
+  const tasks = buildSidebarListItems({
+    ...input,
+    drafts: [],
+    isTasksOpen: true,
+    isSessionsOpen: true,
+    isSnoozedOpen: true,
+  })
   return [
     ...lead,
     ...tasks.filter((item): item is Exclude<SidebarListItem, { kind: 'drafts-divider' }> =>

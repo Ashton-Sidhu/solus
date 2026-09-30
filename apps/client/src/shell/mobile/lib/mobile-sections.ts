@@ -7,6 +7,8 @@ export interface MobileSectionSignals {
   runningTasks: number
   /** Pull requests waiting on this reader specifically. */
   prsNeedingReview: number
+  /** Works a teammate asked this reader to review. */
+  worksNeedingReview: number
 }
 
 /** A count a section row carries, and whether it reads as motion or as
@@ -41,6 +43,9 @@ export function mobileSectionSignal(
   if (id === 'tasks' && signals.runningTasks > 0) {
     return { count: signals.runningTasks, tone: 'running' }
   }
+  if (id === 'workspace' && signals.worksNeedingReview > 0) {
+    return { count: signals.worksNeedingReview, tone: 'primary' }
+  }
   if (id === 'prs' && signals.prsNeedingReview > 0) {
     return { count: signals.prsNeedingReview, tone: 'primary' }
   }
@@ -53,5 +58,6 @@ export function hasUnseenSection(
 ): boolean {
   if (signals.runningTasks > 0 && current !== 'tasks') return true
   if (signals.prsNeedingReview > 0 && current !== 'prs') return true
+  if (signals.worksNeedingReview > 0 && current !== 'workspace') return true
   return false
 }

@@ -9,6 +9,7 @@
     IS_MAC_OS,
   } from "../../contexts/app/settings.context.svelte";
   import { getSettingsContext } from "../../contexts";
+  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/host-config";
   import { Switch } from "../ui/switch";
   import FontFamilyPicker from "./FontFamilyPicker.svelte";
   import SettingsSection from "./SettingsSection.svelte";
@@ -59,6 +60,10 @@
       ],
     },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
+    {
+      id: "reply-opacity",
+      keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
+    },
     {
       id: "font-smoothing",
       keywords: ["font", "smoothing", "antialiased", "grayscale", "thin", "macos"],
@@ -160,6 +165,7 @@
     "document-font-size",
     "code-font-family",
     "code-font-size",
+    "reply-opacity",
     "font-smoothing",
   ].some(isVisible)}
 >
@@ -204,7 +210,7 @@
 
   <SettingsRow
     label="Prompt font"
-    description="Only the box you write prompts in. Mono works well here."
+    description="The prompt box only. Mono works well."
     visible={showAdvanced && (isVisible("prompt-font-family") || isVisible("prompt-font-size"))}
   >
     {#snippet control()}
@@ -255,7 +261,7 @@
 
   <SettingsRow
     label="Code font"
-    description="Monospace typeface used in diffs and code blocks."
+    description="Diffs and code blocks."
     visible={isVisible("code-font-family") || isVisible("code-font-size")}
   >
     {#snippet control()}
@@ -279,11 +285,31 @@
     {/snippet}
   </SettingsRow>
 
+  <SettingsRow
+    label="Reply text opacity"
+    description="How strong the agent's reply text reads. Headings stay at full strength."
+    visible={isVisible("reply-opacity")}
+  >
+    {#snippet control()}
+      <input
+        type="range"
+        min={MIN_ASSISTANT_TEXT_OPACITY}
+        max={100}
+        step={5}
+        value={theme.assistantTextOpacity}
+        oninput={(event) => theme.update({ assistantTextOpacity: event.currentTarget.valueAsNumber })}
+        class="w-32 cursor-pointer accent-(--primary)"
+        aria-label="Reply text opacity"
+      />
+      <span class="w-10 text-right text-xs tabular-nums text-muted-foreground">{theme.assistantTextOpacity}%</span>
+    {/snippet}
+  </SettingsRow>
+
   <!-- Only macOS engines honor -webkit-font-smoothing, so the switch would be
        inert anywhere else. -->
   <SettingsRow
     label="Font smoothing"
-    description="Use thinner grayscale text smoothing instead of the macOS default."
+    description="Thinner grayscale smoothing than the macOS default."
     visible={showAdvanced && IS_MAC_OS && isVisible("font-smoothing")}
   >
     {#snippet control()}
@@ -299,7 +325,7 @@
 
 {#if !anyVisible}
   <div
-    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6"
+    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)"
   >
     No settings match your search
   </div>

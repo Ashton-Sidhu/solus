@@ -1,5 +1,5 @@
 import type { PrGuideStatusEvent, ReviewGuideStatusEvent } from '@solus/contracts/review'
-import type { HostEventPublisher } from '../events/host-event-publisher'
+import type { HostEventPublisher } from '../transport/events/host-event-publisher'
 
 /** Both the PR list and guide panes observe the same host job transitions. */
 export function publishPrGuideStatus(events: HostEventPublisher, event: ReviewGuideStatusEvent): void {

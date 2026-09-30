@@ -11,7 +11,7 @@
   } from "./list-page";
 
   /** One line of the global list. Seven slots in a fixed order — who · what
-   *  number · what it is · what kind · how big · who else · when — with both
+   *  number · what it is · what kind · where · how big · who else · when — with both
    *  ends fixed-width and the title the only elastic element, so scanning a
    *  column means scanning one thing.
    *
@@ -234,6 +234,29 @@
         title="{participants.overflow} more"
       >
         +{participants.overflow}
+      </span>
+    {/if}
+
+    <!-- Slot 5a — where the record lives, as a column. It sits against the time,
+         whose width is fixed, so its left edge is one x on every row; placed
+         before the meta sentence it moved with that sentence's length. The
+         project gives up its tail first; the host is short and always whole.
+         It narrows in the middle band, where the title has no slack to lend.
+         On the record it joins line 1 beside the chips at its own width. -->
+    {#if row.place}
+      <span
+        class="flex w-40 shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground opacity-80 @max-[45rem]/pane:w-28 @max-[30rem]/pane:order-3 @max-[30rem]/pane:w-auto @max-[30rem]/pane:min-w-0"
+        title={[row.place.project, row.place.host].filter(Boolean).join(" · ")}
+      >
+        {#if row.place.project}
+          <span class="min-w-0 truncate">{row.place.project}</span>
+        {/if}
+        {#if row.place.project && row.place.host}
+          <span class="shrink-0 opacity-40" aria-hidden="true">·</span>
+        {/if}
+        {#if row.place.host}
+          <span class="shrink-0 opacity-75">{row.place.host}</span>
+        {/if}
       </span>
     {/if}
 

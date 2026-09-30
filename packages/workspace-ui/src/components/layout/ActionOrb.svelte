@@ -150,11 +150,8 @@
   // recorded for it yet.
   const showInsights = $derived(!!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
-  // A turn parked in 'background' is finished, but Stop is still how its
-  // background task ends.
   const showInterrupt = $derived(
-    (isRunning || sess?.status === "background") &&
-      (sess?.messages.some((m) => m.role === "user") ?? false),
+    isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
   );
   const uncommittedFilesLabel = $derived(
     uncommittedFiles.length > 99 ? "99+" : String(uncommittedFiles.length),

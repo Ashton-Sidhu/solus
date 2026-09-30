@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { codexCollaborationInstructions } from '@solus/server/agents/codex/codex-collaboration-instructions'
+import { codexCollaborationInstructions } from '@solus/server/execution/agents/codex/codex-collaboration-instructions'
 
 describe('Codex collaboration instructions', () => {
   test('sanitizes runtime information before inserting it into instructions', () => {

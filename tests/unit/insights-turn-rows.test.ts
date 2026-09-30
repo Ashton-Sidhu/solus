@@ -5,6 +5,7 @@ import {
   groupBySession,
   isTurnResult,
   p95Duration,
+  searchTurns,
   sortTurns,
   toTurnRows,
   withStatus,
@@ -53,6 +54,7 @@ function turnRow(overrides: Partial<TurnRow> = {}): TurnRow {
     origin: 'typed',
     promptSource: 'typed',
     prompt: 'hello',
+    taskTitle: null,
     costUsd: 0.5,
     inputTokens: 10,
     outputTokens: 20,
@@ -96,6 +98,15 @@ describe('toTurnRows', () => {
     const rows = toTurnRows(result(['trace_id', 'started_at', 'duration_ms'], [['tr_a', 5, null]]))
     expect(rows[0].durationMs).toBeNull()
   })
+
+  // WHY: the list names a session by the task it ran under, and falls back to
+  // the id only when no turn recorded one. The registry column is `task`.
+  test("the task title is read from the registry's `task` column", () => {
+    const rows = toTurnRows(
+      result(['trace_id', 'started_at', 'task'], [['tr_a', 5, 'Fix the tests'], ['tr_b', 6, null]]),
+    )
+    expect(rows.map((row) => row.taskTitle)).toEqual(['Fix the tests', null])
+  })
 })
 
 describe('sorting and grouping', () => {
@@ -134,6 +145,15 @@ describe('sorting and grouping', () => {
   test('cost stays null for a session where no turn reported one (Codex)', () => {
     const group = groupBySession([turnRow({ costUsd: null })])[0]
     expect(group.totalCostUsd).toBeNull()
+  })
+
+  test('a session heading takes its task title from any turn that recorded one', () => {
+    // Older turns predate task-name capture, so the first row may carry none.
+    const group = groupBySession([
+      turnRow({ traceId: 'old', taskTitle: null }),
+      turnRow({ traceId: 'new', taskTitle: 'Fix the tests' }),
+    ])[0]
+    expect(group.taskTitle).toBe('Fix the tests')
   })
 })
 
@@ -295,5 +315,75 @@ describe('the window the bars are drawn across', () => {
   test('rows sharing one instant still get a window with width', () => {
     const extent = pointExtent(turnPoints([turnRow({ startedAt: 5_000 })]))!
     expect(extent.to).toBeGreaterThan(extent.from)
+  })
+})
+
+describe('searchTurns', () => {
+  function row(traceId: string, overrides: Partial<TurnRow>): TurnRow {
+    return {
+      traceId,
+      sessionId: null,
+      startedAt: 0,
+      durationMs: null,
+      status: 'ok',
+      model: null,
+      provider: null,
+      origin: null,
+      promptSource: null,
+      prompt: '',
+      taskTitle: null,
+      costUsd: null,
+      inputTokens: null,
+      outputTokens: null,
+      toolCallCount: null,
+      ...overrides,
+    }
+  }
+
+  const rows = [
+    row('tr_a', { prompt: 'Fix the flaky test', model: 'claude-opus-5-5', provider: 'claude-code' }),
+    row('tr_b', { prompt: 'ship it', model: 'gpt-6-sol', provider: 'codex', taskTitle: 'Release notes' }),
+    row('tr_c', { prompt: 'refactor', sessionId: 'sess_9f2' }),
+  ]
+
+  test('an empty search keeps every turn', () => {
+    expect(searchTurns(rows, '  ')).toHaveLength(3)
+  })
+
+  // The rows print the model's own name and the task title, so a reader
+  // searches for what they read — not only for the recorded id.
+  test('matches the names the rail prints, not only the recorded ids', () => {
+    expect(searchTurns(rows, 'opus 5.5').map((r) => r.traceId)).toEqual(['tr_a'])
+    expect(searchTurns(rows, 'release').map((r) => r.traceId)).toEqual(['tr_b'])
+  })
+
+  // The host searches prompt, session, model id, and provider. Filtering a
+  // host-searched page again must never drop a row the host returned.
+  test('matches every field the host search reads, ignoring case', () => {
+    expect(searchTurns(rows, 'FLAKY').map((r) => r.traceId)).toEqual(['tr_a'])
+    expect(searchTurns(rows, 'sess_9f').map((r) => r.traceId)).toEqual(['tr_c'])
+    expect(searchTurns(rows, 'gpt-6').map((r) => r.traceId)).toEqual(['tr_b'])
+    expect(searchTurns(rows, 'codex').map((r) => r.traceId)).toEqual(['tr_b'])
+  })
+})
+
+describe('a running turn and its session label', () => {
+  test('only a row with no end is running', async () => {
+    // WHY: 'unknown' also names a finished turn that reported no outcome.
+    // Calling that one "Running" would be a lying indicator.
+    const { isRunningTurn } = await import('@solus/workspace-ui/components/insights/lib/turn-rows')
+    expect(isRunningTurn({ status: 'unknown', durationMs: null })).toBe(true)
+    expect(isRunningTurn({ status: 'unknown', durationMs: 1_200 })).toBe(false)
+    expect(isRunningTurn({ status: 'ok', durationMs: null })).toBe(false)
+  })
+
+  test('the session column names the task, then the session, then the id', async () => {
+    // WHY: a bare short id reads as noise; it is the last resort, not the default.
+    const { sessionCellLabel } = await import('@solus/workspace-ui/components/insights/lib/turn-rows')
+    const row = { sessionId: '8b0e6f25-aaaa-bbbb-cccc-000000000000', taskTitle: null }
+    expect(sessionCellLabel({ ...row, taskTitle: 'Check duplicate tasks' }, 'Chat name')).toEqual({ text: 'Check duplicate tasks', isId: false })
+    expect(sessionCellLabel(row, 'Chat name')).toEqual({ text: 'Chat name', isId: false })
+    expect(sessionCellLabel(row, null).isId).toBe(true)
+    expect(sessionCellLabel({ sessionId: null, taskTitle: null }, null)).toEqual({ text: '—', isId: false })
   })
 })

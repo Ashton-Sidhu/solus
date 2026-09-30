@@ -14,15 +14,17 @@
      *  to the left of it, which the button itself doesn't own. */
     label: string;
     value: T;
-    options: { value: T; label: string }[];
+    options: { value: T; label: string; disabled?: boolean }[];
     onSelect: (value: T) => void;
     /** Menu width. Long label sets (models, agents) need more room than the
      *  default; the caller knows which. */
     menuClass?: string;
+    /** Shown when the value matches no option. */
+    placeholder?: string;
   }
-  let { label, value, options, onSelect, menuClass = "w-[176px]" }: Props = $props();
+  let { label, value, options, onSelect, menuClass = "w-[176px]", placeholder = "" }: Props = $props();
 
-  const current = $derived(options.find((o) => o.value === value)?.label ?? "");
+  const current = $derived(options.find((o) => o.value === value)?.label ?? placeholder);
 </script>
 
 <DropdownMenu.Root>
@@ -37,7 +39,7 @@
   <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class={menuClass}>
     <DropdownMenu.RadioGroup {value}>
       {#each options as opt (opt.value)}
-        <DropdownMenu.RadioItem value={opt.value} onSelect={() => onSelect(opt.value)}>
+        <DropdownMenu.RadioItem value={opt.value} disabled={opt.disabled} onSelect={() => onSelect(opt.value)}>
           <span class="min-w-0 flex-1 truncate">{opt.label}</span>
         </DropdownMenu.RadioItem>
       {/each}

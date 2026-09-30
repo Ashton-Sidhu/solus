@@ -5,7 +5,7 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
-    getSettingsContext,
+    connectionsStore,
     getWorkspaceContext,
     getSessionEnvironmentStore,
     serversStore,
@@ -21,14 +21,20 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import {
     isDispatch,
-    withCheckout,
-    withPendingHost,
+    startsWorktree,
+    withWorktreeToggled,
   } from "../../contexts/workspace/run-config";
-  import { projectHostId } from "../servers/run-on";
+  import type { ProjectRef } from "../../contexts";
+  import {
+    projectHostId,
+    worktreeBlockedReason,
+  } from "../servers/run-on";
+  import { aimRunAtCheckout } from "./lib/project-selection";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import ProjectChip from "./ProjectChip.svelte";
   import TaskPicker from "./TaskPicker.svelte";
   import {
@@ -61,7 +67,6 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const isPinned = $derived(sourceId !== undefined);
   const source = $derived(sourceId ?? session.activeTabId);
@@ -72,9 +77,9 @@
   const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
   // The task the started session will file under, held by whichever this source
-  // is; neither, before a project is chosen, files under a new one.
+  // is; neither, before a project is chosen, files under none.
   const taskTarget = $derived<TaskTarget>(
-    sess?.task ?? draft?.task ?? { kind: "new" },
+    sess?.task ?? draft?.task ?? { kind: "none" },
   );
   // Focus routes to a tab by id; a draft's composer claims bare focus as the
   // primary bar, so it takes no target.
@@ -92,7 +97,7 @@
       nextScope,
     );
     previousTaskProjectScope = nextScope;
-    if (shouldReset) selectTask({ kind: "new" });
+    if (shouldReset) selectTask({ kind: "none" });
   });
   const env = $derived(environmentStore.environmentFor(run));
   // With no run, the default run's checkout as Git last reported it.
@@ -105,7 +110,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       gitHome.projectRoot ?? projectDir,
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(projectHostId(run ?? session.defaultRunConfig)),
     ),
   );
 
@@ -127,7 +132,11 @@
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ??
       selectedDispatchBaseBranch ??
-      (pendingDispatch ? "New worktree" : (env.branch ?? env.name)),
+      (pendingDispatch
+        ? run?.worktree
+          ? "New worktree"
+          : "Checkout"
+        : (env.branch ?? env.name)),
   );
   const branchLabel = $derived(
     pendingDispatch ? displayBranch : env.pending ? env.name : displayBranch,
@@ -141,9 +150,11 @@
     selectedDispatchWorktree
       ? `Works in ${worktreeDisplayName(selectedDispatchWorktree.branch)} on the selected host`
       : selectedDispatchBaseBranch
-        ? `Creates a new worktree from ${selectedDispatchBaseBranch} on the selected host`
+        ? `Works on ${selectedDispatchBaseBranch} on the selected host`
         : pendingDispatch
-          ? "Creates a new worktree on the selected host"
+          ? run?.worktree
+            ? "Creates a new worktree on the selected host"
+            : "Works in your checkout on the selected host"
           : startsNewWorktree
             ? `Branches into its own worktree from ${gitHome.baseBranch}`
             : `Working in ${displayBranch} directly`,
@@ -160,12 +171,6 @@
     environmentStore.refsFor(gitServerId, gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
-  // Keep branch data live for the header even when the status row is hidden.
-  $effect(() => {
-    const cwd = gitStatusCwd;
-    if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(gitServerId, cwd);
-  });
 
   let gitOpen = $state(false);
   let branchTooltipOpen = $state(false);
@@ -259,35 +264,44 @@
     requestInputFocus(focusTarget);
   }
 
-  // Which host the chosen project lives on — the run-on picker's answer, read
-  // back so a project picked from the chip lands on the host it belongs to.
+  // Which host the run's project lives on, so "New project" browses that host.
   const projectHost = $derived(projectHostId(run ?? session.defaultRunConfig));
   const projectHostIsLocal = $derived(
     serversStore.hostFor(projectHost)?.local ?? true,
   );
 
-  function selectProject(path: string) {
-    // A project on another host is that host's project — recorded as an open and
-    // resolved over there on Send, exactly as the run-on picker used to do it.
-    // This is a pre-start move only: a started session moves through
-    // `setBaseDirectory`, which resets the live provider thread on its own host.
-    if (draft && !projectHostIsLocal) {
-      applyRun(
-        withCheckout(
-          withPendingHost(draft.run, {
-            serverId: projectHost,
-            intent: "open-project",
-          }),
-          path,
-          null,
-        ),
-      );
-      requestInputFocus(focusTarget);
-      return;
-    }
-    void session.config.setBaseDirectory(path, source).then(
+  /** Open a project in one of its checkouts. A started conversation cannot
+   *  move — its strip is gone by then. */
+  function selectProject(checkout: ProjectRef) {
+    void aimRunAtCheckout(session, environmentStore, source, checkout).then(
       () => requestInputFocus(focusTarget),
       () => {},
+    );
+  }
+
+  /** The checkout type of the next session, chosen in the branch menu. */
+  function selectDispatchCheckout() {
+    session.config.setDispatchCheckout(source);
+    requestInputFocus(focusTarget);
+  }
+
+  function selectStartIn(worktree: boolean) {
+    const current = run ?? session.defaultRunConfig;
+    if (startsWorktree(current) !== worktree) applyRun(withWorktreeToggled(current));
+    requestInputFocus(focusTarget);
+  }
+
+  /** A project with no remote to copy opens on another host through a folder
+   *  that person picks there. */
+  function chooseFolderOn(serverId: string) {
+    window.dispatchEvent(
+      new CustomEvent("solus:open-directory-picker", {
+        detail: {
+          ...(draft ? { draftId: source } : { tabId: source }),
+          serverId,
+          intent: "open-project",
+        },
+      }),
     );
   }
 
@@ -320,6 +334,14 @@
     );
   }
 
+  /** The Open project flow on its New project screen, bound to this run's host.
+   *  A draft is re-aimed at the new folder, so a prompt already typed stays. */
+  function newProject() {
+    window.dispatchEvent(
+      new CustomEvent("solus:open-project", { detail: { tabId: source, source: "new" } }),
+    );
+  }
+
   function selectTask(next: TaskTarget) {
     // A tab's session or a draft — both own the task the started session files
     // under, so the choice lands on whichever this source is.
@@ -343,8 +365,9 @@
 </script>
 
 <!--
-  Destination strip: where the next session will run, as three chips that each
-  answer one question — which project, what it starts in, which branch. Sits
+  Destination strip: where the next session will run, as chips that each
+  answer one question — which project, which machine, which branch and
+  checkout, which task. Sits
   above the composer card and only while the session has not started, because
   that is exactly how long any of it is editable.
 -->
@@ -356,29 +379,32 @@
   narrow companion pane on desktop.
 -->
 <div class="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
-  <!-- The picker decides its own visibility from the connected hosts and the
-       checkout, so it renders regardless of git: a folder opened on a remote
-       machine still names the machine it runs on. It comes first: it chooses the
-       host, and the project chip beside it lists that host's projects. -->
-  <RunOnPicker
-    run={run ?? session.defaultRunConfig}
-    requesterId={source}
-    locked={hasSessionStarted(sess)}
-    onRun={applyRun}
-    onDismiss={() => requestInputFocus(focusTarget)}
-    variant="header"
-    {paneId}
-  />
-
+  <!-- A sentence read left to right: which project, on which machine, from
+       which branch, filed under which task. The project chip lists projects
+       from every host; the Run on picker then says what each machine would use
+       for the chosen one, and decides its own visibility from the connected
+       hosts. -->
   <ProjectChip
     run={run ?? session.defaultRunConfig}
     projectDir={gitHome.projectRoot ?? projectDir}
     label={projectLabel}
     onSelect={selectProject}
     onBrowse={browseProjects}
+    onNewProject={newProject}
     onDismiss={() => requestInputFocus(focusTarget)}
     anchor={projectPickerAnchor}
     bind:open={projectPickerOpen}
+  />
+
+  <RunOnPicker
+    run={run ?? session.defaultRunConfig}
+    requesterId={source}
+    locked={hasSessionStarted(sess)}
+    onRun={applyRun}
+    onChooseFolder={chooseFolderOn}
+    onDismiss={() => requestInputFocus(focusTarget)}
+    variant="header"
+    {paneId}
   />
 
   {#if hasGitRepository}
@@ -414,16 +440,16 @@
                   : 'opacity-70'}"
               />
             {/if}
-            <span class="truncate">{displayBranchLabel}</span>
+            <MiddleTruncate value={displayBranchLabel} showTitle={false} />
           </Button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content value={branchTooltip} />
     </TooltipUI.Root>
   {/if}
-  <!-- With the task system off, a new session starts with no task, so there is
-       nothing for this chip to choose. -->
-  {#if settings.tasksEnabled}
+  <!-- The chip names the task this session files under, so a session with no
+       task shows no chip. -->
+  {#if taskTarget.kind === "existing"}
     <TaskPicker
       task={taskTarget}
       projectKey={gitHome.projectRoot ?? projectDir}
@@ -452,6 +478,10 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
+    onSelectDispatchCheckout={selectDispatchCheckout}
+    {startsNewWorktree}
+    worktreeBlockedNote={worktreeBlockedReason(gitHome.canToggleWorktree)}
+    onSelectStartIn={selectStartIn}
     onDismiss={() => requestInputFocus(focusTarget)}
   />
 {/if}

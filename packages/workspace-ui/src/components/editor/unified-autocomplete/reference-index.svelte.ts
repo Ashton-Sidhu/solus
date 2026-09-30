@@ -24,6 +24,7 @@ import { GLYPH, KIND_NOUN, type RefKind } from './kinds'
 import type { MenuItem } from './rows'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
+import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { stripInjectedContext } from '@solus/contracts/injected-context'
 
 export function timestamp(value: string | number | undefined | null): number {
@@ -89,6 +90,9 @@ export interface ReferenceIndexDeps {
 export class ReferenceIndex {
   #prCandidates = $state<PullRequest[]>([])
   #sessionCandidates = $state<SessionMeta[]>([])
+  /** The host is still reading its sessions into its index for the first
+   *  time, so the sessions category is not complete yet. */
+  sessionsIndexing = $state(false)
   #prLoadId = 0
   #sessionLoadId = 0
 
@@ -154,7 +158,7 @@ export class ReferenceIndex {
   )
 
   sessionItems = $derived.by((): MenuItem[] => {
-    // You can't reference your own conversation (matches prompt_session).
+    // You can't reference your own conversation (matches send_session).
     const tabId = this.deps.tabId?.()
     const currentSessionId = tabId
       ? this.deps.session.sessionFor(tabId)?.agentSessionId
@@ -410,16 +414,16 @@ export class ReferenceIndex {
     const tabId = this.deps.tabId?.()
     if (!workingDirectory || !tabId) return
     try {
-      const sessions = await this.deps.session
+      const { records, indexing } = await this.deps.session
         .apiFor(tabId)
-        .listSessions(workingDirectory, this.deps.session.ctxFor(tabId))
+        .sessionRecordList({ projectPath: workingDirectory, includeWorktrees: true })
       if (requestId !== this.#sessionLoadId) return
+      this.sessionsIndexing = indexing
       const sourceServerId = this.deps.session.runFor(tabId)?.serverId
       if (!sourceServerId) return
       const serverId = serverConnections.resolveId(sourceServerId)
-      this.#sessionCandidates = [...stampSessionMetas(sessions, serverId)].sort(
-        (a, b) => timestamp(b.lastTimestamp) - timestamp(a.lastTimestamp),
-      )
+      // Records arrive newest activity first.
+      this.#sessionCandidates = stampSessionMetas(records.map(sessionMetaFromRecord), serverId)
     } catch {
       // Same: no transcripts on disk is an empty category, not an error.
     }

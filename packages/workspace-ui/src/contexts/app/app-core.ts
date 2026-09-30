@@ -1,5 +1,7 @@
+import { checkoutStore } from '../git/checkout.store.svelte'
 import { sharesStore } from '../sharing/shares.store.svelte'
 import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
+import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -27,11 +29,13 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { reviewLensStore } from '../../components/review/review-lens.store.svelte'
 import { trackSessionReviewGuides } from '../../components/review/lib/session-guide-tracker.svelte'
 import { trackBranchReviewGuides } from '../../components/review/lib/branch-guide-tracker.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
+import { isSolusApiId } from '@solus/contracts/uplink'
 
 export interface AppCore {
   settings: SettingsContext
@@ -63,7 +67,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
-  const sessionEnvironmentStore = new SessionEnvironmentStore()
+  const sessionEnvironmentStore = new SessionEnvironmentStore(checkoutStore)
   const projectConfigStore = new ProjectConfigStore()
   const textGenerationSettingsStore = new TextGenerationSettingsStore()
   const otelSettingsStore = new OtelSettingsStore()
@@ -85,7 +89,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   sharesStore.works = session.worksStore
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
-    isCloudHost: (serverId) => serversStore.isCloudHost(serverId),
+    isSolusApi: isSolusApiId,
     isConnected: (serverId) => !!serverId && serversStore.statusFor(serverId) === 'online',
   })
   session.trackVisibleConversations()
@@ -132,6 +136,24 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   })
   onDestroy(unsubscribeReviewGuideReady)
 
+  onDestroy(reviewLensStore.follow())
+  onDestroy(reviewLensStore.onReady((serverId, event) => {
+    if (!notificationsStore.wants('review_lens_ready')) return
+    const target = event.target
+    if (target.kind !== 'pr') {
+      // A local lens has no route to reopen it by; its Review tab shows it.
+      toasts.success(`Review lens ready for ${event.repoRoot.split('/').pop() || event.repoRoot}`, { duration: 10_000 })
+      return
+    }
+    toasts.success(`Review lens ready for ${target.owner}/${target.repo} #${target.number}`, {
+      duration: 10_000,
+      action: {
+        label: 'Open lens',
+        onAction: () => { void session.prReview.openPullRequest({ number: target.number, expectedRepo: target }, { serverId, tab: 'lens' }) },
+      },
+    })
+  }))
+
   const keybindings = new KeybindingsContext()
   keybindings.setOverrides(settings.keybindings)
 
@@ -153,6 +175,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   setKeybindingsContext(keybindings)
 
   installHostUpdateNotices(session, shell)
+  modelProfilesStore.start()
 
   return {
     settings,

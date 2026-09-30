@@ -20,7 +20,7 @@ export interface DiffLoadResult {
 function scopeKey(scope: DiffScope): string {
   if (scope.kind === 'session') return 'session'
   if (scope.kind === 'working-tree') return 'working-tree'
-  if (scope.kind === 'pr') return `pr:${scope.baseSha}:${scope.ownDeltaBaseSha ?? 'target'}`
+  if (scope.kind === 'pr') return `pr:${scope.baseSha}`
   return `turn:${scope.index}`
 }
 

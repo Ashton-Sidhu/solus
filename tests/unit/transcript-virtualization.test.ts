@@ -62,6 +62,7 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     import { JSDOM } from ${JSON.stringify(new URL('node_modules/jsdom/lib/api.js', root).href)};
     const dom = new JSDOM('<!doctype html><body><div id="scroll"></div></body>');
     for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'Text', 'Comment', 'Event', 'CustomEvent']) globalThis[key] = dom.window[key];
+    let now = 1000; globalThis.performance.now = () => now;
     const frames = new Map(); let frameId = 0;
     globalThis.requestAnimationFrame = (fn) => { frames.set(++frameId, fn); return frameId; };
     globalThis.cancelAnimationFrame = (id) => frames.delete(id);
@@ -88,7 +89,23 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     } });
     let scrollTop = 0;
     Object.defineProperty(scroll, 'scrollTop', { get: () => scrollTop, set(value) { scrollTop = Math.max(0, Math.min(value, scroll.scrollHeight - viewportHeight)); } });
-    HTMLElement.prototype.getBoundingClientRect = function() { return { top: this === scroll ? 0 : -scrollTop, height: 800 }; };
+    // A small layout model: rows stack at their heights, spacers at their
+    // style heights, and anything inside a row starts at the row's top. The
+    // virtualizer holds the view by DOM position, so the stub must move
+    // elements the way a browser would.
+    const heightOf = (node) => node.dataset.transcriptTurnId
+      ? heights.get(node.dataset.transcriptTurnId) ?? 240 : parseFloat(node.style.height) || 0;
+    HTMLElement.prototype.getBoundingClientRect = function() {
+      if (this === scroll) return { top: 0, bottom: viewportHeight, height: viewportHeight };
+      const list = scroll.querySelector('.messages-list');
+      let child = this;
+      while (child && child.parentElement !== list) child = child.parentElement;
+      if (!child) return { top: -scrollTop, bottom: -scrollTop, height: 0 };
+      let y = 0;
+      for (const node of list.children) { if (node === child) break; y += heightOf(node); }
+      const height = this === child ? heightOf(child) : Math.min(20, heightOf(child));
+      return { top: y - scrollTop, bottom: y - scrollTop + height, height };
+    };
     const app = mount(Fixture, { target: scroll, props: { scrollElement: scroll, virtualizer } });
     flushSync(); await tick(); flushSync();
     const drain = async () => {
@@ -110,8 +127,10 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     assert.equal(document.querySelector('button').textContent.trim(), 'turn-0:true');
     await move(1200024);
     const oldTop = scroll.scrollTop;
+    scroll.dispatchEvent(new Event('wheel'));
     app.prepend(); flushSync(); await tick(); flushSync();
-    assert.equal(scroll.scrollTop, oldTop + 24000, 'prepending preserves the visible turn and pixel offset');
+    assert.equal(scroll.scrollTop, oldTop + 24000, 'prepending preserves the visible turn and pixel offset, even mid-scroll');
+    now += 200;
     const visibleRow = rows().find(row => row.dataset.transcriptTurnId === 'turn-5000');
     heights.set('turn-4999', 6000);
     for (const observer of observers) observer.deliver();
@@ -130,6 +149,20 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
       assert.ok(rows().some(row => row.dataset.transcriptTurnId === 'turn-' + (5000 + step)),
         'normal downward scrolling must reach each later turn');
     }
+    // WebKit scrolls off the main thread: a scrollTop write during a wheel
+    // scroll stops its momentum and jumps back to a stale position.
+    const readingTop = scroll.scrollTop;
+    const aboveRow = rows()[0].dataset.transcriptTurnId;
+    scroll.dispatchEvent(new Event('wheel'));
+    heights.set(aboveRow, (heights.get(aboveRow) ?? 240) + 100);
+    for (const observer of observers) observer.deliver();
+    flushSync(); await tick(); flushSync();
+    assert.equal(scroll.scrollTop, readingTop, 'a measurement does not write the scroll while the reader scrolls');
+    now += 200;
+    heights.set(aboveRow, heights.get(aboveRow) + 100);
+    for (const observer of observers) observer.deliver();
+    flushSync(); await tick(); flushSync();
+    assert.equal(scroll.scrollTop, readingTop + 100, 'the anchor holds again once the scroll settles');
     await virtualizer.reveal('turn-9999'); flushSync();
     assert.ok(rows().some(row => row.dataset.transcriptTurnId === 'turn-9999'));
     assert.ok(rows().length < 12);

@@ -1,4 +1,5 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { installTestWorkspaceTools } from './helpers/workspace-tools'
+import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,12 +11,12 @@ import { artifactPreview, resolveArtifactTitle, workPreview } from '@solus/contr
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
-type TaskModule = typeof import('@solus/server/tasks/task')
-type WorksModule = typeof import('@solus/server/folio/works')
-type ArtifactToolsModule = typeof import('@solus/server/folio/artifact-tools')
-type WorkToolsModule = typeof import('@solus/server/folio/work-tools')
-type TaskArtifactsModule = typeof import('@solus/server/tasks/task-artifacts')
+type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskModule = typeof import('@solus/server/data/tasks/task')
+type WorksModule = typeof import('@solus/server/data/works/works')
+type ArtifactToolsModule = typeof import('@solus/server/execution/agents/tools/artifact-tools')
+type WorkToolsModule = typeof import('@solus/server/execution/agents/tools/work-tools')
+type TaskArtifactsModule = typeof import('@solus/server/data/tasks/task-artifacts')
 
 let dataDir: string
 let db: DbModule
@@ -30,16 +31,18 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 const HTML = '<!doctype html><html><head><title>Latency &amp; throughput</title></head><body><h1>Chart</h1></body></html>'
 const SESSION_ID = '5f0d1f2e-9b3a-4c1d-8e7f-2a1b3c4d5e6f'
 
+beforeEach(async () => { await installTestWorkspaceTools() })
+
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-artifact-work-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/tasks/task-store')
-  tasks = await import('@solus/server/tasks/task')
-  works = await import('@solus/server/folio/works')
-  artifactTools = await import('@solus/server/folio/artifact-tools')
-  workTools = await import('@solus/server/folio/work-tools')
-  taskArtifacts = await import('@solus/server/tasks/task-artifacts')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  tasks = await import('@solus/server/data/tasks/task')
+  works = await import('@solus/server/data/works/works')
+  artifactTools = await import('@solus/server/execution/agents/tools/artifact-tools')
+  workTools = await import('@solus/server/execution/agents/tools/work-tools')
+  taskArtifacts = await import('@solus/server/data/tasks/task-artifacts')
 })
 
 afterEach(async () => {

@@ -55,6 +55,14 @@ export const DEMO_SESSION_BY_TASK = new Map<string, string>([
   ['demo-task-4', BILLING],
 ])
 
+/** The task each demo session ran under, by title — what the listing names a
+ *  session by. The same titles `data/tasks.json` carries. */
+const DEMO_TASK_TITLE_BY_SESSION = new Map<string, string>([
+  [RATELIMIT, 'Add per-key rate limiting to the public API'],
+  [WEBHOOKS, 'Fix the flaky retry logic in webhook delivery'],
+  [BILLING, 'Plan the migration to usage-based pricing'],
+])
+
 const SONNET = 'claude-sonnet-5'
 const OPUS = 'claude-opus-4-8'
 
@@ -123,6 +131,7 @@ const TURN_CELL = {
   origin: (turn) => turn.origin,
   prompt: (turn) => turn.prompt,
   prompt_source: (turn) => turn.promptSource,
+  task: (turn) => DEMO_TASK_TITLE_BY_SESSION.get(turn.sessionId) ?? null,
   cost_usd: (turn) => turn.costUsd,
   input_tokens: (turn) => turn.inputTokens,
   output_tokens: (turn) => turn.outputTokens,

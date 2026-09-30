@@ -5,7 +5,7 @@ import type { TaskStatus } from '../../session/lib/task-list'
 // strip of everything you happened to open. Pure so the mark vocabulary and the
 // menu ordering can be tested without a workspace store.
 
-export type BreadcrumbDraftMode = 'existing-task' | 'new-task' | 'no-task' | null
+export type BreadcrumbDraftMode = 'existing-task' | 'no-task' | null
 
 export interface BreadcrumbTaskGroups<T> {
   open: T[]
@@ -56,15 +56,15 @@ export function breadcrumbTaskMatches(label: string, query: string): boolean {
 }
 
 /** A draft names the destination being created rather than borrowing the
- * placeholder session title for every level of the path. */
+ * placeholder session title for every level of the path. `taskLabel` is null
+ * for a session with no task, which then has no task crumb. */
 export function breadcrumbLeafLabels(
-  taskLabel: string,
+  taskLabel: string | null,
   sessionLabel: string,
   draftMode: BreadcrumbDraftMode,
 ): BreadcrumbLeafLabels {
   if (draftMode === 'no-task') return { task: null, session: 'New session' }
-  if (draftMode === 'new-task') return { task: 'New task', session: 'New session' }
-  if (draftMode === 'existing-task') return { task: taskLabel, session: 'New session' }
+  if (draftMode === 'existing-task') return { task: taskLabel ?? 'Task', session: 'New session' }
   return { task: taskLabel, session: sessionLabel }
 }
 
@@ -111,8 +111,9 @@ const STATUS_TEXT = new Map<TaskStatus, string>([
   ['background', 'Background task'],
 ])
 
-export function statusNote(status: TaskStatus): StatusNote | null {
-  const text = STATUS_TEXT.get(status)
+/** `needs` replaces "Needs you" when the open session knows whose turn waits ("Needs Alice"). */
+export function statusNote(status: TaskStatus, needs?: string): StatusNote | null {
+  const text = status === 'question' && needs ? needs : STATUS_TEXT.get(status)
   const color = statusColor(status)
   if (!text || !color) return null
   return { text, color }

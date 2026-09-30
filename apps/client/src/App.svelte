@@ -1,7 +1,8 @@
 <script lang="ts">
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
-  import { Download as DownloadSimpleIcon } from "@lucide/svelte";
+  import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
+  import { Building2 as OrganizationIcon, Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
   import {
     savePersistedTabs,
@@ -12,6 +13,7 @@
     type PersistedTabs,
   } from "@solus/workspace-ui/contexts/workspace/tab-persistence";
   import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/tab-snapshot";
+  import { nextPermissionMode } from "@solus/workspace-ui/contexts/workspace/run-config";
   import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
   import {
     materializeTabs,
@@ -28,9 +30,16 @@
     connectionsStore,
     parseRoute,
     serversStore,
-    runtime,
   } from "@solus/workspace-ui/contexts";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
+  import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+  import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
+  import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
+  import {
+    browserRecordingCommands,
+    focusLeadingComposer,
+    deliverRecording,
+  } from "@solus/workspace-ui/components/browser/lib/recording-actions";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
@@ -38,6 +47,7 @@
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
   import { cloudOnboardingStore } from "@solus/workspace-ui/components/onboarding/cloud-onboarding.store.svelte";
+  import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
   import { webState } from "./lib/web-state.svelte";
   import { webPushState } from "./lib/web-push.svelte";
   import {
@@ -56,20 +66,22 @@
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
+  import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
+  import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createWebProjectPicker } from "./components/projects/lib/project-picker.svelte";
   import WebLayout from "./shell/WebLayout.svelte";
+  import BusyTreeConfirm from "@solus/workspace-ui/components/busy-tree/BusyTreeConfirm.svelte";
   import { WebShell } from "./shell/web-shell.svelte";
 
   const shell = new WebShell();
+  const skipOnboarding = skipsOnboarding(window.location.search);
 
   const {
     settings,
-    projectConfigStore,
     sessionSidebarStore,
     voiceModelStore,
-    pullRequests,
     session,
     agent,
     keybindings,
@@ -77,41 +89,6 @@
 
   const projectPicker = createWebProjectPicker(session);
   const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
-
-  const taskComposer = $derived(session.ui.taskComposer);
-  const taskComposerServerId = $derived(taskComposer?.serverId ?? null);
-  const taskComposerHost = $derived(
-    taskComposerServerId
-      ? {
-          serverId: taskComposerServerId,
-          api: serverConnections.apiFor(taskComposerServerId),
-        }
-      : null,
-  );
-  const taskComposerConfig = $derived(
-    taskComposer
-      ? projectConfigStore.configFor(taskComposerServerId, taskComposer.projectKey)
-      : undefined,
-  );
-  const taskComposerProvider = $derived(
-    taskComposerConfig?.taskProvider ?? "local",
-  );
-  const taskComposerTasks = $derived(
-    taskComposer ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey) : [],
-  );
-  const taskComposerEpics = $derived(
-    taskComposerTasks.filter((task) => task.kind === "epic"),
-  );
-  const taskComposerLabels = $derived(
-    Array.from(new Set(taskComposerTasks.flatMap((task) => task.labels))).sort(),
-  );
-
-  $effect(() => {
-    if (!taskComposer || !taskComposerHost) return;
-    const host = taskComposerHost;
-    const cwd = taskComposer.projectKey;
-    untrack(() => void projectConfigStore.load(host, cwd));
-  });
 
   const initialLayout = shell.layout;
 
@@ -254,7 +231,7 @@
     composerSourceId ? session.sessionFor(composerSourceId) : session.activeSession,
   );
   const isRunning = $derived(composerSession?.status === "running" || composerSession?.status === "connecting");
-  const permissionMode = $derived(composerRun?.permissionMode ?? "auto");
+  const permissionMode = $derived(composerRun?.permissionMode ?? "full-access");
   const composerMetadata = $derived(
     agent.metadata[composerRun?.provider ?? settings.activeAgent] ??
       agent.activeMetadata,
@@ -276,7 +253,7 @@
         voiceModelStore.apply(status, serverId),
       );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultServerId();
+      const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       // The promoted settings tier lives on the host so it follows the user
       // between desktop, web, and mobile, exactly as the desktop boot does.
@@ -294,6 +271,10 @@
           });
         }
       });
+      // Watches wait on a host and change state with no client in the loop.
+      const unsubWatches = subscribeWatchChanges(session.watchesStore);
+      // Review requests and decisions reach the reader on every client.
+      const unsubWorkReviews = subscribeWorkReviewChanges(session.worksStore, (workId) => session.openWork(workId));
       const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
         agent.applyUsage(snapshots),
       );
@@ -306,16 +287,25 @@
       const unsubPresence = presenceStore.listen();
       // The tunnel comes up after the host has answered the link; the cloud row follows it.
       const unsubUplink = uplinkStore.listen();
+      // Browser pages are host state; the pane, a recording's running time,
+      // and a recording a limit stopped all follow the host's page events.
+      browserStore.onRecordingSaved = (serverId, result) =>
+        deliverRecording(session.leadingInput, serverId, result);
+      const unsubBrowser = browserStore.subscribe();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
         unsubHostConfig();
         unsubProjectDirectory();
         unsubAutomations();
+        unsubWatches();
+        unsubWorkReviews();
         unsubUsage();
         unsubSeats();
         unsubPresence();
         unsubUplink();
+        browserStore.onRecordingSaved = null;
+        unsubBrowser();
       };
     }),
   );
@@ -382,7 +372,7 @@
   // this device's first run (docs/plans/cloud-onboarding.md §3.6).
   onMount(() => void cloudOnboardingStore.load());
   const showsOnboarding = $derived(
-    cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted,
+    !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
   );
 
   const detectReconnect = createReconnectDetector(webState.connectionStatus);
@@ -392,7 +382,7 @@
     untrack(() => {
       if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
       if (connectionStatus === 'connected') {
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           void connectionsStore.refreshCapabilities({ serverId: defaultServerId });
         }
@@ -400,10 +390,6 @@
       if (reconnected) {
         settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
         refreshRuntime(session, sessionSidebarStore);
-        pullRequests.checks.reportActivity(
-          session.apiForContext(session.ctx), session.ctx,
-          session.router.at("review") || session.router.at("prReview"), runtime.isWindowForeground,
-        );
       }
     });
   });
@@ -438,14 +424,26 @@
       }),
     );
   });
-  useKeybinding("global.new-task", () => {
+  useKeybinding("global.new-session", () => {
     session.drafts.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
     session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
-  useKeybinding("global.new-session", () =>
+  useKeybinding("global.new-session-in-task", () =>
     void session.drafts.openSessionDraft({ via: "keybinding" }),
+  );
+  // Starts a new task in the active session's project. The tasks page
+  // binds this id too, so this handler stands down while that page is up.
+  useKeybinding(
+    "global.new-task",
+    () => {
+      const context = session.taskCreationContext;
+      if (context) void session.startNewTask(context.serverId, context.projectKey, true);
+    },
+    {
+      enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
+    },
   );
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -484,16 +482,10 @@
     void window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
   );
   useKeybinding("global.cycle-perm-mode", () => {
-    const modes = ["ask", "auto", "plan"] as const;
-    const next =
-      modes[
-        (modes.indexOf(permissionMode) + 1) %
-          modes.length
-      ];
-    session.setPermissionMode(next, composerSourceId, "keybinding");
+    session.setPermissionMode(nextPermissionMode(permissionMode), composerSourceId, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId, "keybinding");
+    if (activeTabId) sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
   useKeybinding("global.cycle-agent", async () => {
@@ -554,11 +546,32 @@
   // Sharing (docs/plans/multiplayer-sharing.md §4.1): the active session, once it has one.
   const shareTarget = $derived(activeSessionShareTarget(session));
   useKeybinding("global.share", () => { if (shareTarget) sharesStore.open(shareTarget); });
+  // The window's organization (organization-scope §2): the palette opens on
+  // its list, and choosing one filters what this window shows beside Local.
+  let paletteInitialPage = $state<{ id: string; title: string } | null>(null);
+  useKeybinding("global.switch-organization", () => {
+    paletteInitialPage = { id: "switch-organization", title: "Switch organization" };
+    commandPaletteOpen = true;
+  }, { enabled: () => serversStore.organizations.length > 0 });
   const paletteCommands = $derived.by((): Command[] => [
+    ...workReviewPaletteCommands(session),
     ...(shareTarget ? [{
       id: "share-session", label: "Share…", group: "General",
       hint: comboHint("global.share"), keywords: ["share", "access", "link", "team", "guest"],
       run: () => sharesStore.open(shareTarget),
+    }] : []),
+    ...(serversStore.organizations.length > 0 ? [{
+      id: "switch-organization", label: "Switch organization…", group: "General", icon: OrganizationIcon,
+      hint: comboHint("global.switch-organization"), keywords: ["organization", "org", "team", "workspace", "cloud"],
+      children: serversStore.organizations.map((organization) => ({
+        id: `switch-organization:${organization.organizationId}`,
+        label: organization.name,
+        group: "Organizations",
+        icon: OrganizationIcon,
+        hint: organization.isActive ? "Active" : organization.policy.allowsPersonalHosts ? undefined : "Personal computers not allowed",
+        keywords: ["organization", "org", organization.organizationId],
+        run: () => serversStore.selectOrganization(organization.organizationId),
+      })),
     }] : []),
     {
       id: 'check-for-updates', label: 'Check for updates', group: 'General',
@@ -574,12 +587,11 @@
       run: () => projectPicker.startOpenProject({ sourceId: composerSourceId }),
     },
     {
-      id: "new-task",
-      label: "New task",
+      id: "new-project",
+      label: "New project…",
       group: "General",
-      hint: comboHint("global.new-task"),
-      keywords: ["create", "task"],
-      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
+      keywords: ["create", "folder", "start", "empty", "git init", "website", "app"],
+      run: () => projectPicker.startOpenProject({ sourceId: composerSourceId, source: "new" }),
     },
     {
       id: "new-session",
@@ -587,6 +599,14 @@
       group: "General",
       hint: comboHint("global.new-session"),
       keywords: ["create", "chat", "tab"],
+      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
+    },
+    {
+      id: "new-session-in-task",
+      label: "New session in task",
+      group: "General",
+      hint: comboHint("global.new-session-in-task"),
+      keywords: ["create", "chat", "tab", "task"],
       run: () => session.drafts.openSessionDraft({ via: "palette" }),
     },
     {
@@ -598,6 +618,7 @@
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
+    justChatCommand(session),
     {
       id: "workspace",
       label: "Open workspace",
@@ -634,6 +655,7 @@
       keywords: ["web", "viewport", "device"],
       run: () => session.openBrowser(),
     },
+    ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
     {
       id: "settings",
       label: "Settings",
@@ -730,10 +752,11 @@
 
 {#await commandPaletteComponent then module}
   {@const CommandPalette = module.default}
-  <CommandPalette bind:open={commandPaletteOpen} commands={paletteCommands} />
+  <CommandPalette bind:open={commandPaletteOpen} bind:initialPage={paletteInitialPage} commands={paletteCommands} />
 {:catch}
   <p role="alert">Could not load the command palette.</p>
 {/await}
+<BusyTreeConfirm />
 {#if hasMountedShareDialog}
   {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
     {@const ShareDialog = module.default}
@@ -790,7 +813,7 @@
 
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
-{#if cloudOnboardingStore.isAwaitingAccount}
+{#if !skipOnboarding && cloudOnboardingStore.isAwaitingAccount}
   <!-- At a cloud origin, until the account says whether onboarding is due: an
        opaque cover, not the workspace, so the draft composer never flashes
        before onboarding. Same composite as the onboarding surface. -->
@@ -822,7 +845,7 @@
     {@const OpenProjectDialog = openProjectModule.default}
     <OpenProjectDialog
       onOpenProject={(path) =>
-        void projectPicker.openProjectAtPath(path, openProjectStore.source !== "local")}
+        void projectPicker.openProjectAtPath(path, openProjectStore.source)}
       onBrowse={projectPicker.browseForOpenProject}
       onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
       localIdentity={projectPicker.localGitIdentity}
@@ -855,37 +878,7 @@
   {/await}
 {/if}
 
-{#if taskComposer && taskComposerConfig !== undefined}
-  {#await import("@solus/workspace-ui/components/tasks/TaskComposer.svelte")}
-    <div class="lazy-modal-loading" role="status">Loading task composer…</div>
-  {:then taskComposerModule}
-    {@const TaskComposer = taskComposerModule.default}
-    <TaskComposer
-      epics={taskComposerEpics}
-      allowEpics={taskComposerProvider === "local"}
-      canPlan={taskComposerProvider === "local"}
-      knownLabels={taskComposerLabels}
-      workingDirectory={taskComposer.workingDirectory}
-      provider={settings.activeAgent}
-      onCreate={async (input) => {
-        const context = taskComposer;
-        if (!context) return;
-        try {
-          await session.tasksStore.create(
-            { ...input, projectKey: context.projectKey },
-            context.serverId,
-          );
-          toasts.success("Task created");
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          toasts.error(`Couldn't create task: ${message}`);
-          throw error;
-        }
-      }}
-      onCancel={() => (session.ui.taskComposer = null)}
-    />
-  {/await}
-{/if}
+<SessionLinkPrompts />
 
 {#if isDraggingFile}
   <div data-solus-ui class="drop-overlay">

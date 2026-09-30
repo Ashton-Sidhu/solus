@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveAgentOwnership } from '../../packages/server/src/server/handlers/setup-commands'
+import { resolveAgentOwnership } from '../../packages/server/src/transport/handlers/setup-commands'
 
 // Provider Update must reuse the installer that already owns the CLI on this
 // host, and refuse to run it — rather than create a competing install —

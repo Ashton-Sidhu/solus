@@ -24,7 +24,7 @@ test.describe('render_artifact workflow', () => {
     await expect(inner.locator('[data-testid="artifact-input"]')).toBeVisible({ timeout: 5_000 })
   })
 
-  test('raster image artifact renders via the solus-artifact protocol', async ({ page }) => {
+  test('raster image artifact renders from a host-signed URL', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
@@ -33,9 +33,11 @@ test.describe('render_artifact workflow', () => {
 
     const img = page.locator(`${ACTIVE_TAB} [data-testid="artifact-image"]`)
     await expect(img).toBeVisible({ timeout: 10_000 })
-    await expect(img).toHaveAttribute('src', /^solus-artifact:\/\//)
+    // Desktop loads it the way web and mobile do: a URL its host signed. The
+    // file is in the temp directory, outside the project, and still shows.
+    await expect(img).toHaveAttribute('src', /\/api\/assets\//)
 
-    // The protocol served real bytes — the image decoded to non-zero dimensions.
+    // The host served real bytes — the image decoded to non-zero dimensions.
     await expect.poll(async () => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
 
     await page.locator(`${ACTIVE_TAB} [data-testid="artifact-view"]`).hover()

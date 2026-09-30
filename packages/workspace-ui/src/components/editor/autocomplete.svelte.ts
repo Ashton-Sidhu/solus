@@ -115,12 +115,14 @@ export function shouldReleaseSpacedAutocompleteQuery(
 /** Mouse hover sets selection, but not for this long after a navigation key —
  *  a stationary cursor must not steal the highlight during keyboard use. */
 const HOVER_SUPPRESSION_MS = 400;
+const SESSIONS_INDEXING: ReadonlySet<RefKind> = new Set(["session"]);
 export class UnifiedAutocompleteController {
   /** Index of the live trigger character within the text before the caret.
    *  Held across keystrokes so a query can keep its spaces. */
   #anchor = $state<number | null>(null);
   #textBeforeCursor = $state("");
-  /** Esc closes the popover but keeps the text; the next keystroke reopens it. */
+  /** Esc or a click away closes the popover but keeps the text; the next
+   *  keystroke reopens it. */
   #dismissed = $state(false);
   #selectedIndex = $state(0);
   cursorAnchorRect = $state<DOMRect | null>(null);
@@ -302,6 +304,7 @@ export class UnifiedAutocompleteController {
         task: this.#byKind.task.length,
         automation: this.#byKind.automation.length,
       },
+      indexingKinds: this.#index.sessionsIndexing ? SESSIONS_INDEXING : undefined,
     });
   });
 
@@ -594,6 +597,10 @@ export class UnifiedAutocompleteController {
     editor?.focus();
   };
 
+  dismiss = () => {
+    this.#dismissed = true;
+  };
+
   /** Hover selects, except right after a navigation key. */
   hoverRow = (index: number, event: MouseEvent) => {
     if (Date.now() - this.#lastKeyAt < HOVER_SUPPRESSION_MS) return;
@@ -696,7 +703,7 @@ export class UnifiedAutocompleteController {
         return false;
       case "Escape":
         e.preventDefault();
-        this.#dismissed = true;
+        this.dismiss();
         return true;
       default:
         return false;

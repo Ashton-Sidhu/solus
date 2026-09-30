@@ -4,15 +4,14 @@ import { z } from 'zod'
 
 import { createAppContext } from './create-app-context'
 import { TERMINAL_APP_IDS, type AppCodeFontFamily, type AppFontFamily, type SettingsCtx } from '@solus/contracts/types'
-import type { KeyCombo } from '../../lib/keybindings/types'
+import type { BindingOverrides } from '../../lib/keybindings/editing'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { MOBILE_QUERY } from './viewport'
-import { runtime } from './runtime.svelte'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
-import { DEFAULT_HOST_CONFIG, HOST_CONFIG_FIELDS, MAX_SIDEBAR_MOTION_MS } from '@solus/contracts/host-config'
+import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
+import { DEFAULT_HOST_CONFIG, HOST_CONFIG_FIELDS, MAX_SIDEBAR_MOTION_MS, MIN_ASSISTANT_TEXT_OPACITY } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { DocumentFontFamily, FontFamilyPreference, PromptFontFamily } from '@solus/contracts/host-config'
@@ -41,20 +40,22 @@ export type {
   ThemeMode,
 } from '@solus/contracts/host-config'
 
-export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'subagents' | 'automations'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'linked' | 'subagents' | 'watches'
 const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
   goal: false,
   environment: false,
   git: false,
-  // The card only exists while the session is bound to a task, so it opens on
-  // arrival — the same reasoning as the goal section above.
-  task: true,
+  // The section only exists while the session links a pull request, and the
+  // links are the reason to read it — so it opens.
+  linked: false,
   // The section only exists once the session has dispatched a sub-agent, and
   // a live fan-out is the thing the reader wants to watch — so it opens.
   subagents: false,
-  automations: true,
+  // The section only exists while the session has an active watch, which is a
+  // wait the person may want to stop — so it opens.
+  watches: false,
 } as const satisfies Record<ProjectPanelSectionId, boolean>
 
 /** Safari does not paint `theme-color` neat: it lays a translucent white
@@ -119,20 +120,12 @@ function applyFontSize(size: number): void {
  *  bridge method is absent there and this is a no-op. */
 function applyZoomFactor(factor: number): void {
   localApi.setZoomFactor?.(factor)
-  // Layout branches keyed on the display need the factor to read `screen.width`
-  // honestly — Chromium reports it in zoomed CSS pixels.
-  runtime.setZoomFactor(factor)
 }
 
-/** Zoom is a desktop shell capability; on web and mobile the browser owns it,
- *  so there is nothing to seed and the stored factor stays at 100%. */
-const DEFAULT_ZOOM_FACTOR =
-  localApi.setZoomFactor === undefined
-    ? ZOOM_FACTOR_DEFAULT
-    : defaultZoomFactorForScreen(globalThis.screen?.width)
-
 export const IS_MAC_OS = /Macintosh|Mac OS X/.test(globalThis.navigator?.userAgent ?? '')
-const DEFAULT_APP_FONT_FAMILY: AppFontFamily = IS_MAC_OS ? 'sf-pro-text' : 'inter'
+// The platform UI face: San Francisco on Apple devices, Segoe UI on Windows,
+// and the desktop's own face elsewhere.
+const DEFAULT_APP_FONT_FAMILY: AppFontFamily = 'system'
 
 // `weight` is the body weight tuned for crispest rendering of each typeface at
 // ~13px under grayscale antialiasing (-webkit-font-smoothing: antialiased).
@@ -255,6 +248,10 @@ function applyFontSmoothing(enabled: boolean): void {
   document.documentElement.style.setProperty('--solus-font-smoothing', enabled ? 'antialiased' : 'auto')
 }
 
+function applyAssistantTextOpacity(percent: number): void {
+  document.documentElement.style.setProperty('--solus-assistant-text-opacity', `${percent}%`)
+}
+
 const DEFAULT_CODE_FONT_SIZE = 12
 const DEFAULT_CODE_FONT_FAMILY: AppCodeFontFamily = 'jetbrains-mono'
 
@@ -312,11 +309,12 @@ const MIRRORED_HOST_KEYS = [
   'reviewModel',
   'reviewReasoning',
   'reviewGuideInstructions',
+  'savedLenses',
   'generatePrGuidesOnOpen',
   'reviewWarmingByProject',
   'responseStreamingMode',
   'autoRenameSessions',
-  'tasksEnabled',
+  'showToolCalls',
   'showDiffSummaryAfterTurn',
   'collapseComposerWhenIdle',
   'fontFamily',
@@ -328,6 +326,7 @@ const MIRRORED_HOST_KEYS = [
   'promptFontFamily',
   'promptFontSize',
   'fontSmoothing',
+  'assistantTextOpacity',
   'extraInstructions',
   'modelInstructions',
   'analyticsEnabled',
@@ -366,8 +365,9 @@ const keyComboSchema = z.object({
   mod: z.boolean().optional(),
 })
 
-const keybindingsSchema = z.record(z.string(), keyComboSchema).transform((bindings) => {
-  const valid: Record<string, KeyCombo> = {}
+// `null` is a shortcut the user removed.
+const keybindingsSchema = z.record(z.string(), keyComboSchema.nullable()).transform((bindings) => {
+  const valid: BindingOverrides = {}
   for (const [id, combo] of Object.entries(bindings)) {
     if (id in KEYBINDINGS) valid[id] = combo
   }
@@ -378,9 +378,9 @@ const projectPanelCollapsedSchema = z.object({
   goal: z.boolean().optional(),
   environment: z.boolean().optional(),
   git: z.boolean().optional(),
-  task: z.boolean().optional(),
+  linked: z.boolean().optional(),
   subagents: z.boolean().optional(),
-  automations: z.boolean().optional(),
+  watches: z.boolean().optional(),
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
 const projectLocationSchema = z.object({
@@ -412,13 +412,13 @@ function deviceField<Value>(
 const DEVICE_FIELDS = {
   // Only a first run may seed the screen-derived zoom (see the constructor);
   // a blob from before zoom existed reads as the neutral factor instead.
-  zoomFactor: deviceField(z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT), DEFAULT_ZOOM_FACTOR, ZOOM_FACTOR_DEFAULT),
+  zoomFactor: deviceField(z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT), ZOOM_FACTOR_DEFAULT),
   // Settings → Appearance shows the per-surface font overrides (prompt,
   // document, smoothing) only when this is on; the two-font view is the
   // default. Device-local: it is how this client's settings page is folded,
   // not a preference the host mirrors.
   typographyAdvanced: deviceField(z.boolean().catch(false), false),
-  keybindings: deviceField<Record<string, KeyCombo>>(keybindingsSchema.catch({}), {}),
+  keybindings: deviceField<BindingOverrides>(keybindingsSchema.catch({}), {}),
   projectPanelOpen: deviceField(z.boolean().catch(false), false),
   splitProjectPanelOpen: deviceField(z.boolean().catch(false), false),
   projectPanelWidth: deviceField<number | null>(z.number().positive().nullable().catch(null), null),
@@ -439,6 +439,9 @@ const DEVICE_FIELDS = {
   // session opened with nothing on screen to follow starts here. Device-local:
   // a server id only means something to the client that registered it.
   lastProject: deviceField<ProjectLocation | null>(projectLocationSchema.nullable().catch(null), null),
+  // The host the last Scratchpad chat started on. "Just chat" goes back there
+  // while it is up. Device-local for the same reason as `lastProject`.
+  lastChatServerId: deviceField<string | null>(z.string().nullable().catch(null), null),
   // First-run onboarding has already been through, or skipped. A client that
   // has never persisted settings is a fresh install, so the absence of the
   // whole blob is what means "show it" — a saved blob without this key belongs
@@ -471,6 +474,7 @@ const SETTING_EFFECTS: SettingEffects = {
   promptFontFamily: applyPromptFontFamily,
   promptFontSize: applyPromptFontSize,
   fontSmoothing: applyFontSmoothing,
+  assistantTextOpacity: applyAssistantTextOpacity,
 }
 
 /** Bounds a value takes on the way in, so a slider or a typed number cannot
@@ -485,6 +489,7 @@ const SETTING_NORMALIZERS: SettingNormalizers = {
   promptFontSize: (value) => Math.max(8, value),
   sidebarCompletedRetentionDays: (value) => Math.max(1, Math.min(365, Math.floor(value))),
   sidebarMotionMs: (value) => Math.max(0, Math.min(MAX_SIDEBAR_MOTION_MS, Math.round(value))),
+  assistantTextOpacity: (value) => Math.max(MIN_ASSISTANT_TEXT_OPACITY, Math.min(100, Math.round(value))),
 }
 
 // ─── Loading ───
@@ -778,8 +783,8 @@ export class SettingsContext {
    * Adopt this host's config, or seed the host from this client.
    *
    * The seed arm exists because the host cannot compute a platform-correct
-   * default: it does not know whether the client asking is a Mac
-   * (`sf-pro-text`) or a phone (11px font). So the first client to connect
+   * default: it does not know whether the client asking is a desktop or a
+   * phone (smaller type). So the first client to connect
    * writes what it resolved locally, and every client after it adopts that
    * rather than overwriting a choice the user already made elsewhere.
    */

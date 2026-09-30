@@ -1,0 +1,172 @@
+[
+  {
+    "name": "host search \"the\" (67547 messages)",
+    "unit": "ms",
+    "value": 103.16754200000014
+  },
+  {
+    "name": "host search \"session\" (67547 messages)",
+    "unit": "ms",
+    "value": 43.21679099999983
+  },
+  {
+    "name": "host search \"sess\" (67547 messages)",
+    "unit": "ms",
+    "value": 43.68370799999957
+  },
+  {
+    "name": "host search \"websocket reconnect\" (67547 messages)",
+    "unit": "ms",
+    "value": 2.5396670000000086
+  },
+  {
+    "name": "host search \"fix sidebar scroll\" (67547 messages)",
+    "unit": "ms",
+    "value": 1.2737080000006245
+  },
+  {
+    "name": "host search \"pelican\" (67547 messages)",
+    "unit": "ms",
+    "value": 0.11824999999953434
+  },
+  {
+    "name": "host search \"the\" in one project",
+    "unit": "ms",
+    "value": 105.72808299999997
+  },
+  {
+    "name": "host search \"sess\" in one project",
+    "unit": "ms",
+    "value": 45.51379200000065
+  },
+  {
+    "name": "host search \"websocket reconnect\" in one project",
+    "unit": "ms",
+    "value": 2.8213329999998678
+  },
+  {
+    "name": "client list build per keystroke, mean (1260 tasks)",
+    "unit": "ms",
+    "value": 1.8992016842103112
+  },
+  {
+    "name": "client list build per keystroke, worst (1260 tasks)",
+    "unit": "ms",
+    "value": 3.021665999999641
+  },
+  {
+    "name": "client list build, no query",
+    "unit": "ms",
+    "value": 0.45499999999992724
+  },
+  {
+    "name": "relevance hit@1 (19 queries)",
+    "unit": "ratio",
+    "value": 0.7894736842105263
+  },
+  {
+    "name": "relevance hit@3 (19 queries)",
+    "unit": "ratio",
+    "value": 0.7894736842105263
+  },
+  {
+    "name": "relevance MRR (19 queries)",
+    "unit": "ratio",
+    "value": 0.7898417372101583
+  },
+  {
+    "name": "position of \"onboarding\" — exact short title under newer longer ones",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"websocket reconnect\" — session name buried under task titles",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"tab\" — whole word over prefix matches",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"T-42\" — task by its id",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"update dep\" — same title: current over done",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"pelican migration\" — conversation found by its words",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"rate lim ban\" — session name typed half-way",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"diff viewer word\" — title that starts with the query",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"wal checkpoint\" — task found by its body",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"tray icon blurry\" — task and its like-named session",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"flaky reconnect test\" — exact phrase in a conversation",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"picker relevance\" — session title among content hits",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"cheatsheet overlay\" — unclaimed session by its title only",
+    "unit": "rank",
+    "value": null
+  },
+  {
+    "name": "position of \"jitter backoff\" — session by its branch",
+    "unit": "rank",
+    "value": null
+  },
+  {
+    "name": "position of \"lighthouse cache header\" — words across two messages of a session",
+    "unit": "rank",
+    "value": null
+  },
+  {
+    "name": "position of \"reconnect websocket\" — held out: a name with its words reversed",
+    "unit": "rank",
+    "value": 143
+  },
+  {
+    "name": "position of \"ONBOARDING\" — held out: a name typed in capitals",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"overflow menu\" — held out: the end of a title",
+    "unit": "rank",
+    "value": 1
+  },
+  {
+    "name": "position of \"flaky e2e\" — held out: a task among conversations that say \"flaky\"",
+    "unit": "rank",
+    "value": 1
+  }
+]

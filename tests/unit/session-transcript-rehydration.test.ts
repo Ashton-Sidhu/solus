@@ -1,11 +1,14 @@
+import type { Activity } from '@solus/contracts/activity'
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
 import type { IpcContext } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
-import { parseJsonlLine } from '@solus/server/agents/claude/claude-session-helpers'
-import { projectSessionHistory } from '@solus/server/server/result-projection'
-import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
+import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
+import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
+import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
+import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
+import { deferSessionToolInputs } from '@solus/server/data/sessions/session-tool-inputs'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
 const connections = singleHostServerConnections()
@@ -18,12 +21,25 @@ const {
   loadRestoredSessionTranscript,
   loadSessionTranscript,
   materializeSessionTranscript,
-  RESTORED_TRANSCRIPT_LIMIT,
 } = await import('@solus/workspace-ui/contexts/workspace/session-transcript')
+const { INITIAL_HISTORY_TURNS } = await import('@solus/client-core/session-history-page')
 
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
+  test('shared history hydration keeps the durable Q&A row', () => {
+    const questionAnswer = { questionId: 'codex-async:session:ask', questions: [{ id: '0', question: 'Which branch?', options: [], multiSelect: false }], answers: { '0': 'main' } }
+    const history = projectSessionHistory([{ role: 'system', content: '', timestamp: 10, questionAnswer }])
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, history)
+    expect(transcript.messages).toHaveLength(1)
+    expect(transcript.messages[0].questionAnswer).toEqual(questionAnswer)
+  })
+
   for (const provider of ['claude-code', 'codex'] as const) {
     test(`${provider} restores artifact updates, identities and failed calls from mobile history`, () => {
       const prefix = provider === 'claude-code' ? 'mcp__solus__' : ''
@@ -57,6 +73,35 @@ describe('session transcript rehydration', () => {
       expect(artifacts.map((message) => message.workRef?.title)).toEqual(['Same title', 'Same title', 'Renamed'])
     })
   }
+  test('keeps the full thoughts before a tool call or prose block on that message', () => {
+    // WHY: a reloaded turn must open the same thoughts the live turn showed.
+    // Reasoning with no readable text adds nothing, a message with no reasoning
+    // before it carries none, and the prose block keeps its own thoughts.
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, [
+      { role: 'user', content: 'fix the rule', timestamp: 1 },
+      { role: 'reasoning', content: 'First idea', timestamp: 2 },
+      { role: 'reasoning', content: '**Reading the stylesheet**\n\nThe rule is unlayered.', timestamp: 3 },
+      { role: 'reasoning', content: '   ', timestamp: 4 },
+      { role: 'tool', content: '', toolName: 'Read', toolId: 'read', toolInput: '{}', timestamp: 6 },
+      { role: 'tool', content: '', toolName: 'Edit', toolId: 'edit', toolInput: '{}', timestamp: 7 },
+      { role: 'reasoning', content: 'Checking the result', timestamp: 8 },
+      { role: 'assistant', content: 'Fixed.', timestamp: 9 },
+    ])
+    const tools = transcript.messages.filter((message) => message.role === 'tool')
+    expect(tools.map((tool) => tool.thoughts)).toEqual([
+      ['First idea', '**Reading the stylesheet**\n\nThe rule is unlayered.'],
+      undefined,
+    ])
+    expect(tools[0].thinkingMs).toBe(4)
+    const answer = transcript.messages.find((message) => message.role === 'assistant')
+    expect(answer?.thoughts).toEqual(['Checking the result'])
+  })
+
   test('late subagent activity follows its owning call across disjoint pages', async () => {
     connections.registerPrimary('transcript-host', {
       loadSessionPage: async (request) => request.before ? {
@@ -106,7 +151,7 @@ describe('session transcript rehydration', () => {
       sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
       ctx: { session: { sessionId: 'tab' } } as IpcContext, before: 'older-page',
     })
-    expect(loadSessionPage.mock.calls[0]?.[0]).toMatchObject({ before: 'older-page', limit: 200 })
+    expect(loadSessionPage.mock.calls[0]?.[0]).toMatchObject({ before: 'older-page', turnLimit: INITIAL_HISTORY_TURNS })
     expect(transcript.truncated).toBe(true)
     expect(transcript.before).toBe('next-page')
   })
@@ -129,7 +174,7 @@ describe('session transcript rehydration', () => {
     })
   })
 
-  test('mobile history keeps the source needed to fetch inputs on summary expansion', async () => {
+  test('a full history read defers tool inputs and keeps the source needed to fetch them on expansion', async () => {
     const options: Array<{ deferToolInputs?: boolean } | undefined> = []
     connections.registerPrimary('transcript-host', {
       loadSession: async (_sessionId, _projectPath, _ctx, _provider, _limit, option) => {
@@ -139,7 +184,6 @@ describe('session transcript rehydration', () => {
     })
     const ctx = {
       apiForSession: () => connections.apiFor('transcript-host'),
-      deferHistoryToolInputs: true,
       automationsStore: { loaded: true },
     } as unknown as WorkspaceContext
 
@@ -230,18 +274,20 @@ describe('session transcript rehydration', () => {
     })
   })
 
-  test('keeps both model labels on a restored handoff divider', async () => {
+  test('keeps both models on a restored agent switch', async () => {
+    const activity: Activity = {
+      id: 'handoff:session-1:1',
+      subject: { kind: 'session', id: 'session-1' },
+      at: 2,
+      by: { kind: 'system' },
+      kind: 'agent_switched',
+      provider: 'codex',
+      model: 'gpt-5.4',
+      fromProvider: 'claude-code',
+      fromModel: 'Sonnet 5',
+    }
     connections.registerPrimary('transcript-host', {
-      loadSession: async () => [{
-        role: 'system' as const,
-        content: 'Switched to Codex',
-        agentChangedTo: 'Codex',
-        agentChangedFromModel: 'Sonnet 5',
-        agentChangedToModel: 'Gpt 5.4',
-        agentChangedFromProvider: 'claude-code' as const,
-        agentChangedToProvider: 'codex' as const,
-        timestamp: 2,
-      }],
+      loadSession: async () => [{ messageId: activity.id, role: 'system' as const, content: '', activity, timestamp: 2 }],
     })
     const ctx = {
       apiForSession: () => connections.apiFor('transcript-host'),
@@ -257,13 +303,10 @@ describe('session transcript rehydration', () => {
     })
 
     // WHY: reloading a session must not reduce a model-to-model boundary back
-    // to the older provider-only label.
-    expect(transcript.messages[0]).toMatchObject({
-      agentChangedFromModel: 'Sonnet 5',
-      agentChangedToModel: 'Gpt 5.4',
-      agentChangedFromProvider: 'claude-code',
-      agentChangedToProvider: 'codex',
-    })
+    // to the older provider-only label, and the switch is drawn for every
+    // reader, the one who made it too.
+    expect(transcript.messages).toHaveLength(1)
+    expect(transcript.messages[0].activity).toMatchObject({ kind: 'agent_switched', provider: 'codex', model: 'gpt-5.4', fromProvider: 'claude-code', fromModel: 'Sonnet 5' })
   })
 
   test('keeps projected nested tool status without restoring its output', async () => {
@@ -352,136 +395,4 @@ describe('session transcript rehydration', () => {
     expect(transcript.messages.at(-1)?.content).toBe('message-149')
     expect(transcript.truncated).toBe(false)
   })
-
-  test('marks restored transcript windows for on-demand expansion', async () => {
-    const history = Array.from({ length: RESTORED_TRANSCRIPT_LIMIT + 50 }, (_, index) => ({
-      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
-      content: `message-${index}`,
-      timestamp: index,
-    }))
-    connections.registerPrimary('transcript-host', {
-      loadSession: async (
-        _sessionId: string,
-        _projectPath: string,
-        _ctx: IpcContext,
-        _provider: string,
-        limit?: number,
-      ) => limit ? history.slice(-limit) : history,
-    })
-    const ctx = {
-      apiForSession: () => connections.apiFor('transcript-host'),
-      automationsStore: { loaded: true },
-    } as unknown as WorkspaceContext
-
-    const transcript = await loadSessionTranscript(ctx, {
-      sessionId: 'session-1',
-      loadPath: '/repo',
-      displayCwd: '/repo',
-      provider: 'codex',
-      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
-      limit: RESTORED_TRANSCRIPT_LIMIT,
-    })
-
-    expect(transcript.messages).toHaveLength(RESTORED_TRANSCRIPT_LIMIT)
-    expect(transcript.truncated).toBe(true)
-  })
-
-  test('applies the restore window to every transcript in a provider handoff', async () => {
-    const limits: Array<{ sessionId: string; limit?: number }> = []
-    const history = Array.from({ length: RESTORED_TRANSCRIPT_LIMIT + 50 }, (_, index) => ({
-      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
-      content: `message-${index}`,
-      timestamp: index,
-    }))
-    connections.registerPrimary('transcript-host', {
-      loadSession: async (
-        sessionId: string,
-        _projectPath: string,
-        _ctx: IpcContext,
-        _provider: string,
-        limit?: number,
-      ) => {
-        limits.push({ sessionId, limit })
-        return limit ? history.slice(-limit) : history
-      },
-    })
-    const ctx = {
-      apiForSession: () => connections.apiFor('transcript-host'),
-      automationsStore: { loaded: true },
-    } as unknown as WorkspaceContext
-    const common = {
-      loadPath: '/repo',
-      displayCwd: '/repo',
-      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
-    }
-
-    const predecessor = await loadRestoredSessionTranscript(ctx, {
-      ...common,
-      sessionId: 'predecessor',
-      provider: 'claude-code',
-    })
-    const current = await loadRestoredSessionTranscript(ctx, {
-      ...common,
-      sessionId: 'current',
-      provider: 'codex',
-    })
-
-    expect(limits).toEqual([
-      { sessionId: 'predecessor', limit: RESTORED_TRANSCRIPT_LIMIT },
-      { sessionId: 'current', limit: RESTORED_TRANSCRIPT_LIMIT },
-    ])
-    expect(predecessor.messages).toHaveLength(RESTORED_TRANSCRIPT_LIMIT)
-    expect(current.messages).toHaveLength(RESTORED_TRANSCRIPT_LIMIT)
-    expect(predecessor.truncated).toBe(true)
-    expect(current.truncated).toBe(true)
-  })
-})
-
-
-test('first-render transcript conversion does not wait for automation metadata', () => {
-  connections.registerPrimary('transcript-host', {})
-  const loadAll = mock(() => new Promise<void>(() => {}))
-  const ctx = {
-    apiForSession: () => connections.apiFor('transcript-host'),
-    automationsStore: { loaded: false, items: [], loadAll },
-  } as unknown as WorkspaceContext
-  const transcript = materializeSessionTranscript(ctx, {
-    sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
-    ctx: { session: { sessionId: 'tab' } } as IpcContext,
-  }, {
-    messages: [
-      { role: 'user', content: 'show this immediately', timestamp: 1 },
-      { role: 'tool', content: '', toolName: 'create_automation', toolInput: '{"name":"Later"}', timestamp: 2 },
-    ], before: null,
-  })
-  expect(transcript.messages[0].content).toBe('show this immediately')
-  expect(loadAll).not.toHaveBeenCalled()
-})
-
-test('Claude MCP array receipts restore both versions and keep failed revisions out', () => {
-  const history: SessionLoadMessage[] = []
-  for (const [toolId, name, input, receipt, failed] of [
-    ['create', 'render_artifact', { html: '<p>One</p>' }, 'Rendered "One" in the conversation and saved it as an artifact (id: work).', false],
-    ['update', 'update_work', { work_id: 'work', content: '<p>Two</p>' }, 'Updated "Two" (artifact, id: work).', false],
-    ['failed', 'update_work', { work_id: 'work', content: '<p>Failed</p>' }, 'Save failed', true],
-  ] as const) {
-    const result = [{ type: 'text', text: receipt }]
-    for (const row of [
-      { type: 'assistant', timestamp: 1, message: { content: [{ type: 'tool_use', id: toolId, name: `mcp__solus__${name}`, input }] } },
-      { type: 'user', timestamp: 2, toolUseResult: result, message: { content: [{ type: 'tool_result', tool_use_id: toolId, content: result, is_error: failed }] } },
-    ]) {
-      const parsed = parseJsonlLine(JSON.stringify(row))
-      expect(parsed).not.toBeNull()
-      if (parsed) history.push(parsed)
-    }
-  }
-  connections.registerPrimary('transcript-host', {})
-  const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
-  const transcript = materializeSessionTranscript(ctx, {
-    sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
-    ctx: { session: { sessionId: 'tab' } } as IpcContext,
-  }, deferSessionToolInputs(projectSessionHistory(history)))
-  expect(transcript.messages.filter(m => m.artifact).map(m => [m.artifact?.html, m.workRef?.workId])).toEqual([
-    ['<p>One</p>', 'work'], ['<p>Two</p>', 'work'],
-  ])
 })

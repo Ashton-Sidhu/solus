@@ -66,8 +66,28 @@ describe('rail items', () => {
     expect(items.every((item) => item.spanId === null)).toBe(true)
     expect(items[1].status).toBe('error')
     expect(items[0].title).toBe('fix the flaky test')
-    // Model ids stay identical to the query value on every Insights surface.
-    expect(items[0].metaLabel).toStartWith('gpt-5.6-sol · ')
+    // An id no profile knows is shown as recorded, never blanked.
+    expect(items[0].modelLabel).toBe('gpt-5.6-sol')
+  })
+
+  test('a turn names its model the way the picker did, behind its backend mark', () => {
+    const [claude, codex, legacy] = railItemsFromTurns([
+      turn('tr_a', { model: 'claude-opus-5-5[1m]', provider: 'claude-code' }),
+      turn('tr_b', { model: 'gpt-6-sol', provider: 'codex' }),
+      // Recorded before the provider field existed: matched by its id.
+      turn('tr_c', { model: 'claude-fable-5-1', provider: null }),
+    ])
+    expect(claude.modelLabel).toBe('Opus 5.5')
+    expect(claude.mark).toBe('claude')
+    expect(codex.modelLabel).toBe('Gpt 6 Sol')
+    expect(codex.mark).toBe('codex')
+    expect(legacy.modelLabel).toBe('Fable 5.1')
+    expect(legacy.mark).toBeNull()
+  })
+
+  test('a turn with no recorded cost shows no cost rather than a dash', () => {
+    const [item] = railItemsFromTurns([turn('tr_a', { costUsd: null })])
+    expect(item.costLabel).toBeNull()
   })
 
   test('an event item keeps the span it must land on', () => {

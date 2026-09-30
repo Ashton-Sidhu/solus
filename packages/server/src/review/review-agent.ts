@@ -2,13 +2,13 @@ import { createLogger } from '../logger'
 import type { ReviewContext, ReviewLedger, ReviewGuideDraft } from '@solus/contracts/review'
 import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { ReviewProgressStep } from '@solus/contracts/review'
-import type { AgentDispatcher } from '../agents/agent-runner'
-import { buildSystemPrompt } from '../agents/system-hint'
-import { hostInstructionsFor } from '../agents/run-input'
+import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import { buildSystemPrompt } from '../execution/agents/system-hint'
+import { hostInstructionsFor } from '../execution/agents/run-input'
 import {
   createReviewGuideAgentTool,
 } from './review-guide-tool'
-import { SPAN_SERVICES } from '../observability/registries'
+import { SPAN_SERVICES } from '../data/insights/registries'
 
 const log = createLogger('review', 'review-agent.ts')
 const REVIEW_AGENT_TIMEOUT_MS = 10 * 60_000

@@ -1,5 +1,5 @@
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
-import { type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
+import { isSessionBusyStatus, type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import { loadCachedStart, saveCachedStart } from './tab-persistence'
 import { extractChangedFilePaths, extractChangedFilePathsFromMessage } from '../../lib/changedFiles'
@@ -7,18 +7,15 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { AgentContext } from '../app/agent.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SessionConfigController } from './session-config.svelte'
-import { reconcileQueuedPromptsForSession, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
-import { progressFromMessages } from './session.utils'
+import { OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
+import { reconcileQueuedPromptsForSession } from './session-transcript'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-
-/** Raw messages added per automatic backfill round. Matches the initial restore
- *  window, so filling an empty viewport costs the same read that opened it. */
-const HISTORY_PAGE_LIMIT = RESTORED_TRANSCRIPT_LIMIT
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 
 export interface StaticInfo {
   version: string
@@ -45,47 +42,19 @@ export interface WorkspaceLifecycleStoreDeps {
   refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
   apiFor(tabId: string): HostApi
+  /** The host `apiFor` answers with, by name: plugin commands are read only from a machine. */
+  serverIdFor(tabId: string): string
   loadTranscript(args: {
     sessionId: string
     loadPath: string
     displayCwd: string
     provider: AgentId
     ctx: IpcContext
-    limit?: number
+    turnLimit?: number
     before?: string
     pendingMessages?: WireSessionLoadMessage[]
   }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean; before?: string | null; pendingMessages?: WireSessionLoadMessage[] }>
   rebuildAgentConversations(session: Session): void
-}
-
-function expandedMessageKey(message: Message): string {
-  const stableId = message.toolId ?? message.planToolUseId ?? ''
-  return `${message.role}\0${message.timestamp}\0${stableId}`
-}
-
-/** Keep live objects/updates that landed while a full-history RPC was running. */
-export function reconcileExpandedHistory(
-  loaded: Session['messages'],
-  current: Session['messages'],
-): Session['messages'] {
-  const reconciled = [...loaded]
-  const loadedIndexByKey = new Map<string, number>()
-  for (let index = 0; index < reconciled.length; index++) {
-    loadedIndexByKey.set(expandedMessageKey(reconciled[index]), index)
-  }
-  for (const message of current) {
-    const key = expandedMessageKey(message)
-    const loadedIndex = loadedIndexByKey.get(key)
-    if (loadedIndex === undefined) {
-      loadedIndexByKey.set(key, reconciled.length)
-      reconciled.push(message)
-    } else {
-      // Prefer the existing reactive object: it may contain a streaming suffix,
-      // a just-completed tool result, or nested sub-agent state newer than disk.
-      reconciled[loadedIndex] = message
-    }
-  }
-  return reconciled
 }
 
 export class WorkspaceLifecycleStore {
@@ -100,7 +69,8 @@ export class WorkspaceLifecycleStore {
 
   // Non-reactive guards: callers share an in-flight initialization, and a failed
   // connection attempt remains retryable after the transport reconnects.
-  private staticInfoInitialized = false
+  /** The machine `staticInfo` was last read from; a new default machine reads again. */
+  private staticInfoServerId: string | null = null
   private staticInfoInitialization: Promise<void> | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
@@ -113,12 +83,37 @@ export class WorkspaceLifecycleStore {
    *  the next read, which every later open or switch makes. */
   private pluginCommandInflight = new Map<string, { source: string; promise: Promise<void> }>()
   private historyExpansions = new Map<string, Promise<void>>()
-  /** Widest raw-message window already pulled for an agent session, so each bounded
-   *  expansion asks for strictly more than the last one did. Keyed by agent session
-   *  id rather than tab: a tab outlives the session that was resumed into it. */
-  private historyWindowLimits = new Map<string, number>()
+  /** The window a session had before its first older page was prepended: the
+   *  message that opened it and the cursor that read the page before it. The
+   *  host cursor is opaque, so this is the only way back to that window. */
+  private restoredWindows = new WeakMap<Session, {
+    firstMessageId: string
+    cursor: string
+    pendingMessages: Session['historyPendingMessages']
+  }>()
 
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
+
+  /**
+   * Drop the older pages a reader scrolled into, back to the window the tab
+   * was restored with. The pool calls this when a conversation unmounts, so a
+   * hidden tab does not hold a long history in memory; scrolling up reads it
+   * again. A running session keeps everything: its turn may reach back.
+   */
+  releaseOlderHistory(tabId: string): void {
+    const session = this.deps.registry.sessionFor(tabId)
+    if (!session || isSessionBusyStatus(session.status)) return
+    const restored = this.restoredWindows.get(session)
+    if (!restored || session.historyCursor === restored.cursor) return
+    const start = session.messages.findIndex((message) => message.id === restored.firstMessageId)
+    if (start <= 0) return
+    session.messages.splice(0, start)
+    session.historyCursor = restored.cursor
+    session.historyPendingMessages = restored.pendingMessages
+    session.historyTruncated = true
+    this.restoredWindows.delete(session)
+    this.deps.rebuildAgentConversations(session)
+  }
 
   /**
    * Apply a start() payload to staticInfo + agent metadata. The workspace path
@@ -213,8 +208,15 @@ export class WorkspaceLifecycleStore {
     if (cached) this.applyStartInfo(cached, { fresh: false })
   }
 
+  /**
+   * Read `start()` from the default machine. A window with no machine yet — the
+   * account origin before any machine connects — reads nothing and paints from
+   * the cache; the runtime calls this again as machines connect, and a default
+   * machine that changed is read again.
+   */
   async initStaticInfo(): Promise<void> {
-    if (this.staticInfoInitialized) return
+    const serverId = serverConnections.defaultMachineId()
+    if (!serverId || serverId === this.staticInfoServerId) return
     if (this.staticInfoInitialization) return this.staticInfoInitialization
 
     const initialization = (async () => {
@@ -226,7 +228,7 @@ export class WorkspaceLifecycleStore {
       const optimisticEnvironmentRefresh = coldLoad
         ? this.deps.refreshGitState().catch(() => null)
         : null
-      const result = await this.defaultHostApi().start()
+      const result = await serverConnections.apiFor(serverId).start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (coldLoad) {
@@ -245,7 +247,7 @@ export class WorkspaceLifecycleStore {
 
     try {
       await initialization
-      this.staticInfoInitialized = true
+      this.staticInfoServerId = serverId
     } finally {
       if (this.staticInfoInitialization === initialization) this.staticInfoInitialization = null
     }
@@ -258,16 +260,12 @@ export class WorkspaceLifecycleStore {
    * during onboarding reads as available without a relaunch.
    */
   async refreshAgentAvailability(): Promise<void> {
-    const result = await this.defaultHostApi().start()
+    const serverId = serverConnections.defaultMachineId()
+    if (!serverId) return
+    const result = await serverConnections.apiFor(serverId).start()
     this.applyStartInfo(result, { fresh: true })
     saveCachedStart(result)
-  }
-
-  /** start() is a boot payload: it comes from the new-work default host. */
-  private defaultHostApi(): HostApi {
-    const serverId = serverConnections.defaultServerId()
-    if (!serverId) throw new Error('Primary Solus connection has not been registered')
-    return serverConnections.apiFor(serverId)
+    this.staticInfoServerId = serverId
   }
 
   /**
@@ -278,6 +276,9 @@ export class WorkspaceLifecycleStore {
    */
   async refreshPluginCommands(workingDirectory: string, tabId?: string, opts: { onlyIfStale?: boolean } = {}): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
+    // Slash commands are a checkout's; a run that names no machine (the account
+    // origin before one connects) falls to the workspace service, which has none.
+    if (!hostRolesStore.hasExecution(this.deps.serverIdFor(targetTabId))) return
     const targetSession = this.deps.registry.sessionFor(targetTabId)
     const provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
     const source = `${provider}\0${workingDirectory}`
@@ -347,9 +348,9 @@ export class WorkspaceLifecycleStore {
   }
 
   /**
-   * Bring older messages into the transcript. The default widens the window by
-   * one bounded page for scrolling. `full` reads the complete transcript only
-   * for an explicit operation that needs it, such as Find or reveal-all.
+   * Bring older turns into the transcript, one page at a time. The default
+   * reads one page for scrolling. `full` reads every remaining page, only for
+   * an explicit operation that needs it, such as Find or reveal-all.
    */
   async expandHistory(tabId: string, opts?: { full?: boolean }): Promise<void> {
     const existing = this.historyExpansions.get(tabId)
@@ -362,7 +363,7 @@ export class WorkspaceLifecycleStore {
     const target = this.deps.registry.sessionFor(tabId)
     const expansion = (async () => {
       do {
-        await this.expandHistoryOnce(tabId, !opts?.full)
+        await this.expandHistoryOnce(tabId)
       } while (opts?.full && target === this.deps.registry.sessionFor(tabId)
         && target?.historyTruncated && target.historyCursor != null)
     })()
@@ -380,12 +381,18 @@ export class WorkspaceLifecycleStore {
       loadPath: session.run.gitContext?.worktreePath || session.run.workingDirectory,
       displayCwd: session.run.workingDirectory,
       provider: session.run.provider ?? this.deps.settings.activeAgent,
-      ctx: this.deps.ctxFor(tabId), limit: HISTORY_PAGE_LIMIT, before,
+      ctx: this.deps.ctxFor(tabId), turnLimit: OLDER_HISTORY_TURNS, before,
       pendingMessages: session.historyPendingMessages,
     })
     if (this.deps.registry.sessionFor(tabId) !== session
       || session.agentSessionId !== agentSessionId || session.historyCursor !== before) return
     if (transcript.before === before) throw new Error('History paging made no progress.')
+    const firstMessageId = session.messages[0]?.id
+    if (!this.restoredWindows.has(session) && firstMessageId) {
+      this.restoredWindows.set(session, {
+        firstMessageId, cursor: before, pendingMessages: session.historyPendingMessages,
+      })
+    }
     // Pages are disjoint. Timestamp-based deduplication could discard two
     // distinct messages that share a provider timestamp.
     const older = transcript.messages
@@ -400,65 +407,10 @@ export class WorkspaceLifecycleStore {
     for (const planId of transcript.planIds) void this.deps.planStore.hydrateAnnotations(planId)
   }
 
-  private async expandHistoryOnce(tabId: string, bounded: boolean): Promise<void> {
+  private async expandHistoryOnce(tabId: string): Promise<void> {
     const session = this.deps.registry.sessionFor(tabId)
-    if (!session?.agentSessionId || !session.historyTruncated) return
-    const agentSessionId = session.agentSessionId
-    if (session.historyCursor != null) {
-      return this.prependHistoryPage(tabId, session, agentSessionId, session.historyCursor)
-    }
-    // Grow off the previous window rather than the rendered message count: a
-    // page of tool results can collapse into no new rows, and the next request
-    // still has to reach further back or the caller loops forever.
-    const previousLimit = this.historyWindowLimits.get(agentSessionId) ?? RESTORED_TRANSCRIPT_LIMIT
-    const limit = bounded ? previousLimit + HISTORY_PAGE_LIMIT : undefined
-    const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
-    const displayCwd = session.run.workingDirectory
-    const loadPath = session.run.gitContext?.worktreePath || displayCwd
-    const provider = session.run.provider ?? this.deps.settings.activeAgent
-    const predecessorTranscript = handoffFrom
-      ? await this.deps.loadTranscript({
-          sessionId: handoffFrom.sessionId,
-          loadPath,
-          displayCwd,
-          provider: handoffFrom.provider,
-          ctx: this.deps.ctxFor(tabId),
-          limit,
-        })
-      : null
-    const transcript = await this.deps.loadTranscript({
-      sessionId: agentSessionId,
-      loadPath,
-      displayCwd,
-      provider,
-      ctx: this.deps.ctxFor(tabId),
-      limit,
-    })
-    const s = this.deps.registry.sessionFor(tabId)
-    if (
-      s !== session ||
-      s.agentSessionId !== agentSessionId ||
-      s.handoffFrom?.sessionId !== handoffFrom?.sessionId ||
-      s.handoffFrom?.provider !== handoffFrom?.provider
-    ) return
-    const loadedMessages = [
-      ...(predecessorTranscript?.messages ?? []),
-      ...transcript.messages,
-    ]
-    if (loadedMessages.length === 0) return
-    const reconciled = reconcileExpandedHistory(loadedMessages, s.messages)
-    s.messages.splice(0, s.messages.length, ...reconciled)
-    this.deps.rebuildAgentConversations(s)
-    s.progress = handoffFrom ? progressFromMessages(reconciled) : transcript.progress
-    s.historyTruncated = !!predecessorTranscript?.truncated || !!transcript.truncated
-    s.historyCursor = transcript.before
-    s.historyPendingMessages = transcript.pendingMessages
-    if (limit && s.historyTruncated) this.historyWindowLimits.set(agentSessionId, limit)
-    else this.historyWindowLimits.delete(agentSessionId)
-    this.recomputeChangedFiles(tabId)
-    for (const planId of [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]) {
-      void this.deps.planStore.hydrateAnnotations(planId)
-    }
+    if (!session?.agentSessionId || !session.historyTruncated || session.historyCursor == null) return
+    return this.prependHistoryPage(tabId, session, session.agentSessionId, session.historyCursor)
   }
 
   async hydrateChangedFilesFromDiff(tabId: string): Promise<void> {

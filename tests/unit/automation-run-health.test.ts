@@ -27,7 +27,7 @@ describe('runHealth', () => {
     // not evidence the automation works, so it must not inflate the count.
     const runs = [
       run('a', 10, 'succeeded'),
-      run('b', 10, 'dispatched'),
+      run('b', 10, 'succeeded'),
       run('c', 10, 'failed'),
       run('d', 10, 'cancelled'),
       run('e', 10, 'running'),

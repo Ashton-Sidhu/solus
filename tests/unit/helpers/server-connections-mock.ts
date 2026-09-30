@@ -3,6 +3,7 @@ import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { HostCapabilities } from '@solus/contracts/types'
 import type { ConnectionStatus } from '@solus/client-core/ws-transport'
+import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { BrowserFrameSubscriber } from '@solus/client-core/browser-frame-subscriber'
 
 const capabilities: HostCapabilities = {
@@ -31,6 +32,8 @@ export function singleHostServerConnections() {
   const apis = new Map<string, HostApi>()
   const eventsByServerId = new Map<string, HostEventSubscriber>()
   const framesByServerId = new Map<string, BrowserFrameSubscriber>()
+  const phaseListeners = new Set<(serverId: string, phase: HostPhase, attempt: number) => void>()
+  const phases = new Map<string, HostPhase>()
   const statusListeners = new Set<(
     serverId: string,
     status: ConnectionStatus,
@@ -82,12 +85,17 @@ export function singleHostServerConnections() {
       for (const subscriber of framesByServerId.values()) subscriber.clear()
       framesByServerId.clear()
       statusListeners.clear()
+      phaseListeners.clear()
+      phases.clear()
     },
     resolveId: (serverId: string) => serverId === 'local' ? primaryServerId : serverId,
     ensure: (serverId: string) => connection(serverId),
     apiFor: (serverId: string) => api(serverId),
     setPrimary: (serverId: string) => { primaryServerId = serverId },
     defaultServerId: () => primaryServerId,
+    // Every host in a single-host test is a machine this client knows.
+    defaultMachineId: () => primaryServerId,
+    isKnownServer: () => true,
     localServerId: () => 'local',
     localHostApi: () => api('local'),
     eventsFor: (serverId: string) => events(serverId),
@@ -110,8 +118,16 @@ export function singleHostServerConnections() {
       for (const listener of statusListeners) listener(serverId, status, attempt)
     },
     onConnectionCreated: () => () => {},
-    onPhaseChange: () => () => {},
-    phaseFor: () => 'connected' as const,
+    onPhaseChange: (listener: (serverId: string, phase: HostPhase, attempt: number) => void) => {
+      phaseListeners.add(listener)
+      return () => phaseListeners.delete(listener)
+    },
+    phaseFor: (serverId: string): HostPhase => phases.get(serverId) ?? 'connected',
+    /** Move one host's supervisor phase, as a drop or a reconnect does. */
+    emitPhase: (serverId: string, phase: HostPhase) => {
+      phases.set(serverId, phase)
+      for (const listener of phaseListeners) listener(serverId, phase, 0)
+    },
     dialNow: () => {},
     startCatalogSupervisors: () => {},
     retain: () => {},

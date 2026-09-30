@@ -21,7 +21,7 @@ const THEME_VARS = [
   '--solus-accent-border-medium',
   '--solus-tool-border',
   '--solus-font-family',
-  // Warm artifact palette — parchment neutrals + brand-coherent categorical
+  // Artifact palette — ivory neutrals + brand-coherent categorical
   // data colours, so renders never fall back to generic grey/rainbow.
   '--solus-art-surface',
   '--solus-art-raised',
@@ -53,6 +53,45 @@ const CSP_META =
   `connect-src https:; ` +
   `media-src data: blob: https:">`;
 
+// Strict CSP for HTML that someone other than the user can influence. A review
+// lens is authored by an agent that read a pull request, and a pull request can
+// carry instructions from anyone. No network at all: the render cannot send
+// the diff it describes anywhere. A later <meta> CSP in the render can only
+// narrow this, never widen it. What stays open: the frame can still navigate
+// itself, which no CSP directive closes (docs/plans/review-lenses.md).
+const ISOLATED_CSP_META =
+  `<meta http-equiv="Content-Security-Policy" content="` +
+  `default-src 'none'; ` +
+  `script-src 'unsafe-inline'; ` +
+  `style-src 'unsafe-inline'; ` +
+  `img-src data: blob:; ` +
+  `font-src data:; ` +
+  `media-src data: blob:; ` +
+  `connect-src 'none'; ` +
+  `form-action 'none'; ` +
+  `base-uri 'none'">`;
+
+// Answers "what is under this point?" for the lens comment pin: the nearest
+// element that names a place in the change, and its text for the quote. The
+// render can forge the answer, so the host treats it as untrusted text and
+// checks the path and line against the diff before it drafts anything.
+const ANCHOR_RESPONDER = `<script>(function(){
+  window.addEventListener("message", function(event){
+    var data = event.data;
+    if (event.source !== parent || !data || data.type !== "solus-lens-anchor-query") return;
+    var el = document.elementFromPoint(data.x, data.y);
+    var anchor = el && el.closest ? el.closest("[data-solus-file]") : null;
+    var target = anchor || el;
+    var text = target ? String(target.innerText || target.textContent || "").trim().slice(0, 280) : "";
+    var line = anchor ? parseInt(anchor.getAttribute("data-solus-line") || "", 10) : NaN;
+    parent.postMessage({
+      type: "solus-lens-anchor", id: data.id, text: text,
+      path: anchor ? anchor.getAttribute("data-solus-file") : null,
+      line: isNaN(line) ? null : line
+    }, "*");
+  });
+})();</script>`;
+
 // Reports CONTENT height (document.body, not the viewport) so the host can grow
 // the frame to fit without the documentElement.scrollHeight feedback loop.
 const RESIZE_REPORTER = `<script>(function(){
@@ -64,23 +103,31 @@ const RESIZE_REPORTER = `<script>(function(){
     if (theme) theme.textContent = event.data.css;
   });
   function measure(){
-    var b = d.body;
-    return b ? Math.max(b.scrollHeight, b.offsetHeight)
-             : (d.documentElement ? d.documentElement.scrollHeight : 0);
+    var b = d.body, root = d.documentElement;
+    if (!b) return root ? root.scrollHeight : 0;
+    // A first or last child's margin collapses through body, so body's own
+    // height misses it; the root box holds it. Body's top offset plus its
+    // scrollHeight still counts content that overflows a root pinned to 100%.
+    var top = b.getBoundingClientRect().top + (window.scrollY || 0);
+    return Math.max(root.getBoundingClientRect().height,
+                    top + Math.max(b.scrollHeight, b.offsetHeight));
   }
   function report(){
     try { parent.postMessage({ type: "solus-artifact-height", h: measure() }, "*"); } catch (e) {}
   }
+  // Nothing reports before the document is parsed: this script runs ahead
+  // of the render's own markup, and a render whose <script src> blocks the
+  // parser would report a half-built page, then grow once it finished.
   function start(){
     var target = d.body || d.documentElement;
     if (typeof ResizeObserver !== "undefined") new ResizeObserver(report).observe(target);
     report();
+    setTimeout(report, 50);
+    window.addEventListener("resize", report);
   }
   if (d.readyState !== "loading") start();
   else d.addEventListener("DOMContentLoaded", start);
   window.addEventListener("load", report);
-  window.addEventListener("resize", report);
-  setTimeout(report, 50);
 })();</script>`;
 
 /** Read the host palette for initial injection and live theme messages. */
@@ -99,7 +146,10 @@ export function buildSandboxThemeCss(isDark: boolean): string {
     `color:var(--solus-text-primary);` +
     `font-family:var(--solus-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif);` +
     `font-size: var(--text-sm);line-height:1.5;-webkit-font-smoothing:antialiased;` +
-    `scrollbar-width:none;` +
+    // The frame grows to the document, so the document never scrolls. Hidden
+    // overflow keeps a wheel over the render from latching onto an invisible
+    // inner scroller instead of moving the transcript.
+    `overflow:hidden;scrollbar-width:none;` +
     `text-rendering:optimizeLegibility}` +
     `body{margin:0;background:transparent;color:inherit;font:inherit;}` +
     // A render that caps its own width — a card with a max-width — sat against
@@ -116,7 +166,10 @@ export function buildSandboxThemeStyle(isDark: boolean): string {
 }
 
 /** Wrap inner HTML into a full sandbox srcdoc (charset + CSP + theme + resize
- *  reporter). The reporter posts `{ type: "solus-artifact-height", h }`. */
-export function wrapSandboxSrcdoc(inner: string, isDark: boolean): string {
-  return `<meta charset="utf-8">${CSP_META}${buildSandboxThemeStyle(isDark)}${RESIZE_REPORTER}${inner}`;
+ *  reporter). The reporter posts `{ type: "solus-artifact-height", h }`.
+ *  `isolated` swaps in the no-network CSP and adds the lens anchor responder. */
+export function wrapSandboxSrcdoc(inner: string, isDark: boolean, isolated = false): string {
+  const csp = isolated ? ISOLATED_CSP_META : CSP_META;
+  const responder = isolated ? ANCHOR_RESPONDER : "";
+  return `<meta charset="utf-8">${csp}${buildSandboxThemeStyle(isDark)}${RESIZE_REPORTER}${responder}${inner}`;
 }

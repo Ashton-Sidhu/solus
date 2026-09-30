@@ -17,11 +17,12 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   const cara = await ctx.as('cara')
   const dan = await ctx.as('dan')
   const aliceUserId = PERSONAS.alice.kind === 'org-member' ? PERSONAS.alice.userId : ''
-  const aliceOwnerId = ctx.hostKind === 'personal' ? 'host-owner' : aliceUserId
+  // On her own machine alice is the host's user; the host names her key (plans/012 §1).
+  const aliceOwnerId = ctx.hostKind === 'personal' ? (await alice.rpc('connectionsGetServerInfo')).userId ?? '' : aliceUserId
   const teamHost = ctx.hostKind !== 'personal'
 
   ctx.step(teamHost ? 'alice creates a work on the team host; it starts shared with the organization' : 'alice creates a work on her machine; it starts private')
-  const work = await alice.rpc('createWork', 'Plan', 'doc', '# Plan\n\nFirst line.', 'Plan', undefined, 'claude-code', ctx.cwd)
+  const work = await alice.records.createWork('Plan', 'doc', '# Plan\n\nFirst line.', 'Plan', undefined, 'claude-code', ctx.cwd)
   const resource = { kind: 'work', id: work.id } as const
   await checkOwnership(ctx, resource, aliceOwnerId, { alice: true, bob: teamHost, cara: teamHost, dan: teamHost })
   await checkWorkListing(ctx, 'bob', work.id, teamHost)
@@ -34,32 +35,32 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   ] })
   ctx.check('the list has both rows and alice stays owner', list.grants.length === 2 && list.callerRole === 'owner')
   const bobChanged = await expectOk(ctx, 'bob receives share.changed', bob.waitForEvent('share.changed', (event) => event.payload.resource.id === work.id))
-  ctx.check('the change names alice', bobChanged?.payload.changedBy.displayName === 'Alice', bobChanged?.payload.changedBy.displayName)
+  ctx.check('the change names alice', bobChanged?.payload.changedBy?.displayName === 'Alice', bobChanged?.payload.changedBy?.displayName)
 
   ctx.step('viewer: bob, org-only, reads and nothing more')
-  await expectOk(ctx, 'bob loads the work', bob.rpc('loadWork', work.id, ctx.cwd))
+  await expectOk(ctx, 'bob loads the work', bob.api.request('getWork', { id: work.id }))
   await checkWorkListing(ctx, 'bob', work.id, true)
-  await expectRefused(ctx, 'bob cannot save', bob.rpc('saveWork', work.id, { content: '# Plan\n\nBob was here.' }, ctx.cwd))
-  await expectRefused(ctx, 'bob cannot delete', bob.rpc('deleteWork', work.id, ctx.cwd))
+  await expectRefused(ctx, 'bob cannot save', bob.records.saveWork(work.id, { content: '# Plan\n\nBob was here.' }, work), 'NOT_FOUND')
+  await expectRefused(ctx, 'bob cannot delete', bob.records.deleteWork(work.id), 'NOT_FOUND')
   const bobList = await expectOk(ctx, 'bob reads the share list', bob.rpc('shareGet', { resource }))
   ctx.check('bob is a viewer through the organization row', bobList?.callerRole === 'viewer', bobList?.callerRole)
 
   ctx.step('editor: cara, in team A, writes and shares, cannot transfer or delete')
-  await expectOk(ctx, 'cara saves', cara.rpc('saveWork', work.id, { content: '# Plan\n\nCara was here.' }, ctx.cwd))
+  await expectOk(ctx, 'cara saves', cara.records.saveWork(work.id, { content: '# Plan\n\nCara was here.' }, (await cara.records.loadWork(work.id))!))
   await expectRefused(ctx, 'cara cannot transfer ownership', cara.rpc('shareTransfer', { resource, toUserId: PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : '' }))
-  await expectRefused(ctx, 'cara cannot delete', cara.rpc('deleteWork', work.id, ctx.cwd))
+  await expectRefused(ctx, 'cara cannot delete', cara.records.deleteWork(work.id), 'NOT_FOUND')
   const caraList = await expectOk(ctx, 'cara reads the share list', cara.rpc('shareGet', { resource }))
   ctx.check('cara is an editor through the team row', caraList?.callerRole === 'editor', caraList?.callerRole)
 
   ctx.step('dan, in no team, is a viewer through the organization row')
-  await expectOk(ctx, 'dan loads the work', dan.rpc('loadWork', work.id, ctx.cwd))
-  await expectRefused(ctx, 'dan cannot save', dan.rpc('saveWork', work.id, { content: '# Plan\n\nDan was here.' }, ctx.cwd))
+  await expectOk(ctx, 'dan loads the work', dan.api.request('getWork', { id: work.id }))
+  await expectRefused(ctx, 'dan cannot save', dan.records.saveWork(work.id, { content: '# Plan\n\nDan was here.' }, work), 'NOT_FOUND')
   const danList = await expectOk(ctx, 'dan reads the share list', dan.rpc('shareGet', { resource }))
   ctx.check('dan is a viewer', danList?.callerRole === 'viewer', danList?.callerRole)
 
   ctx.step('alice widens to the organization as editors, the scope the dialog offers')
   await alice.rpc('shareSet', { resource, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
-  await expectOk(ctx, 'bob saves now', bob.rpc('saveWork', work.id, { content: '# Plan\n\nBob was here.' }, ctx.cwd))
+  await expectOk(ctx, 'bob saves now', bob.records.saveWork(work.id, { content: '# Plan\n\nBob was here.' }, (await bob.records.loadWork(work.id))!))
 
   const maya = await guestStep(ctx, resource, alice)
 
@@ -77,8 +78,8 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
     ctx.hostKind === 'personal' ? aliceNow.callerRole === 'owner' : aliceNow.callerRole === 'editor',
     aliceNow.callerRole,
   )
-  await expectOk(ctx, 'bob, as owner, deletes the work', bob.rpc('deleteWork', work.id, ctx.cwd))
-  await expectRefused(ctx, 'the deleted work is gone for maya too', maya.rpc('loadWork', work.id, ctx.cwd))
+  await expectOk(ctx, 'bob, as owner, deletes the work', bob.records.deleteWork(work.id))
+  await expectRefused(ctx, 'the deleted work is gone for maya too', maya.api.request('getWork', { id: work.id }), 'NOT_FOUND')
   maya.close()
 })
 
@@ -93,9 +94,9 @@ async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: str
   const mayaInfo = await maya.rpc('connectionsGetServerInfo')
   ctx.check('maya is a guest on the wire', mayaInfo.principal === 'guest', mayaInfo.principal)
   ctx.check('the host tells maya what she was let in to see', mayaInfo.share?.resource.id === resource.id && mayaInfo.share.role === 'viewer' && mayaInfo.displayName === 'Maya', JSON.stringify(mayaInfo.share))
-  await expectOk(ctx, 'maya loads the work', maya.rpc('loadWork', resource.id, ctx.cwd))
-  await expectRefused(ctx, 'maya cannot save', maya.rpc('saveWork', resource.id, { content: 'x' }, ctx.cwd))
-  await expectRefused(ctx, 'maya cannot list works (host-wide)', maya.rpc('listWorks', ctx.cwd))
+  const read = await expectOk(ctx, 'maya loads the work', maya.api.request('getWork', { id: resource.id }))
+  if (read) await expectRefused(ctx, 'maya cannot save', maya.records.saveWork(resource.id, { content: 'x' }, read), 'NOT_FOUND')
+  ctx.check('maya lists nothing beyond her resource', (await maya.records.listWorks()).every((work) => work.id === resource.id))
   await expectRefused(ctx, 'maya cannot list projects', maya.rpc('listProjects'), 'PLANE_DISABLED')
   await expectRefused(ctx, 'maya cannot read the share list beyond her own resource', maya.rpc('shareGet', { resource: { kind: 'work', id: 'other' } }))
   const mayaList = await expectOk(ctx, 'maya reads her resource\'s share list', maya.rpc('shareGet', { resource }))

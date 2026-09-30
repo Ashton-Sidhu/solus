@@ -1,6 +1,8 @@
-import type { Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
+import type { Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
+import { attributionLabel } from '@solus/contracts/user'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 
 let msgCounter = 0
@@ -34,7 +36,8 @@ const SOLUS_TOOL_LABELS = new Map([
   ['create_work', 'Create work'],
   ['update_work', 'Update work'],
   ['render_artifact', 'Render artifact'],
-  ['create_session', 'Create session'],
+  ['start_session', 'Start session'],
+  ['send_session', 'Send to session'],
   ['codex_subagent', 'Codex subagent'],
 ])
 
@@ -90,7 +93,7 @@ export function normalizeTodoStatus(status: string | undefined): TodoItem['statu
 }
 
 export function toPermissionRequest(event: Extract<NormalizedEvent, { type: 'permission_request' }>): PermissionRequest {
-  return {
+  const request: PermissionRequest = {
     questionId: event.questionId,
     toolTitle: event.toolName,
     toolDescription: event.toolDescription,
@@ -101,6 +104,8 @@ export function toPermissionRequest(event: Extract<NormalizedEvent, { type: 'per
       label: o.label,
     })),
   }
+  if (event.turnAuthor) request.turnAuthor = event.turnAuthor
+  return request
 }
 
 export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'question_request' }>): QuestionRequest {
@@ -109,6 +114,8 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
     questions: event.questions,
   }
   if (event.kind) request.kind = event.kind
+  if (event.responseMode) request.responseMode = event.responseMode
+  if (event.turnAuthor) request.turnAuthor = event.turnAuthor
   return request
 }
 
@@ -231,9 +238,9 @@ export function formatInlineComments(comments: PlanComment[]): string {
         : c.pin
           ? `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
           : `On "${c.selectedText}"`
-      const head = `- ${anchor}${c.person ? ` — ${c.person.displayName}` : ''}: ${c.comment}`
+      const head = `- ${anchor}${c.author?.kind === 'user' ? ` — ${c.author.user.displayName}` : ''}: ${c.comment}`
       const replies = (c.replies ?? []).map(
-        (r) => `  - ${r.author === 'solus' ? 'Solus' : r.person?.displayName ?? 'User'}: ${r.text}`,
+        (r) => `  - ${r.author ? attributionLabel(r.author) : 'User'}: ${r.text}`,
       )
       return [head, ...replies].join('\n')
     })
@@ -252,10 +259,12 @@ function normalizeDiffSelectedCode(code: string): string {
 export function formatDiffInlineComments(comments: DiffComment[]): string {
   return comments
     .map((c) => {
-      const range = c.startLine === c.endLine ? `L${c.startLine}` : `L${c.startLine}–L${c.endLine}`
+      const range = c.startLine === c.endLine ? `${c.startLine}` : `${c.startLine}-${c.endLine}`
       const selectedCode = normalizeDiffSelectedCode(c.selectedCode)
       const codeBlock = selectedCode ? `\n\`\`\`\n${selectedCode}\n\`\`\`` : ''
-      return `- ${c.filePath} ${range}:${codeBlock}\n  ${c.comment}`
+      // `@path:line` is the file-mention token: the message renders it as a
+      // file chip that opens the file at that line.
+      return `- @${c.filePath}:${range}${codeBlock}\n  ${c.comment}`
     })
     .join('\n')
 }
@@ -304,4 +313,43 @@ export function imageRefAttachments(refs: PromptImageRef[] | undefined): Message
     mimeType: ref.mimeType,
     type: 'image' as const,
   }))
+}
+
+const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
+/** The slot and random prefix the host puts before an uploaded file's name. */
+const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
+
+/**
+ * A reloaded user turn, split the way the live bubble shows it: the typed text,
+ * and the files it carried. A sent file exists in provider history only as the
+ * `[Attached file: <path>]` lines `composeAttachmentContext` puts before the
+ * typed text; the live bubble keeps the attachments and shows only the text.
+ */
+export function splitAttachedFiles(
+  content: string,
+  serverId: string | undefined,
+) {
+  const lines = content.split('\n')
+  const paths: string[] = []
+  while (paths.length < lines.length) {
+    const match = ATTACHED_FILE_LINE.exec(lines[paths.length])
+    if (!match) break
+    paths.push(match[1])
+  }
+  // The composer separates the lines from the text with a blank line. Without
+  // one, the user typed the bracket themselves.
+  const isComposed = paths.length > 0 && (paths.length === lines.length || lines[paths.length] === '')
+  const attachments = (isComposed ? paths : []).map((path, index): Attachment => {
+    const name = (path.split(/[\\/]/).pop() || path).replace(UPLOAD_NAME_PREFIX, '')
+    const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
+    if (path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)) {
+      attachment.hostPath = path
+      if (serverId) attachment.hostServerId = serverId
+    }
+    const mimeType = videoMimeType({ name })
+    if (mimeType) attachment.mimeType = mimeType
+    return attachment
+  })
+  const text = isComposed ? lines.slice(paths.length).join('\n').replace(/^\n+/, '') : content
+  return { text, attachments }
 }

@@ -1,3 +1,4 @@
+import type { Attribution } from '@solus/contracts/user'
 import {
   snapshotViewportLabel,
   type BrowserCaptureRequest,
@@ -5,17 +6,22 @@ import {
   type BrowserEvidenceOptions,
   type BrowserEvidenceTarget,
   type BrowserPage,
+  type BrowserRecordingResult,
+  type BrowserRecordingStopRequest,
 } from '@solus/contracts/browser-types'
 import { resolveRepoRef } from '../git/git-helpers'
 import { getExistingPR } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { providerForRepo } from '../providers/registry'
-import { writeAssetUpload } from '../server/assets'
-import { storedAssetPath } from '../server/asset-paths'
-import { Task } from '../tasks/task'
-import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import { videoMimeType } from '@solus/contracts/media-types'
+import { writeAssetUpload } from '../data/assets/assets'
+import { storedAssetPath } from '../data/assets/asset-paths'
+import { Task } from '../data/tasks/task'
+import { ANY_ORGANIZATION } from '../admission/principal'
 import { browserRegistry } from './browser-registry'
+import type { BrowserRecorder } from './browser-recorder'
 import { pullRequestNumber } from './pull-request-link'
+import { recordingRetention } from './recording-retention'
 
 /**
  * The evidence loop: a capture that outlives the turn that took it.
@@ -34,7 +40,7 @@ import { pullRequestNumber } from './pull-request-link'
 const log = createLogger('browser', 'browser-evidence.ts')
 
 /** Take the page's picture, store it, and file it where the caller asked. */
-export async function captureEvidence(request: BrowserCaptureRequest): Promise<BrowserEvidence> {
+export async function captureEvidence(request: BrowserCaptureRequest, by: Attribution): Promise<BrowserEvidence> {
   const { screenshot, page } = await browserRegistry().capture(request.browserPageId)
   const stored = await writeAssetUpload({
     name: `browser-${request.browserPageId}.png`,
@@ -55,6 +61,7 @@ export async function captureEvidence(request: BrowserCaptureRequest): Promise<B
   const attached = await attachEvidence(stored.id, request.attach, {
     page,
     caption: request.caption,
+    by,
   })
   evidence.attachedTo = attached.attachedTo
   if (attached.publishedUrl) evidence.publishedUrl = attached.publishedUrl
@@ -67,8 +74,11 @@ export async function captureEvidence(request: BrowserCaptureRequest): Promise<B
 }
 
 interface EvidenceContext {
-  page: BrowserPage
+  /** Describes the capture when there is no caption. */
+  page?: BrowserPage
   caption?: string | undefined
+  /** Who filed it: the task comment is theirs. */
+  by: Attribution
 }
 
 /**
@@ -83,15 +93,37 @@ export async function attachEvidence(
   target: BrowserEvidenceTarget,
   context: EvidenceContext,
 ): Promise<{ attachedTo: string; publishedUrl?: string }> {
-  const caption = context.caption?.trim() || describeCapture(context.page)
+  const caption = context.caption?.trim() || (context.page ? describeCapture(context.page) : 'Browser capture')
+  const isVideo = videoMimeType({ name: assetId }) !== null
+  const filed = await fileEvidence(assetId, target, caption, isVideo, context.by)
+  // A filed recording is kept; an unfiled one is swept after a day.
+  // The comment is already posted, so an index that cannot be written is
+  // logged rather than reported as a failed filing.
+  if (isVideo) {
+    await recordingRetention().markFiled(assetId).catch((error) => {
+      log.warn('browser_recording_mark_filed_failed', {
+        assetId,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+  return filed
+}
 
+async function fileEvidence(
+  assetId: string,
+  target: BrowserEvidenceTarget,
+  caption: string,
+  isVideo: boolean,
+  by: Attribution,
+): Promise<{ attachedTo: string; publishedUrl?: string }> {
   if (target.kind === 'task') {
     // Evidence is filed on the host that holds the page, on that host's own task.
-    const task = await Task.byId(LOCAL_ORGANIZATION_ID, target.taskId)
+    const task = await Task.byId(ANY_ORGANIZATION, target.taskId)
     // A local asset URI, on purpose: Solus renders it inline, and the task
     // domain already refuses to push a body containing one to an upstream
     // ticket, where the link would resolve to nothing.
-    await task.comment(`![${caption}](asset://${assetId})\n\n${caption}`)
+    await task.comment(`![${caption}](asset://${assetId})\n\n${caption}`, { by })
     return { attachedTo: `task ${target.taskId}` }
   }
 
@@ -109,8 +141,41 @@ export async function attachEvidence(
   // composer and `gh --attach` use — so evidence lands as a real attachment
   // rather than as a file committed into the repository.
   const publishedUrl = await provider.review.publishAsset(repo, assetId)
-  await provider.review.addIssueComment(repo, target.number, `![${caption}](${publishedUrl})\n\n${caption}`)
+  // GitHub shows a player only for a bare attachment URL on its own line, and
+  // ignores alt text on a video.
+  const media = isVideo ? publishedUrl : `![${caption}](${publishedUrl})`
+  await provider.review.addIssueComment(repo, target.number, `${media}\n\n${caption}`)
   return { attachedTo: `pull request #${target.number}`, publishedUrl }
+}
+
+/**
+ * Stop a recording and, when asked, file it. Filing that fails does not fail
+ * the stop: the recording is stored, and the result says why it was not filed.
+ */
+export async function stopAndFileRecording(
+  recorder: BrowserRecorder,
+  request: BrowserRecordingStopRequest,
+  by: Attribution,
+): Promise<BrowserRecordingResult> {
+  const recording = await recorder.stop(request.browserPageId)
+  const result: BrowserRecordingResult = { recording }
+  if (!request.attach) return result
+  try {
+    const attached = await attachEvidence(recording.assetId, request.attach, {
+      caption: request.caption?.trim() || `${recording.title || recording.url} — ${recording.viewport}`,
+      by,
+    })
+    result.attachedTo = attached.attachedTo
+    if (attached.publishedUrl) result.publishedUrl = attached.publishedUrl
+    log.info('browser_recording_attached', {
+      browserPageId: request.browserPageId,
+      assetId: recording.assetId,
+      target: request.attach.kind,
+    })
+  } catch (error) {
+    result.attachError = error instanceof Error ? error.message : String(error)
+  }
+  return result
 }
 
 /** What the capture is of, in one line: the reader of a pull request has no

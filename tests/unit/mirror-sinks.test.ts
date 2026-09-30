@@ -14,10 +14,11 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // the `mirror` cursor skips what was already applied. The service then answers
 // a member's history reads from that copy.
 
-let intake: typeof import('@solus/server/server/runner-intake')
-let principalModule: typeof import('@solus/server/server/principal')
-let reads: typeof import('@solus/server/mirror/transcript-reads')
-let schema: typeof import('@solus/server/mirror/schema')
+let intake: typeof import('@solus/server/sync/runner-intake')
+let principalModule: typeof import('@solus/server/admission/principal')
+let reads: typeof import('@solus/server/data/sessions/transcript-reads')
+let transcriptSchema: typeof import('@solus/server/data/sessions/transcript-schema')
+let insightSchema: typeof import('@solus/server/data/insights/insight-schema')
 let database: typeof import('@solus/server/db/database')
 let dbModule: typeof import('@solus/server/db')
 
@@ -27,10 +28,11 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-mirror-sinks-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  intake = await import('@solus/server/server/runner-intake')
-  principalModule = await import('@solus/server/server/principal')
-  reads = await import('@solus/server/mirror/transcript-reads')
-  schema = await import('@solus/server/mirror/schema')
+  intake = await import('@solus/server/sync/runner-intake')
+  principalModule = await import('@solus/server/admission/principal')
+  reads = await import('@solus/server/data/sessions/transcript-reads')
+  transcriptSchema = await import('@solus/server/data/sessions/transcript-schema')
+  insightSchema = await import('@solus/server/data/insights/insight-schema')
   database = await import('@solus/server/db/database')
   dbModule = await import('@solus/server/db')
 })
@@ -43,19 +45,19 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const runner = (hostId = 'runner-1') => principalModule.runnerPrincipalFor({ hostId, organizationId: 'org1', expiresAt: Date.now() + 600_000 })
+const runner = (hostId = 'runner-1') => principalModule.runnerPrincipalFor({ hostId, organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
 
-function message(content: string) {
-  return { role: 'assistant', content, timestamp: 1 }
+function message(content: string, role = 'assistant') {
+  return { role, content, timestamp: 1 }
 }
 
-function row(seq: number, sessionId: string, position: number, content: string) {
-  return { seq, domain: 'transcripts' as const, key: `${sessionId}:${position}`, payload: { sessionId, position, message: message(content) } }
+function row(seq: number, sessionId: string, position: number, content: string, role?: string) {
+  return { seq, domain: 'transcripts' as const, key: `${sessionId}:${position}`, payload: { sessionId, position, message: message(content, role) } }
 }
 
 async function transcriptRows(sessionId: string): Promise<Array<{ position: number; content: string; runner: string }>> {
   const rows = await database.getDatabase().all<{ position: number; message: string; runner_host_id: string }>(sql`
-    SELECT position, message, runner_host_id FROM ${schema.sessionTranscripts}
+    SELECT position, message, runner_host_id FROM ${transcriptSchema.sessionTranscripts}
     WHERE organization_id = 'org1' AND session_id = ${sessionId} ORDER BY position
   `)
   return rows.map((entry) => ({ position: entry.position, content: (JSON.parse(entry.message) as { content: string }).content, runner: entry.runner_host_id }))
@@ -92,18 +94,18 @@ describe('mirror sinks', () => {
       startedAt: 100, endedAt: 200, status: 'ok', attrs: { tokens: 12 },
     }
     const events = [
-      { eventId: 41, traceId: 'trace-1', spanId: 'trace-1', occurredAt: 120, level: 'info', name: 'tool_started', tag: 'ControlPlane', file: 'control-plane.ts', attrs: { tool: 'Bash' } },
-      { eventId: 42, traceId: 'trace-1', spanId: 'trace-1', occurredAt: 150, level: 'warn', name: 'tool_slow', tag: 'ControlPlane', file: 'control-plane.ts' },
+      { eventId: 41, traceId: 'trace-1', spanId: 'trace-1', occurredAt: 120, level: 'info', name: 'tool_started', tag: 'SessionRuntime', file: 'session-runtime.ts', attrs: { tool: 'Bash' } },
+      { eventId: 42, traceId: 'trace-1', spanId: 'trace-1', occurredAt: 150, level: 'warn', name: 'tool_slow', tag: 'SessionRuntime', file: 'session-runtime.ts' },
     ]
     const item = (seq: number, status: string) => ({ seq, domain: 'insights' as const, key: 'trace-1', payload: { span: { ...span, status }, events } })
     expect(await intake.applyRunnerMirror(runner(), { hostId: 'runner-1', items: [item(9, 'ok'), item(10, 'error')] })).toEqual({ lastSeq: 10 })
 
     const spans = await database.getDatabase().all<{ span_id: string; status: string; duration_ms: number; attrs: string }>(sql`
-      SELECT span_id, status, duration_ms, attrs FROM ${schema.insightSpans} WHERE organization_id = 'org1' AND host_id = 'runner-1'
+      SELECT span_id, status, duration_ms, attrs FROM ${insightSchema.insightSpans} WHERE organization_id = 'org1' AND host_id = 'runner-1'
     `)
     expect(spans).toEqual([{ span_id: 'trace-1', status: 'error', duration_ms: 100, attrs: '{"tokens":12}' }])
     const logEvents = await database.getDatabase().all<{ event_id: number; level: string }>(sql`
-      SELECT event_id, level FROM ${schema.insightLogEvents} WHERE organization_id = 'org1' AND host_id = 'runner-1' ORDER BY event_id
+      SELECT event_id, level FROM ${insightSchema.insightLogEvents} WHERE organization_id = 'org1' AND host_id = 'runner-1' ORDER BY event_id
     `)
     expect(logEvents).toEqual([{ event_id: 41, level: 'info' }, { event_id: 42, level: 'warn' }])
   })
@@ -115,22 +117,27 @@ describe('mirror sinks', () => {
 })
 
 describe('cloud history reads', () => {
-  test('the whole transcript, its tail, and pages walked by the position cursor', async () => {
+  test('the whole transcript and its tail', async () => {
     const items = [0, 1, 2, 3, 4].map((position) => row(20 + position, 'paged', position, `m${position}`))
     await intake.applyRunnerMirror(runner(), { hostId: 'runner-1', items })
 
     expect((await reads.readTranscript('org1', 'paged')).map((entry) => entry.content)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4'])
     expect((await reads.readTranscript('org1', 'paged', 2)).map((entry) => entry.content)).toEqual(['m3', 'm4'])
+  })
 
-    const newest = await reads.readTranscriptPage('org1', 'paged', 2)
-    expect(newest.messages.map((entry) => entry.content)).toEqual(['m3', 'm4'])
-    expect(newest.before).toBe('3')
-    const older = await reads.readTranscriptPage('org1', 'paged', 2, newest.before!)
-    expect(older.messages.map((entry) => entry.content)).toEqual(['m1', 'm2'])
-    expect(older.before).toBe('1')
-    const oldest = await reads.readTranscriptPage('org1', 'paged', 2, older.before!)
-    expect(oldest.messages.map((entry) => entry.content)).toEqual(['m0'])
-    expect(oldest.before).toBeNull()
+  test('pages hold whole user turns, however many rows each turn has', async () => {
+    // WHY: a page counted in rows splits turns and makes the first paint's
+    // size depend on how many tools a turn ran.
+    const roles = ['user', 'assistant', 'user', 'assistant', 'assistant', 'user', 'assistant']
+    const items = roles.map((role, position) => row(40 + position, 'turns', position, `t${position}`, role))
+    await intake.applyRunnerMirror(runner(), { hostId: 'runner-1', items })
+
+    const newest = await reads.readTranscriptPage('org1', 'turns', 1)
+    expect(newest.messages.map((entry) => entry.content)).toEqual(['t5', 't6'])
+    expect(newest.before).toBe('5')
+    const older = await reads.readTranscriptPage('org1', 'turns', 2, newest.before!)
+    expect(older.messages.map((entry) => entry.content)).toEqual(['t0', 't1', 't2', 't3', 't4'])
+    expect(older.before).toBeNull()
   })
 
   test('another organization sees nothing of it', async () => {

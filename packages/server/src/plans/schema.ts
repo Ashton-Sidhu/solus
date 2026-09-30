@@ -47,7 +47,7 @@ export const indexedPlans = defineTable('indexed_plans', {
   primaryKey: ['provider', 'session_id', 'plan_tool_use_id'],
   indexes: [
     { name: 'indexed_plans_by_project', columns: ['provider', 'project_root', 'timestamp'], descending: ['timestamp'] },
-    { name: 'indexed_plans_by_cwd', columns: ['provider', 'cwd', 'timestamp'], descending: ['timestamp'] },
+    { name: 'indexed_plans_by_session', columns: ['session_id'] },
   ],
 })
 

@@ -1,7 +1,7 @@
-import type { AgentId, Plan, PlanDescriptor, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '@solus/contracts/types'
+import type { AcceptPlanResult, AgentId, Plan, PlanDescriptor, PermissionMode, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '@solus/contracts/types'
 import { MODEL_PROFILES, planKey, encodePathAsFolder } from '@solus/contracts/types'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
-import { formatInlineComments, nextMsgId } from './session.utils'
+import { formatInlineComments } from './session.utils'
 import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { SessionUnavailableError } from './session-errors'
@@ -95,6 +95,15 @@ export function requestConversationScrollToBottom(tabId: string): void {
 
 // ─── Plan approval / rejection ───
 
+/** How an approved plan runs: asking at each step, or in the default mode from
+ *  Settings — full access when that default is itself plan. */
+export type PlanApprovalMode = 'supervised' | 'default'
+
+function implementationMode(mode: PlanApprovalMode, defaultMode: PermissionMode | undefined): PermissionMode {
+  if (mode === 'supervised') return 'supervised'
+  return !defaultMode || defaultMode === 'plan' ? 'full-access' : defaultMode
+}
+
 export interface ApprovePlanOptions {
   /** Pass provider + modelId together, and only when they differ from the
    *  session's current choice — the pair triggers a provider/model switch. */
@@ -113,7 +122,7 @@ export interface ApprovePlanOptions {
 export async function approvePlanWithModel(
   ctx: WorkspaceContext,
   planId: string,
-  mode: 'ask' | 'auto',
+  mode: PlanApprovalMode,
   opts: ApprovePlanOptions = {},
 ): Promise<void> {
   const wasPreview = !!ctx.planStore.previewDescriptor
@@ -132,45 +141,40 @@ export async function approvePlanWithModel(
 
   const isActive = session.status === 'running' || session.status === 'connecting'
     || session.status === 'awaiting_plan' || session.status === 'awaiting_input'
-  if (isActive) {
-    await ctx.apiFor(tabId).stopSession(ctx.ctxFor(tabId).session.sessionId)
-    // The planning run ends because the work is moving to the implementation
-    // session, not because the reader stopped it — the approval note and the
-    // session boundary below already tell that story. Writing a stop notice here
-    // put "Stopped by you" across every accepted plan.
-    ctx.controls.interruptTabSession(tabId, { notice: false })
-  }
-
   const providerChanged = !!opts.provider && opts.provider !== session.run.provider
-  if (providerChanged) {
+  // A session with no provider thread has nothing to hand over: its agent
+  // changes here, and the host only records the decision.
+  if (providerChanged && !session.agentSessionId && !session.handoffId) {
     await ctx.config.switchActiveAgent(opts.provider!, tabId)
-    // switchActiveAgent owns handoff errors and leaves the original provider in
-    // place. Do not accidentally submit the approved work to that provider.
-    if (session.run.provider !== opts.provider) {
-      ctx.planStore.setStatus(planId, 'pending')
-      return
-    }
   }
-
+  const handsOver = providerChanged && session.run.provider !== opts.provider
   // A cross-provider handoff already detaches the old provider session and
   // preserves it as lineage for the next run. Resetting here would erase that
   // pending handoff. Same-provider model changes still require a fresh session.
-  const shouldStartNewSession = !providerChanged
+  const startNewSession = !providerChanged
     && (opts.startNewSession !== false || !!(opts.provider && opts.modelId))
-  if (shouldStartNewSession) {
-    ctx.apiFor(tabId).resetSession(ctx.ctxFor(tabId))
-    session.agentSessionId = null
-    // The implementation run starts on a fresh agent session carrying only the
-    // plan, so everything above this point is another session's context. Say so
-    // — otherwise the reset is indistinguishable from the thread forgetting.
-    session.messages.push({
-      id: nextMsgId(),
-      role: 'system',
-      content: '',
-      timestamp: Date.now(),
-      newSessionForPlanId: planId,
+
+  // The host stops the planning run, hands over or starts the fresh agent
+  // session, and records the decision; its activity row draws the divider.
+  let accepted: AcceptPlanResult
+  try {
+    accepted = await ctx.apiFor(tabId).acceptPlan(ctx.ctxFor(tabId), {
+      planId,
+      provider: handsOver ? opts.provider : undefined,
+      startNewSession,
     })
+  } catch (error) {
+    // The handoff failed and left the original provider in place. Do not
+    // accidentally submit the approved work to that provider.
+    ctx.config.handoffFailed(error instanceof Error ? error.message : String(error))
+    ctx.planStore.setStatus(planId, 'pending')
+    return
   }
+  // The planning run ends because the work is moving to the implementation
+  // session, not because the reader stopped it, so no stop notice is written.
+  if (isActive) ctx.controls.interruptTabSession(tabId, { notice: false })
+  if (accepted.handoff) ctx.config.adoptHandoff(session, opts.provider!, accepted.handoff, tabId)
+  if (startNewSession) session.agentSessionId = null
 
   if (opts.provider && opts.modelId) {
     if (!providerChanged) {
@@ -183,7 +187,7 @@ export async function approvePlanWithModel(
   } else if (opts.reasoningEffort) {
     session.run.modelConfig.reasoningEffort = opts.reasoningEffort
   }
-  session.run.permissionMode = mode
+  session.run.permissionMode = implementationMode(mode, ctx.settings.defaultPermissionMode)
 
   if (wasPreview && opts.useWorktree && !session.run.gitContext) {
     await ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, cwd: plan.cwd })
@@ -241,7 +245,8 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
     const denyOption = plan.options!.find((o: PermissionOption) => o.kind === 'deny') ?? plan.options![plan.options!.length - 1]
     // Awaited so the deny lands before the note, otherwise the note can steer
     // into a turn that is still blocked on the unanswered plan permission.
-    await ctx.apiFor(tabId).respondPermission(ctx.ctxFor(tabId), plan.questionId!, denyOption.id)
+    const ipc = ctx.ctxFor(tabId)
+    await ctx.apiFor(tabId).respondPermission(ipc, ipc.session.sessionId, plan.questionId!, denyOption.id)
   } else {
     // Only a run that was actually cancelled was stopped. Revising a plan whose
     // run has already exited cancels nothing, so it must not claim otherwise.

@@ -34,7 +34,7 @@
     guide,
     headRef,
   }: {
-    tab: "activity" | "map" | "guide" | "diff";
+    tab: "activity" | "map" | "guide" | "lens" | "diff";
     onRefresh?: () => void;
     refreshing: boolean;
     /** Open the pull request page on its external host. */
@@ -53,9 +53,11 @@
       ? "Change map"
       : tab === "guide"
         ? "Walkthrough"
-        : tab === "diff"
-          ? "Diff view"
-          : "Activity",
+        : tab === "lens"
+          ? "Lens"
+          : tab === "diff"
+            ? "Diff view"
+            : "Activity",
   );
 
   const showsGuideRow = $derived(tab === "guide" && !!guide?.present);
@@ -88,7 +90,7 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="no-drag pointer-events-auto relative flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-fine:[.is-laptop-display_&]:size-6 {open
+    class="no-drag pointer-events-auto relative flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {open
       ? 'bg-[var(--wash-3)] text-foreground'
       : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-3)] hover:text-foreground'}"
     aria-label={flagsStale
@@ -99,7 +101,7 @@
     title={flagsStale ? "Guide is outdated" : "More options"}
     onclick={() => (open = !open)}
   >
-    <DotsThreeIcon class="size-[15px] pointer-fine:[.is-laptop-display_&]:size-3.5" />
+    <DotsThreeIcon class="size-[15px]" />
     {#if flagsStale}
       <span
         class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"

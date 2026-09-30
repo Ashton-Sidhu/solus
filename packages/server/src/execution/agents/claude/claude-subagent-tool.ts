@@ -1,0 +1,106 @@
+import { z } from 'zod'
+import { resolveHomePath } from '../../../platform/paths'
+import { buildSystemPrompt } from '../system-hint'
+import { hostInstructionsFor } from '../run-input'
+import { MODEL_PROFILES } from '@solus/contracts/types'
+import type { AgentDispatcher } from '../agent-runner'
+import type { AgentTool } from '../tools/agent-tool'
+import { solusToolbox } from '../tools/solus-toolbox'
+import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
+import { SPAN_SERVICES } from '../../../data/insights/registries'
+
+export const CLAUDE_SUBAGENT_TOOL_NAME = 'claude_subagent'
+
+const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
+const DEFAULT_CLAUDE_MODEL =
+  ['claude-sonnet-5-5', 'claude-sonnet-5'].find((modelId) => modelId in claudeProfiles) ??
+  Object.entries(claudeProfiles).find(([, profile]) => profile.isDefault)?.[0] ??
+  Object.keys(claudeProfiles)[0] ??
+  'claude-sonnet-5'
+
+const claudeSubagentFields = {
+  prompt: z
+    .string()
+    .describe(
+      'The complete, self-contained task for the Claude subagent. Include all context it needs — it cannot see this conversation.',
+    ),
+  description: z
+    .string()
+    .optional()
+    .describe('Short (3-8 word) summary of the task, shown on the subagent card.'),
+  model: z
+    .string()
+    .optional()
+    .describe(
+      "Claude model id. Defaults to 'claude-sonnet-5' — right for most delegated tasks; pick 'claude-opus-5' for genuinely hard debugging or design work.",
+    ),
+  reasoning_effort: z
+    .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+    .optional()
+    .describe(
+      "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
+    ),
+}
+const claudeSubagentInputSchema = z.object(claudeSubagentFields)
+
+const CLAUDE_SUBAGENT_DESC =
+  "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
+
+export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
+  return {
+    name: CLAUDE_SUBAGENT_TOOL_NAME,
+    description: CLAUDE_SUBAGENT_DESC,
+    inputFields: claudeSubagentFields,
+    requiresApproval: false,
+    execute: async (rawArgs, context) => {
+      const args = claudeSubagentInputSchema.parse(rawArgs)
+      const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
+      const reasoningEffort =
+        args.reasoning_effort ?? claudeProfiles[model]?.defaultReasoningEffort ?? 'medium'
+      const parentToolUseId = context.parentToolUseId()
+      const run = dispatcher.runAgent({
+        provider: 'claude-code',
+        prompt: args.prompt,
+        cwd: resolveHomePath(context.cwd),
+        tools: [
+          ...Object.values(solusToolbox.works),
+          ...Object.values(solusToolbox.docs),
+          ...Object.values(solusToolbox.artifact),
+          ...Object.values(solusToolbox.connections),
+          ...Object.values(solusToolbox.insights),
+          ...Object.values(solusToolbox.intelligence),
+          ...Object.values(solusToolbox.browser),
+          ...Object.values(solusToolbox.sessions),
+          ...Object.values(solusToolbox.tasks),
+        ],
+        model,
+        reasoningEffort,
+        permissionMode: 'full-access',
+        persistence: 'ephemeral',
+        service: SPAN_SERVICES.subagents,
+        unattended: true,
+        systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
+        onEvent: (event) => {
+          if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
+          context.emit(parentSubagentEvent(event, parentToolUseId))
+        },
+      })
+      const cancel = () => run.cancel()
+      if (context.abortSignal.aborted) cancel()
+      else context.abortSignal.addEventListener('abort', cancel, { once: true })
+      try {
+        const result = await run.done
+        return {
+          ok: result.signal !== 'SIGINT',
+          text: result.signal === 'SIGINT'
+            ? 'Claude subagent was interrupted.'
+            : result.output || '(Claude subagent returned no text.)',
+        }
+      } catch (error) {
+        return { ok: false, text: `Claude subagent failed: ${String(error)}` }
+      } finally {
+        context.abortSignal.removeEventListener('abort', cancel)
+      }
+    },
+  }
+}

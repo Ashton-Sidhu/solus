@@ -48,10 +48,12 @@ export class PrReviewState {
   commitDiffTruncated = $state(false)
 
   // ── Threads ──
-  // Existing GitHub inline review comments. Fetched once and shared with the
-  // diff (anchored at their line) and Activity (which owns reply / resolve,
-  // mutating these objects in place) — the heaviest read, made once.
-  threads = $state<ReviewThread[]>([])
+  // Existing GitHub inline review comments, held by the pull request itself and
+  // shared with the diff (anchored at their line) and Activity (which owns
+  // reply / resolve, mutating these objects in place). One copy, so a reply in
+  // one surface is the reply in every other, and a review opened again paints
+  // the threads it already read.
+  #threadSource = $state<ReviewThreadSource | null>(null)
   threadsLoadFailed = $state(false)
 
   // ── Since-review interdiff ──
@@ -161,6 +163,10 @@ export class PrReviewState {
       : []
   }
 
+  get threads(): ReviewThread[] {
+    return this.#threadSource?.threads ?? []
+  }
+
   get unresolvedCount(): number {
     return this.threads.filter((thread) => !thread.isResolved).length
   }
@@ -169,9 +175,10 @@ export class PrReviewState {
 
   loadThreads(force = false): void {
     this.threadsLoadFailed = false
-    void this.#deps
-      .loadThreads(this.ctx, this.number, force)
-      .then((threads) => (this.threads = threads))
+    const source = this.#deps.threadSource(this.ctx, this.number)
+    this.#threadSource = source
+    void source
+      .loadThreads({ force })
       .catch(() => {
         // Surfaced through the Activity tab's error banner rather than a toast,
         // so a dead provider doesn't read as "no threads".
@@ -396,13 +403,20 @@ export class PrReviewState {
   }
 }
 
+/** The pull request's own copy of its threads: the last answer, and the read
+ *  that replaces it. */
+export interface ReviewThreadSource {
+  readonly threads?: ReviewThread[]
+  loadThreads(opts: { force?: boolean }): Promise<ReviewThread[]>
+}
+
 /** Everything the state needs from the workspace, passed in rather than reached
  *  for, so this stays a plain class the panes can construct and test. */
 export interface PrReviewDeps {
   getApi: () => HostApi
   fallbackCtx: () => IpcContext
   ctxForDirectory: (path: string) => IpcContext
-  loadThreads: (ctx: IpcContext, number: number, force: boolean) => Promise<ReviewThread[]>
+  threadSource: (ctx: IpcContext, number: number) => ReviewThreadSource
   loadDiff: (ctx: IpcContext, request: import('@solus/contracts/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>

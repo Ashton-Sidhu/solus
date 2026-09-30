@@ -12,12 +12,15 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
-  import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "./lib/anchors";
+  import { measureAnchors, type MeasuredAnchor } from "./lib/anchors";
+  import {
+    addCommentHighlight,
+    commentHighlightPositions,
+    removeCommentHighlight,
+    showCommentHighlights,
+  } from "./lib/comment-highlights";
   import { drawerFrame, type PaneBox } from "./lib/rail-layout";
   import {
-    addCommentMark,
-    removeCommentMark,
-    restoreCommentMarks,
     prosePosToTextOffset,
     findMarkElement,
     findMarkElements,
@@ -47,10 +50,9 @@
     /** Action bar pinned below the threads. The margin holds whatever the
      *  surface does with a round of feedback — send it, or nothing at all. */
     footer?: Snippet;
-    /** Persist content edits before a comment mark is added (avoids mark leak). */
+    /** Persist content edits before a thread is added, so its quote and
+     *  offset describe saved text. */
     flushSave?: () => Promise<void>;
-    /** Bound to the shell so mark mutations never trigger an autosave. */
-    suppressSave?: boolean;
     /** True while the live selection can anchor a comment. Read by the host so
      *  the selection bubble only offers Comment when it would actually work —
      *  the affordance moved to the bubble, the rules stayed here. */
@@ -85,7 +87,6 @@
     startCommentBinding,
     footer,
     flushSave,
-    suppressSave = $bindable(false),
     canComment = $bindable(false),
     railOpen = $bindable(true),
     railFolded = false,
@@ -163,8 +164,8 @@
 
   $effect(() => {
     const el = scrollContainer;
-    // Marks are re-created whenever the doc or the comment set changes, so the
-    // class has to be re-applied on both.
+    // Highlights are re-drawn whenever the doc or the comment set changes, so
+    // the class has to be re-applied on both.
     void comments;
     void editor?.state.doc;
     const id = highlightedCommentId;
@@ -206,7 +207,7 @@
 
   function remeasure() {
     anchors = measureAnchors(scrollContainer, comments, shownExternal.map((thread) => thread.id));
-    threadAnchors = commentMarkPositions(editor);
+    threadAnchors = commentHighlightPositions(editor);
     const rect = scrollContainer?.getBoundingClientRect();
     drawerBox = rect
       ? drawerFrame(
@@ -272,7 +273,7 @@
     enabled: () => canComment,
   });
 
-  // Wire selection tracking + initial mark restore whenever the editor changes.
+  // Wire selection tracking + the initial highlights whenever the editor changes.
   let wiredEditor: Editor | null = null;
   $effect(() => {
     const ed = editor;
@@ -310,19 +311,16 @@
         right: endCoords.right,
       };
     });
-    suppressSave = true;
-    restoreCommentMarks(ed, comments);
-    suppressSave = false;
+    showCommentHighlights(ed, comments);
   });
 
-  // Re-apply marks whenever the comment set changes (agent rewrites, deletes…).
+  // Re-highlight whenever the comment set changes (agent rewrites, deletes…).
+  // Highlights are view state: this never touches the document or its undo.
   $effect(() => {
     const c = comments;
     const ed = editor;
     if (!ed) return;
-    suppressSave = true;
-    restoreCommentMarks(ed, c);
-    suppressSave = false;
+    showCommentHighlights(ed, c);
   });
 
   // Both listeners ride the shell's scroll region (bound from the host), which
@@ -369,16 +367,12 @@
       selectedText: selectionRange.selectedText,
       comment: text,
       textOffset,
-      author: "you",
       createdAt: Date.now(),
       readAt: Date.now(),
     };
     onAdd(newComment);
 
-    const { from, to } = selectionRange;
-    suppressSave = true;
-    addCommentMark(editor, from, to, newComment.id);
-    suppressSave = false;
+    addCommentHighlight(editor, selectionRange.from, selectionRange.to, newComment);
 
     clearCommentDraft();
     railOpen = true;
@@ -461,12 +455,8 @@
     const deleted = comments.find((c) => c.id === commentId);
     onDelete(commentId);
     if (editingCommentId === commentId) editingCommentId = null;
-    if (editor) {
-      suppressSave = true;
-      removeCommentMark(editor, commentId);
-      suppressSave = false;
-    }
-    // Offer an undo: re-adding the comment lets the mark-restore effect re-anchor it.
+    if (editor) removeCommentHighlight(editor, commentId);
+    // Offer an undo: re-adding the comment lets the highlight effect re-anchor it.
     if (deleted) {
       toasts.undo("Comment deleted", () => {
         onAdd(deleted);
@@ -486,7 +476,7 @@
   }
 
   function handleReply(commentId: string, text: string) {
-    onReply(commentId, { id: uuid(), author: "you", text, createdAt: Date.now() });
+    onReply(commentId, { id: uuid(), text, createdAt: Date.now() });
     activeRailCommentId = commentId;
   }
 

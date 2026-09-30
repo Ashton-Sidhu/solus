@@ -1,15 +1,16 @@
 import { existsSync, realpathSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
+import type { GitIdentityEnv } from './git-identity-manager'
 import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
-import { dispatchStep } from '../observability/session-emitter'
+import { dispatchStep } from '../execution/observability/session-emitter'
 import { git, gitCommitExists, runAsync } from './exec'
 // `git-helpers` imports this module back for the branch and default-branch
 // helpers. Both sides only reach across inside function bodies, so the cycle
 // resolves at call time.
 import { resolveRepoRef } from './git-helpers'
-import { worktreeBranchName } from './worktree-branch-name'
+import { generatedWorktreeBranchName, isTemporaryWorktreeBranch, temporaryWorktreeBranchName } from './worktree-branch-name'
 import { worktreePathFor } from './worktree-path'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
@@ -103,7 +104,9 @@ export function getWorkingBranch(cwd: string): Promise<string | null> {
 export interface CreateWorktreeOptions {
   /** Cancels branch discovery and worktree creation with the owning setup. */
   signal?: AbortSignal
-  /** Semantic name produced by the configured text-generation model. */
+  /** Semantic name produced by the configured text-generation model. Without
+   *  one the worktree starts on a temporary branch that `renameWorktreeBranch`
+   *  replaces later. */
   generatedName?: string | null
 }
 
@@ -145,12 +148,15 @@ export async function fetchPrHead(
   return { branch: prCheckoutBranch(prNumber, source), headSha }
 }
 
-/** Materialize one origin branch as the branch of an isolated dispatch
- * worktree. Unlike `createWorktree`, this does not invent a prompt-derived
- * branch: the selected branch is the environment the remote session requested. */
+/** Materialize one origin branch for a dispatch. A checkout that already holds
+ * the branch — a linked worktree or the dispatch checkout itself — is where the
+ * session works; otherwise the branch gets its own worktree. Unlike
+ * `createWorktree`, this does not invent a prompt-derived branch: the selected
+ * branch is the environment the remote session requested. */
 export async function ensureBranchWorktree(
   projectPath: string,
   branch: string,
+  gitEnv?: GitIdentityEnv,
 ): Promise<GitCheckout> {
   await runAsync('git', ['check-ref-format', '--branch', branch], projectPath)
   const existing = otherWorktreeHoldingBranch(projectPath, branch)
@@ -163,16 +169,15 @@ export async function ensureBranchWorktree(
     }
   }
 
-  const remoteRef = `origin/${branch}`
-  await runAsync('git', ['fetch', 'origin', branch], projectPath)
-  await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath)
-
-  // The dispatch checkout is an internal staging checkout. If it currently
-  // holds the requested branch, release that branch before assigning it to the
-  // isolated worktree where the session will run.
+  // Sessions may work in the dispatch checkout itself, so it is never detached
+  // from under them: the branch it holds is worked on there.
   if (await getWorkingBranch(projectPath) === branch) {
-    await runAsync('git', ['checkout', '--detach'], projectPath)
+    return { repoRoot: projectPath, branch, targetBranch: branch }
   }
+
+  const remoteRef = `origin/${branch}`
+  await runAsync('git', ['fetch', 'origin', branch], projectPath, { env: gitEnv })
+  await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath)
 
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
   const hasLocalBranch = await runAsync(
@@ -184,12 +189,14 @@ export async function ensureBranchWorktree(
     // No worktree owns this local branch (the reuse check above proved that),
     // so make the origin selection exact rather than starting from stale state.
     await runAsync('git', ['branch', '--force', branch, remoteRef], projectPath)
-    await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath)
+    await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath, { env: gitEnv })
   } else {
+    // Checking out a partial clone fetches file contents, so it acts as the member too.
     await runAsync(
       'git',
       ['worktree', 'add', '--track', '-b', branch, worktreePath, remoteRef],
       projectPath,
+      { env: gitEnv },
     )
   }
   await copyIncludedWorktreeFiles(projectPath, worktreePath)
@@ -221,7 +228,6 @@ async function resolveWorktreeStartPoint(
 
 export async function createWorktree(
   projectPath: string,
-  prompt: string,
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<GitCheckout> {
@@ -261,7 +267,10 @@ export async function createWorktree(
     throwIfAborted(options.signal)
     throw new Error(`Cannot create a worktree: ${startPoint} has no commit. Create an initial commit or select an existing branch.`, { cause: error })
   }
-  const branch = worktreeBranchName(prompt, options.generatedName)
+  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName) : null
+  const branch = generatedBranch
+    ? await availableBranchName(projectPath, generatedBranch)
+    : temporaryWorktreeBranchName()
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
@@ -324,6 +333,38 @@ export async function createWorktree(
     }
     throw error
   }
+}
+
+/** The first of `branch`, `branch-2`, `branch-3`… that no local branch holds. */
+async function availableBranchName(cwd: string, branch: string): Promise<string> {
+  for (let suffix = 1; suffix <= 100; suffix++) {
+    const candidate = suffix === 1 ? branch : `${branch}-${suffix}`
+    const taken = await runAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`], cwd).then(() => true, () => false)
+    if (!taken) return candidate
+  }
+  throw new Error(`No free branch name for ${branch}`)
+}
+
+/**
+ * Give a worktree's temporary branch its generated name. Returns the new
+ * branch, or null when the branch is no longer the worktree's temporary one:
+ * someone switched, renamed, or pushed it, and that choice wins.
+ */
+export async function renameWorktreeBranch(
+  worktreePath: string,
+  temporaryBranch: string,
+  generatedName: string,
+): Promise<string | null> {
+  if (!isTemporaryWorktreeBranch(temporaryBranch)) return null
+  const target = generatedWorktreeBranchName(generatedName)
+  if (!target) return null
+  if (await getWorkingBranch(worktreePath) !== temporaryBranch) return null
+  const hasUpstream = await runAsync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], worktreePath)
+    .then(() => true, () => false)
+  if (hasUpstream) return null
+  const branch = await availableBranchName(worktreePath, target)
+  await runAsync('git', ['branch', '-m', temporaryBranch, branch], worktreePath)
+  return branch
 }
 
 /** Returns how many files were copied — the one fact that explains why this
@@ -455,11 +496,11 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
     // The provider registry stays lazy: it pulls in every code-host client and
     // only a branch that already has a pull request needs one.
     const { providerForRepo } = await import('../providers/registry')
+    const { pullRequestForBranch } = await import('../prs/code-host')
     const repo = await resolveRepoRef(cwd)
     const provider = repo ? providerForRepo(repo) : null
     if (!repo || !provider) return null
-    const page = await provider.review.listPullRequestsPage(repo, { state: 'all', head: branch }, 1, 1)
-    return page.items.find((pullRequest) => pullRequest.headRef === branch)?.url ?? null
+    return (await pullRequestForBranch({ repo, provider }, branch))?.url ?? null
   } catch {
     return null
   }
@@ -638,17 +679,21 @@ export async function fetchAndCheckoutPr(
 
   let baseSha = source.diffBaseSha
   if (baseSha) {
-    // The provider's diff base remains valid in shallow and single-branch
-    // clones, where local history cannot establish the divergence point.
+    // The provider's diff base is exact, and also valid where local history
+    // cannot establish the divergence point: a single-branch clone, or a shallow
+    // one a developer made. Only a repository that is already shallow is kept
+    // shallow; a full-history clone is never given a shallow boundary.
     if (!await gitCommitExists(projectPath, baseSha)) {
-      await runAsync('git', ['fetch', '--depth=1', 'origin', baseSha], projectPath)
+      const isShallow = await runAsync('git', ['rev-parse', '--is-shallow-repository'], projectPath) === 'true'
+      await runAsync('git', ['fetch', ...(isShallow ? ['--depth=1'] : []), 'origin', baseSha], projectPath)
     }
     baseSha = await runAsync('git', ['rev-parse', '--verify', `${baseSha}^{commit}`], projectPath)
   } else {
     await runAsync('git', ['fetch', 'origin', baseRef], projectPath).catch(() => {})
-    baseSha = await runAsync('git', ['merge-base', headSha, `origin/${baseRef}`], projectPath).catch(
-      () => headSha,
-    )
+    // Without a base the review would compare the head with itself and show no changes.
+    baseSha = await runAsync('git', ['merge-base', headSha, `origin/${baseRef}`], projectPath).catch((error) => {
+      throw new Error(`Could not find where PR #${prNumber} branches from ${baseRef}. ${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   return { worktreePath: resolvedWorktreePath, branch: resolvedBranch, baseSha, headSha, reused: !!existingWorktreePath }

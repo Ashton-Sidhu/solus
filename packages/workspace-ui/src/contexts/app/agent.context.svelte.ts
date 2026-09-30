@@ -1,7 +1,11 @@
 import { createAppContext } from './create-app-context'
-import type { AgentMetadata, AgentUsageLimits } from '@solus/contracts/types'
+import { MODEL_PROFILES, providerModelsFor, type AgentMetadata, type AgentUsageLimits } from '@solus/contracts/types'
+import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import type { SettingsContext } from './settings.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
+
+/** Well inside the host's 15-minute idle window, so its poll stays awake. */
+const USAGE_REFRESH_INTERVAL_MS = 60_000
 
 /**
  * Frontend store for the backend-provided agent list. Session startup hydrates
@@ -13,11 +17,18 @@ export class AgentContext {
   /** Subscription quota per provider, keyed by `AgentId`. Providers that don't
    *  report quota are simply absent. */
   usage = $state<Record<string, AgentUsageLimits>>({})
-  metadata: Record<string, AgentMetadata | null> = $derived(
-    Object.fromEntries(this.agents.map((meta) => [meta.id, meta])),
-  )
+  /** A host's model list, once one is in effect, replaces the models the host
+   *  listed at start: the list can change while the app runs. */
+  metadata: Record<string, AgentMetadata | null> = $derived.by(() => {
+    const hasHostModelList = modelProfilesStore.revision > 0
+    return Object.fromEntries(this.agents.map((meta) => [
+      meta.id,
+      hasHostModelList && MODEL_PROFILES[meta.id] ? { ...meta, ...providerModelsFor(meta.id) } : meta,
+    ]))
+  })
 
   private settings: SettingsContext
+  private readonly usageReadAtByServerId = new Map<string, number>()
 
   constructor(settings: SettingsContext) {
     this.settings = settings
@@ -39,11 +50,21 @@ export class AgentContext {
 
   /** Also tells the backend someone is watching — its poll self-suspends when
    *  nobody asks for a while. Reads the new-work default host; other hosts'
-   *  snapshots arrive through the `usage.limitsChanged` topic. */
-  async refreshUsage(): Promise<void> {
-    const serverId = serverConnections.defaultServerId()
+   *  snapshots arrive through the `usage.limitsChanged` topic. Every mounted
+   *  project panel asks when its tab becomes active, and the topic already
+   *  delivers changes, so one read per host per minute is enough. Usage is a
+   *  machine's (its agents' seats), so a window with no machine reads nothing. */
+  async refreshUsage(now = Date.now()): Promise<void> {
+    const serverId = serverConnections.defaultMachineId()
     if (!serverId) return
-    this.applyUsage(await serverConnections.apiFor(serverId).usageLimits())
+    if (now - (this.usageReadAtByServerId.get(serverId) ?? -Infinity) < USAGE_REFRESH_INTERVAL_MS) return
+    this.usageReadAtByServerId.set(serverId, now)
+    try {
+      this.applyUsage(await serverConnections.apiFor(serverId).usageLimits())
+    } catch (error) {
+      this.usageReadAtByServerId.delete(serverId)
+      throw error
+    }
   }
 }
 

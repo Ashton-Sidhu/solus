@@ -3,7 +3,6 @@
 import type {
   Task,
   TaskComment,
-  TaskEvent,
   TaskLink,
   TaskLinkKind,
   TaskPriority,
@@ -14,10 +13,9 @@ import type {
 } from '@solus/contracts/task-types'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { Work } from '@solus/contracts/types'
-import { z } from 'zod'
+import type { Activity } from '@solus/contracts/activity'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
-import { labelChangeText } from '../../../../lib/label-activity'
-import { PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
+import { dueDateMeta, PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
 /**
@@ -32,8 +30,38 @@ import { linkedPrTitle } from './task-prs'
  * which left every pane between the two with the properties stacked under the
  * comment composer and no way to reach them otherwise. Above the rung the rail
  * is a column, below it the whole rail is the sheet.
+ *
+ * 72rem, not 60rem: the 308px rail, its 34px gap and the 52px gutters take
+ * 446px, which at 60rem left the task itself a 514px column. At 72rem the
+ * content keeps at least 706px — a readable measure for the description and
+ * room for the linked and sessions tables — and the rail folds on a laptop
+ * pane before it squeezes them.
  */
-export const TASK_RAIL_FOLD_MAX = 60 * 16
+export const TASK_RAIL_FOLD_MAX = 72 * 16
+
+/**
+ * What the Details control states before it opens, where the rail has folded:
+ * the few fields a reader looks for first, and only the ones that are set.
+ * Status and priority are left out — the line above the title already shows
+ * them. An empty summary leaves the control reading "Details" alone.
+ */
+export interface TaskDetailsSummary {
+  assignee: string | null
+  due: { label: string; tone: 'overdue' | 'soon' | 'normal' } | null
+  /** The first label, and how many more there are: "bug +2". */
+  labels: string | null
+}
+
+export function taskDetailsSummary(
+  task: Pick<Task, 'assignee' | 'dueDate' | 'labels'>,
+): TaskDetailsSummary {
+  const [first, ...rest] = task.labels
+  return {
+    assignee: task.assignee?.trim() || null,
+    due: dueDateMeta(task.dueDate),
+    labels: first ? (rest.length ? `${first} +${rest.length}` : first) : null,
+  }
+}
 
 /** True once the properties rail has folded out of the content row. */
 export function isTaskRailFolded(pageWidth: number): boolean {
@@ -77,6 +105,20 @@ export interface TaskSessionRow {
    *  has no state column, since the lifecycle of a closed session is
    *  unknowable and a column of blanks would claim otherwise. */
   running: boolean
+  /** The task's lead: the session the task is talked to through. */
+  isLead: boolean
+}
+
+/** The task's lead session, when one is linked (docs/plans/task-conversation.md). */
+export function taskLeadSession(sessions: readonly TaskSessionLink[]): TaskSessionLink | null {
+  return sessions.find((link) => link.role === 'lead') ?? null
+}
+
+/** The lead first, then every other attempt in the order given: the Sessions
+ *  list pins the task's conversation above the workers it started. */
+export function orderTaskSessions(sessions: readonly TaskSessionLink[]): TaskSessionLink[] {
+  const lead = taskLeadSession(sessions)
+  return lead ? [lead, ...sessions.filter((link) => link !== lead)] : [...sessions]
 }
 
 /** `sessions.provider` slugs as the session index writes them. */
@@ -119,6 +161,7 @@ export function taskSessionRow(
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),
     running,
+    isLead: link.role === 'lead',
   }
 }
 
@@ -241,7 +284,7 @@ export function linkedTableLinks(links: TaskLink[]): TaskLink[] {
 /** The provider mark shown beside a linked work after its metadata is loaded. */
 export function linkedWorkProvider(
   link: TaskLink,
-  workFor: (workId: string) => Work | undefined,
+  workFor: (workId: string) => Pick<Work, 'mirroredDoc'> | undefined,
 ): DocProviderId | null {
   return link.kind === 'work' ? workFor(link.targetKey)?.mirroredDoc?.provider ?? null : null
 }
@@ -323,13 +366,14 @@ export function linkFilters(links: TaskLink[]): LinkFilter[] {
 
 // ── Activity ──
 
-/** The feed is comments and events merged by time. Comments have no mirrored
- *  event — `task_comments` is already that log — so the merge happens here. */
+/** The feed is comments and the task's activity merged by time. Comments have
+ *  no mirrored activity — `task_comments` is already that log — so the merge
+ *  happens here. */
 type ActivityEntry =
   | { type: 'comment'; at: number; key: string; comment: TaskComment }
-  | { type: 'event'; at: number; key: string; event: TaskEvent }
+  | { type: 'activity'; at: number; key: string; activity: Activity }
 
-export function activityFeed(comments: TaskComment[], events: TaskEvent[]): ActivityEntry[] {
+export function activityFeed(comments: TaskComment[], activity: Activity[]): ActivityEntry[] {
   const entries: ActivityEntry[] = [
     ...comments.map((comment): ActivityEntry => ({
       type: 'comment',
@@ -337,24 +381,26 @@ export function activityFeed(comments: TaskComment[], events: TaskEvent[]): Acti
       key: `c:${comment.id}`,
       comment,
     })),
-    ...events.map((event): ActivityEntry => ({
-      type: 'event',
-      at: event.createdAt,
-      key: `e:${event.id}`,
-      event,
+    ...activity.map((entry): ActivityEntry => ({
+      type: 'activity',
+      at: entry.at,
+      key: `a:${entry.id}`,
+      activity: entry,
     })),
   ]
   return entries.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key))
 }
 
-/** The artifact a `linked` event brought onto the task, or null for every
- *  other event. The feed shows a render where it was linked, collapsed, so the
+/** The artifact a `linked` change brought onto the task, or null for any other
+ *  activity. The feed shows a render where it was linked, collapsed, so the
  *  reader finds it in the story of the task and not only in the Linked table.
- *  Read against the live links: an event for a work since unlinked, or one
+ *  Read against the live links: a change for a work since unlinked, or one
  *  that is a document, gets no card. */
-export function linkedArtifactForEvent(event: TaskEvent, links: TaskLink[]): TaskLink | null {
-  if (event.kind !== 'linked' || event.targetKind !== 'work' || !event.targetKey) return null
-  const link = links.find((candidate) => candidate.kind === 'work' && candidate.targetKey === event.targetKey)
+export function linkedArtifactForActivity(activity: Activity, links: TaskLink[]): TaskLink | null {
+  if (activity.kind !== 'task_changed' || activity.change !== 'linked' || activity.target?.kind !== 'work') return null
+  const targetKey = activity.target.key
+  if (!targetKey) return null
+  const link = links.find((candidate) => candidate.kind === 'work' && candidate.targetKey === targetKey)
   return link && isArtifactLink(link) ? link : null
 }
 
@@ -369,102 +415,6 @@ export function commentSessionName(
   return link
     ? sessionDisplayName({ link })
     : comment.originSessionId.slice(0, 8)
-}
-
-const ACTOR_NAMES = new Map<TaskEvent['actor'], string>([
-  ['user', 'You'],
-  ['agent', 'An agent'],
-  ['automation', 'An automation'],
-  ['system', 'Solus'],
-])
-
-const EVENT_GLYPHS = {
-  plus: 'M7 2.6v8.8M2.6 7h8.8',
-  arrow: 'M2.6 7h8.8M8 3.6L11.4 7 8 10.4',
-  link: 'M5.8 8.2a2.2 2.2 0 003.3.2l2-2a2.2 2.2 0 00-3.1-3.1l-1.1 1.1M8.2 5.8a2.2 2.2 0 00-3.3-.2l-2 2a2.2 2.2 0 003.1 3.1l1.1-1.1',
-  clock: 'M7 12.6A5.6 5.6 0 107 1.4a5.6 5.6 0 000 11.2M7 4.4V7l2 1.2',
-} as const
-
-/** One muted sentence per event, plus the glyph for its disc. */
-interface TaskEventLine {
-  icon: string
-  text: string
-}
-
-export function eventLine(event: TaskEvent): TaskEventLine {
-  const who = event.actorLabel || ACTOR_NAMES.get(event.actor) || event.actor
-  const target = event.targetTitle || event.targetKey || ''
-  switch (event.kind) {
-    case 'created':
-      return { icon: EVENT_GLYPHS.plus, text: `${who} created this task` }
-    case 'status_changed':
-      return {
-        icon: EVENT_GLYPHS.arrow,
-        text: `${who} moved this to ${statusName(event.to)}`,
-      }
-    case 'priority_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} set priority to ${event.to ?? 'none'}` }
-    case 'assignee_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} assigned this to ${event.to ?? 'nobody'}` }
-    case 'due_date_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} set the target to ${event.to ?? 'none'}` }
-    case 'title_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} renamed this task` }
-    case 'parent_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} changed the parent task` }
-    case 'labels_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: labelsChangedText(who, event.from, event.to) }
-    case 'linked':
-      return { icon: EVENT_GLYPHS.link, text: `${who} linked ${target}` }
-    case 'unlinked':
-      return { icon: EVENT_GLYPHS.link, text: `${who} unlinked ${target}` }
-    case 'session_started':
-      return { icon: EVENT_GLYPHS.clock, text: 'Session started' }
-    case 'snoozed':
-      return {
-        icon: EVENT_GLYPHS.clock,
-        text: target ? `${who} snoozed this task — ${target}` : `${who} snoozed this task`,
-      }
-    case 'woke':
-      return { icon: EVENT_GLYPHS.clock, text: `${who} woke this task` }
-  }
-}
-
-/** Decode the JSON snapshot a label event carries. Null when the row has none
- *  or it is not a list of names: this runs on a render path, so a bad row has
- *  to read as a plain "changed the labels" rather than take the page down. */
-function eventLabels(value: string | null | undefined): string[] | null {
-  if (value == null) return null
-  try {
-    const parsed = labelSnapshotSchema.safeParse(JSON.parse(value))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
-}
-
-const labelSnapshotSchema = z.array(z.string())
-
-function labelsChangedText(
-  who: string,
-  fromValue: string | null | undefined,
-  toValue: string | null | undefined,
-): string {
-  const before = eventLabels(fromValue)
-  const after = eventLabels(toValue)
-  if (!before || !after) return `${who} changed the labels`
-
-  const beforeNames = new Set(before)
-  const afterNames = new Set(after)
-  const added = after.filter((label) => !beforeNames.has(label))
-  const removed = before.filter((label) => !afterNames.has(label))
-  if (!added.length && !removed.length) return `${who} changed the labels`
-  return labelChangeText(who, added, removed)
-}
-
-function statusName(status: string | null | undefined): string {
-  if (!status) return 'unknown'
-  return Object.entries(STATUS_META).find(([key]) => key === status)?.[1].label ?? status
 }
 
 // ── Header ──

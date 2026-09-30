@@ -10,11 +10,13 @@ export interface LinkedPr {
   title: string
   url: string | null
   pullRequest: PullRequest | TaskPrSnapshot | null
+  /** PR sync found that the code host has no such pull request. */
+  missing: boolean
 }
 
 /** Resolve identity before accessing a cache. URLs are authoritative; a legacy
  * path remains a scope until the host resolves its Git remote. */
-export function linkedPrIdentity(link: PrLink, fallbackScope: string | null): Omit<LinkedPr, 'pullRequest'> | null {
+export function linkedPrIdentity(link: PrLink, fallbackScope: string | null): Omit<LinkedPr, 'pullRequest' | 'missing'> | null {
   if ('kind' in link && link.kind !== 'pr') return null
   const parsed = link.url ? parseGitHubPullRequestUrl(link.url) : null
   const number = parsed?.number ?? ('number' in link ? link.number : Number(link.targetKey))

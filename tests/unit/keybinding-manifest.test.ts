@@ -2,15 +2,22 @@ import { describe, expect, test } from 'bun:test'
 import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 describe('session task shortcuts', () => {
-  test('keeps new tasks distinct from sessions created under the active task', () => {
-    expect(KEYBINDINGS['global.new-task']).toMatchObject({
+  test('keeps a new session distinct from a new task', () => {
+    // WHY: a session has no task unless it joins one, so the N key starts a
+    // session and the T key opens the task composer. A session under the
+    // active task is a command with no default key.
+    expect(KEYBINDINGS['global.new-session']).toMatchObject({
       combo: { mod: true, code: 'KeyN' },
       web: { alt: true, shift: true, code: 'KeyN' },
-      label: 'New task',
+      label: 'New session',
     })
-    expect(KEYBINDINGS['global.new-session']).toMatchObject({
+    expect(KEYBINDINGS['global.new-task']).toMatchObject({
       combo: { mod: true, code: 'KeyT' },
       web: { alt: true, shift: true, code: 'KeyT' },
+      label: 'New task',
+    })
+    expect(KEYBINDINGS['global.new-session-in-task']).toMatchObject({
+      combo: null,
       label: 'New session in task',
     })
     expect(KEYBINDINGS['global.new-session-without-task']).toMatchObject({

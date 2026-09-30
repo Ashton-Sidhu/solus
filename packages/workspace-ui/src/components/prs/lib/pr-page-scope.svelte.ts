@@ -19,6 +19,7 @@ import type { IpcContext } from '@solus/contracts/types'
 import { serversStore, type SurfaceContext } from '../../../contexts'
 import type { PrProject } from '../../../contexts/prs/prs.store.svelte'
 import { prProjectTargets } from './pr-cross-project'
+import { isSolusApiId } from '@solus/contracts/uplink'
 
 export class PrPageScope {
   constructor(private readonly session: SurfaceContext) {}
@@ -71,7 +72,7 @@ export class PrPageScope {
     prProjectTargets(this.projectOptions, {
       cloudServerId: this.cloudReadable ? this.cloudServerId : null,
       isOnlineCheckout: (serverId) =>
-        !serversStore.isCloudHost(serverId) && serversStore.statusFor(serverId) === 'online',
+        !isSolusApiId(serverId) && serversStore.statusFor(serverId) === 'online',
       apiFor: (serverId) => serverConnections.apiFor(serverId),
       ctxFor: (projectRoot) => this.session.ctxForDirectory(projectRoot),
     }),

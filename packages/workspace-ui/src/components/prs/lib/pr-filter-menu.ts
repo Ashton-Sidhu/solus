@@ -10,6 +10,7 @@ import {
   GitPullRequestDraft as DraftOnlyIcon,
   Layers as AllIcon,
   MessageSquareCheck as ReviewIcon,
+  Aperture as ApertureIcon,
   Tag as TagIcon,
   User as UserIcon,
   Users as UsersIcon,
@@ -30,7 +31,7 @@ export interface PrFilterOption {
 
 /** One visible row and its radio submenu in the PR Filters menu. */
 export interface PrFilterGroup {
-  key: 'state' | 'involvement' | 'author' | 'labels' | 'draft' | 'review' | 'checks' | 'guide'
+  key: 'state' | 'involvement' | 'author' | 'labels' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
   label: string
   icon: ListIcon
   value: string
@@ -201,12 +202,18 @@ export function prFilterGroups(
       options: [{ value: 'all', label: 'All pull requests' }, { value: 'has-guide', label: 'Has review guide' }],
       select: (value) => { listView.guide = value === 'has-guide' ? 'has-guide' : 'all' },
     },
+    {
+      key: 'lens', label: 'Review lens', icon: ApertureIcon,
+      value: listView.lens, valueLabel: listView.lens === 'has-lens' ? 'Has lens' : 'All',
+      active: listView.lens === 'has-lens',
+      options: [{ value: 'all', label: 'All pull requests' }, { value: 'has-lens', label: 'Has review lens' }],
+      select: (value) => { listView.lens = value === 'has-lens' ? 'has-lens' : 'all' },
+    },
   ]
 }
 
-/** Every filter back to what the list opens on: open work, anyone's, no search. */
+/** Every Filters-menu facet back to what the list opens on: open work, anyone's. The search stays. */
 export function clearPrFilters(listView: PrListView): void {
-  listView.query = ''
   listView.involvement = 'all'
   listView.author = null
   listView.label = null
@@ -214,5 +221,6 @@ export function clearPrFilters(listView: PrListView): void {
   listView.review = 'all'
   listView.checks = 'all'
   listView.guide = 'all'
+  listView.lens = 'all'
   listView.statusKeys = prStatusKeysFor('open')
 }

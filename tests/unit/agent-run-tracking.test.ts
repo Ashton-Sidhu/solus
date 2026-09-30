@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { BaseAgentBackend } from '../../packages/server/src/agents/base-backend'
-import type { RunHandle } from '../../packages/server/src/agents/agent-backend'
+import { BaseAgentBackend } from '../../packages/server/src/execution/agents/base-backend'
+import type { RunHandle } from '../../packages/server/src/execution/agents/agent-backend'
 
 /**
  * `runTrackingSnapshot` exists for one reason: when the run watchdog declares a

@@ -1,23 +1,24 @@
 import { materializeStartupTranscript } from './startup-session'
 import { afterPaint } from '../../lib/after-paint'
 import { markStartupTranscriptApplied } from './startup-transcript'
-import { requestSessionHistoryPage } from '@solus/client-core/session-history-page'
-import { defaultContextWindowFor, isSessionBusyStatus, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '@solus/contracts/types'
+import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
+import { defaultContextWindowFor, isSessionBusyStatus, PERMISSION_MODES, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '@solus/contracts/types'
 import { loadServers } from '@solus/client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
-import { loadRestoredSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
+import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { projectsStore } from '../projects/projects.store.svelte'
-import { projectDirLabel } from '../../lib/paths'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { loadSessionRecordTranscript } from '../sessions/session-record-transcript'
+import { GONE_MACHINE_READ_ONLY_REASON, savedHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 
-const permissionModeSchema = z.enum(['ask', 'auto', 'plan']).catch('auto')
+const permissionModeSchema = z.enum(PERMISSION_MODES).catch('full-access')
 
 interface RestoredHydrationState {
   pending: Map<string, PersistedTab>
@@ -34,17 +35,16 @@ interface RestoredWorkspaceState {
  * materialization; hydration owns all later startup, selection, and retry work. */
 const restorations = new WeakMap<WorkspaceContext, RestoredWorkspaceState>()
 
-/** History hydration replaces the provider transcript wholesale. Preserve a
- * configuration divider added while a restored tab was still loading: it is
- * renderer state newer than the transcript request and would otherwise disappear. */
+/** History hydration replaces the provider transcript wholesale. Preserve an
+ * activity row (an agent switch, a decision) that arrived live while a restored
+ * tab was still loading: it is newer than the transcript request and would
+ * otherwise disappear until the next reload. */
 export function replaceHydratedMessages(session: Pick<Session, 'messages'>, hydrated: Message[]): void {
   const hydratedIds = new Set(hydrated.map((message) => message.id))
-  const pendingConfigurationChanges = session.messages.filter(
-    (message) =>
-      message.agentChangedTo &&
-      !hydratedIds.has(message.id),
-  )
-  session.messages.splice(0, session.messages.length, ...hydrated, ...pendingConfigurationChanges)
+  const newestHydrated = hydrated.at(-1)?.timestamp ?? -Infinity
+  const liveActivity = session.messages.filter((message) =>
+    message.activity && !hydratedIds.has(message.id) && message.timestamp >= newestHydrated)
+  session.messages.splice(0, session.messages.length, ...hydrated, ...liveActivity)
 }
 
 async function hydrateRestoredTab(
@@ -266,7 +266,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       if (watched) ctx.adoptSessionId(tabId, watched.sessionId)
 
       // Registration needs the watch above, hence not earlier.
-      const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status' }).catch(() => null)
+      const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status', force: false }).catch(() => null)
 
       if (session.agentSessionId) {
         const info = watched?.runtime ?? null
@@ -346,13 +346,6 @@ function _materializeTabs(
         permissionMode: permissionModeSchema.parse(snapTab.permissionMode),
       }
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
-      const catalogRoot = run.gitContext?.repoRoot ?? run.workingDirectory
-      if (serverId && catalogRoot && catalogRoot !== '~') {
-        projectsStore.record(
-          { serverId, projectRoot: catalogRoot },
-          projectDirLabel(catalogRoot, ctx.staticInfo?.workspacePath),
-        )
-      }
       const overrides: NonNullable<Parameters<typeof makeSession>[1]> = {
         // Keep the id the snapshot carried: the persisted location names chats
         // by session, so a restored split pane has to find the same one back.
@@ -364,6 +357,7 @@ function _materializeTabs(
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: snapTab.pendingFork ? 'idle' : snapTab.status ?? 'idle',
         currentTurnStartedAt: snapTab.currentTurnStartedAt ?? null,
+        startedAt: snapTab.startedAt ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         run,
         // Only a composer carries these; a started session's task comes from its
@@ -446,10 +440,40 @@ function startRestoredMetadataReads(
  * runtime session. The order is fixed: durable history, watch, then bind. Git
  * and task state are independent and run alongside that sequence.
  */
+/**
+ * A restored tab whose machine is gone (docs/plans/workspace-and-machines.md §6):
+ * nothing on that machine can be asked, so the tab is read-only and shows what the
+ * window's own record home mirrored of it, when it holds any. Left pending until
+ * the saved hosts are authoritative: a host missing before the directory answers
+ * may still be listed.
+ */
+async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: PersistedTab, session: Session): Promise<boolean> {
+  if (!savedHostsAreAuthoritative()) return false
+  session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
+  const home = serverConnections.defaultServerId()
+  if (!home || !hostRolesStore.hasCollaboration(home)) return true
+  session.loadingHistory = session.messages.length === 0
+  try {
+    const meta = await readSessionMeta(home, session.id)
+      ?? (snapTab.agentSessionId ? await readSessionMeta(home, snapTab.agentSessionId) : null)
+    if (!meta || ctx.sessionFor(snapTab.tabId) !== session) return true
+    const messages = await loadSessionRecordTranscript(ctx, home, meta)
+    if (ctx.sessionFor(snapTab.tabId) !== session || messages.length === 0) return true
+    replaceHydratedMessages(session, messages)
+    ctx.eventReducer.rebuildAgentConversations(session)
+  } catch {
+    // The mirror may not hold this session; the tab stays read-only and empty.
+  } finally {
+    session.loadingHistory = false
+  }
+  return true
+}
+
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<boolean> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
   if (!tab || !session || session.forked || snapTab.pendingFork) return true
+  if (!serverConnections.isKnownServer(session.run.serverId)) return hydrateTabOnGoneMachine(ctx, snapTab, session)
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
@@ -461,8 +485,8 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const history = snapTab.agentSessionId
     ? requestSessionHistoryPage(api, {
         sessionId: snapTab.agentSessionId, projectPath: loadPath, provider: snapshotProvider,
-        limit: RESTORED_TRANSCRIPT_LIMIT, deferToolInputs: ctx.deferHistoryToolInputs,
-      }, ctx.ctxFor(snapTab.tabId))
+        turnLimit: INITIAL_HISTORY_TURNS,
+      })
     : undefined
   // Observe an early rejection while lineage is pending; awaiting history below
   // still propagates it so selection/reconnect can retry the hydration.
@@ -547,7 +571,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // Secondary reads run after the transcript can paint and never gate live attachment.
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
-    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
+    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, force: false }).catch(() => null)
     const taskSessionId = handoff?.sessionId ?? session.id
     const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
     const taskHydration = taskSessionId
@@ -588,6 +612,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       attachRuntime: true,
     })
     ctx.adoptSessionId(snapTab.tabId, watched.sessionId)
+    ctx.applyPendingQuestions(snapTab.tabId, watched.pendingQuestions)
     const info = watched.runtime ?? null
     if (info && session) {
       applyRuntimeConfig(session, info)

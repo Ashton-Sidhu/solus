@@ -6,7 +6,6 @@ import {
 } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'completeTask' | 'renameTask' | 'restoreTask'> & {
-  doneTaskIds: Set<string>
   dismissedRowKeys: Set<string>
   openTaskIds: Set<string>
   completedHereTaskIds: Set<string>
@@ -26,7 +25,6 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' 
 
 function sidebarStoreForDismissal(): SidebarStoreHarness {
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
-  store.doneTaskIds = new Set<string>()
   store.dismissedRowKeys = new Set<string>()
   store.openTaskIds = new Set<string>()
   store.completedHereTaskIds = new Set<string>()
@@ -61,7 +59,6 @@ describe('session sidebar dismissal', () => {
     const store = sidebarStoreForDismissal()
     const task = {
       id: 'loose-tab',
-      listKey: 'loose-tab',
       key: 'loose-tab',
       title: 'Background work',
       projectKey: '/repo',
@@ -143,7 +140,8 @@ describe('session sidebar dismissal', () => {
     // registry fallback in that interval.
     const store = sidebarStoreForDismissal()
     Object.assign(store, {
-      visibleTasks: [],
+      taskRows: [],
+      sessionRows: [],
       snoozedTasks: [],
       completedTasks: [],
       activeTasks: [],
@@ -249,7 +247,6 @@ describe('session sidebar dismissal', () => {
       tasksStore: {
         loaded: true,
         tasks: [{ id: 'root' }],
-        byParent: new Map(),
         peek: (id: string) => (id === 'root' ? { id: 'root', status: 'done', sessions: [] } : null),
         get: (id: string) => ({
           sessions: [],
@@ -280,7 +277,6 @@ describe('session sidebar dismissal', () => {
       tasksStore: {
         loaded: true,
         tasks: [{ id: 'root' }],
-        byParent: new Map(),
         peek: () => ({ id: 'root', status: 'dropped', sessions: [] }),
         get: (id: string) => ({
           sessions: [],
@@ -297,30 +293,21 @@ describe('session sidebar dismissal', () => {
     expect(statuses).toEqual([['root', 'todo']])
   })
 
-  test('restoring a task restores its full linked session tree', () => {
+  test('restoring a task restores every linked session', () => {
     // WHY: selecting a task in the picker promises to put every prior attempt
     // back under the expanded task, not only the draft it opens now.
     const store = sidebarStoreForDismissal()
     store.dismissedRowKeys = new Set([
       'root',
-      'session:root-session',
-      'task:child',
+      'session:first-session',
+      'session:second-session',
       'unrelated',
     ])
     store.session = {
       showExplicitSidebarTaskSession: () => {},
       tasksStore: {
-        peek: (taskId: string) => ({
-          root: { id: 'root' },
-          child: { id: 'child', parentId: 'root' },
-        })[taskId] ?? null,
-        get: (taskId: string) => ({
-          sessions: ({
-            root: [{ sessionId: 'root-session' }],
-            child: [{ sessionId: 'child-session' }],
-          })[taskId] ?? [],
-        }),
-        byParent: new Map([['root', [{ id: 'child', parentId: 'root', createdAt: 2 }]]]),
+        peek: (taskId: string) => (taskId === 'root' ? { id: 'root' } : null),
+        get: () => ({ sessions: [{ sessionId: 'first-session' }, { sessionId: 'second-session' }] }),
       },
     }
 

@@ -309,6 +309,21 @@ describe('plans federation', () => {
     expect(calls).toEqual(['host-b'])
   })
 
+  test('an organization Solus API is not asked for plans', async () => {
+    // WHY: plans live in provider transcripts on a machine. The Solus API does
+    // not serve listPlans; asking it logs an error and marks it as failed.
+    const asked: string[] = []
+    connections.registerPrimary('host-a', { listPlans: async () => { asked.push('host-a'); return [descriptor('Plan A', 1)] } })
+    connections.registerHost('workspace:org-1', { listPlans: async () => { asked.push('workspace:org-1'); throw new Error('Unknown method "listPlans"') } })
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
+    const store = new PlanStore()
+
+    const plans = await store.getDescriptors(undefined, true)
+
+    expect(asked).toEqual(['host-a'])
+    expect(plans.map((plan) => plan.title)).toEqual(['Plan A'])
+  })
+
   test('same-path plans from two hosts remain distinct', async () => {
     // WHY: an absolute path names files only within one host. Host-qualified
     // descriptor identity must retain both gallery rows.

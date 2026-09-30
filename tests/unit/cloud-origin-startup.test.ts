@@ -4,12 +4,14 @@ import { adoptCloudOriginIfPresent, configureUplinkAccountSource, uplinkAccountS
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { configureCloudAccount, startupAccountRead } from '@solus/client-core/cloud-account'
 import type { SavedServer } from '@solus/client-core/server-registry'
+import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
 
 const origin = 'https://account.example'
 const host = {
   hostId: 'abcdefghijklmnop', installationId: 'installation', label: 'My host', os: 'macos',
   routes: [{ kind: 'tunnel', url: 'https://host.example' }],
 }
+const workspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.example' }], isActive: true, policy: DEFAULT_ORGANIZATION_POLICY }
 const fetchSpy = spyOn(globalThis, 'fetch')
 afterAll(() => fetchSpy.mockRestore())
 afterEach(() => {
@@ -31,16 +33,21 @@ async function bootDirectory() {
   const state = { kind: 'unknown' }
   const saved: SavedServer[] = [{ id: 'paired', label: 'Paired host', url: 'https://paired.example', sessionToken: 'fixture', lastConnected: 1 }]
   const save = mock((servers: SavedServer[]) => { saved.splice(0, saved.length, ...servers) })
+  const saveWorkspaces = mock((_workspaces: unknown[], _directoryUrl: string) => [])
+  const answered = mock(() => {})
   const boot = new Function('adoptCloudOriginIfPresent', 'uplinkAccountSource', 'cloudOrigin',
-    'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'startupAccountRead',
+    'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'saveDirectoryWorkspaces', 'startupAccountRead', 'markDirectoryAnswered',
     `${compiled}\nreturn adoptCloudDirectory();`)
-  await boot(adoptCloudOriginIfPresent, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, startupAccountRead)
-  return { state, saved, save }
+  await boot(adoptCloudOriginIfPresent, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, saveWorkspaces, startupAccountRead, answered)
+  // Only a merged directory makes the saved hosts authoritative (workspace-and-machines.md §6).
+  expect(answered).toHaveBeenCalledTimes(save.mock.calls.length)
+  expect(saveWorkspaces).toHaveBeenCalledTimes(save.mock.calls.length)
+  return { state, saved, save, saveWorkspaces }
 }
 
 test('web/mobile startup uses one directory request and later refreshes fetch current hosts', async () => {
-  fetchSpy.mockImplementation(async () => Response.json({ hosts: [host] }))
-  const { state, saved, save } = await bootDirectory()
+  fetchSpy.mockImplementation(async () => Response.json({ hosts: [host], workspaces: [workspace] }))
+  const { state, saved, save, saveWorkspaces } = await bootDirectory()
   expect(state.kind).toBe('signed-in')
   expect(requestsTo('/v1/hosts')).toHaveLength(1)
   expect(requestsTo('/v1/account')).toHaveLength(1)
@@ -49,6 +56,9 @@ test('web/mobile startup uses one directory request and later refreshes fetch cu
   expect(save).toHaveBeenCalledTimes(1)
   expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
   expect(saved.some((server) => server.id === 'paired')).toBe(true)
+  // WHY: a workspace service is a cloud service, never a host.
+  expect(saved.some((server) => server.id.startsWith('workspace:'))).toBe(false)
+  expect(saveWorkspaces).toHaveBeenCalledWith([workspace], origin)
   fetchSpy.mockImplementation(async () => Response.json({ hosts: [{ ...host, label: 'Renamed host' }] }))
   const refreshed = await uplinkAccountSource()?.listDirectory()
   expect(requestsTo('/v1/hosts')).toHaveLength(2)

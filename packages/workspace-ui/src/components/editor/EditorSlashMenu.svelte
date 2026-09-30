@@ -41,7 +41,7 @@
     <div
       bind:this={listEl}
       role="listbox"
-      class="menu-surface slash-block-menu text-workspace-chrome max-h-[17.5rem] w-[15.75rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-1.5 font-(family-name:--solus-font-family) pointer-fine:[.is-laptop-display_&]:max-h-60 pointer-fine:[.is-laptop-display_&]:w-56 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:p-1"
+      class="menu-surface slash-block-menu text-workspace-chrome max-h-[17.5rem] w-[15.75rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-1.5 font-(family-name:--solus-font-family)"
     >
       {#each commands as cmd, i (cmd.id)}
         {#if i > 0 && cmd.group !== commands[i - 1].group}
@@ -114,18 +114,6 @@
     color: var(--solus-accent);
   }
 
-  @media (pointer: fine) {
-    :global(.is-laptop-display) .slash-block-menu__item {
-      gap: 0.5rem;
-      min-height: 2rem;
-      padding: 0.25rem 0.4375rem;
-    }
-
-    :global(.is-laptop-display) .slash-block-menu__icon :global(svg) {
-      width: 0.8125rem;
-      height: 0.8125rem;
-    }
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .slash-block-menu__item,

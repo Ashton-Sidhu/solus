@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { runGitAction, type GitActionManagerOptions } from '@solus/server/git/git-action-manager'
 import type { GitActionRequest, GitCheckout } from '@solus/contracts/types'
-import type { TextGenerator } from '@solus/server/agents/text-generator'
+import type { TextGenerator } from '@solus/server/execution/agents/text-generator'
 
 let roots: string[] = []
 

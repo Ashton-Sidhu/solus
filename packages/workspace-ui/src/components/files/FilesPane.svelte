@@ -48,7 +48,8 @@
     persistHtmlFileViewMode,
     type HtmlFileViewMode,
   } from "./lib/html-file";
-  import ImageFilePreview from "./ImageFilePreview.svelte";
+  import NonTextFilePreview from "./NonTextFilePreview.svelte";
+  import type { NonTextFile } from "./lib/non-text-file";
   import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
@@ -77,6 +78,8 @@
   } from "../../lib/resizablePane";
 
   interface Props {
+    /** The host the files are on, which signs the URLs media loads from. */
+    serverId: string;
     api: HostApi;
     ctx: IpcContext;
     cwd: string;
@@ -86,7 +89,7 @@
     onClose: () => void;
   }
 
-  let { api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
+  let { serverId, api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
   // Register the small offline icon subset used by file-type badges.
   ensureIconCollections();
 
@@ -157,11 +160,12 @@
   let treeLoadGeneration = 0;
   let selectedPath = $state<string | null>(null);
   let selectedContents = $state<string | null>(null);
-  let selectedSize = $state<number | null>(null);
   let selectedReadOnly = $state(false);
   let selectedTruncated = $state(false);
   let fileLoading = $state(false);
-  let selectedImageDataUrl = $state<string | null>(null);
+  // The first open continues the load skeleton. Later switches delay theirs.
+  let hasShownFile = $state(false);
+  let selectedNonText = $state<NonTextFile | null>(null);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
   let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
@@ -208,7 +212,7 @@
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
-    return selectedSize == null ? "" : `${Math.ceil(selectedSize / 1024)} KB`;
+    return "";
   });
 
   const statusClass = $derived(
@@ -319,23 +323,24 @@
     htmlViewMode = initialHtmlFileViewMode(path);
     syncTreeSelection(path);
     selectedContents = null;
-    selectedSize = null;
     selectedReadOnly = false;
     selectedTruncated = false;
     fileError = null;
-    selectedImageDataUrl = null;
+    selectedNonText = null;
     fileLoading = true;
     saveState = "idle";
     const result = await api.readProjectFile(ctx, { path, cwd });
     if (generation !== fileLoadGeneration) return;
-    if (result.ok) {
+    if (result.ok && result.kind !== "text") {
+      selectedPath = result.displayPath;
+      syncTreeSelection(selectedPath);
+      selectedNonText = result;
+    } else if (result.ok) {
       selectedPath = result.displayPath;
       syncTreeSelection(selectedPath);
       selectedContents = result.contents;
-      selectedImageDataUrl = result.imageDataUrl ?? null;
       htmlContents = result.contents;
       htmlSourceMounted = htmlViewMode === "source";
-      selectedSize = result.size;
       // A file too large to load whole is served as a prefix; editing it would
       // save the truncation back over the original.
       selectedReadOnly = result.isReadOnly;
@@ -350,7 +355,8 @@
       fileError = result.error;
     }
     fileLoading = false;
-    if (focusEditor && result.ok) {
+    hasShownFile = true;
+    if (focusEditor && result.ok && result.kind === "text") {
       await tick();
       // Pierre restores its row focus after selection closes the tree search.
       // Wait until that commit finishes or it can take focus back from the
@@ -783,15 +789,21 @@
   >
     <Resizable.Pane order={1} minSize={stacked ? 45 : 0}>
       <section data-file-editor-pane class="flex h-full min-h-0 min-w-0 flex-col">
-        {#if fileLoading || (loading && treePaths.length === 0)}
+        {#if (loading && treePaths.length === 0) || (fileLoading && !hasShownFile)}
           <FilesPaneSkeleton variant="editor" />
+        {:else if fileLoading}
+          <!-- Most reads finish within a frame or two. Fade the skeleton in
+               late so a fast file switch does not flash it. -->
+          <div class="flex flex-1 flex-col animate-[backdrop-fade_150ms_ease-out_200ms_both]">
+            <FilesPaneSkeleton variant="editor" />
+          </div>
         {:else if fileError}
           <div class="flex flex-1 items-center justify-center p-6 text-center text-xs text-(--solus-status-error)">
             {fileError}
           </div>
-        {:else if selectedPath && selectedImageDataUrl}
-          {#key selectedImageDataUrl}
-            <ImageFilePreview src={selectedImageDataUrl} title={selectedPath} />
+        {:else if selectedPath && selectedNonText}
+          {#key selectedNonText.path}
+            <NonTextFilePreview {serverId} file={selectedNonText} title={selectedPath} />
           {/key}
         {:else if selectedPath && selectedContents !== null}
           {#if isSelectedMarkdown}

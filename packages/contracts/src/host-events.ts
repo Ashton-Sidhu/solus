@@ -1,10 +1,10 @@
+import type { CheckoutChange } from './checkout'
 import type { AtlassianOAuthCompleted } from './atlassian'
 import type { HostConfigSnapshot } from './host-config'
 import type { ConnectionConnectNeeded } from './connections'
 import type { AttentionEntry } from './attention-types'
-import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent } from './review'
-import type { PullRequest } from './providers'
+import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent, ReviewLensChangedEvent } from './review'
+import type { PrSyncChange } from './providers'
 import type {
   AgentUsageLimits,
   AnnotationsChanged,
@@ -13,11 +13,11 @@ import type {
   EnrichedError,
   WireNormalizedEvent,
   SessionIndexUpdatedEvent,
-  SessionScanEvent,
   SessionStatus,
   SessionTitleChangedEvent,
   SetupLogEvent,
   SetupStatusEvent,
+  ModelProfilesStatus,
   VoiceModelStatus,
 } from './types'
 import type { GitActionProgressEvent } from './git-types'
@@ -27,7 +27,11 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot } from './presence'
+import type { HostOrganizationsStatus, Publication } from './organization-scope'
 import type { UplinkStatus } from './uplink'
+import type { WatchChangedEvent } from './watch-types'
+import type { WorkReviewsChanged } from './work-review'
+import type { WorkLiveAwarenessEvent, WorkLiveStateEvent, WorkLiveUpdateEvent } from './work-live'
 import { z } from 'zod'
 
 /**
@@ -35,15 +39,21 @@ import { z } from 'zod'
  * Commands and queries remain RPC methods; native shell signals stay local.
  */
 export interface HostEventMap {
+  'git.checkoutChanged': CheckoutChange
   'session.eventReceived': { sessionId: string; event: WireNormalizedEvent }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
-  'session.scanProgressed': SessionScanEvent
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
   /** This session was read, or returned to unread, on some client. Every other
    *  mounted surface adopts the boundary so reading on one device clears the
    *  indicator on the rest. `viewedAt` is null when the session is unread. */
   'session.readStateChanged': { sessionId: string; viewedAt: number | null }
+  /** The pull requests linked to this session changed, or PR sync saw one of
+   *  them change. Clients read `sessionPullRequestsList` for the session. */
+  'session.pullRequestsChanged': { sessionId: string }
+  /** The session was settled, made active, snoozed or woken. Clients read
+   *  `sessionShelfList` for the session. */
+  'session.stateChanged': { sessionId: string }
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
@@ -52,22 +62,43 @@ export interface HostEventMap {
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
   'automation.changed': AutomationsChangedEvent
+  'watch.changed': WatchChangedEvent
   'provider.deviceCodeReceived': DeviceCodePrompt
   'git.actionProgressed': GitActionProgressEvent
   'review.progressChanged': ReviewProgressEvent
   'review.guideStatusChanged': ReviewGuideStatusEvent
-  'tasks.invalidated': Record<string, never>
+  'review.lensChanged': ReviewLensChangedEvent
+  /** A task changed. `taskId` names it; no id means many tasks changed at
+   *  once (a bulk sync, an import, a delete), so clients read everything. */
+  'tasks.invalidated': { taskId?: string }
   'workspaceProjects.changed': Record<string, never>
   /** This host's outbox gained, lost, or failed an op. Connected clients react
    *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
   'outbox.changed': Record<string, never>
-  'prs.invalidated': { projectRoot: string }
-  'pr.lifecycleChanged': { projectRoot: string; detail: PullRequest }
+  /** PR sync saw a pull request change, or a write changed one. Carries only
+   *  what changed. */
+  'pr.changed': PrSyncChange
   'annotations.changed': AnnotationsChanged
+  /** One work was created or changed, after the write committed. `version` is
+   *  the record version (`updatedAt`, the HTTP ETag); `contentVersion` is the
+   *  body's own version. No content: a reader that needs the body reads the
+   *  work by id. Delivered only to principals that can open the work.
+   *  `deleted` marks the work's deletion; the versions are its last ones. */
+  'works.changed': { workId: string; version: string; contentVersion: number; deleted?: true }
+  /** One work's reviewers or decisions changed. Delivered to everyone who can
+   *  open the work; the review is read again with `workReviewGet`. */
+  'workReviews.changed': WorkReviewsChanged
+  /** Live editing: sent only to the clients in the work's room, never stored as events. */
+  'workLive.update': WorkLiveUpdateEvent
+  'workLive.awareness': WorkLiveAwarenessEvent
+  'workLive.state': WorkLiveStateEvent
   'attention.snapshotChanged': { entries: AttentionEntry[] }
-  'pr.checksChanged': PrChecksSnapshot
   'pr.guideStatusChanged': PrGuideStatusEvent
   'usage.limitsChanged': { snapshots: AgentUsageLimits[] }
+  /** A turn's row in the Insights record was written: open when the turn
+   *  starts, finished when it ends. Sent after the write, so a client that reads
+   *  on it sees the new row. `status` is 'unknown' while the turn runs. */
+  'metrics.turnsChanged': { traceId: string; sessionId: string | null; status: 'ok' | 'error' | 'interrupted' | 'unknown' }
   /** An agent tool found a connection missing and its turn is waiting on it.
    *  One event for every provider: the card, the dismissal, and the continue
    *  are the same work regardless of which account is missing. */
@@ -93,6 +124,9 @@ export interface HostEventMap {
   /** This host's Solus or provider update check changed. The whole status: it
    *  is a handful of fields, and a diff would be more code than the payload. */
   'host.updateStatusChanged': HostUpdateStatus
+  /** This host's model list changed, or a check of GitHub started or ended. The
+   *  whole status: clients put the list in effect as soon as it arrives. */
+  'host.modelProfilesChanged': ModelProfilesStatus
   /** A session's or work's owner or share list changed. Sent to everyone who could
    *  see it before or after; the list itself is re-read with `shareGet`. */
   'share.changed': ShareChangedEvent
@@ -110,6 +144,11 @@ export interface HostEventMap {
    *  went down. The whole status, as `uplinkStatus` answers it: linking returns
    *  before the connector registers, so the row that just linked hears "online" here. */
   'host.uplinkStatusChanged': UplinkStatus
+  /** This host's standing changed: linked or unlinked, an organization shared or withdrawn, a policy edited, an opt-in
+   *  changed. The whole status, as `hostOrganizations` answers it. */
+  'host.organizationsChanged': HostOrganizationsStatus
+  /** A publication moved on: reserved, sent, committed, or failed. The whole record. */
+  'publication.changed': Publication
 }
 
 export type HostEventName = keyof HostEventMap
@@ -129,11 +168,13 @@ export interface HostEventDefinition {
 
 /** Runtime catalog for boundary validation and human discovery. */
 export const HOST_EVENT_DEFINITIONS = {
+  'git.checkoutChanged': { owner: 'git', category: 'delta', recovery: 'reload', description: 'Checkout identity changed; recover through checkoutSnapshot.' },
   'session.eventReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A normalized provider event arrived for a watched session.' },
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
-  'session.scanProgressed': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A requested session scan produced progress.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
+  'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
+  'session.stateChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: 'A session was settled, made active, snoozed or woken.' },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },
@@ -141,20 +182,26 @@ export const HOST_EVENT_DEFINITIONS = {
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },
   'automation.changed': { owner: 'automations', category: 'delta', recovery: 'reload', description: 'A durable automation or its run state changed.' },
+  'watch.changed': { owner: 'watches', category: 'delta', recovery: 'reload', description: 'A watch changed state: saved, woke its session, or ended.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
+  'review.lensChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review lens, its comments, or its job changed.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
-  'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
-  'pr.lifecycleChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull request changed on the host: lifecycle state or labels. Carries the whole pull request.' },
+  'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
+  'works.changed': { owner: 'works', category: 'delta', recovery: 'reload', description: 'A work was created, deleted, or its record or content changed; read it again by id.' },
+  'workLive.update': { owner: 'works', category: 'targeted', recovery: 'reset', description: 'A Yjs update to a work open live; the room applies it. A client that missed one opens the work again.' },
+  'workLive.awareness': { owner: 'works', category: 'targeted', recovery: 'reset', description: "A cursor in a work open live moved, or a client left its room." },
+  'workLive.state': { owner: 'works', category: 'targeted', recovery: 'reset', description: 'The agent edit lock on a work open live started or ended.' },
+  'workReviews.changed': { owner: 'works', category: 'delta', recovery: 'reload', description: "A work's reviewers or review decisions changed; read the review again by work id." },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
-  'pr.checksChanged': { owner: 'prs', category: 'snapshot', recovery: 'reload', description: 'Cached pull-request checks changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
+  'metrics.turnsChanged': { owner: 'metrics', category: 'delta', recovery: 'reload', description: "A turn's Insights row was written: started or finished." },
   'connection.connectNeeded': { owner: 'connections', category: 'delta', recovery: 'reset', description: 'An agent tool needs the user to connect an external account.' },
   'browser.pageChanged': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page changed target, viewport, host, or load state.' },
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
@@ -164,11 +211,14 @@ export const HOST_EVENT_DEFINITIONS = {
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
   'host.updateStatusChanged': { owner: 'updates', category: 'snapshot', recovery: 'reload', description: 'The host Solus release check or a provider release check changed state.' },
+  'host.modelProfilesChanged': { owner: 'model-profiles', category: 'snapshot', recovery: 'reload', description: "This host's model list or its GitHub check changed state." },
   'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's cloud link or its tunnel changed state." },
+  'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
+  'publication.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: 'A publication of a Local resource into an organization changed state.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

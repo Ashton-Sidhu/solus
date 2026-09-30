@@ -57,7 +57,7 @@ test('the detail panel reloads the review only when the pull request changes', a
       control.setBaseRepo = (next) => (baseRepo = next);
       control.setCtx = (next) => (ctx = next);
     </script>
-    <Panel number={7} api={{}} serverId="s1" {ctx} title="Fix" {baseRepo} fullScreen={false} onClose={() => {}} onStep={() => {}} />`, { PANEL: panel }))
+    <Panel number={7} api={{}} serverId="s1" {ctx} title="Fix" {baseRepo} fullScreen={false} onClose={() => {}} />`, { PANEL: panel }))
     const runner = write('run.mjs', `
       import assert from 'node:assert/strict';
       import { JSDOM } from ${JSON.stringify(new URL('node_modules/jsdom/lib/api.js', root).href)};

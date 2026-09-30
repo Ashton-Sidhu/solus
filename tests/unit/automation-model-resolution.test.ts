@@ -5,16 +5,16 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
-import type { AgentBackend, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
+let SessionRuntime: typeof import('@solus/server/execution/session-runtime')['SessionRuntime']
 let cwd: string
 
 beforeAll(async () => {
-  ;({ ControlPlane } = await import('@solus/server/control-plane'))
+  ;({ SessionRuntime } = await import('@solus/server/execution/session-runtime'))
   cwd = mkdtempSync(join(tmpdir(), 'solus-automation-model-'))
   spawnSync('git', ['init', '-q'], { cwd })
 })
@@ -55,7 +55,7 @@ function backend(defaultModel: string) {
   return { value: emitter, requests }
 }
 
-const planes: Array<InstanceType<typeof ControlPlane>> = []
+const planes: Array<InstanceType<typeof SessionRuntime>> = []
 afterEach(() => {
   for (const plane of planes.splice(0)) plane.shutdown()
 })
@@ -68,7 +68,7 @@ describe('automation model resolution', () => {
     // so scheduled work silently ran on a different model than the one the
     // automation is documented to use.
     const fake = backend('claude-opus-5')
-    const plane = new ControlPlane(new Map([['claude-code', fake.value as never]]))
+    const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
     const session = await plane.startAutomationSession({
@@ -91,7 +91,7 @@ describe('automation model resolution', () => {
 
   test('an automation that pins a model keeps it', async () => {
     const fake = backend('claude-opus-5')
-    const plane = new ControlPlane(new Map([['claude-code', fake.value as never]]))
+    const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
     const session = await plane.startAutomationSession({

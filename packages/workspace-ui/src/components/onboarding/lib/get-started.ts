@@ -44,11 +44,11 @@ export function getStartedItems(facts: GetStartedFacts): GetStartedItem[] {
     items.push({ id: 'agents', label: 'Sign in Claude Code or Codex', detail: 'On the machine your agents run on', stage: 'agents' })
   }
   if (facts.githubConnected === false) {
-    items.push({ id: 'github', label: 'Connect GitHub', detail: 'To clone repositories and see pull requests', stage: 'github' })
+    items.push({ id: 'github', label: 'Connect GitHub', detail: 'Repositories and pull requests', stage: 'github' })
   }
   // The project stage lists GitHub repositories; without GitHub it has nothing to offer.
   if (facts.githubConnected === true && facts.hasProject === false) {
-    items.push({ id: 'project', label: 'Add a project', detail: 'A repository everyone in the organization can use', stage: 'project' })
+    items.push({ id: 'project', label: 'Add a project', detail: 'A repository your team shares', stage: 'project' })
   }
   return items
 }

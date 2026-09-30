@@ -54,6 +54,13 @@ describe("toast service", () => {
     expect(calls[0].options?.duration).toBeUndefined()
   })
 
+  test("passes a leading icon through to Sonner", () => {
+    const icon = () => ({})
+    toasts.show({ message: "Turn finished", icon })
+
+    expect(calls[0].options?.icon).toBe(icon)
+  })
+
   test("uses the description line for supporting detail", () => {
     toasts.error("Couldn't save", { description: "Permission denied" })
 

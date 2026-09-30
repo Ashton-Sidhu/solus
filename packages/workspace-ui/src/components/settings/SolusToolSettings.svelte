@@ -37,7 +37,7 @@
 
 <SettingsSection
   label="Solus tools"
-  description="Tools agents on this host can call. Turning a tool off blocks new calls immediately. Start a new session after turning a tool on so the agent can see it."
+  description="Tools agents on this host can call. Off applies now; on applies to new sessions."
   visible={groups.length > 0}
 >
   {#snippet action()}
@@ -77,7 +77,7 @@
       {#snippet body()}
         <ul id={`solus-tools-${group.id}`} class="flex flex-col divide-y divide-border rounded-lg border border-border">
           {#each group.visibleTools as name (name)}
-            <li class="flex items-center justify-between gap-4 px-3 py-2 [.is-laptop-display_&]:py-1.5">
+            <li class="flex items-center justify-between gap-4 px-3 py-2">
               <div class="min-w-0">
                 <div class="truncate text-workspace-chrome text-(--solus-text-primary)">{toolLabel(name)}</div>
                 <code class="block truncate font-[family-name:var(--solus-code-font-family)] text-[0.8125em] text-muted-foreground">{name}</code>

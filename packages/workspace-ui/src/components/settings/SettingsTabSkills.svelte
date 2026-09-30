@@ -37,6 +37,8 @@
   const resultsWindow = $derived.by(() => { void search.results; return new ListWindow(); });
   const visibleSkills = $derived(installedWindow.slice(matchingSkills));
   const visibleResults = $derived(resultsWindow.slice(search.results));
+  // A member's skills are their own, in their seats; the host's reach every agent on it.
+  const audience = $derived(inventory.scope === "member" ? `your agents on ${hostLabel}` : `every agent and project on ${hostLabel}`);
   const installedLabel = $derived(inventory.loaded && inventory.skills.length > 0 ? `Installed skills · ${inventory.skills.length}` : "Installed skills");
 
   $effect(() => { void hostCapabilitiesStore.load(serverId); });
@@ -82,7 +84,7 @@
   function refreshCommands(targetServerId: string) {
     const activeTabId = workspace.activeTabId;
     const activeServerId = (activeTabId ? workspace.runFor(activeTabId)?.serverId : undefined)
-      ?? serverConnections.defaultServerId();
+      ?? workspace.fallbackServerId;
     if (activeServerId !== targetServerId) return;
     const cwd = (workspace.activeSession?.run ?? workspace.defaultRunConfig).workingDirectory;
     void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined);
@@ -106,7 +108,7 @@
 {#snippet showMore(window: ListWindow, total: number)}
   {#if window.remaining(total) > 0}
     <button type="button"
-      class="flex w-full cursor-pointer items-center justify-center gap-1.5 px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [@media(pointer:coarse)]:min-h-11"
+      class="flex w-full cursor-pointer items-center justify-center gap-1.5 px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none [@media(pointer:coarse)]:min-h-11"
       onclick={() => window.showMore()}>
       Show {Math.min(ListWindow.PAGE, window.remaining(total))} more
       <span class="text-[0.875em] opacity-70">· {window.remaining(total)} remaining</span>
@@ -122,26 +124,26 @@
   {#if inventory.message}<p class="px-0.5 text-workspace-chrome text-(--solus-accent)" role="status">{inventory.message}</p>{/if}
 
   {#if isAdding}
-    <SettingsSection label="Add from skills.sh" description="Installs for every agent and project on {hostLabel}.">
+    <SettingsSection label="Add from skills.sh" description="Installs for {audience}.">
       {#snippet action()}
         <Button variant="ghost" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={closeAdd}>Done</Button>
       {/snippet}
       <div class="flex items-center">
         <SearchField bind:ref={searchEl} bind:value={query} placeholder="Search skills.sh…"
-          class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [.is-laptop-display_&]:min-h-10 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [&_input]:text-workspace-chrome"
+          class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [&_input]:text-workspace-chrome"
           onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closeAdd(); } }} />
       </div>
       {#if !query.trim()}
-        <p class="p-8 text-center text-workspace-chrome text-muted-foreground [.is-laptop-display_&]:p-6">Type to search the skills.sh registry.</p>
+        <p class="p-8 text-center text-workspace-chrome text-muted-foreground">Type to search the skills.sh registry.</p>
       {:else if search.error}
         <div class="flex flex-wrap items-center justify-between gap-3 p-4">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{search.error}</p>
           <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => search.search(api, query)}>Retry</Button>
         </div>
       {:else if search.searching || !search.hasSearched}
-        <p class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground [.is-laptop-display_&]:p-6" role="status"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Searching skills.sh…</p>
+        <p class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground" role="status"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Searching skills.sh…</p>
       {:else if search.results.length === 0}
-        <p class="p-8 text-center text-workspace-chrome text-muted-foreground [.is-laptop-display_&]:p-6">No skills found for “{query.trim()}”.</p>
+        <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No skills found for “{query.trim()}”.</p>
       {:else}
         {#each visibleResults as skill (skill.id)}
           <SettingsRow label={skill.name} description={skill.repo} testId="skill-row" bodyVisible={inventory.errors.has(skill.id)}>
@@ -152,7 +154,7 @@
               </a>
             {/snippet}
             {#snippet control()}
-              <div class="flex items-center gap-3 [.is-laptop-display_&]:gap-2.5">
+              <div class="flex items-center gap-3">
                 {#if skill.installs}<span class="text-[0.875em] tabular-nums text-muted-foreground @max-[30rem]/pane:hidden">{skill.installs} installs</span>{/if}
                 {#if inventory.isInstalled(skill)}
                   <div class="flex items-center gap-1.5 text-workspace-chrome text-(--solus-accent)" data-testid="skill-installed"><Check size={14} />Installed</div>
@@ -173,7 +175,7 @@
       {/if}
     </SettingsSection>
   {:else}
-    <SettingsSection label={installedLabel} description="Available to every agent and project on {hostLabel}.">
+    <SettingsSection label={installedLabel} description="Available to {audience}.">
       {#snippet action()}
         <div class="flex items-center gap-1">
           {#if canManage}<Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground [@media(pointer:coarse)]:min-h-11" onclick={() => inventory.load(api)} disabled={inventory.loading || inventory.busy !== null}>Refresh</Button>{/if}
@@ -186,7 +188,7 @@
         {#if inventory.skills.length > 0}
           <div class="flex items-center">
             <SearchField bind:ref={filterEl} bind:value={filter} placeholder="Filter installed skills…"
-              class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [.is-laptop-display_&]:min-h-10 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2 [&_input]:text-workspace-chrome" />
+              class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [&_input]:text-workspace-chrome" />
           </div>
         {/if}
         {#if inventory.error}
@@ -196,15 +198,15 @@
           </div>
         {/if}
         {#if inventory.loading && !inventory.loaded}
-          <p role="status" class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground [.is-laptop-display_&]:p-6"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Loading installed skills…</p>
+          <p role="status" class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Loading installed skills…</p>
         {/if}
         {#if inventory.loaded && !inventory.error && matchingSkills.length === 0}
-          <p class="p-8 text-center text-workspace-chrome text-muted-foreground [.is-laptop-display_&]:p-6">{filter.trim() ? `No installed skills match “${filter.trim()}”.` : "No skills installed yet. Use Add skill to install one from skills.sh."}</p>
+          <p class="p-8 text-center text-workspace-chrome text-muted-foreground">{filter.trim() ? `No installed skills match “${filter.trim()}”.` : "No skills installed yet. Use Add skill to install one from skills.sh."}</p>
         {/if}
         {#each visibleSkills as skill (skill.path)}
           <SettingsRow label={skill.name} description={skill.source ?? "Local"} testId="global-skill-row" bodyVisible={confirmRemove === skill.path || inventory.errors.has(skill.name)}>
             {#snippet control()}
-              <div class="flex items-center gap-3 [.is-laptop-display_&]:gap-2.5">
+              <div class="flex items-center gap-3">
                 <div class="flex items-center gap-1 @max-[36rem]/pane:hidden" aria-label="Agents: {skill.agents.join(', ')}">
                   {#each skill.agents as agent (agent)}
                     <span class="whitespace-nowrap rounded-md border border-border px-1.5 py-px text-[0.8em] leading-[1.6] text-muted-foreground">{agent}</span>

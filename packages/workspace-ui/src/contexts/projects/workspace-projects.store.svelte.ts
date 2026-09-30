@@ -64,16 +64,16 @@ export class WorkspaceProjectsStore {
 
   /** Load each workspace service's list as it connects, and reload it when
    *  another client changes it. Returns the unsubscribe. */
-  listen(isWorkspaceService: (serverId: string) => boolean): () => void {
+  listen(isSolusApi: (serverId: string) => boolean): () => void {
     for (const serverId of serverConnections.connectedServerIds()) {
-      if (isWorkspaceService(serverId)) void this.load(serverId)
+      if (isSolusApi(serverId)) void this.load(serverId)
     }
     const unsubStatus = serverConnections.onStatusChange((serverId, status) => {
       const resolved = serverConnections.resolveId(serverId)
-      if (status === 'connected' && isWorkspaceService(resolved)) void this.load(resolved, { force: true })
+      if (status === 'connected' && isSolusApi(resolved)) void this.load(resolved, { force: true })
     })
     const unsubChanged = subscribeAllHosts('workspaceProjects.changed', (serverId) => {
-      if (isWorkspaceService(serverId)) void this.load(serverId, { force: true })
+      if (isSolusApi(serverId)) void this.load(serverId, { force: true })
     })
     return () => {
       unsubStatus()

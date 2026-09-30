@@ -6,7 +6,7 @@ import { ORGANIZATION_ID } from '../src/personas'
 
 /** The renderer's prompt context for a conversation in the Lab's working directory. */
 function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   // SAFETY: the host reads only the fields named here (run-input.ts), as the seats scenario also relies on.
@@ -20,8 +20,8 @@ function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
  */
 async function activityStep(ctx: ScenarioContext, alice: LabClient, bob: LabClient, sessionId: string): Promise<void> {
   ctx.step('the roster says what the focused session is doing')
-  const bobRow = (event: { payload: HostPresenceSnapshot }) => event.payload.participants.find((row) => row.displayName === 'Bob')
-  const bobBeforeRun = (await expectOk(ctx, 'alice re-reads the host', alice.rpc('presenceSnapshot')))?.host.participants.find((row) => row.displayName === 'Bob')
+  const bobRow = (event: { payload: HostPresenceSnapshot }) => event.payload.participants.find((row) => row.user.displayName === 'Bob')
+  const bobBeforeRun = (await expectOk(ctx, 'alice re-reads the host', alice.rpc('presenceSnapshot')))?.host.participants.find((row) => row.user.displayName === 'Bob')
   ctx.check('an unindexed session is named by nobody and rests', bobBeforeRun?.activity === undefined || (bobBeforeRun.activity.state === 'idle' && bobBeforeRun.activity.title === null), JSON.stringify(bobBeforeRun?.activity))
   await expectOk(ctx, 'bob drafts in the session he has focused', bob.rpc('presenceSetComposing', { sessionId, isComposing: true }))
   await expectOk(ctx, 'alice sees the draft on the roster row', alice.waitForEvent('host.presenceChanged', (event) => bobRow(event)?.isComposing === true))
@@ -36,7 +36,7 @@ async function activityStep(ctx: ScenarioContext, alice: LabClient, bob: LabClie
   await expectOk(ctx, 'alice hears bob\'s row say the agent runs', alice.waitForEvent('host.presenceChanged', (event) => event.occurredAt >= promptedAt && bobRow(event)?.activity?.state === 'running'))
   const waiting = await expectOk(ctx, 'then say it waits for input', alice.waitForEvent('host.presenceChanged', (event) => event.occurredAt >= promptedAt && bobRow(event)?.activity?.state === 'waiting'))
   const waitingActivity = waiting ? bobRow(waiting)?.activity : undefined
-  ctx.check('the parked row names alice as the turn\'s author', waitingActivity?.activeTurn?.authorDisplayName === 'Alice', waitingActivity?.activeTurn?.authorDisplayName)
+  ctx.check('the parked row names alice as the turn\'s author', waitingActivity?.activeTurn?.author.displayName === 'Alice', waitingActivity?.activeTurn?.author.displayName)
   // The mock backend answers every session on one provider thread, so the index
   // row behind the title is the first prompt any scenario sent it; the proof is
   // that the host named the session at all, not which prompt it chose.
@@ -58,7 +58,7 @@ export default scenario('presence: rooms, typing, focus, and leaving', async (ct
   const alice = await ctx.as('alice')
   const bob = await ctx.as('bob')
   const sessionId = `lab-presence-${Date.now()}`
-  const hasName = (rows: ReadonlyArray<{ displayName: string }>, name: string) => rows.some((row) => row.displayName === name)
+  const hasName = (rows: ReadonlyArray<{ user: { displayName: string } }>, name: string) => rows.some((row) => row.user.displayName === name)
 
   ctx.step('each client learns its own id and the host roster names the other')
   const aliceSnapshot = await expectOk(ctx, 'alice reads the snapshot', alice.rpc('presenceSnapshot'))
@@ -66,7 +66,7 @@ export default scenario('presence: rooms, typing, focus, and leaving', async (ct
   ctx.check('the two clients have different ids', !!aliceSnapshot && !!bobSnapshot && aliceSnapshot.clientId !== bobSnapshot.clientId)
   ctx.check('bob sees alice on the host', !!bobSnapshot && hasName(bobSnapshot.host.participants, 'Alice'))
   ctx.check('alice sees bob on the host', !!aliceSnapshot && hasName(aliceSnapshot.host.participants, 'Bob'))
-  const bobRow = aliceSnapshot?.host.participants.find((row) => row.displayName === 'Bob')
+  const bobRow = aliceSnapshot?.host.participants.find((row) => row.user.displayName === 'Bob')
   ctx.check('bob is a member with no focus yet', bobRow?.access === 'member' && bobRow.focus.kind === 'none')
   await expectOk(ctx, 'alice heard bob arrive', alice.waitForEvent('host.presenceChanged', (event) => hasName(event.payload.participants, 'Bob')))
 
@@ -82,11 +82,11 @@ export default scenario('presence: rooms, typing, focus, and leaving', async (ct
 
   ctx.step('typing and focus reach the other watcher')
   await expectOk(ctx, 'bob reports a draft', bob.rpc('presenceSetComposing', { sessionId, isComposing: true }))
-  await expectOk(ctx, 'alice sees bob typing', alice.waitForEvent('session.presenceChanged', (event) => event.payload.sessionId === sessionId && event.payload.participants.some((row) => row.displayName === 'Bob' && row.isComposing)))
+  await expectOk(ctx, 'alice sees bob typing', alice.waitForEvent('session.presenceChanged', (event) => event.payload.sessionId === sessionId && event.payload.participants.some((row) => row.user.displayName === 'Bob' && row.isComposing)))
   await expectOk(ctx, 'bob reports the draft gone', bob.rpc('presenceSetComposing', { sessionId, isComposing: false }))
   await expectOk(ctx, 'alice sees bob stop', alice.waitForEvent('session.presenceChanged', (event) => event.payload.sessionId === sessionId && event.payload.participants.length === 2 && event.payload.participants.every((row) => !row.isComposing)))
   await expectOk(ctx, 'bob reports his focus', bob.rpc('presenceSetFocus', { focus: { kind: 'session', sessionId } }))
-  await expectOk(ctx, 'alice sees where bob is', alice.waitForEvent('host.presenceChanged', (event) => event.payload.participants.some((row) => row.displayName === 'Bob' && row.focus.kind === 'session' && row.focus.sessionId === sessionId)))
+  await expectOk(ctx, 'alice sees where bob is', alice.waitForEvent('host.presenceChanged', (event) => event.payload.participants.some((row) => row.user.displayName === 'Bob' && row.focus.kind === 'session' && row.focus.sessionId === sessionId)))
 
   await activityStep(ctx, alice, bob, sessionId)
 

@@ -1,26 +1,22 @@
 <script lang="ts">
   import {
     ChevronDown as CaretDownIcon,
-    Clock as ClockIcon,
     Ellipsis as MoreIcon,
     ExternalLink as ArrowSquareOutIcon,
     ListChecks as ListChecksIcon,
-    Moon as MoonIcon,
-    Sun as SunIcon,
   } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
-  import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
+  import { getWorkspaceContext } from "../../../contexts";
   import { toasts } from "../../../lib/toasts";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
-  import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from "../lib/task-snooze";
   import { STATUS_META, TASK_STATUSES } from "../../tasks/lib/tasks-api";
 
   /**
    * The row of things you can do to the previewed task without opening it.
    *
-   * Status and snooze are edits to a row you are still choosing between, so
-   * they run here and leave the picker open. The two buttons on the right
+   * Status is an edit to a row you are still choosing between, so it runs
+   * here and leaves the picker open. The two buttons on the right
    * navigate; the parent owns them because they close the picker, and it
    * names them, so the same bar serves a task ("Resume latest") and a session
    * ("Resume") without knowing which it is under.
@@ -53,9 +49,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const sidebarStore = getSessionSidebarStore();
 
-  const isSnoozed = $derived(!!task && sidebarStore.snoozedTasks.some((row) => row.taskId === task.id));
   const menuPortalProps = $derived({ to: portalTarget ?? undefined });
 
   async function setStatus(task: Task, next: TaskStatus): Promise<void> {
@@ -98,43 +92,6 @@
       {/each}
     </DropdownMenu.Content>
     </DropdownMenu.Root>
-
-    {#if isSnoozed}
-      <button
-        type="button"
-        class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
-        aria-label="Wake task now"
-        title="Wake now"
-        onclick={() => sidebarStore.snoozeRow(task.id, null)}
-      >
-        <SunIcon size={13} class="shrink-0" />
-      </button>
-    {:else}
-      <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            type="button"
-            class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
-            aria-label="Snooze task"
-            title="Snooze"
-          >
-            <ClockIcon size={13} class="shrink-0" />
-          </button>
-        {/snippet}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="top" align="start" sideOffset={6} class="min-w-40" portalProps={menuPortalProps}>
-        {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
-          {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
-          <DropdownMenu.Item onSelect={() => sidebarStore.snoozeRow(task.id, taskSnoozeUntil(choice.preset))}>
-            <ChoiceIcon size={13} class="shrink-0 opacity-70" />
-            {choice.label}
-          </DropdownMenu.Item>
-        {/each}
-      </DropdownMenu.Content>
-      </DropdownMenu.Root>
-    {/if}
 
     <DropdownMenu.Root>
     <DropdownMenu.Trigger>

@@ -8,11 +8,12 @@ import { parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { clearActiveServerId, getActiveServerId, loadServers, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { clearActiveServerId, getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
 import { adoptCloudOriginIfPresent } from '@solus/client-core/uplink-account'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
+import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
 import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation, probeServer } from './lib/connect'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
@@ -131,17 +132,16 @@ function installLogoutListener(): void {
 }
 
 async function connectToServer(
-  server: SavedServer,
+  target: SolusServerTarget,
   options: { onPreMountAuthFailure?: () => void } = {},
 ): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
 
-  const target = savedServerTarget(server)
   const { transport, api } = createSolusConnection(target, {
     verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      serverConnections.updateStatus(server.id, status, attempt)
+      serverConnections.updateStatus(target.id, status, attempt)
       // The target names which host this status belongs to — serversStore keys
       // its per-host connection state (and the web "local" alias) off it.
       setConnectionState({ status, attempt, target })
@@ -155,7 +155,7 @@ async function connectToServer(
   })
 
   installWindowSolusApi(api)
-  serverConnections.registerPrimary(server.id, api, transport, target)
+  serverConnections.registerPrimary(target.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
   installServiceWorkerMessageBridge()
@@ -163,9 +163,9 @@ async function connectToServer(
   void prefetchStartupTranscript()
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
-  touchLastConnected(server.id)
+  touchLastConnected(target.id)
   // Remember the choice so a refresh and the servers directory both resume here.
-  setActiveServerId(server.id)
+  setActiveServerId(target.id)
 
   if (pendingNotificationRoute) {
     location.hash = pendingNotificationRoute
@@ -200,15 +200,6 @@ function bootHostlessHome(): void {
   mount(HostlessHome, { target: root })
 }
 
-function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
-  try {
-    const activeServerId = getActiveServerId()
-    return servers.find((server) => server.id === activeServerId) ?? null
-  } catch {
-    return null
-  }
-}
-
 installWindowSolusApi(createNoHostSolusApi())
 
 async function pairFromLocation(pairToken: string): Promise<void> {
@@ -222,7 +213,7 @@ async function pairFromLocation(pairToken: string): Promise<void> {
     })
     upsertServer(server)
     setActiveServerId(server.id)
-    await connectToServer(server)
+    await connectToServer(savedServerTarget(server))
   } catch (err) {
     bootHostlessHome()
     toasts.error(err instanceof Error ? err.message : String(err))
@@ -256,6 +247,8 @@ async function adoptCloudDirectory(): Promise<void> {
   if (accountRead) await Promise.race([accountRead, new Promise((resolve) => setTimeout(resolve, 2_000))])
   if (!directory) return
   saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
+  saveDirectoryWorkspaces(directory.workspaces, directory.directoryUrl)
+  markDirectoryAnswered()
 }
 
 async function bootFromCatalog(): Promise<void> {
@@ -270,15 +263,28 @@ async function bootFromCatalog(): Promise<void> {
     servingOriginEntry(),
   ])
   const servers = loadServers()
-  const activeServer = resolveActiveSavedServer(servers)
-  const candidates: SavedServer[] = []
-  if (activeServer) candidates.push(activeServer)
-  candidates.push(...servers.filter((server) => server.id !== activeServer?.id))
+  // The window's record home may be a machine or, at the account origin, the
+  // active organization's workspace service. The service is not a saved host,
+  // so it joins the candidates from the workspace registry.
+  const workspaces = loadWorkspaces()
+  const active = activeWorkspace(workspaces)
+  const targets = [
+    ...servers.map(savedServerTarget),
+    ...[...(active ? [active] : []), ...workspaces.filter((workspace) => workspace !== active)].map(workspaceTarget),
+  ]
+  let activeId: string | null = null
+  try {
+    activeId = getActiveServerId()
+  } catch {}
+  const candidates: SolusServerTarget[] = [
+    ...targets.filter((target) => target.id === activeId),
+    ...targets.filter((target) => target.id !== activeId),
+  ]
   const originAlreadySaved = origin
     && servers.some((server) =>
       server.id === origin.id
       || (!!server.installationId && server.installationId === origin.installationId))
-  if (origin && !originAlreadySaved) candidates.push(origin)
+  if (origin && !originAlreadySaved) candidates.push(savedServerTarget(origin))
 
   if (candidates.length === 0) {
     bootHostlessHome()

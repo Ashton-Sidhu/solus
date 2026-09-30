@@ -13,11 +13,12 @@ export type AnnotationMeta =
 
 type ThreadProps = ComponentProps<typeof DiffThreadComment>
 type CommentProps = ComponentProps<typeof DiffInlineComment>
-interface AnnotationCallbacks {
+interface AnnotationHostProps {
   onThreadReply: ThreadProps['onReply']
   onThreadResolve: ThreadProps['onToggleResolve']
   onEditComment: CommentProps['onEdit']
   onDeleteComment: CommentProps['onDelete']
+  commentsSendWith?: CommentProps['sendsWith']
 }
 type AnnotationRoot = {
   target: HTMLDivElement
@@ -41,7 +42,7 @@ export class DiffAnnotations {
 
   constructor(
     private context: ReturnType<typeof getAllContexts>,
-    private callbacks: () => AnnotationCallbacks,
+    private hostProps: () => AnnotationHostProps,
     private remeasure: () => void,
   ) {}
 
@@ -61,13 +62,13 @@ export class DiffAnnotations {
     const existing = this.roots.get(key)
     if (existing) return existing.target
     const target = document.createElement('div')
-    const callbacks = this.callbacks()
+    const hostProps = this.hostProps()
     if (metadata.kind === 'thread') {
       const props: ThreadProps = $state({
         thread: metadata.thread,
         collapsed: metadata.collapsed,
-        onReply: callbacks.onThreadReply,
-        onToggleResolve: callbacks.onThreadResolve,
+        onReply: hostProps.onThreadReply,
+        onToggleResolve: hostProps.onThreadResolve,
         onSetCollapsed: this.setThreadCollapsed,
       })
       this.roots.set(key, { kind: 'thread', target, props,
@@ -75,8 +76,9 @@ export class DiffAnnotations {
     } else {
       const props: CommentProps = $state({
         comment: metadata.comment,
-        onEdit: callbacks.onEditComment,
-        onDelete: callbacks.onDeleteComment,
+        sendsWith: hostProps.commentsSendWith,
+        onEdit: hostProps.onEditComment,
+        onDelete: hostProps.onDeleteComment,
       })
       this.roots.set(key, { kind: 'comment', target, props,
         instance: mount(DiffInlineComment, { target, props }) })
@@ -84,27 +86,28 @@ export class DiffAnnotations {
     return target
   }
 
-  private commentMetadata(key: string, comment: DiffComment, callbacks: AnnotationCallbacks): Extract<AnnotationMeta, { kind: 'comment' }> {
+  private commentMetadata(key: string, comment: DiffComment, hostProps: AnnotationHostProps): Extract<AnnotationMeta, { kind: 'comment' }> {
     const previous = this.metadata.get(key)
     const root = this.roots.get(key)
     if (root?.kind === 'comment') {
       root.props.comment = comment
-      root.props.onEdit = callbacks.onEditComment
-      root.props.onDelete = callbacks.onDeleteComment
+      root.props.sendsWith = hostProps.commentsSendWith
+      root.props.onEdit = hostProps.onEditComment
+      root.props.onDelete = hostProps.onDeleteComment
     }
     return previous?.kind === 'comment' && previous.comment === comment
       ? previous : { kind: 'comment', comment }
   }
 
-  private threadMetadata(key: string, thread: DiffReviewThread, callbacks: AnnotationCallbacks): Extract<AnnotationMeta, { kind: 'thread' }> {
+  private threadMetadata(key: string, thread: DiffReviewThread, hostProps: AnnotationHostProps): Extract<AnnotationMeta, { kind: 'thread' }> {
     const collapsed = thread.isResolved && !this.expandedThreads.has(thread.id)
     const previous = this.metadata.get(key)
     const root = this.roots.get(key)
     if (root?.kind === 'thread') {
       root.props.thread = thread
       root.props.collapsed = collapsed
-      root.props.onReply = callbacks.onThreadReply
-      root.props.onToggleResolve = callbacks.onThreadResolve
+      root.props.onReply = hostProps.onThreadReply
+      root.props.onToggleResolve = hostProps.onThreadResolve
     }
     return previous?.kind === 'thread' && previous.thread === thread && previous.collapsed === collapsed
       ? previous : { kind: 'thread', thread, collapsed }
@@ -121,7 +124,7 @@ export class DiffAnnotations {
     const next = new Map<string, DiffLineAnnotation<AnnotationMeta>[]>()
     const liveMetadata = new Map<string, AnnotationMeta>()
     const filePaths = new Set(paths)
-    const callbacks = this.callbacks()
+    const hostProps = this.hostProps()
     const add = (path: string, annotation: DiffLineAnnotation<AnnotationMeta>) => {
       const list = next.get(path)
       if (list) list.push(annotation)
@@ -130,14 +133,14 @@ export class DiffAnnotations {
     for (const comment of comments) {
       if (!filePaths.has(comment.filePath) || comment.id === draft.editingCommentId) continue
       const key = `comment:${comment.id}`
-      const metadata = this.commentMetadata(key, comment, callbacks)
+      const metadata = this.commentMetadata(key, comment, hostProps)
       liveMetadata.set(key, metadata)
       add(comment.filePath, { side: comment.side === 'old' ? 'deletions' : 'additions', lineNumber: comment.endLine, metadata })
     }
     for (const thread of threads) {
       if (!filePaths.has(thread.filePath) || thread.line == null) continue
       const key = `thread:${thread.id}`
-      const metadata = this.threadMetadata(key, thread, callbacks)
+      const metadata = this.threadMetadata(key, thread, hostProps)
       liveMetadata.set(key, metadata)
       add(thread.filePath, { side: thread.side === 'LEFT' ? 'deletions' : 'additions', lineNumber: thread.line, metadata })
     }

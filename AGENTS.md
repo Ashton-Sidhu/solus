@@ -86,7 +86,7 @@ the product remains coherent. Provider-specific behavior must be intentional and
 never an accidental leak into generic UI.
 
 Sessions, tabs, worktrees, tasks, plans, reviews, automations, and works are related but
-distinct concepts. Keep their ownership clear. Do not turn the central control plane into
+distinct concepts. Keep their ownership clear. Do not turn the central session runtime into
 the default home for logic that belongs to a focused manager or feature.
 
 ## A note on taste
@@ -234,12 +234,11 @@ applied:
 - Colors and shadows must work in **both light and dark mode**.
 - Use Tailwind v4 utilities rather than CSS wherever practical.
 - Use `text-workspace-chrome` for navigation, rails, action labels, and other
-  workspace chrome. It is the canonical responsive type rung: 12px on laptop
-  displays, 14px on large desktop displays, and 14px on coarse-pointer mobile
-  clients. Do not recreate it with hard-coded width queries or
-  `.is-laptop-display` text-size variants. Use `.is-laptop-display` only for
-  non-type geometry such as widths, heights, padding, and gaps; it is driven by
-  the shared `LAPTOP_SCREEN_MAX_WIDTH` definition.
+  workspace chrome. It is 14px on every display. Solus has one density: do not
+  size type or geometry by the monitor. Users make the UI denser or roomier
+  with zoom (`mod+plus` / `mod+minus`). Layout adapts to its container
+  (`@container`) and to the pointer (`pointer-coarse:`), never to `screen.width`
+  (`docs/plans/single-density.md`).
 - The interface is **keyboard-first**. Every control must be keyboard-navigable. Add a
   shortcut where it materially improves a repeated action.
 - Global shortcuts use `opt+shift+<key>`; sub-page shortcuts use `opt+<key>`.
@@ -294,8 +293,13 @@ applied:
 
 ### Svelte 5 performance: mounted tabs and modes
 
-All tabs stay mounted and are hidden with `display: none`. Never spread `TabState` for a
-small update. `$state` proxies are deeply reactive per property; replacing the object
+`ConversationPool` mounts the conversation on screen and the three most recent ones,
+hidden with `display: none`. An older one unmounts. Its `ConversationViewState` keeps
+what the reader opened and where they were, and its older history is released. UI
+state that must survive a tab switch belongs in that view state, not in component
+locals. Transcript turns are built one segment at a time (`TranscriptTurns`). Do not
+add a derivation that walks the whole transcript on every streamed token. Never
+spread `TabState` for a small update. `$state` proxies are deeply reactive per property; replacing the object
 invalidates every `$derived` that reads the tab across potentially hundreds of messages.
 
 ```ts
@@ -367,7 +371,8 @@ dev server of your own.
 - **`dev.log`** — every main-process log entry as structured NDJSON, one JSON object per
   line: `ts`, `level`, `tag`, `file`, `msg`, plus the call's data fields. `msg` is a stable
   snake_case event name, never a prose sentence, so it is safe to match exactly. The file is
-  truncated on each app boot, so it only holds the current run.
+  truncated on each app boot, so it only holds the current run. `bun test` logs to a
+  temporary file (`SOLUS_DEV_LOG`, set by `tests/preload.ts`), never to `dev.log`.
 - **`dev-console.log`** — raw process output: vite and electron noise, build errors, and
   stray stack traces that never reached the logger.
 
@@ -410,7 +415,7 @@ renderer
   → Electron IPC or WebSocket transport
   → SolusServer.handle()
   → domain handler
-  → ControlPlane or focused manager/service
+  → SessionRuntime or focused manager/service
 
 events
   ← typed RPC topic broadcast
@@ -426,10 +431,11 @@ client shell
 
 The desktop preload in `apps/desktop/src/preload/index.ts` exposes the renderer-safe API.
 RPC methods and topics are declared in `packages/contracts/src/rpc.ts`.
-`packages/server/src/server/server.ts` routes requests to one handler per domain under
-`packages/server/src/server/handlers/`. The `ControlPlane` owns
-session and tab orchestration; focused managers own git, runs, tasks, automations, works,
-reviews, and other domains.
+`packages/server/src/transport/server.ts` routes requests to one handler per domain under
+`packages/server/src/transport/handlers/`. The `SessionRuntime` in
+`packages/server/src/execution/session-runtime.ts` owns session and tab orchestration;
+focused managers own git, runs, tasks, automations, works, reviews, and other domains.
+`boot-server.ts` composes them for one process.
 
 To add an RPC capability, update the shared contract, register the server handler, expose
 the preload method where desktop needs it, and update both transports/clients as
@@ -462,16 +468,53 @@ use a narrow Grep.
 - `review.ts`, `task-types.ts`, `git-types.ts`, `providers.ts`, `browser-types.ts`,
   `claude-types.ts` — focused contracts.
 - `diagram-*.ts` — diagram domain contracts and helpers.
-- `model-profiles.json` — supported model profiles.
+- `model-profiles.json` — supported model profiles. The copy on `main` is the published list that hosts download daily; a model ships by merging it, not by a build (`docs/model-profiles.md`).
 
 ### `packages/server/src/` — server and backend
 
-- `control-plane.ts` — central session orchestrator, prompt dispatch, and event normalization.
-- `agents/` — Claude and Codex adapters, normalization, permissions, and tools.
-- `server/` and `transports/` — RPC handlers and network transports.
-- `git/`, `review/`, `tasks/`, `automations/`, `folio/`, `plans/`, `skills/`,
-  `sessions/`, `project-config/`, `providers/`, `browser/`, and `google/` — focused
-  domains.
+The server is grouped by responsibility (plans/007-solus-api-organization-refactor.md).
+Data never imports Execution, Sync, or Transport; Sync and Execution use Data; Transport
+dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every exception.
+
+- `data/` — records, schemas, and domain rules with their persistence: `sessions/`
+  (session records, transcript reads, history projection), `tasks/`, `works/` (Folio),
+  `automations/` (store and schedule), `insights/` (metrics tables, rollups, queries,
+  field registry, `api-turns.ts`), and `assets/`. `scope.ts` renders a
+  `RecordScope` into a `WHERE` clause: every root record carries one canonical
+  `organization_id` (`local` or an organization id, never changed), a read names its
+  scope, a write names one organization (`docs/plans/organization-scope.md` §3).
+- `execution/` — `session-runtime.ts` (the `SessionRuntime`: session lifecycle, prompt
+  dispatch, and event normalization), `agents/` (Claude and Codex adapters and the
+  agent tools under `agents/tools/`), `sessions/` (live-turn helpers such as pending
+  input and titles, and `turn-organization.ts`: one-time organization assignment,
+  the allowed-host policy, acting-user attribution, and, on a machine attached for
+  organization work, the new-root/continuation rule and the Solus API's admission
+  of a new organization session before its provider starts),
+  `orchestration/`, `seats/`, `automations/` (runner and scheduler),
+  `observability/` (emitters, tracer, exporter), and `rate-limits.ts`.
+- `sync/` — the mirror log and sinks (`mirror/`), the outbox (`outbox/`), runner
+  delivery (one queue per organization and person, sent with that person's
+  delegated token), protocol, and intake, `publication.ts` (the recoverable
+  Share/Move of a Local work, session, or task into one organization),
+  `delegations.ts` (the tokens this host holds to act for a person in an
+  organization: OAuth token exchange, refresh, and the API admission;
+  plans/010-standard-oauth.md), and `remote-operations.ts` (the record operations
+  of an organization run, answered by its Solus API).
+- `transport/` — `server.ts` dispatch, `http.ts`, `websocket.ts`, one handler per domain
+  under `handlers/`, `events/`, and the tunnel `uplink/`.
+- `admission/` — principals (`recordScopeOf`, `organizationForNew`), access policy,
+  auth tickets, access-token verification (`access-tokens.ts`), and signed tokens.
+- `host/` — this host's settings, roles, API mode, its category
+  (`host-category.ts`: personal, self-hosted, or managed — a link that names the
+  organization Solus provisioned the machine for), `host-link-env.ts` (a provisioned
+  machine's `SOLUS_HOST_LINK`), `organization-attachment.ts` (whether a server is
+  attached for organization work; plans/009-organization-vms.md), and
+  `organizations.ts`, the control plane's answer about the organizations this host may
+  deliver to and their policies.
+- `files/` — the file finder, previews, browsing, and project folder helpers.
+- `boot-core.ts` and `boot-server.ts` — process composition.
+- `git/`, `review/`, `plans/`, `skills/`, `project-config/`, `providers/`, `browser/`,
+  `sharing/`, `watches/`, `vault/`, and `google/` — focused domains.
 - `platform/` — injected host paths, opener, secrets, and operating-system behavior.
 
 ### `packages/client-core/src/` — transport-neutral client core

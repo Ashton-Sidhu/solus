@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import type { CheckoutService } from '../git/checkout-service'
+import { browserPageForCheckout } from '@solus/contracts/browser-checkout'
 import { z } from 'zod'
 import {
   defaultViewport,
@@ -26,6 +28,7 @@ import {
   type BrowserOpenRequest,
   type BrowserPage,
   type BrowserProblem,
+  type BrowserRecordingState,
   type BrowserSnapshot,
   type BrowserSnapshotOptions,
   type BrowserSurfaceReport,
@@ -34,6 +37,7 @@ import {
 } from '@solus/contracts/browser-types'
 import { createLogger } from '../logger'
 import { annotationOpExpression, annotationSyncExpression } from './annotation-script'
+import { recordingOverlayExpression } from './recording-overlay-script'
 import {
   clearFieldExpression,
   elementRectExpression,
@@ -90,6 +94,20 @@ interface PageRecord {
   loadStartedAt: number | null
 }
 
+/**
+ * The frame watcher a recording holds. Reserved, so it keeps the stream running
+ * with no client watching, and a client leaving never stops it. It is never a
+ * client, so frames are not published to it.
+ */
+export const RECORDER_WATCHER_ID = 'solus:recorder'
+
+/** How the registry reaches the recorder of one page. */
+export interface BrowserRecordingSink {
+  frame(jpeg: Uint8Array): void
+  /** The page is closing. The recorder stops and saves on its own. */
+  pageClosing(): void
+}
+
 export interface BrowserEventSink {
   pageChanged(page: BrowserPage): void
   pageClosed(browserPageId: string): void
@@ -128,6 +146,8 @@ export class BrowserRegistry {
    *  Held so a close, a shutdown, or a fresh verb cancels the old one rather
    *  than letting a stale timer clear a use that started since. */
   private agentUseTimers = new Map<string, NodeJS.Timeout>()
+  /** The recording of each page that has one. */
+  private recorders = new Map<string, BrowserRecordingSink>()
 
   constructor(
     private readonly events: BrowserEventSink,
@@ -135,14 +155,21 @@ export class BrowserRegistry {
      *  it): frame subscription then fails loudly rather than silently doing
      *  nothing, the same way a drive op against no surface does. */
     private readonly frames: BrowserFrameChannel | null = null,
+    private readonly checkouts?: CheckoutService,
   ) {}
 
   list(): BrowserPage[] {
-    return [...this.records.values()].map((record) => record.page)
+    return [...this.records.values()].map((record) => this.projectPage(record.page))
   }
 
   get(browserPageId: string): BrowserPage | null {
-    return this.records.get(browserPageId)?.page ?? null
+    const page = this.records.get(browserPageId)?.page
+    return page ? this.projectPage(page) : null
+  }
+
+  private projectPage(page: BrowserPage): BrowserPage {
+    const cwd = page.target.kind === 'url' ? page.target.worktreePath : undefined
+    return browserPageForCheckout(page, cwd ? this.checkouts?.get(cwd) : undefined)
   }
 
   open(request: BrowserOpenRequest): BrowserPage {
@@ -171,6 +198,7 @@ export class BrowserRegistry {
       devToolsOpen: false,
       annotationTool: null,
       label: request.label ?? labelFor(request),
+      automaticLabel: request.label == null,
       createdAt: Date.now(),
     }
     // A page nothing is rendering is only a *problem* where nothing can render
@@ -185,7 +213,12 @@ export class BrowserRegistry {
       livenessTimer: null,
       loadStartedAt: null,
     })
-    this.events.pageChanged(page)
+    if (request.target.kind === 'url' && request.target.worktreePath && this.checkouts) {
+      void this.checkouts.refresh(request.target.worktreePath).catch((error) => {
+        log.warn('browser_checkout_refresh_failed', { error: String(error) })
+      })
+    }
+    this.events.pageChanged(this.projectPage(page))
     if (request.requestSurface) this.events.surfaceRequested(page.browserPageId)
     log.info('browser_page_opened', {
       browserPageId: page.browserPageId,
@@ -215,6 +248,7 @@ export class BrowserRegistry {
     record.closing = true
     this.stopLiveness(record)
     this.stopAgentUseExpiry(browserPageId)
+    this.recorders.get(browserPageId)?.pageClosing()
     this.frameWatchers.delete(browserPageId)
     this.streamStarts.delete(browserPageId)
     this.frameSeq.delete(browserPageId)
@@ -404,6 +438,10 @@ export class BrowserRegistry {
     // client that reports it anyway would put `about:blank` in the toolbar of a
     // page that is about to be somewhere else.
     if (report.url === BROWSER_BLANK_URL) return
+    // A navigation takes the recording overlay with the old document.
+    if (page.recording && report.loadState === 'ready' && page.loadState !== 'ready') {
+      this.showRecordingOverlay(record, true)
+    }
     page.url = report.url || page.url
     page.title = report.title
     if (report.loadState === 'ready' && page.loadState !== 'ready' && record.loadStartedAt) {
@@ -815,7 +853,6 @@ export class BrowserRegistry {
    * stacking, so calling it repeatedly is a restart, not a leak.
    */
   private async startStreaming(record: PageRecord): Promise<void> {
-    if (!this.frames) return
     await this.withDriver(record, async (driver) => {
       await this.startStreamingOnCurrentDriver(record, driver)
     })
@@ -825,17 +862,82 @@ export class BrowserRegistry {
     record: PageRecord,
     driver = record.driver,
   ): Promise<void> {
-    if (!this.frames || !driver) return
+    if (!driver) return
     const { browserPageId } = record.page
     // The pane can hide while a slow headless guest is opening. Do not start an
     // unwatched screencast after that open finishes.
     if (!this.frameWatchers.get(browserPageId)?.size) return
-    await driver.startScreencast(screencastOptionsFor(record.page.viewport), (frame) => {
+    const options = this.recorders.has(browserPageId)
+      ? recordingScreencastOptions(record.page.viewport)
+      : screencastOptionsFor(record.page.viewport)
+    await driver.startScreencast(options, (frame) => {
+      // Read per frame, not captured: a recording that starts or stops while
+      // the stream runs must not need a second stream.
+      this.recorders.get(browserPageId)?.frame(frame)
       const watchers = this.frameWatchers.get(browserPageId)
-      if (!watchers || watchers.size === 0) return
+      if (!this.frames || !watchers) return
+      const clientIds = [...watchers.keys()].filter((id) => id !== RECORDER_WATCHER_ID)
+      if (clientIds.length === 0) return
       const seq = (this.frameSeq.get(browserPageId) ?? 0) + 1
       this.frameSeq.set(browserPageId, seq)
-      this.frames?.publish(watchers.keys(), { browserPageId, seq }, frame)
+      this.frames.publish(clientIds, { browserPageId, seq }, frame)
+    })
+  }
+
+  /**
+   * Record this page: hold the reserved watcher, stream at recording caps, and
+   * show input in the guest. The page state says so, so every client and agent
+   * sees the recording and can stop it. A host migration keeps the recording,
+   * because the stream restarts on the new driver with the same watchers.
+   */
+  async attachRecorder(
+    browserPageId: string,
+    recording: BrowserRecordingState,
+    sink: BrowserRecordingSink,
+  ): Promise<void> {
+    const record = this.require(browserPageId)
+    this.recorders.set(browserPageId, sink)
+    record.page.recording = recording
+    let watchers = this.frameWatchers.get(browserPageId)
+    if (!watchers) {
+      watchers = new Map()
+      this.frameWatchers.set(browserPageId, watchers)
+    }
+    watchers.set(RECORDER_WATCHER_ID, 1)
+    this.publish(record)
+    try {
+      await this.startStreaming(record)
+    } catch (error) {
+      await this.detachRecorder(browserPageId)
+      throw error
+    }
+    this.showRecordingOverlay(record, true)
+  }
+
+  /** Stop feeding the recorder. The stream goes back to viewer caps, or stops
+   *  when no client is watching. */
+  async detachRecorder(browserPageId: string): Promise<void> {
+    if (!this.recorders.delete(browserPageId)) return
+    const record = this.records.get(browserPageId)
+    if (!record) return
+    record.page.recording = null
+    // A closing page is about to be announced as closed; nothing to show.
+    if (record.closing) return
+    this.publish(record)
+    this.showRecordingOverlay(record, false)
+    await this.dropWatcher(browserPageId, RECORDER_WATCHER_ID)
+    this.resumeStreamingIfWatched(record)
+  }
+
+  /** Best effort: an overlay that failed to appear must not fail a recording. */
+  private showRecordingOverlay(record: PageRecord, enabled: boolean): void {
+    void this.queueDriver(record, async () => {
+      await record.driver?.evaluate(recordingOverlayExpression(enabled))
+    }).catch((error) => {
+      log.warn('browser_recording_overlay_failed', {
+        browserPageId: record.page.browserPageId,
+        message: error instanceof Error ? error.message : String(error),
+      })
     })
   }
 
@@ -892,6 +994,7 @@ export class BrowserRegistry {
       })
     }
     this.records.clear()
+    this.recorders.clear()
     this.frameWatchers.clear()
     this.streamStarts.clear()
     this.frameSeq.clear()
@@ -1086,6 +1189,29 @@ function screencastOptionsFor(viewport: BrowserViewport): BrowserScreencastOptio
   }
 }
 
+/** The longest side a recording frame may have, in device pixels. */
+const RECORDING_MAX_DIMENSION = 1920
+const RECORDING_FRAME_QUALITY = 80
+
+/**
+ * The caps a page streams at while it is recording.
+ *
+ * Device pixels, unlike the viewer caps: a recording is an asset someone reads
+ * later on a pull request, so a phone preset records at its real sharpness.
+ * The longest side stays within 1920 px, which keeps the encoder and the file
+ * size in bounds.
+ */
+export function recordingScreencastOptions(viewport: BrowserViewport): BrowserScreencastOptions {
+  const width = viewport.width * viewport.deviceScaleFactor
+  const height = viewport.height * viewport.deviceScaleFactor
+  const scale = Math.min(1, RECORDING_MAX_DIMENSION / Math.max(width, height))
+  return {
+    maxWidth: Math.round(width * scale),
+    maxHeight: Math.round(height * scale),
+    quality: RECORDING_FRAME_QUALITY,
+  }
+}
+
 function sameViewport(current: BrowserViewport, next: BrowserViewport): boolean {
   return (
     current.mode === next.mode
@@ -1214,8 +1340,9 @@ let registry: BrowserRegistry | null = null
 export function initBrowserRegistry(
   events: BrowserEventSink,
   frames: BrowserFrameChannel | null = null,
+  checkouts?: CheckoutService,
 ): BrowserRegistry {
-  registry = new BrowserRegistry(events, frames)
+  registry = new BrowserRegistry(events, frames, checkouts)
   return registry
 }
 

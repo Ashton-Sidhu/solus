@@ -2,6 +2,7 @@ import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { resolveRepoRef } from '../git/git-helpers'
 import { createLogger } from '../logger'
 import { providerForRepo } from './registry'
+import { prIndex } from '../prs/pr-index'
 
 function validatedPullRequestUrl(value: string, number: number): string {
   const parsed = parseGitHubPullRequestUrl(value)
@@ -23,7 +24,7 @@ export async function resolvePullRequestUrl(cwd: string, number: number): Promis
   })
   if (!repo || !provider) throw new Error('This folder has no recognizable GitHub remote.')
   const url = validatedPullRequestUrl(
-    (await provider.review.getPullRequest(repo, number)).url,
+    (await prIndex.pullRequest(repo, provider, number).read()).url,
     number,
   )
   log.info('pr_url_resolution_succeeded', { url })

@@ -23,7 +23,7 @@
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import { connectionsStore, getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -44,6 +44,8 @@
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
+  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
+  import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
@@ -68,7 +70,8 @@
      *  session. Its path is what the draft will create rather than where a
      *  conversation already is. */
     draft?: SessionDraft | null;
-    /** A fresh session does not need an action that creates another one. */
+    /** A draft is already new work, so it does not need an action that starts
+     *  another task. */
     showNewSessionAction?: boolean;
     /** Inline breadcrumbs fill pane chrome; floating breadcrumbs overlay a transcript. */
     variant?: "floating" | "inline";
@@ -102,7 +105,7 @@
   let taskQuery = $state("");
 
   // A draft is in no list, so its task crumb is the record it names — nothing
-  // when it will mint its own — and its session crumb has no siblings to offer.
+  // when it names none — and its session crumb has no siblings to offer.
   const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
   const task = $derived(
     draft
@@ -127,7 +130,7 @@
   );
   const projectLabel = $derived(
     draft
-      ? projectDirLabel(projectKey, session.staticInfo?.workspacePath)
+      ? projectDirLabel(projectKey, connectionsStore.chatFolderFor(draft.run.serverId))
       : (task?.projectLabel ?? "~"),
   );
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
@@ -154,12 +157,13 @@
   const draftMode = $derived.by((): BreadcrumbDraftMode => {
     const target = draft?.task ?? displayedSession?.task;
     if (!draft && hasSessionStarted(displayedSession)) return null;
-    if (target?.kind === "none") return "no-task";
-    return target?.kind === "existing" ? "existing-task" : "new-task";
+    return target?.kind === "existing" ? "existing-task" : "no-task";
   });
+  // A session with no task has no task crumb. A session linked to a task that
+  // has no row here still names that task.
   const leafLabels = $derived(
     breadcrumbLeafLabels(
-      task?.title ?? "Task",
+      task?.taskId ? task.title : (task?.linkedTask?.title ?? null),
       current?.label ?? "Session",
       draftMode,
     ),
@@ -184,6 +188,11 @@
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
+  // Whose turn waits: "Needs you" to its author, "Needs Alice" to everyone else (plan 004 F2).
+  const currentNeeds = $derived(needsLabel(
+    bandSession?.permissionQueue[0]?.turnAuthor ?? bandSession?.questionQueue[0]?.turnAuthor,
+    presenceStore.currentUserId(session.serverIdFor(tabId)),
+  ));
 
   // Every crumb is a click, not a hover: a menu that opens on the way past
   // fights the click that would toggle it, and on the mac workspace the drag
@@ -277,7 +286,7 @@
     if (draft) {
       draft.task = next.taskId
         ? { kind: "existing", taskId: next.taskId }
-        : { kind: "new" };
+        : { kind: "none" };
     } else {
       void sidebarStore.selectTask(next);
     }
@@ -366,13 +375,14 @@
     requestInputFocus();
   }
 
-  function newTask() {
+  function newFreshSession() {
     menu = null;
     session.drafts.openSessionDraft({
       freshTask: true,
       via: "click",
       sourceId: tabId,
     });
+    requestInputFocus();
   }
 
   const isProjectPanelOpen = $derived(
@@ -481,7 +491,7 @@
                 aria-expanded={menu === "project"}
                 onclick={() => toggleMenu("project")}
               >
-                <ProjectFavicon projectRoot={projectKey} class="size-4 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3" />
+                <ProjectFavicon projectRoot={projectKey} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
                 >
@@ -490,7 +500,7 @@
           </Breadcrumb.Link>
           {#if menu === "project"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={MENU_HEADING}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -594,14 +604,14 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
+                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
                       placeholder="Search tasks in {projectLabel}"
                     />
                     <Command.List
-                      class="max-h-[min(24rem,calc(100vh-8rem))] [.is-laptop-display_&]:max-h-[min(17.5rem,calc(100vh-7rem))] overflow-y-auto p-[0.3125rem]"
+                      class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
                     >
                       {#if filteredTasksInProject.length === 0}
                         <div
@@ -622,7 +632,7 @@
                                the completed section is a trailing affordance so
                                nothing is pushed off that edge. -->
                           <div
-                            class="mb-1 flex h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] items-center gap-1.5 [.is-laptop-display_&]:gap-1 px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="mb-1 flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                           >
                             <span>Open</span>
                             <span class="tabular-nums opacity-50"
@@ -645,7 +655,7 @@
                             value="completed tasks section"
                             class="{completedVisible
                               ? 'mb-1'
-                              : ''} h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] gap-1.5 [.is-laptop-display_&]:gap-1 rounded-md px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                              : ''} h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                             aria-expanded={completedVisible}
                             onSelect={() =>
                               (completedOverride = {
@@ -660,7 +670,7 @@
                             <CaretDownIcon
                               size={11}
                               weight="bold"
-                              class="ml-auto shrink-0 [.is-laptop-display_&]:size-[0.625rem] transition-transform duration-150 {completedVisible
+                              class="ml-auto shrink-0 transition-transform duration-150 {completedVisible
  ? ''
  : '-rotate-90'}"
                             />
@@ -677,14 +687,14 @@
                         class="mx-[0.5625rem] my-[0.3125rem] h-px bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)]"
                       ></div>
                       <Command.Item
-                        value="new task create"
+                        value="new session create"
                         class="{MENU_ROW} h-8 text-chrome-dense text-muted-foreground hover:text-foreground"
-                        onSelect={newTask}
+                        onSelect={newFreshSession}
                       >
                         <PlusIcon size={14} class="shrink-0" />
-                        <span class="flex-1">New task</span>
+                        <span class="flex-1">New session</span>
                         <span class="text-xs opacity-60"
-                          >{comboHint("global.new-task")}</span
+                          >{comboHint("global.new-session")}</span
                         >
                       </Command.Item>
                     </Command.List>
@@ -700,7 +710,7 @@
           >
         {/if}
 
-        <!-- Capped like the task crumb: on a laptop band the leaf otherwise
+        <!-- Capped like the task crumb: on a narrow band the leaf otherwise
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
@@ -759,8 +769,8 @@
  : ''}"
                       style:color={currentStatusColor ?? statusIcon.color}
                       role="img"
-                      aria-label={statusNote(currentStatus)?.text}
-                      title={statusNote(currentStatus)?.text}
+                      aria-label={statusNote(currentStatus, currentNeeds)?.text}
+                      title={statusNote(currentStatus, currentNeeds)?.text}
                     >
                       <StatusIcon size={14} weight="regular" />
                     </span>
@@ -771,11 +781,11 @@
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
-                <div class={MENU_HEADING}>Sessions</div>
+              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
-                  {@const status = taskStatusFor(child.attention)}
-                  {@const note = statusNote(status)}
+                  <!-- The crumb already shows the current session's status. -->
+                  {@const status = child.tabId === tabId ? null : taskStatusFor(child.attention)}
+                  {@const note = status ? statusNote(status) : null}
                   <div class="group/row relative">
                     <button
                       type="button"
@@ -829,11 +839,9 @@
                   onclick={newSession}
                 >
                   <PlusIcon size={14} class="shrink-0" />
-                  <span class="flex-1"
-                    >New session in this task</span
-                  >
+                  <span class="flex-1">New session</span>
                   <span class="text-xs opacity-60"
-                    >{comboHint("global.new-session")}</span
+                    >{comboHint("global.new-session-in-task")}</span
                   >
                 </button>
               </div>
@@ -853,7 +861,7 @@
       {@const record = taskRecord}
       <button
         type="button"
-        class="flex h-[1.875rem] [.is-laptop-display_&]:h-[1.6875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
+        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
  ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
  : ''}"
         title="Task actions"
@@ -933,9 +941,9 @@
       <button
         type="button"
         class={BAND_ACTION}
-        title="New session in this task"
-        aria-label="New session in this task"
-        onclick={newSession}
+        title="New session"
+        aria-label="New session"
+        onclick={newFreshSession}
       >
         <PlusIcon size={14} />
       </button>
@@ -1018,6 +1026,8 @@
         task={menuTask}
         {hasLinkedSession}
         isRunning={menuSidebarTask.status === "running"}
+        onLinkPr={() =>
+          (session.ui.linkPrompt = { kind: "task-pull-request", taskId: menuTask.id })}
         onStart={() => void session.opening.openTaskSession(menuTask)}
         onResume={hasLinkedSession
           ? () => void session.opening.openTaskLinkedSession(menuTask)

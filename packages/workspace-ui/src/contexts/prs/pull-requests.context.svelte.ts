@@ -16,7 +16,7 @@ export class PullRequestsContext {
   readonly projects = new PrsStore()
   readonly view = new PrView()
   readonly guides = new PrGuidesStore(this.projects)
-  readonly checks = new PrChecksStore()
+  readonly checks = new PrChecksStore(this.projects)
   readonly needsReview = new PrNeedsReviewStore(this.projects)
 }
 

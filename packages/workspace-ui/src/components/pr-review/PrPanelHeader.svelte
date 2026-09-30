@@ -19,8 +19,8 @@
    * Slots, left to right and fixed at every width: the tab group, flexible
    * space, the pull request's number, its actions (Review, Check out), the overflow, then
    * the pane controls. Nothing appears or disappears as the tab changes — only
-   * the overflow's contents follow it. J and K still walk the list's order;
-   * the band does not spend a slot saying where in it you are.
+   * the overflow's contents follow it. The band does not spend a slot saying
+   * where in the list's order you are.
    *
    * The band states which pull request you are in, not what is true of it. The
    * refs and the check state are facts about the change, so they are read on
@@ -52,7 +52,7 @@
     number: number;
     /** Which view is showing. The overflow's contents follow it; the band's
      *  slots do not. */
-    tab: "activity" | "map" | "guide" | "diff";
+    tab: "activity" | "map" | "guide" | "lens" | "diff";
     fullScreen: boolean;
     /** Absent when the surface is too narrow to hold a split at all — there is
      *  no smaller state to go back to, so the control is not offered. */
@@ -186,7 +186,7 @@
         class="no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {fullScreen
           ? 'bg-[var(--wash-3)] text-foreground'
           : ''}"
-        title={fullScreen ? "Back to split (E)" : "Expand to full screen (E)"}
+        title={fullScreen ? "Back to split" : "Expand to full screen"}
         aria-label={fullScreen ? "Back to split view" : "Expand to full screen"}
         aria-pressed={fullScreen}
         onclick={onToggleFullScreen}

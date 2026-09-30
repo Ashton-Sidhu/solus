@@ -20,7 +20,7 @@ import type { Message, Session } from '@solus/contracts/types'
 import { computeCurrentActivity } from '@solus/workspace-ui/contexts/workspace/session.utils'
 import { turnDurationMs, type Turn } from '@solus/workspace-ui/components/conversation/lib/turns'
 import * as activitySummary from '@solus/workspace-ui/components/conversation/lib/activity-summary'
-import { scanCodexThreadActivityTimestamp } from '@solus/server/agents/codex/codex-utils'
+import { scanCodexThreadActivityTimestamp } from '@solus/server/execution/agents/codex/codex-utils'
 
 // ---------------------------------------------------------------------------
 // harness
@@ -138,7 +138,7 @@ function legacyComputeCurrentActivity(session: Session): string {
 
 function buildBigTurn(): Turn {
   const tools = Array.from({ length: 120 }, () => toolMessage({ toolCompletedAt: Date.now() }))
-  const body = tools.map((message) => ({ kind: 'tool-group' as const, messages: [message] }))
+  const body = tools.map((message) => ({ kind: 'tool-group' as const, messages: [message], steps: [message] }))
   for (let i = 0; i < 200; i++) body.push({ kind: 'assistant', message: textMessage('assistant', 'chunk') } as never)
   return {
     start: textMessage('user', 'go'),

@@ -7,6 +7,7 @@ import type { RepoRef } from '../providers/types'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { runAsync } from '../git/exec'
 import { createGitAskpassHelper, gitAuthEnv } from '../git/git-auth-env'
+import { PARTIAL_CLONE_ARGS } from '../git/partial-clone'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { githubCredentialChain } from '../providers/github/credentials'
@@ -43,7 +44,8 @@ async function reusableCheckout(
     runAsync('git', ['rev-parse', 'refs/solus/review/base'], checkoutPath).catch(() => ''),
     runAsync('git', ['rev-parse', '--is-shallow-repository'], checkoutPath).catch(() => ''),
   ])
-  if (headSha !== target.headSha || baseSha !== target.baseSha || shallow !== 'true') return null
+  // A checkout an earlier version cloned with `--depth=1` is replaced: it has no merge bases.
+  if (headSha !== target.headSha || baseSha !== target.baseSha || shallow !== 'false') return null
   return {
     worktreePath: checkoutPath,
     branch: `solus/review/pr-${target.number}`,
@@ -68,8 +70,10 @@ async function cleanLegacyReviewArtifacts(checkoutPath: string): Promise<void> {
 
 /**
  * Materialize an exact external pull-request revision in host-managed storage.
- * The initial clone and both exact revision fetches stay shallow. Review agents
- * need the two trees, not the repository's full history.
+ * The clone and both exact revision fetches are partial (`PARTIAL_CLONE_ARGS`):
+ * full commit history, file contents on demand. The contents the review reads
+ * — both sides of the base..head diff — are fetched here, while this
+ * command's credential is still in place, so a guide read never needs one.
  */
 async function materializeManagedPrCheckout(
   repo: RepoRef,
@@ -109,24 +113,26 @@ async function materializeManagedPrCheckout(
     try {
       await runAsync(
         'git',
-        [...authArgs, 'clone', '--no-checkout', '--depth=1', cloneUrl, checkoutPath],
+        [...authArgs, 'clone', '--no-checkout', ...PARTIAL_CLONE_ARGS, cloneUrl, checkoutPath],
         dirname(checkoutPath),
         { env, timeout: 120_000 },
       )
       await runAsync(
         'git',
-        [...authArgs, 'fetch', '--depth=1', '--force', 'origin', `${target.baseSha}:refs/solus/review/base`],
+        [...authArgs, 'fetch', ...PARTIAL_CLONE_ARGS, '--force', 'origin', `${target.baseSha}:refs/solus/review/base`],
         checkoutPath,
         { env, timeout: 120_000 },
       )
       await runAsync(
         'git',
-        [...authArgs, 'fetch', '--depth=1', '--force', 'origin', `${target.headSha}:refs/solus/review/head`],
+        [...authArgs, 'fetch', ...PARTIAL_CLONE_ARGS, '--force', 'origin', `${target.headSha}:refs/solus/review/head`],
         checkoutPath,
         { env, timeout: 120_000 },
       )
       const branch = `solus/review/pr-${target.number}`
-      await runAsync('git', ['checkout', '-B', branch, 'refs/solus/review/head'], checkoutPath, { env })
+      await runAsync('git', [...authArgs, 'checkout', '-B', branch, 'refs/solus/review/head'], checkoutPath, { env })
+      // Counting lines reads both sides of every changed file, which fetches the base's contents in one batch.
+      await runAsync('git', [...authArgs, 'diff', '--numstat', 'refs/solus/review/base', 'refs/solus/review/head'], checkoutPath, { env, timeout: 120_000 })
 
       const prepared = await reusableCheckout(checkoutPath, target)
       if (!prepared) throw new Error('The managed checkout did not match the requested pull request revision.')

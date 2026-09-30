@@ -11,7 +11,10 @@ import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/conn
 export interface ConnectCardCopy {
   /** The product the user named, which may not be the account's name. */
   title: string
-  eyebrow: string
+  /** The account's own name, for the resolved line and the continue prompt. */
+  providerLabel: string
+  /** The card's lowercase type word: what the account is for. */
+  reason: string
   /** One line on why this is being asked for now. */
   purpose: string
   /** Present when one account serves more than the product the user named. */
@@ -28,6 +31,16 @@ const PURPOSE: Record<ConnectionReason, string> = {
   unspecified: 'Needed to continue.',
 }
 
+const REASON = {
+  deploy: 'to deploy',
+  'pull-requests': 'for pull requests',
+  issues: 'for issues',
+  confluence: 'for Confluence pages',
+  jira: 'for Jira issues',
+  drive: 'for Google Docs',
+  unspecified: 'to continue',
+} satisfies Record<ConnectionReason, string>
+
 /** Reasons whose product name differs from the account being connected. */
 const PRODUCT_TITLE: Partial<Record<ConnectionReason, string>> = {
   confluence: 'Connect Confluence',
@@ -41,7 +54,8 @@ export function connectCardCopy(
   const label = CONNECTION_LABELS[provider]
   const copy: ConnectCardCopy = {
     title: PRODUCT_TITLE[reason] ?? `Connect ${label}`,
-    eyebrow: label,
+    providerLabel: label,
+    reason: REASON[reason],
     purpose: PURPOSE[reason],
   }
   // One Atlassian grant reaches both products, so a user connecting for Jira

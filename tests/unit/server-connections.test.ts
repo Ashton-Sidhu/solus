@@ -6,6 +6,7 @@ import type { SolusAPI } from '../../src/preload'
 
 const startedTransports: string[] = []
 const destroyedTransports: string[] = []
+const switchedUrls: string[] = []
 const capabilityLoaders = new Map<string, () => Promise<unknown>>()
 
 // A real transport opens a socket and reads browser lifecycle globals; the
@@ -22,6 +23,7 @@ mock.module('@solus/client-core/server-connection', () => ({
       },
       probe: async () => {},
       attachDialOutcomeReporter: () => {},
+      switchServerUrl: (url: string) => switchedUrls.push(`${target.id}:${url}`),
       destroy: () => destroyedTransports.push(target.id),
     }
     const api = {
@@ -133,6 +135,59 @@ describe('lazily created connections', () => {
       await Promise.resolve()
       expect(startedTransports).toEqual(['cloud'])
     } finally {
+      if (previousLocalStorage === undefined) {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+      } else {
+        Object.defineProperty(globalThis, 'localStorage', {
+          configurable: true,
+          writable: true,
+          value: previousLocalStorage,
+        })
+      }
+    }
+  })
+
+  test('a live connection follows the route the directory gives a managed host once it links', async () => {
+    // WHY: a managed host is listed at `h-….solus.sh` while it is set up and at its
+    // machine's name once ready. The connection kept the routes it was made with, so
+    // onboarding dialed a name with no DNS record until its wait ran out.
+    startedTransports.length = 0
+    switchedUrls.length = 0
+    let saved = {
+      id: 'cloud',
+      label: 'Cloud · Acme',
+      url: 'https://h-cloud.solus.test',
+      routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test' }],
+      sessionToken: '',
+      installationId: 'managed:h_cloud',
+      lastConnected: 1,
+      uplink: { hostId: 'h_cloud', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState: 'provisioning' },
+    }
+    const previousLocalStorage = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: { getItem: (key: string) => key === 'solus.servers' ? JSON.stringify([saved]) : null },
+    })
+    const connections = new ServerConnections()
+    try {
+      connections.startCatalogSupervisors()
+      await Promise.resolve()
+      expect(switchedUrls).toEqual([])
+
+      const machine = 'https://solus-h-cloud.sprites.test'
+      saved = { ...saved, url: machine, routes: [{ kind: 'tunnel', url: machine }], uplink: { ...saved.uplink, managedState: 'ready' } }
+      connections.startCatalogSupervisors()
+      await Promise.resolve()
+      expect(switchedUrls).toEqual([`cloud:${machine}`])
+      expect(connections.ensure('cloud').target.url).toBe(machine)
+      expect(startedTransports).toEqual(['cloud'])
+
+      // A read that changes nothing does not re-aim the socket.
+      connections.startCatalogSupervisors()
+      expect(switchedUrls).toHaveLength(1)
+    } finally {
+      connections.release('cloud')
       if (previousLocalStorage === undefined) {
         delete (globalThis as unknown as { localStorage?: Storage }).localStorage
       } else {

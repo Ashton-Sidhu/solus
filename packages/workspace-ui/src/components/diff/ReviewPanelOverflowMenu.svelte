@@ -5,7 +5,6 @@
     GitCompareArrows as CompareIcon,
     Highlighter as HighlighterIcon,
     PenLine as RewriteIcon,
-    PanelRight as FileTreeIcon,
     RotateCw as ArrowClockwiseIcon,
     Rows3 as StackedIcon,
     Shrink as ArrowsInLineVerticalIcon,
@@ -20,7 +19,7 @@
    * Everything the review panel's active view can be *configured* to do.
    *
    * The band above holds navigation and state — where you are, what changed,
-   * which turn — and nothing else. Layout, the file tree, collapse state and
+   * which turn — and the file tree toggle. Layout, collapse state and
    * token highlighting are settings for one view, used once and then
    * remembered, so they live under a single trigger whose contents follow the
    * active tab rather than each claiming a permanent slot in the chrome.
@@ -36,8 +35,6 @@
     onToggleTokenHighlight,
     allCollapsed,
     onToggleCollapseAll,
-    treeCollapsed,
-    onToggleTree,
     onRefresh,
     refreshing,
     hasFiles,
@@ -50,8 +47,6 @@
     onToggleTokenHighlight: () => void;
     allCollapsed: boolean;
     onToggleCollapseAll: () => void;
-    treeCollapsed: boolean;
-    onToggleTree: () => void;
     onRefresh?: () => void;
     refreshing: boolean;
     /** Stream-shaped rows only mean something once the patch has files. */
@@ -77,7 +72,7 @@
   /** Names the tab the menu belongs to — this is how the menu declares that it
    *  is contextual rather than a panel-wide "more" list. */
   const heading = $derived(
-    view === "map" ? "Change map" : view === "guide" ? "Walkthrough" : "Diff view",
+    view === "map" ? "Change map" : view === "guide" ? "Walkthrough" : view === "lens" ? "Lens" : "Diff view",
   );
 
   /** The icon says what each layout does to the lines: one column of them, or
@@ -188,12 +183,6 @@
     {/if}
 
     {#if view === "diff" && hasFiles}
-      <DropdownMenu.Item onSelect={onToggleTree}>
-        <FileTreeIcon size={14} />
-        <span class="whitespace-nowrap">{treeCollapsed ? "Show file tree" : "Hide file tree"}</span>
-        <DropdownMenu.Shortcut>{comboHint("diff-panel.toggle-tree")}</DropdownMenu.Shortcut>
-      </DropdownMenu.Item>
-
       <DropdownMenu.Item onSelect={onToggleCollapseAll}>
         {#if allCollapsed}
           <ArrowsOutLineVerticalIcon size={14} />

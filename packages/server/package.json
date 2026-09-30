@@ -4,6 +4,12 @@
   "type": "module",
   "exports": { "./*": "./src/*.ts" },
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@solus/contracts": "workspace:*" },
+  "dependencies": {
+    "@solus/contracts": "workspace:*",
+    "@solus/document-model": "workspace:*",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/y-tiptap": "^3.0.9",
+    "yjs": "^13.6.32"
+  },
   "devDependencies": { "typescript": "^5.9.3" }
 }

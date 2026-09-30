@@ -23,7 +23,7 @@
    * carries one metadata sentence rather than a row of pills, and expand/close
    * stay with PaneChrome's floating cluster instead of being restated here.
    *
-   * §5 — one progress line sits under the header in every state and survives the
+   * §5 — the progress line shares the title row in every state and survives the
    * run: live it says how far through the brief the agent is, settled it becomes
    * the record of what the run cost. The footer answers the other question — what
    * the agent is doing this second — and only the Report tab carries it, because
@@ -124,24 +124,22 @@
        swallow its clicks as window moves. Margin keeps the rect short of the
        cluster; the row draws nothing, so the layout is unchanged. -->
   <div
-    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center mr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) min-w-0 shrink-0 items-center gap-2.5 mr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <h2
-      class="m-0  leading-tight font-medium "
+      class="m-0 min-w-0 shrink truncate leading-tight font-medium"
     >
       {#if message && header}
         {header.title}
       {/if}
     </h2>
-  </div>
 
-  {#if message && header && progress}
-    <!-- Progress holds one line under the header in every state. The unit is the
-         agent's own plan when it kept one, else the asks the dispatch enumerated:
-         the segments exist as soon as the brief does, and fill only where a real
-         denominator says they may. -->
-    <div class="flex shrink-0 items-center gap-2.5 px-[1.125rem] pb-2.5">
-      <span class="flex shrink-0 items-center gap-2">
+    {#if message && header && progress}
+      <!-- Progress rides the title row in every state. The unit is the agent's
+           own plan when it kept one, else the asks the dispatch enumerated: the
+           segments exist as soon as the brief does, and fill only where a real
+           denominator says they may. -->
+      <span class="flex shrink-0 items-center gap-2 text-(--muted-foreground)">
         <span
           class="inline-flex w-3.5 shrink-0 items-center justify-center {progress.state ===
           'failed'
@@ -159,7 +157,7 @@
             <CheckIcon size={11} weight="bold" />
           {/if}
         </span>
-        <span class="font-medium">{progress.label}</span>
+        <span>{progress.label}</span>
       </span>
 
       {#if progress.segments.length > 0}
@@ -189,20 +187,24 @@
         </span>
       {/if}
 
+      <!-- The current step takes only the space the title leaves, so it gives
+           way first when the pane narrows. -->
       {#if progress.current}
-        <span class="min-w-0 truncate  text-(--muted-foreground)"
+        <span class="min-w-0 flex-1 truncate text-(--muted-foreground)"
           >{progress.current}</span
         >
+      {:else}
+        <span class="flex-1"></span>
       {/if}
-
-      <span class="flex-1"></span>
       {@render factRail(progress.facts)}
-    </div>
+    {/if}
+  </div>
 
+  {#if message && header && progress}
     <!-- An underline, not a segmented control: the two views are the same turn
          read two ways, so neither should look like a mode you switch into. -->
     <div
-      class="flex shrink-0 items-baseline gap-[1.125rem] border-b border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-[1.125rem]"
+      class="flex shrink-0 items-baseline gap-[1.125rem] border-b border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-[1.125rem] pt-1"
       role="tablist"
       aria-label="Sub-agent views"
     >

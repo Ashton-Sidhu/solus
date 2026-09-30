@@ -61,8 +61,8 @@ class NodeShapedDatabase {
 
 mock.module('node:sqlite', () => ({ DatabaseSync: NodeShapedDatabase }))
 
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type SqlGuardModule = typeof import('@solus/server/data/insights/sql-guard')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -72,8 +72,8 @@ let sqlGuard: SqlGuardModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-columns-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  sqlGuard = await import('@solus/server/observability/sql-guard')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  sqlGuard = await import('@solus/server/data/insights/sql-guard')
   metricsDb.closeMetricsDb()
 })
 

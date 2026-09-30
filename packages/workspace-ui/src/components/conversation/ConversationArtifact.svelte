@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { ChevronDown, ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import { ChevronLeft, ChevronRight, LayoutTemplate as ArtifactIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import { Button } from "../ui/button";
   import HtmlBlock from "./HtmlBlock.svelte";
+  import TranscriptCard from "./TranscriptCard.svelte";
+  import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import type { ArtifactRevision } from "./lib/artifact-revisions";
@@ -33,66 +35,99 @@
 </script>
 
 <div class="my-2 min-w-0" data-testid="conversation-artifact" data-artifact-version={selectedIndex + 1}>
-  {#if update || revisions.length > 1}
-    <div class="flex min-w-0 items-center gap-1 text-workspace-chrome text-(--solus-text-secondary)">
-      <button
-        type="button"
-        class="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-md py-1 pr-2 pl-1 text-left enabled:hover:bg-muted focus-visible:outline-2 focus-visible:outline-(--solus-accent) pointer-coarse:min-h-12"
-        aria-expanded={isEarlier ? expanded : undefined}
-        disabled={!isEarlier}
-        onclick={() => (disclosure.expanded = !expanded)}
-      >
-        {#if isEarlier}
-          {#if expanded}<ChevronDown size={16} class="shrink-0" />{:else}<ChevronRight size={16} class="shrink-0" />{/if}
-        {/if}
-        <span class="min-w-0 truncate font-medium text-(--solus-text-primary)">{title}</span>
-        <span class="shrink-0 tabular-nums">
-          {#if update}
-            v{revisions.length + 1} · Updating…
-          {:else}
-            v{selectedIndex + 1} of {revisions.length}{selected === latest ? " · Latest" : ""}
+  {#if isEarlier}
+    <!-- An earlier version stays a quiet, superseded card; opening it shows
+         that version under the card. -->
+    <TranscriptCard
+      {title}
+      type="earlier version"
+      superseded
+      {expanded}
+      glyphClass="is-artifact"
+      skipMotion
+      onOpen={() => (disclosure.expanded = !expanded)}
+    >
+      {#snippet glyph()}<ArtifactIcon />{/snippet}
+      {#snippet rail()}v{selectedIndex + 1}{/snippet}
+      {#snippet actions()}
+        {#if expanded && selected}
+          <TranscriptCardAction
+            kind="icon"
+            label="Previous version"
+            disabled={selectedIndex === 0}
+            onclick={() => (disclosure.pickedId = revisions[selectedIndex - 1].messageId)}
+          ><ChevronLeft size={13} /></TranscriptCardAction>
+          <TranscriptCardAction
+            kind="icon"
+            label="Next version"
+            disabled={selected === latest}
+            onclick={() => (disclosure.pickedId = revisions[selectedIndex + 1].messageId)}
+          ><ChevronRight size={13} /></TranscriptCardAction>
+          {#if selected !== latest}
+            <TranscriptCardAction
+              kind="ghost"
+              onclick={() => { disclosure.pickedId = latest.messageId; disclosure.expanded = true; }}
+            >View latest</TranscriptCardAction>
           {/if}
-        </span>
-      </button>
-      {#if expanded && selected}
+        {/if}
+      {/snippet}
+    </TranscriptCard>
+  {:else if update || revisions.length > 1}
+    <!-- A slim version line, no shell: the render below is the object. -->
+    <div class="flex h-8 min-w-0 items-center gap-2 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:h-12">
+      <span class="inline-flex w-5.5 shrink-0 justify-center text-primary"><ArtifactIcon size={13} /></span>
+      <span class="min-w-0 truncate font-medium text-(--solus-text-primary)">{title}</span>
+      <span class="shrink-0 text-transcript-meta tabular-nums text-(--muted-foreground)">
+        {#if update}
+          v{revisions.length + 1} · updating…
+        {:else}
+          v{selectedIndex + 1} of {revisions.length}{selected === latest ? " · latest" : ""}
+        {/if}
+      </span>
+      <span class="flex-1"></span>
+      {#if selected}
+        {#if selected !== latest}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="text-workspace-chrome pointer-coarse:min-h-12"
+            onclick={() => { disclosure.pickedId = latest.messageId; disclosure.expanded = true; }}
+          >View latest</Button>
+        {/if}
         <Button
           variant="ghost"
           size="icon-sm"
-          class="pointer-coarse:size-12"
+          class="size-6.5 pointer-coarse:size-12"
           aria-label="Previous version"
           title="Previous version"
           disabled={selectedIndex === 0}
           onclick={() => (disclosure.pickedId = revisions[selectedIndex - 1].messageId)}
-        ><ChevronLeft size={16} /></Button>
+        ><ChevronLeft size={14} /></Button>
         <Button
           variant="ghost"
           size="icon-sm"
-          class="pointer-coarse:size-12"
+          class="size-6.5 pointer-coarse:size-12"
           aria-label="Next version"
           title="Next version"
           disabled={selected === latest}
           onclick={() => (disclosure.pickedId = revisions[selectedIndex + 1].messageId)}
-        ><ChevronRight size={16} /></Button>
-      {/if}
-      {#if selected && selected !== latest}
-        <Button
-          variant="ghost"
-          size="sm"
-          class="text-workspace-chrome pointer-coarse:min-h-12"
-          onclick={() => { disclosure.pickedId = latest.messageId; disclosure.expanded = true; }}
-        >View latest</Button>
+        ><ChevronRight size={14} /></Button>
       {/if}
     </div>
   {/if}
-  {#if update}
-    <ArtifactView artifact={update} skipMotion />
-  {:else if expanded && selected}
-    {#key selected.messageId}
-    {#if selected.workRef}
-      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
-    {:else}
-      <HtmlBlock html={selected.html} />
-    {/if}
-    {/key}
+  {#if update || (expanded && selected)}
+    <div class={update || revisions.length > 1 ? "rounded-xl ring-[0.5px] ring-(--solus-tx-divider)" : ""}>
+      {#if update}
+        <ArtifactView artifact={update} skipMotion />
+      {:else if selected}
+        {#key selected.messageId}
+        {#if selected.workRef}
+          <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
+        {:else}
+          <HtmlBlock html={selected.html} />
+        {/if}
+        {/key}
+      {/if}
+    </div>
   {/if}
 </div>

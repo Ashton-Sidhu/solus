@@ -182,6 +182,7 @@
     footer={ac.footer}
     sessionPreview={ac.sessionPreview}
     placement={menuPlacement}
+    onDismiss={ac.dismiss}
   />
 {/if}
 

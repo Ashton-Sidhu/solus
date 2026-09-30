@@ -8,9 +8,15 @@
   import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
-  import MarkdownImage from "./MarkdownImage.svelte";
+  import ReplyImage from "./ReplyImage.svelte";
+  import TranscriptTable from "./TranscriptTable.svelte";
+  import AssistantAlert from "./AssistantAlert.svelte";
+  import FootnoteRef from "./FootnoteRef.svelte";
+  import FootnoteSection from "./FootnoteSection.svelte";
+  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from "./lib/markdown-extensions";
   import MarkdownText from "./MarkdownText.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import { pauseWhenOffscreen } from "./lib/visible-animation";
   import {
     formatOffset,
     reportSections,
@@ -45,10 +51,14 @@
   const markdownRenderers = {
     code: FencedBlock,
     codespan: CodeSpan,
-    image: MarkdownImage,
+    image: ReplyImage,
     link: MarkdownLink,
     rawtext: MarkdownText,
+    table: TranscriptTable,
     [RAW_HTML_TOKEN]: HtmlBlock,
+    [ALERT_TOKEN]: AssistantAlert,
+    [FOOTNOTE_REF_TOKEN]: FootnoteRef,
+    [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
   };
 
   const markdownExtensions = [rawHtmlMarkedExtension];
@@ -201,7 +211,8 @@
           ? 'text-[color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]'
           : state === 'running'
             ? 'activity-shimmer'
-            : 'text-(--muted-foreground)'}">{tail.label}</span
+            : 'text-(--muted-foreground)'}"
+        {@attach pauseWhenOffscreen}>{tail.label}</span
       >
       <span class="flex-1"></span>
       {#if tail.facts}

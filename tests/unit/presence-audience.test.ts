@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostEvent } from '@solus/contracts/host-events'
 import { eventVisibleTo } from '@solus/server/sharing/event-audience'
-import type { Principal } from '@solus/server/server/principal'
+import type { Principal } from '@solus/server/admission/principal'
 import type { ShareManager } from '@solus/server/sharing/share-manager'
 
 // docs/plans/multiplayer-presence.md: a session's room reaches the people who can

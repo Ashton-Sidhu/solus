@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { fade } from "svelte/transition";
   import {
     committedRenameValue,
     focusRenameInputText,
@@ -13,10 +12,9 @@
      *  the label *is*, never how it is set, so the call site hands over the same
      *  classes its label wears and the glyphs stay on their pixels. */
     class?: string;
-    /** Where the field lives. A sidebar `row` gets a bare wash under full-width
-     *  text; the breadcrumb `band` gets a self-contained field — a neutral plate
-     *  and a soft accent ring — so it reads as an edit box, not a highlight
-     *  bleeding across a thin bar. */
+    /** Where the field lives. A sidebar `row` edits the bare text in place; the
+     *  breadcrumb `band` gets a self-contained field — a neutral plate and a
+     *  neutral ring — so it reads as an edit box on a thin bar. */
     variant?: "row" | "band";
     onCommit: (next: string) => void;
     onCancel: () => void;
@@ -33,10 +31,6 @@
   let draft = $state(untrack(() => value));
   let committed = false;
   let input = $state<HTMLInputElement | null>(null);
-
-  const reduceMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
 
   onMount(() => {
     // Context-menu teardown restores focus to its trigger. Wait until that
@@ -67,28 +61,19 @@
 </script>
 
 <!-- In place means the label does not move, resize, or change weight when it
-     becomes editable — the only new things on screen are a caret and, in a
-     sidebar `row`, the wash under the text saying this line is live: a separate
-     layer that overflows the line box symmetrically instead of a padded box
-     that would push the text off its column. The breadcrumb `band` reads a thin
-     bar where a bleeding wash looks like stray highlight, so there it is a
-     self-contained plate with a soft accent ring. Either way the input carries
-     the row's own type through unchanged. -->
+     becomes editable — in a sidebar `row` the only new things on screen are a
+     caret and the host OS selection highlight. The breadcrumb `band` is a thin
+     bar, so there the field is a self-contained neutral plate that reads as an
+     edit box. Either way the input carries the row's own type through
+     unchanged. -->
 <span
   class="relative flex h-full min-w-0 flex-1 items-center {variant === 'row'
     ? '-ml-[0.3125rem]'
-    : 'rounded-md bg-accent px-[0.15625rem] ring-1 ring-inset ring-[color-mix(in_oklch,var(--solus-accent)_38%,transparent)]'}"
+    : 'rounded-md bg-accent px-[0.15625rem] ring-1 ring-inset ring-border'}"
 >
-  {#if variant === "row"}
-    <span
-      class="pointer-events-none absolute inset-x-0 -inset-y-[0.15625rem] rounded-[0.375rem] bg-(--solus-accent-light)"
-      aria-hidden="true"
-      in:fade={{ duration: reduceMotion ? 0 : 110 }}
-    ></span>
-  {/if}
   <input
     bind:this={input}
-    class="relative h-full min-w-0 flex-1 bg-transparent px-[0.3125rem] py-0 text-foreground caret-(--solus-accent) outline-none selection:bg-(--solus-accent-soft) {className}"
+    class="relative h-full min-w-0 flex-1 bg-transparent px-[0.3125rem] py-0 text-foreground caret-(--solus-accent) outline-none selection:bg-[color:Highlight] {className}"
     bind:value={draft}
     name="session-name"
     aria-label="Name"

@@ -17,7 +17,6 @@ import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/ta
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
-import { projectScopeOf } from "@solus/contracts/types";
 
 import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
 import { materializeTabs } from "@solus/workspace-ui/contexts/workspace/session-bootstrap";
@@ -28,6 +27,9 @@ import { subscribeAllHosts } from "@solus/client-core/host-events";
 import { localApi } from "@solus/client-core/local-api";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
+import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
+import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 
 import { connectionState } from "@solus/client-core/connection-state";
 import {
@@ -75,14 +77,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     sessionSidebarStore,
     agent,
   } = core;
-  function activePrScope() {
-    const api = session.apiFor(session.activeTabId);
-    return {
-      api,
-      serverId: serverConnections.serverIdForApi(api),
-      ctx: session.ctx,
-    };
-  }
 
   // Materialize tabs synchronously during component init — before first paint —
   // so the tab strip, titles, drafts, and active tab (with its loading skeleton)
@@ -217,7 +211,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     const reconnected = detectReconnect(connectionStatus);
     untrack(() => {
       if (connectionStatus === "connected") {
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           void connectionsStore.refreshCapabilities({
             serverId: defaultServerId,
@@ -226,7 +220,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       }
       if (reconnected) {
         refreshTheme(settings.setSystemTheme.bind(settings));
-        const defaultServerId = serverConnections.defaultServerId();
+        const defaultServerId = serverConnections.defaultMachineId();
         if (defaultServerId) {
           sessionEnvironmentStore.invalidateRegistrationsForHost(
             defaultServerId,
@@ -286,7 +280,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       );
       const unsubSessionStatuses =
         sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultServerId();
+      const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       // The promoted settings tier lives on the host so it follows the user
       // between desktop, web, and mobile. The localStorage copy already painted
@@ -316,6 +310,10 @@ export function installDesktopRuntime(core: DesktopAppCore) {
           }
         },
       );
+      // Watches wait on a host and change state with no client in the loop.
+      const unsubWatches = subscribeWatchChanges(session.watchesStore);
+      // Review requests and decisions reach the reader on every client.
+      const unsubWorkReviews = subscribeWorkReviewChanges(session.worksStore, (workId) => session.openWork(workId));
       // An agent left comment threads on a plan or a work. Re-read that target's
       // annotations so the rail updates under the reader, rather than making them
       // close and reopen the document to see the review.
@@ -335,14 +333,12 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       // it, so the request is answered app-wide rather than by a surface that
       // may not be mounted. Explicitly invoked — nothing here auto-opens.
       browserStore.onSurfaceRequested = () => session.openBrowser();
+      // A stopped recording goes to the composer the user is writing in, from
+      // whichever entry point stopped it, and when a limit stopped it.
+      browserStore.onRecordingSaved = (serverId, result) =>
+        deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
-      const unsubChecks = pullRequests.checks.subscribe(activePrScope);
       const unsubGuideStatus = pullRequests.guides.subscribe();
-      // `needsReview.subscribe` takes its own reference to the lifecycle
-      // subscription, which is refcounted, so the boot block does not need a
-      // second one with the same lifetime.
-      const unsubNeedsReview =
-        pullRequests.needsReview.subscribe(activePrScope);
       // An agent can need an account before any surface that would show its
       // status has been opened, so the request is heard app-wide, not by the card.
       const unsubConnectRequests = connectRequestStore.listen();
@@ -372,12 +368,13 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubSessionStatuses();
         unsubUsage();
         unsubAutomations();
+        unsubWatches();
+        unsubWorkReviews();
         unsubAnnotations();
         browserStore.onSurfaceRequested = null;
+        browserStore.onRecordingSaved = null;
         unsubBrowser();
-        unsubChecks();
         unsubGuideStatus();
-        unsubNeedsReview();
         unsubConnectRequests();
         unsubSeats();
         unsubUplink();
@@ -395,53 +392,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   $effect(() => presenceStore.reportWorkspaceFocus(session));
   // And go along with a followed teammate when they move.
   $effect(() => presenceStore.syncFollow(session));
-
-  const activeProjectScope = $derived(projectScopeOf(session.ctx.session));
-
-  // What the host sets its checks poll cadence from. Every input is a primitive
-  // derived, so the report goes out only when one of them changes: a tab switch
-  // inside the same project, or a focus event that lands on the same state,
-  // sends nothing. The connection is an input too — the host forgets a client's
-  // activity when it disconnects, and a reconnect restores it here.
-  const checksReviewSurfaceOpen = $derived(
-    session.router.at("prs") ||
-      session.router.at("reviewMode") ||
-      !!session.activeSession?.prReview,
-  );
-  const activeServerId = $derived(
-    serverConnections.serverIdForApi(session.apiFor(session.activeTabId)),
-  );
-  const hostConnected = $derived(serversStore.connectionStatus === "connected");
-  $effect(() => {
-    const reviewSurfaceOpen = checksReviewSurfaceOpen;
-    const active = runtime.isWindowForeground;
-    void activeProjectScope;
-    void activeServerId;
-    if (!hostConnected) return;
-    untrack(() => {
-      const scope = activePrScope();
-      pullRequests.checks.reportActivity(
-        scope.api,
-        scope.ctx,
-        reviewSurfaceOpen,
-        active,
-      );
-    });
-  });
-
-  // The needs-review count answers "in this project", so crossing into another
-  // one makes the count the sidebar is showing not just stale but wrong — the
-  // store zeroes it rather than report another project's number. Fetch the new
-  // project now; leaving it to the poll blanks the badge for up to a cycle.
-  $effect(() => {
-    void activeProjectScope;
-    untrack(() => {
-      const scope = activePrScope();
-      void pullRequests.needsReview
-        .refresh(scope.api, scope.serverId, scope.ctx)
-        .catch(() => {});
-    });
-  });
 
   // Keep main informed of whether the live text selection sits inside the
   // conversation view, so its native right-click menu can offer "Quote in

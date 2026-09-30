@@ -30,7 +30,7 @@
 >
   <SettingsRow
     label="Auto voice mode"
-    description="Continuously listen and queue voice messages while you work (⌥⇧V)."
+    description="Always listen and queue voice messages (⌥⇧V)."
     visible={isVisible("auto-voice")}
   >
     {#snippet control()}
@@ -45,7 +45,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">
     No settings match your search
   </div>
 {/if}

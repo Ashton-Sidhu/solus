@@ -3,12 +3,15 @@ import type { MetricsGapSegment, MetricsSpan, MetricsTurnTrace } from '@solus/co
 import {
   barExtent,
   buildTraceView,
+  compactDetail,
   firstObservedActivityMs,
   hasInternalRows,
+  INSTANT_STREAM_MS,
   visibleRows,
   spanAttributes,
   spanDetailLabel,
   spanPayload,
+  startOffsetLabel,
   unionLength,
   WATERFALL_MIN_BAR_FRACTION,
 } from '@solus/workspace-ui/components/insights/lib/waterfall'
@@ -84,7 +87,7 @@ describe('Solus internals', () => {
     kind: 'internal.dispatch_step',
     name: 'worktree_create',
     startedAt: 1_030,
-    attrs: { fn: 'createWorktree', file: 'control-plane.ts' },
+    attrs: { fn: 'createWorktree', file: 'session-runtime.ts' },
   })
   const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_200 })
   const settlement = span({
@@ -124,6 +127,83 @@ describe('Solus internals', () => {
   test('a trace with nothing to reveal does not offer the toggle', () => {
     expect(hasInternalRows(view)).toBe(true)
     expect(hasInternalRows(buildTraceView(trace([root, tool]))!)).toBe(false)
+  })
+})
+
+describe('instant response-stream markers', () => {
+  // WHY: a response_stream span of 0ms names where a segment ended; it measures
+  // nothing. Listed, it costs a full lane and a "<1%" per segment, and a turn
+  // with eight segments reads as eight rows of nothing.
+  const marker = span({
+    spanId: 'marker', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_300, endedAt: 1_300, durationMs: 0,
+  })
+  const stream = span({
+    spanId: 'stream', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_400, endedAt: 1_900, durationMs: 500,
+  })
+  const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_200 })
+  const view = buildTraceView(trace([root, tool, marker, stream]))!
+
+  test('a marker leaves the lanes; a real stream stays', () => {
+    expect(visibleRows(view.rows, false).map((row) => row.spanId)).toEqual(['root', 'tool', 'stream'])
+  })
+
+  test('the internals toggle does not bring a marker back — it is not Solus work', () => {
+    expect(visibleRows(view.rows, true).map((row) => row.spanId)).not.toContain('marker')
+  })
+
+  test('a deep link onto a marker still lands on it', () => {
+    expect(visibleRows(view.rows, false, 'marker').map((row) => row.spanId)).toContain('marker')
+  })
+
+  test('the threshold is a marker, not a short answer', () => {
+    expect(INSTANT_STREAM_MS).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('row labels', () => {
+  // WHY: four lanes that all read "Bash · cd /Users/me/repo && …" are four
+  // lanes the reader cannot tell apart. The label drops what every command
+  // shares; the title keeps the whole command for the reader who hovers.
+  test('a command loses its cd-prefix on the row and keeps it on the title', () => {
+    const call = span({
+      spanId: 'c', parentSpanId: 'root', startedAt: 1_100,
+      attrs: { input: JSON.stringify({ command: 'cd /Users/me/repo && bun test tests/unit/a.test.ts' }) },
+    })
+    const row = buildTraceView(trace([root, call]))!.rows.find((entry) => entry.spanId === 'c')!
+    expect(row.label).toBe('Bash · bun test tests/unit/a.test.ts')
+    expect(row.title).toBe('Bash · cd /Users/me/repo && bun test tests/unit/a.test.ts')
+  })
+
+  test('a thinking span is labelled by what the agent thought', () => {
+    // WHY: a row of "thinking, thinking, thinking" says nothing about why the
+    // turn went where it did. The thought's first line tells the lanes apart;
+    // redacted reasoning has no text and keeps the plain name.
+    const thought = span({
+      spanId: 't', parentSpanId: 'root', kind: 'thinking', name: 'thinking', startedAt: 1_100,
+      attrs: { thought: '**Reading the stylesheet**\n\nThe rule is unlayered.' },
+    })
+    const redacted = span({ spanId: 'r', parentSpanId: 'root', kind: 'thinking', name: 'thinking', startedAt: 1_300 })
+    const rows = buildTraceView(trace([root, thought, redacted]))!.rows
+    const row = rows.find((entry) => entry.spanId === 't')!
+    expect(row.label).toBe('thinking · Reading the stylesheet')
+    expect(row.title).toBe('thinking · Reading the stylesheet')
+    expect(rows.find((entry) => entry.spanId === 'r')!.label).toBe('thinking')
+  })
+
+  test('a path keeps its last two segments, which are what differ between reads', () => {
+    expect(compactDetail('/Users/me/repo/packages/ui/src/components/insights/TurnList.svelte')).toBe(
+      'insights/TurnList.svelte',
+    )
+  })
+
+  test('a multi-line command is named by its first line', () => {
+    expect(compactDetail('cat > /tmp/c.ts <<EOF\nimport x\nEOF')).toBe('cat > /tmp/c.ts <<EOF')
+  })
+
+  test('a long command is cut, not left to size the column', () => {
+    const long = 'x'.repeat(200)
+    expect(compactDetail(long).length).toBeLessThanOrEqual(60)
+    expect(compactDetail(long).endsWith('…')).toBe(true)
   })
 })
 
@@ -207,7 +287,7 @@ describe('buildTraceView', () => {
     const view = buildTraceView(trace([root, child], 600))
     expect(view?.legend[0]).toMatchObject({
       kind: 'provider_wait',
-      label: 'Provider wait',
+      label: 'Unrecorded',
       ms: 600,
     })
     expect(view?.traceCoverage).toBeCloseTo(0.4)
@@ -281,6 +361,52 @@ describe('buildTraceView', () => {
     expect(view?.deniedPermissions.map((entry) => entry.spanId)).toEqual(['p1'])
   })
 
+  describe('a prompt that waited in the queue', () => {
+    // The queue wait ends where the turn starts, and a queued prompt can wait
+    // far longer than the turn then runs. None of that time is the turn's.
+    const queue = span({
+      spanId: 'queue', parentSpanId: 'root', kind: 'queue_wait', name: 'queue_wait',
+      startedAt: -1_000, endedAt: 1_000, durationMs: 2_000,
+    })
+    const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_100, endedAt: 1_400, durationMs: 300 })
+    const view = buildTraceView(trace([root, queue, tool]))!
+    const queueRow = view.rows.find((row) => row.spanId === 'queue')!
+
+    test('is reported as time before the turn, not a share of it', () => {
+      expect(view.queuedMs).toBe(2_000)
+      expect(queueRow.share).toBeNull()
+      expect(view.legend.map((entry) => entry.kind)).not.toContain('queue_wait')
+    })
+
+    test('is never the turn\'s largest span', () => {
+      expect(view.slowest[0]?.spanId).toBe('tool')
+    })
+
+    test('draws from the turn\'s start, never left of the axis', () => {
+      const [start, end] = barExtent(queueRow, view.totalMs)
+      expect(start).toBe(0)
+      expect(end).toBeGreaterThan(start)
+    })
+
+    test('says when it began in words, not as a negative offset', () => {
+      expect(startOffsetLabel(queueRow.startOffsetMs)).toBe('began 2.0s before the turn')
+      expect(startOffsetLabel(100)).toBe('starts +100ms')
+    })
+  })
+
+  test('tool phases stay out of the legend; their time is the tool call\'s', () => {
+    const call = span({ spanId: 'call', parentSpanId: 'root', startedAt: 1_100, endedAt: 1_500, durationMs: 400 })
+    const input = span({
+      spanId: 'input', parentSpanId: 'call', kind: 'tool_input', startedAt: 1_100, endedAt: 1_300, durationMs: 200,
+    })
+    const execution = span({
+      spanId: 'exec', parentSpanId: 'call', kind: 'tool_execution', startedAt: 1_300, endedAt: 1_500, durationMs: 200,
+    })
+    const view = buildTraceView(trace([root, call, input, execution]))!
+    expect(view.legend.map((entry) => entry.kind)).toEqual(['tool_call'])
+    expect(view.rows.map((row) => row.spanId)).toEqual(['root', 'call', 'input', 'exec'])
+  })
+
   test('an open span with no end still gets a placeable bar', () => {
     const open = span({ spanId: 'open', parentSpanId: 'root', startedAt: 1_400, endedAt: null, durationMs: null })
     const row = buildTraceView(trace([root, open]))?.rows.find((candidate) => candidate.spanId === 'open')
@@ -337,6 +463,14 @@ describe('span detail rendering', () => {
       attrs: { input: '{"command":"x"}', inputTruncated: true },
     })
     expect(spanPayload(toolCall)?.label).toBe('Input (truncated)')
+  })
+
+  test('a thinking span shows its thought in the payload block, not the grid', () => {
+    // WHY: a thought is paragraphs of prose; in the attribute grid it would
+    // squeeze every other fact. The block keeps it readable and copyable.
+    const thinking = span({ spanId: 'a', startedAt: 0, attrs: { thought: '**Plan**\n\nRead the file.' } })
+    expect(spanPayload(thinking)).toEqual({ label: 'Thought', text: '**Plan**\n\nRead the file.', isMarkdown: true })
+    expect(spanAttributes(thinking).map((attribute) => attribute.key)).not.toContain('thought')
   })
 
   test('attributes exclude the payload fields, which get their own block', () => {

@@ -14,7 +14,6 @@
     Server as MachineIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext } from "../../contexts";
   import { cn } from "../../lib/utils";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import { getStartedItems, type GetStartedItemId } from "./lib/get-started";
@@ -28,13 +27,12 @@
 
   let { class: className }: { class?: string } = $props();
 
-  const session = getWorkspaceContext();
   const items = $derived(
     cloud.accountLoaded && !cloud.isOpen ? getStartedItems(cloud.getStartedFacts) : [],
   );
 
   onMount(() => {
-    if (cloud.isCloud) cloud.refreshGetStarted(session.ctx);
+    if (cloud.isCloud) cloud.refreshGetStarted();
   });
 </script>
 

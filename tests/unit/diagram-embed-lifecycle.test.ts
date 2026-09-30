@@ -25,8 +25,7 @@ test('undo remounts a diagram node view with the document context', async () => 
     const source = readFileSync(new URL('packages/workspace-ui/src/components/editor/diagramEmbedExtension.ts', root), 'utf8')
       .replace("'./DiagramEmbedNodeView.svelte'", JSON.stringify(preview))
       .replace("'svelte'", JSON.stringify(client))
-      .replace("'@tiptap/core'", JSON.stringify(new URL('node_modules/@tiptap/core/dist/index.js', root).href))
-      .replace("'@solus/contracts/diagram-embed'", JSON.stringify(new URL('packages/contracts/src/diagram-embed.ts', root).href))
+      .replace("'@solus/document-model/blocks'", JSON.stringify(new URL('packages/document-model/src/blocks.ts', root).href))
     writeFileSync(extension, new Bun.Transpiler({ loader: 'ts' }).transformSync(source))
     const runner = join(directory, 'run.mjs')
     writeFileSync(runner, `

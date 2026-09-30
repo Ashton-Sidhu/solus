@@ -1,3 +1,4 @@
+import { mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import packageJson from '../../../../package.json'
@@ -15,16 +16,35 @@ export function solusDir(): string {
 }
 
 /**
+ * The owner's chat folder: where a session with no project runs (Scratchpad).
+ * The folder keeps its old name, `my-workspace`, so old sessions still resume.
+ * A member of an organization has a chat folder of their own (`chatFolderFor`).
+ */
+export function ownerChatFolder(): string {
+  return join(solusDir(), 'my-workspace')
+}
+
+/**
  * Expand a client-supplied working directory into a real filesystem path.
  *
- * The renderer uses `'~'` as its sentinel for "no directory known yet" and
- * sends it across the RPC boundary like any other path. `spawn` reads it as a
+ * The renderer uses a bare `'~'` as its sentinel for "no directory known yet"
+ * and sends it across the RPC boundary like any other path. `spawn` reads it as a
  * literal directory name and fails with ENOENT, which the Claude SDK reports as
  * "the native binary exists but failed to launch" — naming the executable for a
  * fault in its working directory. Resolve before a path reaches a process.
+ *
+ * A bare `'~'` means the chat folder, never the home folder. The RPC handlers
+ * that know the caller resolve it to that caller's chat folder first; a path
+ * that arrives here without a caller gets the owner's chat folder. Only
+ * `'~/x'` expands to the home folder.
  */
 export function resolveHomePath(path: string): string {
-  if (!path || path === '~') return homedir()
+  if (!path || path === '~') {
+    const chatFolder = ownerChatFolder()
+    // Best effort: a missing folder fails the spawn, and the error names it.
+    try { mkdirSync(chatFolder, { recursive: true }) } catch {}
+    return chatFolder
+  }
   if (path.startsWith('~/')) return join(homedir(), path.slice(2))
   return path
 }

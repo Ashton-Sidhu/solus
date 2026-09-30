@@ -1,9 +1,10 @@
 <script lang="ts">
   import { Users as UsersIcon } from "@lucide/svelte";
+  import { userKey } from "@solus/contracts/user";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { sharesStore } from "../../contexts/sharing/shares.store.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import PresenceAvatar from "./PresenceAvatar.svelte";
+  import UserAvatar from "../users/UserAvatar.svelte";
   import PresenceStack from "./PresenceStack.svelte";
   import type { PresencePerson } from "./lib/presence-people";
 
@@ -33,7 +34,7 @@
 
   const people = $derived(serverId && sessionId ? presenceStore.sessionPeople(serverId, sessionId) : []);
   const room = $derived(serverId && sessionId ? presenceStore.sessionRoom(serverId, sessionId) : undefined);
-  const activeUserId = $derived(room?.activeTurn?.authorUserId ?? null);
+  const activeUserId = $derived(room?.activeTurn ? userKey(room.activeTurn.author.id) : null);
   const summary = $derived(people.length === 1 ? `${people[0].displayName} is here` : `${people.length} people are here`);
 
   function detail(person: PresencePerson): string | null {
@@ -83,7 +84,7 @@
         {@const followed = isFollowed(person)}
         <!-- The row is the follow toggle; its trailing word says which way. -->
         <DropdownMenu.Item class="h-auto min-h-9 gap-2.5 py-1.5 pointer-coarse:min-h-12" data-testid="session-presence-person" data-user={person.userId} onSelect={() => toggleFollow(person)}>
-          <PresenceAvatar {person} size={20} ringed={person.userId === activeUserId || followed} composing={person.isComposing} />
+          <UserAvatar user={person.user} size={20} ringed={person.userId === activeUserId || followed} composing={person.isComposing} />
           <span class="flex min-w-0 flex-1 flex-col gap-px leading-tight">
             <span class="truncate text-(--solus-text-primary)">{person.displayName}</span>
             {#if followed}

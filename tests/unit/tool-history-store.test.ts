@@ -84,3 +84,24 @@ test('large expanded summaries use bounded batches and missing inputs can retry'
   expect(messages.at(-1)?.historyToolInput?.error).toContain('no longer available')
   expect(messages[200].toolInput).toBe('200')
 })
+
+test('opening a row replaces its summary with the full input, unless a live update got there first', async () => {
+  // WHY: history rows arrive with a small summary so a folded turn can count
+  // its files; opening one must show the real input, never the summary.
+  const summary = '{"file_path":"src/app.ts"}'
+  const message: Message = { ...tool('A'), toolInput: summary }
+  message.historyToolInput!.summary = summary
+  let finish!: (inputs: SessionToolInput[]) => void
+  const store = new ToolHistoryStore(() => ({ loadSessionToolInputs: () => new Promise((resolve) => { finish = resolve }) }))
+  const loading = store.load([message])
+  finish([{ key: 'A', toolInput: '{"file_path":"src/app.ts","new_string":"full"}' }]); await loading
+  expect(message.toolInput).toBe('{"file_path":"src/app.ts","new_string":"full"}')
+  expect(message.historyToolInput).toBeUndefined()
+
+  const live: Message = { ...tool('B'), toolInput: summary }
+  live.historyToolInput!.summary = summary
+  const next = store.load([live])
+  live.toolInput = 'live input'
+  finish([{ key: 'B', toolInput: 'disk input' }]); await next
+  expect(live.toolInput).toBe('live input')
+})

@@ -40,7 +40,10 @@
   import type { SidebarTask } from "@solus/workspace-ui/components/session/lib/task-list";
   import MobileTaskRow from "./MobileTaskRow.svelte";
   import { sidebarListMotion } from "@solus/workspace-ui/components/session/lib/sidebar-list-motion.svelte";
-  import { sidebarListOrderKey } from "@solus/workspace-ui/components/session/lib/sidebar-list-items";
+  import {
+    sidebarListOrderKey,
+    type SidebarSection,
+  } from "@solus/workspace-ui/components/session/lib/sidebar-list-items";
   import { buildMobileListItems } from "./lib/mobile-list-items";
   import MobileHereNow from "./MobileHereNow.svelte";
   import { swipeActions } from "@solus/workspace-ui/lib/swipe-actions";
@@ -73,14 +76,17 @@
       session.serverIdForContext(session.ctx),
       session.ctx,
     ),
+    worksNeedingReview: session.worksStore.reviews.inbox.length,
   });
+  $effect(() => pullRequests.needsReview.wantShown(session));
   const currentSection = $derived(
     currentMobileSection(visibleRef(session.router.leadingPane)?.name),
   );
 
   let taskQuery = $state("");
   let taskSearchEl = $state<HTMLInputElement | null>(null);
-  const activeTasks = $derived(filterSidebarTasks(store.activeTasks, taskQuery));
+  const taskRows = $derived(filterSidebarTasks(store.taskRows, taskQuery));
+  const sessionRows = $derived(filterSidebarTasks(store.sessionRows, taskQuery));
   const snoozedTasks = $derived(filterSidebarTasks(store.snoozedTasks, taskQuery));
   let now = $state(Date.now());
   const completedTasks = $derived(
@@ -96,7 +102,7 @@
   const totalTasks = $derived(store.allTasks.length);
   const searching = $derived(taskQuery.trim().length > 0);
   const resultCount = $derived(
-    activeTasks.length + snoozedTasks.length + completedTasks.length,
+    taskRows.length + sessionRows.length + snoozedTasks.length + completedTasks.length,
   );
   const hasSessions = $derived(resultCount > 0);
   // Search reaches into the shelves, so a match under a closed one would be
@@ -110,7 +116,8 @@
       drafts: store.draftRows,
       pinned: store.pinnedSessions,
       showsLead: !searching,
-      active: session.tasksStore.loaded ? activeTasks : [],
+      tasks: session.tasksStore.loaded ? taskRows : [],
+      sessions: session.tasksStore.loaded ? sessionRows : [],
       snoozed: session.tasksStore.loaded ? snoozedTasks : [],
       completed: session.tasksStore.loaded ? completedTasks : [],
       isCompletedOpen: isCompletedExpanded,
@@ -146,10 +153,11 @@
     { width: "55%", delay: 320 },
   ];
 
-  /** Three 68px tiles. The row travels exactly this far on a short swipe. */
-  const REVEAL_WIDTH = 204;
+  /** One action tile. The row travels the width of its tiles on a short swipe. */
+  const TILE_WIDTH = 68;
 
   function selectTask(task: SidebarTask) {
+    store.acknowledgeRow(task);
     void store.selectTask(task);
     requestInputFocus();
     onSessionSelect();
@@ -183,8 +191,7 @@
 
   async function finishTask(task: SidebarTask) {
     try {
-      if (task.taskId) await store.markTaskDone(task.taskId);
-      store.closeTask(task);
+      await store.completeTask(task);
     } catch (error) {
       toasts.error(
         `Couldn't complete task: ${error instanceof Error ? error.message : String(error)}`,
@@ -239,7 +246,7 @@
     });
   }
 
-  function newTask() {
+  function newSession() {
     session.drafts.openSessionDraft({ freshTask: true, via: "click" });
     requestInputFocus();
     onSessionSelect();
@@ -252,22 +259,29 @@
 
 </script>
 
-{#snippet taskRow(task: SidebarTask, shelf: "active" | "snoozed" | "completed")}
+{#snippet taskRow(task: SidebarTask, shelf: SidebarSection)}
   {@const sessions = task.taskId ? store.sessionsFor(task) : []}
+  {@const disclosed = store.disclosedSession?.rowId === task.id ? store.disclosedSession.session : null}
   {@const leadTabId = task.tabIds[0]}
+  <!-- Only a session can be snoozed; a task's row has no Snooze tile. -->
+  {@const canSnooze = store.canShelve(task)}
+  <!-- A shelved row with no conversation here has nothing to remove. -->
+  {@const canRemove = task.tabIds.length > 0 || (!!task.taskId && task.lifecycle !== "completed")}
   <div class="relative overflow-hidden rounded-2xl">
     <!-- The tiles sit underneath; the row moves off them. Full row height,
          glyph over word, in the warning / success / failure washes. -->
     <div class="absolute inset-y-0 right-0 flex" aria-hidden="true">
-      <button
-        type="button"
-        class="flex w-[4.25rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 font-medium [-webkit-tap-highlight-color:transparent]"
-        style="background:{MOBILE_STATE_TILE_BG.warning};color:{MOBILE_STATE_INK.warning}"
-        tabindex="-1"
-        onclick={(e) => (snoozeTarget = { task, anchor: e.currentTarget })}
-      >
-        <MoonIcon size={17} />Snooze
-      </button>
+      {#if canSnooze}
+        <button
+          type="button"
+          class="flex w-[4.25rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 font-medium [-webkit-tap-highlight-color:transparent]"
+          style="background:{MOBILE_STATE_TILE_BG.warning};color:{MOBILE_STATE_INK.warning}"
+          tabindex="-1"
+          onclick={(e) => (snoozeTarget = { task, anchor: e.currentTarget })}
+        >
+          <MoonIcon size={17} />Snooze
+        </button>
+      {/if}
       <button
         type="button"
         class="flex w-[4.25rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 font-medium [-webkit-tap-highlight-color:transparent]"
@@ -277,15 +291,17 @@
       >
         <CheckIcon size={17} />Complete
       </button>
-      <button
-        type="button"
-        class="flex w-[4.25rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 font-medium [-webkit-tap-highlight-color:transparent]"
-        style="background:{MOBILE_STATE_TILE_BG.failure};color:{MOBILE_STATE_INK.failure}"
-        tabindex="-1"
-        onclick={() => removeTask(task)}
-      >
-        <XIcon size={17} />Remove
-      </button>
+      {#if canRemove}
+        <button
+          type="button"
+          class="flex w-[4.25rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 font-medium [-webkit-tap-highlight-color:transparent]"
+          style="background:{MOBILE_STATE_TILE_BG.failure};color:{MOBILE_STATE_INK.failure}"
+          tabindex="-1"
+          onclick={() => removeTask(task)}
+        >
+          <XIcon size={17} />Remove
+        </button>
+      {/if}
     </div>
 
     <!-- The row rides *on* the tiles, so its own fill has to be opaque:
@@ -294,7 +310,7 @@
     <div
       class="relative bg-(--solus-sidebar-bg) shadow-[0.375rem_0_0.875rem_-0.375rem_rgba(0,0,0,0.35)]"
       use:swipeActions={{
-        revealWidth: REVEAL_WIDTH,
+        revealWidth: TILE_WIDTH * (1 + Number(canSnooze) + Number(canRemove)),
         open: revealedRowKey === task.key,
         enabled: shelf !== "completed",
         onFullSwipe: () => completeTask(task),
@@ -305,7 +321,7 @@
         {task}
         {now}
         activityAt={store.activityAtFor(task)}
-        active={task.tabIds.includes(session.onScreenTabId)}
+        active={!disclosed && task.tabIds.includes(session.onScreenTabId)}
         sessionCount={sessions.length}
         reviewStatus={leadTabId ? store.childForTab(leadTabId).reviewGuideStatus : null}
         onOpen={() => (revealedRowKey === task.key
@@ -316,35 +332,32 @@
     </div>
   </div>
 
-  <!-- A task's own runs, listed under it while one of them is on screen. -->
-  {#if shelf === "active" && sessions.length > 1 && task.tabIds.includes(session.onScreenTabId)}
-    {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
-      {@const state = mobileSessionState(child.attention)}
-      <button
-        type="button"
-        class="flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-xl border-0 bg-transparent pr-3 pl-[2.6875rem] text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
-        aria-label={state.label ? `${child.label} — ${state.label}` : child.label}
-        onclick={() => selectSession(child)}
-      >
+  <!-- The session on screen, listed under the row it belongs to when the row
+       does not stand for it already: a task's other session, not its lead. The
+       task's other sessions are on its page. -->
+  {#if disclosed}
+    {@const state = mobileSessionState(disclosed.attention)}
+    <button
+      type="button"
+      class="flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-xl border-0 bg-transparent pr-3 pl-[2.6875rem] text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
+      aria-label={state.label ? `${disclosed.label} — ${state.label}` : disclosed.label}
+      aria-current="true"
+      onclick={() => selectSession(disclosed)}
+    >
+      <span class="min-w-0 flex-1 truncate text-(--solus-accent)">{disclosed.label}</span>
+      <!-- The session reports itself with the same mark the row above it
+           uses. Idle has nothing to report on a row this short, so it stays
+           out of the trailing slot entirely. -->
+      {#if state.glyph !== "idle"}
         <span
-          class="min-w-0 flex-1 truncate {child.tabId === session.onScreenTabId
-            ? 'text-(--solus-accent)'
-            : 'text-(--solus-text-secondary)'}"
-        >{child.label}</span>
-        <!-- A run under an open task reports itself with the same mark the task
-             row above it uses. Idle has nothing to report on a row this short,
-             so it stays out of the trailing slot entirely. -->
-        {#if state.glyph !== "idle"}
-          <span
-            class="flex shrink-0 items-center"
-            style="color:{MOBILE_STATE_INK[state.tone]}"
-            aria-hidden="true"
-          >
-            <MobileStateGlyph glyph={state.glyph} size={14} />
-          </span>
-        {/if}
-      </button>
-    {/each}
+          class="flex shrink-0 items-center"
+          style="color:{MOBILE_STATE_INK[state.tone]}"
+          aria-hidden="true"
+        >
+          <MobileStateGlyph glyph={state.glyph} size={14} />
+        </span>
+      {/if}
+    </button>
   {/if}
 {/snippet}
 
@@ -369,8 +382,8 @@
       <button
         type="button"
         class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-(--primary) text-(--primary-foreground) transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
-        onclick={newTask}
-        aria-label="New task"
+        onclick={newSession}
+        aria-label="New session"
       >
         <PlusIcon size={15} aria-hidden="true" />
       </button>
@@ -386,8 +399,8 @@
           bind:this={taskSearchEl}
           bind:value={taskQuery}
           type="search"
-          placeholder={totalTasks > 1 ? `Search ${totalTasks} tasks` : "Search tasks"}
-          aria-label="Search tasks"
+          placeholder="Search tasks and sessions"
+          aria-label="Search tasks and sessions"
           class="min-w-0 flex-1 border-0 bg-transparent text-base tracking-[-0.006em] text-(--solus-text-primary) outline-none placeholder:text-(--muted-foreground) [&::-webkit-search-cancel-button]:hidden"
         />
         {#if searching}
@@ -397,7 +410,7 @@
           <button
             type="button"
             class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-(--wash-3) text-(--muted-foreground) [-webkit-tap-highlight-color:transparent]"
-            aria-label="Clear task search"
+            aria-label="Clear search"
             onclick={() => {
               taskQuery = "";
               taskSearchEl?.focus();
@@ -411,9 +424,9 @@
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2.5 pb-3 [-webkit-overflow-scrolling:touch]">
-    <!-- One list, as the desktop sidebar is: drafts and
-         pins lead, then who else is here, then the tasks and their shelves.
-         A task that changes shelf, and a draft or pin that arrives or leaves,
+    <!-- One list, as the desktop sidebar is: drafts and pins lead, then who
+         else is here, then the Tasks and Sessions sections and the shelves.
+         A row that changes section, and a draft or pin that arrives or leaves,
          animate as a change of order (docs/plans/sidebar-motion.md, step 3).
          Drafts, pins, and presence step aside while searching. -->
     <div
@@ -480,9 +493,18 @@
           <div class="pb-1.5">
             <MobileHereNow onNavigate={onSessionSelect} />
           </div>
-        {:else if item.kind === "header" && item.section === "snoozed"}
-          <div class="flex items-center gap-2 px-2 pt-4 pb-1.5">
-            <span class={SHEET_SECTION_LABEL}>Snoozed</span>
+        {:else if item.kind === "header" && item.section !== "completed"}
+          <!-- Tasks, Sessions and Snoozed are always open on the phone. A task
+               opens its lead's conversation; a session is a conversation on
+               its own. -->
+          <div class="flex items-center gap-2 px-2 pb-1.5 {item.section === 'tasks' ? 'pt-2' : 'pt-4'}">
+            <span class={SHEET_SECTION_LABEL}>
+              {item.section === "tasks"
+                ? "Tasks"
+                : item.section === "sessions"
+                  ? "Sessions"
+                  : "Snoozed"}
+            </span>
             <span class="h-px flex-1 bg-(--hairline)"></span>
             <span class="font-mono {SHEET_ROW_META} opacity-70">{item.count}</span>
           </div>
@@ -502,8 +524,11 @@
             />
           </button>
         {:else}
-          <!-- A task and the runs listed under it move as one entry. -->
-          <div>
+          <!-- A row and the session listed under it move as one entry.
+               `content-visibility: auto` contains the entry and skips it below
+               the fold, as the desktop sidebar does; the row clips itself, so
+               nothing paints outside this box. -->
+          <div class="[content-visibility:auto] [contain-intrinsic-size:auto_62px]">
             {@render taskRow(item.task, item.section)}
           </div>
         {/if}
@@ -529,19 +554,19 @@
            void with a button centred in it. -->
       <div class="mt-3 rounded-2xl bg-(--card) p-4 shadow-[shadow:var(--elev-ring)]">
         <div class="font-semibold tracking-[-0.01em] text-(--solus-text-primary)">
-          {searching ? "No matching tasks" : "No open tasks"}
+          {searching ? "No matches" : "Nothing open"}
         </div>
         <p class="mt-1.5 leading-[1.6] text-(--muted-foreground) text-pretty">
           {searching
-            ? `Nothing in ${totalTasks} task${totalTasks === 1 ? "" : "s"} matches “${taskQuery.trim()}”.`
+            ? `Nothing in ${totalTasks} row${totalTasks === 1 ? "" : "s"} matches “${taskQuery.trim()}”.`
             : "Start one here, or reopen something from your history."}
         </p>
         <button
           type="button"
           class="mt-3 h-11 w-full cursor-pointer rounded-lg border-0 bg-(--primary) font-semibold text-(--primary-foreground) [-webkit-tap-highlight-color:transparent]"
-          onclick={searching ? () => (taskQuery = "") : newTask}
+          onclick={searching ? () => (taskQuery = "") : newSession}
         >
-          {searching ? "Clear search" : "New task"}
+          {searching ? "Clear search" : "New session"}
         </button>
       </div>
     {/if}

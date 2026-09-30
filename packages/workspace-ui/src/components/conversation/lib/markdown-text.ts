@@ -1,4 +1,5 @@
 import { decodeHtmlEntities } from "./html-entities";
+import { fileReferenceText } from "../../editor/reference-tokens";
 
 export type MarkdownTextSegment =
   | { type: "text"; value: string }
@@ -6,12 +7,13 @@ export type MarkdownTextSegment =
   | { type: "slash"; command: string };
 
 /*
- * `@path` — must start at a boundary, runs until whitespace.
+ * `@path` — must start at a boundary, runs until whitespace. `@"a path"` is
+ *           the quoted form for a path that holds whitespace.
  * `/cmd`  — must start at a boundary, supports colon-qualified segments,
  *           and must NOT be immediately followed by another path segment or
  *           file extension (avoids matching `/usr/local`, `/test.svelte`, etc.).
  */
-const FILE_RE = /(?:^|(?<=\s))@[^\s]+/g;
+const FILE_RE = /(?:^|(?<=\s))@(?:"([^"\n]+)"|([^\s"]\S*))/g;
 const SLASH_RE =
   /(?:^|(?<=\s))\/[a-zA-Z][a-zA-Z0-9_-]*(?::[a-zA-Z][a-zA-Z0-9_-]*)*(?![\w./:])/g;
 
@@ -33,7 +35,7 @@ export interface FileChipParts {
  * second selection model.
  */
 export function fileChipParts(path: string): FileChipParts {
-  const token = `@${path}`;
+  const token = fileReferenceText(path);
   const stripped = path.replace(/\/+$/, "");
   const separator = stripped.lastIndexOf("/");
   const label = separator === -1 ? stripped : stripped.slice(separator + 1);
@@ -45,6 +47,20 @@ export function fileChipParts(path: string): FileChipParts {
   };
 }
 
+export interface FileMentionTarget {
+  path: string;
+  /** First line of a `path:12` or `path:12-18` mention. */
+  line?: number;
+}
+
+const LINE_SUFFIX_RE = /^(.+?):(\d+)(?:-\d+)?$/;
+
+/** The file and line a `@path[:line[-end]]` mention opens. */
+export function fileMentionTarget(mention: string): FileMentionTarget {
+  const match = mention.match(LINE_SUFFIX_RE);
+  return match ? { path: match[1], line: Number(match[2]) } : { path: mention };
+}
+
 export function tokenizeMarkdownText(text: string): MarkdownTextSegment[] {
   text = decodeHtmlEntities(text);
   type Hit = { start: number; end: number; segment: MarkdownTextSegment };
@@ -54,7 +70,7 @@ export function tokenizeMarkdownText(text: string): MarkdownTextSegment[] {
     hits.push({
       start: match.index,
       end: match.index + match[0].length,
-      segment: { type: "file", path: match[0].slice(1) },
+      segment: { type: "file", path: match[1] ?? match[2] },
     });
   }
   for (const match of text.matchAll(SLASH_RE)) {

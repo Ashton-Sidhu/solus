@@ -2,27 +2,32 @@ import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
-import type { AgentId, Tab, Prompt, Session, SessionSpec, RunConfig, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, Work, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest } from '@solus/contracts/types'
 import { type RepoRef } from '@solus/contracts/providers'
 import { type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
-import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
+import { findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
 import { resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { type PlanStore } from '../plans/plan.store.svelte'
-import { WorksStore } from '../works/works.store.svelte'
+import { WorksStore, type WorkListing } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
+import { WatchesStore } from '../watches/watches.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
+import { UNTITLED_TASK_TITLE } from '../tasks/task.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import type { PullRequestsContext } from '../prs/pull-requests.context.svelte'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { workspaceProjectsStore } from '../projects/workspace-projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
+import { presenceStore } from '../presence/presence.store.svelte'
+import { hostIsManaged } from '../../components/servers/lib/managed-host'
+import { connectionsStore } from '../connections/connections.store.svelte'
 import { projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
@@ -30,7 +35,7 @@ import { RouterStore } from './routing/router.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
 import { ROUTES, chatRoute, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { leadingHomeRoute } from './leading-home'
+import { canReturnToRoute, leadingHomeRoute } from './leading-home'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
@@ -61,11 +66,11 @@ import type { FilePreviewRequest } from '../../lib/filePreview'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
-import { clearPlanWaiting, openPlanModal, closePlanModal, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions } from './session-plan-operations'
+import { clearPlanWaiting, openPlanModal, closePlanModal, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions, type PlanApprovalMode } from './session-plan-operations'
 import { unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { projectDirLabel } from '../../lib/paths'
+import { isChatFolder, projectDirLabel } from '../../lib/paths'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -145,6 +150,9 @@ export interface CreateTabOptions {
   freshTask?: boolean
   withoutTask?: boolean
   taskId?: string
+  /** With `taskId`: start the session as that task's lead, the one session
+   *  that owns the task page's conversation. */
+  taskRole?: 'lead'
   workId?: string
   gitContext?: GitCheckout | null
   /** `skip` when the caller resolves the environment itself — a resume reads
@@ -174,7 +182,7 @@ export class WorkspaceContext implements SurfaceContext {
   /** The narrow context a record surface reads is this workspace itself. */
   get workspace(): WorkspaceContext { return this }
   readonly toolHistory = new ToolHistoryStore()
-  get deferHistoryToolInputs(): boolean { return this.shell.deferHistoryToolInputs }
+  readonly presence = presenceStore
   registry: TabRegistry
   readonly controls: SessionControls
   readonly prReview: PrReviewActions
@@ -189,6 +197,7 @@ export class WorkspaceContext implements SurfaceContext {
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
+  watchesStore = new WatchesStore()
   tasksStore = new TasksStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
@@ -211,7 +220,8 @@ export class WorkspaceContext implements SurfaceContext {
   config: SessionConfigController
   onTurnSettled?: (sessionId: string, cwd: string | null) => void
   onTabClosing?: (tabId: string) => void
-  onPromptSubmitted?: (tabId: string) => void
+  /** A task was opened as the split view. The sidebar lists it from then on. */
+  onTaskOpened?: (taskId: string) => void
 
   settings: SettingsContext
   private shell: ClientShellContext
@@ -256,6 +266,14 @@ export class WorkspaceContext implements SurfaceContext {
       drafts: this.drafts.sessionDrafts,
       composingDraftIds: this.drafts.composingDraftIds,
       createDraft: () => this.drafts.createSessionDraft({}),
+    })
+    // Settings hands its pane back to what it covered, unless that tab closed
+    // or that draft was sent while it was open.
+    this.router.canReturnTo = (ref) => canReturnToRoute(ref, {
+      hasTabs: this.hasOpenTabs(),
+      hasTabForSession: (sessionId) => !!this.tabIdForSession(sessionId),
+      drafts: this.drafts.sessionDrafts,
+      composingDraftIds: this.drafts.composingDraftIds,
     })
     // The courier stays domain-blind; each domain contributes only the answer
     // to "which connected host owns this resource id".
@@ -316,6 +334,7 @@ export class WorkspaceContext implements SurfaceContext {
       refreshGitState: (opts) => this.environment.refreshEnvironment(this, opts),
       ctxFor: (tabId) => this.ctxFor(tabId),
       apiFor: (tabId) => this.apiFor(tabId),
+      serverIdFor: (tabId) => this.serverIdFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
       rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
@@ -357,16 +376,27 @@ export class WorkspaceContext implements SurfaceContext {
         void this.metadata.generateSessionMetadata(tabId)
       },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
+      currentUserId: (serverId) => presenceStore.currentUserId(serverId),
       log: (eventType, session) => logDevSessionState(eventType, session),
     })
-    this.promptComposer = new PromptComposer(this.planStore, this.worksStore, this.tasksStore)
+    this.promptComposer = new PromptComposer(this.planStore, this.worksStore)
     this.ipcContextBuilder = new IpcContextBuilder({
+      checkoutForRun: (run) => this.environment.environmentFor(run).checkout,
       sessionFor: (tabId) => this.sessionFor(tabId),
       runFor: (sourceId) => this.runFor(sourceId),
       hasDraft: (sourceId) => this.drafts.sessionDrafts.has(sourceId),
       defaultRunConfig: () => this.defaultRunConfig,
+      activeOrganizationId: () => serversStore.activeOrganizationId,
       settings: this.settings,
       statusBar: this.statusBar,
+    })
+    // An organization switch re-reads the record stores that cache by the
+    // workspace service connection (organization-scope §7); the tasks store
+    // follows the new connection on its own, and the window filter hides the
+    // rest.
+    serversStore.onOrganizationChange(() => {
+      void this.worksStore.loadAll()
+      void this.automationsStore.loadAll()
     })
 
     // Start with no tabs — first tab is auto-created on prompt submission or snapshot hydration
@@ -545,7 +575,7 @@ export class WorkspaceContext implements SurfaceContext {
   private taskDestinationFor(checkoutServerId: string, context: TaskCreationContext): TaskCreationContext {
     const cloudServerId = serversStore.activeCloudServerId
     const repositoryKey = projectsStore.repositoryKeyFor(checkoutServerId, context.projectKey)
-    if (!serversStore.isolatesSessions(checkoutServerId) || !cloudServerId || !repositoryKey) return context
+    if (!hostIsManaged(serversStore.hostFor(checkoutServerId)) || !cloudServerId || !repositoryKey) return context
     return { ...context, serverId: cloudServerId, projectKey: repositoryKey }
   }
 
@@ -586,6 +616,12 @@ export class WorkspaceContext implements SurfaceContext {
         }
       }
     })
+  }
+
+  /** Whether a page can open beside the conversation at all: the desktop and
+   *  the wide web layout have companion panes, the phone has one pane. */
+  get hasCompanionPanes(): boolean {
+    return this.shell.hasCompanionPanes
   }
 
   /** Is this conversation on screen anywhere? A session may be watched by
@@ -647,9 +683,13 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /** Leave whatever page (and optionally artifact) is showing — what selecting
-   *  another tab or creating one does, so the new conversation is what you see. */
-  resetOverlays(opts: { closeArtifact?: boolean } = {}): void {
-    this.router.closeGroup('page')
+   *  another tab or creating one does, so the new conversation is what you see.
+   *  `keepAside` closes only a page covering the conversation and leaves the one
+   *  beside it: opening a task's lead puts the task page there first. */
+  resetOverlays(opts: { closeArtifact?: boolean; keepAside?: boolean } = {}): void {
+    const leading = this.router.leadingPane
+    if (!opts.keepAside) this.router.closeGroup('page')
+    else if (leading.base && ROUTES[leading.base.name].exclusiveGroup === 'page') this.router.closePane(leading.id)
     if (opts.closeArtifact) this.router.closeGroup('artifact')
     this.drafts.leaveDraftInLead()
     this.planStore.dismissPreview()
@@ -704,9 +744,10 @@ export class WorkspaceContext implements SurfaceContext {
     return this.sessionFor(sourceId)?.run ?? this.drafts.sessionDrafts.get(sourceId)?.run
   }
 
-  /** The new-work default host, for deliberately session-less operations. */
+  /** The new-work default host, for deliberately session-less operations: the
+   *  default machine, and the window's own host only when there is none. */
   private defaultServerId(): string {
-    const serverId = serverConnections.defaultServerId()
+    const serverId = serverConnections.defaultMachineId() ?? serverConnections.defaultServerId()
     if (!serverId) throw new Error('Primary Solus connection has not been registered')
     return serverId
   }
@@ -777,9 +818,12 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /** The unsent message for a tab's conversation. Two tabs on one session get
-   *  the same object, so what you type in either is what the other shows. */
-  inputFor(tabId: string): Prompt {
-    return this.sessionFor(tabId)?.prompt ?? this.currentInput
+   *  the same object, so what you type in either is what the other shows. A
+   *  draft id names the draft's own prompt. */
+  inputFor(sourceId: string): Prompt {
+    return this.sessionFor(sourceId)?.prompt
+      ?? this.drafts.sessionDrafts.get(sourceId)?.prompt
+      ?? this.currentInput
   }
 
   /** The prompt owned by the leading pane's composer. A browser surface sits
@@ -829,7 +873,7 @@ export class WorkspaceContext implements SurfaceContext {
       const key = sess.run.gitContext?.repoRoot ?? sess.run.workingDirectory ?? '~'
       let project = byKey.get(key)
       if (!project) {
-        project = { key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [] }
+        project = { key, label: projectDirLabel(key, connectionsStore.chatFolderFor(sess.run.serverId)), roots: [] }
         byKey.set(key, project)
       }
       for (const root of [sess.run.gitContext?.repoRoot, sess.run.gitContext?.worktreePath, sess.run.workingDirectory]) {
@@ -839,7 +883,8 @@ export class WorkspaceContext implements SurfaceContext {
     }
     if (byKey.size === 0) {
       const key = this.galleryProjectPath
-      return [{ key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [key] }]
+      const serverId = (this.activeSession?.run ?? this.defaultRunConfig).serverId
+      return [{ key, label: projectDirLabel(key, connectionsStore.chatFolderFor(serverId)), roots: [key] }]
     }
     return [...byKey.values()]
   }
@@ -875,6 +920,11 @@ export class WorkspaceContext implements SurfaceContext {
   /** IpcContext scoped to a bare directory — no session or tab coupling. */
   ctxForDirectory(workingDirectory: string): IpcContext {
     return this.ipcContextBuilder.forDirectory(this.activeTabId, workingDirectory)
+  }
+
+  /** Context naming only a session's Solus id; the host resolves the rest. */
+  ctxForSessionRecord(sessionId: string): IpcContext {
+    return this.ipcContextBuilder.forSessionRecord(sessionId)
   }
 
   /** Context scoped to an environment checkout, independent of chat-tab existence. */
@@ -925,6 +975,16 @@ export class WorkspaceContext implements SurfaceContext {
       this.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
     }
     void this.refreshThreadGoal(session.id)
+  }
+
+  applyPendingQuestions(tabId: string, pendingQuestions: QuestionRequest[] | undefined): void {
+    const session = this.sessionFor(tabId)
+    if (!session || !pendingQuestions) return
+    for (const question of pendingQuestions) {
+      if (!session.questionQueue.some((current) => current.questionId === question.questionId)) {
+        session.questionQueue.push(question)
+      }
+    }
   }
 
   async refreshThreadGoal(sessionId: string): Promise<void> {
@@ -985,7 +1045,7 @@ export class WorkspaceContext implements SurfaceContext {
     const session = makeSession(this.settings, {
       run,
       pluginCommands: this.pluginCommands,
-      task: options.taskId ? { kind: 'existing', taskId: options.taskId } : { kind: 'new' },
+      task: options.taskId ? { kind: 'existing', taskId: options.taskId } : { kind: 'none' },
     })
     const tab = makeTab(session.id)
     const tabId = tab.id
@@ -998,7 +1058,7 @@ export class WorkspaceContext implements SurfaceContext {
       this.resetOverlays({ closeArtifact: true })
     }
     if (options.gitInitialization !== 'skip') {
-      const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested })
+      const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested, force: false })
       if (options.gitInitialization === 'background') void gitInitialization
       else await gitInitialization
     }
@@ -1010,7 +1070,7 @@ export class WorkspaceContext implements SurfaceContext {
   /** The task the source belongs to — the anchor a new draft files under. */
   rootTaskIdFor(sourceId: string | undefined): string | null {
     const draftTaskId = sourceId
-      ? existingTaskId(this.drafts.sessionDrafts.get(sourceId)?.task ?? { kind: 'new' })
+      ? existingTaskId(this.drafts.sessionDrafts.get(sourceId)?.task ?? { kind: 'none' })
       : null
     if (draftTaskId) return draftTaskId
     const anchor = sourceId ? this.sessionFor(sourceId) : undefined
@@ -1022,8 +1082,8 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** The host new sessions land on when nothing else names one. */
   get fallbackServerId(): string {
-    return serverConnections.defaultServerId()
-      ?? serverConnections.localServerId()
+    return serverConnections.defaultMachineId()
+      ?? serverConnections.defaultServerId()
       ?? LOCAL_SERVER_ID
   }
 
@@ -1076,6 +1136,13 @@ export class WorkspaceContext implements SurfaceContext {
   private rememberLastProject(run: RunConfig): void {
     const directory = projectRootOf(run)
     if (!directory) return
+    // A Scratchpad chat also names the host "Just chat" goes back to.
+    if (
+      isChatFolder(directory, connectionsStore.chatFolderFor(run.serverId))
+      && this.settings.lastChatServerId !== run.serverId
+    ) {
+      this.settings.update({ lastChatServerId: run.serverId })
+    }
     const last = this.settings.lastProject
     if (last?.serverId === run.serverId && last.directory === directory) return
     this.settings.update({ lastProject: { serverId: run.serverId, directory } })
@@ -1089,7 +1156,10 @@ export class WorkspaceContext implements SurfaceContext {
     const defaults = this.config.globalDefaults
     const project = defaultStartProject(
       this.settings.lastProject,
-      (serverId) => ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
+      // A remembered host this client no longer knows is down too: it was deleted,
+      // or it was never listed at this origin.
+      (serverId) => !serverConnections.isKnownServer(serverId)
+        || ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
       { serverId: this.fallbackServerId, directory: this.staticInfo?.workspacePath ?? '~' },
     )
     return {
@@ -1136,7 +1206,7 @@ export class WorkspaceContext implements SurfaceContext {
     return agentSessionId
   }
 
-  selectTab(tabId: string, via: Via = 'click'): void {
+  selectTab(tabId: string, via: Via = 'click', opts: { keepAside?: boolean } = {}): void {
     // Selecting is also the user's explicit request to see this transcript.
     // Retry even when this is already active behind a draft/page: setActiveTab
     // does not run in that branch, and a failed boot hydration must not strand
@@ -1157,11 +1227,11 @@ export class WorkspaceContext implements SurfaceContext {
     if (tabId === this.activeTabId) {
       // If a page covers the active conversation, selecting its tab reveals the
       // conversation again. Otherwise it is a no-op apart from read state.
-      if (!this.showsConversation) this.resetOverlays({ closeArtifact: true })
+      if (!this.showsConversation) this.resetOverlays({ closeArtifact: true, keepAside: opts.keepAside })
       if (tab) tab.hasUnread = false
     } else {
       this.setActiveTab(tabId)
-      this.resetOverlays({ closeArtifact: true })
+      this.resetOverlays({ closeArtifact: true, keepAside: opts.keepAside })
       if (tab) {
         tab.hasUnread = false
       }
@@ -1263,18 +1333,6 @@ export class WorkspaceContext implements SurfaceContext {
     if (this.splitChatTabId === tabId) this.closeSplitPane()
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
-    const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
-    const openTabIds = this.tabOrder.filter((id) => this.tabs[id])
-    const displayedTabIds = openTabIds.filter(
-      (id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey,
-    )
-    const visualTabIds = buildTabSections(
-      displayedTabIds,
-      this.config.tabGroupMode,
-      (id) => this.resolveTab(id),
-      this.planStore.plans,
-    ).flatMap((section) => section.tabIds)
-    const adjacentDisplayedTabId = adjacentTabAfterClose(visualTabIds, tabId)
     const closedTabIndex = this.tabOrder.indexOf(tabId)
     const newOrder = this.tabOrder.filter((id) => id !== tabId)
     this.onTabClosing?.(tabId)
@@ -1296,16 +1354,12 @@ export class WorkspaceContext implements SurfaceContext {
       serverConnections.release(serverId)
     }
 
+    // Which conversation comes next is the sidebar's call
+    // (`SessionSidebarStore.closeTabs`); this only keeps the active id valid
+    // until the caller selects it.
     if (this.activeTabId === tabId) {
-      if (newOrder.length === 0) {
-        this.activeTabId = ''
-      } else {
-        // Follow the order the strip actually displayed. In wide layouts this
-        // keeps navigation within the visible branch; if it was the branch's
-        // final tab, fall back to the adjacent tab in the underlying order.
-        const fallbackTabId = adjacentTabAfterClose(this.tabOrder, tabId) ?? newOrder[0]
-        this.setActiveTab(adjacentDisplayedTabId ?? fallbackTabId)
-      }
+      if (newOrder.length === 0) this.activeTabId = ''
+      else this.setActiveTab(newOrder[0])
     }
     // Preserve the reactive array identity so closing one tab only invalidates the
     // removed index instead of rebuilding every tab-strip item.
@@ -1373,7 +1427,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (modelChanged) track('model_changed', { via })
   }
 
-  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string, via: Via = 'click'): void {
+  setPermissionMode(mode: PermissionMode, tabId?: string, via: Via = 'click'): void {
     this.config.setPermissionMode(mode, tabId)
     track('permission_mode_set', { mode, via })
   }
@@ -1428,7 +1482,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
   closePlanModal(): void { closePlanModal(this) }
 
-  async approvePlanWithModel(planId: string, mode: 'ask' | 'auto', opts: ApprovePlanOptions = {}): Promise<void> {
+  async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
     return approvePlanWithModel(this, planId, mode, opts)
   }
 
@@ -1454,19 +1508,16 @@ export class WorkspaceContext implements SurfaceContext {
    *  the conversation in the secondary pane (used by the project panel). */
   async openWorkModal(workId: string, title?: string, opts: { secondary?: boolean; via?: Via } = {}): Promise<void> {
     let resolvedId = workId
-    if (workId) {
-      // Start the read, then show the pane's loading state while it
-      // completes. WorkPane shares this pending read.
-      void this.worksStore.ensureContent(workId, 'open-work-modal')
-    } else {
+    if (!workId) {
       if (!title) return
       // workId not yet resolved (historical message) — load the list once, find by title
       await this.worksStore.loadAll()
       const entry = Object.entries(this.worksStore.works).find(([, w]) => w.title === title)
       if (!entry) return
-      void this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback')
       resolvedId = entry[0]
     }
+    // The pane's open-work lease reads the body once it has subscribed, and
+    // shows its loading state until then. Opening does not read it again.
     this.router.close('folio')
     this.openWork(resolvedId, opts.secondary ? 'aside' : 'focused')
     track('surface_viewed', { surface: 'work_modal', via: opts.via })
@@ -1519,7 +1570,7 @@ export class WorkspaceContext implements SurfaceContext {
   /** Delete a work with a brief undo window: close its pane, offer the undo, and
    *  open the store's undo window. The on-disk delete is deferred until the toast
    *  commits — undo is a no-op restore, commit is permanent. */
-  requestWorkDelete(work: Work): void {
+  requestWorkDelete(work: WorkListing): void {
     if (this.router.params('work')?.workId === work.id) this.router.close('work')
     // Show the toast before recording the pending delete: showing commits any
     // toast it replaces (permanently deleting the *previous* pendingWorkDelete),
@@ -1549,8 +1600,7 @@ export class WorkspaceContext implements SurfaceContext {
     const api = this.apiForRun(run)
     const serverId = this.serverIdForRun(run)
     const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, run.workingDirectory)
-    this.worksStore.works[work.id] = work
-    this.worksStore.rememberHost(work.id, serverId)
+    this.worksStore.acceptCreated(work, serverId)
     this.router.close('folio')
     this.openWork(work.id)
   }
@@ -1560,16 +1610,15 @@ export class WorkspaceContext implements SurfaceContext {
    *  block itself is ephemeral, so this is the one way it acquires identity.
    *  `sourceTabId` names the conversation it was read in; without one the work
    *  files against the active session, the way a hand-authored work does. */
-  async createArtifact(html: string, sourceTabId?: string): Promise<{ workId: string; title: string } | null> {
+  async createArtifact(html: string, sourceTabId?: string, title?: string): Promise<{ workId: string; title: string } | null> {
     const sessionRun = this.sessionFor(sourceTabId ?? this.activeTabId)?.run
     const run = sessionRun ?? this.defaultRunConfig
     const provider: AgentId = sessionRun?.provider ?? 'claude-code'
     const api = this.apiForRun(run)
     const serverId = this.serverIdForRun(run)
-    const title = resolveArtifactTitle(undefined, html)
     try {
       const work = await api.createWork(
-        title,
+        resolveArtifactTitle(title, html),
         'artifact',
         html,
         workPreview('artifact', html),
@@ -1577,8 +1626,7 @@ export class WorkspaceContext implements SurfaceContext {
         provider,
         run.workingDirectory,
       )
-      this.worksStore.works[work.id] = work
-      this.worksStore.rememberHost(work.id, serverId)
+      this.worksStore.acceptCreated(work, serverId)
       return { workId: work.id, title: work.title }
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : 'Could not save this artifact.')
@@ -1644,6 +1692,19 @@ export class WorkspaceContext implements SurfaceContext {
     }
 
     requestInputFocus()
+  }
+
+  /** Send a complete prompt to the work's own session: its newest linked
+   *  session, resumed when no tab holds it. A work with no session, or one
+   *  that cannot be resumed, gets a new session as `sendMessageToNewWorkSession`. */
+  async sendMessageToWorkSession(workId: string, prompt: string): Promise<boolean> {
+    const work = this.worksStore.get(workId)
+    const sessionId = work?.sessionIds?.at(-1) ?? work?.sessionId
+    if (!sessionId) return this.sendMessageToNewWorkSession(workId, prompt)
+    await this.openChatForWork(workId, 'resume')
+    const tabId = this.tabIdForAgentSession(sessionId, this.worksStore.hostFor(workId) ?? undefined)
+    if (!tabId) return this.sendMessageToNewWorkSession(workId, prompt)
+    return this.dispatch.sendMessage(prompt, undefined, tabId)
   }
 
   /** Start a new session for work feedback. It joins the linked task when one
@@ -1781,11 +1842,6 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Tasks page ───
 
-  private sidebarRootTaskId(taskId: string): string {
-    const task = this.tasksStore.peek(taskId)
-    return task?.parentId ?? taskId
-  }
-
   private sidebarSessionIdsForTab(tabId: string): string[] {
     const session = this.sessionFor(tabId)
     const tab = this.tabs[tabId]
@@ -1796,21 +1852,18 @@ export class WorkspaceContext implements SurfaceContext {
   /** Record the task-scoped occurrence the user selected. This controls the
    * active path only; it does not create another automatic sidebar row. */
   selectSidebarTaskOccurrence(taskId: string, sessionId: string): void {
-    this.sidebarTaskContextBySessionId.set(sessionId, this.sidebarRootTaskId(taskId))
+    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
   }
 
   /** Materialize the one permitted duplicate: a task/session pair the user
    * explicitly opened rather than one discovered by background reconciliation. */
   showExplicitSidebarTaskSession(taskId: string, sessionId: string): void {
-    const rootTaskId = this.sidebarRootTaskId(taskId)
-    this.explicitSidebarTaskSessions.add(`${rootTaskId}:${sessionId}`)
-    this.sidebarTaskContextBySessionId.set(sessionId, rootTaskId)
+    this.explicitSidebarTaskSessions.add(`${taskId}:${sessionId}`)
+    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
   }
 
   hasExplicitSidebarTaskSession(taskId: string, sessionId: string): boolean {
-    return this.explicitSidebarTaskSessions.has(
-      `${this.sidebarRootTaskId(taskId)}:${sessionId}`,
-    )
+    return this.explicitSidebarTaskSessions.has(`${taskId}:${sessionId}`)
   }
 
   sidebarTaskContextForTab(tabId: string): string | null {
@@ -1822,12 +1875,11 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   clearSidebarTaskOccurrences(taskId: string): void {
-    const rootTaskId = this.sidebarRootTaskId(taskId)
     for (const key of this.explicitSidebarTaskSessions) {
-      if (key.startsWith(`${rootTaskId}:`)) this.explicitSidebarTaskSessions.delete(key)
+      if (key.startsWith(`${taskId}:`)) this.explicitSidebarTaskSessions.delete(key)
     }
     for (const [sessionId, contextTaskId] of this.sidebarTaskContextBySessionId) {
-      if (contextTaskId === rootTaskId) this.sidebarTaskContextBySessionId.delete(sessionId)
+      if (contextTaskId === taskId) this.sidebarTaskContextBySessionId.delete(sessionId)
     }
   }
 
@@ -1873,11 +1925,17 @@ export class WorkspaceContext implements SurfaceContext {
     via: Via = 'palette',
     target: 'leading' | 'secondary' = 'leading',
   ): void {
+    // A task page already beside the conversation takes the next task in
+    // place. A new pane closed the old one and opened another, so the
+    // conversation column narrowed, widened and narrowed again on every switch.
+    const taskBeside = target === 'secondary'
+      ? this.router.panes.find((pane) => pane.id !== this.router.leadingPane.id && pane.base?.name === 'task')
+      : undefined
     this.showPage(
       { name: 'task', params: { taskId, serverId: this.tasksStore.get(taskId).serverId ?? undefined } },
       via,
       'tasks',
-      target === 'secondary' ? 'new' : this.router.leadingPane.id,
+      target === 'secondary' ? (taskBeside?.id ?? 'new') : this.router.leadingPane.id,
     )
   }
 
@@ -1885,17 +1943,31 @@ export class WorkspaceContext implements SurfaceContext {
     this.showPage({ name: 'tasks', params: {} }, via, 'tasks', this.paneTarget(target))
   }
 
-  /** Open the standalone create-task modal. Current-project entry points may
-   * preserve the active tab's branch/worktree; explicit project picks do not. */
-  openTaskComposer(serverId: string, cwd: string, useActiveEnvironment = false): void {
+  /** New task: file an untitled task and open it as the split view, its lead
+   * draft beside the task page. The lead's first prompt names the task
+   * (`SessionMetadata`). Current-project entry points may preserve the active
+   * tab's branch/worktree; explicit project picks do not. */
+  async startNewTask(serverId: string, cwd: string, useActiveEnvironment = false): Promise<void> {
     const activeContext = this.taskCreationContext
     const chosen = this.taskContextForCheckout(serverId, cwd)
-    this.ui.taskComposer = useActiveEnvironment
+    const context = useActiveEnvironment
       && activeContext
       && activeContext.serverId === chosen?.serverId
       && activeContext.projectKey === chosen.projectKey
       ? activeContext
       : chosen
+    if (!context) return
+    try {
+      const task = await this.tasksStore.create(
+        { title: UNTITLED_TASK_TITLE, projectKey: context.projectKey },
+        context.serverId,
+      )
+      await this.opening.openTask(task)
+    } catch (error) {
+      toasts.error("Couldn't create task", {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   // ─── Pull Requests page ───
@@ -1939,6 +2011,12 @@ export class WorkspaceContext implements SurfaceContext {
    *  the waterfall with that span's detail already expanded. */
   openInsightsTurn(traceId: string, spanId?: string, via: Via = 'click'): void {
     this.showPage({ name: 'insights', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
+  }
+
+  /** One session's page in Insights: every turn of it on one axis, with cost
+   *  and context climbing — where "why is this session slow" is answered. */
+  openInsightsSession(sessionId: string, via: Via = 'click'): void {
+    this.showPage({ name: 'insights', params: { sessionId } }, via, 'insights')
   }
 
   // ─── Automations page ───

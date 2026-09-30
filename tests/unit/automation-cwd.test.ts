@@ -3,10 +3,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let resolveAutomationCwd: typeof import('@solus/server/automations/automation-cwd')['resolveAutomationCwd']
+let resolveAutomationCwd: typeof import('@solus/server/execution/automations/automation-cwd')['resolveAutomationCwd']
 
 beforeAll(async () => {
-  ;({ resolveAutomationCwd } = await import('@solus/server/automations/automation-cwd'))
+  ;({ resolveAutomationCwd } = await import('@solus/server/execution/automations/automation-cwd'))
 })
 
 describe('automation cwd', () => {

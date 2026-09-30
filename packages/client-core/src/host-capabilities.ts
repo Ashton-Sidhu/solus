@@ -4,6 +4,8 @@ import { forwardCompatibleArray } from './forward-compat'
 
 export const HOST_BOOLEAN_CAPABILITY_KEYS = [
   'attachUpload',
+  'attachStreamUpload',
+  'browserRecording',
   'promptImageRefs',
   'assetUrls',
   'skillsInstall',
@@ -14,6 +16,7 @@ export const HOST_BOOLEAN_CAPABILITY_KEYS = [
   'githubProvider',
   'atlassianProvider',
   'hostUpdates',
+  'modelProfiles',
 ] as const
 
 export type HostBooleanCapability = (typeof HOST_BOOLEAN_CAPABILITY_KEYS)[number]
@@ -28,6 +31,8 @@ const hostCapabilitiesSchema = z.object({
   version: z.string().optional().catch(undefined),
   name: z.string().optional().catch(undefined),
   attachUpload: tolerantBoolean,
+  attachStreamUpload: tolerantBoolean,
+  browserRecording: tolerantBoolean,
   promptImageRefs: tolerantBoolean,
   assetUrls: tolerantBoolean,
   skillsInstall: tolerantBoolean,
@@ -38,6 +43,7 @@ const hostCapabilitiesSchema = z.object({
   githubProvider: tolerantBoolean,
   atlassianProvider: tolerantBoolean,
   hostUpdates: tolerantBoolean,
+  modelProfiles: tolerantBoolean,
   editors: forwardCompatibleArray(editorIdSchema).optional().catch(undefined),
 })
 
@@ -75,11 +81,4 @@ export function supportsSettingsSurface(
 
 export function unsupportedOnHost(feature: string, hostLabel: string): string {
   return `${feature} are not supported on ${hostLabel}.`
-}
-
-export function automationCapableHosts<T extends { serverId: string }>(
-  hosts: readonly T[],
-  capabilitiesFor: (serverId: string) => HostCapabilities | undefined,
-): T[] {
-  return hosts.filter((host) => hasHostCapability(capabilitiesFor(host.serverId), 'automations'))
 }

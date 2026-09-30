@@ -92,20 +92,20 @@
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 text-workspace-chrome backdrop-blur-[2px] sm:p-6 [.is-laptop-display_&]:p-4"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 text-workspace-chrome backdrop-blur-[2px] sm:p-6"
     role="presentation"
     onkeydown={(event) => {
       if (event.key === "Escape") close();
     }}
   >
     <div
-      class="flex max-h-[calc(100vh-2rem)] min-h-[26rem] w-full max-w-[58.75rem] overflow-hidden rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[0_40px_90px_-24px_rgba(0,0,0,0.34)] sm:max-h-[calc(100vh-3rem)] [.is-laptop-display_&]:min-h-[23rem] [.is-laptop-display_&]:max-w-[50rem] [.is-laptop-display_&]:rounded-xl"
+      class="flex max-h-[calc(100vh-2rem)] min-h-[26rem] w-full max-w-[58.75rem] overflow-hidden rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[0_40px_90px_-24px_rgba(0,0,0,0.34)] sm:max-h-[calc(100vh-3rem)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="host-onboarding-title"
     >
       <aside
-        class="flex w-[18rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--solus-accent)_4%,var(--solus-popover-bg))] px-[1.875rem] pb-6 pt-[1.875rem] [.is-laptop-display_&]:w-[15.5rem] [.is-laptop-display_&]:px-6 [.is-laptop-display_&]:py-5"
+        class="flex w-[18rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--solus-accent)_4%,var(--solus-popover-bg))] px-[1.875rem] pb-6 pt-[1.875rem]"
       >
         <p
           class="font-medium uppercase text-(--solus-text-tertiary)"
@@ -114,13 +114,13 @@
         </p>
         <h2
           id="host-onboarding-title"
-          class="mt-[1.125rem] text-pretty text-[2em] font-medium leading-[1.12] text-(--solus-text-primary) [.is-laptop-display_&]:mt-3.5"
+          class="mt-[1.125rem] text-pretty text-[2em] font-medium leading-[1.12] text-(--solus-text-primary)"
         >
           {hostName}
           {isPairing || current ? "is joining" : "is ready"}
         </h2>
         <p
-          class="mt-3 text-pretty leading-[1.6] text-(--solus-text-tertiary) [.is-laptop-display_&]:mt-2.5"
+          class="mt-3 text-pretty leading-[1.6] text-(--solus-text-tertiary)"
         >
           {#if isPairing}
             Solus copies this Mac's setup across so {hostName} behaves exactly the
@@ -159,7 +159,7 @@
       </aside>
 
       <div class="flex min-w-0 flex-1 flex-col">
-        <header class="flex h-[3.125rem] shrink-0 items-center gap-2 px-[1.375rem] [.is-laptop-display_&]:h-11 [.is-laptop-display_&]:px-4">
+        <header class="flex h-[3.125rem] shrink-0 items-center gap-2 px-[1.375rem]">
           {#if isPairing && store.pairingView === "fallback"}
             <button
               type="button"
@@ -184,7 +184,7 @@
         <!-- flex-auto, not flex-1: the stage sizes to its content, and a
              zero-basis item would collapse in an auto-height container. It only
              scrolls once the viewport cap actually bites. -->
-        <div class="min-h-0 flex-auto overflow-y-auto px-[1.375rem] pb-5 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-4">
+        <div class="min-h-0 flex-auto overflow-y-auto px-[1.375rem] pb-5">
           {#if isPairing && store.pairingTarget}
             <HostPairingPanel target={store.pairingTarget} />
           {:else}
@@ -207,14 +207,14 @@
             <!-- One step at a time: the rail asks for exactly one thing, and
                  what is left is a list rather than four open panels. -->
             {#if current}
-              <div class="mt-[1.625rem] max-w-[30rem] [.is-laptop-display_&]:mt-5 [.is-laptop-display_&]:max-w-[27rem]">
+              <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
                   class="font-medium uppercase text-(--solus-accent)"
                 >
                   Step {currentNumber} of {decisions.length}
                 </p>
                 <h3
-                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary) [.is-laptop-display_&]:mt-2"
+                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary)"
                 >
                   {current.label}
                 </h3>
@@ -231,14 +231,14 @@
                 {/if}
               </div>
             {:else}
-              <div class="mt-[1.625rem] max-w-[30rem] [.is-laptop-display_&]:mt-5 [.is-laptop-display_&]:max-w-[27rem]">
+              <div class="mt-[1.625rem] max-w-[30rem]">
                 <p
                   class="font-medium uppercase text-(--solus-text-tertiary)"
                 >
                   All clear
                 </p>
                 <h3
-                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary) [.is-laptop-display_&]:mt-2"
+                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary)"
                 >
                   {hostName} is fully set up
                 </h3>
@@ -254,7 +254,7 @@
             {/if}
 
             <div
-              class="mt-8 max-w-[30rem] border-t border-(--solus-container-border) pt-[0.8125rem] [.is-laptop-display_&]:mt-6 [.is-laptop-display_&]:max-w-[27rem] [.is-laptop-display_&]:pt-2.5"
+              class="mt-8 max-w-[30rem] border-t border-(--solus-container-border) pt-[0.8125rem]"
             >
               {#if upcoming.length > 0}
                 <p
@@ -303,7 +303,7 @@
                 <Button
                   variant="ghost"
                   size="sm"
-                  class="px-1 text-workspace-chrome text-(--solus-accent) [.is-laptop-display_&]:h-6"
+                  class="px-1 text-workspace-chrome text-(--solus-accent)"
                   onclick={() => (carriedOpen = !carriedOpen)}
                 >
                   {carriedOpen ? "Hide" : "Show"}
@@ -332,7 +332,7 @@
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="shrink-0 px-1 text-workspace-chrome text-(--solus-accent) [.is-laptop-display_&]:h-6"
+                          class="shrink-0 px-1 text-workspace-chrome text-(--solus-accent)"
                           disabled={!!setup?.runningStep}
                           onclick={() => retryAutomatic(step)}
                         >
@@ -348,7 +348,7 @@
         </div>
 
         <footer
-          class="flex h-16 shrink-0 items-center gap-2 border-t border-(--solus-popover-border) px-[1.375rem] [.is-laptop-display_&]:h-14 [.is-laptop-display_&]:px-4"
+          class="flex h-16 shrink-0 items-center gap-2 border-t border-(--solus-popover-border) px-[1.375rem]"
         >
           {#if isPairing}
             <p class="max-w-[13rem] text-pretty  leading-[1.45] text-(--solus-text-tertiary)">
@@ -365,7 +365,7 @@
               </Button>
             {/if}
             <Button
-              class="h-[2.125rem] px-4 [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:px-3.5"
+              class="h-[2.125rem] px-4"
               disabled={pairingAction.disabled}
               onclick={() => store.submitCurrentPairingView()}
             >
@@ -377,12 +377,12 @@
           {:else}
             <span class="flex-1"></span>
             {#if isActiveHost}
-              <Button class="h-[2.125rem] px-4 [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:px-3.5" onclick={close}>Done</Button>
+              <Button class="h-[2.125rem] px-4" onclick={close}>Done</Button>
             {:else}
               <Button variant="ghost" class="text-(--solus-text-tertiary)" onclick={close}>
                 Finish later
               </Button>
-              <Button class="h-[2.125rem] px-4 [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:px-3.5" onclick={startWorking}>
+              <Button class="h-[2.125rem] px-4" onclick={startWorking}>
                 Start working on {hostName}
                 <ArrowRightIcon size={12} />
               </Button>

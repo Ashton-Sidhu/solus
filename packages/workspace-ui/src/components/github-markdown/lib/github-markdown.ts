@@ -8,8 +8,9 @@ import { visit } from 'unist-util-visit'
 import { find, html } from 'property-information'
 import type { Root as MarkdownRoot } from 'mdast'
 import type { Element, Root, RootContent } from 'hast'
-import { standaloneMarkdownMediaLink } from '../../../lib/githubMarkdown'
+import { standaloneLocalVideoHref, standaloneMarkdownMediaLink } from '../../../lib/githubMarkdown'
 import { isInlineTaskImageUrl } from '../../tasks/task-page/lib/task-image'
+import { parsePersonMentionHref, type PersonMention } from '@solus/contracts/mentions'
 
 export type MarkdownPolicy = 'remote' | 'local'
 export type AlertKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
@@ -35,7 +36,7 @@ function processor(policy: MarkdownPolicy) {
   const protocols = policy === 'local'
     ? {
         ...defaultSchema.protocols,
-        href: [...(defaultSchema.protocols?.href ?? []), 'plan', 'work', 'pr', 'session', 'task', 'file', 'asset'],
+        href: [...(defaultSchema.protocols?.href ?? []), 'plan', 'work', 'pr', 'session', 'task', 'file', 'asset', 'person'],
         src: [...(defaultSchema.protocols?.src ?? []), 'asset', 'file', 'data'],
       }
     : defaultSchema.protocols
@@ -134,6 +135,14 @@ export function nodeText(node: RootContent): string {
   return node.type === 'element' ? node.children.map(nodeText).join('') : ''
 }
 
+/** A local comment's `[@Name](person://…)` link, read as the mention it is. */
+export function personMentionOf(node: Element): PersonMention | null {
+  const href = String(node.properties.href ?? '')
+  return node.tagName === 'a' && href.startsWith('person:')
+    ? parsePersonMentionHref(href, nodeText(node))
+    : null
+}
+
 export function paragraphMediaSource(node: Element): string {
   if (node.tagName !== 'p' || node.children.length !== 1) return ''
   const child = node.children[0]
@@ -142,6 +151,24 @@ export function paragraphMediaSource(node: Element): string {
     : child.type === 'element' && child.tagName === 'a' && nodeText(child) === child.properties.href
       ? child.properties.href : null
   return typeof href === 'string' && standaloneMarkdownMediaLink(href) ? href : ''
+}
+
+/** A paragraph that is only a host video written as text, for a local
+ *  document. An image-syntax video already reaches the image renderer. */
+export function paragraphLocalVideoSource(node: Element): string {
+  if (node.tagName !== 'p' || node.children.length !== 1) return ''
+  const child = node.children[0]
+  return child.type === 'text' ? standaloneLocalVideoHref(child.value) ?? '' : ''
+}
+
+/** The text of a ```mermaid fence, which GitHub draws as a diagram. The
+ *  sanitizer keeps the `language-*` class, so the fence still names itself. */
+export function mermaidFenceSource(node: Element): string | null {
+  if (node.tagName !== 'pre' || node.children.length !== 1) return null
+  const code = node.children[0]
+  if (code.type !== 'element' || code.tagName !== 'code') return null
+  const classes = code.properties.className
+  return Array.isArray(classes) && classes.includes('language-mermaid') ? nodeText(code) : null
 }
 
 export function taskCheckbox(node: Element): Element | undefined {

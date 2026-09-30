@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { RotateCcw as ArrowCounterClockwiseIcon } from "@lucide/svelte";
+  import { Pencil as PencilIcon, RotateCcw as ArrowCounterClockwiseIcon, X as XIcon } from "@lucide/svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
+  import { SearchField } from "../ui/search-field";
   import { KEYBINDINGS, bindingsForScope, type BindingId } from "../../lib/keybindings/manifest";
   import { comboToAccelerator, defaultCombo, formatCombo } from "../../lib/keybindings/match";
   import {
@@ -14,6 +15,7 @@
     matchesQuery,
     scopeLabel,
     withBinding,
+    withBindingRemoved,
     withoutBinding,
   } from "../../lib/keybindings/editing";
   import { bindingCapture } from "../../lib/keybindings/capture.svelte";
@@ -29,7 +31,9 @@
     searchQuery?: string;
   }
 
-  let { searchQuery = "" }: Props = $props();
+  // Bound to the page's settings search, so this field and the settings rail's
+  // field show one query and Escape on the page clears both.
+  let { searchQuery = $bindable("") }: Props = $props();
 
   const settings = getSettingsContext();
   const shell = getClientShellContext();
@@ -48,6 +52,11 @@
   function resetBinding(id: BindingId): void {
     if (!isOverridden(id, settings.keybindings)) return;
     settings.update({ keybindings: withoutBinding(id, settings.keybindings) });
+    requestInputFocus();
+  }
+
+  function removeBinding(id: BindingId): void {
+    settings.update({ keybindings: withBindingRemoved(id, settings.keybindings) });
     requestInputFocus();
   }
 
@@ -235,7 +244,7 @@
   {@const conflict = conflicts.get(id)}
   {@const custom = isOverridden(id, settings.keybindings)}
   <div
-    class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
+    class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs
  {recording ? 'bg-(--solus-accent)/8' : ''}"
   >
     <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{def.label}</span>
@@ -248,7 +257,16 @@
         {#if conflict}
           <span class="min-w-0 truncate text-[color:color-mix(in_oklch,var(--destructive)_62%,var(--foreground))]">conflicts with {conflict}</span>
         {/if}
-        {#if custom}<span class="shrink-0 text-micro font-medium text-[color:color-mix(in_oklch,var(--primary)_82%,var(--foreground))]">changed</span>{/if}
+        {#if custom}
+          <span
+            class="flex shrink-0 items-center text-[color:color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
+            role="img"
+            aria-label="Changed from default"
+            title="Changed from default"
+          >
+            <PencilIcon size={12} />
+          </span>
+        {/if}
         <button
           type="button"
           class="inline-flex items-center gap-1 rounded-md border border-transparent px-1.5 py-1 [transition:border-color_var(--duration-base)_var(--ease-premium),background_var(--duration-base)_var(--ease-premium)] hover:border-(--solus-container-border) hover:bg-(--solus-surface-hover)"
@@ -264,15 +282,30 @@
           {/if}
         </button>
       {/if}
+      <!-- Two fixed slots keep the keycaps aligned down the list whichever
+           controls a row shows. -->
       <span class="flex size-6 shrink-0 items-center justify-center">
-        {#if custom && !recording}
-          {@const clears = defaultCombo(KEYBINDINGS[id]) === null}
+        {#if combo && !recording}
           <Button
             variant="ghost"
             size="icon-xs"
             class="text-(--solus-text-tertiary)"
-            aria-label={clears ? `Clear the shortcut for ${def.label}` : `Reset ${def.label} to default`}
-            title={clears ? "Clear shortcut" : "Reset to default"}
+            aria-label={`Remove the shortcut for ${def.label}`}
+            title="Remove shortcut"
+            onclick={() => removeBinding(id)}
+          >
+            <XIcon size={13} />
+          </Button>
+        {/if}
+      </span>
+      <span class="flex size-6 shrink-0 items-center justify-center">
+        {#if custom && !recording && defaultCombo(KEYBINDINGS[id]) !== null}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="text-(--solus-text-tertiary)"
+            aria-label={`Reset ${def.label} to default`}
+            title="Reset to default"
             onclick={() => resetBinding(id)}
           >
             <ArrowCounterClockwiseIcon size={13} />
@@ -287,7 +320,7 @@
   {@const combo = appShortcuts.toggle}
   {@const recording = bindingCapture.id === "app:toggle"}
   {@const failed = appFailed}
-  <div class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs [.is-laptop-display_&]:min-h-10
+  <div class="kb-row flex min-h-11 items-center justify-between gap-4 px-4 py-2 text-xs
  {recording ? 'bg-(--solus-accent)/8' : ''}">
     <span class="min-w-0 truncate text-sm tracking-[-0.005em] text-(--solus-text-primary)">{APP_SHORTCUT_LABEL}</span>
     <div class="flex shrink-0 items-center gap-1.5">
@@ -320,8 +353,13 @@
 {/snippet}
 
 <div class="flex flex-col gap-1 text-xs">
-  <div class="flex items-center justify-end gap-4 pb-3">
-    <Button variant="ghost" size="sm" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>
+  <div class="flex items-center gap-4 pb-3">
+    <SearchField
+      bind:value={searchQuery}
+      placeholder="Search shortcuts"
+      class="max-w-[22rem] basis-auto"
+    />
+    <Button variant="ghost" size="sm" class="ml-auto shrink-0" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>
   </div>
 
   {#if !shell.supportsNativeSettings}
@@ -364,7 +402,7 @@
     <div class="flex min-w-0 flex-1 flex-col gap-6">
       {#if searchQuery}
         {#if !hasSearchResults}
-          <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">No shortcuts match your search</div>
+          <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.key)}
             {@render ruledSection(section.label)}

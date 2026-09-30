@@ -6,19 +6,25 @@
     GitFork as TreeStructureIcon,
     MessagesSquare as ChatsIcon,
     Copy as CopyIcon,
+    GitPullRequest as GitPullRequestIcon,
+    Link as LinkIcon,
+    ListChecks as ListChecksIcon,
+    Moon as MoonIcon,
+    Unlink as UnlinkIcon,
     Pen as PencilSimpleIcon,
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
-    Users as UsersIcon,
+    Share as ShareIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext, sharesStore } from "../../contexts";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import { selectSessionRename } from "./lib/session-context-menu";
   import { askInsights } from "../insights/lib/ask-insights";
+  import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
 
   interface Props {
     x: number;
@@ -45,6 +51,8 @@
       onStop?: () => void;
       done?: boolean;
       onToggleDone?: () => void;
+      /** Opens the snooze prompt for the row. Absent on a snoozed row. */
+      onSnooze?: () => void;
     } | null;
     /** A sidebar can dismiss its row without closing the mounted tab. Other
      *  surfaces keep the ordinary workspace close behavior. */
@@ -75,6 +83,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
 
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
@@ -188,7 +197,43 @@
     onClose();
     if (!targetTabId) return;
     if (onCloseTab) onCloseTab(targetTabId);
-    else session.closeTab(targetTabId);
+    else sidebarStore.closeTabs([targetTabId]);
+  }
+
+  /** The task this session belongs to, or will join at its first prompt. */
+  const linkedTask = $derived(tabId ? taskOfTab(session, tabId) : null);
+
+  function linkToTask() {
+    const targetTabId = tabId;
+    onClose();
+    if (targetTabId) session.ui.linkPrompt = { kind: "session-task", tabId: targetTabId };
+  }
+
+  function openTask() {
+    const task = linkedTask;
+    onClose();
+    if (!task) return;
+    session.goToTask(task.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+  }
+
+  async function unlinkFromTask() {
+    const targetTabId = tabId;
+    onClose();
+    if (!targetTabId) return;
+    try {
+      await unlinkTabFromTask(session, targetTabId);
+    } catch (error) {
+      toasts.error("Couldn't unlink the session from the task", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+    requestInputFocus();
+  }
+
+  function linkPullRequest() {
+    const targetTabId = tabId;
+    onClose();
+    if (targetTabId) session.ui.linkPrompt = { kind: "session-pull-request", tabId: targetTabId };
   }
 
   /** Sharing needs the session's host, which only an open tab names, and that host linked to Solus cloud. */
@@ -250,7 +295,18 @@
         {rowActions.done ? "Mark Not Done" : "Mark Done"}
       </ContextMenu.Item>
     {/if}
-    {#if rowActions?.onStop || rowActions?.onToggleDone}
+    {#if rowActions?.onSnooze}
+      <ContextMenu.Item
+        onSelect={() => {
+          onClose();
+          rowActions?.onSnooze?.();
+        }}
+      >
+        <MoonIcon />
+        Snooze…
+      </ContextMenu.Item>
+    {/if}
+    {#if rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}
@@ -266,6 +322,32 @@
           {#if !isContinuingWorktree}
             <ContextMenu.Shortcut>⌥W</ContextMenu.Shortcut>
           {/if}
+        </ContextMenu.Item>
+      {/if}
+      <ContextMenu.Separator />
+    {/if}
+    <!-- What the session belongs to. A session joins a task, and owns the pull
+         requests it works on (docs/plans/session-pull-requests.md). -->
+    {#if tabId}
+      {#if linkedTask}
+        <ContextMenu.Item onSelect={openTask}>
+          <ListChecksIcon />
+          Open Task
+        </ContextMenu.Item>
+        <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
+          <UnlinkIcon />
+          Unlink from Task
+        </ContextMenu.Item>
+      {:else}
+        <ContextMenu.Item onSelect={linkToTask}>
+          <LinkIcon />
+          Link to Task…
+        </ContextMenu.Item>
+      {/if}
+      {#if sess?.agentSessionId}
+        <ContextMenu.Item onSelect={linkPullRequest}>
+          <GitPullRequestIcon />
+          Link Pull Request…
         </ContextMenu.Item>
       {/if}
       <ContextMenu.Separator />
@@ -290,7 +372,7 @@
     {/if}
     {#if canShare}
       <ContextMenu.Item onSelect={share}>
-        <UsersIcon />
+        <ShareIcon />
         Share…
         <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>
       </ContextMenu.Item>

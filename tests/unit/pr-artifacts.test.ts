@@ -10,7 +10,7 @@ function link(targetKey: string, liveStatus: string, title = targetKey, linkedAt
     targetKey,
     title,
     liveStatus,
-    createdBy: 'agent',
+    createdBy: { kind: 'agent', sessionId: 's1' },
     linkedAt,
   }
 }

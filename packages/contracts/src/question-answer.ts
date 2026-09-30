@@ -4,9 +4,8 @@ import type { QuestionItem } from './types'
  * How a question's answer is encoded on the wire. Both providers consume the
  * resulting `Record<string, string>` — `PermissionManager.respondToQuestion`
  * keys `updatedInput.answers` by it, and Codex maps it onto elicitation schema
- * properties — so the QuestionCard and the agent-facing `answer_session` tool
- * MUST produce byte-identical records for the same selection. That is the only
- * reason this lives in `shared/` rather than beside either caller.
+ * properties — so every surface that answers a question MUST produce
+ * byte-identical records for the same selection.
  */
 
 export function questionKey(q: Pick<QuestionItem, 'id' | 'question'>): string {

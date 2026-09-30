@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { AgentUsageLimits } from '@solus/contracts/types'
-import type { HandlerCtx } from '@solus/server/server/server'
-import { registerUsageHandlers } from '@solus/server/server/handlers/usage-handlers'
-import { SolusServer } from '@solus/server/server/server'
+import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
+import type { HandlerCtx } from '@solus/server/transport/server'
+import { registerUsageHandlers } from '@solus/server/transport/handlers/usage-handlers'
+import { SolusServer } from '@solus/server/transport/server'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
+
+const BOB_SEAT: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 
 describe('usage handlers', () => {
   test('one shared refresh emits one limits event for concurrent callers', async () => {
@@ -16,7 +19,7 @@ describe('usage handlers', () => {
     const broadcasts: AgentUsageLimits[][] = []
 
     registerUsageHandlers(server, {
-      controlPlane: {
+      sessionRuntime: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: () => read,
         usageLimits: new UsageLimitsStore(),
@@ -47,7 +50,7 @@ describe('usage handlers', () => {
     const server = new SolusServer()
 
     registerUsageHandlers(server, {
-      controlPlane: {
+      sessionRuntime: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: async () => null,
         usageLimits: new UsageLimitsStore(),
@@ -68,13 +71,13 @@ describe('usage handlers', () => {
     const server = new SolusServer()
     const reads: Array<string | undefined> = []
     const published: Array<[string[], AgentUsageLimits[]]> = []
-    const bobSeat = { userId: 'bob', provider: 'claude-code' as const, home: '/seats/claude/bob' }
+    const bobSeat = { seat: BOB_SEAT, provider: 'claude-code' as const, home: '/seats/claude/bob' }
     registerUsageHandlers(server, {
-      controlPlane: {
+      sessionRuntime: {
         usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: async (_agentId: string, seat?: { userId: string }) => {
-          reads.push(seat?.userId)
-          return { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false, seat: seat?.userId }
+        readUsageLimits: async (_agentId: string, seat?: { home: string }) => {
+          reads.push(seat?.home)
+          return { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false, seat: seat?.home }
         },
         usageLimits: new UsageLimitsStore(),
       } as never,
@@ -83,23 +86,23 @@ describe('usage handlers', () => {
         broadcast: () => { throw new Error('nothing is broadcast once seats exist') },
       } as never,
       seats: {
-        connectedSeat: (userId: string) => (userId === 'bob' ? bobSeat : null),
+        connectedSeat: (seat: Seat) => (seat.kind === 'user' ? bobSeat : null),
         status: () => ({ provider: 'claude-code', state: 'connected', usageCapable: true }),
         onChanged: () => () => {},
       } as never,
-      clientsForSeatUser: (seatUserId) => (seatUserId === 'bob' ? ['ws:bob'] : ['ws:owner']),
+      clientsForSeat: (seat) => (seat.kind === 'user' ? ['ws:bob'] : ['ws:owner']),
     })
     const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
 
     const bobSnapshots = await server.handle('usageLimits', [], bob)
-    expect(bobSnapshots).toMatchObject([{ provider: 'claude-code', seat: 'bob' }])
+    expect(bobSnapshots).toMatchObject([{ provider: 'claude-code', seat: '/seats/claude/bob' }])
     const ownerSnapshots = await server.handle('usageLimits', [], TEST_HANDLER_CTX)
     expect(ownerSnapshots).toMatchObject([{ provider: 'claude-code', seat: undefined }])
-    expect(reads).toEqual(['bob', undefined])
+    expect(reads).toEqual(['/seats/claude/bob', undefined])
     expect(published.map(([clientIds]) => clientIds)).toEqual([['ws:bob'], ['ws:owner']])
     // A second ask inside the window is served from the member's cache: no new subprocess.
     await server.handle('usageLimits', [], bob)
-    expect(reads).toEqual(['bob', undefined])
+    expect(reads).toEqual(['/seats/claude/bob', undefined])
   })
 
   test('the host login is read without the login probe', async () => {
@@ -110,14 +113,14 @@ describe('usage handlers', () => {
     const server = new SolusServer()
     let statusReads = 0
     registerUsageHandlers(server, {
-      controlPlane: {
+      sessionRuntime: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: async () => ({ provider: 'claude-code', stale: false }),
         usageLimits: new UsageLimitsStore(),
       } as never,
       events: { publish: () => 1, broadcast: () => 1 } as never,
       seats: {
-        connectedSeat: () => ({ userId: 'owner', provider: 'claude-code', home: '/home', isHostLogin: true }),
+        connectedSeat: () => ({ seat: HOST_LOGIN_SEAT, provider: 'claude-code', home: '/home' }),
         status: () => { statusReads += 1; return { provider: 'claude-code', state: 'connected', usageCapable: true } },
         onChanged: () => () => {},
       } as never,
@@ -133,10 +136,10 @@ describe('usage handlers', () => {
     // drop that answer and publish the real one, not wait out the window.
     const server = new SolusServer()
     let connected = false
-    let seatListener: ((event: { userId: string; provider: 'claude-code'; state: 'connected' | 'none' }) => void) | undefined
+    let seatListener: ((event: { seat: Seat; provider: 'claude-code'; state: 'connected' | 'none' }) => void) | undefined
     const published: AgentUsageLimits[][] = []
     registerUsageHandlers(server, {
-      controlPlane: {
+      sessionRuntime: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: async () => ({ provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false }),
         usageLimits: new UsageLimitsStore(),
@@ -146,17 +149,17 @@ describe('usage handlers', () => {
         broadcast: () => 0,
       } as never,
       seats: {
-        connectedSeat: () => (connected ? { userId: 'bob', provider: 'claude-code', home: '/seats/claude/bob' } : null),
+        connectedSeat: () => (connected ? { seat: BOB_SEAT, provider: 'claude-code', home: '/seats/claude/bob' } : null),
         status: () => ({ provider: 'claude-code', state: connected ? 'connected' : 'none', usageCapable: connected }),
         onChanged: (listener: typeof seatListener) => { seatListener = listener; return () => {} },
       } as never,
-      clientsForSeatUser: () => ['ws:bob'],
+      clientsForSeat: () => ['ws:bob'],
     })
     const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
 
     expect(await server.handle('usageLimits', [], bob)).toEqual([])
     connected = true
-    seatListener?.({ userId: 'bob', provider: 'claude-code', state: 'connected' })
+    seatListener?.({ seat: BOB_SEAT, provider: 'claude-code', state: 'connected' })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(published.at(-1)).toMatchObject([{ provider: 'claude-code' }])
     expect(await server.handle('usageLimits', [], bob)).toMatchObject([{ provider: 'claude-code' }])

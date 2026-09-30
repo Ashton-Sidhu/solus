@@ -15,8 +15,7 @@
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
   import Pane from "../ui/Pane.svelte";
-  import ConversationView from "../conversation/ConversationView.svelte";
-  import { SvelteSet } from "svelte/reactivity";
+  import ConversationPool from "../conversation/ConversationPool.svelte";
   import { frameChrome } from "./frame-chrome.store.svelte";
   import type {
     PaneEntry,
@@ -28,6 +27,7 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     closeTargetPaneId,
+    companionCollapsesSidebar,
     companionMinimizesProjectPanel,
     COMPANION_PANE_DEFAULT_SIZE,
     COMPANION_PANE_MIN_SIZE,
@@ -38,7 +38,6 @@
     maximizeTargetPaneId,
     PRIMARY_PANE_MIN_SIZE,
     primaryProjectPanelOpen,
-    retainedConversationTabIds,
     SIDEBAR_PANE_DEFAULT_SIZE,
     SIDEBAR_PANE_MAX_SIZE,
     SIDEBAR_PANE_MIN_SIZE,
@@ -175,7 +174,7 @@
     secondaryVisible && companionMinimizesProjectPanel(companionRef),
   );
   const secondaryCollapsesSidebar = $derived(
-    secondaryVisible && companionRef?.name !== "automation",
+    secondaryVisible && companionCollapsesSidebar(companionRef),
   );
   // Dedicated review surfaces read edge-to-edge and do not want a session
   // column beside them. The pull requests page is a workspace list, so it keeps
@@ -235,38 +234,6 @@
   $effect(() => {
     if (!showLeadingBand) homeSessionMenu = null;
   });
-  // Lazy-mount the conversation pool: only mount a tab's ConversationView the
-  // first time it becomes the active tab. Split chats own a separate force-visible
-  // ConversationView in ConversationPane, so mounting them here would duplicate
-  // the heavy transcript tree. This also prevents 20 heavy component trees from
-  // being constructed and kept alive for tabs the user may never actually visit.
-  // Start empty — the $effect below populates it reactively.
-  const mountedTabIds = new SvelteSet<string>();
-  const retainedTranscriptTabIds = new SvelteSet<string>();
-  const transcriptRecency: string[] = [];
-  $effect(() => {
-    const displayedTabIds = (active ? [session.activeTabId] : []).filter(
-      (tabId): tabId is string => !!tabId && !!session.tabs[tabId],
-    );
-    for (const id of displayedTabIds) mountedTabIds.add(id);
-    for (const id of mountedTabIds) {
-      if (!session.tabs[id]) mountedTabIds.delete(id);
-    }
-
-    const retained = active
-      ? retainedConversationTabIds(
-          transcriptRecency,
-          displayedTabIds,
-          session.tabOrder,
-        )
-      : [];
-    transcriptRecency.splice(0, transcriptRecency.length, ...retained);
-    for (const id of retained) retainedTranscriptTabIds.add(id);
-    for (const id of retainedTranscriptTabIds) {
-      if (!retained.includes(id)) retainedTranscriptTabIds.delete(id);
-    }
-  });
-
   // Geometry is driven for the trailing companion, which at MAX_PANES = 2 is
   // the only one. Raising the cap turns these into a map keyed by pane id.
   let secondaryPaneEl: HTMLDivElement | null = $state(null);
@@ -496,6 +463,11 @@
     "folio",
   ]);
   const pageFlush = $derived(FLUSH_PAGES.has(leadingRef?.name ?? ""));
+  // Surfaces that paint a final-shape skeleton from their first frame mount
+  // with the pane shell and skip the entry fade. Waiting a beat opened them as
+  // three steps — the column narrows, the pane sits blank, then the page fades
+  // in — which reads as a layout shift, not one movement.
+  const IMMEDIATE_COMPANIONS = new Set(["review", "task"]);
   const secondaryBounds = $derived({
     min: COMPANION_PANE_MIN_SIZE,
     max: 100 - primaryMinSize,
@@ -795,32 +767,19 @@
                         {/if}
                         <!-- Pages, artifacts, and reviews render through the leading Pane
                  below. The conversation pool stays mounted underneath (hidden
-                 via display:none) so closing a pane reveals every tab instantly
-                 with derived state, scroll, and editor drafts intact — never
-                 re-mounted. That is what `keepAlive` declares in the registry:
-                 the pool owns a chat's lifecycle, not the route. -->
+                 via display:none) so closing a pane reveals the recent tabs
+                 instantly, with scroll and open cards intact. That is what
+                 `keepAlive` declares in the registry: the pool owns a chat's
+                 lifecycle, not the route. -->
                         <div
                           class="conversation-pool flex min-h-0 flex-1 flex-col"
                           class:mode-hidden={!poolInLead}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
-                          {#each session.tabOrder as tId (tId)}
-                            {#if mountedTabIds.has(tId)}
-                              <div
-                                class="tab-slot h-full"
-                                class:tab-hidden={tId !== session.activeTabId}
-                              >
-                                <ConversationView
-                                  tabId={tId}
-                                  surfaceVisible={active &&
-                                    conversationChromeVisible}
-                                  retainTranscriptRows={retainedTranscriptTabIds.has(
-                                    tId,
-                                  )}
-                                />
-                              </div>
-                            {/if}
-                          {/each}
+                          <ConversationPool
+                            {active}
+                            surfaceVisible={active && conversationChromeVisible}
+                          />
                         </div>
                         {#if !poolInLead}
                           <Pane
@@ -907,7 +866,7 @@
               } ${isResizingSecondary ? "is-resizing" : ""}`}
               style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
-              {#if companions.settled.has(pane.id) || ref?.name === "review"}
+              {#if companions.settled.has(pane.id) || IMMEDIATE_COMPANIONS.has(ref?.name ?? "")}
                 <!-- Maximize fixes THIS element, not the pane wrap: the wrap
                      keeps holding its slot in the split, so the fully-covered
                      workspace behind never relayouts on maximize or restore —
@@ -915,7 +874,7 @@
                 <div
                   class="secondary-pane-content h-full min-h-0"
                   class:secondary-pane-content--maximized={maximized}
-                  class:secondary-pane-content--continuous={ref?.name === "review"}
+                  class:secondary-pane-content--continuous={IMMEDIATE_COMPANIONS.has(ref?.name ?? "")}
                 >
                   <Pane
                     {pane}
@@ -1094,11 +1053,6 @@
     background: var(--solus-container-bg);
     overflow: hidden;
   }
-  .tab-slot {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 1000px;
-  }
-  .tab-hidden,
   .mode-hidden {
     display: none !important;
   }
@@ -1153,9 +1107,10 @@
   .secondary-pane-content {
     animation: secondary-content-in 160ms cubic-bezier(0.2, 0, 0, 1) backwards;
   }
-  /* Review mounts its async outlet immediately and paints a final-shape
-     skeleton. Fading that outlet from opacity:0 would reveal the framed pane's
-     stepped background before drawing the container-colour surface. */
+  /* Review and task pages mount with the shell (IMMEDIATE_COMPANIONS) and
+     paint a final-shape skeleton. Fading that outlet from opacity:0 would
+     reveal the framed pane's stepped background before drawing the
+     container-colour surface. */
   .secondary-pane-content--continuous {
     animation: none;
   }

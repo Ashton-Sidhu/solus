@@ -7,7 +7,7 @@ import { Database } from 'bun:sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type PinnedSessionsModule = typeof import('@solus/server/sessions/pinned-sessions')
+type PinnedSessionsModule = typeof import('@solus/server/data/sessions/pinned-sessions')
 
 let dataDir: string
 let db: DbModule
@@ -18,7 +18,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-pinned-sessions-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  pinnedSessions = await import('@solus/server/sessions/pinned-sessions')
+  pinnedSessions = await import('@solus/server/data/sessions/pinned-sessions')
 })
 
 afterEach(() => {

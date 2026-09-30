@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-const { providerConversationFor } = await import('@solus/server/agents/run-input')
+const { providerConversationFor } = await import('@solus/server/execution/agents/run-input')
 
 test('provider actions keep a fork source separate from a resumed thread', () => {
   expect(providerConversationFor({ agentSessionId: null, forked: false })).toEqual({ kind: 'start' })

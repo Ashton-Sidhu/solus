@@ -1,5 +1,7 @@
 import type { MetricsQueryResult, MetricsValue } from '@solus/contracts/observability-types'
 import { asFiniteNumber } from './result-columns'
+import { modelName } from './provider'
+import { shortId } from './format'
 
 // Result shape → the explore list.
 //
@@ -25,6 +27,9 @@ export interface TurnRow {
   origin: string | null
   promptSource: string | null
   prompt: string
+  /** The task the turn ran under, by title — how the list names a session
+   *  before falling back to its id. */
+  taskTitle: string | null
   costUsd: number | null
   inputTokens: number | null
   outputTokens: number | null
@@ -74,6 +79,7 @@ export function toTurnRows(result: MetricsQueryResult | null): TurnRow[] {
       origin: asString(cell(row, 'origin')),
       promptSource: asString(cell(row, 'prompt_source')),
       prompt: asString(cell(row, 'prompt')) ?? '',
+      taskTitle: asString(cell(row, 'task')),
       costUsd: asFiniteNumber(cell(row, 'cost_usd')),
       inputTokens: asFiniteNumber(cell(row, 'input_tokens')),
       outputTokens: asFiniteNumber(cell(row, 'output_tokens')),
@@ -81,6 +87,29 @@ export function toTurnRows(result: MetricsQueryResult | null): TurnRow[] {
     })
   }
   return rows
+}
+
+/** A turn still running: its row has no end yet. Status alone cannot say so,
+ *  because 'unknown' also names a finished turn that reported no outcome. */
+export function isRunningTurn(row: Pick<TurnRow, 'status' | 'durationMs'>): boolean {
+  return row.status === 'unknown' && row.durationMs == null
+}
+
+export interface SessionCellLabel {
+  text: string
+  /** The text is an id, set in mono. */
+  isId: boolean
+}
+
+/** What the Session column names a turn by: its task, else its session's name,
+ *  else the session's short id. */
+export function sessionCellLabel(
+  row: Pick<TurnRow, 'sessionId' | 'taskTitle'>,
+  sessionName: string | null,
+): SessionCellLabel {
+  if (row.taskTitle) return { text: row.taskTitle, isId: false }
+  if (sessionName) return { text: sessionName, isId: false }
+  return row.sessionId ? { text: shortId(row.sessionId), isId: true } : { text: '—', isId: false }
 }
 
 export type TurnStatusFilter = 'ok' | 'error' | 'interrupted'
@@ -104,6 +133,23 @@ export interface TurnStatusCounts {
 export function withStatus(rows: TurnRow[], status: TurnStatusFilter | null): TurnRow[] {
   if (!status) return rows
   return rows.filter((row) => row.status === status)
+}
+
+/**
+ * The rail's search, over the same fields the host's turn-page search reads —
+ * prompt, session, model id, provider — plus the two names the rows print in
+ * their place: the model's profile name and the task title. A superset of the
+ * host's match, so filtering a host-searched page again never drops a row the
+ * host returned.
+ */
+export function searchTurns(rows: TurnRow[], query: string): TurnRow[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return rows
+  return rows.filter((row) =>
+    [row.prompt, row.sessionId, row.model, row.provider, row.taskTitle, modelName(row.provider, row.model)].some(
+      (field) => field?.toLowerCase().includes(needle),
+    ),
+  )
 }
 
 export function countByStatus(rows: TurnRow[]): TurnStatusCounts {
@@ -159,6 +205,8 @@ export interface SessionGroup {
   totalCostUsd: number | null
   /** The session's first prompt — what the collapsed row shows. */
   firstPrompt: string
+  /** The task the session ran under, when any turn recorded one. */
+  taskTitle: string | null
 }
 
 /** Groups in first-appearance order, so the group list follows whatever sort
@@ -175,10 +223,12 @@ export function groupBySession(rows: TurnRow[]): SessionGroup[] {
         totalDurationMs: 0,
         totalCostUsd: null,
         firstPrompt: '',
+        taskTitle: null,
       }
       groups.set(sessionId, group)
     }
     group.turns.push(row)
+    if (row.taskTitle && !group.taskTitle) group.taskTitle = row.taskTitle
     group.totalDurationMs += row.durationMs ?? 0
     if (row.costUsd != null) group.totalCostUsd = (group.totalCostUsd ?? 0) + row.costUsd
   }

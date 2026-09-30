@@ -1,12 +1,11 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { isMobileLayout } from '../../packages/workspace-ui/src/contexts/app/viewport'
 
 const transpiler = new Bun.Transpiler({ loader: 'ts' })
 const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-transcript.ts', import.meta.url), 'utf8')
 const executable = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
 
-function fixture(options: { mobile?: boolean; fork?: boolean; missingHost?: boolean } = {}) {
+function fixture(options: { fork?: boolean; missingHost?: boolean } = {}) {
   const requests: Array<{ host: string; sessionId: string; projectPath: string; deferToolInputs: boolean }> = []
   const marks: string[] = []
   const frames = new Map<number, FrameRequestCallback>()
@@ -17,8 +16,8 @@ function fixture(options: { mobile?: boolean; fork?: boolean; missingHost?: bool
     agentSessionId: 'thread', provider: 'codex', workingDirectory: '/repo',
     gitContext: { worktreePath: '/checkout' }, pendingFork: options.fork ? {} : undefined,
   }
-  const create = new Function('prefetchSessionHistoryPage', 'RESTORED_TRANSCRIPT_LIMIT',
-    'serverConnections', 'loadServers', 'loadPersistedTabs', 'isMobileLayout',
+  const create = new Function('prefetchSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
+    'serverConnections', 'loadServers', 'loadPersistedTabs',
     'window', 'screen', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
     'afterPaint', 'setTimeout', 'clearTimeout',
     `${executable}\nreturn { prefetchStartupTranscript, markStartupTranscriptApplied, observeStartupTranscriptPaint, afterStartupTranscriptPaint };`)
@@ -29,9 +28,8 @@ function fixture(options: { mobile?: boolean; fork?: boolean; missingHost?: bool
     { apiFor(host: string) { if (options.missingHost) throw new Error('missing host'); return host } },
     () => [{ installationId: 'installation', id: 'repaired-host' }],
     () => ({ activeTabId: 'active', tabs: [tab, { ...tab, tabId: 'inactive', agentSessionId: 'other' }] }),
-    isMobileLayout,
-    { innerWidth: options.mobile ? 390 : 1200, matchMedia: () => ({ matches: !!options.mobile }) },
-    { width: options.mobile ? 390 : 1200, height: 800 },
+    { innerWidth: 1200, matchMedia: () => ({ matches: false }) },
+    { width: 1200, height: 800 },
     { mark(name: string) { marks.push(name) }, getEntriesByName(name: string) { return marks.filter((mark) => mark === name) } },
     (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame },
     (frame: number) => frames.delete(frame), { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
@@ -74,13 +72,10 @@ test('startup selects only the active thread and resolves its repaired host and 
   const { api, requests } = fixture()
   api.prefetchStartupTranscript()
   expect(requests).toHaveLength(1)
-  expect(requests[0]).toMatchObject({ host: 'repaired-host', sessionId: 'thread', projectPath: '/checkout', deferToolInputs: false })
+  expect(requests[0]).toMatchObject({ host: 'repaired-host', sessionId: 'thread', projectPath: '/checkout' })
 })
 
-test('mobile startup requests deferred tool inputs; forks and missing hosts do not block boot', () => {
-  const mobile = fixture({ mobile: true })
-  mobile.api.prefetchStartupTranscript()
-  expect(mobile.requests[0].deferToolInputs).toBe(true)
+test('forks and missing hosts do not block boot', () => {
   for (const options of [{ fork: true }, { missingHost: true }]) {
     const skipped = fixture(options)
     expect(() => skipped.api.prefetchStartupTranscript()).not.toThrow()
@@ -159,7 +154,7 @@ test('restored history and live attachment finish before secondary metadata, wit
       tasksStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
     }
     const execute = new Function('afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
-      'replaceHydratedMessages', 'markStartupTranscriptApplied', 'RESTORED_TRANSCRIPT_LIMIT', 'isSessionBusyStatus',
+      'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
       `${hydration}\nreturn hydrateTab;`)
     const hydrate = execute(() => paintPending, async () => ({ messages: [] }),
       async () => { expect(session.loadingHistory).toBe(false); return { messages: [{ content: 'ready' }], planIds: [] } },
@@ -183,7 +178,7 @@ test.each([false, true])('first render keeps the loading state unless startup hi
   const messages = [{ role: 'user', content: 'restored transcript' }]
   const session = { run: { workingDirectory: '/repo' }, messages: [], loadingHistory: true, historyCursor: null }
   const marks: string[] = []
-  const materialize = new Function('readPrefetchedSessionHistoryPage', 'RESTORED_TRANSCRIPT_LIMIT',
+  const materialize = new Function('readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
     'materializeSessionTranscript', 'markStartupTranscriptApplied',
     `${compiled}\nreturn materializeStartupTranscript;`)(
       () => isReady ? page : undefined, 200, () => ({ messages, before: 'older', truncated: true }), (tabId: string) => marks.push(tabId),

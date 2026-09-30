@@ -24,7 +24,10 @@ export interface Trigger {
 
 /** Opens a trigger at line start or after whitespace. */
 export const TRIGGER_RE = /(^|\s)([/@#])([A-Za-z0-9._:#/~]*)$/;
-const FILE_PATH_RE = /(^|\s)(@[^\s]*|~\/[^\s]*|\.\.?\/[^\s]*|\/[^\s]*)$/;
+// `@"…"` comes first: a revealed chip for a spaced path is quoted, and its run
+// starts at the `@`, not after the last space.
+const FILE_PATH_RE =
+  /(^|\s)(@"[^"\n]*"?|@[^\s]*|~\/[^\s]*|\.\.?\/[^\s]*|\/[^\s]*)$/;
 
 function isBareAbsoluteFilePath(run: string): boolean {
   if (!run.startsWith("/")) return false;
@@ -34,6 +37,8 @@ function isBareAbsoluteFilePath(run: string): boolean {
 }
 
 function fileRunQuery(run: string): string | null {
+  // Text after the closing quote is the sentence again.
+  if (run.startsWith('@"')) return run.match(/^@"([^"\n]*)"?$/)?.[1] ?? null;
   if (run.startsWith("@")) {
     const query = run.slice(1);
     // A space directly after a bare trigger continues the sentence. File

@@ -2,10 +2,10 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdtemp, writeFile, appendFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadClaudeHistoryPage } from '@solus/server/agents/claude/claude-history-page'
-import { loadCodexHistoryPage } from '@solus/server/agents/codex/codex-history-page'
-import { loadHistoryPage } from '@solus/server/sessions/history-page'
-import type { CodexTurnHistory } from '@solus/server/agents/codex/codex-utils'
+import { loadClaudeHistoryPage } from '@solus/server/execution/agents/claude/claude-history-page'
+import { loadCodexHistoryPage } from '@solus/server/execution/agents/codex/codex-history-page'
+import { loadHistoryPage } from '@solus/server/execution/sessions/history-page'
+import type { CodexTurnHistory } from '@solus/server/execution/agents/codex/codex-utils'
 
 const directories: string[] = []
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }) })
@@ -81,4 +81,35 @@ test('lineage paging preserves the handoff divider once and reads each segment o
   await expect(loadHistoryPage('other-scope', segments, 1, recent.before!, read)).rejects.toThrow('history changed')
   segments[0].sessionId = 'replacement'
   await expect(loadHistoryPage('scope', segments, 1, recent.before!, read)).rejects.toThrow('history changed')
+})
+
+test('a page is a number of user turns, however many rows each turn has', async () => {
+  // WHY: the first paint must cost the same few turns whether they ran two
+  // tools or two hundred; a row limit made busy sessions open with one turn
+  // and quiet ones with dozens.
+  const directory = await mkdtemp(join(tmpdir(), 'solus-history-page-'))
+  directories.push(directory)
+  const file = join(directory, 'session.jsonl')
+  let body = ''
+  let clock = 0
+  for (const prompt of ['one', 'two', 'three']) {
+    body += line('user', prompt, ++clock)
+    for (let step = 0; step < 30; step++) body += line('assistant', `${prompt}-${step}`, ++clock)
+  }
+  await writeFile(file, body)
+  const recent = await loadClaudeHistoryPage(file, 2)
+  expect(recent.messages).toHaveLength(62)
+  expect(recent.messages.filter((message) => message.role === 'user').map((message) => message.content)).toEqual(['two', 'three'])
+  const older = await loadClaudeHistoryPage(file, 2, recent.before!)
+  expect(older.messages[0].content).toBe('one')
+  expect(older.before).toBeNull()
+
+  const codexTurns: CodexTurnHistory[] = ['a', 'b', 'c'].map((id) => ({ id, itemsView: 'summary' }))
+  const read = async ({ turnId }: { turnId: string }) => ({
+    data: Array.from({ length: 30 }, (_, index) => ({ turnId, item: { type: 'agentMessage', text: `${turnId}${index}` } })),
+    nextCursor: null,
+  })
+  const codex = await loadCodexHistoryPage('thread', codexTurns, read, 2)
+  expect(codex.messages).toHaveLength(60)
+  expect(codex.before).toBe('b')
 })

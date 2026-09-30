@@ -48,7 +48,6 @@ function build(
   query = '',
   expanded: string[] = [],
   openTaskIds: string[] = [],
-  snoozedTaskIds: string[] = [],
 ) {
   return buildPickerRows({
     tasks,
@@ -56,7 +55,6 @@ function build(
     sessionsFor: (item) => sessions[item.id] ?? [],
     expandedTaskIds: new Set(expanded),
     openTaskIds: new Set(openTaskIds),
-    snoozedTaskIds: new Set(snoozedTaskIds),
   })
 }
 
@@ -92,18 +90,20 @@ describe('unified picker rows', () => {
     expect(entries.map((entry) => entry.kind)).toEqual(['task', 'task'])
   })
 
-  test('open in-progress and snoozed sidebar tasks are lifted into top sections without duplicates', () => {
+  test('open in-progress sidebar tasks are lifted into the top section without duplicates', () => {
     const todo = { ...task('c', 'Gamma'), status: 'todo' as const }
-    const { rows } = build([...tasks, todo], sessions, '', [], ['a', 'c'], ['b'])
+    const { rows } = buildPickerRows({
+      tasks: [...tasks, todo],
+      query: '',
+      resultType: 'tasks',
+      sessionsFor: (item) => sessions[item.id as keyof typeof sessions] ?? [],
+      expandedTaskIds: new Set(),
+      openTaskIds: new Set(['a', 'c']),
+    })
     expect(rows.filter((row) => row.kind === 'header').map((row) => row.label)).toEqual([
       'Open',
-      'Snoozed',
+      'In progress',
       'Todo',
-    ])
-    expect(rows.filter((row) => row.kind === 'header').map((row) => row.accent)).toEqual([
-      false,
-      true,
-      false,
     ])
     expect(rows.filter((row) => row.kind === 'task').map((row) => row.task.id)).toEqual([
       'a',
@@ -207,7 +207,7 @@ describe('unified picker rows', () => {
     // tail of "oauth" in one section and not the other.
     const titled = [task('a', 'Flow for auth'), task('b', 'OAuth redesign'), task('c', 'Authentication')]
     expect(build(titled, {}, 'auth flow').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['a'])
-    expect(build(titled, {}, 'auth').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['a', 'c'])
+    expect(build(titled, {}, 'auth').entries.map((entry) => entry.kind === 'task' && entry.task.id).toSorted()).toEqual(['a', 'c'])
     // A session name follows the same rule.
     const named = { a: [child('a1', 'Retry the oauth dance'), child('a2', 'Auth retry')] }
     expect(build([task('a', 'Alpha')], named, 'retry auth').entries.map((entry) => entry.kind === 'session' && entry.session.sessionId)).toEqual(['a2'])
@@ -260,7 +260,7 @@ describe('unified picker rows', () => {
       expanded: string[] = [],
       projectKey: string | null = null,
       sort: PickerSort = 'relevance',
-      capped = false,
+      remaining = 0,
       sessionsOnly = false,
     ) {
       return buildPickerRows({
@@ -271,13 +271,13 @@ describe('unified picker rows', () => {
         sessionsFor: (item) => sessions[item.id] ?? [],
         expandedTaskIds: new Set(expanded),
         conversations: hits,
-        conversationsCapped: capped,
+        conversationsRemaining: remaining,
         resultType: sessionsOnly ? 'sessions' : 'all',
       })
     }
 
     test('sessions only keeps passage hits when their parent task matches', () => {
-      const result = buildWithHits('Alpha', [hit('a1', 'Alpha passage')], [], null, 'relevance', false, true)
+      const result = buildWithHits('Alpha', [hit('a1', 'Alpha passage')], [], null, 'relevance', 0, true)
       expect(result.taskCount).toBe(0)
       expect(result.entries).toHaveLength(1)
       expect(result.entries[0]).toMatchObject({ kind: 'session', session: { sessionId: 'a1' }, hit: { messageId: 7 } })
@@ -332,14 +332,18 @@ describe('unified picker rows', () => {
       expect(snippet.indexOf(SNIPPET_HIT_OPEN)).toBeLessThan(40)
     })
 
-    test('the Sessions header says when the hosts stopped at their cap', () => {
-      // WHY: twenty rows under "Sessions 20" read as twenty hits. The number is
-      // where a host stopped, and the reader should narrow rather than scroll.
-      const capped = buildWithHits('alpha', [hit('orphan', 'alpha')], [], null, 'relevance', true)
-      expect(capped.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1, capped: true })
-      expect(capped.sessionsCapped).toBe(true)
-      const open = buildWithHits('alpha', [hit('orphan', 'alpha')])
-      expect(open.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1, capped: false })
+    test('the Sessions header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {
+      // WHY: every session that matches is reachable (unified-search.md §6).
+      // The count is the whole answer, not a cap, and the end row is what the
+      // list reads the next page with; the keyboard never lands on it.
+      const paged = buildWithHits('alpha', [hit('orphan', 'alpha')], [], null, 'relevance', 40)
+      expect(paged.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 41 })
+      expect(paged.rows.at(-1)).toMatchObject({ kind: 'more', remaining: 40 })
+      expect(paged.entries.some((entry) => (entry.kind as string) === 'more')).toBe(false)
+      expect(paged.sessionCount).toBe(41)
+      const whole = buildWithHits('alpha', [hit('orphan', 'alpha')])
+      expect(whole.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1 })
+      expect(whole.rows.some((row) => row.kind === 'more')).toBe(false)
     })
 
     test('a session no task claims, found by its words, is listed under Sessions', () => {
@@ -453,7 +457,7 @@ describe('unified picker rows', () => {
     expect(collapseTarget(entries, 3)).toBeNull()
   })
 
-  test('the footer counts what is listed: every session unqueried, only named sessions under a query', () => {
+  test('the total counts what is listed: every session unqueried, only named sessions under a query', () => {
     expect(build(tasks, sessions).sessionCount).toBe(3)
     expect(build(tasks, sessions, 'alpha').sessionCount).toBe(0)
     expect(build(tasks, sessions, 'pass').sessionCount).toBe(2)
@@ -563,6 +567,67 @@ describe('sessions-only picker', () => {
     expect(buildPickerRows({ ...input, projectKey: 'another-project' }).entries).toEqual([])
     expect(buildPickerRows({ ...input, resultType: 'all' }).taskCount).toBe(2)
   })
+
+  test('an empty query lists recent sessions no task claims beside the task sessions', () => {
+    // WHY: a session has no task of its own (task-conversation.md §8). Listing
+    // task sessions only, the Sessions result type hid most sessions.
+    const result = buildPickerRows({
+      tasks, query: '', resultType: 'sessions',
+      sessionsFor: (item) => item.id === 'a' ? sessions : [],
+      expandedTaskIds: new Set(),
+      recentSessions: [recent('a1', 9_000), recent('loose', 5_000)],
+    })
+    expect(result.entries.map((entry) => entry.kind === 'conversation' ? entry.meta.sessionId : entry.kind === 'session' ? entry.session.sessionId : null))
+      .toEqual(['loose', 'a1', 'a2'])
+    expect(result.sessionCount).toBe(3)
+  })
+})
+
+function recent(sessionId: string, at: number): SessionMeta {
+  return { sessionId, serverId: 'local', firstMessage: `opening of ${sessionId}`, lastTimestamp: new Date(at).toISOString() } as SessionMeta
+}
+
+describe('the unqueried list', () => {
+  test('tasks and the sessions no task claims are peers, newest first', () => {
+    // WHY: tasks and sessions are equally things to return to. With no task
+    // on the host, a picker that listed tasks only was empty however many
+    // sessions it held.
+    const older = { ...task('old', 'Old task'), updatedAt: 1_000 }
+    const newer = { ...task('new', 'New task'), updatedAt: 6_000 }
+    const result = buildPickerRows({
+      tasks: [newer, older],
+      query: '',
+      sessionsFor: (item) => item.id === 'new' ? [child('claimed', 'Claimed session')] : [],
+      expandedTaskIds: new Set(),
+      recentSessions: [recent('claimed', 8_000), recent('fresh', 9_000), recent('middle', 3_000)],
+    })
+    expect(result.rows[0]).toMatchObject({ kind: 'header', label: 'Recent', count: 4 })
+    expect(result.entries.map((entry) => entry.kind === 'task' ? entry.task.id : entry.kind === 'conversation' ? entry.meta.sessionId : null))
+      .toEqual(['fresh', 'new', 'middle', 'old'])
+    // The claimed session stays under its task, counted once.
+    expect(result.sessionCount).toBe(3)
+    expect(result.taskCount).toBe(2)
+  })
+
+  test('with no task at all, the sessions still fill the list', () => {
+    const result = buildPickerRows({
+      tasks: [], query: '', sessionsFor: () => [], expandedTaskIds: new Set(),
+      recentSessions: [recent('only', 1_000)],
+    })
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0]).toMatchObject({ kind: 'conversation', meta: { sessionId: 'only' } })
+    // Listed by its date, not found by words: the preview opens on its ends.
+    expect(previewHitTarget(result.entries[0])).toBeNull()
+  })
+
+  test('the Tasks result type does not list sessions', () => {
+    const result = buildPickerRows({
+      tasks: [task('a', 'Alpha')], query: '', resultType: 'tasks', sessionsFor: () => [], expandedTaskIds: new Set(),
+      recentSessions: [recent('loose', 1_000)],
+    })
+    expect(result.entries.map((entry) => entry.kind)).toEqual(['task'])
+    expect(result.sessionCount).toBe(0)
+  })
 })
 
 
@@ -617,4 +682,49 @@ test('copied sessions use passages from one host, preferring the linked host', (
   expect(result.entries).toHaveLength(1)
   expect(previewHitTarget(result.entries[0])).toEqual({ serverId: 'local', sessionId: 'copy', messageId: 22 })
   expect(result.entries[0]).toMatchObject({ additionalMatches: [] })
+})
+
+describe('search across tasks and sessions', () => {
+  const now = Date.UTC(2026, 8, 30)
+  const day = 86_400_000
+
+  test('a task found by its comments shows the comment passage and ranks as evidence below a title hit', () => {
+    // WHY: a task's discussion is searched (unified-search.md §7); it is what
+    // was said about the task, so a task named for the words stays above it.
+    const byTitle = { ...task('t', 'Sentry breadcrumbs'), updatedAt: now - 30 * day }
+    const byComment = { ...task('c', 'Startup hang'), updatedAt: now }
+    const result = buildPickerRows({
+      tasks: [byComment, byTitle], query: 'sentry', now, sessionsFor: () => [], expandedTaskIds: new Set(),
+      commentPassages: new Map([['c', `the \u0001sentry\u0002 breadcrumb shows a checkpoint`]]),
+    })
+    expect(result.entries.map((entry) => entry.kind === 'task' ? [entry.task.id, entry.matchedIn] : null)).toEqual([['t', 'title'], ['c', 'comment']])
+    expect(result.entries[1]).toMatchObject({ bodySnippet: 'the sentry breadcrumb shows a checkpoint' })
+  })
+
+  test('Updated narrows both kinds, Task status narrows tasks, Agent narrows sessions', () => {
+    const fresh = { ...task('fresh', 'Fresh task'), updatedAt: now - day / 2 }
+    const stale = { ...task('stale', 'Stale task'), updatedAt: now - 40 * day }
+    const done = { ...task('done', 'Done task'), status: 'done', updatedAt: now - day / 2 } as Task
+    const session = (sessionId: string, provider: string, at: number) =>
+      ({ sessionId, serverId: 'local', provider, customTitle: null, firstMessage: sessionId, lastTimestamp: new Date(at).toISOString() }) as unknown as SessionMeta
+    const build = (filters: { updated?: 'any' | 'day'; status?: 'any' | 'open' | 'done'; agent?: 'any' | 'codex' }) => buildPickerRows({
+      tasks: [fresh, stale, done], query: '', now, sessionsFor: () => [], expandedTaskIds: new Set(),
+      recentSessions: [session('claude-new', 'claude-code', now - day / 4), session('codex-old', 'codex', now - 40 * day)],
+      filters: { updated: 'any', status: 'any', agent: 'any', ...filters },
+    }).entries.map((entry) => entry.kind === 'task' ? entry.task.id : entry.kind === 'conversation' ? entry.meta.sessionId : null)
+    expect(build({ updated: 'day' })).toEqual(['claude-new', 'fresh', 'done'])
+    expect(build({ status: 'open' })).toEqual(['claude-new', 'fresh', 'stale', 'codex-old'])
+    expect(build({ status: 'done' })).toEqual(['claude-new', 'done', 'codex-old'])
+    expect(build({ agent: 'codex' })).toEqual(['fresh', 'done', 'stale', 'codex-old'])
+  })
+
+  test('a session a host found by its name alone is listed with no passage', () => {
+    // WHY: a title or a branch is not something said, so there is no passage
+    // to show or to open the preview on (unified-search.md §3).
+    const named = { session: { sessionId: 'named', serverId: 'local', customTitle: 'Keyboard cheatsheet', lastTimestamp: new Date(now).toISOString() } as SessionMeta, snippet: '', messageId: -1, rank: -100, ts: now }
+    const result = buildPickerRows({ tasks: [], query: 'cheatsheet', now, sessionsFor: () => [], expandedTaskIds: new Set(), conversations: [named] })
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0]).toMatchObject({ kind: 'conversation', hit: undefined })
+    expect(previewHitTarget(result.entries[0]!)).toBeNull()
+  })
 })

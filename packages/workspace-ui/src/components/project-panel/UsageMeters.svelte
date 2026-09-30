@@ -2,6 +2,7 @@
   import { Code as CodeIcon } from "@lucide/svelte";
   import { Progress } from "@solus/workspace-ui/components/ui/progress";
   import { getAgentContext } from "../../contexts";
+  import { messageTimestampClock } from "../../lib/shared-clock";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import { providerUsage } from "./lib/usage-meters";
@@ -14,11 +15,15 @@
   let { active = true }: Props = $props();
 
   const agent = getAgentContext();
-  const rows = $derived(providerUsage(agent.agents, agent.usage, Date.now()));
+  let now = $state(Date.now());
+  const rows = $derived(providerUsage(agent.agents, agent.usage, now));
 
   $effect(() => {
     if (!active) return;
-    void agent.refreshUsage();
+    return messageTimestampClock.subscribe((value) => {
+      now = value;
+      void agent.refreshUsage();
+    });
   });
 
   const barTone = {

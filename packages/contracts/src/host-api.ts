@@ -1,20 +1,24 @@
+import type { WorkspaceInsightQuery, WorkspaceInsightPage } from './solus-api'
+import type { CheckoutSnapshot } from './checkout'
 import type { BrowserRuntimeStatus } from './browser-runtime'
-import type { WorkTransfer } from './work-transfer'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId } from './types'
-import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrLabel, PrListPage, PrRevertResult, PrStateAction, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
-import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, SentSessionMessage, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
+import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
+import type { SessionPullRequestsBySession } from './session-pull-requests'
+import type { SessionShelfEntry } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
-import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget } from './review'
+import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
 import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
-import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from './observability-types'
+import type { Watch } from './watch-types'
+import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, AssetFindUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult } from './rpc'
+import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnTrace, MetricsValue, SavedMetricsQuery, TurnFlag, TurnFlagKind } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
-import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -25,10 +29,15 @@ import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 import type { AccountState, DeviceSignInEnd } from './account-types'
 import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
-import type { HostGrantResponse, HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
+import type { HostAccessTokenResponse, HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
+import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
+import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
+import type { HostOrganizationsStatus, Publication, PublicationStartRequest } from './organization-scope'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
-import type { PresenceSetComposingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
+import type { AgentProfileBundle, AgentProfileStatus } from './agent-profile'
+import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
+import type { User } from './user'
 import type { RpcPlane } from './rpc-planes'
 
 /** How this host is reached and who this client is to it. */
@@ -49,8 +58,10 @@ export interface ConnectionsServerInfo {
   roles: RpcPlane[]
   /** How this client was admitted; only a `local-owner` may change how the host is reached. */
   principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
-  /** The account behind a grant-admitted client; absent on a local connection. */
+  /** The user key of the caller: the account behind a grant-admitted client, or the host's user on a local connection (plans/012 §1). */
   userId?: string
+  /** The person the host names this client as, on their prompts, answers, and in the room (plans/012 §1). Absent for a runner and the host itself. */
+  user?: User
   /** The organization an `org-member` reached this host through; the share dialog reads its directory. */
   organizationId?: string
   /** The name the host shows other people for a grant-admitted client. */
@@ -87,8 +98,13 @@ export interface SolusAPI {
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
   attachUpload(ctx: IpcContext, request: AttachmentUploadRequest): Promise<string>
+  /** Mint a one-use URL for streaming a large file (a video) into the session's
+   *  upload folder. */
+  attachUploadToken(ctx: IpcContext, request: AttachmentUploadTokenRequest): Promise<AttachmentUploadTokenResult>
   assetUpload(request: AssetUploadRequest): Promise<AssetUploadResult>
   assetCreateUrl(ctx: IpcContext | undefined, request: AssetCreateUrlRequest): Promise<AssetCreateUrlResult>
+  /** One round trip for a list of candidate paths; null when none can be served. */
+  assetFindUrl(ctx: IpcContext | undefined, request: AssetFindUrlRequest): Promise<AssetFindUrlResult | null>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
@@ -113,6 +129,8 @@ export interface SolusAPI {
   /** `annotate` adds per-entry repo/branch/project marks — costs a stat per folder. */
   listDirectory(path: string, showHidden?: boolean, annotate?: boolean): Promise<DirectoryListResult>
   createDirectory(path: string): Promise<CreateDirectoryResult>
+  /** Rename, trash, or delete one path anywhere on the host (the directory picker). */
+  mutateHostPath(mutation: HostPathMutation): Promise<HostPathMutationResult>
   readProjectFile(ctx: IpcContext, request: FilePreviewRequest): Promise<FilePreviewResult>
   listProjectFiles(ctx: IpcContext, request?: ProjectFilesRequest): Promise<ProjectFilesResult>
   /** Create, rename, or delete one entry inside the project root. */
@@ -131,19 +149,26 @@ export interface SolusAPI {
   /** Install one known SCIP indexer on the host. The language selects a fixed command; clients cannot supply argv. */
   codeIntelInstall(request: CodeIntelInstallRequest): Promise<CodeIntelInstallResult>
   codeIntelReindex(ctx: IpcContext, request?: CodeIntelReindexRequest): Promise<CodeIntelReindexResult>
-  respondPermission(ctx: IpcContext, questionId: string, optionId: string, updatedPlan?: string): Promise<boolean>
+  /** Answers a permission `askingSessionId` waits on — the caller's own session, or one it sent work to. */
+  respondPermission(ctx: IpcContext, askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): Promise<boolean>
   writePlanFile(filePath: string, content: string, ctx?: IpcContext): Promise<{ ok: boolean; error?: string }>
-  respondQuestion(ctx: IpcContext, questionId: string, answers: Record<string, string>): Promise<boolean>
+  /** Answers a question `askingSessionId` waits on — the caller's own session, or one it sent work to. */
+  respondQuestion(ctx: IpcContext, askingSessionId: string, questionId: string, answers: Record<string, string>): Promise<boolean>
   rateLimitDecision(ctx: IpcContext, action: RateLimitDecisionAction): Promise<boolean>
   cancelQueuedPrompt(ctx: IpcContext, queueId: string): Promise<boolean>
   editQueuedPrompt(ctx: IpcContext, queueId: string, text: string): Promise<boolean>
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
   resetSession(ctx: IpcContext): Promise<void>
-  listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
+  /** Accept a plan in its own session: stop the planning run, hand over or reset
+   *  as asked, and record the decision (plans/012 §5). The client then sends the
+   *  implementation prompt. */
+  acceptPlan(ctx: IpcContext, request: AcceptPlanRequest): Promise<AcceptPlanResult>
   /** Collaboration plane: the session records of the caller's organization (docs/plans/cloud-service-model.md). */
   sharedSessionAvailable(sessionId: string): Promise<boolean>
   sharedSessionPrompt(request: { sessionId: string; text: string }): Promise<{ accepted: true }>
-  sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecord[]>
+  sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecordList>
+  /** Collaboration plane: what was said in the sessions this home keeps. */
+  sessionRecordSearch(query: SessionRecordSearchQuery): Promise<SessionRecordSearch>
   /** Collaboration plane: a runner's report of one session. The host itself and, later, a runner of the organization. */
   sessionRecordUpsert(record: SessionRecordUpsert): Promise<SessionRecord>
   /** Collaboration plane: the organization's projects, one per repository (docs/plans/project-model.md §2). */
@@ -152,7 +177,6 @@ export interface SolusAPI {
   workspaceProjectAdd(request: WorkspaceProjectAddRequest): Promise<WorkspaceProject>
   workspaceProjectRemove(projectId: string): Promise<void>
   workspaceProjectUpdate(projectId: string, patch: WorkspaceProjectPatch): Promise<WorkspaceProject>
-  searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
   loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
   loadSessionToolInputs(request: SessionToolInputsRequest): Promise<SessionToolInput[]>
@@ -180,6 +204,20 @@ export interface SolusAPI {
   ): Promise<void>
   /** Persist the checkout owned by one session attempt. */
   setSessionBranch(sessionId: string, branch: string): Promise<void>
+  /** The pull requests of the named sessions, or of every session when none is
+   *  named (docs/plans/session-pull-requests.md). */
+  sessionPullRequestsList(sessionIds?: string[]): Promise<SessionPullRequestsBySession>
+  /** Link a pull request to a session by its URL. A person's link. */
+  sessionPullRequestLink(sessionId: string, url: string): Promise<void>
+  /** Remove a pull request from a session. PR sync does not link it again. */
+  sessionPullRequestUnlink(sessionId: string, repository: string, number: number): Promise<void>
+  /** The settled and snoozed sessions: the named ones, or every session
+   *  settled recently or snoozed now. */
+  sessionShelfList(sessionIds?: string[]): Promise<SessionShelfEntry[]>
+  /** Settle a session, or make a settled one active again. */
+  sessionSetSettled(sessionId: string, settled: boolean): Promise<void>
+  /** Snooze a session until a wake time; null wakes it now. */
+  sessionSnooze(sessionId: string, until: number | null, note?: string): Promise<void>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>
@@ -223,7 +261,19 @@ export interface SolusAPI {
   /** Personal Uplink (local-owner only): link this host to the owner's Solus cloud account. */
   uplinkLink(args: UplinkLinkRequest): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>
+  /** Take this host's organization attachment back for one organization; the host stays linked and keeps its records. */
+  uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>
+  /** Organization scope (docs/plans/organization-scope.md §3.1, §6.1, §7). */
+  hostOrganizations(): Promise<HostOrganizationsStatus>
+  /** Host administrator only: opt this machine's work for one organization into its Insights while that organization's policy is off. */
+  hostSetInsightsOptIn(organizationId: string, enabled: boolean): Promise<HostOrganizationsStatus>
+  /** The resource's owner publishes it, and what it needs, into one organization; the client mints the link once it is `committed`. */
+  publicationStart(request: PublicationStartRequest): Promise<Publication>
+  /** The publications of one resource, newest first; every publication of this host when no resource is named. */
+  publicationList(resource?: ShareResource): Promise<Publication[]>
+  /** One organization's turns on the Solus API, membership checked before the read. */
+  insightsList(query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
   shareGet(request: { resource: ShareResource }): Promise<ShareList>
   shareSet(request: ShareSetRequest): Promise<ShareList>
@@ -242,12 +292,20 @@ export interface SolusAPI {
   seatDisconnect(request: SeatProviderRequest): Promise<SeatStatus>
   /** Host administrator: deletes a member's seat files, on removal from the team. */
   seatRemove(request: SeatRemoveRequest): Promise<{ removed: number }>
+  /** Host administrator: this host's own agent profile, to copy to a seat on another host (docs/agent-profile.md). */
+  agentProfileRead(): Promise<AgentProfileBundle>
+  /** An organization member: replaces the profile in their own seats with this one; an empty bundle removes it. */
+  agentProfileApply(bundle: AgentProfileBundle): Promise<AgentProfileStatus>
+  /** An organization member: the profile in their own seats. */
+  agentProfileStatus(): Promise<AgentProfileStatus>
   /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
   presenceSnapshot(): Promise<PresenceSnapshotResult>
   /** What this client is looking at; a hint for "jump to", never an authorization. */
   presenceSetFocus(request: PresenceSetFocusRequest): Promise<void>
   /** This client has (or no longer has) a draft for the session; the room hears it as `session.presenceChanged`. */
   presenceSetComposing(request: PresenceSetComposingRequest): Promise<void>
+  /** This client edits (or stopped editing) a work; the host roster hears it as `host.presenceChanged`. */
+  presenceSetEditing(request: PresenceSetEditingRequest): Promise<void>
   setAnalyticsConsent(enabled: boolean): Promise<void>
   /** This host's durable config, plus whether any client has seeded it yet. */
   typeSafeKeySet(apiKey: string | null): Promise<HostConfigSnapshot>
@@ -257,7 +315,7 @@ export interface SolusAPI {
   otelSettingsGet(): Promise<OtelSettingsSnapshot>
   discoverServers(): Promise<DiscoveredServer[]>
   getServerCapabilities(): Promise<ServerCapabilities>
-  setProjectsBaseDirectory(path: string): Promise<{ projectsBaseDirectory?: string }>
+  setProjectsBaseDirectory(path: string): Promise<Pick<ServerCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
@@ -266,6 +324,8 @@ export interface SolusAPI {
   setupSyncProject(args: SetupSyncProjectRequest): Promise<SetupAdoptProjectResult>
   /** Registers a checkout the host already has, instead of cloning a new one. */
   setupAdoptProject(args: { path: string; cloneUrl?: string }): Promise<SetupAdoptProjectResult>
+  /** Creates an empty folder named `name` in `parent` (default: the projects folder), runs `git init`, and records it. */
+  setupCreateProject(args: { name: string; parent?: string }): Promise<SetupAdoptProjectResult>
   /** Git binary, commit identity, GitHub credentials and SSH keys — on this host alone. */
   setupHostReadiness(): Promise<HostReadiness>
   setupInstallGit(): Promise<SetupStepResult>
@@ -285,6 +345,12 @@ export interface SolusAPI {
   hostInstallUpdate(): Promise<HostUpdateStatus>
   hostCancelUpdate(): Promise<HostUpdateStatus>
 
+  /** The model list this host runs on, and where it came from. */
+  modelProfilesStatus(): Promise<ModelProfilesStatus>
+  /** Drops the cached list and downloads the published one now. If GitHub
+   *  cannot be reached, the host runs on the list its build shipped with. */
+  modelProfilesRefresh(): Promise<ModelProfilesStatus>
+
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>
   pushGetPublicKey(): Promise<string>
@@ -293,10 +359,18 @@ export interface SolusAPI {
 
   /** Create a durable provider session with no client watching it. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
-  /** Prompt another agent no client is watching (card composer/broadcast). */
-  promptSession(sessionId: string, prompt: string, delivery?: PromptDelivery): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
+  /** The messages a session sent that the host still carries, so a reloaded
+   *  card knows which of its messages are live and which were lost. */
+  sessionMessagesSentBy(sessionId: string): Promise<SentSessionMessage[]>
+  /** A person's decision on a plan another session wrote, taken from the card in
+   *  the conversation that sent it the work. False when the plan is no longer
+   *  waiting, or this conversation has no message open to that session. */
+  decideSessionPlan(ctx: IpcContext, targetSessionId: string, decision: 'approve' | 'request_changes', comment?: string): Promise<boolean>
   /** Interrupt a session, by Solus's id or the provider thread a card holds. */
   stopSession(sessionId: string): Promise<boolean>
+  /** Stop the background tasks a session's agent left running, without
+   *  interrupting its turn. False when there is nothing to stop. */
+  stopBackgroundTasks(sessionId: string): Promise<boolean>
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
   providerConnect(ctx: IpcContext): Promise<AuthStatus>
@@ -312,7 +386,15 @@ export interface SolusAPI {
 
   // PR review mode
   prList(ctx: IpcContext, filter?: PrFilter, page?: number): Promise<PrListPage>
-  prNeedsReview(ctx: IpcContext): Promise<PullRequest[]>
+  /** The first page of every named project on this host, in one answer, so the
+   *  every-project list lands at once instead of one project at a time. */
+  prListProjects(ctx: IpcContext, projectRoots: string[], filter?: PrFilter): Promise<PrProjectListing[]>
+  /**
+   * Replace this client's interest in the ctx repository, and answer what PR
+   * sync knows about it now. Later changes arrive as `pr.changed`. The host
+   * drops the interest when the connection closes (docs/plans/pr-sync.md).
+   */
+  prSetInterest(ctx: IpcContext, interests: PrInterest[]): Promise<PrSyncChange>
   prGuideMetadata(ctx: IpcContext, request: PrGuideMetadataRequest): Promise<PrGuideMetadata | null>
   /** Resolve the exact host revision without changing local repository state. */
   prOpenReview(ctx: IpcContext, number: number): Promise<PrReviewTarget>
@@ -332,7 +414,7 @@ export interface SolusAPI {
   prListReviewers(ctx: IpcContext, number: number): Promise<PrReviewer[]>
   prListReviewerCandidates(ctx: IpcContext, number: number): Promise<PrReviewerCandidate[]>
   prRequestReviewers(ctx: IpcContext, number: number, logins: string[]): Promise<PrReviewer[]>
-  prRemoveRequestedReviewer(ctx: IpcContext, number: number, login: string): Promise<PrReviewer[]>
+  prRemoveRequestedReviewer(ctx: IpcContext, number: number, reviewerId: string, kind?: PrReviewerKind): Promise<PrReviewer[]>
   prListLabelCandidates(ctx: IpcContext, number: number): Promise<PrLabel[]>
   /** Replace the label set. Answers the whole pull request, the way every
    *  other write does, so one apply path keeps list rows and detail in step. */
@@ -348,15 +430,12 @@ export interface SolusAPI {
   /** Queue background guide generation for these PRs; resolves once queued. */
   prGenerateGuides(ctx: IpcContext, numbers: number[]): Promise<void>
   /**
-   * Forget everything the host has remembered about this project's pull
-   * requests, so the next read asks the code host again.
-   *
-   * A separate call rather than a `force` flag on each read: only a person's
-   * refresh should spend host requests, and a flag on a read is something every
-   * caller can set. Reads share what has already been fetched; this is the one
+   * A person's refresh: forget what the host remembered about this project's
+   * pull requests and run a PR sync tick for it now. Changes arrive as
+   * `pr.changed`. Reads share what has already been fetched; this is the one
    * way to opt out.
    */
-  prInvalidate(ctx: IpcContext): Promise<void>
+  prRefresh(ctx: IpcContext): Promise<void>
   prMerge(ctx: IpcContext, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PrMergeResult>
   /** Ask the host to merge with `method` once its requirements pass. Answers
    *  the whole pull request, armed. */
@@ -367,8 +446,6 @@ export interface SolusAPI {
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
   /** Cached checks for the repository's open PRs; failures are represented in the snapshot. */
   prChecks(ctx: IpcContext, numbers?: number[]): Promise<PrChecksSnapshot>
-  /** Power/cadence hint from the active renderer surface. */
-  prChecksActivity(ctx: IpcContext, reviewSurfaceOpen: boolean, active: boolean): Promise<void>
 
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */
@@ -401,13 +478,20 @@ export interface SolusAPI {
   metricsSessionSummary(sessionId: string): Promise<MetricsSessionSummary>
   /** One turn's full span tree for the waterfall. */
   metricsTurnTrace(traceId: string): Promise<MetricsTurnTrace>
+  /** Every mark a person has put on a turn on this host. Small: one row per
+   *  marked turn, and a person marks few. */
+  metricsListTurnFlags(): Promise<TurnFlag[]>
+  /** Mark a turn, replacing any earlier mark on it. Answers the whole list. */
+  metricsSetTurnFlag(flag: { traceId: string; kind: TurnFlagKind; note: string }): Promise<TurnFlag[]>
+  /** Unmark a turn. Idempotent; answers the whole list. */
+  metricsClearTurnFlag(traceId: string): Promise<TurnFlag[]>
 
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
   generateGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<{ key: string; guide: ReviewGuide; persisted: boolean; outdated?: boolean } | null>
   requestReviewGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<ReviewGuideStatusEvent | null>
-  reviewGuideStatus(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<ReviewGuideStatusEvent | null>
+  reviewGuideStatus(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope'>): Promise<ReviewGuideStatusEvent | null>
   /** Session-scope status for many sessions in one round trip, answered in
    * request order. A restored workspace probes every tab at once; one request
    * per tab is one round trip per tab. */
@@ -416,19 +500,36 @@ export interface SolusAPI {
    * answered in request order. Reads host storage only and never asks the
    * code host; the caller compares the saved head with the head it listed. */
   prGuideStatuses(ctx: IpcContext, requests: PrGuideStatusRequest[]): Promise<(ReviewGuideStatusEvent | null)[]>
-  cancelGenerateGuide(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<boolean>
+  cancelGenerateGuide(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope'>): Promise<boolean>
   readGuide(ctx: IpcContext, key: string, target?: ReviewTarget): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
   writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
 
+  /** The lens for one target, with its comments and live job. Null when the
+   * target has no checkout the host can resolve. */
+  readReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensSnapshot | null>
+  /** The saved-lens revision of many listed pull requests in one round trip,
+   * answered in request order; 0 means no lens. Reads host storage only. */
+  prLensRevisions(ctx: IpcContext, targets: Extract<ReviewTarget, { kind: 'pr' }>[]): Promise<number[]>
+  /** Queue a new lens. It replaces the current lens only when it succeeds. */
+  requestReviewLens(ctx: IpcContext, request: ReviewLensGenerateRequest): Promise<ReviewLensSnapshot | null>
+  /** Queue a lens edit on the current lens. */
+  editReviewLens(ctx: IpcContext, request: ReviewLensEditRequest): Promise<ReviewLensSnapshot | null>
+  cancelReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<boolean>
+  /** Swap the current lens and the previous version. */
+  restoreReviewLens(ctx: IpcContext, target: ReviewTarget): Promise<ReviewLensSnapshot | null>
+  updateReviewLensComments(ctx: IpcContext, target: ReviewTarget, change: ReviewLensCommentChange): Promise<ReviewLensCommentsResult>
+  /** Post a lens comment to its pull request as a conversation comment. */
+  postReviewLensComment(ctx: IpcContext, target: ReviewTarget, commentId: string): Promise<ReviewLensCommentsResult>
+  /** Delete the conversation comment a lens comment posted. */
+  retractReviewLensComment(ctx: IpcContext, target: ReviewTarget, commentId: string): Promise<ReviewLensCommentsResult>
+
   createWork(title: string, type: WorkType, content: string | undefined, preview: string | undefined, sessionId: string | undefined, agentProvider: AgentId, cwd?: string, id?: string): Promise<Work>
-  saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, expectedUpdatedAt?: string): Promise<Work>
+  /** `base` is the saved record the writer's edits are based on: its record
+   *  version and its body's version. A save against a newer record is refused. */
+  saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, base: Pick<Work, 'updatedAt' | 'contentVersion'>): Promise<Work>
   loadWork(id: string): Promise<Work | null>
-  loadWorkUpdatedAt(id: string): Promise<string | null>
   listWorks(): Promise<(WorkMeta & { id: string })[]>
-  worksCloudExport(id: string): Promise<WorkTransfer>
-  worksCloudImport(transfer: WorkTransfer): Promise<Work>
-  worksCloudRemove(id: string, fingerprint: string): Promise<void>
   deleteWork(id: string): Promise<void>
   duplicateWork(id: string): Promise<Work>
   linkWorkSession(id: string, sessionId: string): Promise<void>
@@ -447,9 +548,39 @@ export interface SolusAPI {
   readWorkExternalComments(workId: string): Promise<WorkExternalComments>
   refreshWorkExternalComments(workId: string): Promise<WorkExternalComments>
   sendWorkExternalComment(workId: string, command: ExternalCommentCommand): Promise<WorkExternalComments>
-  agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<Work>
-  loadWorkPrevious(workId: string): Promise<WorkPrevious | null>
-  revertWork(id: string): Promise<Work | null>
+  /** An agent's save. `expectedContentVersion` is the `contentVersion` the agent read;
+   *  a save against a later body is refused, never merged. */
+  agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, expectedContentVersion: number): Promise<Work>
+  /** Every checkpoint of the work, oldest first, without bodies. */
+  loadWorkRevisions(workId: string): Promise<WorkRevisionSummary[]>
+  loadWorkRevision(workId: string, revisionId: number): Promise<WorkRevision>
+  /** Make one checkpoint's body current again, as a new `restore` checkpoint.
+   *  Nothing is deleted. `expectedContentVersion` is the body the reader compared
+   *  it against; a newer body is refused, never displaced unseen. */
+  restoreWorkRevision(workId: string, revisionId: number, expectedContentVersion: number): Promise<Work>
+  /** Work review (docs/plans/work-review-and-live-editing.md): the reviewers,
+   *  their decisions, whether each is stale, and the derived review state. */
+  workReviewGet(workId: string): Promise<WorkReview>
+  /** Ask members to review the body at `expectedContentVersion`. A member who
+   *  cannot open the work is given it as a commenter. Needs `editor`. */
+  workReviewRequest(workId: string, request: WorkReviewRequest): Promise<WorkReview>
+  workReviewRemove(workId: string, reviewerId: string): Promise<WorkReview>
+  /** The caller's decision. The host names the reviewer from the principal and
+   *  the hash from the named checkpoint. Needs `commenter`. */
+  workReviewDecide(workId: string, decide: WorkReviewDecide): Promise<WorkReview>
+  /** The works that wait for the caller's review. */
+  workReviewInbox(): Promise<WorkReviewInboxItem[]>
+  /** The review state of every work the caller can open that has reviewers. */
+  workReviewStates(): Promise<WorkReviewStateEntry[]>
+  /** Live editing (docs/plans/work-review-and-live-editing.md, phase 3b): join the
+   *  work's room and exchange what each side lacks. The room hears
+   *  `workLive.update`, `workLive.awareness`, and `workLive.state`. */
+  workLiveOpen(request: WorkLiveOpenRequest): Promise<WorkLiveOpenResult>
+  /** This client's edits, durable on the host before the answer. Needs `editor`. */
+  workLivePush(request: WorkLivePushRequest): Promise<WorkLivePushResult>
+  /** This client's cursor and selection, relayed to the room and never stored. */
+  workLiveAwareness(request: WorkLiveAwarenessRequest): Promise<void>
+  workLiveClose(request: WorkLiveCloseRequest): Promise<void>
   setWorkPinned(id: string, pinned: boolean): Promise<void>
 
   docProviderStatuses(): Promise<DocProviderStatus[]>
@@ -484,13 +615,15 @@ export interface SolusAPI {
   tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
   tasksPublish(id: string, cwd: string): Promise<TaskDetails>
   tasksSyncNow(id?: string): Promise<TaskExternalLink[]>
-  tasksList(filter?: TaskListFilter): Promise<TaskListResult>
-  tasksSidebarSnapshot(): Promise<TaskSidebarSnapshot>
+  tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
+  /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
+  tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
+  tasksReadExtras(id: string): Promise<Omit<TaskDetails, 'task'>>
   tasksGet(id: string): Promise<TaskDetails>
   tasksCreate(input: TaskCreateInput): Promise<Task>
   tasksPrepareForSession(input: PrepareSessionTaskRequest): Promise<PrepareSessionTaskResult>
   tasksSnapshot(taskId: string): Promise<TaskSnapshot>
-  tasksUpdate(id: string, patch: TaskUpdatePatch): Promise<Task>
+  tasksUpdate(id: string, patch: TaskUpdatePatch, expectedUpdatedAt?: number): Promise<Task>
   tasksMarkRead(id: string, read: boolean): Promise<Task>
   tasksRecordActivity(id: string): Promise<Task>
   tasksDelete(id: string): Promise<boolean>
@@ -524,7 +657,7 @@ export interface SolusAPI {
   outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>
   outboxApply(ops: OutboxOp[]): Promise<OutboxApplyResult>
 
-  automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
+  automationCreate(name: string, action: AutomationAction, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
   automationRead(id: string): Promise<Automation | null>
   automationUpdate(id: string, patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger }): Promise<Automation | null>
@@ -534,6 +667,14 @@ export interface SolusAPI {
   automationCancel(id: string): Promise<boolean>
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
+
+  /** Every watch of one session, newest first, ended watches included. */
+  watchList(sessionId: string): Promise<Watch[]>
+  /** The session is named so access is checked against it; a watch of another
+   *  session is refused. Null when the watch cannot make that change. */
+  watchPause(sessionId: string, watchId: string): Promise<Watch | null>
+  watchResume(sessionId: string, watchId: string): Promise<Watch | null>
+  watchCancel(sessionId: string, watchId: string): Promise<Watch | null>
 
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>
@@ -565,6 +706,7 @@ export interface SolusAPI {
   worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean }): Promise<string[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string): Promise<GitCheckout | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
+  checkoutSnapshot(paths: string[]): Promise<CheckoutSnapshot>
   gitRefreshState(cwd: string, options?: GitStateOptions): Promise<GitState | null>
   gitIdentity(cwd: string): Promise<GitIdentity | null>
   gitRegisterEnvironment(ctx: IpcContext, cwd: string, gitContext: GitCheckout | null): Promise<void>
@@ -648,6 +790,11 @@ export interface SolusAPI {
    * an agent are the same kind of thing.
    */
   browserCaptureEvidence(request: BrowserCaptureRequest): Promise<BrowserEvidence>
+  /** Start recording a page on the host. Idempotent: a page that is already
+   *  recording keeps its recording. */
+  browserRecordingStart(browserPageId: string): Promise<BrowserRecordingState>
+  /** Stop, store as MP4, and optionally file the recording. */
+  browserRecordingStop(request: BrowserRecordingStopRequest): Promise<BrowserRecordingResult>
   /** What this page's capture could be filed against — the worktree it is
    *  serving, and the pull request open on that branch, if any. */
   browserEvidenceOptions(browserPageId: string): Promise<BrowserEvidenceOptions>
@@ -731,8 +878,9 @@ export interface NativeSolusAPI {
   onAccountStateChange(callback: (state: AccountState) => void): () => void
   /** Personal Uplink, on behalf of the signed-in account. Null when signed out or
    *  the website did not answer; the account token itself never crosses. */
-  uplinkListDirectoryHosts(): Promise<UplinkDirectory | null>
-  uplinkAcquireHostGrant(hostId: string): Promise<HostGrantResponse | null>
+  uplinkListDirectory(): Promise<UplinkDirectory | null>
+  /** A member of several organizations a host is shared with names the one their window works in. */
+  uplinkAcquireHostAccessToken(hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null>
   uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog. */
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>

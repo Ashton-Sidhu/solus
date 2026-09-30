@@ -1,0 +1,116 @@
+[
+  {
+    "name": "streamed chunk, 1,000-message transcript",
+    "unit": "ms / chunk",
+    "before": 0.8914169999999899,
+    "after": 0.019458000000014408
+  },
+  {
+    "name": "new tool call, 1,000-message transcript",
+    "unit": "ms / message",
+    "before": 0.8740000000000236,
+    "after": 0.14720800000000622
+  },
+  {
+    "name": "first build (tab mount), 1,000 messages",
+    "unit": "ms",
+    "before": 2.3247499999999945,
+    "after": 2.767166000000003
+  },
+  {
+    "name": "streamed chunk, 5,000-message transcript",
+    "unit": "ms / chunk",
+    "before": 4.7910830000000715,
+    "after": 0.04608400000000756
+  },
+  {
+    "name": "new tool call, 5,000-message transcript",
+    "unit": "ms / message",
+    "before": 5.053666999999905,
+    "after": 0.44237499999997
+  },
+  {
+    "name": "first build (tab mount), 5,000 messages",
+    "unit": "ms",
+    "before": 14.362125000000106,
+    "after": 15.50116700000001
+  },
+  {
+    "name": "first page, quiet session (2 steps a turn)",
+    "unit": "messages",
+    "before": 201,
+    "after": 30,
+    "note": "10 turns"
+  },
+  {
+    "name": "first page wire size, quiet session",
+    "unit": "KB",
+    "before": 73.609375,
+    "after": 10.9873046875
+  },
+  {
+    "name": "first page build, quiet session",
+    "unit": "ms",
+    "before": 0.6806660000002012,
+    "after": 0.1469579999999837
+  },
+  {
+    "name": "first page, typical session (8 steps a turn)",
+    "unit": "messages",
+    "before": 207,
+    "after": 90,
+    "note": "10 turns"
+  },
+  {
+    "name": "first page wire size, typical session",
+    "unit": "KB",
+    "before": 94.80859375,
+    "after": 41.2216796875
+  },
+  {
+    "name": "first page build, typical session",
+    "unit": "ms",
+    "before": 0.7047919999999976,
+    "after": 0.39662500000002865
+  },
+  {
+    "name": "first page, busy session (40 steps a turn)",
+    "unit": "messages",
+    "before": 205,
+    "after": 410,
+    "note": "10 turns"
+  },
+  {
+    "name": "first page wire size, busy session",
+    "unit": "KB",
+    "before": 101.3828125,
+    "after": 202.7646484375
+  },
+  {
+    "name": "first page build, busy session",
+    "unit": "ms",
+    "before": 0.7067080000001624,
+    "after": 1.7884159999999838
+  },
+  {
+    "name": "first page wire, busy session of tool rows (10 turns × 40 tools)",
+    "unit": "KB",
+    "before": 1633.8115234375,
+    "after": 118.5771484375,
+    "note": "before: inputs deferred on phones only"
+  },
+  {
+    "name": "transcript data held, 20 tabs each scrolled to 2,000 messages",
+    "unit": "MB heap",
+    "before": 29.684744834899902,
+    "after": 7.246901512145996,
+    "note": "4 mounted keep their history; others keep 90"
+  },
+  {
+    "name": "conversation views mounted after visiting 20 tabs",
+    "unit": "views",
+    "before": 20,
+    "after": 4,
+    "note": "each view: DOM, effects, observers, orb, cards"
+  }
+]

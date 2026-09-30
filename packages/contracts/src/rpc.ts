@@ -21,6 +21,23 @@ export interface AttachmentUploadRequest {
   dataUrl: string
 }
 
+/** Ask for permission to stream one file to the host over HTTP. The bytes do
+ *  not cross the RPC: base64 in a WebSocket frame cannot carry a 50 MB video. */
+export interface AttachmentUploadTokenRequest {
+  name: string
+  mime: string
+  /** Exact byte count. The upload route refuses a body of any other length. */
+  size: number
+}
+
+export interface AttachmentUploadTokenResult {
+  /** `POST` the raw bytes here, relative to the host origin. No other auth. */
+  relativeUrl: string
+  /** Where the file will be once the upload succeeds. */
+  hostPath: string
+  expiresAt: number
+}
+
 export interface AssetCreateUrlRequest {
   /** Existing host path authored by an agent. Mutually exclusive with assetId. */
   path?: string
@@ -33,6 +50,16 @@ export interface AssetCreateUrlRequest {
 export interface AssetCreateUrlResult {
   relativeUrl: string
   expiresAt: number
+}
+
+export interface AssetFindUrlRequest {
+  /** Existing host paths in preference order. The first servable file wins. */
+  paths: string[]
+}
+
+export interface AssetFindUrlResult extends AssetCreateUrlResult {
+  /** The candidate that was served. */
+  path: string
 }
 
 export type AssetUploadRequest = AttachmentUploadRequest
@@ -59,12 +86,15 @@ export const RPC_INVOKE_METHODS = [
   'prompt',
   'retry',
   'stopSession',
+  'stopBackgroundTasks',
   'resetSession',
+  'acceptPlan',
   'switchSessionAgent',
 
   // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
-  'promptSession',
+  'sessionMessagesSentBy',
+  'decideSessionPlan',
 
   // Permission / interaction
   'respondPermission',
@@ -84,8 +114,10 @@ export const RPC_INVOKE_METHODS = [
   'attachFiles',
   'attachFilePaths',
   'attachUpload',
+  'attachUploadToken',
   'assetUpload',
   'assetCreateUrl',
+  'assetFindUrl',
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
@@ -97,6 +129,7 @@ export const RPC_INVOKE_METHODS = [
   'searchProjectContents',
   'listDirectory',
   'createDirectory',
+  'mutateHostPath',
   'readProjectFile',
   'listProjectFiles',
   'mutateProjectFile',
@@ -113,11 +146,8 @@ export const RPC_INVOKE_METHODS = [
 
   // Sessions / plans / projects
   'bindRuntimeSession',
-  'listSessions',
-  'searchSessions',
   'sharedSessionAvailable',
   'sharedSessionPrompt',
-  'sessionRecordList',
   'sessionRecordUpsert',
   'workspaceProjectList',
   'workspaceProjectAdd',
@@ -135,6 +165,12 @@ export const RPC_INVOKE_METHODS = [
   'generateSessionMetadata',
   'setSessionTitle',
   'setSessionBranch',
+  'sessionPullRequestsList',
+  'sessionPullRequestLink',
+  'sessionPullRequestUnlink',
+  'sessionShelfList',
+  'sessionSetSettled',
+  'sessionSnooze',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',
@@ -166,6 +202,7 @@ export const RPC_INVOKE_METHODS = [
   'worktreeBranches',
   'worktreeRestore',
   'continueInWorktree',
+  'checkoutSnapshot',
   'gitRefreshState',
   'gitIdentity',
   'gitRegisterEnvironment',
@@ -219,7 +256,13 @@ export const RPC_INVOKE_METHODS = [
   // Personal Uplink: the host's link to the owner's Solus cloud account (local-only)
   'uplinkLink',
   'uplinkUnlink',
+  'uplinkDetachOrganization',
   'uplinkStatus',
+  // Organization scope (docs/plans/organization-scope.md): this host's standing, its Insights opt-ins, and publication
+  'hostOrganizations',
+  'hostSetInsightsOptIn',
+  'publicationStart',
+  'publicationList',
   // Sharing: who may open one session or work on this host
   'shareGet',
   'shareSet',
@@ -233,10 +276,15 @@ export const RPC_INVOKE_METHODS = [
   'seatConnectToken',
   'seatDisconnect',
   'seatRemove',
+  // Agent profile: a member's own instructions and skills, copied into their seats
+  'agentProfileRead',
+  'agentProfileApply',
+  'agentProfileStatus',
   // Presence: who is here, what they are looking at, and whether they are typing
   'presenceSnapshot',
   'presenceSetFocus',
   'presenceSetComposing',
+  'presenceSetEditing',
   'setAnalyticsConsent',
 
   // Host config — the tier that follows a user between clients
@@ -256,6 +304,7 @@ export const RPC_INVOKE_METHODS = [
   'setupCloneProject',
   'setupSyncProject',
   'setupAdoptProject',
+  'setupCreateProject',
   'setupHostReadiness',
   'setupInstallGit',
   'setupInstallGh',
@@ -270,6 +319,10 @@ export const RPC_INVOKE_METHODS = [
   'hostInstallUpdate',
   'hostCancelUpdate',
 
+  // Model list: the host's copy of the published model profiles
+  'modelProfilesStatus',
+  'modelProfilesRefresh',
+
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',
 
@@ -279,18 +332,9 @@ export const RPC_INVOKE_METHODS = [
   'pushUnsubscribe',
 
   // Folio / works
-  'createWork',
-  'saveWork',
-  'loadWork',
-  'loadWorkUpdatedAt',
-  'listWorks',
-  'deleteWork',
   'duplicateWork',
   'linkWorkSession',
   'worksExport',
-  'worksCloudExport',
-  'worksCloudImport',
-  'worksCloudRemove',
   'loadWorkAnnotations',
   'applyWorkComment',
   'markWorkCommentRead',
@@ -301,8 +345,19 @@ export const RPC_INVOKE_METHODS = [
   'refreshWorkExternalComments',
   'sendWorkExternalComment',
   'agentSaveWork',
-  'loadWorkPrevious',
-  'revertWork',
+  'loadWorkRevisions',
+  'loadWorkRevision',
+  'restoreWorkRevision',
+  'workReviewGet',
+  'workReviewRequest',
+  'workReviewRemove',
+  'workReviewDecide',
+  'workReviewInbox',
+  'workReviewStates',
+  'workLiveOpen',
+  'workLivePush',
+  'workLiveAwareness',
+  'workLiveClose',
   'setWorkPinned',
 
   // Upstream doc mirror for works (Confluence pages, Google Docs)
@@ -346,7 +401,8 @@ export const RPC_INVOKE_METHODS = [
 
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
-  'prNeedsReview',
+  'prListProjects',
+  'prSetInterest',
   'prGuideMetadata',
   'prOpenReview',
   'prGetDiff',
@@ -379,7 +435,7 @@ export const RPC_INVOKE_METHODS = [
   'prDisableAutoMerge',
   'prRevert',
   'prPrepareConflictResolution',
-  'prInvalidate',
+  'prRefresh',
 
   // Review guide (agent code-review ledger + guided walkthrough)
   'readLedger',
@@ -395,6 +451,17 @@ export const RPC_INVOKE_METHODS = [
   'readReviewState',
   'writeReviewState',
 
+  // Review lens (one generated HTML artifact per review target)
+  'readReviewLens',
+  'prLensRevisions',
+  'requestReviewLens',
+  'editReviewLens',
+  'cancelReviewLens',
+  'restoreReviewLens',
+  'updateReviewLensComments',
+  'postReviewLensComment',
+  'retractReviewLensComment',
+
   // Tasks (global native store plus project-scoped upstream providers)
   'tasksProviderStatus',
   'inboxListUpstream',
@@ -407,14 +474,11 @@ export const RPC_INVOKE_METHODS = [
   'tasksImport',
   'tasksPublish',
   'tasksSyncNow',
-  'tasksList',
   'tasksSidebarSnapshot',
-  'tasksGet',
-  'tasksCreate',
-  'tasksUpdate',
+  'tasksSearchComments',
+  'tasksReadExtras',
   'tasksMarkRead',
   'tasksRecordActivity',
-  'tasksDelete',
   'tasksComment',
   'tasksDeleteComment',
   'tasksPublishComments',
@@ -447,10 +511,15 @@ export const RPC_INVOKE_METHODS = [
   'automationListRuns',
   'automationReadRun',
 
+  // Watches (docs/plans/watches.md): list one session's watches and control them
+  'watchList',
+  'watchPause',
+  'watchResume',
+  'watchCancel',
+
 
   // PR checks cache + renderer activity hint
   'prChecks',
-  'prChecksActivity',
 
   // Subscription quota per agent provider
   'usageLimits',
@@ -474,6 +543,8 @@ export const RPC_INVOKE_METHODS = [
   'browserSubscribeFrames',
   'browserUnsubscribeFrames',
   'browserCaptureEvidence',
+  'browserRecordingStart',
+  'browserRecordingStop',
   'browserEvidenceOptions',
   'browserOpenDevTools',
   'browserSetAnnotationTool',
@@ -501,23 +572,14 @@ export const RPC_INVOKE_METHODS = [
   'metricsDeleteQuery',
   'metricsSessionSummary',
   'metricsTurnTrace',
+  'metricsListTurnFlags',
+  'metricsSetTurnFlag',
+  'metricsClearTurnFlag',
   'logFilePath',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
 export type RpcMethod = RpcInvokeMethod
-
-export interface SearchSessionsRequest {
-  query: string
-  /** Omit to search every project; set to scope to one git-root. */
-  projectRoot?: string
-  providers?: string[]
-  role?: 'user' | 'assistant'
-  sinceTs?: number
-  limit?: number
-  /** Match the last token as a prefix, for a query still being typed. */
-  prefixLastToken?: boolean
-}
 
 export interface RpcEnvelope {
   method: RpcMethod

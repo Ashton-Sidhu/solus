@@ -1,6 +1,6 @@
-import type { AgentId, GitCheckout, IpcContext, ModelConfig, ReasoningEffort, RunConfig, Session, WorktreeEntry } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
-import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, modelLabelFor, worktreeProjectRoot } from '@solus/contracts/types'
+import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
@@ -9,8 +9,7 @@ import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionDraft } from './session-draft.svelte'
 import { toasts } from '../../lib/toasts'
-import { isDispatch, startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from './run-config'
-import { nextMsgId } from './session.utils'
+import { startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchCheckout, withDispatchWorktree, withWorktreeToggled } from './run-config'
 import type { HostApi } from '@solus/client-core/host-api'
 
 /** What a destination command edits: the run a source owns, and the started
@@ -26,7 +25,8 @@ interface RunOwner {
   run: RunConfig
   session?: Session
   apply(next: RunConfig): void
-  startNewTask(): void
+  /** The run is moving to another project, so it leaves the task it was under. */
+  leaveTask(): void
 }
 
 /**
@@ -58,12 +58,6 @@ function nextModelConfig(
   }
 }
 
-const AGENT_LABELS = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-} satisfies Record<AgentId, string>
-
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
   registry: TabRegistry
@@ -88,7 +82,7 @@ export interface SessionConfigControllerDeps {
   rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   /** `run` names the host whose checkout the refs describe. */
   refreshGitRefs(run: RunConfig | undefined, projectRoot: string, ctx: IpcContext): void
-  refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
+  refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean; force?: boolean }): Promise<GitRefreshResult>
   /** Bring an already-open tab to the front — the "matching tab" half of
    *  activating a checkout. */
   selectTab?(tabId: string): void
@@ -98,7 +92,7 @@ export class SessionConfigController {
   /** What a new session runs with. Where it runs is not here: that is
    *  `WorkspaceContext.defaultRunConfig`, derived from `settings.lastProject`. */
   globalDefaults: {
-    permissionMode: 'ask' | 'auto' | 'plan'
+    permissionMode: PermissionMode
     modelConfig: ModelConfig
   }
   tabGroupMode = $state<TabGroupMode>('flat')
@@ -108,10 +102,10 @@ export class SessionConfigController {
 
   constructor(private deps: SessionConfigControllerDeps) {
     const defaults = $state({
-      get permissionMode(): 'ask' | 'auto' | 'plan' {
-        return deps.settings.defaultPermissionMode ?? 'auto'
+      get permissionMode(): PermissionMode {
+        return deps.settings.defaultPermissionMode ?? 'full-access'
       },
-      set permissionMode(mode: 'ask' | 'auto' | 'plan') {
+      set permissionMode(mode: PermissionMode) {
         deps.settings.update({ defaultPermissionMode: mode })
       },
       modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false } as ModelConfig,
@@ -137,14 +131,14 @@ export class SessionConfigController {
         run: session.run,
         session,
         apply: (next) => { session.run = next },
-        startNewTask: () => { session.task = { kind: 'new' } },
+        leaveTask: () => { session.task = { kind: 'none' } },
       }
       const draft = this.deps.draftFor(sourceId)
       if (draft) return {
         id: sourceId,
         run: draft.run,
         apply: (next) => { draft.run = next },
-        startNewTask: () => { draft.task = { kind: 'new' } },
+        leaveTask: () => { draft.task = { kind: 'none' } },
       }
       return null
     }
@@ -155,7 +149,7 @@ export class SessionConfigController {
       run: session.run,
       session,
       apply: (next) => { session.run = next },
-      startNewTask: () => { session.task = { kind: 'new' } },
+      leaveTask: () => { session.task = { kind: 'none' } },
     }
   }
 
@@ -182,27 +176,10 @@ export class SessionConfigController {
     const provider = session?.run.provider ?? draft?.run.provider ?? this.deps.settings.activeAgent
     const next = nextModelConfig(current, patch, provider)
 
-    if (session && next.modelId !== current.modelId) {
-      this.nameModelOnPendingDivider(session, provider, next.modelId)
-    }
-
     // A draft owns its run, so it is handed a new one rather than edited in
     // place — the same write the model chip's detached selection makes.
     if (draft) draft.run = { ...draft.run, modelConfig: next }
     else Object.assign(current, next)
-  }
-
-  /** A restored or already-bound handoff target still owns its active model, so
-   *  the divider that opened it follows the picker rather than freezing on the
-   *  model the handoff defaulted to. */
-  private nameModelOnPendingDivider(session: Session, provider: AgentId, modelId: string | null): void {
-    if (!modelId) return
-    const pendingDivider = session.messages.findLast(
-      (message) => message.agentChangedToProvider === provider,
-    )
-    if (pendingDivider) {
-      pendingDivider.agentChangedToModel = modelLabelFor(provider, modelId) ?? modelId
-    }
   }
 
   /** The agent new sessions start on. It is a preference, so it never rewrites
@@ -264,12 +241,10 @@ export class SessionConfigController {
     if (!session && this.switchDraftAgent(tabId, agentId, via)) return
 
     // A session already holding a provider thread is handed over, not started, so
-    // an Auto default never applies to it — Auto only routes a first prompt.
-    const resumesProviderThread = !!(session?.agentSessionId || session?.handoffId)
-    const newModelConfig = resumesProviderThread
-      ? this.pinnedModelConfigFor(agentId)
-      : this.defaultModelConfigFor(agentId)
+    // an Auto default never applies to it (`adoptHandoff`) — Auto only routes a
+    // first prompt.
     if (!session?.agentSessionId && !session?.handoffId) {
+      const newModelConfig = this.defaultModelConfigFor(agentId)
       track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -289,62 +264,54 @@ export class SessionConfigController {
     }
 
     this.handoffInProgress = true
-    const sourceModelId = session.sessionModel ?? session.run.modelConfig.modelId
     try {
       // The server keeps a session record only while a runtime is attached, so an
       // idle conversation must carry its own provider thread into the handoff.
       const result = await this.deps.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
-      track('agent_switched', { from: result.fromProvider, to: agentId, via })
-      this.deps.settings.update({ activeAgent: agentId })
-      this.globalDefaults.modelConfig = newModelConfig
-      this.deps.setPluginCommands({ global: [], project: [] })
-      session.run.provider = agentId
-      session.agentSessionId = result.restoredSessionId ?? null
-      session.run.modelConfig = { ...newModelConfig }
-      session.sessionModel = null
-      session.run.sessionSkills = []
-      session.pluginCommands = { global: [], project: [] }
-      session.handoffId = result.handoffId
-      session.handoffFrom = undefined
-      session.status = 'idle'
-      session.currentTurnStartedAt = null
-      session.rateLimitInfo = null
-      this.deps.rekeyTaskSessionBinding(
-        result.taskSessionMove.sourceSessionId,
-        result.taskSessionMove.targetSessionId,
-        session.run.taskServerId,
-      )
-      const agentChangedTo = AGENT_LABELS[agentId]
-      if (result.restoredSessionId) {
-        const pendingDivider = session.messages.findLastIndex((message) => !!message.agentChangedTo)
-        if (pendingDivider !== -1) session.messages.splice(pendingDivider, 1)
-      } else {
-        const sourceModel = modelLabelFor(result.fromProvider, sourceModelId) ?? undefined
-        const targetModelId = newModelConfig.modelId
-        const targetModel = modelLabelFor(agentId, targetModelId) ?? undefined
-        session.messages.push({
-          id: nextMsgId(),
-          role: 'system',
-          content: `Switched to ${agentChangedTo}`,
-          timestamp: Date.now(),
-          agentChangedTo,
-          agentChangedFromModel: sourceModel,
-          agentChangedToModel: targetModel,
-          agentChangedFromProvider: result.fromProvider,
-          agentChangedToProvider: agentId,
-        })
-      }
-      this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
+      this.adoptHandoff(session, agentId, result, targetTabId, via)
     } catch (error) {
-      toasts.error("Couldn't hand off session", {
-        description: error instanceof Error ? error.message : String(error),
-      })
+      this.handoffFailed(error instanceof Error ? error.message : String(error))
     } finally {
       this.handoffInProgress = false
     }
   }
 
-  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
+  /** A handoff the host refused leaves the original provider in place; say why. */
+  handoffFailed(reason: string): void {
+    toasts.error("Couldn't hand off session", { description: reason })
+  }
+
+  /**
+   * Take on a provider switch the host made for `tabId`'s session — from the
+   * agent picker, or as part of accepting a plan. The host records the switch
+   * as activity, which draws its divider (plans/012 §5).
+   */
+  adoptHandoff(session: Session, agentId: AgentId, result: SessionProviderSwitchResult, targetTabId: string, via: Via = 'click'): void {
+    const newModelConfig = this.pinnedModelConfigFor(agentId)
+    track('agent_switched', { from: result.fromProvider, to: agentId, via })
+    this.deps.settings.update({ activeAgent: agentId })
+    this.globalDefaults.modelConfig = newModelConfig
+    this.deps.setPluginCommands({ global: [], project: [] })
+    session.run.provider = agentId
+    session.agentSessionId = result.restoredSessionId ?? null
+    session.run.modelConfig = { ...newModelConfig }
+    session.sessionModel = null
+    session.run.sessionSkills = []
+    session.pluginCommands = { global: [], project: [] }
+    session.handoffId = result.handoffId
+    session.handoffFrom = undefined
+    session.status = 'idle'
+    session.currentTurnStartedAt = null
+    session.rateLimitInfo = null
+    this.deps.rekeyTaskSessionBinding(
+      result.taskSessionMove.sourceSessionId,
+      result.taskSessionMove.targetSessionId,
+      session.run.taskServerId,
+    )
+    this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
+  }
+
+  setPermissionMode(mode: PermissionMode, tabId?: string): void {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (session) {
       session.run.permissionMode = mode
@@ -369,6 +336,13 @@ export class SessionConfigController {
     owner.apply(withDispatchWorktree(owner.run, worktree))
   }
 
+  /** A pending dispatch works in the target host's checkout, not a worktree. */
+  setDispatchCheckout(sourceId?: string): void {
+    const owner = this.ownerFor(sourceId)
+    if (!owner) return
+    owner.apply(withDispatchCheckout(owner.run))
+  }
+
   setDispatchBaseBranch(branch: string, sourceId?: string): void {
     const owner = this.ownerFor(sourceId)
     if (!owner) return
@@ -390,9 +364,12 @@ export class SessionConfigController {
     // moves through continueInWorktree instead; this guard also keeps the global
     // shortcut from changing where an existing conversation runs.
     if (owner.session?.agentSessionId) return
-    // A dispatched session's checkout was settled before Send. Do not let the
-    // global shortcut change it after the host move.
-    if (isDispatch(owner.run)) return
+    // A pending dispatch keeps its target-host choice in the pending record, so
+    // the flip goes through the same commands as its branch menu.
+    if (owner.run.pendingHostDispatch?.intent === 'dispatch') {
+      owner.apply(startsWorktree(owner.run) ? withDispatchCheckout(owner.run) : withDispatchWorktree(owner.run, null))
+      return
+    }
     const next = withWorktreeToggled(owner.run)
     const reanchored = next.workingDirectory !== owner.run.workingDirectory
     owner.apply(next)
@@ -509,11 +486,10 @@ export class SessionConfigController {
     // at all there is nothing to move.
     if (!owner) {
       this.deps.openSessionDraft(dir, true)
-      void this.deps.apiForRun(undefined).trackRecentProject(dir)
       return
     }
     const api = this.deps.apiForRun(owner.run)
-    owner.startNewTask()
+    owner.leaveTask()
     owner.apply(withCheckout(owner.run, dir, null))
     // Detaching the provider thread and its plugin commands is session reset; a
     // draft has neither, so it only re-resolves its checkout below.
@@ -536,7 +512,6 @@ export class SessionConfigController {
         worktreeRequested: startsWorktree(owner.run),
       }),
     )
-    void api.trackRecentProject(dir)
   }
 
   pendingSessionStartTarget(tabId?: string): Promise<void> | null {
@@ -552,7 +527,9 @@ export class SessionConfigController {
   ): Promise<void> {
     return this.trackSessionStartTargetResolution(
       sourceId,
-      this.deps.refreshGitState({ sourceId, cwd, worktreeRequested }),
+      // Opening a source on a checkout another open session already runs in
+      // takes that live status instead of reading it again.
+      this.deps.refreshGitState({ sourceId, cwd, worktreeRequested, force: false }),
     )
   }
 

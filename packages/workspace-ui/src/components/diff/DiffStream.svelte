@@ -85,6 +85,9 @@
     diffStyle: "unified" | "split";
     tokenHighlight: boolean;
     comments: DiffComment[];
+    /** Where the local comments go when sent: with a PR review, or with the
+     *  session's next message. Shown on each pending comment. */
+    commentsSendWith: "review" | "message";
     /** Hide the line-selection and gutter comment affordances entirely — for
      *  views whose line numbers no other surface shares (a commit-scoped
      *  patch), where an anchored comment would point at different code. */
@@ -129,6 +132,7 @@
     diffStyle,
     tokenHighlight,
     comments,
+    commentsSendWith,
     commentingDisabled = false,
     reviewThreads,
     onThreadReply,
@@ -173,7 +177,7 @@
   let threadLayoutNonce = $state(0);
   const annotations = new DiffAnnotations(
     annotationContexts,
-    () => ({ onThreadReply, onThreadResolve, onEditComment, onDeleteComment }),
+    () => ({ onThreadReply, onThreadResolve, onEditComment, onDeleteComment, commentsSendWith }),
     () => { threadLayoutNonce++; },
   );
 
@@ -654,6 +658,14 @@
       void annotations.sync(codeView!, fileDiffs.map((file) => file.name), comments, reviewThreads, draft);
     });
     untrack(() => syncStickyContainerBackground());
+    untrack(() => {
+      const path = pendingFileJump;
+      pendingFileJump = null;
+      if (path && codeView?.getItem(path)) {
+        ensureExpanded(path);
+        codeView.scrollTo({ type: "item", id: path, align: "start" });
+      }
+    });
   });
 
   // Effect B — runs when annotation state changes (comments, draft, selection).
@@ -670,6 +682,7 @@
     void onThreadResolve;
     void onEditComment;
     void onDeleteComment;
+    void commentsSendWith;
     if (!codeView) return;
     untrack(() => {
       void annotations.sync(codeView!, fileDiffs.map((file) => file.name), comments, reviewThreads, draft);
@@ -712,8 +725,15 @@
     return focused.id;
   }
 
+  // A pane opened on a file asks for it before the CodeView exists (it waits
+  // for the diff worker pool), so the jump waits for Effect A's first items.
+  let pendingFileJump: string | null = null;
   export function scrollToFile(path: string) {
-    codeView?.scrollTo({ type: "item", id: path, align: "start" });
+    if (!codeView) {
+      pendingFileJump = path;
+      return;
+    }
+    codeView.scrollTo({ type: "item", id: path, align: "start" });
   }
 
   // Collapse or expand every file in one shot (toolbar "expand/collapse all").
@@ -801,6 +821,8 @@
       onFormValueChange={onDraftValueChange}
       placeholder="What should change here?"
       submitLabel="Add comment"
+      surface="embedded"
+      editorClass="min-h-16 rounded-lg border border-input bg-background px-2.5 py-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 dark:bg-input/32 [&_.cm-content]:![font-weight:400]"
     />
   {/if}
 </div>

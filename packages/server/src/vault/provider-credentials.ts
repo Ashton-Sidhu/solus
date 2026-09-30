@@ -4,7 +4,7 @@ import type { z } from 'zod'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
-import { isWorkspaceMode } from '../server/workspace-mode'
+import { isApiMode } from '../host/api-mode'
 import { currentCredentialUserId } from './credential-scope'
 
 const log = createLogger('main', 'provider-credentials')
@@ -54,12 +54,12 @@ function clearHostCredential(provider: ProviderCredentialName): void {
 
 /** Account credentials are fetched directly. Refresh tokens never leave the account backend. */
 export function usesAccountIntegration(): boolean {
-  return isWorkspaceMode() || !!currentCredentialUserId()
+  return isApiMode() || !!currentCredentialUserId()
 }
 
 export async function readProviderCredential<T>(provider: ProviderCredentialName, schema: z.ZodType<T>): Promise<T | null> {
   const userId = currentCredentialUserId()
-  if (!userId) return isWorkspaceMode() ? null : readHostCredential(provider, schema)
+  if (!userId) return isApiMode() ? null : readHostCredential(provider, schema)
   const response = await accountIntegrationCredential(userId, provider)
   if (!response) throw new Error('Reconnect to your host to authorize your account connections.')
   if (response.status === 404) return null

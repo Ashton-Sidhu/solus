@@ -6,10 +6,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('@solus/server/observability/span-table')
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type RollupsModule = typeof import('@solus/server/observability/rollups')
-type RegistriesModule = typeof import('@solus/server/observability/registries')
+type SpanTableModule = typeof import('@solus/server/data/insights/span-table')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type RollupsModule = typeof import('@solus/server/data/insights/rollups')
+type RegistriesModule = typeof import('@solus/server/data/insights/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -21,10 +21,10 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-rollups-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('@solus/server/observability/span-table')
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  rollups = await import('@solus/server/observability/rollups')
-  registries = await import('@solus/server/observability/registries')
+  spanTable = await import('@solus/server/data/insights/span-table')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  rollups = await import('@solus/server/data/insights/rollups')
+  registries = await import('@solus/server/data/insights/registries')
   metricsDb.closeMetricsDb()
 })
 
@@ -57,7 +57,7 @@ describe.serial('turn trace', () => {
       { ...shared, spanId: 'tool-a', parentSpanId: 'trace-1', kind: toolCall, name: 'Bash', startedAt: 10, endedAt: 40 },
       [{
         traceId: 'trace-1', spanId: 'tool-a', occurredAt: 20, level: 'info',
-        name: 'tool_started', tag: 'ControlPlane', file: 'control-plane.ts', attrs: { tool: 'Bash' },
+        name: 'tool_started', tag: 'SessionRuntime', file: 'session-runtime.ts', attrs: { tool: 'Bash' },
       }],
     )
     spanTable.writeSpan({ ...shared, spanId: 'tool-b', parentSpanId: 'trace-1', kind: toolCall, name: 'Read', startedAt: 30, endedAt: 60 })
@@ -75,8 +75,8 @@ describe.serial('turn trace', () => {
       occurredAt: 20,
       level: 'info',
       name: 'tool_started',
-      tag: 'ControlPlane',
-      file: 'control-plane.ts',
+      tag: 'SessionRuntime',
+      file: 'session-runtime.ts',
       attrs: { tool: 'Bash' },
     }])
     expect(trace.providerWaitMs).toBe(100 - 55)

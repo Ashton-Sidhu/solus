@@ -1,9 +1,7 @@
-import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
 import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session, SessionMetadataGenerationContext } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
-import type { TasksStore } from '../tasks/tasks.store.svelte'
 
 /** How one turn's images are split between the two ways they can travel. */
 export interface PromptImagePayload {
@@ -17,7 +15,6 @@ export class PromptComposer {
   constructor(
     private planStore: PlanStore,
     private worksStore: WorksStore,
-    private tasksStore: TasksStore,
   ) {}
 
   compose(prompt: string, input: Prompt, session: Session): string {
@@ -72,23 +69,8 @@ export class PromptComposer {
         fullPrompt = fullPrompt ? `${fullPrompt}\n\n${boundBlock}` : boundBlock
       }
     }
-    // The durable link outranks the binding recorded at first dispatch: the
-    // agent can move a session to another task, and the header must follow.
-    const taskId = this.tasksStore.taskForSession(taskBindingSessionId(session))?.id
-      ?? existingTaskId(session.task)
-    if (taskId) {
-      // The full ticket (body + comments + linked PRs) is hydrated into the run's
-      // system prompt server-side, which a remote host can only do for a task it
-      // owns. Naming the binding in the prompt keeps the thread readable there and
-      // tells the agent where to re-fetch live state — mirrors the bound-work block.
-      const boundTask = this.tasksStore.tasks.find((task) => task.id === taskId)
-      const title = boundTask ? ` "${boundTask.title}"` : ''
-      const taskBlock = [
-        `[Working On Task${title} (task_id: ${taskId})]`,
-        `Call read_task with task_id "${taskId}" to read the latest status, comments, and linked PRs; call update_task_status to move it. Do not mark tasks as done unless explicitly told to.`,
-      ].join('\n')
-      fullPrompt = fullPrompt ? `${fullPrompt}\n\n${taskBlock}` : taskBlock
-    }
+    // The task rides the run's system prompt, server-side; nothing about it goes
+    // into the message.
     // Images are sent to the agent as real content blocks (see imageAttachments
     // in PromptComposer.composeImages), so they're excluded from the text prompt.
     // Files and design selections remain text references — they carry metadata, not raw payloads.

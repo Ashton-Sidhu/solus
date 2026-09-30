@@ -1,11 +1,12 @@
-import { ControlPlane } from './control-plane'
-import { createBackends } from './agents/backend-registry'
-import { syncBundledPlugins } from './agents/plugins'
-import { bootServer, type BootOptions, type BootedServer } from './server'
+import { SessionRuntime } from './execution/session-runtime'
+import { createBackends } from './execution/agents/backend-registry'
+import { syncBundledPlugins } from './execution/agents/plugins'
+import { bootServer, type BootOptions, type BootedServer } from './boot-server'
 import { configureOtel } from './otel'
-import { getHostConfig, getServerSettings } from './server/settings'
+import { getHostConfig, getServerSettings } from './host/settings'
 import { createLogger, isDebugEnabled } from './logger'
 import { warmCliPath } from './cli-env'
+import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
 
 const DEFAULT_AGENT_ID: AgentId = 'claude-code'
@@ -14,11 +15,17 @@ const log = createLogger('main', 'boot-core.ts')
 
 export interface BootCore {
   booted: BootedServer
-  controlPlane: ControlPlane
+  sessionRuntime: SessionRuntime
+  /** Start the transcript index sweep, once. Needed only after `deferSessionIndex`. */
+  startSessionIndex(): void
   shutdown(): Promise<void>
 }
 
-export type BootCoreOptions = Omit<BootOptions, 'controlPlane' | 'agentIdFromContext'>
+export type BootCoreOptions = Omit<BootOptions, 'sessionRuntime' | 'agentIdFromContext'> & {
+  /** Leave the disk-heavy index sweep for the caller to start: the desktop
+   *  starts it after its window first paints. Every other host starts it here. */
+  deferSessionIndex?: boolean
+}
 
 function agentIdFromContext(ctx?: IpcContext): AgentId {
   return ctx?.session.provider ?? ctx?.settings.activeAgent ?? DEFAULT_AGENT_ID
@@ -63,28 +70,40 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
   // so neither can end up exporting on a different rule from the other.
   await configureOtel(getHostConfig().config.otel)
   phaseDone('otel_configured')
-  const controlPlane = new ControlPlane(createBackends())
+  const sessionRuntime = new SessionRuntime(createBackends())
   phaseDone('control_plane_ready')
   const booted = await bootServer({
     ...opts,
-    controlPlane,
+    sessionRuntime,
     agentIdFromContext,
   })
   phaseDone('server_booted')
+
+  // Session lists and search are answered from the index, so every machine
+  // keeps one. A host's first sweep reads its transcripts into it.
+  let sessionIndexStarted = false
+  const startSessionIndex = () => {
+    if (sessionIndexStarted) return
+    sessionIndexStarted = true
+    startSessionIndexer()
+  }
+  if (!opts.deferSessionIndex) startSessionIndex()
 
   let shutdownPromise: Promise<void> | null = null
 
   return {
     booted,
-    controlPlane,
+    sessionRuntime,
+    startSessionIndex,
     shutdown: () => {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
-        controlPlane.shutdown()
+        stopSessionIndexer()
+        sessionRuntime.shutdown()
         // Session cancellation above drives status transitions whose attention
         // writes are coalesced and asynchronous; drain them before the process
         // is allowed to exit so the persisted file reflects the final state.
-        await controlPlane.attention.flushPersist()
+        await sessionRuntime.attention.flushPersist()
         await booted.shutdown()
       })()
       return shutdownPromise

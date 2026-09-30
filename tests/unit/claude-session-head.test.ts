@@ -6,7 +6,7 @@ import {
   MAX_SESSION_HEAD_BYTES,
   parseJsonlLine,
   readSessionHeadMeta,
-} from '@solus/server/agents/claude/claude-session-helpers'
+} from '@solus/server/execution/agents/claude/claude-session-helpers'
 
 const tempDirs: string[] = []
 

@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { IpcContext } from '@solus/contracts/types'
-import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
-import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 

@@ -1,8 +1,8 @@
 import { type Attributes, type Histogram } from '@opentelemetry/api'
-import { replaceOtlpSpanProcessor } from './observability/tracer'
+import { replaceOtlpSpanProcessor } from './execution/observability/tracer'
 // Safe against the cycle noted below: the module holds one constant and imports
 // nothing itself.
-import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './observability/telemetry-shutdown'
+import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './execution/observability/telemetry-shutdown'
 import type { OtelActiveSignals, OtelSettings } from '@solus/contracts/types'
 import { z } from 'zod'
 

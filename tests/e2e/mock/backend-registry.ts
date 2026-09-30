@@ -1,5 +1,5 @@
 import { MockAgentBackend } from './mock-backend'
-import type { AgentBackend } from '@solus/server/agents/agent-backend'
+import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { AgentId } from '@solus/contracts/types'
 
 /**

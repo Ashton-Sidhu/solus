@@ -1,15 +1,14 @@
 import { getContext, setContext } from "svelte";
 import type { IpcContext } from "@solus/contracts/types";
 import type { HostApi } from "@solus/client-core/host-api";
-import { localArtifactProtocolUrl } from "../../artifact/lib/asset-url";
+import { videoMimeType } from "@solus/contracts/media-types";
 
 const MARKDOWN_IMAGE_CONTEXT = Symbol("markdown-image-context");
 
-interface MarkdownImageContext {
+export interface MarkdownImageContext {
   cwd: () => string | undefined;
   serverId: () => string | undefined;
   ctx: () => IpcContext | undefined;
-  isWeb: () => boolean;
   api: () => HostApi | undefined;
 }
 
@@ -25,12 +24,6 @@ const ASSET_URI = /^asset:\/\/([a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15})$/i;
 
 export function markdownAssetId(href: string): string | null {
   return href.trim().match(ASSET_URI)?.[1].toLowerCase() ?? null;
-}
-
-/** Resolve agent-authored local image paths from the session working directory. */
-export function markdownImageUrl(href: string, cwd: string | undefined): string {
-  const path = markdownImagePath(href, cwd);
-  return path ? localArtifactProtocolUrl(path) : href;
 }
 
 /** Resolve an agent-authored local URL to an absolute host-side path. */
@@ -58,4 +51,26 @@ export function markdownImagePath(href: string, cwd: string | undefined): string
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a Markdown image is a video, so it plays instead of breaking in an
+ * `<img>`. Read from the resolved host path or asset id when there is one, and
+ * from the URL's path otherwise; the extension is the only evidence Markdown
+ * carries.
+ */
+export function isMarkdownVideo(
+  href: string,
+  path: string | null,
+  assetId: string | null,
+): boolean {
+  let name = assetId ?? path;
+  if (name === null) {
+    try {
+      name = new URL(href.trim()).pathname;
+    } catch {
+      name = href.trim().split(/[?#]/, 1)[0];
+    }
+  }
+  return videoMimeType({ name }) !== null;
 }

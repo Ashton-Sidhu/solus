@@ -1,8 +1,8 @@
 import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult } from '@solus/contracts/session-history'
+import type { User } from '@solus/contracts/user'
 import type {
   Automation,
   AutomationAction,
-  AutomationCreator,
   AutomationRun,
   AutomationTrigger,
   FilePreviewResult,
@@ -14,7 +14,8 @@ import type {
   ProjectFilesResult,
   Work,
   WorkAnnotations,
-  WorkPrevious,
+  WorkRevision,
+  WorkRevisionSummary,
   WorktreeEntry,
   WriteFileResult,
 } from '@solus/contracts/types'
@@ -25,6 +26,27 @@ import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } 
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
 import { applyCommentCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
+
+/** A synchronous stand-in for the host's SHA-256: equal bodies get equal
+ *  hashes, which is all the demo needs. Prefixed so it cannot pass for one. */
+function demoContentHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index++) hash = Math.imul(hash ^ content.charCodeAt(index), 0x01000193)
+  return `demo-fnv1a-${(hash >>> 0).toString(16)}`
+}
+
+/** The demo's one reader: the host's own user, as `connectionsGetServerInfo` names them. */
+export const DEMO_USER: User = { id: { kind: 'local', localId: 'demo' }, displayName: 'Demo user' }
+
+function demoWorkRecord(entry: DemoFixtures['works'][number]): Work {
+  return {
+    ...entry.meta,
+    content: entry.content,
+    contentVersion: entry.contentVersion ?? 1,
+    contentHash: demoContentHash(entry.content),
+    contentAuthor: null,
+  }
+}
 
 interface DemoDiff {
   patch: string
@@ -265,7 +287,7 @@ export class DemoStore {
 
   loadWork(id: string): Work | null {
     const entry = this.findWorkEntry(id)
-    return entry ? { ...entry.meta, content: entry.content } : null
+    return entry ? demoWorkRecord(entry) : null
   }
 
   saveWork(id: string, patch: WorkPatch): Work {
@@ -273,9 +295,12 @@ export class DemoStore {
     if (!entry) throw new Error(`Work not found: ${id}`)
     if (patch.title !== undefined) entry.meta.title = patch.title
     if (patch.preview !== undefined) entry.meta.preview = patch.preview
-    if (patch.content !== undefined) entry.content = patch.content
+    if (patch.content !== undefined && patch.content !== entry.content) {
+      entry.content = patch.content
+      entry.contentVersion = (entry.contentVersion ?? 1) + 1
+    }
     entry.meta.updatedAt = this.nextIso()
-    return { ...entry.meta, content: entry.content }
+    return demoWorkRecord(entry)
   }
 
   createWork(
@@ -290,22 +315,26 @@ export class DemoStore {
   ): Work {
     const id = requestedId ?? `demo-work-${++this.workCounter}`
     const createdAt = this.nextIso()
-    const work: Work = {
-      id,
-      title,
-      type,
+    const entry = {
+      meta: {
+        id,
+        // The demo host is linked to no account: every work is Local.
+        organizationId: 'local',
+        title,
+        type,
+        preview: preview ?? '',
+        createdAt,
+        updatedAt: createdAt,
+        sessionId,
+        sessionIds: sessionId ? [sessionId] : [],
+        agentProvider,
+        cwd: cwd ?? DEMO_PROJECT,
+      },
       content: content ?? '',
-      preview: preview ?? '',
-      createdAt,
-      updatedAt: createdAt,
-      sessionId,
-      sessionIds: sessionId ? [sessionId] : [],
-      agentProvider,
-      cwd: cwd ?? DEMO_PROJECT,
+      contentVersion: 1,
     }
-    const { content: storedContent, ...meta } = work
-    this.fixtures.works.push({ meta, content: storedContent })
-    return work
+    this.fixtures.works.push(entry)
+    return demoWorkRecord(entry)
   }
 
   duplicateWork(id: string): Work {
@@ -339,18 +368,37 @@ export class DemoStore {
     return this.findWorkEntry(id)?.annotations ?? null
   }
 
-  /** The demo is its own host: the one reader is the work's owner, unnamed. */
+  /** The demo is its own host: the one reader is the work's owner, the demo user. */
   applyWorkComment(workId: string, command: WorkCommentCommand): WorkAnnotations {
     const entry = this.findWorkEntry(workId)
     const current: WorkAnnotations = entry?.annotations ?? { version: 1, workId, comments: [], updatedAt: 0 }
     const now = Date.now()
-    const next: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, { person: null, canModerate: true, now }), updatedAt: now }
+    const next: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, { by: { kind: 'user', user: DEMO_USER }, canModerate: true, now }), updatedAt: now }
     if (entry) entry.annotations = next
     return next
   }
 
-  loadWorkPrevious(id: string): WorkPrevious | null {
-    return this.findWorkEntry(id)?.previous ?? null
+  /** A fixture keeps one earlier body, so its history is that body and the current one. */
+  loadWorkRevisions(id: string): WorkRevisionSummary[] {
+    return this.demoRevisions(id).map(({ content: _content, ...summary }) => summary)
+  }
+
+  loadWorkRevision(id: string, revisionId: number): WorkRevision {
+    const revision = this.demoRevisions(id).find((candidate) => candidate.revisionId === revisionId)
+    if (!revision) throw new Error(`Revision ${revisionId} of work ${id} not found.`)
+    return revision
+  }
+
+  private demoRevisions(id: string): WorkRevision[] {
+    const entry = this.findWorkEntry(id)
+    if (!entry?.previous) return []
+    const revision = (revisionId: number, content: string, capturedAt: string, reason: WorkRevision['reason']): WorkRevision => ({
+      workId: id, revisionId, reason, sourceContentVersion: null, author: null, contentHash: demoContentHash(content), capturedAt, content,
+    })
+    return [
+      revision(1, entry.previous.content, entry.previous.updatedAt, 'checkpoint'),
+      revision(2, entry.content, entry.meta.updatedAt, 'agent'),
+    ]
   }
 
   prList() {
@@ -514,7 +562,6 @@ export class DemoStore {
     const id = `demo-task-${++this.taskCounter}`
     const task: Task = {
       providerId: 'local',
-      kind: input.kind ?? 'task',
       title: input.title ?? 'Untitled task',
       body: input.body ?? '',
       status: input.status ?? 'todo',
@@ -585,7 +632,7 @@ export class DemoStore {
       targetScope,
       targetKey: input.targetKey,
       title: input.title?.trim() || (input.kind === 'pr' ? `#${input.targetKey}` : 'Untitled'),
-      createdBy: input.createdBy ?? 'user',
+      createdBy: input.automatic ? { kind: 'system' } : { kind: 'user', user: DEMO_USER },
       linkedAt: this.nextTimestamp(),
     }
     if (input.url) link.url = input.url
@@ -621,7 +668,6 @@ export class DemoStore {
   createAutomation(
     name: string,
     action: AutomationAction,
-    createdBy: AutomationCreator,
     enabled = true,
     trigger: AutomationTrigger = { type: 'manual' },
   ): Automation {
@@ -630,7 +676,7 @@ export class DemoStore {
       id: `demo-automation-${++this.automationCounter}`,
       name,
       action,
-      createdBy,
+      createdBy: { kind: 'user', user: DEMO_USER },
       enabled,
       trigger,
       createdAt: timestamp,
@@ -720,7 +766,7 @@ export class DemoStore {
   readProjectFile(path: string): FilePreviewResult {
     const contents = this.fixtures.files.contents[path]
     if (contents === undefined) return { ok: false, path, error: `File not found: ${path}` }
-    return { ok: true, path, displayPath: path, contents, size: contents.length, isReadOnly: false }
+    return { ok: true, kind: 'text', path, displayPath: path, contents, size: contents.length, isReadOnly: false }
   }
 
   writeFile(path: string, contents: string): WriteFileResult {

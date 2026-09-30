@@ -706,37 +706,6 @@
     color: var(--solus-accent);
   }
 
-  /* The runtime classifies the physical display once for every client. Keep the
-     expanded outline compact on laptops without making a narrow pane depend on
-     viewport width; the shell's container query still owns when the rail hides. */
-  :global(html.is-laptop-display) .doc-outline__panel {
-    --outline-panel-w: 14.5rem;
-    padding: 0.75rem 0.75rem 0.75rem 0.875rem;
-  }
-  :global(html.is-laptop-display) .doc-outline__head,
-  :global(html.is-laptop-display) .doc-outline__filter,
-  :global(html.is-laptop-display) .doc-outline__item,
-  :global(html.is-laptop-display) .doc-outline__foot {
-    width: calc(var(--outline-panel-w) - 1.625rem);
-  }
-  :global(html.is-laptop-display) .doc-outline__head {
-    gap: 0.375rem;
-    margin-bottom: 0.5rem;
-    padding-left: 0.5625rem;
-  }
-  :global(html.is-laptop-display) .doc-outline__item {
-    gap: 0.4375rem;
-    padding-block: 0.25rem;
-  }
-  :global(html.is-laptop-display) .doc-outline__item--sub {
-    padding-left: 0.625rem;
-  }
-  :global(html.is-laptop-display) .doc-outline__foot {
-    gap: 0.375rem;
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .doc-outline__head,
     .doc-outline__filter,

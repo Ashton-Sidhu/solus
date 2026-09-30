@@ -16,7 +16,7 @@ const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'font
 const isTestBuild = process.env.BUILD_TARGET === 'test'
 const testMainAliases = isTestBuild
   ? [
-      { find: /^\.\/agents\/backend-registry$/, replacement: resolve(__dirname, 'tests/e2e/mock/backend-registry.ts') },
+      { find: /^\.\/execution\/agents\/backend-registry$/, replacement: resolve(__dirname, 'tests/e2e/mock/backend-registry.ts') },
       { find: /^\.\.\/\.\.\/skills\/skills-provider$/, replacement: resolve(__dirname, 'tests/e2e/mock/skills-provider.ts') },
     ]
   : []
@@ -70,6 +70,8 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist/main',
       rollupOptions: {
         input: {
+          // package.json `main`: turns on the compile cache, then loads `index`.
+          boot: resolve(__dirname, 'apps/desktop/src/main/boot.ts'),
           index: resolve(__dirname, 'apps/desktop/src/main/index.ts'),
           standalone: resolve(__dirname, 'apps/standalone-server/src/index.ts'),
           'transcription-worker': resolve(__dirname, 'packages/server/src/transcription/worker.ts')
@@ -116,6 +118,7 @@ export default defineConfig(({ mode }) => {
         '@solus/client-core': resolve(__dirname, 'packages/client-core/src'),
         '@solus/workspace-ui': resolve(__dirname, 'packages/workspace-ui/src'),
         '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
+        '@solus/document-model': resolve(__dirname, 'packages/document-model/src'),
         '@geist-fonts': geistFontsDir
       },
       // ProseMirror classes rely on module identity. Nested model copies break

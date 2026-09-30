@@ -1,9 +1,7 @@
 <script lang="ts">
   import {
-    Check as CheckIcon,
     CloudOff as CloudOffIcon,
     Laptop as LaptopIcon,
-    Moon as MoonIcon,
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -23,63 +21,46 @@
   import UnreadDot from "./UnreadDot.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import {
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
-    shouldRecedeRow,
     taskStatusFor,
   } from "./lib/task-list";
+  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
+    /** The session on screen: the list shows a session under its row only
+     *  while it is the one being read, so this row is always the selected one. */
     session: SidebarSessionChild;
     projectLabel: string;
-    selected: boolean;
     /** True while this row's name is being edited in place. */
     renaming: boolean;
-    /** This row is the selected session, or sits above it under the same task.
-     *  The accent spine is the *path* to what you are reading, not a mark on one
-     *  row, so every row it passes draws its own segment of it. */
-    leadsToSelection: boolean;
     onSelect: () => void;
     /** Rename this row where it sits, the same edit the context menu opens. */
     onStartRename: () => void;
     onRename: (next: string) => void;
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
-    onSnooze?: (anchor: HTMLElement) => void;
-    onComplete?: () => void;
     onClose: () => void;
   }
   let {
     session,
     projectLabel,
-    selected,
     renaming,
-    leadsToSelection,
     onSelect,
     onStartRename,
     onRename,
     onRenameCancel,
     onMore,
-    onSnooze,
-    onComplete,
     onClose,
   }: Props = $props();
 
   const status = $derived(taskStatusFor(session.attention));
-  // Only the session you are reading — and any session asking for a person —
-  // leads in weight. Its siblings rest at the secondary tone even while the task
-  // above them holds the selection, so a long subtask list points at one row
-  // instead of reading as a block of equally live work.
+  // The session you are reading leads in weight, except for a read error,
+  // whose glyph already states it.
   const titleIsEmphasized = $derived(
-    shouldEmphasizeTitle(status, session.unread, selected),
-  );
-  // Ink belongs to the row, not the title: a quiet session steps back as one
-  // object so its siblings stop reading as a block of equally live work. A
-  // session has no snooze of its own, so it can never be the row returning
-  // from one.
-  const recedes = $derived(
-    shouldRecedeRow(status, session.unread, false, selected),
+    shouldEmphasizeTitle(status, session.unread, true),
   );
   const branchLabel = $derived(
     session.branchName ? worktreeDisplayName(session.branchName) : "",
@@ -93,7 +74,7 @@
     });
   });
 
-  // The same ladder the task row spends, one level down: a session row is a
+  // The same ladder the row above spends, one level down: a session row is a
   // leaf, so it always has a single datable turn and never needs the spinner
   // fallback, and neither shelf's clock can reach it.
   const mark = $derived(
@@ -112,7 +93,7 @@
   );
 
   // Which machine the session runs on. Unlike the task row this is never
-  // omitted: a subtask list mixes hosts freely, so "here" has to be stated
+  // omitted: a session list mixes hosts freely, so "here" has to be stated
   // rather than inferred from the absence of a mark. Only a remote host is
   // named; a local one is the laptop icon alone.
   const host = $derived(serversStore.hostFor(session.serverId));
@@ -143,22 +124,20 @@
   }
 </script>
 
-<!-- One step in from the task title's spine, with no plate of its own: the
+<!-- One step in from the title of the row above, with no plate of its own: the
      connector carries the hierarchy, so nothing here needs a box. -->
 <TooltipUI.Root>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
 <div
   {...tooltipProps}
-  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {recedes
-    ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
-    : 'text-foreground'}"
+  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] text-foreground"
   role="treeitem"
   tabindex="-1"
   data-tab-id={session.tabId}
   data-task-id={session.taskId}
-  aria-selected={selected}
-  aria-label={session.isSubtask ? `Subtask: ${session.label}` : session.label}
+  aria-selected="true"
+  aria-label={session.label}
   onclick={(event) => {
     if (suppressNextClick) {
       suppressNextClick = false;
@@ -181,52 +160,33 @@
     }
   }}
 >
-  <!-- The elbow off the spine. It runs into the *title*, not the row's midpoint:
+  <!-- The path from the row above to the session you are reading. The spine
+       drops from that row and turns into the *title*, not the row's midpoint:
        the other line is a detail about the row, and a connector aimed between
-       the two would be aimed at neither. The title now sits on the row's second
-       line, matching the task row above it, so the elbow drops with it: 2rem is
-       where that line centres at this row height (5px of slack, the 16px
-       context line, the 2px gap, then half of the 18px title box).
-       `TaskRow`'s spine is derived from the same figure so it closes on the
-       last child's elbow instead of trailing past it — the two are one
-       measurement and have to move together.
+       the two would be aimed at neither. 2rem is where the title line centres
+       at this row height (5px of slack, the 16px context line, the 2px gap,
+       then half of the 18px title box). The spine stops on the elbow — 2rem
+       plus the elbow's own 1.5px, so the two meet as a corner.
 
-       Selection is spent on the connector rather than on a plate: the spine
-       runs terracotta from the task down to the row you are reading, which
-       turns its own elbow the same colour. The row's negative margin widens its
-       hover plate, so the connector offsets by the same 0.5rem to stay on the
-       parent spine. Marking the path rather than the row
-       is what makes a deep list answer "where am I?" at a glance. Because the
-       row keeps no wash of its own, the ordinary hover fill still reads on it —
-       which a selected plate would have swallowed. -->
-  {#if leadsToSelection}
-    <!-- Above the selected row the path is passing through, so its segment
-         bridges the 3px gap to the next one. On the selected row the path has
-         arrived: it stops on its own elbow — 2rem plus the elbow's own 1.5px,
-         so the two meet as a corner — rather than carrying on to the row's
-         bottom edge and branching into nothing. This is the same rule
-         that stops the grey spine on the last child's elbow; an accent that
-         ran past it would be the one line in the tree pointing at no row. -->
-    <span
-      class="pointer-events-none absolute top-0 left-[1.125rem] w-[0.09375rem] rounded-[0.0625rem] bg-primary {selected
-        ? 'h-[2.09375rem]'
-        : '-bottom-[0.1875rem]'}"
-      aria-hidden="true"
-    ></span>
-  {/if}
+       Selection is spent on the connector rather than on a plate, in the
+       accent. The row's negative margin widens its hover plate, so the
+       connector offsets by the same 0.5rem to stay under the title above.
+       Because the row keeps no wash of its own, the ordinary hover fill still
+       reads on it — which a selected plate would have swallowed. -->
   <span
-    class="pointer-events-none absolute top-[2rem] left-[1.125rem] w-[1.125rem] {selected
-      ? 'h-[0.09375rem] rounded-[0.0625rem] bg-primary'
-      : 'h-px bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]'}"
+    class="pointer-events-none absolute top-0 left-[1.125rem] h-[2.09375rem] w-[0.09375rem] rounded-[0.0625rem] bg-primary"
+    aria-hidden="true"
+  ></span>
+  <span
+    class="pointer-events-none absolute top-[2rem] left-[1.125rem] h-[0.09375rem] w-[1.125rem] rounded-[0.0625rem] bg-primary"
     aria-hidden="true"
   ></span>
 
   <span class="flex min-w-0 flex-1 flex-col">
     <!-- Where this session's work lives, and what it is doing — both facts
          *about* the title rather than the title itself, so they take the
-         supporting line and leave the name below them alone. The task row above
-         orders its two lines exactly this way; a tree whose levels read in
-         opposite directions makes the eye change gear on every step down it.
+         supporting line and leave the name below them alone. The row above
+         orders its two lines exactly this way.
 
          This line starts 44px in, so it is the first thing a narrow column
          crushes: a worktree slug has barely half the width the title below it
@@ -242,13 +202,10 @@
         class="flex min-w-0 flex-1 items-center gap-[0.5625rem] opacity-70 @max-[15rem]:gap-1.5"
       >
         {#if branchLabel}
-          <span
-            class="min-w-0 max-w-[66%] overflow-hidden text-ellipsis whitespace-nowrap"
-            >{branchLabel}</span
-          >
+          <MiddleTruncate value={branchLabel} showTitle={false} class="max-w-[66%]" />
         {/if}
         <!-- Which machine the session runs on. Unlike the task row this is
-             never omitted: a subtask list mixes hosts freely, so "here" has to
+             never omitted: a session list mixes hosts freely, so "here" has to
              be stated rather than inferred from the absence of a mark. A local
              session states it with the laptop alone; only a remote one needs
              the name, to say which of the other machines it is. -->
@@ -298,7 +255,7 @@
 
            The column is reserved only while it holds a mark: an empty one still
            spends its own width and the gap before it, which pushed the mark a
-           column left of the same mark on the task row above. -->
+           column left of the same mark on the row above. -->
       <span
         class="relative ml-auto flex h-4 shrink-0 items-center justify-end {mark
           ? 'min-w-[0.875rem]'
@@ -314,7 +271,7 @@
               label={attentionLabel(session.attention)}
             />
           {:else if mark?.kind === "unread"}
-            <UnreadDot size={6} />
+            <UnreadDot size={12} />
           {:else if mark?.kind === "guide"}
             <!-- Generating and ready are one object at two stages, so the mark
                  keeps its silhouette and only gains ink: an outline guide that
@@ -326,6 +283,7 @@
                 ? 'text-(--solus-status-complete)'
                 : 'text-chart-5'}"
               role="img"
+              onanimationstart={alignStatusAnimationPhase}
               aria-label={mark.state === "ready"
                 ? "Review guide ready"
                 : "Generating review guide"}
@@ -342,19 +300,18 @@
               />
             </span>
           {:else if mark?.kind === "elapsed"}
-            <!-- The clock separates on ink and weight, not hue — the same rule
-                 one level up. Terracotta stays on the elbow, so the clock never
-                 competes with the green of a pull request chip beside it. -->
+            <!-- The clock states its time in full ink, not hue. Terracotta
+                 stays on the elbow, so the clock never competes with the green
+                 of a pull request chip beside it. -->
             <span
-              class="shrink-0 text-sidebar-time tabular-nums {selected
-                ? 'font-medium text-foreground'
-                : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
+              class="shrink-0 text-sidebar-time font-medium tabular-nums text-foreground"
               >{mark.label}</span
             >
           {:else if mark?.kind === "spinner"}
             <span
               class="flex shrink-0 items-center text-chart-5"
               role="img"
+              onanimationstart={alignStatusAnimationPhase}
               aria-label={attentionLabel(session.attention)}
             >
               <SpinnerGapIcon size={13} class="animate-spin" />
@@ -362,40 +319,10 @@
           {/if}
         </span>
 
-        <!-- Durable children keep their workflow actions after their tab closes.
-             Closing is available only for a mounted session. -->
         {#if session.tabId || session.taskId}
           <span
             class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/session:pointer-events-auto pointer-fine:group-hover/session:static pointer-fine:group-hover/session:opacity-100 pointer-fine:group-has-[:focus-visible]/session:pointer-events-auto pointer-fine:group-has-[:focus-visible]/session:static pointer-fine:group-has-[:focus-visible]/session:opacity-100"
           >
-            <!-- Same three actions, same order, as the task row above it —
-                 including dropping snooze on a narrow column so the hover
-                 cluster stops eating the title. -->
-            <button
-              class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground @max-[15rem]:hidden"
-              title="Snooze"
-              aria-label="Snooze subtask"
-              disabled={!onSnooze}
-              onclick={(event) => {
-                event.stopPropagation();
-                onSnooze?.(event.currentTarget);
-              }}
-            >
-              <MoonIcon size={13} />
-            </button>
-            {#if onComplete}
-              <button
-                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-                title="Mark subtask completed"
-                aria-label="Mark subtask completed"
-                onclick={(event) => {
-                  event.stopPropagation();
-                  onComplete();
-                }}
-              >
-                <CheckIcon size={14} weight="bold" />
-              </button>
-            {/if}
             {#if session.tabId || session.dismissalKey}
               <button
                 class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
@@ -420,11 +347,9 @@
          is why the height holds while renaming rather than being handed to the
          input.
 
-         2px rather than the task row's 8px, because this row is 46px to the
-         task row's 62px and has less slack to separate it from its neighbours:
-         13px between sibling rows against 2px inside one keeps the ratio that
-         binds the context line to this title instead of to the row above —
-         neither row carries a plate to do it. -->
+         2px rather than the 8px of the row above, because this row is 46px to
+         that row's 62px and has less slack to separate it from its
+         neighbours — neither row carries a plate to do it. -->
     <span class="mt-0.5 flex h-[1.125rem] items-center gap-[0.5625rem]">
       {#if renaming}
         <SessionNameInput

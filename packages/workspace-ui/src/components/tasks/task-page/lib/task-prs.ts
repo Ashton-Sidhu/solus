@@ -29,6 +29,8 @@ export interface TaskPrRow {
   title: string
   url: string | null
   state: LinkedPrLifecycle | null
+  /** The code host says this pull request does not exist. */
+  missing: boolean
 }
 
 /** The PR reference has its own column, so discard only an identical leading
@@ -77,6 +79,7 @@ export function taskPrRows(
         title: linkedPrTitle(link, ref, pr?.title),
         url: pr?.url ?? link.url ?? null,
         state: prLifecycleOf(pr?.pullRequest),
+        missing: pr?.missing ?? link.missing === true,
       }
     })
     .sort((left, right) => right.link.linkedAt - left.link.linkedAt)

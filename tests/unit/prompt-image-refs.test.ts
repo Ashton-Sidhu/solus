@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolvePromptImages } from '@solus/server/agents/prompt-image-refs'
+import { resolvePromptImages } from '@solus/server/execution/agents/prompt-image-refs'
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
 

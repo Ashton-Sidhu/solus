@@ -4,6 +4,11 @@ import type {
   SessionReference,
   WorkReference,
 } from "@solus/contracts/types";
+import {
+  parsePersonMentionHref,
+  personMentionMarkdown,
+  type PersonMention,
+} from "@solus/contracts/mentions";
 
 export interface FileReferenceToken {
   kind: "file";
@@ -49,6 +54,18 @@ export interface AutomationReferenceToken {
   title: string;
 }
 
+/** An organization member, by user id; the name is the one saved with it. */
+export interface PersonReferenceToken extends PersonMention {
+  kind: "person";
+}
+
+/** A code-host account, written the way the host reads a mention: `@login`.
+ *  Plain text, never a chip, so the host notifies the person. */
+export interface LoginReferenceToken {
+  kind: "login";
+  login: string;
+}
+
 export type ReferenceToken =
   | FileReferenceToken
   | PlanReferenceToken
@@ -57,7 +74,9 @@ export type ReferenceToken =
   | SlashReferenceToken
   | SessionReferenceToken
   | TaskReferenceToken
-  | AutomationReferenceToken;
+  | AutomationReferenceToken
+  | PersonReferenceToken
+  | LoginReferenceToken;
 
 export interface ReferenceTokenRange {
   from: number;
@@ -67,11 +86,16 @@ export interface ReferenceTokenRange {
 
 export interface ReferenceParseOptions {
   slashCommands?: Iterable<string>;
+  /** Only these kinds are references; other text stays text. A comment reads
+   *  `@name` as prose, so it keeps only its mentions. */
+  kinds?: ReadonlySet<ReferenceToken["kind"]>;
 }
 
 const CUSTOM_REFERENCE_RE =
-  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session|task|automation):\/\/[^)\s]*)\)/g;
-const FILE_REFERENCE_RE = /(^|\s)@([^\s]+)/g;
+  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session|task|automation|person):\/\/[^)\s]*)\)/g;
+// `@"my file.ts"` is the form for a path with whitespace — the same quoting the
+// Claude Code CLI uses — so the token does not end at the first space.
+const FILE_REFERENCE_RE = /(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g;
 const SLASH_REFERENCE_RE = /(^|\s)(\/[a-zA-Z-]+(?::[a-zA-Z-]+)*)/g;
 const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode"]);
 
@@ -190,6 +214,13 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
   return null;
 }
 
+/** A mention's label and href are read by the contract every side shares. */
+function parseLinkReference(label: string, href: string): ReferenceToken | null {
+  if (!href.startsWith("person:")) return parseCustomReference(label, href);
+  const mention = parsePersonMentionHref(href, label);
+  return mention ? { kind: "person", ...mention } : null;
+}
+
 function overlaps(
   ranges: readonly ReferenceTokenRange[],
   from: number,
@@ -198,10 +229,15 @@ function overlaps(
   return ranges.some((range) => from < range.to && to > range.from);
 }
 
+/** The `@path` text for a file, quoted when the path holds whitespace. */
+export function fileReferenceText(path: string): string {
+  return /\s/.test(path) ? `@"${path}"` : `@${path}`;
+}
+
 export function serializeReferenceToken(token: ReferenceToken): string {
   switch (token.kind) {
     case "file":
-      return `@${token.path}`;
+      return fileReferenceText(token.path);
     case "slash":
       return token.command;
     case "plan": {
@@ -241,6 +277,10 @@ export function serializeReferenceToken(token: ReferenceToken): string {
       const params = new URLSearchParams({ automationId: token.automationId });
       return `[${escapeLabel(token.title)}](automation://ref?${params})`;
     }
+    case "person":
+      return personMentionMarkdown(token);
+    case "login":
+      return `@${token.login}`;
   }
 }
 
@@ -251,7 +291,7 @@ export function parseReferenceTokens(
   const ranges: ReferenceTokenRange[] = [];
   for (const match of text.matchAll(CUSTOM_REFERENCE_RE)) {
     if (match.index === undefined) continue;
-    const token = parseCustomReference(match[1], match[2]);
+    const token = parseLinkReference(match[1], match[2]);
     if (!token) continue;
     ranges.push({
       from: match.index,
@@ -263,9 +303,9 @@ export function parseReferenceTokens(
   for (const match of text.matchAll(FILE_REFERENCE_RE)) {
     if (match.index === undefined) continue;
     const from = match.index + match[1].length;
-    const to = from + 1 + match[2].length;
+    const to = match.index + match[0].length;
     if (overlaps(ranges, from, to)) continue;
-    const path = match[2];
+    const path = match[2] ?? match[3];
     ranges.push({
       from,
       to,
@@ -292,7 +332,10 @@ export function parseReferenceTokens(
     }
   }
 
-  return ranges.sort((left, right) => left.from - right.from);
+  const kinds = options.kinds;
+  return ranges
+    .filter((range) => !kinds || kinds.has(range.token.kind))
+    .sort((left, right) => left.from - right.from);
 }
 
 export interface TrackedReferences {

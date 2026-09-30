@@ -7,10 +7,10 @@ import type { MetricsTurnPageRequest } from '@solus/contracts/observability-type
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type RegistriesModule = typeof import('@solus/server/observability/registries')
-type SpanTableModule = typeof import('@solus/server/observability/span-table')
-type TurnPageModule = typeof import('@solus/server/observability/turn-page')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type RegistriesModule = typeof import('@solus/server/data/insights/registries')
+type SpanTableModule = typeof import('@solus/server/data/insights/span-table')
+type TurnPageModule = typeof import('@solus/server/data/insights/turn-page')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -27,10 +27,10 @@ const baseRequest: MetricsTurnPageRequest = {
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-turn-page-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  const spanTable: SpanTableModule = await import('@solus/server/observability/span-table')
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  const registries: RegistriesModule = await import('@solus/server/observability/registries')
-  turnPageModule = await import('@solus/server/observability/turn-page')
+  const spanTable: SpanTableModule = await import('@solus/server/data/insights/span-table')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  const registries: RegistriesModule = await import('@solus/server/data/insights/registries')
+  turnPageModule = await import('@solus/server/data/insights/turn-page')
   metricsDb.closeMetricsDb()
 
   for (let index = 0; index < 120; index++) {

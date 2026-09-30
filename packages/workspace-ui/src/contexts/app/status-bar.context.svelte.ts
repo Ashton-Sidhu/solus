@@ -49,7 +49,7 @@ export class StatusBarContext {
     return {
       workingDirectory: run?.workingDirectory ?? this._session?.defaultRunConfig.workingDirectory ?? '~',
       activeAgent: effectiveAgent,
-      permissionMode: run?.permissionMode ?? defaults?.permissionMode ?? 'auto',
+      permissionMode: run?.permissionMode ?? defaults?.permissionMode ?? 'full-access',
       model,
       reasoningEffort: mc?.reasoningEffort ?? 'high',
       defaultReasoningEffort: profile?.defaultReasoningEffort ?? 'high',

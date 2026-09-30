@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import * as TooltipUI from "../ui/tooltip";
-  import PresenceAvatar from "./PresenceAvatar.svelte";
+  import UserAvatar from "../users/UserAvatar.svelte";
   import { stackPeople, type PresencePerson } from "./lib/presence-people";
 
   /**
@@ -36,8 +36,8 @@
 {#snippet faces()}
   <span class="inline-flex items-center" style="padding-left:{overlap}px">
     {#each stacked.shown as person (person.userId)}
-      <PresenceAvatar
-        {person}
+      <UserAvatar
+        user={person.user}
         {size}
         ringed={person.userId === activeUserId}
         composing={person.isComposing}
@@ -81,7 +81,7 @@
         {#each people as person (person.userId)}
           {@const line = detail?.(person) ?? null}
           <li class="flex items-center gap-2 rounded px-1 py-0.5">
-            <PresenceAvatar {person} size={16} ringed={person.userId === activeUserId} composing={person.isComposing} />
+            <UserAvatar user={person.user} size={16} ringed={person.userId === activeUserId} composing={person.isComposing} />
             <span class="flex min-w-0 flex-col">
               <span class="truncate font-medium">{person.displayName}</span>
               {#if line}<span class="truncate text-(--solus-text-tertiary)">{line}</span>{/if}
@@ -95,7 +95,7 @@
 
 <style>
   /* Each face after the first tucks under its neighbour by the row's overlap. */
-  [data-testid="presence-stack"] :global([data-presence-user]) {
+  [data-testid="presence-stack"] :global([data-user-avatar]) {
     margin-left: calc(-1 * var(--overlap, 0px));
   }
 </style>

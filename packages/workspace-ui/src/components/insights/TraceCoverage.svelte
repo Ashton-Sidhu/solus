@@ -1,13 +1,14 @@
 <script lang="ts">
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import type { CoverageEntry, CoverageReading } from "./lib/coverage-readings";
   import { formatDuration, formatPercent } from "./lib/format";
   import {
     PROVIDER_WAIT_CAUSES,
     PROVIDER_WAIT_EXPLANATION,
     PROVIDER_WAIT_KIND,
   } from "./lib/span-palette";
-  import { spanDetailLabel, type KindShare, type TraceView } from "./lib/waterfall";
+  import { spanDetailLabel, type TraceView } from "./lib/waterfall";
 
   /**
    * How much of the turn its spans account for, above the waterfall they
@@ -18,15 +19,22 @@
    * overlapped. Provider wait is the remaining coverage remainder after the
    * lead-in to a reported thinking span has been counted as Thinking.
    *
+   * The same bar also answers who the turn was waiting on and, when the turn
+   * reported a cost, where that cost went. One bar at a time, chosen from the
+   * Trace header's menu: three bars stacked over the waterfall read as three
+   * plots, when they are three cuts of one interval.
+   *
    * Full width, beside the plot it describes rather than shrunk into the rail:
    * a share bar is a picture of the same interval the waterfall draws, and the
    * two only read as one statement when they share an edge.
    */
   interface Props {
     trace: TraceView;
+    /** The reading the header's menu chose. */
+    reading: CoverageReading;
   }
 
-  let { trace }: Props = $props();
+  let { trace, reading }: Props = $props();
 
   let gapsOpen = $state(false);
 
@@ -39,7 +47,7 @@
 <!-- One key entry: a slice of the bar, not a dot — the mark is literally a piece
      of the thing it explains, cut to the same shape. `hinted` marks the entry
      whose meaning is on hover, so the name says it can be asked. -->
-{#snippet legendEntry(entry: KindShare, hinted: boolean)}
+{#snippet legendEntry(entry: CoverageEntry, hinted: boolean)}
   <span
     class="h-[3px] w-2 shrink-0 translate-y-[-2px] rounded-full"
     style="background:{entry.color}"
@@ -50,31 +58,32 @@
       ? 'underline decoration-muted-foreground/50 decoration-dotted underline-offset-4'
       : ''}">{entry.label}</span
   >
-  <span class="shrink-0 tabular-nums text-foreground">{formatPercent(entry.share)}</span>
-  <span class="shrink-0 tabular-nums opacity-60">{formatDuration(entry.ms)}</span>
+  <span class="shrink-0 tabular-nums text-foreground">{entry.value}</span>
+  {#if entry.secondary}
+    <span class="shrink-0 tabular-nums">{entry.secondary}</span>
+  {/if}
 {/snippet}
 
-<div class="flex flex-col gap-2 text-[0.6875rem]">
+<!-- The bar, then its key on one line. The legend names a handful of entries,
+     and a column of them would be as tall as the waterfall it introduces. -->
+<div class="flex flex-col gap-2 text-insights-chrome">
   <div
     class="flex h-1.5 gap-px overflow-hidden rounded-full"
     role="img"
-    aria-label="Duration share by span kind"
+    aria-label={reading.description}
   >
-    {#each trace.legend as entry (entry.kind)}
+    {#each reading.entries as entry (entry.key)}
       <span
         class="transition-[flex-grow] duration-300"
         style="flex:{Math.max(0.4, entry.share * 100)} 0 0;background:{entry.color}"
-        title="{entry.label} — {formatPercent(entry.share)} · {formatDuration(entry.ms)}"
+        title={entry.title}
       ></span>
     {/each}
   </div>
 
-  <!-- One line: the key, then what it adds up to. The legend names a handful of
-       kinds, and a column of them would be as tall as the waterfall it
-       introduces. -->
   <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-    {#each trace.legend as entry (entry.kind)}
-      {#if entry.kind === PROVIDER_WAIT_KIND}
+    {#each reading.entries as entry (entry.key)}
+      {#if reading.id === "kind" && entry.key === PROVIDER_WAIT_KIND}
         <!-- The one entry that is a remainder rather than a measurement, so it
              is the one entry a reader has to be told the meaning of. -->
         <TooltipUI.Root>
@@ -83,7 +92,7 @@
               <button
                 {...props}
                 type="button"
-                class="flex min-w-0 cursor-help items-baseline gap-1.5 rounded-sm border-0 bg-transparent p-0 text-left text-[0.6875rem] text-muted-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary)"
+                class="flex min-w-0 cursor-help items-baseline gap-1.5 rounded-sm border-0 bg-transparent p-0 text-left text-insights-chrome text-muted-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary)"
               >
                 {@render legendEntry(entry, true)}
               </button>
@@ -110,16 +119,20 @@
       {:else}
         <span
           class="flex min-w-0 items-baseline gap-1.5 text-muted-foreground"
-          title="{entry.label} — {formatDuration(entry.ms)}"
+          title={entry.title}
         >
           {@render legendEntry(entry, false)}
         </span>
       {/if}
     {/each}
 
+    {#if reading.note}
+      <span class="text-muted-foreground">{reading.note}</span>
+    {/if}
+
     <span class="flex-1"></span>
 
-    {#if trace.gapSummaries.length > 0}
+    {#if reading.id === "kind" && trace.gapSummaries.length > 0}
       <!-- A quiet text disclosure, not a card: the gaps are a footnote to the
            bar above them, and a filled band would out-weigh the picture. -->
       <button
@@ -141,15 +154,15 @@
     {/if}
   </div>
 
-  {#if gapsOpen && trace.gapSummaries.length > 0}
+  {#if reading.id === "kind" && gapsOpen && trace.gapSummaries.length > 0}
     <div class="flex flex-col gap-1 border-t border-[var(--hairline)] pt-2">
-      <p class="m-0 max-w-[70ch] text-muted-foreground opacity-70 text-pretty">
-        These rows locate provider wait and settlement outside recorded spans.
+      <p class="m-0 max-w-[70ch] text-muted-foreground text-pretty">
+        These rows locate time outside recorded spans. They do not establish its cause.
       </p>
       {#each trace.gapSummaries as gap (gap.category)}
         <div class="flex items-baseline gap-3 text-muted-foreground" title={gap.description}>
           <span class="min-w-0 flex-1 truncate">{gap.label}</span>
-          <span class="shrink-0 tabular-nums opacity-60">×{gap.segments}</span>
+          <span class="shrink-0 tabular-nums">×{gap.segments}</span>
           <span class="w-9 shrink-0 text-right tabular-nums">{formatPercent(gap.share)}</span>
           <span class="w-12 shrink-0 text-right tabular-nums text-foreground"
             >{formatDuration(gap.ms)}</span

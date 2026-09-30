@@ -7,6 +7,7 @@ import {
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '@solus/workspace-ui/contexts/workspace/session.utils'
+import { fileMentionTarget, tokenizeMarkdownText } from '@solus/workspace-ui/components/conversation/lib/markdown-text'
 import {
   attemptServerId,
   findOpenTabForSession,
@@ -99,6 +100,21 @@ describe('formatDiffInlineComments', () => {
     ])
 
     expect(formatted).toContain('```\nconst a = 1;\n\nconst b = 2;\n```')
+  })
+
+  test('names each file as a chip that opens the commented line', () => {
+    // WHY: the sent message is where the reader returns to the code; the chip
+    // must open the file at the first commented line, not at the top.
+    const [heading] = formatDiffInlineComments([diffComment('')]).split('\n')
+    const segments = tokenizeMarkdownText(heading)
+
+    expect(segments).toEqual([
+      { type: 'text', value: '- ' },
+      { type: 'file', path: 'src/example.ts:10-12' },
+    ])
+    const chip = segments[1]
+    if (chip.type !== 'file') throw new Error('expected a file chip')
+    expect(fileMentionTarget(chip.path)).toEqual({ path: 'src/example.ts', line: 10 })
   })
 })
 

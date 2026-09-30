@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Globe as GlobeIcon, Users as UsersIcon } from "@lucide/svelte";
+  import { Share as ShareIcon } from "@lucide/svelte";
   import type { ShareResource } from "@solus/contracts/sharing";
   import { sharesStore } from "../../contexts";
   import { shareSummary } from "./lib/share-rows";
@@ -8,9 +8,9 @@
    * The Share control (docs/plans/multiplayer-sharing.md §4.4): present wherever the
    * host can share (`sharesStore.canShareFrom`), and shaped like the header it sits
    * in. Every header that carries it — the session band, the task chrome bar,
-   * the work header — is a row of glyphs, so the control is a glyph: people at
-   * rest, a globe once a link exists. The count and the state ride the tooltip;
-   * the control stays as quiet as its neighbours.
+   * the work header — is a row of glyphs, so the control is a glyph: the one
+   * share glyph every Share entry point uses. The count and the state ride the
+   * tooltip; the control stays as quiet as its neighbours.
    */
   interface Props {
     serverId: string | null | undefined;
@@ -41,6 +41,6 @@
     aria-label={summary.label}
     onclick={() => sharesStore.open({ serverId, resource, title })}
   >
-    {#if summary.hasLink}<GlobeIcon size={14} />{:else}<UsersIcon size={14} />{/if}
+    <ShareIcon size={14} />
   </button>
 {/if}

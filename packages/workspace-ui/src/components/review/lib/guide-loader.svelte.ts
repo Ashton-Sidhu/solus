@@ -26,8 +26,6 @@ export interface GuideLoaderOptions {
   getTarget?: () => ReviewTarget | undefined;
   /** Live provider revision; never infer PR freshness from an unrelated checkout. */
   getCurrentRevision?: () => { headSha?: string; baseSha?: string } | null;
-  /** Present only while a PR is using its live stacked-parent base. */
-  getOwnDeltaBase?: () => { parent: number; headSha: string } | null;
   /** Effective agent/model/reasoning for a fresh generation. */
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };
   /** The review context the host has already resolved for this checkout, when
@@ -61,7 +59,6 @@ function guideRequestOptions(
               : target,
         }
       : { scope: opts.getScope() }),
-    ownDeltaBase: opts.getOwnDeltaBase?.() ?? undefined,
     regenerationBaseSha,
   };
 }

@@ -59,6 +59,7 @@
   const canConnect = (status: DocProviderStatus) => status.connectable && !!session.workspace;
 
   const work = $derived(workId ? store.works[workId] : undefined);
+  const savedContent = $derived(workId ? store.savedWork(workId)?.content : undefined);
   const plan = $derived(planId ? planStore.get(planId) : undefined);
   const link = $derived(work?.mirroredDoc ?? plan?.mirroredDoc);
   const ownerServerId = $derived(
@@ -126,7 +127,7 @@
     );
     try {
       await flushSave?.();
-      const content = getCurrentContent?.() ?? work?.content ?? plan?.content ?? "";
+      const content = getCurrentContent?.() ?? savedContent ?? plan?.content ?? "";
       // A Google Doc paginates, so a diagram is laid out again to fill one
       // page; a Confluence page scrolls, so the drawing goes up as the canvas
       // has it.
@@ -458,8 +459,8 @@
     color: var(--solus-status-error);
   }
 
-  /* Conversation cards have a roomier rail on large displays. The laptop
-     class changes only geometry; the transcript type token owns font scaling. */
+  /* Conversation cards have a roomier rail on large displays. The transcript
+     type token owns font scaling. */
   .wpm-verb--conversation-card {
     height: 1.75rem;
     padding: 0 0.5rem;
@@ -467,12 +468,6 @@
     font-weight: 500;
   }
 
-  @media (pointer: fine) and (min-width: 768px) {
-    :global(html.is-laptop-display) .wpm-verb--conversation-card {
-      height: 1.5rem;
-      padding: 0 0.4375rem;
-    }
-  }
 
   @media (max-width: 767px) {
     .wpm-verb {

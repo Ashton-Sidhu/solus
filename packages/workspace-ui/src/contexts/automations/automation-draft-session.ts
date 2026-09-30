@@ -19,6 +19,5 @@ export function automationDraftSessionRequest(
     reasoningEffort: 'low',
     contextWindow: modelConfig.contextWindow,
     cwd,
-    skipTaskCreation: true,
   }
 }

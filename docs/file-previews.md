@@ -16,11 +16,40 @@ equal horizontal padding. File headers use the compact size: 24 px high
 with lighter labels and less padding. Touch controls retain their larger
 height.
 
-The Files pane displays PNG, JPEG, GIF, WebP, and SVG files as read-only images. Images fit within the pane on desktop,
-web, and mobile. SVG files use an image element, not an executable HTML frame.
+## Media and other binary files
 
-The host reads image bytes through `readProjectFile` and returns a data URL.
-Remote clients do not need access to the host filesystem. Images have a 10 MB
-limit; larger images show an error instead of a partial preview. Unsupported
-binary files still show the binary-file error. Image decode failures show an
-error within the pane.
+The Files pane shows images, PDFs, and videos on desktop, web, and mobile.
+Every client shows the same viewer; none of them depends on Electron.
+
+| Kind | Extensions | Viewer |
+|---|---|---|
+| Image | PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, SVG | Fitted in the pane. SVG uses an image element, not an executable frame. |
+| PDF | PDF | pdf.js: every page, text selection, zoom, fit to width, and find (`mod+F` or `⌥F`). |
+| Video | MP4, M4V, MOV, WebM | The shared video player, with seeking. |
+
+HEIC and TIFF are not supported: most browsers cannot show them without
+conversion. An iPhone video in HEVC plays only where the browser can decode
+HEVC.
+
+`packages/contracts/src/media-types.ts` is the one list of these types. The
+host, the file pane, the attachment picker, and the artifact and Markdown image
+surfaces all read it. Add a type there, and only there.
+
+`readProjectFile` returns one of three kinds:
+
+- `text` — the contents, for the editor.
+- `media` — the media kind and MIME type, but no bytes.
+- `binary` — the size only. The pane says that the file type cannot be shown.
+  A binary file never opens as text.
+
+A client loads a media file from a short-lived URL the host signs
+(`assetCreateUrl`), so a large PDF or video never crosses the RPC channel and
+has no size limit. The desktop app uses the same signed URL for its own host as
+a remote client does. A signed URL can name a media file anywhere on the host,
+not only in the project, so an agent's screenshot in `/tmp` shows in a reply.
+It serves only the media types above, never source or secrets. A guest cannot
+ask for one.
+
+The file pane handlers (`listProjectFiles`, `readProjectFile`, `writeFile`,
+`searchFiles`, and `searchProjectContents`) are in the shared server, so a
+standalone host opens and saves files the same way as a desktop host.

@@ -94,23 +94,23 @@ export function installDesktopKeybindings(
   useKeybinding("global.select-project", () => {
     startOpenProject({ sourceId: session.focusedSourceId ?? undefined });
   });
-  useKeybinding("global.new-task", () => {
+  useKeybinding("global.new-session", () => {
     session.drafts.openSessionDraft({ freshTask: true, via: "keybinding" });
   });
   useKeybinding("global.new-session-without-task", () => {
     session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
-  useKeybinding("global.new-session", () => {
+  useKeybinding("global.new-session-in-task", () => {
     session.drafts.openSessionDraft({ via: "keybinding" });
   });
-  // Files a task in the active session's project. The tasks page binds this id
-  // too — it knows which project its header is pinned to — so this handler
-  // stands down while that page is up.
+  // Starts a new task in the active session's project. The tasks page
+  // binds this id too — it knows which project its header is pinned to — so
+  // this handler stands down while that page is up.
   useKeybinding(
-    "global.create-task",
+    "global.new-task",
     () => {
       const context = session.taskCreationContext;
-      if (context) session.openTaskComposer(context.serverId, context.projectKey, true);
+      if (context) void session.startNewTask(context.serverId, context.projectKey, true);
     },
     {
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
@@ -212,7 +212,7 @@ export function installDesktopKeybindings(
     session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId, "keybinding");
+    if (activeTabId) core.sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
     session.config.toggleTabGroupMode();
@@ -481,6 +481,13 @@ export function installDesktopKeybindings(
     () => openPalettePage("switch-server", "Switch server"),
     {
       enabled: () => paletteAvailable,
+    },
+  );
+  useKeybinding(
+    "global.switch-organization",
+    () => openPalettePage("switch-organization", "Switch organization"),
+    {
+      enabled: () => paletteAvailable && serversStore.organizations.length > 0,
     },
   );
   useKeybinding("global.find-hosts", () => {

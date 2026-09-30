@@ -7,7 +7,7 @@ export function prosePosToTextOffset(
   editor: Editor,
   prosePos: number,
 ): number {
-  // Offset into the same flattened text model `restoreCommentMarks` searches
+  // Offset into the same flattened text model a highlight's quote is found in
   // (blocks joined by a single space). PM's `textBetween` already produces it.
   return editor.state.doc.textBetween(0, prosePos, " ").length;
 }
@@ -47,9 +47,9 @@ export function textBetweenIdxToPos(
 }
 
 /**
- * Every element of a thread's highlight. A local mark is one element; an
- * external thread's decoration is split at every node boundary it crosses,
- * so the thread can own several.
+ * Every element of a thread's highlight. Local and external highlights are
+ * both decorations, split at every node boundary they cross, so a thread can
+ * own several.
  */
 export function findMarkElements(
   scrollContainer: HTMLDivElement | null,
@@ -69,36 +69,6 @@ export function findMarkElement(
   commentId: string,
 ): HTMLElement | null {
   return findMarkElements(scrollContainer, commentId)[0] ?? null;
-}
-
-export function addCommentMark(
-  editor: Editor,
-  from: number,
-  to: number,
-  commentId: string,
-): void {
-  const markType = editor.schema.marks.planComment;
-  const tr = editor.state.tr;
-  tr.setMeta("addToHistory", false);
-  // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
-  tr.addMark(from, to, markType.create({ commentId, type: "saved" }));
-  editor.view.dispatch(tr);
-}
-
-export function removeCommentMark(editor: Editor, commentId: string): void {
-  const markType = editor.schema.marks.planComment;
-  if (!markType) return;
-  const { doc, tr } = editor.state;
-  tr.setMeta("addToHistory", false);
-  doc.descendants((node, pos) => {
-    if (!node.isText) return;
-    const hasMark = node.marks.some(
-      (m) => m.type === markType && m.attrs.commentId === commentId,
-    );
-    // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
-    if (hasMark) tr.removeMark(pos, pos + node.nodeSize, markType);
-  });
-  editor.view.dispatch(tr);
 }
 
 /** Briefly pulse a comment mark to draw the eye to it. */
@@ -165,54 +135,4 @@ export function resolveHoveredComment(
     comment,
     anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
   };
-}
-
-/**
- * The mark state a thread should be wearing. Every annotation state has to
- * stay legible with the rail hidden, so the mark carries the thread's state
- * rather than merely its existence: a resolved thread keeps a dotted sage
- * trace, one Solus wrote is dashed terracotta.
- */
-export function markTypeFor(comment: PlanComment): string {
-  if (comment.resolvedAt) return "resolved";
-  if (comment.author === "solus") return "solus";
-  return "saved";
-}
-
-export function restoreCommentMarks(
-  editor: Editor,
-  comments: PlanComment[],
-): boolean {
-  const doc = editor.state.doc;
-  const markType = editor.schema.marks.planComment;
-  if (!markType) return false;
-
-  const tr = editor.state.tr;
-  tr.setMeta("addToHistory", false);
-  const fullText = doc.textBetween(0, doc.content.size, " ");
-  for (const c of comments) {
-    const nearOffset = c.textOffset ?? 0;
-    let idx = fullText.indexOf(c.selectedText, Math.max(0, nearOffset - 50));
-    if (idx === -1) idx = fullText.indexOf(c.selectedText);
-    if (idx === -1) continue;
-
-    const from = textBetweenIdxToPos(doc, idx);
-    const to = textBetweenIdxToPos(doc, idx + c.selectedText.length);
-
-    if (from !== -1 && to !== -1) {
-      // addMark replaces any existing planComment mark over the range, so a
-      // thread that has just been resolved re-renders in its new state here
-      // rather than needing a separate mark mutation.
-      tr.addMark(
-        from,
-        to,
-        // @ts-expect-error Bun resolved duplicate ProseMirror package identities.
-        markType.create({ commentId: c.id, type: markTypeFor(c) }),
-      );
-    }
-  }
-  if (!tr.docChanged) return false;
-
-  editor.view.dispatch(tr);
-  return true;
 }

@@ -1,6 +1,7 @@
 import { execFile as execFileCb, execFileSync } from 'child_process'
 import { promisify } from 'util'
 import { getCliEnv } from '../cli-env'
+import { GitUnavailableError, isGitUsable } from './git-availability'
 
 const execFileAsync = promisify(execFileCb)
 
@@ -26,6 +27,7 @@ export interface GitExecOptions {
 }
 
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
+  if (!isGitUsable()) throw new GitUnavailableError()
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf-8',
@@ -36,6 +38,7 @@ export function git(args: string[], cwd: string, opts: GitExecOptions = {}): str
 }
 
 export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {
+  if (bin === 'git' && !isGitUsable()) throw new GitUnavailableError()
   const { stdout } = await execFileAsync(bin, args, {
     cwd,
     encoding: 'utf-8',

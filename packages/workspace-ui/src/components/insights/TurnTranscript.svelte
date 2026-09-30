@@ -138,7 +138,7 @@
   {#if cut || expanded}
     <button
       type="button"
-      class="mt-1.5 flex h-7 cursor-pointer items-center gap-1.5 rounded px-2 text-xs text-muted-foreground transition-colors select-none hover:bg-[var(--wash-1)] hover:text-foreground {alignEnd
+      class="mt-1.5 flex h-7 cursor-pointer items-center gap-1.5 rounded px-2 text-insights-chrome text-muted-foreground transition-colors select-none hover:bg-[var(--wash-1)] hover:text-foreground {alignEnd
         ? 'ml-auto'
         : ''}"
       aria-expanded={expanded}
@@ -153,7 +153,7 @@
   {/if}
 
   {#if pane.truncated}
-    <p class="m-0 mt-2 text-xs text-muted-foreground opacity-70">
+    <p class="m-0 mt-2 text-insights-chrome text-muted-foreground">
       Stored text was capped{pane.chars
         ? ` — ${pane.chars.toLocaleString()} characters were sent`
         : ""}.
@@ -169,7 +169,7 @@
      hairline carries each caption away from its message without adding another
      container: after the agent on the left, before the user on the right. -->
 {#snippet roleLine(pane: TranscriptPane, alignEnd = false)}
-  <div class="flex h-5 items-center gap-1.5 text-xs {alignEnd ? 'justify-end' : ''}">
+  <div class="flex h-5 items-center gap-1.5 text-insights-chrome {alignEnd ? 'justify-end' : ''}">
     <span class="flex shrink-0 items-center gap-1.5 text-muted-foreground">
       {#if pane.mark === "user"}
         <UserIcon size={12} aria-hidden="true" />
@@ -194,9 +194,9 @@
   aria-label="Summary"
 >
   <header
-    class="flex h-10 items-center gap-2.5 px-5 text-xs shadow-[inset_0_-0.5px_0_var(--hairline)]"
+    class="flex h-10 items-center gap-2.5 px-5 text-insights-chrome shadow-[inset_0_-0.5px_0_var(--hairline)]"
   >
-    <h2 class="m-0 shrink-0 text-sm font-medium">Summary</h2>
+    <h2 class="m-0 shrink-0 text-insights-summary font-medium">Summary</h2>
     <span class="flex-1"></span>
     {#if meta}
       <span class="shrink-0 truncate text-muted-foreground tabular-nums">{meta}</span>
@@ -219,7 +219,7 @@
             {@render body(ask, "max-h-52", true)}
           </div>
         {:else}
-          <p class="m-0 max-w-[76ch] text-right text-xs leading-relaxed text-muted-foreground">
+          <p class="m-0 max-w-[76ch] text-right text-insights-chrome leading-relaxed text-muted-foreground">
             {ask.emptyNote}
           </p>
         {/if}
@@ -234,7 +234,7 @@
         {#if answer.text}
           {@render body(answer, "max-h-[26rem]")}
         {:else}
-          <p class="m-0 max-w-[76ch] text-xs leading-relaxed text-muted-foreground text-pretty">
+          <p class="m-0 max-w-[76ch] text-insights-chrome leading-relaxed text-muted-foreground text-pretty">
             {answer.emptyNote}
           </p>
         {/if}
@@ -246,7 +246,7 @@
     <!-- Under the card's own hairline: reference text a reader opens on
          purpose, not a third turn in the exchange. -->
     <div class="shadow-[inset_0_0.5px_0_var(--hairline)]">
-      <div class="flex h-9 items-center gap-2 pr-3 pl-2.5 text-xs">
+      <div class="flex h-9 items-center gap-2 pr-3 pl-2.5 text-insights-chrome">
         <button
           type="button"
           class="flex h-7 min-w-0 flex-1 overflow-hidden cursor-pointer items-center gap-2 rounded px-2 text-left text-muted-foreground transition-colors select-none hover:bg-[var(--wash-1)] hover:text-foreground"
@@ -261,10 +261,10 @@
           />
           <span class="shrink-0">{instructions.label}</span>
           {#if instructions.meta}
-            <span class="truncate tabular-nums opacity-70">{instructions.meta}</span>
+            <span class="truncate tabular-nums">{instructions.meta}</span>
           {/if}
           {#if !instructions.text}
-            <span class="truncate opacity-60">not recorded</span>
+            <span class="truncate">not recorded</span>
           {/if}
         </button>
         {#if instructions.text}
@@ -277,7 +277,7 @@
           {#if instructions.text}
             {@render body(instructions, "max-h-72")}
           {:else}
-            <p class="m-0 max-w-[76ch] text-xs leading-relaxed text-muted-foreground text-pretty">
+            <p class="m-0 max-w-[76ch] text-insights-chrome leading-relaxed text-muted-foreground text-pretty">
               {instructions.emptyNote}
             </p>
           {/if}
@@ -290,8 +290,7 @@
 <style>
   /* The three texts use the responsive Summary rung: one step below the main
      transcript, but large enough to read as a summary rather than chart
-     annotation. It is 14px on desktop and 12px on a laptop, and carries the
-     user's text-size preference at both sizes.
+     annotation. It is 14px and carries the user's text-size preference.
 
      Written here, not as a utility: `.prose-transcript` and `.prose-reading`
      are unlayered, so a `text-*` utility in `@layer utilities` never wins. */

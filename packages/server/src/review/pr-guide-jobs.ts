@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ReviewGuide, ReviewGuideRequestOptions, ReviewGuideStatusEvent, ReviewProgressStep } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
-import type { AgentDispatcher } from '../agents/agent-runner'
+import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import { authorPrGuide, type GeneratedGuide } from './guide-producer'
 import { currentPrGuideTarget, prepareReviewGuidePrContext, type PrGuideTarget, type ResolvedPrGuideTarget } from './pr-guide-context'
 import { prGuideKey, readPrGuide, writePrGuide } from './pr-guide-store'
@@ -32,7 +32,7 @@ const defaultDependencies: PrGuideJobDependencies = {
   current: currentPrGuideTarget,
   prepare: prepareReviewGuidePrContext,
   author: (request, ctx, target, signal, progress) => authorPrGuide(request.dispatcher, ctx, {
-    ...request.opts, target, ownDeltaBase: undefined, regenerationBaseSha: undefined,
+    ...request.opts, target, regenerationBaseSha: undefined,
   }, signal, progress),
   read: readPrGuide,
   write: writePrGuide,

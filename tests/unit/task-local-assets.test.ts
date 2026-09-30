@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { containsLocalAsset } from '@solus/server/tasks/task-assets'
+import { containsLocalAsset } from '@solus/server/data/tasks/task-assets'
 
 describe('task local assets', () => {
   test('keeps content-addressed attachments out of provider text publishing', () => {

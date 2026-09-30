@@ -2,6 +2,7 @@
   import { FolderOpen as FolderOpenIcon, GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import {
+    connectionsStore,
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
@@ -15,6 +16,7 @@
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { isRunOnHostLocked } from "../servers/run-on";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
@@ -52,7 +54,10 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const displayDir = $derived(
-    displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
+    displayDirName(
+      ctx.workingDirectory,
+      connectionsStore.chatFolderFor(run?.serverId ?? session.fallbackServerId),
+    ),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
   const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
@@ -62,12 +67,6 @@
   // The run's host holds this checkout; a path alone names no machine.
   const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
   const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
-  $effect(() => {
-    if (!showDestination) return;
-    const cwd = gitStatusCwd;
-    if (!cwd || cwd === "~") return;
-    void environmentStore.refresh(gitServerId, cwd);
-  });
 
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
   // One environment model drives the pill echo. displayBranch stays the raw
@@ -89,7 +88,7 @@
   const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch
-      ? "New worktree"
+      ? run?.worktree ? "New worktree" : "Checkout"
       : creatingWorktree
       ? "Creating worktree"
       : worktreeModePending
@@ -187,6 +186,12 @@
     requestInputFocus(focusTarget);
   }
 
+  function selectDispatchCheckout() {
+    if (!source) return;
+    session.config.setDispatchCheckout(source);
+    requestInputFocus(focusTarget);
+  }
+
   /** Every destination choice this row offers lands on whichever the source is:
    *  a started session's run, or the draft's, which stays inert until Send. */
   function applyRun(next: RunConfig) {
@@ -276,6 +281,7 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
+    onSelectDispatchCheckout={selectDispatchCheckout}
   />
 {/if}
 
@@ -330,7 +336,7 @@
         {:else}
           <GitBranchIcon size={14} class="shrink-0 opacity-70" />
         {/if}
-        <span class="truncate">{displayBranchLabel}</span>
+        <MiddleTruncate value={displayBranchLabel} showTitle={false} />
         {#if creatingWorktree || worktreeModePending}
           <GitForkIcon
             size={9}

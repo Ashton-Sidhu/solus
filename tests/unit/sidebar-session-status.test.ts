@@ -3,7 +3,7 @@ import { SidebarSessionStatusFeed } from '@solus/workspace-ui/components/session
 
 describe('sidebar session status feed', () => {
   test('keeps provider and stable session aliases on one timer', () => {
-    // WHY: create_session rows are keyed by the provider session id, while the
+    // WHY: start_session rows are keyed by the provider session id, while the
     // global event is addressed by a different Solus session id.
     const feed = new SidebarSessionStatusFeed()
 

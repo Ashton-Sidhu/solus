@@ -1,2 +1,5 @@
 [run]
 silent = true
+
+[test]
+preload = ["./tests/preload.ts"]

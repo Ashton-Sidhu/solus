@@ -15,8 +15,9 @@ import { WsTransport, type ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import type { HostRoute } from '@solus/contracts/uplink'
+import { organizationIdOfSolusApiId, type HostRoute } from '@solus/contracts/uplink'
 import { uplinkAccountSource } from './uplink-account'
+import { activeOrganizationId } from './workspace-registry'
 
 export interface LocalConnectionInfoLike {
   port: number
@@ -39,7 +40,10 @@ export interface SolusServerTarget {
 }
 
 /** The route a saved host is dialed on first: direct before tunnel, from this page's origin. */
-export function preferredRouteUrl(server: Pick<SavedServer, 'url' | 'routes'>, clientOrigin: string): string {
+export function preferredRouteUrl(
+  server: Pick<SavedServer, 'url' | 'routes'>,
+  clientOrigin = globalThis.location?.origin ?? '',
+): string {
   const [first] = dialableRoutes(savedServerRoutes(server), clientOrigin)
   return first?.url ?? server.url
 }
@@ -140,7 +144,13 @@ export function createSolusConnection(
     acquireGrant: guest
       ? guest.acquireGrant
       : uplinkHostId && account
-        ? async () => (await account.acquireHostGrant(uplinkHostId))?.grant ?? null
+        // The access token names the organization the window works in, so a host
+        // shared with several admits this connection to the right one (§7). A
+        // workspace service is one organization's by its id.
+        ? async () => (await account.acquireHostAccessToken(
+            uplinkHostId,
+            organizationIdOfSolusApiId(target.id) ?? activeOrganizationId() ?? undefined,
+          ))?.accessToken ?? null
         : undefined,
     shareSecret: guest?.shareSecret,
     onStatusChange: options.onStatusChange,

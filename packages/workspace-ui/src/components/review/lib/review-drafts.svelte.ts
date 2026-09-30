@@ -49,13 +49,17 @@ export class ReviewDrafts {
   }
 
   /** Upsert from a guide/diff comment card (edit when `id` is set, otherwise
-   *  keyed on the path/side/line anchor). */
-  save(comment: GuideDiffCommentSave): void {
+   *  keyed on the path/side/line anchor). Returns the draft's id. */
+  save(comment: GuideDiffCommentSave): string | null {
+    let id: string | null = null;
     if (comment.id) {
       const draft = this.drafts.find((d) => d.id === comment.id);
-      if (draft) draft.body = comment.comment;
+      if (draft) {
+        draft.body = comment.comment;
+        id = draft.id;
+      }
     } else {
-      this.#upsert({
+      id = this.#upsert({
         path: comment.filePath,
         line: comment.endLine,
         startLine: comment.startLine !== comment.endLine ? comment.startLine : undefined,
@@ -64,6 +68,7 @@ export class ReviewDrafts {
       });
     }
     void this.#persist();
+    return id;
   }
 
   remove(id: string): void {
@@ -79,7 +84,7 @@ export class ReviewDrafts {
     void this.#persist();
   }
 
-  #upsert(input: Omit<ReviewDraftComment, "id" | "createdAt">): void {
+  #upsert(input: Omit<ReviewDraftComment, "id" | "createdAt">): string {
     const anchor = `${input.path}::${input.side}::${input.line}`;
     const existing = this.drafts.find(
       (d) => `${d.path}::${d.side}::${d.line}` === anchor,
@@ -87,9 +92,11 @@ export class ReviewDrafts {
     if (existing) {
       existing.body = input.body;
       existing.startLine = input.startLine;
-    } else {
-      this.drafts.push({ id: uuid(), createdAt: Date.now(), ...input });
+      return existing.id;
     }
+    const id = uuid();
+    this.drafts.push({ id, createdAt: Date.now(), ...input });
+    return id;
   }
 
   #persist(): Promise<boolean> {

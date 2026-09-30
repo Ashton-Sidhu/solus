@@ -66,7 +66,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
 
   function settle() {
     settleTimer = null;
-    if (outsidePointerInFlight) return;
+    if (outsidePointerInFlight || options.recording()) return;
     const root = options.root();
     if (!root) return;
     if (
@@ -142,9 +142,12 @@ export function useComposerFold(options: ComposerFoldOptions) {
     };
   });
 
-  // The mic gets a refocus grace. The keyboard is handed back
-  // to the editor a frame later (composer-focus), inside the grace, so the
-  // bar never folds on its own after a dictation. Should nothing hand it
+  // A live mic holds the keyboard for the bar, so the hold is already in
+  // place when the mic lets go. Taking it only on the stop edge left one
+  // flush with neither hold, which folded the bar and unfolded it again.
+  // The mic then gets a refocus grace. The keyboard is handed back to the
+  // editor a frame later (composer-focus), inside the grace, so the bar
+  // never folds on its own after a dictation. Should nothing hand it
   // back — the keyboard was elsewhere for the whole recording — it folds
   // once that refocus grace is up.
   let wasRecording = untrack(() => options.recording());
@@ -152,10 +155,9 @@ export function useComposerFold(options: ComposerFoldOptions) {
     const recording = options.recording();
     const stopped = wasRecording && !recording;
     wasRecording = recording;
-    if (!stopped) return;
     untrack(() => {
-      keyboardHeld = true;
-      scheduleSettle(COMPOSER_REFOCUS_GRACE_MS);
+      if (recording) keyboardHeld = true;
+      if (stopped) scheduleSettle(COMPOSER_REFOCUS_GRACE_MS);
     });
   });
 

@@ -3,7 +3,8 @@
  *
  * Comment prose is Inter, never the document's serif — a thread is chrome that
  * happens to hold sentences. It gets mentions, links, inline code, one-line
- * code quotes, bold, italic, and locally stored pasted images. A comment that
+ * code quotes, bold, italic, and locally stored pasted images. A mention of an
+ * organization member is its `[@Name](person://ref?userId=…)` token. A comment that
  * needs headings or tables wants to be a document.
  *
  * So this is an allowlist tokenizer rather than a markdown renderer. Anything
@@ -11,12 +12,16 @@
  * as the characters the author typed instead of silently becoming structure.
  */
 
+import { parsePersonMentionHref } from '@solus/contracts/mentions'
+
 export type Segment =
   | { kind: 'plain'; text: string }
   | { kind: 'bold'; text: string }
   | { kind: 'italic'; text: string }
   | { kind: 'code'; text: string }
   | { kind: 'mention'; text: string }
+  /** `text` is `@` and the saved name, so a plain-text preview still reads. */
+  | { kind: 'person'; text: string; userId: string; name: string }
   | { kind: 'link'; text: string; href: string }
   | { kind: 'image'; text: string; href: string }
 
@@ -38,12 +43,18 @@ const INLINE = [
   { kind: 'assetImage', re: /!\[([^\]\n]*)\]\((asset:\/\/[a-f0-9]{64}\.(?:png|jpg|gif|webp))\)/i },
   { kind: 'assetFile', re: /\[([^\]\n]+)\]\((asset:\/\/[a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15})\)/i },
   { kind: 'image', re: /!\[[^\]\n]*\]\([^\s)]*\)/ },
+  { kind: 'person', re: /\[(@(?:\\.|[^\]\\\n])*)\]\((person:\/\/ref\?[^)\s]*)\)/ },
   { kind: 'mdLink', re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/ },
   { kind: 'bareLink', re: /(https?:\/\/[^\s<>()]+)/ },
   { kind: 'bold', re: /\*\*([^*\n]+)\*\*/ },
   { kind: 'italic', re: /(?:\*([^*\n]+)\*|_([^_\n]+)_)/ },
   { kind: 'mention', re: /@([A-Za-z0-9][A-Za-z0-9._-]*)/ },
 ] as const
+
+function personSegment(raw: string, label: string, href: string): Segment {
+  const mention = parsePersonMentionHref(href, label)
+  return mention ? { kind: 'person', text: `@${mention.name}`, ...mention } : { kind: 'plain', text: raw }
+}
 
 function nextMatch(text: string): { index: number; length: number; segment: Segment } | null {
   let best: { index: number; length: number; segment: Segment } | null = null
@@ -63,6 +74,8 @@ function nextMatch(text: string): { index: number; length: number; segment: Segm
           ? { kind: 'link', text: first || 'attachment', href: second }
         : kind === 'image'
           ? { kind: 'plain', text: raw }
+        : kind === 'person'
+          ? personSegment(raw, first, second)
           : kind === 'mdLink'
             ? { kind: 'link', text: first, href: second }
             : kind === 'bareLink'

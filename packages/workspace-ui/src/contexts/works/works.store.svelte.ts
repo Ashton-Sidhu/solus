@@ -1,11 +1,16 @@
 import { ExternalCommentsStore } from './external-comments.store.svelte'
-import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
+import { WorkHistoryStore } from './work-history.store.svelte'
+import { WorkReviewsStore } from './work-reviews.store.svelte'
+import { WorkLiveStore } from './work-live.store.svelte'
+import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMeta, WorkType } from '@solus/contracts/types'
 import type { NewWorkComment, WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { organizationSelection } from '../connections/organization-selection.store.svelte'
+import { LOCAL_ORGANIZATION_ID, visibleInWindow } from '../../lib/organization-filter'
 import { SvelteMap } from 'svelte/reactivity'
 import type {
   DocDestination,
@@ -19,36 +24,55 @@ import type {
 import { PresenceWatch } from '../../lib/presence-watch'
 import { firstHeadingTitle, isPlaceholderWorkTitle } from './work-title'
 import { reconcileComments } from './comment-sync'
+import { OpenWork, unavailableReasonOf, type OpenWorkHost } from './open-work.svelte'
+
+/** What the window knows about a work without its body: a gallery row, a
+ *  provisional entry, a link target. The body is only ever a saved record. */
+export type WorkListing = WorkMeta & { id: string }
+
+/** The pane's hold on one open work. Release it when the pane unmounts. */
+export interface OpenWorkLease {
+  readonly work: OpenWork
+  release(): void
+}
 
 export class WorksStore {
   readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
-  works = $state<Record<string, Work>>({})
+  readonly history = new WorkHistoryStore(workId => this.apiForWork(workId))
+  /** The works open live, shared by the panes that show them (phase 3b). */
+  readonly live = new WorkLiveStore({ title: (workId) => this.get(workId)?.title || 'Untitled' })
+  readonly reviews = new WorkReviewsStore(workId => this.apiForWork(workId), serverId => serverConnections.apiFor(serverId), workId => this.hostFor(workId))
+  /** Every work this window knows, metadata only. */
+  works = $state<Record<string, WorkListing>>({})
+  /** The saved records read from their hosts, one per work: the body and its
+   *  versions exactly as the owner host answered. Changed only through
+   *  `acceptSaved`, which refuses an answer older than the one held. */
+  saved = $state<Record<string, Work>>({})
   /** A work pending deletion from the open-work view, held while the undo toast
    *  is visible. The work is removed from disk only on commit (toast dismiss). */
-  pendingWorkDelete = $state<Work | null>(null)
+  pendingWorkDelete = $state<WorkListing | null>(null)
   annotations = $state<Record<string, WorkAnnotations>>({})
-  previousSnapshots = $state<Record<string, WorkPrevious | null>>({})
-  /** Per-work counter, bumped only on agent-driven (mid-turn) updates. Open
-   *  viewers watch this to decide when to live-refresh vs. surface a conflict. */
-  agentRevisions = $state<Record<string, number>>({})
   /** Set true for a work whose create_work tool call is still in flight
    *  (provisional, not yet persisted). The card renders a generating skeleton
    *  while this is true; cleared on finalize. */
   streaming = $state<Record<string, boolean>>({})
   /** Which host owns each known work. All later reads and writes use this map. */
   private hostByWorkId = new SvelteMap<string, string>()
+  /** The host each saved record was read from. A record from another host is
+   *  replaced, not version-compared: versions belong to one host's row. */
+  private savedFrom = new Map<string, string>()
   /** True while a listWorks load is in flight, so surfaces that show works
    *  alongside slower data (the Workspace ledger) can say so. */
   listLoading = $state(false)
   private annotationLoadTokens = new Map<string, number>()
-  private previousLoadTokens = new Map<string, number>()
   private nextLoadToken = 0
   /** The in-flight listWorks load, shared by every caller that asks meanwhile. */
   private listLoad: Promise<void> | null = null
-  /** In-flight ensureContent loads, keyed by workId. Concurrent callers (a
-   *  grouped-invalidation burst re-runs the hydration effect while a load is
-   *  pending) share the same promise instead of firing duplicate loadWork IPC. */
-  private contentLoads = new Map<string, Promise<Work | null>>()
+  /** In-flight saved-record reads for works no pane has open, keyed by work.
+   *  Concurrent callers share one read instead of firing duplicate loadWork IPC. */
+  private savedReads = new Map<string, Promise<Work | null>>()
+  /** The works a pane has open, reference-counted: one subscription each. */
+  private openWorks = new Map<string, OpenWork>()
   /** Live upstream polls, keyed by work. Reference-counted, because the same
    *  work can be open in more than one pane. */
   private upstreamWatches = new PresenceWatch()
@@ -56,16 +80,17 @@ export class WorksStore {
 
   /** Register a provisional work while a create_work tool call is in flight. The
    *  card shows a generating skeleton (content is not streamed in); on
-   *  work_created, finalizeProvisional swaps in the persisted id and content.
-   *  The empty entry carries the agent/cwd so finalize can preserve them.
-   *  Returns the generated provisional id. */
+   *  work_created, finalizeProvisional swaps in the persisted id. The entry
+   *  carries the agent/cwd so finalize can preserve them. Returns its id. */
   addProvisional(agentProvider: AgentId, cwd: string, serverId?: string): string {
     const tempId = uuid()
     const now = new Date().toISOString()
     this.works[tempId] = {
       id: tempId,
+      // The host names the organization when it persists the work; until then
+      // the provisional is this window's, and Local is visible in every window.
+      organizationId: LOCAL_ORGANIZATION_ID,
       title: '',
-      content: '',
       preview: '',
       type: 'doc',
       createdAt: now,
@@ -79,18 +104,18 @@ export class WorksStore {
     return tempId
   }
 
-  /** Reconcile a provisional to the persisted work: rekey temp→real id, set the
-   *  authoritative content/title/type, and clear the streaming flag. When there
-   *  is no provisional (Codex/mock emit work_created without streaming), this
-   *  simply inserts the finished work. */
+  /** Reconcile a provisional to the persisted work: rekey temp→real id, set its
+   *  title, type, and preview, and clear the streaming flag. When there is no
+   *  provisional (Codex/mock emit work_created without streaming), this lists
+   *  the finished work. The body is not a saved record: a reader loads it. */
   finalizeProvisional(tempId: string | null, realId: string, title: string, docType: WorkType, content: string, serverId?: string): void {
     const provisional = tempId ? this.works[tempId] : undefined
     const ownerServerId = serverId ?? (tempId ? this.hostByWorkId.get(tempId) : undefined)
     const now = new Date().toISOString()
-    const base: Work = provisional ?? {
+    const listing: WorkListing = provisional ?? {
       id: realId,
+      organizationId: LOCAL_ORGANIZATION_ID,
       title,
-      content,
       preview: '',
       type: docType,
       createdAt: now,
@@ -104,13 +129,12 @@ export class WorksStore {
       this.hostByWorkId.delete(tempId)
     }
     if (tempId) delete this.streaming[tempId]
-    base.id = realId
-    base.title = title
-    base.type = docType
-    base.content = content
-    base.preview = workPreview(docType, content)
-    base.updatedAt = now
-    this.works[realId] = base
+    listing.id = realId
+    listing.title = title
+    listing.type = docType
+    listing.preview = workPreview(docType, content)
+    listing.updatedAt = now
+    this.works[realId] = listing
     if (ownerServerId) this.hostByWorkId.set(realId, ownerServerId)
   }
 
@@ -130,8 +154,118 @@ export class WorksStore {
     return this.hostByWorkId.get(workId) ?? null
   }
 
-  /** Legacy work ids can arrive from old transcript links before any list read
-   *  places them. The default host preserves that single-host cold path only. */
+  /** The known works this window shows: Local ones, and the selected organization's (organization-scope §2). */
+  get visibleWorks(): WorkListing[] {
+    const activeOrganizationId = organizationSelection.activeOrganizationId
+    return Object.values(this.works).filter((work) => visibleInWindow(work.organizationId, activeOrganizationId))
+  }
+
+  /**
+   * A publication of the work into an organization was committed (organization-scope
+   * §7): its home is now that organization's workspace service, under the same id,
+   * so every link to it still resolves — there. The host already holds the copy;
+   * this store only follows it. Cached sidecars were the machine's and are re-read.
+   * An open work releases the machine and subscribes on the service; its panes
+   * keep their drafts.
+   */
+  markPublished(workId: string, organizationId: string, cloudServerId: string): void {
+    const previousServerId = this.hostByWorkId.get(workId)
+    this.hostByWorkId.set(workId, cloudServerId)
+    this.clearCachedSidecars(workId)
+    const listing = this.works[workId]
+    if (listing) listing.organizationId = organizationId
+    const held = this.saved[workId]
+    if (held) held.organizationId = organizationId
+    const open = this.openWorks.get(workId)
+    if (open && previousServerId !== cloudServerId) open.bind(this.openWorkHost(cloudServerId))
+  }
+
+  /** A work this client just created or copied on `serverId`: listed and saved at once. */
+  acceptCreated(work: Work, serverId: string): void {
+    this.hostByWorkId.set(work.id, serverId)
+    this.acceptSaved(work, serverId)
+  }
+
+  /**
+   * The one way a host's answer becomes the saved record. An answer from a host
+   * that no longer owns the work is ignored; one from the owner replaces the
+   * held record only when it is newer (a higher content version, or the same
+   * body with a later record version), so an equal or late answer is harmless.
+   * The record is updated in place and every pane with the work open is told.
+   */
+  acceptSaved(work: Work, serverId: string): void {
+    const owner = this.hostByWorkId.get(work.id)
+    if (owner && owner !== serverId) return
+    if (!owner) this.hostByWorkId.set(work.id, serverId)
+    const held = this.saved[work.id]
+    if (held && this.savedFrom.get(work.id) === serverId && !isNewerRecord(work, held)) return
+    if (held) applyRecord(held, work)
+    else this.saved[work.id] = work
+    this.savedFrom.set(work.id, serverId)
+    const listing = this.works[work.id]
+    if (listing) applyMeta(listing, work)
+    else this.works[work.id] = listingOf(work)
+    this.openWorks.get(work.id)?.notify(this.saved[work.id], serverId)
+  }
+
+  savedWork(workId: string): Work | undefined {
+    return this.saved[workId]
+  }
+
+  /**
+   * Hold a work open: subscribe on its owner host before the first read, and
+   * keep the saved record current until the last pane releases it. A
+   * provisional work is not read until it is persisted under its real id.
+   */
+  openWork(workId: string, serverIdHint?: string): OpenWorkLease {
+    if (serverIdHint && !this.hostByWorkId.has(workId)) this.hostByWorkId.set(workId, serverIdHint)
+    let open = this.openWorks.get(workId)
+    if (!open) {
+      open = new OpenWork(workId, {
+        saved: (id, serverId) => (this.savedFrom.get(id) === serverId ? this.saved[id] : undefined),
+        accept: (work, serverId) => this.acceptSaved(work, serverId),
+      })
+      this.openWorks.set(workId, open)
+      const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+      if (!serverId) {
+        open.status = 'error'
+        open.error = 'No Solus host is connected.'
+      } else if (!this.streaming[workId]) {
+        open.bind(this.openWorkHost(serverId))
+      }
+    }
+    const held = open
+    held.refs++
+    let released = false
+    return {
+      work: held,
+      release: () => {
+        if (released) return
+        released = true
+        held.refs--
+        if (held.refs > 0 || this.openWorks.get(workId) !== held) return
+        held.stop()
+        this.openWorks.delete(workId)
+      },
+    }
+  }
+
+  private openWorkHost(serverId: string): OpenWorkHost {
+    const resolved = serverConnections.resolveId(serverId)
+    return {
+      serverId,
+      api: serverConnections.apiFor(serverId),
+      subscribe: (type, listener) => serverConnections.eventsFor(serverId).subscribe(type, (payload) => listener(payload)),
+      onPhaseChange: (listener) => serverConnections.onPhaseChange((changedServerId, phase) => {
+        if (changedServerId === resolved) listener(phase)
+      }),
+      phase: () => serverConnections.phaseFor(serverId),
+    }
+  }
+
+  /** A work link in a document, a transcript card, or a task names only the
+   *  work id. Until a list read or a host-addressed event places the work, the
+   *  default host is asked. */
   private apiForWork(workId: string): HostApi {
     const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
     if (!serverId) throw new Error('Primary Solus connection has not been registered')
@@ -191,7 +325,8 @@ export class WorksStore {
 
   async addAnnotationComment(workId: string, comment: PlanComment): Promise<void> {
     const entry = this.ensureAnnotationsEntry(workId)
-    entry.comments.push({ author: 'you', createdAt: Date.now(), ...comment })
+    // Unstamped until the host answers: the reader's own, as the rail reads it.
+    entry.comments.push({ createdAt: Date.now(), ...comment })
     entry.updatedAt = Date.now()
     await this.applyComment(workId, { kind: 'add', comment: newWorkComment(comment) })
   }
@@ -226,12 +361,11 @@ export class WorksStore {
     const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
     if (!comment) return
     if (resolved) {
+      // The host stamps who resolved it; the reader's copy says only when.
       comment.resolvedAt = Date.now()
-      comment.resolvedBy = 'you'
     } else {
       delete comment.resolvedAt
       delete comment.resolvedBy
-      delete comment.resolvedByPerson
     }
     await this.applyComment(workId, { kind: 'resolve', commentId, resolved })
   }
@@ -242,7 +376,6 @@ export class WorksStore {
     for (const comment of this.annotationComments(workId)) {
       if (comment.resolvedAt !== undefined) continue
       comment.resolvedAt = now
-      comment.resolvedBy = 'you'
     }
     await this.applyComment(workId, { kind: 'resolve-open' })
   }
@@ -258,41 +391,32 @@ export class WorksStore {
     }
   }
 
-  async loadPrevious(workId: string, contentKey = ''): Promise<WorkPrevious | null> {
-    const token = ++this.nextLoadToken
-    this.previousLoadTokens.set(workId, token)
+  /**
+   * Write through the owner host. `base` is the saved record the writer's
+   * draft is based on — never the newest one this store holds, which the
+   * writer may not have seen. The answer becomes the saved record. A write
+   * refused because the work is gone marks an open work unavailable.
+   */
+  async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, base: Pick<Work, 'updatedAt' | 'contentVersion'>): Promise<Work> {
+    const write = this.withDerivedTitle(this.works[workId], updates)
+    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
     try {
-      const previous = await this.apiForWork(workId).loadWorkPrevious(workId)
-      if (this.previousLoadTokens.get(workId) !== token) return this.previousSnapshots[workId] ?? null
-      this.previousSnapshots[workId] = previous
-      return previous
-    } catch (err) {
-      logWorkLoad('error', 'previous snapshot load failed', { workId, contentKey, error: formatError(err) })
-      return this.previousSnapshots[workId] ?? null
+      const updated = await serverConnections.apiFor(serverId).saveWork(workId, write, base)
+      this.acceptSaved(updated, serverId)
+      return updated
+    } catch (error) {
+      const reason = isMissingWorkError(error) ? 'deleted' : unavailableReasonOf(error)
+      if (reason) this.openWorks.get(workId)?.markUnavailable(reason)
+      throw error
     }
-  }
-
-  async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, expectedUpdatedAt?: string): Promise<Work> {
-    const work = this.works[workId]
-    const write = this.withDerivedTitle(work, updates)
-    const updated = await this.apiForWork(workId).saveWork(workId, write, expectedUpdatedAt)
-    const existing = this.works[workId]
-    if (existing) {
-      if (write.title !== undefined) existing.title = updated.title
-      if (write.preview !== undefined) existing.preview = updated.preview
-      if (write.content !== undefined) existing.content = updated.content
-      existing.updatedAt = updated.updatedAt
-    } else {
-      this.works[workId] = updated
-    }
-    return updated
   }
 
   /** A still-unnamed document takes its name from the first heading the user
    *  writes. Only for documents: diagram content is JSON, and a work the user
    *  or the agent has already named keeps that name. */
   private withDerivedTitle(
-    work: Work | undefined,
+    work: WorkListing | undefined,
     updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
   ): Partial<Pick<Work, 'title' | 'preview' | 'content'>> {
     if (updates.title !== undefined || updates.content === undefined) return updates
@@ -302,29 +426,28 @@ export class WorksStore {
   }
 
   /**
-   * Apply an agent-driven (mid-turn) update to a work. Stale-guards on
-   * updatedAt and mutates the store entry in place (Svelte 5 rule — no spreads).
-   * If the work isn't loaded yet, pulls it fresh from disk.
+   * A session reported an agent's update to a work. It names no content
+   * version, so its body never becomes the saved record: the listing takes the
+   * title and preview. An open work already hears the same write as
+   * `works.changed` from its owner host and reads it once; any other held
+   * saved record is read again by id.
    */
-  async applyRemoteUpdate(workId: string, title: string, content: string, updatedAt: string, serverId?: string): Promise<void> {
+  applyRemoteUpdate(workId: string, title: string, content: string, updatedAt: string, serverId?: string): void {
     if (serverId) this.hostByWorkId.set(workId, serverId)
-    const existing = this.works[workId]
-    if (existing) {
-      if (existing.updatedAt && updatedAt && updatedAt < existing.updatedAt) return
-      // A cloud-owned save cannot read the row it updates, so it reports `doc`
-      // and an empty title. An update never changes a work's type.
-      if (title) existing.title = title
-      existing.content = content
-      existing.preview = workPreview(existing.type, content)
-      existing.updatedAt = updatedAt
-      this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
+    const listing = this.works[workId]
+    if (!listing) {
+      void this.readSaved(workId, 'agent-update')
       return
     }
-    const work = await this.apiForWork(workId).loadWork(workId)
-    if (work) {
-      this.works[workId] = work
-      this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
-    }
+    if (Date.parse(updatedAt) < Date.parse(listing.updatedAt)) return
+    // A cloud-owned save cannot read the row it updates, so it reports `doc`
+    // and an empty title. An update never changes a work's type.
+    if (title) listing.title = title
+    listing.preview = workPreview(listing.type, content)
+    listing.updatedAt = updatedAt
+    const held = this.saved[workId]
+    if (!held || this.openWorks.has(workId) || Date.parse(updatedAt) <= Date.parse(held.updatedAt)) return
+    void this.readSaved(workId, 'agent-update')
   }
 
   loadAll(): Promise<void> {
@@ -346,25 +469,29 @@ export class WorksStore {
         }))
         for (const result of results) {
           if (!result.metas) continue
+          void this.reviews.loadHost(result.serverId)
           const liveIds = new Set<string>()
           for (const meta of result.metas) {
             liveIds.add(meta.id)
             this.hostByWorkId.set(meta.id, result.serverId)
-            const existing = this.works[meta.id]
-            if (existing) {
-              applyMeta(existing, meta)
-            } else {
-              this.works[meta.id] = { ...meta, content: '' }
-            }
+            const listing = this.works[meta.id]
+            if (!listing) this.works[meta.id] = listingOf(meta)
+            else if (Date.parse(meta.updatedAt) >= Date.parse(listing.updatedAt)) applyMeta(listing, meta)
+            // A held body older than the listing is no longer the saved one.
+            const held = this.saved[meta.id]
+            if (held && Date.parse(meta.updatedAt) > Date.parse(held.updatedAt)) this.refreshSaved(meta.id)
           }
           // Only an owner host that answered can confirm a deletion. A failed
           // host contributes nothing and cannot evict another host's works.
+          // An open work is asked again: its panes show it as unavailable.
           for (const id of Object.keys(this.works)) {
             if (this.hostByWorkId.get(id) !== result.serverId || liveIds.has(id) || this.streaming[id]) continue
-            delete this.works[id]
-            delete this.agentRevisions[id]
-            this.hostByWorkId.delete(id)
-            this.clearCachedSidecars(id)
+            const open = this.openWorks.get(id)
+            if (open) {
+              void open.refresh()
+              continue
+            }
+            this.forget(id)
           }
         }
       } catch (err) {
@@ -379,58 +506,45 @@ export class WorksStore {
     return load
   }
 
-  async ensureContent(workId: string, source = 'unknown'): Promise<Work | null> {
-    const existing = this.works[workId]
-    if (existing?.content) return existing
-    const pending = this.contentLoads.get(workId)
-    if (pending) return pending
-    const load = this.loadContentFromDisk(workId, source, existing)
-    this.contentLoads.set(workId, load)
-    try {
-      return await load
-    } finally {
-      this.contentLoads.delete(workId)
-    }
+  /** The saved record, read from its host when none is held. A provisional
+   *  work has none yet. */
+  ensureContent(workId: string, source = 'unknown'): Promise<Work | null> {
+    const held = this.saved[workId]
+    if (held) return Promise.resolve(held)
+    if (this.streaming[workId]) return Promise.resolve(null)
+    return this.readSaved(workId, source)
   }
 
-  private async loadContentFromDisk(workId: string, source: string, existing: Work | undefined): Promise<Work | null> {
-    logWorkLoad('info', 'loading content from disk', {
-      workId,
-      source,
-      hasManifestEntry: !!existing,
-      title: existing?.title,
-      updatedAt: existing?.updatedAt,
-    })
+  /** Bring a held record up to date: an open work re-reads under its own
+   *  subscription; any other is read again once. */
+  private refreshSaved(workId: string): void {
+    const open = this.openWorks.get(workId)
+    if (open) void open.refresh()
+    else void this.readSaved(workId, 'stale-listing')
+  }
+
+  private readSaved(workId: string, source: string): Promise<Work | null> {
+    const pending = this.savedReads.get(workId)
+    if (pending) return pending
+    const read = this.loadSavedFromHost(workId, source).finally(() => this.savedReads.delete(workId))
+    this.savedReads.set(workId, read)
+    return read
+  }
+
+  private async loadSavedFromHost(workId: string, source: string): Promise<Work | null> {
+    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!serverId) return null
     try {
-      const work = await this.apiForWork(workId).loadWork(workId)
+      const work = await serverConnections.apiFor(serverId).loadWork(workId)
       if (work) {
-        this.works[workId] = work
-        logWorkLoad('info', 'loaded content from disk', {
-          workId,
-          source,
-          title: work.title,
-          type: work.type,
-          contentLength: work.content.length,
-          updatedAt: work.updatedAt,
-        })
-        return work
+        this.acceptSaved(work, serverId)
+        return this.saved[workId] ?? null
       }
-      logWorkLoad('warn', 'disk load returned no work', {
-        workId,
-        source,
-        hadManifestEntry: !!existing,
-        title: existing?.title,
-      })
+      logWorkLoad('warn', 'host read returned no work', { workId, source, hadListing: !!this.works[workId] })
     } catch (err) {
-      logWorkLoad('error', 'disk load failed', {
-        workId,
-        source,
-        hadManifestEntry: !!existing,
-        title: existing?.title,
-        error: formatError(err),
-      })
+      logWorkLoad('error', 'host read failed', { workId, source, hadListing: !!this.works[workId], error: formatError(err) })
     }
-    return existing ?? null
+    return null
   }
 
   async remove(workId: string): Promise<void> {
@@ -440,10 +554,8 @@ export class WorksStore {
       if (!isMissingWorkError(err)) throw err
     } finally {
       await this.loadAll()
-      delete this.works[workId]
-      delete this.streaming[workId]
-      this.hostByWorkId.delete(workId)
-      this.clearCachedSidecars(workId)
+      this.openWorks.get(workId)?.markUnavailable('deleted')
+      this.forget(workId)
     }
   }
 
@@ -451,7 +563,7 @@ export class WorksStore {
    *  pendingWorkDelete) but stays on disk until commit. Callers must already have
    *  shown their undo affordance — showing one commits the affordance it replaces,
    *  which would wipe the pending delete recorded here. */
-  beginWorkDelete(work: Work): void {
+  beginWorkDelete(work: WorkListing): void {
     this.pendingWorkDelete = work
   }
 
@@ -467,58 +579,19 @@ export class WorksStore {
     this.pendingWorkDelete = null
   }
 
-  /**
-   * Move a work to the organization's workspace service, one way
-   * (docs/plans/cloud-service-model.md R6): the same id, title, kind, and content
-   * are created there, then the copy on the machine is deleted. The id survives,
-   * so every link to the work still resolves — on its new host. A failed create
-   * leaves the original where it was; a failed delete leaves a copy behind, and
-   * the store still follows the cloud one.
-   */
-  async moveToCloud(workId: string, cloudServerId: string): Promise<Work> {
-    const sourceServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
-    if (!sourceServerId) throw new Error('Primary Solus connection has not been registered')
-    if (sourceServerId === cloudServerId) throw new Error('This work is already in Solus Cloud')
-    const sourceApi = serverConnections.apiFor(sourceServerId)
-    const transfer = await sourceApi.worksCloudExport(workId)
-    const moved = await serverConnections.apiFor(cloudServerId).worksCloudImport(transfer)
-    await sourceApi.worksCloudRemove(workId, transfer.fingerprint)
-    this.hostByWorkId.set(moved.id, cloudServerId)
-    this.clearCachedSidecars(workId)
-    if (moved.id !== workId) {
-      delete this.works[workId]
-      this.hostByWorkId.delete(workId)
-      this.works[moved.id] = moved
-      return moved
-    }
-    const existing = this.works[workId]
-    if (existing) {
-      existing.title = moved.title
-      existing.content = moved.content
-      existing.preview = moved.preview
-      existing.updatedAt = moved.updatedAt
-      existing.pinned = moved.pinned
-      existing.mirroredDoc = moved.mirroredDoc
-    } else {
-      this.works[moved.id] = moved
-    }
-    return moved
-  }
-
   async duplicate(workId: string): Promise<Work> {
     const api = this.apiForWork(workId)
     // The same choice `apiForWork` just made, so the copy is remembered on the
     // host that holds the original.
     const ownerServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
     const duplicated = await api.duplicateWork(workId)
-    this.works[duplicated.id] = duplicated
-    if (ownerServerId) this.hostByWorkId.set(duplicated.id, ownerServerId)
+    if (ownerServerId) this.acceptCreated(duplicated, ownerServerId)
     return duplicated
   }
 
   async setPinned(workId: string, pinned: boolean): Promise<void> {
-    const w = this.works[workId]
-    if (w) w.pinned = pinned
+    const listing = this.works[workId]
+    if (listing) listing.pinned = pinned
     await this.apiForWork(workId).setWorkPinned(workId, pinned)
   }
 
@@ -533,18 +606,15 @@ export class WorksStore {
     void this.apiForWork(workId).linkWorkSession(workId, sessionId)
   }
 
-  async revert(workId: string): Promise<Work | null> {
-    const reverted = await this.apiForWork(workId).revertWork(workId)
-    if (!reverted) return null
-    const existing = this.works[workId]
-    if (existing) {
-      existing.content = reverted.content
-      existing.preview = reverted.preview
-      existing.updatedAt = reverted.updatedAt
-    } else {
-      this.works[workId] = reverted
-    }
-    return reverted
+  /** Make one checkpoint current again, over the body the reader compared
+   *  against. The host adds a `restore` checkpoint; nothing is deleted. */
+  async restoreRevision(workId: string, revisionId: number, expectedContentVersion: number): Promise<Work> {
+    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    const restored = await serverConnections.apiFor(serverId).restoreWorkRevision(workId, revisionId, expectedContentVersion)
+    this.acceptSaved(restored, serverId)
+    void this.history.load(workId)
+    return restored
   }
 
   /** Local-only sync for links the main process already persisted (work_created events). */
@@ -557,10 +627,20 @@ export class WorksStore {
     if (!work.sessionId) work.sessionId = sessionId
   }
 
-  get(workId: string): Work | undefined {
+  get(workId: string): WorkListing | undefined {
     return this.works[workId]
   }
 
+  /** Every trace of a work the host no longer has. */
+  private forget(workId: string): void {
+    delete this.works[workId]
+    delete this.saved[workId]
+    delete this.streaming[workId]
+    this.savedFrom.delete(workId)
+    this.hostByWorkId.delete(workId)
+    this.clearCachedSidecars(workId)
+    this.reviews.forget(workId)
+  }
   // ─── Upstream doc mirror ───
 
   /** Which document providers this host can reach right now. */
@@ -597,19 +677,18 @@ export class WorksStore {
     return result
   }
 
+
   async pullUpstream(workId: string): Promise<WorkPullResult> {
     const result = await this.apiForWork(workId).pullWorkUpstream(workId)
     if (!result.ok) return result
-    const existing = this.works[workId]
-    if (existing) {
-      existing.title = result.title
-      existing.content = result.content
-      existing.preview = workPreview(existing.type, result.content)
-      existing.mirroredDoc = result.link
+    const listing = this.works[workId]
+    if (listing) {
+      listing.title = result.title
+      listing.preview = workPreview(listing.type, result.content)
+      listing.mirroredDoc = result.link
     }
-    // The pulled content replaced the local one, so the snapshot the revert
-    // action offers has changed.
-    void this.loadPrevious(workId)
+    // The pull wrote a new body on the host; the saved record is read again.
+    if (this.saved[workId]) this.refreshSaved(workId)
     return result
   }
 
@@ -626,8 +705,7 @@ export class WorksStore {
   /** Stops tracking the upstream doc. The page itself is never touched. */
   async unlinkUpstream(workId: string): Promise<void> {
     await this.apiForWork(workId).unlinkWorkUpstream(workId)
-    const existing = this.works[workId]
-    if (existing) existing.mirroredDoc = undefined
+    this.applyLink(workId, undefined)
   }
 
   /** `cwd` is the imported work's origin, recorded on its row. */
@@ -635,8 +713,7 @@ export class WorksStore {
     const targetServerId = serverId ?? serverConnections.defaultServerId()
     if (!targetServerId) throw new Error('Primary Solus connection has not been registered')
     const work = await serverConnections.apiFor(targetServerId).importDocFromUrl(url, cwd)
-    this.works[work.id] = work
-    this.hostByWorkId.set(work.id, targetServerId)
+    this.acceptCreated(work, targetServerId)
     return work
   }
 
@@ -650,9 +727,11 @@ export class WorksStore {
     return this.upstreamWatches.watch(workId, () => this.refreshUpstream(workId))
   }
 
-  private applyLink(workId: string, link: WorkExternalLink): void {
-    const existing = this.works[workId]
-    if (existing) existing.mirroredDoc = link
+  private applyLink(workId: string, link: WorkExternalLink | undefined): void {
+    const listing = this.works[workId]
+    if (listing) listing.mirroredDoc = link
+    const held = this.saved[workId]
+    if (held) held.mirroredDoc = link
   }
 
   private primaryApi(): HostApi {
@@ -672,14 +751,36 @@ export class WorksStore {
 
   private clearCachedSidecars(workId: string): void {
     delete this.annotations[workId]
-    delete this.previousSnapshots[workId]
     this.annotationLoadTokens.delete(workId)
-    this.previousLoadTokens.delete(workId)
+    this.history.forget(workId)
   }
 }
 
-function applyMeta(work: Work, meta: WorkMeta & { id: string }): void {
+/** A newer answer: a later body, or the same body with a later record version. */
+function isNewerRecord(next: Work, held: Work): boolean {
+  if (next.contentVersion !== held.contentVersion) return next.contentVersion > held.contentVersion
+  return Date.parse(next.updatedAt) > Date.parse(held.updatedAt)
+}
+
+function listingOf(work: WorkListing): WorkListing {
+  const listing: WorkListing = {
+    id: work.id,
+    organizationId: work.organizationId,
+    title: work.title,
+    preview: work.preview,
+    type: work.type,
+    createdAt: work.createdAt,
+    updatedAt: work.updatedAt,
+    agentProvider: work.agentProvider,
+    cwd: work.cwd,
+  }
+  applyMeta(listing, work)
+  return listing
+}
+
+function applyMeta(work: WorkListing, meta: WorkListing): void {
   work.id = meta.id
+  work.organizationId = meta.organizationId
   work.title = meta.title
   work.preview = meta.preview
   work.type = meta.type
@@ -691,6 +792,14 @@ function applyMeta(work: Work, meta: WorkMeta & { id: string }): void {
   work.cwd = meta.cwd
   work.pinned = meta.pinned
   work.mirroredDoc = meta.mirroredDoc
+}
+
+function applyRecord(work: Work, next: Work): void {
+  applyMeta(work, next)
+  work.content = next.content
+  work.contentVersion = next.contentVersion
+  work.contentHash = next.contentHash
+  work.contentAuthor = next.contentAuthor
 }
 
 function isMissingWorkError(err: Parameters<typeof String>[0]): boolean {

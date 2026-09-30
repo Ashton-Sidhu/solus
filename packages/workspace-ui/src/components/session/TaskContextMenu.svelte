@@ -3,23 +3,16 @@
     ExternalLink as ArrowSquareOutIcon,
     ChartBar as ChartBarIcon,
     MessageCircleMore as ChatCircleDotsIcon,
-    MessagesSquare as ChatsIcon,
     Check as CheckIcon,
     Copy as CopyIcon,
-    GitFork as GitForkIcon,
     GitPullRequest as GitPullRequestIcon,
     ListChecks as ListChecksIcon,
     Play as PlayIcon,
     Pen as PencilSimpleIcon,
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
-    GitFork as TreeStructureIcon,
     Trash2 as TrashIcon,
     X as XIcon,
-    Clock as ClockIcon,
-    Moon as MoonIcon,
-    NotebookPen as NotePencilIcon,
-    Sun as SunIcon,
   } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
@@ -32,10 +25,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
-  import {
-    TASK_SNOOZE_CHOICES,
-    taskSnoozeUntil,
-  } from "./lib/task-snooze";
+  import UnreadDot from "./UnreadDot.svelte";
   import { STATUS_META, TASK_STATUSES } from "../tasks/lib/tasks-api";
 
   interface Props {
@@ -55,24 +45,14 @@
     onUnlinkPr?: (choice: TaskPrChoice) => void;
     onStartRename?: () => void;
     onSetStatus?: (status: TaskStatus) => void;
-    /** Snooze to a preset wake time, picked from the hover submenu. */
-    onSnoozeUntil?: (until: number) => void;
-    /** Opens the snooze popover, the only place a reminder note can be typed. */
-    onSnoozeWithNote?: () => void;
-    onWake?: () => void;
     onMarkUnread?: () => void;
     onRemove?: () => void;
     onDelete?: () => void;
-    /** Session-level actions for a task with no nested subtasks: the row *is* a
-     *  single session, so it earns the same session menu items a loose session
-     *  row gets. Each is omitted when it doesn't apply to this leaf. */
+    /** Opens the prompt that links a pull request to the task itself: one
+     *  that no session of the task made. */
+    onLinkPr?: () => void;
+    /** The session a picker row stands for, so its id can be copied. */
     sessionId?: string | null;
-    onFork?: () => void;
-    onContinueWorktree?: () => void;
-    isContinuingWorktree?: boolean;
-    onOpenInSplit?: () => void;
-    onCloseSplit?: () => void;
-    isSplit?: boolean;
     /** Where the menu portals to. It defaults to `body`, which is correct for a
      *  row in ordinary page chrome — but a caller that itself lives in the
      *  popover layer must name that layer, or the menu lands in a lower
@@ -98,19 +78,11 @@
     onUnlinkPr,
     onStartRename,
     onSetStatus,
-    onSnoozeUntil,
-    onSnoozeWithNote,
-    onWake,
     onMarkUnread,
     onRemove,
     onDelete,
+    onLinkPr,
     sessionId = null,
-    onFork,
-    onContinueWorktree,
-    isContinuingWorktree = false,
-    onOpenInSplit,
-    onCloseSplit,
-    isSplit = false,
     portalTarget = null,
     onClose,
   }: Props = $props();
@@ -294,7 +266,7 @@
           <GitPullRequestIcon />
           {prChoices.length === 1 ? `Pull request #${prChoices[0].number}` : `Pull requests (${prChoices.length})`}
         </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain pointer-fine:[.is-laptop-display_&]:w-72">
+        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain">
           {#if prChoices.length === 1}
             {@render prActions(prChoices[0])}
           {:else}
@@ -326,6 +298,12 @@
           {/if}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
+    {/if}
+    {#if onLinkPr}
+      <ContextMenu.Item onSelect={() => select(onLinkPr)}>
+        <GitPullRequestIcon />
+        Link pull request…
+      </ContextMenu.Item>
     {/if}
     {#if hasLinkedSession && session.workspace}
       <ContextMenu.Item onSelect={openInInsights}>
@@ -361,69 +339,11 @@
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
     {/if}
-    {#if onWake}
-      <ContextMenu.Item onSelect={() => select(onWake)}>
-        <SunIcon />
-        Wake now
-      </ContextMenu.Item>
-    {:else if onSnoozeUntil}
-      <ContextMenu.Sub>
-        <ContextMenu.SubTrigger>
-          <MoonIcon />
-          Snooze
-        </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent>
-          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
-            {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
-            <ContextMenu.Item
-              onSelect={() =>
-                select(() => onSnoozeUntil?.(taskSnoozeUntil(choice.preset)))}
-            >
-              <ChoiceIcon />
-              {choice.label}
-            </ContextMenu.Item>
-          {/each}
-          {#if onSnoozeWithNote}
-            <ContextMenu.Separator />
-            <ContextMenu.Item onSelect={() => select(() => onSnoozeWithNote?.())}>
-              <NotePencilIcon />
-              With a reminder…
-            </ContextMenu.Item>
-          {/if}
-        </ContextMenu.SubContent>
-      </ContextMenu.Sub>
-    {/if}
     {#if onMarkUnread}
       <ContextMenu.Item onSelect={() => select(onMarkUnread)}>
-        <span
-          class="flex size-3.5 shrink-0 items-center justify-center"
-          aria-hidden="true"
-        >
-          <span class="size-1.5 rounded-full bg-current"></span>
-        </span>
+        <UnreadDot size={14} />
         Mark unread
       </ContextMenu.Item>
-    {/if}
-
-    {#if onFork || onContinueWorktree}
-      <ContextMenu.Separator />
-      {#if onFork}
-        <ContextMenu.Item onSelect={() => select(onFork)}>
-          <GitForkIcon />
-          Fork session
-        </ContextMenu.Item>
-      {/if}
-      {#if onContinueWorktree}
-        <ContextMenu.Item
-          disabled={isContinuingWorktree}
-          onSelect={() => select(onContinueWorktree)}
-        >
-          <TreeStructureIcon
-            class={isContinuingWorktree ? "tab-status-spin" : ""}
-          />
-          {isContinuingWorktree ? "Creating worktree…" : "Continue in worktree"}
-        </ContextMenu.Item>
-      {/if}
     {/if}
 
     <ContextMenu.Separator />
@@ -438,17 +358,6 @@
       <ArrowsClockwiseIcon />
       Regenerate title
     </ContextMenu.Item>
-    {#if isSplit && onCloseSplit}
-      <ContextMenu.Item onSelect={() => select(onCloseSplit)}>
-        <ChatsIcon />
-        Close split
-      </ContextMenu.Item>
-    {:else if onOpenInSplit}
-      <ContextMenu.Item onSelect={() => select(onOpenInSplit)}>
-        <ChatsIcon />
-        Open in split
-      </ContextMenu.Item>
-    {/if}
     {#if onRemove}
       <ContextMenu.Item variant="destructive" onSelect={() => select(onRemove)}>
         <XIcon />

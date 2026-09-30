@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { CloudflaredConnector, type ConnectorObservation, type SpawnLike } from '@solus/server/server/uplink/connector'
+import { CloudflaredConnector, type ConnectorObservation, type SpawnLike } from '@solus/server/transport/uplink/connector'
 
 // docs/plans/personal-uplink.md H3: the run token travels only in the child's
 // environment, the connector's output becomes the observed state, and a crashed

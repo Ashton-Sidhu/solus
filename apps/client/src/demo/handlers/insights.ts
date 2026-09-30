@@ -5,11 +5,13 @@ import type {
   MetricsTurnPageRequest,
   MetricsTurnPageResult,
   SavedMetricsQuery,
+  TurnFlag,
+  TurnFlagKind,
 } from '@solus/contracts/observability-types'
 // The field registry is pure data and pure functions — no Node, no database —
 // and it is the one description of the schema. The schema sheet in the demo
 // reads the real one rather than a hand-copied summary that would drift.
-import { metricsSchema } from '@solus/server/observability/field-registry'
+import { metricsSchema } from '@solus/server/data/insights/field-registry'
 import {
   DEMO_DISTINCT_VALUES,
   demoSessionSummary,
@@ -58,6 +60,29 @@ export function registerInsightsHandlers(backend: DemoServer): void {
     const index = savedQueries.findIndex((saved) => saved.id === args[0])
     if (index !== -1) savedQueries.splice(index, 1)
     return savedQueries
+  })
+
+  // A visitor's marks on the demo turns live for the page load, the way the
+  // saved queries above do.
+  const turnFlags: TurnFlag[] = []
+  backend.register('metricsListTurnFlags', () => turnFlags)
+  backend.register('metricsSetTurnFlag', (args) => {
+    const flag = arg<{ traceId: string; kind: TurnFlagKind; note: string }>(args, 0)
+    const now = Date.now()
+    const index = turnFlags.findIndex((entry) => entry.traceId === flag.traceId)
+    const next: TurnFlag = {
+      ...flag,
+      createdAt: index === -1 ? now : turnFlags[index].createdAt,
+      updatedAt: now,
+    }
+    if (index === -1) turnFlags.unshift(next)
+    else turnFlags[index] = next
+    return turnFlags
+  })
+  backend.register('metricsClearTurnFlag', (args) => {
+    const index = turnFlags.findIndex((entry) => entry.traceId === args[0])
+    if (index !== -1) turnFlags.splice(index, 1)
+    return turnFlags
   })
 
   backend.register('metricsQuery', (args): MetricsQueryResult => {

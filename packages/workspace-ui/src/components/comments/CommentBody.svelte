@@ -2,6 +2,7 @@
   import { parseCommentText } from './lib/comment-text'
   import MarkdownImage from '../conversation/MarkdownImage.svelte'
   import MarkdownLink from '../conversation/MarkdownLink.svelte'
+  import PersonMention from '../mentions/PersonMention.svelte'
 
   interface Props {
     text: string
@@ -41,6 +42,8 @@
               <strong>{segment.text}</strong>
             {:else if segment.kind === 'italic'}
               <em>{segment.text}</em>
+            {:else if segment.kind === 'person'}
+              <PersonMention mention={segment} />
             {:else if segment.kind === 'mention'}
               <!-- A mention is a link: terracotta, no pill, no background. -->
               <span class="cb__mention">{segment.text}</span>

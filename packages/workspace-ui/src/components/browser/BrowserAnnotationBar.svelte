@@ -60,12 +60,12 @@
 <!-- A pill, the way every drawing tool puts its tools: close to the marks, off
      the chrome, and one of the two ways out of annotate mode. -->
 <div
-  class="text-workspace-chrome flex h-10 max-w-full shrink-0 items-center gap-[3px] overflow-hidden rounded-full bg-[var(--popover)] p-1 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0.125rem_0.25rem_-0.125rem_rgba(0,0,0,0.14),0_1.25rem_2.5rem_-1rem_rgba(0,0,0,0.36)] [.is-laptop-display_&]:h-9"
+  class="text-workspace-chrome flex h-10 max-w-full shrink-0 items-center gap-[3px] overflow-hidden rounded-full bg-[var(--popover)] p-1 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0.125rem_0.25rem_-0.125rem_rgba(0,0,0,0.14),0_1.25rem_2.5rem_-1rem_rgba(0,0,0,0.36)]"
 >
   {#each TOOLS as tool (tool.id)}
     <button
       type="button"
-      class="flex size-7.5 shrink-0 items-center justify-center rounded-full text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) [.is-laptop-display_&]:size-6.5 {page.annotationTool ===
+      class="flex size-7.5 shrink-0 items-center justify-center rounded-full text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) {page.annotationTool ===
       tool.id
         ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] text-[var(--primary)] hover:bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] hover:text-[var(--primary)]'
         : ''}"

@@ -1,14 +1,14 @@
 import type { IpcContext, AgentId, SessionCtx } from '@solus/contracts/types'
 import { runBounded } from '../lib/concurrency'
-import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewGuideStatus, type ReviewGuideStatusEvent, type ReviewProgressEvent, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
-import { getDiff, getEpisodeDiff, getSessionSnapshotRange, resolvePrDiffBase } from '../git/session-snapshots'
+import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewGuideStatus, type ReviewGuideStatusEvent, type ReviewProgressEvent, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
+import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './ledger'
 import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
 import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget } from './review-target'
-import type { AgentDispatcher } from '../agents/agent-runner'
+import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import { runAsync } from '../git/exec'
 
 const log = createLogger('review', 'guide-producer.ts')
@@ -40,8 +40,10 @@ export interface GeneratedGuide {
 export type GenerateGuideOptions = ReviewGuideRequestOptions
 
 /** Where a generation reads/writes and what it diffs. Session and stacked
- * walkthroughs suffix their stable key so distinct bases never coalesce. */
-interface GuideTarget {
+ * walkthroughs suffix their stable key so distinct bases never coalesce.
+ * Review lenses resolve the same way, so a lens and a guide for one target
+ * always read the same change. */
+export interface GuideTarget {
   guideKey: string
   scope: 'working-tree' | 'branch' | 'session' | 'pr'
   target: ReviewTarget
@@ -86,7 +88,7 @@ function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext
 /** Resolve the target before dedupe/progress so concurrent base variants key
  * apart instead of coalescing onto one run. Session fallback keeps its requested
  * key; stacked generation resolves the parent/child merge-base once, up front. */
-async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
+export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
   const sessionId = ctx.session.agentSessionId
   const target = normalizedReviewTarget(opts, sessionId)
   if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
@@ -110,33 +112,7 @@ async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: Revie
   }
   const baseKey = guideKeyForTarget(review, target, sessionId ?? null)
   if (target.kind === 'pr') return { guideKey: baseKey, scope: 'pr', target, base: branchBase, head: target.headSha ?? null, sessionId: null }
-  if (!opts.ownDeltaBase) return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null, sessionId: null }
-  if (opts.regenerationBaseSha) {
-    return {
-      guideKey: reviewGuideKeyForBase(baseKey, opts.ownDeltaBase.headSha),
-      scope: target.kind,
-      target,
-      base: branchBase,
-      head: null,
-      sessionId: null,
-    }
-  }
-
-  const workTree = reviewCheckout(ctx) ?? review.repoRoot
-  const base = await resolvePrDiffBase(workTree, review.repoRoot, {
-    kind: 'pr',
-    baseSha: branchBase,
-    ownDeltaBaseSha: opts.ownDeltaBase.headSha,
-    parentPr: opts.ownDeltaBase.parent,
-  })
-  return {
-    guideKey: reviewGuideKeyForBase(baseKey, opts.ownDeltaBase.headSha),
-    scope: target.kind,
-    target,
-    base,
-    head: null,
-    sessionId: null,
-  }
+  return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null, sessionId: null }
 }
 
 /** The live content identity for one base. Split out because the pre-persist
@@ -166,7 +142,7 @@ async function changeSnapshotFor(
   }
 }
 
-async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
+export async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
   const target = await resolveTargetBase(ctx, review, opts)
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   return { ...target, ...await changeSnapshotFor(workTree, review, target) }
@@ -360,7 +336,7 @@ export async function requestReviewGuide(
 
 export async function getReviewGuideStatus(
   ctx: Pick<IpcContext, 'session'>,
-  opts: Pick<GenerateGuideOptions, 'scope' | 'target' | 'ownDeltaBase'> = {},
+  opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
   factsCache?: CheckoutFactsCache,
 ): Promise<ReviewGuideStatusEvent | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId, factsCache)
@@ -429,7 +405,7 @@ export function getSessionGuideStatuses(sessions: SessionCtx[]): Promise<(Review
 
 export async function cancelGenerateGuide(
   ctx: IpcContext,
-  opts: Pick<GenerateGuideOptions, 'scope' | 'target' | 'ownDeltaBase'> = {},
+  opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
   onStatus?: EmitStatus,
 ): Promise<boolean> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
@@ -572,7 +548,7 @@ async function finishGuide(workTree: string, review: ReviewContext, target: Guid
   return { key: target.guideKey, guide, persisted: ok }
 }
 
-async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {
+export async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {
   if (target.head) return target.head
   return await getHeadCommit(workTree) ?? review.baseSha
 }
@@ -601,7 +577,7 @@ function fallbackGuide(key: string, headSha: string, baseSha: string, message: s
  *  references in the guide). Parsed from the `diff --git a/… b/…` headers, which
  *  every changed file — tracked, untracked, or renamed — produces exactly one
  *  of. (quotepath is off upstream, so paths are unquoted.) */
-function changedFilesFromPatch(patch: string): string[] {
+export function changedFilesFromPatch(patch: string): string[] {
   const files = new Set<string>()
   for (const line of patch.split('\n')) {
     const m = line.match(/^diff --git a\/(.+) b\/(.+)$/)

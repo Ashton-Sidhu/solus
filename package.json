@@ -1,10 +1,10 @@
 {
   "name": "solus",
-  "version": "0.32.2",
+  "version": "0.35.0",
   "description": "Solus — Command Line User Interface for Coding Agents.",
   "license": "BUSL-1.1",
   "homepage": "https://solus.sh",
-  "main": "dist/main/index.js",
+  "main": "dist/main/boot.js",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -36,21 +36,24 @@
     "lint:surfaces": "bun scripts/check-surface-boundary.ts",
     "lint:rules": "node --test tools/oxlint/solus/rules/*.test.ts",
     "test:unit": "bun scripts/test-unit.ts",
+    "api:generate": "bun scripts/generate-solus-api.ts",
+    "api:check": "bun scripts/generate-solus-api.ts --check",
     "db:generate": "bun scripts/generate-db-migrations.ts",
     "test:ui": "bun run playwright test --ui",
     "test:headed": "bun run playwright test --headed",
     "test:bg": "bun run playwright test --workers=1",
     "package:server": "bun scripts/package-server.ts",
     "deploy:server": "bash scripts/deploy-server.sh",
-    "release:workspace": "bun scripts/release-workspace.ts",
-    "generate:codex-types": "codex app-server generate-ts --out packages/server/src/agents/codex/generated",
+    "release:api": "bun scripts/release-api.ts",
+    "push:dev": "bun scripts/push-dev.ts",
+    "generate:codex-types": "codex app-server generate-ts --out packages/server/src/execution/agents/codex/generated",
     "generate:icon": "bun scripts/generate-icon.ts",
     "generate:app-icons": "bun scripts/generate-app-icons.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
     "@dagrejs/dagre": "^3.1.1",
-    "@ff-labs/fff-node": "^0.9.6",
+    "@ff-labs/fff-node": "^0.11.0",
     "@hono/node-server": "^2.1.1",
     "@octokit/graphql": "^9.0.5",
     "@octokit/rest": "^22.0.1",
@@ -62,14 +65,12 @@
     "@opentelemetry/sdk-trace-node": "^2.11.0",
     "@typesafe-ai/sdk": "^0.6.0",
     "croner": "^10.0.1",
-    "dompurify": "^3.4.15",
     "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.8.9",
     "formidable": "^3.5.4",
     "google-auth-library": "^11.0.2",
     "hono": "^4.13.7",
     "marked": "^18.0.11",
-    "mermaid": "^12.0.0",
     "onnxruntime-node": "^1.29.0",
     "pngjs": "^7.0.0",
     "postgres": "^3.4.9",
@@ -77,10 +78,6 @@
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
     "zod": "^4.5.4"
-  },
-  "patchedDependencies": {
-    "@ff-labs/fff-node@0.9.6": "patches/@ff-labs%2Ffff-node@0.9.6.patch",
-    "svelte-tiny-virtual-list@4.0.0": "patches/svelte-tiny-virtual-list@4.0.0.patch"
   },
   "overrides": {
     "fast-uri": "3.1.7",
@@ -184,9 +181,11 @@
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/svelte-table": "^9.2.4",
+    "@tanstack/svelte-virtual": "^3.13.39",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-code-block-lowlight": "^3.31.3",
     "@tiptap/extension-collaboration": "3.31.3",
+    "@tiptap/extension-collaboration-caret": "3.31.3",
     "@tiptap/extension-drag-handle": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-link": "^3.31.3",
@@ -199,6 +198,7 @@
     "@tiptap/extension-task-item": "^3.31.3",
     "@tiptap/extension-task-list": "^3.31.3",
     "@tiptap/extension-typography": "^3.31.3",
+    "@tiptap/extensions": "^3.31.3",
     "@tiptap/markdown": "^3.31.3",
     "@tiptap/pm": "3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
@@ -216,6 +216,7 @@
     "clsx": "^2.1.1",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
+    "dompurify": "^3.4.15",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "electron": "^42.11.2",
@@ -228,8 +229,10 @@
     "jsdom": "^29.1.1",
     "layerchart": "^2.4.0",
     "lowlight": "^3.3.0",
+    "mermaid": "^12.0.0",
     "oxlint": "1.81.0",
     "paneforge": "^1.0.2",
+    "pdfjs-dist": "^6.3.289",
     "posthog-js": "^1.427.3",
     "property-information": "^7.2.0",
     "prosemirror-model": "^1.25.11",
@@ -243,7 +246,6 @@
     "sql-formatter": "^15.8.2",
     "svelte": "^5.57.0",
     "svelte-sonner": "^1.1.1",
-    "svelte-tiny-virtual-list": "^4.0.0",
     "tailwind-merge": "^3.6.0",
     "tailwind-variants": "^3.3.1",
     "tailwindcss": "^4.3.3",
@@ -252,9 +254,14 @@
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "vite": "^6.4.3",
+    "y-indexeddb": "9.0.12",
+    "y-protocols": "1.0.7",
     "yjs": "^13.6.32"
   },
   "optionalDependencies": {
     "playwright-core": "^1.63.0"
+  },
+  "patchedDependencies": {
+    "@ff-labs/fff-node@0.11.0": "patches/@ff-labs%2Ffff-node@0.11.0.patch"
   }
 }

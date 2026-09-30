@@ -9,6 +9,7 @@ import {
   galleryLayout,
   gallerySharedPageId,
   gallerySubject,
+  galleryTarget,
   galleryAspect,
   galleryTiles,
   isFrameNear,
@@ -169,6 +170,18 @@ describe('what the tiles are captioned with', () => {
   })
 })
 
+describe('a mixed pass on a grid', () => {
+  test('a phone frame fits its cell by height, so it is not blown up to the width', () => {
+    // WHY: a grid follows the first frame's shape. A laptop first makes wide
+    // cells, and a phone stretched to that width shows only its top heading.
+    const mixed = [
+      snapshot({ viewport: 'Laptop — 1280×800', assetId: 'a.png' }),
+      snapshot({ viewport: 'iPhone 15 — 393×852', assetId: 'b.png' }),
+    ]
+    expect(galleryTiles(mixed).map((tile) => tile.portrait)).toEqual([false, true])
+  })
+})
+
 describe('what the plate says once for all of its frames', () => {
   test('carries the shared viewport and colour scheme in the header', () => {
     // WHY: a frame is only evidence with its viewport and colour scheme
@@ -187,7 +200,7 @@ describe('what the plate says once for all of its frames', () => {
     expect(gallerySubject(mixed)).toBe('')
   })
 
-  test('states the origin and the extent of the pass in the footer', () => {
+  test('states the origin and the extent of the pass on the card line', () => {
     // WHY: two worktrees serving the same app differ only by port, so the host
     // is the one thing that says which of them the agent was looking at. Past
     // that the reader wants the extent, not six unreadable addresses.
@@ -198,6 +211,18 @@ describe('what the plate says once for all of its frames', () => {
       snapshot({ url: 'http://localhost:5185/demo/', assetId: 'b.png' }),
     ]
     expect(galleryAddress(hosts)).toBe('2 pages')
+  })
+
+  test('puts where the pass looked before what its frames share, in one slot', () => {
+    // WHY: the card has no footer, so the address and the shared viewport share
+    // the line's one truncating slot. Where it looked comes first, as it is the
+    // fact that tells two worktrees apart; an empty subject adds no separator.
+    expect(galleryTarget([snapshot(), snapshot()])).toBe('solus.sh/ · Laptop · 1440×900 · light')
+    const mixed = [
+      snapshot({ viewport: 'iPhone 15 — 390×844', assetId: 'a.png' }),
+      snapshot({ viewport: 'Laptop — 1440×900', assetId: 'b.png' }),
+    ]
+    expect(galleryTarget(mixed)).toBe('solus.sh/')
   })
 
   test('sums the console errors of the pass, and stays silent at zero', () => {
@@ -212,7 +237,7 @@ describe('what the plate says once for all of its frames', () => {
     expect(galleryErrorLabel(pass(3))).toBeNull()
   })
 
-  test('offers the footer actions only when there is one page to act on', () => {
+  test('offers Annotate and Open only when there is one page to act on', () => {
     // WHY: Annotate and Open in pane name one page. A button that silently
     // picked the first frame of a multi-page pass would send the reader
     // somewhere they did not click.

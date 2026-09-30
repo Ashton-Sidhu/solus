@@ -215,3 +215,19 @@ export function parsePatchMetadata(patchStr: string): FileDiffMetadata | null {
   }
   return parsed ? { ...parsed } : null
 }
+
+/**
+ * Every file of a multi-file patch, in the same row space as
+ * `parsePatchMetadata`. For a surface that reads a whole change at once — the
+ * change map of one turn — rather than opening one file of it. Not cached: the
+ * caller holds the result for as long as it holds the patch.
+ */
+export function parsePatchFileList(patchStr: string): FileDiffMetadata[] {
+  try {
+    return parsePatchFiles(patchStr, patchCacheKey(patchStr))
+      .flatMap((part) => part.files)
+      .map(compactPartialHunkOffsets)
+  } catch {
+    return []
+  }
+}

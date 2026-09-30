@@ -158,6 +158,7 @@ function harness() {
 const TARGET = { kind: 'url', url: 'http://localhost:5173/' } as const
 
 describe('browser registry', () => {
+
   test('a new page is honest about having nowhere to render', () => {
     // WHY: the page exists on the host before any client offers a surface. If it
     // claimed to be ready, an agent would drive a page nothing is showing.

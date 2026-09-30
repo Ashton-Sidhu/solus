@@ -1,3 +1,28 @@
+<script module lang="ts">
+  import type { Component } from "svelte";
+
+  type RouteModule = { default: Component<any> };
+
+  /** Route modules that have loaded once, by route name. Awaiting a loaded
+   *  module again still paints the skeleton for a frame before the surface —
+   *  a second open of a task flashed its skeleton for no reason. A settled
+   *  module is handed to the await block as a value, which renders at once. */
+  const loadedRouteModules = new Map<string, RouteModule>();
+
+  function loadRoute(
+    name: string,
+    load: () => Promise<RouteModule>,
+  ): RouteModule | Promise<RouteModule> {
+    return (
+      loadedRouteModules.get(name) ??
+      load().then((module) => {
+        loadedRouteModules.set(name, module);
+        return module;
+      })
+    );
+  }
+</script>
+
 <script lang="ts">
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { visibleRef } from "../../contexts/workspace/routing/location";
@@ -16,13 +41,16 @@
   import InsightsPageSkeleton from "../insights/InsightsPageSkeleton.svelte";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
   import PlanModalSkeleton from "../plan/PlanModalSkeleton.svelte";
-  import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
-  import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import FilesRouteSkeleton from "../files/FilesRouteSkeleton.svelte";
   // Keep both sides of the draft-to-chat transition in the shell chunk so
   // opening a draft or sending it never flashes a route-loading skeleton.
   import SessionDraftPane from "../session-draft/SessionDraftPane.svelte";
   import ConversationPane from "../conversation/ConversationPane.svelte";
+  // Eager too: the pane is light (the document and diagram shells stay lazy
+  // inside it) and it owns one loading state — skeleton plus close control —
+  // for both the module and the content read, so a work never opens through
+  // a second skeleton that cannot be dismissed.
+  import WorkPane from "../work/WorkPane.svelte";
   // The PR page's own loading state, drawn while its module loads. Eagerly
   // importing the page itself to avoid a second loading state cost the whole
   // review stack — PrDetailPanel -> PrReviewPane -> DiffPanel + DocumentEditor,
@@ -81,12 +109,14 @@
       {onScreenshot}
       {onDesignMode}
     />
+  {:else if ref?.name === "work"}
+    <WorkPane params={ref.params} paneId={pane.id} />
   {:else if ref && descriptor?.component}
     <!-- An await block can keep its previous component until the next loader
          settles. Drop it before a different route supplies incompatible params.
          Keep same-route updates mounted so they retain their local state. -->
     {#key `${ref.name}:${routeLoadAttempt}`}
-    {#await descriptor.component()}
+    {#await loadRoute(ref.name, descriptor.component)}
       {#if ref.name === "settings"}
         <SettingsPageSkeleton />
       {:else if ref.name === "prReview"}
@@ -109,13 +139,6 @@
         <PrReviewSkeleton />
       {:else if ref.name === "plan"}
         <PlanModalSkeleton inline />
-      {:else if ref.name === "work"}
-        {@const work = session.worksStore.get(ref.params.workId)}
-        {#if work?.type === "diagram"}
-          <DiagramShellSkeleton />
-        {:else}
-          <DocumentModalSkeleton inline title={work?.title} />
-        {/if}
       {:else if ref.name === "review"}
         <div class="relative h-full min-h-0 w-full">
           <ReviewLoadingSurface view={ref.params.view ?? "diff"} />

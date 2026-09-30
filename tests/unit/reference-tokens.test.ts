@@ -160,6 +160,31 @@ describe("reference token markdown", () => {
     ]);
   });
 
+  test("keeps a file path with spaces in one chip", () => {
+    // WHY: `@path` ends at whitespace, so a picked `My Notes/plan v2.md` used to
+    // split into a chip for `My` and loose text. The path is quoted instead, and
+    // the quoted form must read back as the same whole file.
+    const token: ReferenceToken = {
+      kind: "file",
+      path: "/Users/sidhu/My Notes/plan v2.md",
+      name: "plan v2.md",
+    };
+    const serialized = serializeReferenceToken(token);
+    const source = `read ${serialized} and @src/App.svelte`;
+
+    expect(serialized).toBe('@"/Users/sidhu/My Notes/plan v2.md"');
+    expect(parseReferenceTokens(source)).toEqual([
+      { from: 5, to: 5 + serialized.length, token },
+      {
+        from: source.indexOf("@src"),
+        to: source.length,
+        token: { kind: "file", path: "src/App.svelte", name: "App.svelte" },
+      },
+    ]);
+    // An unclosed quote is text being typed, not a chip.
+    expect(parseReferenceTokens('@"My Notes')).toEqual([]);
+  });
+
   test("ignores malformed Solus links instead of hiding editable source", () => {
     const malformed =
       "[Broken](plan://ref?planId=missing-required-fields) " +

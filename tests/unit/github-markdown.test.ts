@@ -4,7 +4,7 @@ import { createServer, type Plugin, type ViteDevServer } from 'vite'
 import { JSDOM } from 'jsdom'
 
 function stubs(): Plugin {
-  const names = ['CodeSpan', 'MarkdownLink', 'MarkdownImage']
+  const names = ['CodeSpan', 'MarkdownLink', 'MarkdownImage', 'MermaidBlock']
   return {
     name: 'github-markdown-test-context', enforce: 'pre',
     resolveId(source) {
@@ -14,11 +14,12 @@ function stubs(): Plugin {
       if (name) return `virtual:${name}.svelte`
     },
     load(id) {
-      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
+      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check', 'RotateCw', 'ExternalLink'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
       if (id === 'virtual:markdown-icon.svelte') return '<span></span>'
       if (id === 'virtual:CodeSpan.svelte') return '<script>let { text } = $props()</script><code>{text}</code>'
       if (id === 'virtual:MarkdownLink.svelte') return '<script>let { href, children } = $props()</script><a {href}>{@render children?.()}</a>'
       if (id === 'virtual:MarkdownImage.svelte') return '<script>let { href, text } = $props()</script><img src={href} alt={text} />'
+      if (id === 'virtual:MermaidBlock.svelte') return '<script>let { text } = $props()</script><figure data-mermaid>{text}</figure>'
     },
   }
 }
@@ -123,6 +124,17 @@ describe('complete GitHub Markdown documents', () => {
     expect(renderDocument('@someone', 'local').querySelector('.markdown-mention')).toBeNull()
   })
 
+  it('draws mermaid fences in PR and task bodies, and leaves other fences as code', () => {
+    // WHY: GitHub draws a ```mermaid fence as a diagram; a PR description or
+    // task written for GitHub must not read as raw source in Solus.
+    for (const policy of ['remote', 'local'] as const) {
+      const body = renderDocument('```mermaid\ngraph TD\n  A --> B\n```\n\n```ts\nconst a = 1\n```', policy)
+      expect(body.querySelector('[data-mermaid]')?.textContent).toBe('graph TD\n  A --> B\n')
+      expect(body.querySelectorAll('pre')).toHaveLength(1)
+      expect(body.querySelector('pre code')?.textContent).toBe('const a = 1\n')
+    }
+  })
+
   it('removes executable HTML and remote navigation protocols throughout nested content', () => {
     const body = renderDocument('<details onclick="alert(1)"><summary>More</summary>\n\n<script>alert(1)</script>\n\n[bad](javascript:alert) [file](file:///tmp/private) [task](task://id)\n\n<img src="data:image/svg+xml;base64,AAAA" onerror="alert(1)">\n\n<iframe src="https://example.com"></iframe>\n\n</details>')
     expect(body.querySelector('script, iframe, [onclick], [onerror]')).toBeNull()
@@ -135,6 +147,26 @@ describe('complete GitHub Markdown documents', () => {
     expect(body.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA')
     expect(body.innerHTML).not.toContain('data:image/svg')
     expect(body.innerHTML).not.toContain('javascript:')
+  })
+
+  it('plays WebM and M4V links in PR and task bodies without eager downloads', () => {
+    for (const policy of ['remote', 'local'] as const) {
+      for (const extension of ['webm', 'm4v']) {
+        const url = `https://example.com/recording.${extension}?token=123`;
+        for (const source of [url, `![Recording](${url})`]) {
+          const body = renderDocument(source, policy)
+          const video = body.querySelector('video')
+          expect(video?.getAttribute('src')).toBe(url)
+          expect(video?.getAttribute('preload')).toBe('none')
+          expect(video?.hasAttribute('controls')).toBe(true)
+          expect(video?.hasAttribute('playsinline')).toBe(true)
+          expect(body.querySelector('img')).toBeNull()
+        }
+        const labelled = renderDocument(`[Download recording](${url})`, policy)
+        expect(labelled.querySelector('video')).toBeNull()
+        expect(labelled.textContent).toContain('Download recording')
+      }
+    }
   })
 
   it('plays standalone videos in place, inside alerts too, and leaves ordinary links as text', () => {

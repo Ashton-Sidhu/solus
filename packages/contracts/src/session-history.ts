@@ -1,14 +1,22 @@
-import type { AgentId } from './types'
+import type { AgentId, QuestionAnswer } from './types'
+import type { SessionReport } from './session-exchange'
+import type { Activity } from './activity'
 
-/** Opaque host cursor. Pages contain complete turns so tool results never
- * arrive without their calls. The limit is a target, not a hard row cap. */
+/** Opaque host cursor. A page is the `turnLimit` newest user turns before the
+ * cursor, each complete, so tool results never arrive without their calls and
+ * the page size does not depend on how many tools a turn ran. */
 export interface SessionHistoryPageRequest {
   sessionId: string
   projectPath?: string
   provider: AgentId
-  limit?: number
+  turnLimit: number
   before?: string
-  deferToolInputs?: boolean
+}
+
+/** The row a user turn starts at: a prompt from the user, not a tool result
+ *  or a child agent's message. Pages are counted and cut at these rows. */
+export function startsHistoryTurn(message: Pick<SessionLoadMessage, 'role' | 'parentToolUseId'>): boolean {
+  return message.role === 'user' && !message.parentToolUseId
 }
 
 export interface SessionHistoryPage {
@@ -22,7 +30,8 @@ export interface ProviderHistoryPage {
 }
 
 export interface SessionLoadMessage {
-  /** Stable identity for synthetic rows derived from Solus-owned lineage. */
+  questionAnswer?: QuestionAnswer
+  /** Stable provider identity or identity for a Solus-owned synthetic row. */
   messageId?: string
   role: string
   content: string
@@ -42,19 +51,21 @@ export interface SessionLoadMessage {
   /** Set on sub-agent tool-result/text lines so history replay can divert them
    *  into the parent tool's `subMessages` instead of the flat thread. */
   parentToolUseId?: string
-  /** Destination label for a deterministic provider-handoff divider. */
-  agentChangedTo?: string
-  /** Model labels for the provider-handoff divider, when indexed metadata has them. */
-  agentChangedFromModel?: string
-  agentChangedToModel?: string
-  agentChangedFromProvider?: AgentId
-  agentChangedToProvider?: AgentId
+  /** A host-recorded activity merged into the history by its time (plans/012 §5),
+   *  or a provider handoff the lineage read rebuilt as `agent_switched`. */
+  activity?: Activity
   timestamp: number
 }
 
+/** The exchange an orchestration tool result opened, read by the shared codec. */
 export interface AgentConversationResultProjection {
   agentSessionId?: string
-  watcherRegistered?: boolean
+  /** The exchange the tool opened; live updates and reports name the same id. */
+  messageId?: string
+  provider?: AgentId
+  /** The report a waiting tool call returned: the exchange settled inside the
+   *  call, so no report turn follows in the transcript. */
+  report?: SessionReport
 }
 
 /** History row shape allowed across the host-to-client boundary. */
@@ -97,6 +108,9 @@ export interface DeferredToolInput {
   projectPath?: string
   provider: AgentId
   key: string
+  /** The small fields the host sent in place of the full input. The full
+   *  input replaces them only while the message still holds exactly these. */
+  summary?: string
   loading?: boolean
   error?: string
 }

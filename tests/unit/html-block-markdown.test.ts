@@ -3,7 +3,7 @@ import {
   htmlBlockFence,
   parseFence,
   serializeHtmlBlock,
-} from '../../packages/workspace-ui/src/components/editor/lib/html-block-fence'
+} from '@solus/document-model/fences'
 
 /** What a document holds after parsing and writes back on save. Mirrors the
  *  node's two attributes so the round trip can be asserted without an editor. */

@@ -25,7 +25,7 @@ mock.module('@solus/server/atlassian/oauth', () => ({
 }))
 
 type ToolsModule = typeof import('@solus/server/connections/connection-tools')
-type AgentToolModule = typeof import('@solus/server/agents/tools/agent-tool')
+type AgentToolModule = typeof import('@solus/server/execution/agents/tools/agent-tool')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -59,7 +59,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-connection-tool-'))
   process.env.SOLUS_DATA_DIR = dataDir
   tools = await import('@solus/server/connections/connection-tools')
-  ;({ executeAgentTool: runTool } = await import('@solus/server/agents/tools/agent-tool'))
+  ;({ executeAgentTool: runTool } = await import('@solus/server/execution/agents/tools/agent-tool'))
   tools.setConnectionConnectNeededListener((request) => raised.push(request))
 })
 

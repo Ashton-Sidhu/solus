@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { join, parse } from 'path'
-import { browseFileMatches } from '@solus/server/server/handlers/lib/file-browse'
-import { resolveIndexRoot } from '@solus/server/server/index-root'
+import { browseFileMatches } from '@solus/server/files/file-browse'
+import { resolveIndexRoot } from '@solus/server/files/index-root'
 
 let fixture: string
 let workspace: string

@@ -1,6 +1,6 @@
 import { recordQuestionAnswer } from './question-history'
 import type { EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
-import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
+import { existingTaskId, taskBindingSessionId, taskRoleOf } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -11,11 +11,16 @@ import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
+import { AgentConversationCards } from './agent-conversation-cards'
 import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
+import type { UserId } from '@solus/contracts/user'
+import type { Activity } from '@solus/contracts/activity'
+import { showsActivity } from '../../components/activity/lib/activity-line'
+
+type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 
 export interface SessionEventReducerDeps {
   registry: TabRegistry
@@ -42,6 +47,8 @@ export interface SessionEventReducerDeps {
   applyGoalCleared?(sessionId: string, threadId: string): void
   onSessionInitialized?(sessionId: string): void
   handlePendingInputSync(session: Session, events: Extract<WireNormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
+  /** The reader's user on a host, so a notice names only someone else. Unset or null, no one is named. */
+  currentUserId?(serverId: string): UserId | null
   log(eventType: string, session: Session): void
 }
 
@@ -59,25 +66,65 @@ export class SessionEventReducer {
   // immediately deliver another block without a tool call between them, so keep
   // that boundary until the next prose run and render it as a Markdown paragraph.
   private assistantMessageBoundaries = new Set<string>()
-  // Extended thinking is never a message: only its duration survives, carried
-  // onto the next tool call so the activity block can say "Thought for 6s".
+  // Extended thinking is never a message of its own: its duration and text are
+  // carried onto the next tool call or prose block, so the activity block can
+  // say "Thought for 6s" and open what the agent thought.
   // Transport state, not domain state, so it lives here rather than on Session.
-  private thinkingSpans = new WeakMap<Session, { startedAt?: number; pendingMs: number }>()
+  private thinkingSpans = new WeakMap<Session, ThinkingSpan>()
   /** Last authoritative settlement applied per mounted session. Transport
    *  retries must not replay unread state, sounds, or final refresh work. */
   private settledTurnIds = new WeakMap<Session, string>()
   /** One card per agent conversation per turn; exchanges keyed for late settles. */
-  private agentConversations = new AgentConversationTracker()
+  private agentConversations = new AgentConversationCards()
 
   constructor(private deps: SessionEventReducerDeps) {}
 
-  private thinkingSpan(session: Session): { startedAt?: number; pendingMs: number } {
+  private thinkingSpan(session: Session): ThinkingSpan {
     let span = this.thinkingSpans.get(session)
     if (!span) {
-      span = { pendingMs: 0 }
+      span = { pendingMs: 0, thoughts: [] }
       this.thinkingSpans.set(session, span)
     }
     return span
+  }
+
+  private reader(session: Session): UserId | null {
+    return this.deps.currentUserId?.(session.run.serverId) ?? null
+  }
+
+  /**
+   * A permission was decided (plan 004 F4). A plan's card takes the decision as
+   * its status; who decided arrives as its own activity.
+   */
+  private applyPlanDecision(session: Session, event: Extract<WireNormalizedEvent, { type: 'permission_resolved' }>): void {
+    const decision = event.decision
+    if (!decision) return
+    for (let index = session.messages.length - 1; index >= 0; index--) {
+      const message = session.messages[index]
+      if (message.role !== 'plan' || !message.planId) continue
+      const plan = this.deps.planStore.plans[message.planId]
+      if (plan?.questionId !== event.questionId) continue
+      if (plan.status === 'pending') this.deps.planStore.setStatus(message.planId, decision === 'denied' ? 'rejected' : 'accepted')
+      return
+    }
+  }
+
+  /**
+   * One activity the host recorded (plans/012 §5), appended in place. A replay to
+   * a joining client may repeat one its history already holds, so the same id is
+   * added once. Rows the reader need not see — their own notices — are not added.
+   */
+  private appendActivity(session: Session, activity: Activity): void {
+    if (!showsActivity(activity, this.reader(session))) return
+    for (let index = session.messages.length - 1; index >= 0; index--) {
+      if (session.messages[index].activity?.id === activity.id) return
+    }
+    const message: Message = { id: `activity:${activity.id}`, role: 'system', content: '', timestamp: activity.at, activity }
+    // A fork is recorded as its first prompt dispatches, after that prompt's
+    // bubble is on screen: it goes before the prompt, where a reload puts it.
+    const last = session.messages.length - 1
+    if (activity.kind === 'forked' && session.messages[last]?.role === 'user') session.messages.splice(last, 0, message)
+    else session.messages.push(message)
   }
 
   /** An optimistic user message opens the turn before its host confirmation. */
@@ -97,6 +144,19 @@ export class SessionEventReducer {
     return ms > 0 ? ms : undefined
   }
 
+  /** Hand the thoughts since the last message to the message they preceded. */
+  private takeThoughts(session: Session): string[] | undefined {
+    const span = this.thinkingSpan(session)
+    if (span.thoughts.length === 0) return undefined
+    const thoughts = span.thoughts
+    span.thoughts = []
+    return thoughts
+  }
+
+  private hasPendingThoughts(session: Session): boolean {
+    return (this.thinkingSpans.get(session)?.thoughts.length ?? 0) > 0
+  }
+
   /** Mark every tab watching a session as unread, unless it is on screen. */
   private markUnread(sessionId: string): void {
     const isVisible = this.deps.isSessionVisible(sessionId)
@@ -113,7 +173,7 @@ export class SessionEventReducer {
     const session = this.deps.sessions.byId[sessionId]
     if (!session) return
 
-    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared'].includes(event.type)) {
+    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared', 'activity'].includes(event.type)) {
       return
     }
 
@@ -166,6 +226,10 @@ export class SessionEventReducer {
         span.pendingMs += Date.now() - span.startedAt
         span.startedAt = undefined
       }
+      // Several thoughts before one message all belong to it, in order. A
+      // thought with no readable text (redacted or encrypted) adds nothing.
+      const thought = event.state === 'stop' ? event.text?.trim() : ''
+      if (thought) span.thoughts.push(thought)
       return
     }
 
@@ -234,6 +298,7 @@ export class SessionEventReducer {
               projectRoot: session.run.projectGroupPath,
             },
             taskServerId,
+            taskRoleOf(session.task),
           ).then(() => branch
             ? serverConnections.apiFor(taskServerId).setSessionBranch(taskSessionId, branch)
             : undefined)
@@ -265,6 +330,7 @@ export class SessionEventReducer {
           subMessages: event.isSubagent ? [] : undefined,
           subagentType: event.subagentType,
           thinkingMs: this.takeThinkingMs(session),
+          thoughts: this.takeThoughts(session),
           timestamp: Date.now(),
         }
         session.messages.push(toolMessage)
@@ -353,6 +419,7 @@ export class SessionEventReducer {
             id: nextMsgId(),
             role: 'assistant' as const,
             content: event.text,
+            thoughts: this.takeThoughts(session),
             timestamp: Date.now(),
           })
         }
@@ -522,7 +589,13 @@ export class SessionEventReducer {
         break
 
       case 'question_request':
-        session.questionQueue.push(toQuestionRequest(event))
+        if (!session.questionQueue.some((question) => question.questionId === event.questionId)) {
+          if (event.responseMode === 'message') session.questionQueue.push(toQuestionRequest(event))
+          else {
+            const firstAsync = session.questionQueue.findIndex((question) => question.responseMode === 'message')
+            session.questionQueue.splice(firstAsync === -1 ? session.questionQueue.length : firstAsync, 0, toQuestionRequest(event))
+          }
+        }
         this.deps.playNotificationIfHidden(sessionId, 'question_request')
         break
 
@@ -540,6 +613,8 @@ export class SessionEventReducer {
       case 'permission_resolved': {
         const resolvedId = event.questionId
         const permIdx = session.permissionQueue.findIndex((p) => p.questionId === resolvedId)
+        // A plan is never in the permission queue, so a queued request skips the walk.
+        if (event.decision && permIdx === -1) this.applyPlanDecision(session, event)
         if (permIdx !== -1) session.permissionQueue.splice(permIdx, 1)
         const qIdx = session.questionQueue.findIndex((q) => q.questionId === resolvedId)
         if (qIdx !== -1) session.questionQueue.splice(qIdx, 1)
@@ -550,9 +625,10 @@ export class SessionEventReducer {
         // The host owns the held/queued state. A client's preference applies to
         // its next dispatch, not to a run started by another client.
         if (event.status === 'allowed' || event.isUsingOverage || !event.info) break
-        session.rateLimitInfo = event.info
+        // Whose seat reached the limit rides on the card; the host names the turn's author.
+        session.rateLimitInfo = event.turnAuthor ? { ...event.info, turnAuthor: event.turnAuthor } : event.info
         session.permissionQueue = []
-        session.questionQueue = []
+        session.questionQueue = session.questionQueue.filter((question) => question.responseMode === 'message')
         break
 
       case 'plan': {
@@ -626,6 +702,8 @@ export class SessionEventReducer {
         // An agent's report is turn input for the model, never a bubble —
         // the agent-conversation card already carries the reply via its `settled` update.
         if (event.via === 'session-report') break
+        // The accepted-answer event owns the visible async Q&A receipt.
+        if (event.via === 'question-answer') break
         // The provider persists an interrupt as a user turn so its transcript
         // remains well-formed. The renderer has already inserted the divider
         // optimistically on Ctrl-C, so only retain a provider notice when it
@@ -688,6 +766,7 @@ export class SessionEventReducer {
           message.via = event.via
           message.automationId = event.automationId
           message.automationName = event.automationName
+          if (event.watchId) message.watchId = event.watchId
         }
         // The host names the author; the bubble shows it when it is someone else.
         if (event.author) message.author = event.author
@@ -698,6 +777,8 @@ export class SessionEventReducer {
       case 'prompt_queued': {
         // A queued session report is invisible plumbing — no outbound chip.
         if (event.via === 'session-report') break
+        // The accepted-answer event owns the visible async Q&A receipt.
+        if (event.via === 'question-answer') break
         const existing = event.clientPromptId
           ? session.outboundPrompts.find((prompt) => prompt.clientPromptId === event.clientPromptId)
           : session.outboundPrompts.find((prompt) => prompt.queueId === event.queueId)
@@ -734,18 +815,24 @@ export class SessionEventReducer {
 
       case 'prompt_dequeued': {
         const idx = session.outboundPrompts.findIndex((prompt) => prompt.queueId === event.queueId)
-        if (idx !== -1) session.outboundPrompts.splice(idx, 1)
+        if (idx === -1) break
+        session.outboundPrompts.splice(idx, 1)
         break
       }
 
       case 'prompt_queue_updated': {
         const prompt = session.outboundPrompts.find((outbound) => outbound.queueId === event.queueId)
-        if (prompt) prompt.text = event.text
+        if (!prompt) break
+        prompt.text = event.text
         break
       }
 
       case 'rate_limit_resolved':
         session.rateLimitInfo = null
+        break
+
+      case 'activity':
+        this.appendActivity(session, event.activity)
         break
 
       case 'goal_updated': {
@@ -800,14 +887,15 @@ export class SessionEventReducer {
           session.statusCard = null
         }
         if (event.status === 'interrupted') {
-          session.outboundPrompts.splice(0, session.outboundPrompts.length)
+          // Stop keeps the host's queue (plan 004 D12): held prompts leave only on
+          // `prompt_dequeued`. Who stopped it arrives as a `stopped` activity.
           this.deps.closePlanModal()
         }
         if (event.status === 'idle') {
           session.isStreamingText = false
           session.isReconnecting = false
           session.permissionQueue = []
-          session.questionQueue = []
+          session.questionQueue = session.questionQueue.filter((question) => question.responseMode === 'message')
           session.permissionDenied = null
         }
         break
@@ -851,6 +939,13 @@ export class SessionEventReducer {
         break
       }
 
+      case 'watch_saved': {
+        const watchRef: NonNullable<Message['watchRef']> = { watchId: event.watchId, reason: event.reason }
+        if (event.command) watchRef.command = event.command
+        session.messages.push({ id: nextMsgId(), role: 'assistant', content: '', watchRef, timestamp: Date.now() })
+        break
+      }
+
       case 'task_created': {
         session.messages.push({
           id: nextMsgId(),
@@ -875,6 +970,19 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           browserSnapshot: event.snapshot,
+          timestamp: Date.now(),
+        })
+        break
+      }
+
+      case 'browser_recording_captured': {
+        // The same rule as a capture: the user sees the recording when it
+        // stops, whatever the agent writes afterwards.
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          browserRecording: event.recording,
           timestamp: Date.now(),
         })
         break
@@ -920,7 +1028,6 @@ export class SessionEventReducer {
         timestamp: Date.now(),
       })
     }
-    session.outboundPrompts.splice(0, session.outboundPrompts.length)
     this.deps.closePlanModal()
     this.deps.log('interrupt', session)
   }
@@ -1138,16 +1245,21 @@ export class SessionEventReducer {
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
+      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
       ? '\n\n'
       : ''
     const nextText = separator + text
+    // A thought between two prose blocks starts a new message, so it renders
+    // where it happened — and the transcript reloads the same way.
     if (
+      !this.hasPendingThoughts(session) &&
       lastMessage?.role === 'assistant' &&
       !lastMessage.toolName &&
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
+      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
     ) {
       lastMessage.content += nextText
@@ -1155,7 +1267,8 @@ export class SessionEventReducer {
       session.messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,
-        content: nextText,
+        content: text,
+        thoughts: this.takeThoughts(session),
         timestamp: Date.now(),
       })
     }
@@ -1172,14 +1285,17 @@ export class SessionEventReducer {
     // Empty in place, and only when non-empty: swapping the array reference
     // invalidates every $derived reading the queue; a no-op turn end writes nothing.
     if (session.permissionQueue.length) session.permissionQueue.splice(0, session.permissionQueue.length)
-    if (session.questionQueue.length) session.questionQueue.splice(0, session.questionQueue.length)
+    for (let index = session.questionQueue.length - 1; index >= 0; index--) {
+      if (session.questionQueue[index].responseMode !== 'message') session.questionQueue.splice(index, 1)
+    }
     session.permissionDenied = null
-    // Thinking that never reached a tool call has nowhere to be printed; drop it
-    // at the turn boundary so it can't attach to the next turn's first tool.
+    // Thinking that never reached a message has nowhere to be printed; drop it
+    // at the turn boundary so it can't attach to the next turn's first message.
     const span = this.thinkingSpans.get(session)
     if (span) {
       span.startedAt = undefined
       span.pendingMs = 0
+      span.thoughts = []
     }
   }
 

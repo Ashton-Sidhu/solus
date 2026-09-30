@@ -3,28 +3,31 @@ import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { environmentProjectKey } from '../git/session-environment.store.svelte'
-import { newTaskId, ownedTaskId, parentTaskId } from './session-draft.svelte'
+import { ownedTaskId, taskRoleOf } from './session-draft.svelte'
 import { isDispatch } from './run-config'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
-import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
+import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot, WORKING_TREE_BUSY_CODE } from '@solus/contracts/types'
+import { busyTreeQuestion } from '../git/busy-tree.store.svelte'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { projectDirLabel } from '../../lib/paths'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
 import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/client-core/send-outbox'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { SEAT_REQUIRED_CODE } from '@solus/contracts/seats'
+import { turnRefusalSchema } from '@solus/contracts/organization-scope'
 import { GITHUB_CONNECTION_REQUIRED_CODE } from '@solus/contracts/providers'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
+import { turnRefusalStore } from '../connections/turn-refusal.store.svelte'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import { moveTabToHost, prepareHostCheckout } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
@@ -43,7 +46,6 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'environment'
   | 'eventReducer'
   | 'focusedSourceId'
-  | 'onPromptSubmitted'
   | 'promptComposer'
   | 'refreshStartTarget'
   | 'serverIdFor'
@@ -66,11 +68,6 @@ export class PromptDispatch {
 
   private hostDispatchAttempts = new Map<string, number>()
 
-  /** The task this client minted for a session at its first dispatch. Only a
-   *  dispatched session needs it: the execution host names the session, but the
-   *  task lives on another host that never hears that name. */
-  mintedTaskIdBySession = new WeakMap<Session, string>()
-
   private startDirectReview(
     tabId: string,
     prompt: string,
@@ -80,7 +77,7 @@ export class PromptDispatch {
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
     const sentAt = Date.now()
-    const branch = session.run.gitContext?.branch ?? 'detached'
+    const branch = this.workspace.environment.environmentFor(session.run).branch ?? 'detached'
     const reviewAgent = resolveReviewAgent(this.workspace.settings)
     const reviewGuideRef = {
       target: request.target,
@@ -156,7 +153,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; taskRole?: 'lead'; goalObjective?: string }): void {
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -199,10 +196,20 @@ export class PromptDispatch {
         // avoid a phantom run that can never be cancelled.
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
-        return api.prompt(this.workspace.ctxFor(tabId), resolved).then(() => {
-          // The host accepted the prompt: its durable copy has done its job.
-          if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
-        })
+        return api.prompt(this.workspace.ctxFor(tabId), resolved)
+          .catch(async (err: Error) => {
+            // A new session in a working tree where another session runs: the
+            // host started nothing and the person decides (plan 004 item 7).
+            if (rpcErrorCode(err) !== WORKING_TREE_BUSY_CODE || !(await busyTreeQuestion.ask(err.message))) throw err
+            if (!this.workspace.sessionFor(tabId)) return
+            return api.prompt(this.workspace.ctxFor(tabId), { ...resolved, allowBusyWorkingTree: true })
+          })
+          .then(() => {
+            // The host accepted the prompt: its durable copy has done its job.
+            if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
+            // A refusal this send answered is over.
+            if (turnRefusalStore.visibleFor(session.run.serverId, session.id)) turnRefusalStore.dismiss()
+          })
       })
       .catch((err: Error) => {
         const session = this.workspace.sessionFor(tabId)
@@ -232,6 +239,16 @@ export class PromptDispatch {
           if (rpcErrorCode(err) === SEAT_REQUIRED_CODE && seatProvider && session.run.serverId) {
             seatsStore.noteRefusal(session.run.serverId, session.id, seatProvider)
           }
+          // The organization model refused the turn (organization-vms §4): nothing ran,
+          // so the draft goes back to the composer for the retry once the cause is fixed.
+          // A cancelled start in a busy working tree ran nothing either.
+          const code = rpcErrorCode(err)
+          if ((turnRefusalSchema.safeParse(code).success || code === WORKING_TREE_BUSY_CODE) && !session.prompt.text) {
+            session.prompt.text = options.displayPrompt || options.prompt
+          }
+          // The card says which organization the turn needs and what to do; only this client sees it.
+          const refusal = turnRefusalSchema.safeParse(code)
+          if (refusal.success) turnRefusalStore.note({ serverId: session.run.serverId, sessionId: session.id, code: refusal.data, message: err.message })
         }
       })
   }
@@ -257,47 +274,39 @@ export class PromptDispatch {
   }
 
   /**
-   * Bind the selected task, or mint the session's own, on the host that owns
-   * the project — before the first prompt leaves. A session has its task from
-   * the moment it exists, so a second session can join it right away and the
-   * sidebar never shows a loose row waiting for a turn to end. If the agent
-   * links the session to another task during the turn, the host transfers
-   * ownership and drops the empty placeholder; nothing here has to wait for it.
+   * Bind the selected task on the host that owns it — before the first prompt
+   * leaves. A session with no task selected stays without one: a session never
+   * makes a task of its own (docs/plans/task-conversation.md, decision 8).
    *
    * The two hosts are the same machine for ordinary work, and this is a no-op
-   * beyond one extra call. They differ for a dispatch — and there, letting the
-   * execution host mint (as it did when minting was a side effect of the prompt
-   * landing) files the task in a database nobody is reading, on a machine the
-   * user only borrowed to run an agent.
+   * beyond one extra call. They differ for a dispatch: the task lives on the
+   * host that holds the project, not on the machine the user borrowed to run
+   * an agent.
    *
-   * A failure here is not allowed to swallow the prompt. Minting is switched
-   * off for the send so an unavailable task host cannot create an unrelated
-   * duplicate on the execution host.
+   * A failure here is not allowed to swallow the prompt. The send then runs
+   * with no task, except for a lead, which exists only as its task's lead.
    */
-  private async resolveTaskOnItsHost<T extends { prompt: string; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; taskSnapshot?: TaskSnapshot }>(
+  private async resolveTaskOnItsHost<T extends { taskId?: string; taskRole?: 'lead'; taskSnapshot?: TaskSnapshot }>(
     tabId: string,
     options: T,
   ): Promise<T> {
     const session = this.workspace.sessionFor(tabId)
-    if (!session || options.skipTaskCreation) return options
-    // A session with a provider thread is past its first dispatch and outside
-    // automatic minting, which is the host's own no-backfill rule. A dispatched
-    // one still needs its packet re-shipped: the execution host cannot read the
-    // task host's store, so every prompt carries the task's live state.
+    if (!session) return options
+    // A session with a provider thread is past its first dispatch: its task is
+    // bound already. A dispatched one still needs its packet re-shipped: the
+    // execution host cannot read the task host's store, so every prompt
+    // carries the task's live state.
     if (session.agentSessionId) {
       return isDispatch(session.run) ? this.attachTaskSnapshot(session, options) : options
     }
+    if (!options.taskId) return options
     const environment = this.workspace.environment.environmentFor(session.run)
     try {
       const { task, snapshot } = await this.workspace.tasksStore.prepareForSession(session.run.taskServerId, {
-        existingTaskId: options.taskId ?? null,
-        parentTaskId: options.taskId ? null : options.parentTaskId ?? null,
-        // The id this session's row already carries, so the task arrives as
-        // the same row rather than a new one.
-        taskId: options.taskId ? null : newTaskId(session.task),
+        taskId: options.taskId,
         projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
-        prompt: options.prompt,
         includeSnapshot: isDispatch(session.run),
+        role: options.taskRole,
       })
       if (!task) return options
       let preparedSnapshot = snapshot
@@ -308,9 +317,9 @@ export class PromptDispatch {
             targetScope: task.projectKey ?? environmentProjectKey(environment, session.run.projectGroupPath),
             targetKey: String(session.prReview.number),
             title: `#${session.prReview.number} ${session.prReview.title}`,
-            createdBy: 'system',
+            automatic: true,
           })
-          // The first snapshot was read in the minting transaction, before the
+          // The first snapshot was read in the binding transaction, before the
           // PR edge existed. A dispatched run must ship the linked version.
           if (snapshot) {
             preparedSnapshot = await this.workspace.tasksStore.get(task.id).dispatchSnapshot(session.run.taskServerId)
@@ -319,21 +328,16 @@ export class PromptDispatch {
           console.warn('[Solus] PR task link failed; the prompt will still send.', error)
         }
       }
-      // Record the binding on the session so `session_init` — the first moment a
-      // session id exists — knows which task to link it to, and on which host.
-      if (!options.taskId) this.mintedTaskIdBySession.set(session, task.id)
-      session.task = { kind: 'existing', taskId: task.id }
-      const prepared: typeof options = {
-        ...options,
-        taskId: task.id,
-        parentTaskId: undefined,
-        skipTaskCreation: true,
-      }
-      if (preparedSnapshot) prepared.taskSnapshot = preparedSnapshot
-      return prepared
+      // The snapshot tells the execution host that the task lives elsewhere.
+      return preparedSnapshot ? { ...options, taskSnapshot: preparedSnapshot } : options
     } catch (error) {
-      console.warn('[Solus] Task host binding failed; the prompt will run without minting.', error)
-      return { ...options, skipTaskCreation: true }
+      // A lead exists only as its task's lead: a run that went ahead unbound
+      // would be an ordinary session with the lead's prompt. The refusal — the
+      // task already has a lead, or its host is away — fails the send instead,
+      // and the transcript shows why.
+      if (options.taskRole === 'lead') throw error
+      console.warn('[Solus] Task host binding failed; the prompt will run without a task.', error)
+      return { ...options, taskId: undefined }
     }
   }
 
@@ -382,9 +386,11 @@ export class PromptDispatch {
     if (session.status === 'connecting') return false
     if (session.readOnlyReason) return false
 
+    // On the web a run with no machine — none paired yet, or only the workspace
+    // service, which runs no agents — asks for a host instead of sending.
     if (
       localApi.getPlatform() === 'web'
-      && !serverConnections.defaultServerId()
+      && !hostRolesStore.hasExecution(session.run.serverId)
       && !session.run.pendingHostDispatch
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
@@ -402,7 +408,9 @@ export class PromptDispatch {
       return false
     }
 
-    this.workspace.onPromptSubmitted?.(targetTabId)
+    // A failed setup card is kept so its error stays visible, but a new send
+    // starts over. Without this, the old failure stays under the new turn.
+    if (session.statusCard?.status === 'error') session.statusCard = null
 
     if (session.run.pendingHostDispatch) {
       // Host checkout can take several seconds. The turn starts when the user
@@ -464,13 +472,13 @@ export class PromptDispatch {
     if (resolvedPath !== session.run.workingDirectory) {
       session.run.workingDirectory = resolvedPath
     }
+    // A session does not add its folder as a project: only opening, cloning,
+    // or adding one does (`ProjectsStore.addProject`). It moves a known one up.
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
-      void this.workspace.apiFor(targetTabId).trackRecentProject(resolvedPath)
-      const catalogRoot = session.run.gitContext?.repoRoot ?? resolvedPath
-      projectsStore.record(
-        { serverId: session.run.serverId, projectRoot: catalogRoot },
-        projectDirLabel(catalogRoot, this.workspace.staticInfo?.workspacePath),
-      )
+      projectsStore.touch({
+        serverId: session.run.serverId,
+        projectRoot: session.run.gitContext?.repoRoot ?? resolvedPath,
+      })
     }
 
     session.run.provider = session.run.provider ?? this.workspace.settings.activeAgent
@@ -540,9 +548,7 @@ export class PromptDispatch {
       imageAttachments: imagePayload.inline,
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
-      // An existing task and a request to create a child are mutually exclusive.
-      parentTaskId: promptTaskId ? undefined : parentTaskId(session.task) ?? undefined,
-      skipTaskCreation: session.task.kind === 'none' || undefined,
+      taskRole: taskRoleOf(session.task),
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })
     requestConversationScrollToBottom(targetTabId)
@@ -630,7 +636,6 @@ export class PromptDispatch {
         path,
         repoKey: pending.intent === 'dispatch' ? pending.repoKey : null,
         intent: pending.intent,
-        isolate: serversStore.isolatesSessions(pending.serverId),
       })
       if (!result.ok) throw new Error('The selected host has no usable checkout.')
       session.run.pendingHostDispatch = null

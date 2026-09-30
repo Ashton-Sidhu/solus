@@ -81,6 +81,7 @@ function probeDevRuntimePaths(dataDir: string): { writes: string; opens: string 
   `
   const env = { ...process.env, SOLUS_DATA_DIR: dataDir }
   delete env.SOLUS_INSTALL_DIR
+  delete env.SOLUS_DEV_LOG
   const result = Bun.spawnSync(['bun', '-e', probe], { cwd: dataDir, env })
   if (!result.success) throw new Error(result.stderr.toString())
   const tagged = result.stdout.toString().split('\n').find((line: string) => line.startsWith('PROBE:'))
@@ -89,6 +90,31 @@ function probeDevRuntimePaths(dataDir: string): { writes: string; opens: string 
 }
 
 describe('host log file path', () => {
+  test('a test run never writes the running dev server\'s dev.log', () => {
+    // WHY: a test is a development runtime started from the repo root. Its logger
+    // truncated the live `dev.log` and wrote fixture entries into it, so the
+    // developer read a log that had lost its history and mixed in another process.
+    expect(process.env.SOLUS_DEV_LOG).toBeTruthy()
+    expect(process.env.SOLUS_DEV_LOG).not.toBe(join(root, 'dev.log'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-log-override-'))
+    try {
+      const loggerModule = join(root, 'packages/server/src/logger.ts')
+      const devLog = join(dataDir, 'elsewhere.log')
+      const probe = `
+        const { logFilePath } = await import(${JSON.stringify(loggerModule)})
+        console.log('PROBE:' + logFilePath())
+      `
+      const env = { ...process.env, SOLUS_DATA_DIR: dataDir, SOLUS_DEV_LOG: devLog }
+      delete env.SOLUS_INSTALL_DIR
+      const result = Bun.spawnSync(['bun', '-e', probe], { cwd: dataDir, env })
+      if (!result.success) throw new Error(result.stderr.toString())
+      const tagged = result.stdout.toString().split('\n').find((line: string) => line.startsWith('PROBE:'))
+      expect(tagged).toBe(`PROBE:${devLog}`)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('opens the production log even on a development host', () => {
     // WHY: "Open Solus logs" is a production diagnostic. It handed the developer
     // `dev.log` — and, once the packaged app started misreading its own runtime,

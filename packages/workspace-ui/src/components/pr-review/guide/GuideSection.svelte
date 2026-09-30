@@ -1,20 +1,17 @@
 <script lang="ts">
   import { ExternalLink as ArrowSquareOutIcon } from "@lucide/svelte";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
-  import Icon from "@iconify/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { GuideSection, LedgerRecord } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
-  import { fileTypeIcon } from "../../../lib/fileTypeIcon";
   import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
-  import { ensureIconCollections } from "../../diagram/iconify";
   import { Button } from "../../ui/button";
   import GuideFileDiff from "./GuideFileDiff.svelte";
+  import DiffFileCardHeader from "../../diff/DiffFileCardHeader.svelte";
+  import DiffFileTypeBadge from "../../diff/DiffFileTypeBadge.svelte";
+  import { dirName, fileName } from "../../diff/lib/diff-file-path";
   import { resolveLedgerRefs, type GuideDiffCommentSave } from "./lib/guide-data";
   import GuideExplanation from "./GuideExplanation.svelte";
-
-  // Register the small offline icon subset used by file-type badges.
-  ensureIconCollections();
 
   // One concern in the walkthrough: a sticky "why" summary (title, explanation,
   // file list) on the left, beside the diffs it spans on the right. The reader
@@ -72,20 +69,6 @@
     return m;
   });
 
-  // Uppercase file extension, shown as a small badge on chips and diff headers.
-  function ext(path: string): string {
-    const name = path.split("/").pop() ?? path;
-    const dot = name.lastIndexOf(".");
-    return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
-  }
-  function fileName(path: string): string {
-    return path.split("/").pop() ?? path;
-  }
-  function dirName(path: string): string {
-    const i = path.lastIndexOf("/");
-    return i > 0 ? path.slice(0, i + 1) : "";
-  }
-
   // Diff cards on the right, keyed by path, so a left chip can scroll to its card.
   // DOM references are used only by jump commands. Register them in the action
   // below: thousands of bind:this cleanups form a recursive teardown chain.
@@ -132,19 +115,6 @@
   }
 </script>
 
-<!-- Vibrant brand icon for known languages; monochrome extension badge otherwise. -->
-{#snippet typeBadge(path: string)}
-  {@const icon = fileTypeIcon(path)}
-  {#if icon}
-    <Icon {icon} width="14" height="14" class="text-xs shrink-0" />
-  {:else}
-    <span
-      class="text-xs shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-xs font-medium text-(--solus-text-tertiary)"
-    >
-      {ext(path)}
-    </span>
-  {/if}
-{/snippet}
 
 <section
   data-guide-section-id={section.id}
@@ -185,7 +155,7 @@
               class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-chrome-shelf transition-[background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) active:scale-[0.98]"
               onclick={() => jumpToCard(file.path)}
             >
-              {@render typeBadge(file.path)}
+              <DiffFileTypeBadge path={file.path} />
               <span
                 class="min-w-0 flex-1 truncate font-mono  font-secondary text-(--solus-text-secondary)"
               >
@@ -227,49 +197,23 @@
         use:lazyDiffCard={file.path}
         class="scroll-mt-6 overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
       >
-        <div
-          class="flex items-center gap-2 border-(--solus-art-border) px-3 py-2.5"
-          class:border-b={open}
-        >
-          <!-- The card's own header row, not a button primitive. -->
-          <button
-            type="button"
-            class="flex min-w-0 flex-1 overflow-hidden cursor-pointer items-center gap-2 text-left text-chrome-shelf"
-            aria-expanded={open}
-            aria-label={open
-              ? `Collapse diff for ${fileName(file.path)}`
-              : `Expand diff for ${fileName(file.path)}`}
-            onclick={() => toggleCard(file.path)}
-          >
-            <span
-              class="inline-block size-1.5 shrink-0 border-r-[1.5px] border-b-[1.5px] border-current text-(--solus-text-tertiary) transition-transform duration-150 {open
- ? 'rotate-[225deg]'
- : 'rotate-45'}"
-            ></span>
-            {@render typeBadge(file.path)}
-            <span class="min-w-0 flex-1 truncate font-mono">
-              <span class="text-(--solus-text-tertiary)"
-                >{dirName(file.path)}</span
+        <DiffFileCardHeader path={file.path} {open} onToggle={() => toggleCard(file.path)}>
+          {#snippet trailing()}
+            {#if onFileJump}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                class="cursor-pointer text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.92]"
+                aria-label="Open in Diff tab"
+                title="Open in Diff tab"
+                onclick={() => onFileJump?.(file.path)}
               >
-              <span class="text-(--solus-text-primary)"
-                >{fileName(file.path)}</span
-              >
-            </span>
-          </button>
-          {#if onFileJump}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              class="cursor-pointer text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.92]"
-              aria-label="Open in Diff tab"
-              title="Open in Diff tab"
-              onclick={() => onFileJump?.(file.path)}
-            >
-              <ArrowSquareOutIcon size={14} weight="bold" />
-            </Button>
-          {/if}
-        </div>
+                <ArrowSquareOutIcon size={14} weight="bold" />
+              </Button>
+            {/if}
+          {/snippet}
+        </DiffFileCardHeader>
         {#if open}
           <div class="overflow-x-auto bg-(--solus-diff-surface)">
             {#if fileVisible && patch}

@@ -4,9 +4,12 @@ import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
-import type { BrowserSnapshotRef } from './browser-types'
+import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { WorkExternalLink } from './docs'
-import type { TurnAuthor } from './presence'
+import type { Attribution, User } from './user'
+import type { Activity } from './activity'
+import type { MediaType } from './media-types'
+import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
 import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
@@ -44,8 +47,11 @@ export interface ServerCapabilities {
   gitAuth: {
     github: boolean
   }
-  /** Where this host's folder picker starts when opening a new project. */
+  /** The folder new projects and clones land in for this caller: the setting,
+   *  else `SOLUS_PROJECTS_ROOT`, else `~/projects`; a cloud member's own folder. */
   projectsBaseDirectory?: string
+  /** The owner chose `projectsBaseDirectory` in Settings, so "reset" has a default to return to. */
+  projectsBaseDirectoryIsSet?: boolean
   /** How much control agents have over task lifecycle status. */
   agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
   /** This host's general-purpose workspace — the app's default working directory. */
@@ -78,9 +84,17 @@ export interface HostCapabilities {
    *  hold browser pages. Whether a page can actually be *rendered* is a client
    *  fact (a native surface), not a host one. */
   browser?: boolean
+  /** The host can record browser pages to MP4: it has a Chromium that can run
+   *  the recording encoder. */
+  browserRecording?: boolean
+  /** The host accepts streamed uploads through `attachUploadToken`, so a client
+   *  can send files larger than the RPC limit, such as videos. */
+  attachStreamUpload?: boolean
   atlassianProvider?: boolean
   /** This host checks its own Solus release and its providers' releases. */
   hostUpdates?: boolean
+  /** This host gets the model list from GitHub and serves it (`modelProfilesStatus`). */
+  modelProfiles?: boolean
 }
 
 export type SetupAgent = 'claude' | 'codex'
@@ -191,6 +205,8 @@ export interface SetupCloneProjectRequest {
   clean?: boolean
   /** Present only for a Run-on dispatch: clone as the caller, not as the host. */
   credential?: GithubDelegatedCredential
+  /** Clone every branch and its full history, fetching file contents only when needed. Set for a Run-on dispatch checkout. */
+  partialClone?: boolean
 }
 
 /** The command that installs a package on a host, and whether Solus may run it unattended. */
@@ -198,6 +214,10 @@ export interface PackageInstallCommand {
   display: string
   /** False when the command needs sudo we don't have — the client shows it to copy instead. */
   autoRunnable: boolean
+  /** The install action in the host's own terms, such as "Install Apple developer tools". Omitted means "Install <package>". */
+  label?: string
+  /** What the user still does after Solus runs the command, when it only opens an installer. */
+  followUp?: string
 }
 
 /** The `user.name`/`user.email` a host commits under. */
@@ -386,9 +406,6 @@ export interface HeadlessSessionRequest {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   cwd: string
-  /** Background work that is not a piece of the user's own work — automation
-   *  drafting — sets this so no task is minted for the session. */
-  skipTaskCreation?: boolean
 }
 
 // ─── Model Profiles ───
@@ -418,13 +435,70 @@ const modelProfileSchema = z.object({
   defaultContextWindow: z.number(),
 })
 const providerModelProfilesSchema = z.record(z.string(), modelProfileSchema)
-const modelProfilesSchema = z.object({
+/** The published model list. A host parses a download or its cache with this at the I/O boundary. */
+export const modelProfilesSchema = z.object({
   'claude-code': providerModelProfilesSchema.optional(),
   codex: providerModelProfilesSchema.optional(),
   opencode: providerModelProfilesSchema.optional(),
 })
 
-export const MODEL_PROFILES = modelProfilesSchema.parse(rawModelProfiles)
+export type ModelProfiles = z.infer<typeof modelProfilesSchema>
+
+/** The list this build shipped with: what a host runs on until it has a newer one. */
+export const BUNDLED_MODEL_PROFILES: ModelProfiles = modelProfilesSchema.parse(rawModelProfiles)
+
+/**
+ * The model list in effect in this process. A host replaces it with the list
+ * published on GitHub (`docs/model-profiles.md`), so a new model needs no new
+ * build. Read it at the time of use; never copy a provider's entries at import.
+ */
+export const MODEL_PROFILES: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFILES)
+
+/**
+ * Put `next` in effect. Each provider's map is emptied and refilled in place,
+ * so a module that holds `MODEL_PROFILES['claude-code']` reads the new list.
+ */
+export function replaceModelProfiles(next: ModelProfiles): void {
+  for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+    const incoming = next[provider] ?? {}
+    const current = MODEL_PROFILES[provider]
+    if (!current) {
+      MODEL_PROFILES[provider] = structuredClone(incoming)
+      continue
+    }
+    for (const modelId of Object.keys(current)) delete current[modelId]
+    Object.assign(current, structuredClone(incoming))
+  }
+}
+
+/** The models a provider offers and the one it starts on. */
+export interface ProviderModels {
+  models: Array<{ id: string; label: string }>
+  defaultModel: string
+}
+
+/** The models a provider offers and the one it starts on, from the list in effect. */
+export function providerModelsFor(provider: AgentId): ProviderModels {
+  const profiles = Object.entries(MODEL_PROFILES[provider] ?? {})
+  return {
+    models: profiles.map(([id, profile]) => ({ id, label: profile.label })),
+    defaultModel: profiles.find(([, profile]) => profile.isDefault)?.[0] ?? '',
+  }
+}
+
+/** Where a host's model list came from, and when it last asked GitHub. */
+export interface ModelProfilesStatus {
+  /** `remote` once the host has a published list; `bundled` before that, or after the cache was cleared. */
+  source: 'bundled' | 'remote'
+  /** When the list in effect was downloaded. Null for the bundled list. */
+  fetchedAt: number | null
+  /** When the host last asked GitHub, whatever the answer. */
+  checkedAt: number | null
+  checking: boolean
+  /** Why the last check failed. Null after a check that succeeded. */
+  error: string | null
+  profiles: ModelProfiles
+}
 
 /** The context window Claude runs a model at when it is not asked for the
  *  `[1m]` long-context variant. */
@@ -521,6 +595,8 @@ export interface PermissionRequest {
   toolDescription?: string
   toolInput?: PermissionToolInput
   options: Array<{ optionId: string; kind?: string; label: string }>
+  /** Whose turn asks, as the host stamped it; live only. */
+  turnAuthor?: User
 }
 
 /** Fields the permission UI and policy inspect from provider tool payloads. */
@@ -559,12 +635,16 @@ export interface QuestionAnswer {
 export interface QuestionRequest {
   questionId: string
   questions: QuestionItem[]
+  /** An answer to this question is sent as a new message, not a provider callback. */
+  responseMode?: 'message'
   kind?: 'standard' | 'mcp_form' | 'mcp_url'
   message?: string
   url?: string
   serverName?: string
   canDecline?: boolean
   canCancel?: boolean
+  /** Whose turn asks, as the host stamped it; live only. */
+  turnAuthor?: User
 }
 
 /** An image the host already holds on disk, named by the absolute path
@@ -717,6 +797,14 @@ export interface Prompt {
 }
 
 /**
+ * How much an agent may do without asking. Each value maps to the provider's
+ * own permission mode (Claude) or approval policy and sandbox (Codex); Solus
+ * keeps no allow rules of its own. See docs/plans/permission-modes.md.
+ */
+export const PERMISSION_MODES = ['supervised', 'accept-edits', 'auto', 'full-access', 'plan'] as const
+export type PermissionMode = (typeof PERMISSION_MODES)[number]
+
+/**
  * How a session will run, as a composer proposes it. Resolves into
  * `SessionRunInput` at dispatch, which is the contract the backend actually
  * consumes; once a session exists, `BackendSession.runInput` is the authority
@@ -742,7 +830,7 @@ export interface RunConfig {
    */
   worktree: { baseBranch: string | null } | null
   modelConfig: ModelConfig
-  permissionMode: 'ask' | 'auto' | 'plan'
+  permissionMode: PermissionMode
   /** null = "use the default", resolved at dispatch. */
   provider: AgentId | null
   /** The host that runs the agent. */
@@ -772,20 +860,18 @@ export interface RunConfig {
 }
 
 /**
- * Where the session a composer starts will be filed. A union rather than an id
- * plus a pair of booleans because "no task" is a choice the user made, not the
- * absence of one — a shape that cannot represent the difference invites code
- * that silently overrules them.
+ * Where the session a composer starts will be filed: under a task that exists,
+ * or under none. A session never makes a task of its own — a task is made by
+ * a person, an agent, a ticket or an automation, and a session joins it
+ * (docs/plans/task-conversation.md, decision 8).
  *
  * Never reaches the backend: `SessionRunInput` has no task field, because task
  * membership is a `task_session_links` row written once the session exists.
  */
 export type TaskTarget =
-  | { kind: 'existing'; taskId: string }
-  /** `taskId` is the id the first prompt mints the task under. Only a session
-   *  carries one — `makeSession` mints it fresh for every session, so a draft
-   *  or a copied target never shares an id with another session. */
-  | { kind: 'new'; parentTaskId?: string; taskId?: string }
+  /** `role: 'lead'` starts the session as the task's lead: the one session
+   *  that owns the task page's conversation. Absent, an ordinary attempt. */
+  | { kind: 'existing'; taskId: string; role?: 'lead' }
   | { kind: 'none' }
 
 /**
@@ -900,6 +986,11 @@ export interface Session {
   /** Renderer-local start of the turn in flight. Set optimistically on Send so
    *  elapsed UI does not wait for host preparation or a provider echo. */
   currentTurnStartedAt: number | null
+  /** Renderer-local: when this session's first dated message was sent, kept
+   *  across a reload. A restored tab loads its transcript only when selected,
+   *  so without this its sidebar row would have no start time until opened
+   *  and would move when it was. */
+  startedAt?: number | null
   isStreamingText: boolean
   isReconnecting: boolean
   permissionQueue: PermissionRequest[]
@@ -1035,29 +1126,11 @@ export interface SessionProgress {
   totalSteps: number
 }
 
-/** Who wrote a thread message. Absent on anything written before threads had
- *  authors, which is why every read goes through `commentAuthor()`. */
-export type CommentAuthor = 'you' | 'solus'
-
-/** Which agent wrote a 'solus' thread message. `CommentAuthor` alone cannot say
- *  which one, and several agents can be reviewing the same document. Absent on
- *  everything written before agents could comment. */
-export interface CommentAgentAuthor {
-  sessionId: string
-  /** The session's name, when it has one — absent until it is slugged, and the
-   *  thread signs as plain "Solus" until then. */
-  title?: string
-  provider: AgentId
-}
-
 export interface PlanCommentReply {
   id: string
-  author: CommentAuthor
-  authorAgent?: CommentAgentAuthor
-  /** The person behind a 'you' reply on a shared work, stamped by the host
-   *  (docs/plans/multiplayer-comments.md). Absent on a plan and on every reply
-   *  written before works had people. */
-  person?: TurnAuthor
+  /** Who wrote it, stamped by the host. Absent only on a reply the reader has
+   *  just written and the host has not stamped yet. */
+  author?: Attribution
   text: string
   /** Epoch ms. */
   createdAt: number
@@ -1093,19 +1166,16 @@ export interface PlanComment {
   edgeId?: string
   /** For artifact works: the point over the render this comment is pinned to. Absent = the whole artifact. */
   pin?: CommentPin
-  /** Absent = 'you' — every comment written before threads had authors. */
-  author?: CommentAuthor
-  authorAgent?: CommentAgentAuthor
-  /** The person behind a 'you' thread on a shared work, stamped by the host from
-   *  the admitted principal; a client never names itself. Absent on a plan and on
-   *  every thread written before works had people. */
-  person?: TurnAuthor
+  /** Who wrote the thread, stamped by the host from the admitted actor; a client
+   *  never names itself. Absent only on a thread the reader has just written and
+   *  the host has not stamped yet. */
+  author?: Attribution
   /** Epoch ms. Absent on pre-existing comments, which render without a time. */
   createdAt?: number
   /** Epoch ms the thread was resolved. Absent = open. */
   resolvedAt?: number
-  resolvedBy?: CommentAuthor
-  resolvedByPerson?: TurnAuthor
+  /** Who resolved it, stamped by the host like `author`. */
+  resolvedBy?: Attribution
   replies?: PlanCommentReply[]
   /** Epoch ms the thread was last read. A Solus message newer than this is unread. */
   readAt?: number
@@ -1163,6 +1233,10 @@ export interface PrConflictResolutionResult {
 export interface Message {
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
+  /** A system row that is one activity the host recorded (plans/012 §5): a stop,
+   *  a decision, a rename. Live from the `activity` event, and read back with the
+   *  history, so it survives a reload. */
+  activity?: Activity
   questionResult?: string
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system' | 'plan'
@@ -1186,9 +1260,12 @@ export interface Message {
    *  rail stays empty rather than showing a made-up figure. */
   toolCompletedAt?: number
   /** Milliseconds the agent spent thinking immediately before this tool call.
-   *  Thinking never gets a row of its own once the tools have finished — it
-   *  folds into the block's summary as "Thought for 6s". */
+   *  It folds into the block's summary as "Thought for 6s". */
   thinkingMs?: number
+  /** The agent's thoughts immediately before this tool call or prose block, in
+   *  order, as the provider wrote them (markdown). Collapsed in the transcript
+   *  until opened. Absent when the provider sent no readable reasoning. */
+  thoughts?: string[]
   /** Set when this tool launched an async sub-agent. Its settle event carries
    *  only the task id, so this is the sole link back from settle to the card. */
   backgroundTaskId?: string
@@ -1245,14 +1322,21 @@ export interface Message {
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  /** Reference to a watch the agent created in this thread, rendered as a card
+   *  that shows the watch's live state and controls. A card rebuilt from
+   *  history has no id: the id was in the tool result, which history drops, so
+   *  the card finds its watch by reason and command. */
+  watchRef?: { watchId?: string; reason: string; command?: string }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
   taskRef?: { taskId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
+  /** A recording the agent made of a browser page, rendered as a player. */
+  browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
-   *  (create_session / prompt_session / wait_for_session). One message per
+   *  (start_session / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
    *  reconstructed from the transcript
    *  on history reload. */
@@ -1269,40 +1353,19 @@ export interface Message {
   workRefs?: WorkReference[]
   /** Session references attached via & autocomplete */
   sessionRefs?: SessionReference[]
-  /** Set on the fork-divider system message to identify it. */
-  forkSourceSessionId?: string
-  /** Snapshot of the source session title at fork time. */
-  forkSourceTitle?: string
-  /** Set when the source was mid-turn at fork time, so the copied transcript
-   *  stops at the last settled turn. */
-  forkSourceRunning?: boolean
-  /** Set on the divider system message when a session is moved into a worktree;
-   *  holds the new worktree branch name. */
-  worktreeMovedTo?: string
-  /** Set on the divider system message inserted after a successful agent
-   *  handoff. Holds the destination agent's display label. */
-  agentChangedTo?: string
-  /** Model labels shown on the two sides of an agent-handoff divider. */
-  agentChangedFromModel?: string
-  agentChangedToModel?: string
-  /** Providers select the same model glyphs used by the model picker. */
-  agentChangedFromProvider?: AgentId
-  agentChangedToProvider?: AgentId
-  /** Set on the divider system message inserted when accepting a plan starts a
-   *  fresh agent session to implement it. Holds the accepted plan's id, so the
-   *  divider can name the plan the new session carries over. */
-  newSessionForPlanId?: string
-  /** Set on a user message that an automation injected into this thread, so the
-   *  bubble can render a "Sent via automation" badge. Live-only (not persisted to
-   *  the transcript), so it's lost on a history reload. */
+  /** Set on a user message that an automation or a watch injected into this
+   *  thread, so the bubble can render its origin badge. Live-only (not persisted
+   *  to the transcript), so it's lost on a history reload. */
   via?: PromptVia
   automationId?: string
   automationName?: string
+  /** Source watch, present when `via === 'watch'`. */
+  watchId?: string
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
   /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
    *  history reload does not know, and the bubble then carries no name. */
-  author?: TurnAuthor
+  author?: User
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
   /** Milliseconds this prompt spent held by a rate limit before it went out.
@@ -1320,10 +1383,15 @@ export interface Message {
 export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
 
 export interface WorkMeta {
+  /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */
+  organizationId: string
   title: string
   preview: string
   type: WorkType
   createdAt: string
+  /** When the record last changed, body or metadata. It is the record's
+   *  concurrency token (the HTTP ETag), not a content version and not a history
+   *  id: a title change moves it, and it never names a revision. */
   updatedAt: string
   /** Origin session (kept for back-compat). Prefer `sessionIds` for resume. */
   sessionId?: string
@@ -1340,6 +1408,45 @@ export interface WorkMeta {
 
 export interface Work extends WorkMeta {
   id: string
+  content: string
+  /** The body's version: one step for each accepted change to `content`. An
+   *  equal body and a metadata-only change leave it alone; a restore to earlier
+   *  content still advances it. This, not `updatedAt`, is the precondition for
+   *  a content write made from an earlier read. */
+  contentVersion: number
+  /** `sha256` of `content`: recognizes identical bodies (an undo, a restore).
+   *  Never a substitute for the `contentVersion` precondition. */
+  contentHash: string
+  /** Who wrote the current body, taken from the admitted request, never from a
+   *  label the client supplies. Null is a body written before Solus recorded
+   *  authors; it is never guessed. */
+  contentAuthor: Attribution | null
+}
+
+/** Why a checkpoint was captured. `baseline` is the first body a work had in
+ *  history; `checkpoint` is a body captured before another write displaced it
+ *  (and every revision stored before reasons existed); `agent`, `upstream`, and
+ *  `restore` are the bodies those writes produced; `review` is a body a
+ *  reviewer pinned. */
+export type WorkRevisionReason = 'baseline' | 'checkpoint' | 'agent' | 'upstream' | 'review' | 'restore'
+
+/** One immutable checkpoint of a work body. `revisionId` is scoped to the
+ *  work. It stores the body exactly as it was when captured, with that body's
+ *  version, author, and hash. */
+export interface WorkRevisionSummary {
+  workId: string
+  revisionId: number
+  reason: WorkRevisionReason
+  /** The work's `contentVersion` for this body; null for a revision stored
+   *  before content versions existed. */
+  sourceContentVersion: number | null
+  /** Who wrote this body; null when nobody recorded it. */
+  author: Attribution | null
+  contentHash: string
+  capturedAt: string
+}
+
+export interface WorkRevision extends WorkRevisionSummary {
   content: string
 }
 
@@ -1462,7 +1569,8 @@ export interface WorkAnnotations {
   updatedAt: number
 }
 
-/** Single previous version of a work, snapshotted on agent-driven saves. */
+/** The comparison and revert target of a work: the body the last agent write,
+ *  upstream pull, or restore displaced. */
 export interface WorkPrevious {
   content: string
   updatedAt: string
@@ -1498,10 +1606,6 @@ export interface PlanDescriptor {
   planFilePath?: string
   revisions: PlanRevisionSummary[]
 }
-
-export type SessionScanEvent =
-  | { streamId: string; type: 'batch'; sessions: SessionMeta[] }
-  | { streamId: string; type: 'done'; totalSessions: number }
 
 export interface SessionIndexUpdatedEvent {
   provider: AgentId
@@ -1567,29 +1671,37 @@ export interface StatusCardState {
 // ─── Agent conversations (one agent talking to another agent) ───
 
 /** How the other agent entered the caller's thread. */
-export type AgentConversationOrigin = 'created' | 'prompted' | 'watched'
+export type AgentConversationOrigin = 'created' | 'prompted'
 
-export type AgentExchangeStatus = 'dispatched' | 'awaiting_input' | 'answered' | 'done' | 'failed' | 'interrupted'
+/** Where one exchange stands. `lost` is a message the transcript opened whose
+ *  reply never arrived and that the host no longer carries — a restart ended it. */
+export type AgentExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'answered' | 'done' | 'failed' | 'interrupted' | 'lost'
 
 /** One prompt→reply round-trip with another agent. `index` is dispatch order
  *  within the agent-conversation card and never renumbers. */
 export interface AgentExchange {
-  exchangeId: string
+  messageId: string
   index: number
   prompt: string
   delivery?: PromptDelivery
   dispatchedAt: number
   status: AgentExchangeStatus
-  /** Rebuilt from persisted tool history rather than observed live. A restored
-   *  dispatch may have lost its in-memory completion watcher across an app
-   *  restart, so the card may eventually stop presenting it as active. */
+  /** Rebuilt from the transcript rather than observed live; the host says
+   *  whether it still carries it. */
   restored?: boolean
-  /** Set while the other agent is waiting on human input mid-exchange. Kept
-   *  after status 'answered' so the card still shows what was asked. */
-  question?: { kind: 'question' | 'permission' | 'plan'; questionId?: string; text: string }
-  /** What this side answered that question with. Only set with status 'answered'. */
-  answer?: string
+  /** What the other agent's turn is waiting on a person for. Kept after it is
+   *  answered so the card still shows what was asked. */
+  request?: ExchangeRequest
+  /** What a person answered, one line each. */
+  answers?: string[]
+  /** While `rate_limited`: when the provider's limit resets and the turn resumes. */
+  rateLimitedUntil?: number
   reply?: string
+  /** References to what the turn produced: answered questions, plans, works,
+   *  changed files, a pull request, sessions it started. */
+  outputs?: SessionOutput[]
+  /** The child's task, from the report. */
+  taskId?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
@@ -1599,7 +1711,7 @@ export interface AgentExchange {
  *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
  *  transcript (tool rows + [session report] user turns) on history reload. */
 export interface AgentConversationRef {
-  /** `pending:<exchangeId>` until a created session reports its real id. */
+  /** `pending:<messageId>` until a created session reports its real id. */
   agentSessionId: string
   provider: AgentId
   /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
@@ -1609,7 +1721,7 @@ export interface AgentConversationRef {
   model?: string
   reasoningEffort?: string
   origin: AgentConversationOrigin
-  /** Launched with create_session's 'fire_and_forget' mode: no reply is owed to
+  /** Started with start_session's `report` off: no reply is owed to
    *  this conversation, so the card rests collapsed to its header. Cleared the
    *  moment this side prompts or watches the session — that is a conversation. */
   fireAndForget?: boolean
@@ -1618,19 +1730,40 @@ export interface AgentConversationRef {
   exchanges: AgentExchange[]
 }
 
-/** Structured agent-conversation lifecycle updates, broadcast to the caller's tabs.
- *  The model-facing [session report] prose is separate and never rendered. */
+/**
+ * A message a session sent that the host still carries: its turn has not
+ * settled (`queued`, `running`, `awaiting_input`), or its reply waits for the
+ * sender (`reply_queued`). Served from host memory, so a message missing from
+ * the list is either finished — its reply is in the sender's transcript — or
+ * was lost to a host restart.
+ */
+export interface SentSessionMessage {
+  messageId: string
+  targetAgentSessionId: string
+  state: 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'reply_queued'
+  request?: ExchangeRequest
+  /** While `rate_limited`: when the turn resumes. */
+  resetsAt?: number
+}
+
+/** Structured agent-conversation lifecycle updates, broadcast to the sender's
+ *  tabs by the host's session orchestrator — the only thing that emits them.
+ *  The model-facing [session report] text is separate and never rendered. */
 export type AgentConversationUpdate =
-  | { phase: 'dispatched'; agentSessionId: string; exchangeId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
-  /** A card dispatched against a not-yet-existing session (create_session) binds
-   *  to its real agent session id once startup resolves. Keyed by exchangeId. */
-  | { phase: 'attached'; exchangeId: string; agentSessionId: string; cwd?: string }
-  | { phase: 'awaiting_input'; agentSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
-  /** This side answered the peer's question or ruled on its plan. No exchangeId
-   *  — the answering tool never learns one; the tracker patches the agent's last
-   *  awaiting exchange in place. */
-  | { phase: 'answered'; agentSessionId: string; answerText: string }
-  | { phase: 'settled'; agentSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'dispatched'; agentSessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  /** A card dispatched against a not-yet-existing session (start_session) binds
+   *  to its real agent session id once startup resolves. Keyed by messageId. */
+  | { phase: 'attached'; messageId: string; agentSessionId: string; cwd?: string }
+  /** The target accepted the message: its turn started, it waits behind the
+   *  target's current turn, or it joined that turn as a steer. */
+  | { phase: 'accepted'; agentSessionId: string; messageId: string; state: 'queued' | 'running' }
+  | { phase: 'awaiting_input'; agentSessionId: string; messageId: string; request: ExchangeRequest }
+  /** A person answered what the message's turn was waiting on, from any surface. */
+  | { phase: 'answered'; agentSessionId: string; messageId: string; answerText: string }
+  /** The target's turn is parked on a provider limit and resumes on its own at
+   *  `resetsAt`; `accepted` with `running` follows when it does. */
+  | { phase: 'rate_limited'; agentSessionId: string; messageId: string; resetsAt?: number; limitType?: string }
+  | { phase: 'settled'; agentSessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; agentSessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -1640,9 +1773,10 @@ export type NormalizedEvent =
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
-  /** Extended-thinking span boundaries. The transcript never renders the thought
-   *  itself — only how long it took, folded into the following activity block. */
-  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
+  /** Extended-thinking span boundaries. The transcript renders how long it took
+   *  and keeps `text` on the tool call or prose block that follows.
+   *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
+  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   /** With an outcome or completedAtMs, the tool execution completed. Without
@@ -1664,8 +1798,11 @@ export type NormalizedEvent =
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   /** `resetsAt` is epoch seconds from the provider. The server fills missing
    * resets from cached usage and applies its retry buffer before publication.
-   * Null means no automatic release and no countdown. */
-  | { type: 'rate_limit'; status: string; resetsAt: number | null; rateLimitType: string; isUsingOverage?: boolean; windowDurationMins?: number; info?: RateLimitInfo; deferCurrentRun?: boolean }
+   * Null means no automatic release and no countdown.
+   * `turnAuthor`, on this and on `permission_request` and `question_request`: whose
+   * turn raised it, stamped by the host from the running turn's actor (plan 004 F2).
+   * Live only; absent for the host's own work. */
+  | { type: 'rate_limit'; status: string; resetsAt: number | null; rateLimitType: string; isUsingOverage?: boolean; windowDurationMins?: number; info?: RateLimitInfo; deferCurrentRun?: boolean; turnAuthor?: User }
   /** Quota windows a provider reported mid-stream. Both agents send these on
    *  nearly every turn, which is what keeps the usage store current enough to
    *  answer the moment a limit lands. */
@@ -1673,13 +1810,14 @@ export type NormalizedEvent =
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number }
-  | { type: 'permission_resolved'; questionId: string }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User }
+  /** Who decided is an `activity` of its own; this event only clears the request. */
+  | { type: 'permission_resolved'; questionId: string; decision?: PermissionDecision }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; kind?: 'standard' | 'mcp_form' | 'mcp_url' }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url'; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration; Codex can report start and stop item boundaries. */
   | { type: 'context_compaction'; state: 'start' | 'stop'; trigger?: 'manual' | 'auto'; startedAtMs?: number; completedAtMs?: number; durationMs?: number }
@@ -1688,24 +1826,29 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string; author?: TurnAuthor }
-  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: TurnAuthor }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; agentSessionId?: string; agentMessageId?: string; author?: User }
+  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
   | { type: 'rate_limit_resolved'; sessionId: string; action: RateLimitDecisionAction }
+  /** One thing a person (or the host) did to the session that people read: a
+   *  stop, a decision, a rename (plans/012 §5). The host stored it first. */
+  | { type: 'activity'; activity: Activity }
   | { type: 'goal_updated'; goal: ThreadGoal }
   | { type: 'goal_cleared'; threadId: string }
   | { type: 'status_change'; status: SessionStatus; oldStatus: SessionStatus }
   | { type: 'plan_rejected'; planToolUseId: string }
-  | { type: 'permission_mode_changed'; permissionMode: 'ask' | 'auto' | 'plan' }
+  | { type: 'permission_mode_changed'; permissionMode: PermissionMode }
   | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string }
   | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  | { type: 'watch_saved'; watchId: string; reason: string; command?: string }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
+  | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
 
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
@@ -1724,11 +1867,14 @@ export type WireNormalizedEvent =
 
 export type PromptDelivery = 'steer' | 'queue'
 
-export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispatch'
+export type PromptSource = 'typed' | 'queued' | 'automation' | 'watch' | 'agent' | 'dispatch'
 
-/** Non-human origin of an injected prompt. 'session-report' marks another agent's
- *  session's report — turn input for the model, never rendered as a bubble. */
-export type PromptVia = 'automation' | 'session-report'
+/** Origin of a prompt delivered outside the normal input bar. 'session-report' marks another agent's
+ *  session's report — turn input for the model, never rendered as a bubble.
+ *  'background-command' is a command the agent left running that finished
+ *  after its turn ended. 'question-answer' delivers an async answer whose
+ *  visible receipt is the structured Q&A row. */
+export type PromptVia = 'automation' | 'watch' | 'background-command' | 'session-report' | 'question-answer'
 
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —
@@ -1760,19 +1906,20 @@ export interface PromptOptions {
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
   taskId?: string
-  /** Set on a fresh session when its automatically-created task should be a
-   *  direct child of an existing top-level task. Mutually exclusive with
-   *  `taskId`; task nesting remains limited to one level. */
-  parentTaskId?: string
-  /** Explicitly keep a fresh session outside the task system. Without this,
-   *  an unbound first dispatch creates a local task from the prompt. */
-  skipTaskCreation?: boolean
+  /** The first prompt of a new session: the person saw that another session
+   *  runs in this working tree and chose to continue (`WORKING_TREE_BUSY_CODE`). */
+  allowBusyWorkingTree?: boolean
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
    *  `read_task` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
   taskSnapshot?: TaskSnapshot
+  /** The role this session's task link is written with. Only `lead` is ever
+   *  sent: the session started from a task page's conversation composer. The
+   *  execution host writes the link once the session id exists, so the role
+   *  has to ride the first prompt. Absent means a `working` attempt. */
+  taskRole?: 'lead'
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -1787,10 +1934,12 @@ export interface PromptOptions {
   /** Present when `via === 'session-report'`: the agent session and exchange the
    *  report settles, so the renderer can correlate without parsing prose. */
   agentSessionId?: string
-  agentExchangeId?: string
+  agentMessageId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
+  /** Source watch id, present when `via === 'watch'`. */
+  watchId?: string
 }
 
 // ─── IPC Context ───
@@ -1818,7 +1967,7 @@ export interface SessionCtx {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   fastMode: boolean
-  permissionMode: 'ask' | 'auto' | 'plan'
+  permissionMode: PermissionMode
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
   sessionChangedFiles: string[]
@@ -1828,6 +1977,12 @@ export interface SessionCtx {
   forkExcludeLatestTurn?: boolean
   /** PR review context for this session's chat tab (null for normal sessions). */
   prReview?: PrReviewContext | null
+  /**
+   * The organization the sending window is working in (organization-scope §3,
+   * R11): the one an unassigned Local session may be assigned to, once, when
+   * that organization's Insights policy applies. Never reassigns a session.
+   */
+  organizationId?: string
 }
 
 /** The bundled interface presets. A font preference (`FontFamilyPreference` in
@@ -1868,7 +2023,7 @@ export interface SettingsCtx {
 export interface StatusBarCtx {
   workingDirectory: string
   activeAgent: AgentId
-  permissionMode: 'ask' | 'auto' | 'plan'
+  permissionMode: PermissionMode
   model: string
   reasoningEffort: ReasoningEffort
   defaultReasoningEffort: ReasoningEffort
@@ -1931,7 +2086,7 @@ export interface SessionRunInput {
   preferredModel: string | null
   reasoningEffort: ReasoningEffort
   fastMode: boolean
-  permissionMode: 'ask' | 'auto' | 'plan'
+  permissionMode: PermissionMode
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
   /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
@@ -1985,7 +2140,7 @@ export interface RuntimeSessionInfo {
    *  without one. The run is still alive, so reattach must still succeed: the
    *  client keeps its own persisted config instead of losing the session. */
   modelConfig: ModelConfig | null
-  permissionMode: 'ask' | 'auto' | 'plan' | null
+  permissionMode: PermissionMode | null
   status: SessionStatus
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
@@ -2007,6 +2162,8 @@ export interface WatchSessionResult {
   sessionId: string
   /** Set when `attachRuntime` was asked for: null means no live runtime. */
   runtime?: RuntimeSessionInfo | null
+  /** Questions that remain open after their Codex turn has ended. */
+  pendingQuestions?: QuestionRequest[]
 }
 
 export interface SessionProviderSwitchResult {
@@ -2026,6 +2183,21 @@ export interface SessionProviderSwitchResult {
   handoffFrom?: SessionHandoffLineage
 }
 
+/** How an accepted plan's implementation starts (plans/012 §5). */
+export interface AcceptPlanRequest {
+  planId: string
+  /** Hand the session to this agent first; the implementation runs there. */
+  provider?: AgentId
+  /** Start a fresh agent session that carries only the plan. A provider change
+   *  never resets: its handoff already starts the next agent's session. */
+  startNewSession: boolean
+}
+
+export interface AcceptPlanResult {
+  /** The provider switch the host made, for the client to adopt. */
+  handoff?: SessionProviderSwitchResult
+}
+
 export type QueuedPromptReason = 'busy' | 'rate_limit'
 
 export interface QueuedPromptSnapshot {
@@ -2043,7 +2215,7 @@ export interface QueuedPromptSnapshot {
    *  a snapshot is re-sent on every reconnect and stays small. */
   imageRefs?: PromptImageRef[]
   /** Who wrote the held prompt, stamped by the host; absent for the host's own work. */
-  author?: TurnAuthor
+  author?: User
 }
 
 export type OutboundPromptState = 'steering' | 'queueing' | 'queued' | 'failed'
@@ -2067,7 +2239,7 @@ export interface OutboundPrompt {
   sessionRefs?: SessionReference[]
   error?: string
   /** Who wrote the held prompt, as the host named them; the reader's own stay unlabelled. */
-  author?: TurnAuthor
+  author?: User
 }
 
 export interface RateLimitInfo {
@@ -2076,6 +2248,9 @@ export interface RateLimitInfo {
   rateLimitType: string
   prompt: string
   queuedPrompt: string
+  /** Whose seat reached the limit: the author of the turn it stopped. The client
+   *  copies it from the `rate_limit` event; live only. */
+  turnAuthor?: User
 }
 
 /** The canonical window durations. A provider names its windows however it
@@ -2118,6 +2293,9 @@ export interface AgentUsageLimits {
 }
 
 export type RateLimitDecisionAction = 'send_now' | 'stop' | 'wait'
+
+/** What a person chose on a permission, as the host read it from the option (plan 004 F4). */
+export type PermissionDecision = 'approved' | 'approved_for_session' | 'denied'
 
 export type ThreadGoalStatus = 'active' | 'paused' | 'complete' | 'blocked' | 'budgetLimited' | 'usageLimited'
 
@@ -2191,7 +2369,7 @@ export interface SessionMeta {
 export interface SessionDelegation {
   parentSessionId: string
   rootSessionId: string
-  exchangeId: string
+  messageId: string
   depth: number
   intent: 'delegate' | 'fire_and_forget'
   createdAt: number
@@ -2212,8 +2390,19 @@ export type SessionRecordStatus = 'idle' | 'running' | 'interrupted'
  * the same spelling the transcript index uses, so the picker's filters are
  * unchanged.
  */
+/**
+ * Whether a record's content is Local or available from the Solus API
+ * (organization-scope §3). Distinct from its organization: an
+ * organization-attributed session can send Insights while its transcript stays
+ * on the laptop.
+ */
+export type RecordPublication = 'local' | 'published'
+
 export interface SessionRecord {
   sessionId: string
+  /** The canonical organization (§3, R10): `local` while unassigned, else an organization id that never changes. */
+  organizationId: string
+  publication: RecordPublication
   /** The account that started the session, when one is known; null on a host's own sessions. */
   ownerUserId: string | null
   provider: AgentId
@@ -2234,15 +2423,40 @@ export interface SessionRecord {
   lastActivityAt: number
   /** Transcript bytes, as the runner last reported. */
   size: number
+  /** The working directory on the runner, which a resume needs. Null until the runner reports it. */
+  cwd: string | null
+  /** The provider's own name for the session, when it gave one. */
+  slug: string | null
+  /** The session ran in a Solus worktree of its project. */
+  isWorktree: boolean
+  branch: string | null
+  /** Git root that groups a repository with its worktrees, on the runner. */
+  projectRoot: string | null
+  /** How the parent session started this one; null for a session nobody delegated. */
+  delegation: SessionRecordDelegation | null
 }
+
+/** `SessionDelegation` less the two ids the record already carries. */
+export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' | 'rootSessionId'>
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication'>> {
   sessionId: string
   provider: AgentId
   projectPath: string
   lastActivityAt: number
+  /**
+   * A runner's report only: the Solus session id the Solus API admitted this
+   * organization session under before its provider started (organization-vms §3).
+   * The service takes the record's owner from that admission, never from the report.
+   */
+  admissionId?: string
+  /**
+   * A runner's report only: the session is a chat, which stays private to its owner
+   * until they share it (plan 004 D14). Read once, when the service first sees the record.
+   */
+  privateToOwner?: boolean
 }
 
 /** `sessionRecordList`: the picker's filters. `projectPath` is a plain path; the
@@ -2253,6 +2467,41 @@ export interface SessionRecordListFilter {
   projectPath?: string
   includeWorktrees?: boolean
   limit?: number
+}
+
+/** One home's records. `indexing` is true while a machine's first index sweep
+ *  runs: the list is not complete yet, so a client must not show it as final. */
+export interface SessionRecordList {
+  records: SessionRecord[]
+  indexing: boolean
+}
+
+/** `sessionRecordSearch`: the sessions of one home that match a query
+ *  (docs/plans/unified-search.md). Every word matches as a prefix. */
+export interface SessionRecordSearchQuery {
+  query: string
+  /** One project root and its worktrees; omit to search every project. */
+  projectRoot?: string
+  provider?: AgentId
+  /** Match names and metadata only; read no message. */
+  namesOnly?: boolean
+  /** Only sessions last active at or after this instant (ms). */
+  activeSince?: number
+  /** One page: at most `limit` sessions after `offset`. */
+  limit?: number
+  offset?: number
+}
+
+export interface SessionRecordSearchResult extends SessionSearchHit {
+  record: SessionRecord
+  additionalMatches: SessionSearchHit[]
+}
+
+export interface SessionRecordSearch {
+  results: SessionRecordSearchResult[]
+  /** How many sessions match in all; `results` is one page of them. */
+  total: number
+  indexing: boolean
 }
 
 export interface SessionSearchResult extends SessionSearchHit {
@@ -2268,10 +2517,11 @@ export interface SessionSearchHit {
   snippet: string
   ts: number
   /** The indexed message the words were found in, so a preview can open on
-   *  that passage rather than on the transcript's ends. */
+   *  that passage rather than on the transcript's ends. -1, with an empty
+   *  snippet, when the session matched by its name alone. */
   messageId: number
-  /** The index's bm25 score for the hit. Lower is a better match, and a score
-   *  is comparable only with others from the same index. */
+  /** The session's standing in the answer. Lower is a better match, and a
+   *  rank is comparable only with others from the same index. */
   rank: number
 }
 
@@ -2707,9 +2957,31 @@ export interface CreateDirectoryResult {
   error: string | null
 }
 
+/**
+ * One edit to a path anywhere on the host, from the directory picker. Unlike
+ * `ProjectFileMutation` it is not confined to a project root. `trash` is
+ * recoverable; `delete` is permanent and follows only an explicit
+ * confirmation after `trash` answered `trashUnavailable`.
+ */
+export type HostPathMutation =
+  | { op: 'rename'; path: string; toPath: string }
+  | { op: 'trash'; path: string }
+  | { op: 'delete'; path: string }
+
+export type HostPathMutationResult =
+  | { ok: true; /** Host-resolved absolute path the entry now has; empty once it is gone. */ path: string }
+  | { ok: false; error: string; /** The host has no Trash for this path. */ trashUnavailable?: boolean }
+
+/**
+ * One file, as the file pane shows it. Text arrives with its contents. A media
+ * file arrives without its bytes: the client loads it from a signed asset URL,
+ * so a large video or PDF never crosses the RPC channel. Any other binary file
+ * arrives as its size alone.
+ */
 export type FilePreviewResult =
   | {
       ok: true
+      kind: 'text'
       path: string
       displayPath: string
       contents: string
@@ -2719,9 +2991,22 @@ export type FilePreviewResult =
       /** `contents` holds only the first slice of the file. Editing is disabled
        *  in this state — saving would write the truncation back to disk. */
       truncated?: boolean
-      /** Image bytes transported to all clients; contents is empty for images. */
-      imageDataUrl?: string
       mimeType?: string
+    }
+  | {
+      ok: true
+      kind: 'media'
+      path: string
+      displayPath: string
+      size: number
+      media: MediaType
+    }
+  | {
+      ok: true
+      kind: 'binary'
+      path: string
+      displayPath: string
+      size: number
     }
   | {
       ok: false
@@ -2824,7 +3109,9 @@ export function isSolusWorktreePath(path: string): boolean {
 
 /**
  * Marker segment of a delegated remote-dispatch checkout
- * (`<root>/solus-remote/<login>/<owner>/<repo>`). These clones are created to
+ * (`<projects root>/solus-remote/<owner key>/<host>/<owner>/<repo>`). The owner
+ * key is the paired device, or the member on a Solus-provisioned machine
+ * (`dispatchCheckoutOwnerKey`). These clones are created to
  * run a session on another machine; they are host-internal plumbing, never a
  * project the user opened, so they must stay out of recents.
  */
@@ -2908,12 +3195,8 @@ export interface GitCheckoutBranchResult {
 // run-now substrate. Scheduling is local-only — triggers fire while Solus is open
 // and catch up missed fires on the next launch.
 
-/**
- * Run outcomes. `dispatched` is the terminal state of an in-session run: the
- * prompt was handed into its chat thread, whose turn owns the real outcome —
- * we deliberately don't claim `succeeded` for work we didn't observe finish.
- */
-export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'dispatched'
+/** Run outcomes. */
+export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 /**
  * What causes an automation to run. Phase 2 ships time-based triggers only
@@ -2941,15 +3224,6 @@ export interface AutomationAction {
   modelId: string | null
   reasoningEffort: ReasoningEffort
   cwd: string
-  /**
-   * When set, the run is dispatched *into this existing agent session* — it
-   * resumes that chat thread with full conversation context and posts its prompt
-   * as an in-thread message (badged "Sent via automation") rather than spawning
-   * an isolated headless run. This is what powers "check every minute in this
-   * chat" heartbeat automations. The id is the originating session's
-   * agentSessionId, captured at create time. `useWorktree` is ignored for these.
-   */
-  sessionId?: string
   /**
    * When true, the run executes in a fresh git worktree branched off `cwd`
    * instead of mutating the working directory directly. Isolates unattended
@@ -2979,13 +3253,6 @@ export interface AutomationPlanRef {
   content?: string
 }
 
-/** Provenance — who authored the automation (a human via UI, or an agent). */
-export interface AutomationCreator {
-  kind: 'user' | 'agent'
-  agentProvider?: AgentId
-  sessionId?: string
-}
-
 export interface Automation {
   /** Archived records are disabled and retained until the host retention period expires. */
   archivedAt?: string
@@ -2994,6 +3261,8 @@ export interface Automation {
   id: string
   name: string
   enabled: boolean
+  /** The canonical organization (organization-scope §3); `local` while unassigned. Absent on records from a host that predates it. */
+  organizationId?: string
   /** User-pinned to the top of the list. Defaults to false. */
   favorite?: boolean
   action: AutomationAction
@@ -3008,7 +3277,10 @@ export interface Automation {
   nextRunAt?: string
   createdAt: string
   updatedAt: string
-  createdBy: AutomationCreator
+  /** Who made it, recorded by the host from the admitted request: a person, or
+   *  an agent's session and the person it worked for. The person's removal from
+   *  the organization pauses it (plans/010-standard-oauth.md). */
+  createdBy: Attribution
   lastRunId?: string
   lastRunStatus?: AutomationRunStatus
   lastRunAt?: string

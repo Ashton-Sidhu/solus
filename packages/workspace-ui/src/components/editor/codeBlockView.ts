@@ -2,7 +2,7 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { mount, unmount } from "svelte";
 import CodeBlockLanguageSelect from "./CodeBlockLanguageSelect.svelte";
 import { codeBlockPickerLanguage } from "./lib/code-block-language";
-import { fenceLanguage } from "../conversation/lib/html-block";
+import { fenceLanguage } from "@solus/document-model/fences";
 import { z } from "zod";
 
 const codeBlockLanguageSchema = z.string().nullable().catch(null);

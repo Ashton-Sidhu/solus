@@ -4,15 +4,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentId, AgentMetadata } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type AgentRunnerModule = typeof import('@solus/server/agents/agent-runner')
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type RegistriesModule = typeof import('@solus/server/observability/registries')
+type AgentRunnerModule = typeof import('@solus/server/execution/agents/agent-runner')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type RegistriesModule = typeof import('@solus/server/data/insights/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -23,9 +23,9 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-agent-runner-spans-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  runnerModule = await import('@solus/server/agents/agent-runner')
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  registries = await import('@solus/server/observability/registries')
+  runnerModule = await import('@solus/server/execution/agents/agent-runner')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  registries = await import('@solus/server/data/insights/registries')
 })
 
 afterEach(() => {

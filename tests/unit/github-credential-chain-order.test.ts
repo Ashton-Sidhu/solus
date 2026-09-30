@@ -48,7 +48,7 @@ mock.module('@solus/server/providers/github/delegation-store', () => ({
 
 mock.module('@solus/server/project-config/dispatch-checkouts', () => ({
   ...dispatchCheckouts,
-  dispatchCheckoutDeviceId: () => state.checkoutDeviceId,
+  dispatchCheckoutOwnerKeyOf: () => state.checkoutDeviceId,
 }))
 
 mock.module('@solus/server/git/exec', () => ({

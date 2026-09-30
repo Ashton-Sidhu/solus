@@ -1,5 +1,5 @@
 import type { CommentPin, PlanComment } from '@solus/contracts/types'
-import { commentAuthor, isResolved } from '../../comments/lib/thread'
+import { isAgentMessage, isResolved } from '../../comments/lib/thread'
 import {
   placeThreadCard,
   THREAD_CARD_WIDTH,
@@ -54,7 +54,7 @@ export type PinTone = 'open' | 'agent' | 'resolved'
 
 export function pinTone(comment: PlanComment): PinTone {
   if (isResolved(comment)) return 'resolved'
-  return commentAuthor(comment) === 'solus' ? 'agent' : 'open'
+  return isAgentMessage(comment) ? 'agent' : 'open'
 }
 
 export interface PlacedPin {

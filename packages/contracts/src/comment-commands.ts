@@ -8,8 +8,8 @@
  */
 
 import { z } from 'zod'
-import type { TurnAuthor } from './presence'
 import type { PlanComment, PlanCommentReply } from './types'
+import { sameUser, userKey, type Attribution } from './user'
 
 const commentIdSchema = z.string().min(1)
 const commentPinSchema = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
@@ -43,8 +43,9 @@ export type WorkCommentCommand = z.infer<typeof workCommentCommandSchema>
 
 /** Who is applying a command, as the host knows them. */
 export interface CommentActor {
-  /** The host-stamped identity; null for the host's own work, which signs nothing. */
-  person: TurnAuthor | null
+  /** Who the host records for this command: the admitted actor's attribution
+   *  (`attributionOf` on the host). The host's own work is `system`. */
+  by: Attribution
   /** May edit and delete other people's threads: the work's owner or a host admin. */
   canModerate: boolean
   now: number
@@ -61,14 +62,20 @@ export class CommentCommandError extends Error {
 }
 
 /**
- * A thread is the author's: the person who wrote it, or — for a thread written
- * before works had people, and for the host's own — whoever moderates the work.
- * An agent's thread belongs to nobody in particular, so an editor may tidy it.
+ * A thread is the author's: the person who wrote it, or — for the host's own
+ * and anything else no person wrote — whoever moderates the work. An agent's or
+ * an automation's thread belongs to nobody in particular, so an editor may tidy it.
  */
 export function mayChangeThread(comment: PlanComment, actor: CommentActor): boolean {
   if (actor.canModerate) return true
-  if ((comment.author ?? 'you') === 'solus') return true
-  return !!comment.person && !!actor.person && comment.person.userId === actor.person.userId
+  const author = comment.author
+  if (author?.kind === 'agent' || author?.kind === 'automation') return true
+  return author?.kind === 'user' && actor.by.kind === 'user' && sameUser(author.user.id, actor.by.user.id)
+}
+
+/** The key of the person a command is for; null when no person applies it. */
+function readerKey(actor: CommentActor): string | null {
+  return actor.by.kind === 'user' ? userKey(actor.by.user.id) : null
 }
 
 /**
@@ -79,13 +86,10 @@ export function mayChangeThread(comment: PlanComment, actor: CommentActor): bool
 export function applyCommentCommand(comments: readonly PlanComment[], command: WorkCommentCommand, actor: CommentActor): PlanComment[] {
   if (command.kind === 'add') {
     if (comments.some((c) => c.id === command.comment.id)) throw new CommentCommandError('CONFLICT', `Thread ${command.comment.id} already exists.`)
-    const created: PlanComment = { ...command.comment, author: 'you', createdAt: actor.now }
-    if (actor.person) {
-      created.person = actor.person
-      created.readBy = [{ userId: actor.person.userId, readAt: actor.now }]
-    } else {
-      created.readAt = actor.now
-    }
+    const created: PlanComment = { ...command.comment, author: actor.by, createdAt: actor.now }
+    const reader = readerKey(actor)
+    if (reader) created.readBy = [{ userId: reader, readAt: actor.now }]
+    else created.readAt = actor.now
     return [...comments, created]
   }
   if (command.kind === 'resolve-open') return comments.map((c) => (c.resolvedAt === undefined ? resolved(c, actor) : c))
@@ -104,8 +108,7 @@ export function applyCommentCommand(comments: readonly PlanComment[], command: W
       return next
     case 'reply': {
       if (current.replies?.some((r) => r.id === command.reply.id)) throw new CommentCommandError('CONFLICT', `Reply ${command.reply.id} already exists.`)
-      const reply: PlanCommentReply = { id: command.reply.id, author: 'you', text: command.reply.text, createdAt: actor.now }
-      if (actor.person) reply.person = actor.person
+      const reply: PlanCommentReply = { id: command.reply.id, author: actor.by, text: command.reply.text, createdAt: actor.now }
       // Answering a thread is proof of having read it to this moment.
       next[index] = { ...withReadMark(current, actor), replies: [...(current.replies ?? []), reply] }
       return next
@@ -117,7 +120,6 @@ export function applyCommentCommand(comments: readonly PlanComment[], command: W
         const reopened: PlanComment = { ...current }
         delete reopened.resolvedAt
         delete reopened.resolvedBy
-        delete reopened.resolvedByPerson
         next[index] = reopened
       }
       return next
@@ -131,15 +133,12 @@ export function applyCommentCommand(comments: readonly PlanComment[], command: W
 /** The actor's own read mark, now: their entry in `readBy`, or the single-reader
  *  `readAt` when the host itself is reading. */
 function withReadMark(comment: PlanComment, actor: CommentActor): PlanComment {
-  if (!actor.person) return { ...comment, readAt: actor.now }
-  const userId = actor.person.userId
+  const userId = readerKey(actor)
+  if (!userId) return { ...comment, readAt: actor.now }
   const others = (comment.readBy ?? []).filter((mark) => mark.userId !== userId)
   return { ...comment, readBy: [...others, { userId, readAt: actor.now }] }
 }
 
 function resolved(comment: PlanComment, actor: CommentActor): PlanComment {
-  const next: PlanComment = { ...comment, resolvedAt: actor.now, resolvedBy: 'you' }
-  if (actor.person) next.resolvedByPerson = actor.person
-  else delete next.resolvedByPerson
-  return next
+  return { ...comment, resolvedAt: actor.now, resolvedBy: actor.by }
 }

@@ -7,8 +7,10 @@
  * the menu shows. Every zero-result state still produces a row, so no query,
  * however typed, can produce an empty popover.
  */
+import type { User } from "@solus/contracts/user";
 import type { SlashCommand } from "../../input/slash-commands";
 import type { ReferenceToken } from "../reference-tokens";
+import type { CodeHostAccount } from "../../mentions/lib/code-host-mentions";
 import { KINDS, KIND_NOUN, kindFor, GLYPH, type RefKind } from "./kinds";
 import { rank, highlightParts, type Ranked, type TitlePart } from "./rank";
 import type { Trigger } from "./trigger";
@@ -22,6 +24,10 @@ export interface MenuItem {
   /** Trailing slot: freshness or state. Never set alongside a count. */
   when: string;
   icon: string;
+  /** A person row: their avatar stands in the glyph's place. */
+  user?: User;
+  /** A code-host account row: its avatar stands in the glyph's place. */
+  account?: CodeHostAccount;
   /** Names you can type are mono; prose titles are not. */
   mono: boolean;
   monoMeta: boolean;
@@ -101,6 +107,13 @@ export interface RowInput {
   linkedLabel: string;
   /** Workspace totals shown in the trailing slot of a category row. */
   counts: Record<RefKind, number>;
+  /** Categories whose host is still reading them into its index for the first
+   *  time: their count is not a total yet, so it must not read as one. */
+  indexingKinds?: ReadonlySet<RefKind>;
+}
+
+function categoryCount(input: RowInput, kind: RefKind): string {
+  return input.indexingKinds?.has(kind) ? "Indexing…" : formatCount(input.counts[kind]);
 }
 
 const MAX_IN_KIND = 5;
@@ -224,7 +237,9 @@ function drilledRows(input: RowInput, kindKey: RefKind): MenuRow[] {
       type: "header",
       key: `header:${kind.key}`,
       label: kind.label,
-      meta: `${formatCount(input.counts[kind.key])} in this workspace`,
+      meta: input.indexingKinds?.has(kind.key)
+        ? `Indexing… ${formatCount(input.counts[kind.key])} so far`
+        : `${formatCount(input.counts[kind.key])} in this workspace`,
       icon: kind.icon,
     },
   ];
@@ -278,7 +293,7 @@ function referenceRootRows(input: RowInput): MenuRow[] {
     kind: kind.key,
     label: kind.label,
     icon: kind.icon,
-    count: formatCount(input.counts[kind.key]),
+    count: categoryCount(input, kind.key),
     parts: highlightParts(kind.label, [
       [0, Math.min(query.length, kind.label.length)],
     ]),
@@ -365,7 +380,7 @@ function referenceBrowseRows(input: RowInput): MenuRow[] {
     kind: kind.key,
     label: kind.label,
     icon: kind.icon,
-    count: formatCount(input.counts[kind.key]),
+    count: categoryCount(input, kind.key),
     parts: [{ text: kind.label, hit: false }],
   }));
 

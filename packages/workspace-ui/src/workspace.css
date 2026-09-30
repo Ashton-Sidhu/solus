@@ -110,7 +110,7 @@
  */
 
 :root {
-  --solus-font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --solus-font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   --solus-code-font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   --solus-code-font-scale: 1;
   --solus-document-font-family: var(--solus-font-family);
@@ -250,6 +250,11 @@
   --solus-status-complete-bg: rgba(90, 158, 111, 0.1);
   --solus-status-error: #c47060;
   --solus-status-error-bg: rgba(196, 112, 96, 0.06);
+  /* Pull request review verdicts, in GitHub's Primer colors so a verdict
+     reads the same here as on github.com. */
+  --solus-review-comment: #0969da;
+  --solus-review-approve: #1f883d;
+  --solus-review-request-changes: #cf222e;
   --solus-status-dead: #c47060;
   --solus-status-permission: #d97757;
   /* Finished with output nobody has read yet. Blue because every other status
@@ -298,16 +303,19 @@
   --solus-btn-hover-color: #2a2618;
   --solus-btn-hover-bg: #f1efe7;
   /* Popover */
-  --solus-popover-bg: #fcfbf8;
-  --solus-popover-border: #dddad2;
-  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.65), 0 0.0625rem 0.125rem rgba(0,0,0,0.05), 0 0.625rem 1.75rem rgba(60,45,30,0.14);
+  /* Pure white, so a dialog or popover reads as a bright surface lifted off the
+     warm canvas rather than a slightly lighter patch of it. Menus keep their
+     own background; see --solus-menu-bg. */
+  --solus-popover-bg: #ffffff;
+  --solus-popover-border: #d8d5cc;
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.8), 0 0.0625rem 0.1875rem rgba(0,0,0,0.07), 0 0.75rem 2rem rgba(50,38,24,0.2);
   /* Menu — the floating command surface (dropdowns, context menus, selects,
      the branch/project/model pickers). Deliberately separate from the popover
      tokens above: a menu draws its edge as a hairline *inside* the shadow
      stack, where a modal or toast still wants a real border. */
-  /* Fully opaque so a menu stays readable over any app surface. Derived, not
-     hard-coded, so dark mode needs no second value. */
-  --solus-menu-bg: var(--solus-popover-bg);
+  /* Its own value, not the popover's: dialogs are pure white to lift off the
+     canvas, but a menu stays the warm off-white it has always been. */
+  --solus-menu-bg: #fcfbf8;
   /* Four layers, no border. The ring is a spread-only hairline, so it adds
      nothing to the box and doesn't harden the corner radius; being foreground
      ink rather than --border, it darkens against whatever the panel sits on.
@@ -382,7 +390,10 @@
   --solus-diff-gutter-text: rgba(42, 38, 24, 0.42);
   --solus-diff-hunk-bg: rgba(0, 0, 0, 0.025);
   --solus-diff-hunk-text: rgba(42, 38, 24, 0.85);
-  --solus-diff-selection-bg: rgba(138, 92, 28, 0.28);
+  /* Text selection in code uses the host OS highlight colour, so it reads like
+     selection everywhere else on the machine. `Highlight` resolves against the
+     root color-scheme, so this one declaration covers dark mode too. */
+  --solus-diff-selection-bg: Highlight;
   /* Opaque stand-in for the pane surface. Two jobs, both needing opacity that
      --solus-container-bg doesn't have in dark mode: it's the base every diff
      row-tint color-mix() blends against, and it fills the sticky file headers so
@@ -439,7 +450,7 @@
   /* Work token */
   --solus-work-token: #8b5e83;
   /* Plan modal scrim */
-  --solus-modal-scrim: rgba(40, 30, 20, 0.32);
+  --solus-modal-scrim: rgba(24, 20, 16, 0.4);
   /* Shared motion language */
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-modal: cubic-bezier(0.22, 1, 0.36, 1);
@@ -455,22 +466,23 @@
   /* ─── HTML artifact palette ───
      Warm, brand-coherent colours injected into rendered HTML artifacts (see
      ArtifactView THEME_VARS). Replaces the generic grey the design tool used to
-     default to: neutrals are parchment/sand rather than grey, and the
-     categorical data colours are a curated spread of the brand hues
-     (terracotta → plum) drawn from the same family as the syntax/status tokens,
-     so every chart sits naturally on the warm theme. */
-  --solus-art-surface: #fffdf8;
-  --solus-art-raised: #f6efe1;
-  --solus-art-border: #ece2cf;
-  --solus-art-border-strong: #d8c8a8;
-  --solus-art-1: #d97757; /* terracotta (brand accent) */
-  --solus-art-2: #c9883f; /* amber */
-  --solus-art-3: #5a9e6f; /* sage */
-  --solus-art-4: #2f8f86; /* teal */
-  --solus-art-5: #4f7fa8; /* dusty blue */
-  --solus-art-6: #8767bf; /* plum */
-  --solus-art-positive: #5a9e6f;
-  --solus-art-negative: #c2603f;
+     default to: neutrals are a soft ivory — the sand hue at about half its
+     saturation, so panels read as warm paper rather than tan or grey — and the
+     categorical data colours are a bright, clean spread (terracotta → plum)
+     that lifts charts and tinted marks off the warm theme. They no longer share
+     values with the brand accent or the syntax/status tokens. */
+  --solus-art-surface: #fcfbf7;
+  --solus-art-raised: #f7f4ec;
+  --solus-art-border: #ebe5d8;
+  --solus-art-border-strong: #d9d0bd;
+  --solus-art-1: #ff6b4a; /* terracotta */
+  --solus-art-2: #ffa114; /* amber */
+  --solus-art-3: #1fc46b; /* sage */
+  --solus-art-4: #00b8a9; /* teal */
+  --solus-art-5: #2b8cff; /* blue */
+  --solus-art-6: #9b5cff; /* plum */
+  --solus-art-positive: #1fc46b;
+  --solus-art-negative: #e5482a;
 }
 
 
@@ -540,6 +552,9 @@
   --solus-status-complete-bg: rgba(111, 200, 132, 0.10);
   --solus-status-error: #e3645e;
   --solus-status-error-bg: rgba(227, 100, 94, 0.08);
+  --solus-review-comment: #1f6feb;
+  --solus-review-approve: #238636;
+  --solus-review-request-changes: #da3633;
   --solus-status-dead: var(--solus-status-error);
   --solus-status-permission: var(--solus-accent);
   /* Lifted off the dark sidebar rather than the chart ramp, same as light. */
@@ -579,13 +594,14 @@
   --solus-btn-hover-color: var(--solus-text-secondary);
   --solus-btn-hover-bg: #33322e;
   /* Popover */
-  --solus-popover-bg: #353430fc;
-  --solus-popover-border: #ffffff20;
-  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
-  /* Menu — see the light-mode block. --solus-menu-bg, the ring and the dividers
-     are all derived from tokens this block already redefines, so they re-resolve
-     here on their own. Only the drop layers need dark values: pure black at
+  --solus-popover-bg: #3a3935;
+  --solus-popover-border: #ffffff26;
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.11), 0 0.125rem 0.375rem rgba(0,0,0,0.38), 0 0.875rem 2.25rem rgba(0,0,0,0.5);
+  /* Menu — see the light-mode block. The ring and the dividers are derived from
+     tokens this block already redefines, so they re-resolve here on their own.
+     The background and the drop layers need dark values: pure black at
      light-mode alphas disappears against a dark canvas. */
+  --solus-menu-bg: #353430fc;
   --solus-menu-shadow:
     0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 16%, transparent),
     0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.30),
@@ -634,7 +650,6 @@
   --solus-diff-gutter-text: rgba(240, 237, 229, 0.40);
   --solus-diff-hunk-bg: rgba(255, 255, 255, 0.03);
   --solus-diff-hunk-text: rgba(240, 237, 229, 0.80);
-  --solus-diff-selection-bg: rgba(190, 135, 52, 0.30);
   /* Opaque twin of --solus-container-bg — see the light
      block. --solus-diff-line-selection-bg is declared there and resolves through
      the mode-aware accent, so it isn't restated here. */
@@ -669,21 +684,21 @@
   /* Plan modal scrim */
   --solus-modal-scrim: rgba(0, 0, 0, 0.60);
   /* ─── HTML artifact palette (dark twin) ───
-     Same warm family as the light ramp, brightened for dark surfaces. Neutrals
-     stay warm brown (never grey); borders carry a faint sand tint so hairlines
-     read warm rather than cold. */
-  --solus-art-surface: #2b2a26;
-  --solus-art-raised: #35342f;
-  --solus-art-border: rgba(232, 200, 150, 0.13);
-  --solus-art-border-strong: rgba(232, 200, 150, 0.24);
-  --solus-art-1: var(--solus-accent); /* terracotta (brand accent) */
-  --solus-art-2: #e0a85f; /* amber */
-  --solus-art-3: #6ec98b; /* sage */
-  --solus-art-4: #5cc4b8; /* teal */
-  --solus-art-5: #6fb3df; /* dusty blue */
-  --solus-art-6: #b79ae8; /* plum */
-  --solus-art-positive: #6fc884;
-  --solus-art-negative: #e0846a;
+     Same bright family as the light ramp, lifted for dark surfaces. Neutrals
+     are the ivory ramp carried into warm charcoal; hairlines carry a faint ivory
+     tint so they read warm rather than cold. */
+  --solus-art-surface: #2c2a26;
+  --solus-art-raised: #36332d;
+  --solus-art-border: rgba(255, 240, 215, 0.11);
+  --solus-art-border-strong: rgba(255, 240, 215, 0.2);
+  --solus-art-1: #ff7a57; /* terracotta */
+  --solus-art-2: #ffb020; /* amber */
+  --solus-art-3: #2ee07e; /* sage */
+  --solus-art-4: #1fe0cf; /* teal */
+  --solus-art-5: #4aa3ff; /* blue */
+  --solus-art-6: #a878ff; /* plum */
+  --solus-art-positive: #2ee07e;
+  --solus-art-negative: #ff7a57;
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
@@ -766,26 +781,42 @@
     0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 16%, transparent),
     inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
     var(--solus-tx-card-lift-hover);
-  /* An interrupt card is a raised object on the canvas, not a flush message —
-     it is the one transcript surface that lifts. Routed through --foreground so
-     the lift reads the same in dark mode. */
+  /* The question card is a raised object on the canvas, not a flush message.
+     Routed through --foreground so the lift reads the same in dark mode. */
   --solus-tx-raised-shadow:
     0 0.0625rem 0.125rem color-mix(in oklch, var(--foreground) 6%, transparent),
     0 0.75rem 2rem -0.75rem color-mix(in oklch, var(--foreground) 20%, transparent);
   --solus-tx-rule: color-mix(in oklch, var(--foreground) 6%, transparent);
   --solus-tx-rule-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
-  /* Agent exchange card (the "Agent exchange" spec, § card shell). Not the
-     transcript card shell above: its edge is an *inset* hairline, so the ring
-     reads at the same weight on all four sides instead of the top edge losing
-     to a lift that only darkens the other three. The lift is one short shadow.
-     Split from the shadow so a state ring — 1px of chart-2 or destructive —
-     swaps the hairline for colour without changing the card's height. */
-  --solus-agent-card-lift: 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05);
-  --solus-agent-card-shadow:
-    inset 0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
-    var(--solus-agent-card-lift);
-  /* Every rule inside an exchange card — header, message block, footer. */
-  --solus-agent-card-rule: color-mix(in oklch, var(--foreground) 9%, transparent);
+  /* Transcript card shells (docs/transcript-cards.md). A card is one 40px
+     line at full column width. The quiet shell is the ring and the first layer
+     of the lift; only a card that blocks the turn takes the attention shell. */
+  --solus-tx-quiet-ring: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+  --solus-tx-quiet-shadow:
+    var(--solus-tx-quiet-ring),
+    0 0.0625rem 0.125rem rgba(60, 45, 30, 0.04);
+  --solus-tx-quiet-shadow-hover:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 18%, transparent),
+    0 0.125rem 0.375rem -0.125rem rgba(60, 45, 30, 0.08);
+  --solus-tx-attention-shadow:
+    0 0 0 0.0625rem color-mix(in oklch, var(--chart-2) 38%, transparent),
+    0 0.0625rem 0.1875rem rgba(60, 45, 30, 0.05),
+    0 0.5rem 1.125rem -0.5rem rgba(60, 45, 30, 0.12);
+  --solus-tx-divider: color-mix(in oklch, var(--foreground) 10%, transparent);
+  --tx-card-radius: 0.75rem;
+  --tx-card-head: 2.5rem;
+  --tx-card-row: 2.125rem;
+  --tx-card-row-radius: 0.5rem;
+  --tx-card-pad-l: 0.75rem;
+  /* 8px when the line ends in a button, else the left pad: a 24px button in the
+     40px line then sits 8px from the edge on every side. */
+  --tx-card-pad-r: 0.5rem;
+  --tx-card-gap: 0.625rem;
+  /* The same 22px slot as .activity-glyph, so cards and rows line up. */
+  --tx-card-glyph: 1.375rem;
+  /* pad-l + glyph + gap: body text aligns with the title, not the glyph. */
+  --tx-card-body-indent: 2.75rem;
 }
 
 /* List-page surface (the "List pages — Tasks & Pull requests" spec, Part A).
@@ -812,8 +843,7 @@
      wash that composites over any fill the row already has. */
   --zebra: color-mix(in oklch, var(--muted) 45%, transparent);
   --hover-wash: inset 0 0 0 999px var(--muted);
-  /* The vertical padding of a table or settings row; the laptop display takes
-     the compact rung the cloud site offers as a choice. */
+  /* The vertical padding of a table or settings row. */
   --row-py: 14px;
   /* Rules. The group-header rule is the quiet one; -strong is for section
      dividers that have to survive against a wash, and -strongest is the ring a
@@ -881,7 +911,7 @@
    mirrors — same specificity, later in the file, so it wins. */
 .dark {
   --card: #302f2b;
-  --popover: #353430fc;
+  --popover: var(--solus-popover-bg);
   --solus-tx-hairline: 0 0 0 0.03125rem
     color-mix(in oklch, var(--foreground) 9%, transparent);
   --solus-tx-card-bg: color-mix(in oklch, white 4%, var(--solus-container-bg));
@@ -892,6 +922,8 @@
   --solus-tx-card-lift-hover:
     0 0.125rem 0.1875rem rgba(0, 0, 0, 0.28),
     0 0.625rem 1.25rem -0.5rem rgba(0, 0, 0, 0.4);
+  /* The fill does the lifting here; a lift would muddy it. */
+  --solus-tx-quiet-shadow: var(--solus-tx-quiet-ring);
   /* Real black on a dark page: there is nothing there for a shadow to shade. */
   --insights-card-shadow:
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
@@ -1030,38 +1062,35 @@ html, body, #root {
 @theme {
   --text-workspace-chrome: 0.875rem;
   --text-workspace-chrome--line-height: 1.1875rem;
-  /* Sidebar times: 12px on desktop and touch, 10px on laptops. */
+  /* Sidebar times: 12px. */
   --text-sidebar-time: 0.75rem;
   --text-sidebar-time--line-height: 1rem;
   /* Message gutter timestamps stay below the persistent rails they annotate:
-     12px on desktop and touch, then 10px on a precise-pointer laptop. */
+     12px. */
   --text-conversation-gutter: 0.75rem;
   --text-conversation-gutter--line-height: 1;
   /* The dense chrome rung: list pages, breadcrumbs, builders. 12px wherever a
      pointer is precise, 14px on touch. It is a *rung*, not a variant of the one
      above — six surfaces used to reach it by overwriting
      `--text-workspace-chrome` inline, which made every one of them restate the
-     laptop and coarse-pointer boundary by hand. A rung is named and its value is
+     coarse-pointer boundary by hand. A rung is named and its value is
      set here; a surface picks one, and never redefines what one means. */
   --text-chrome-dense: 0.75rem;
   --text-chrome-dense--line-height: 1.1875rem;
   /* Insights is a data-dense workspace surface. Its controls and chart labels
-     use one compact rung: 12px on desktop and touch, 10px on a precise-pointer
-     laptop. */
+     use one compact rung: 12px. */
   --text-insights-chrome: 0.75rem;
   --text-insights-chrome--line-height: 1rem;
   /* The question itself is not chrome: it is the one field a user composes in,
-     so it reads a rung above the controls around it — 14px on a desktop
-     display, 12px on a precise-pointer laptop. */
+     so it reads a rung above the controls around it — 14px. */
   --text-insights-query: 0.875rem;
   --text-insights-query--line-height: 1.25rem;
-  /* Result table headers and cells use 13px on desktop and touch, then step down
-     to 11px on a precise-pointer laptop. */
+  /* Result table headers and cells use 13px. */
   --text-insights-table: 0.8125rem;
   --text-insights-table--line-height: 1.125rem;
   /* Recorded conversation inside the Insights Summary card stays readable on a
      large display without taking the main transcript's body rung. Both values
-     still carry the user's text preference, then step down on a laptop below. */
+     carry the user's text preference. */
   --text-insights-summary: calc(0.875rem * var(--solus-font-scale, 1));
   --text-insights-summary--line-height: 1.7;
   --text-insights-summary-heading: calc(1rem * var(--solus-font-scale, 1));
@@ -1069,15 +1098,14 @@ html, body, #root {
   /* The shelf-label rung: the collapsible section headings that sit above a list
      of chrome rows ("Snoozed", "Completed"). It has to stay a step under
      `--text-workspace-chrome` at every width, because that is the whole cue —
-     a heading the same size as its rows can only separate itself by weight, and
-     a bolder-than-its-contents heading is what a laptop used to show once the
-     chrome rung shrank to 12px and closed the gap. One value at every width;
-     on a laptop it ties the chrome rung rather than clearing it, and the weight
-     carries the cue there. The project rail is dense enough that the weight
+     a heading the same size as its rows can only separate itself by weight.
+     The project rail is dense enough that the weight
      alone did not read, so `ProjectPanel.svelte` restates this rung a notch
      down for its own subtree. */
   --text-chrome-shelf: 0.75rem;
   --text-chrome-shelf--line-height: 1rem;
+  /* The uppercase group heading inside a menu ("Start in"). 12px. */
+  --text-menu-heading: 0.75rem;
   /* The micro rung: the bottom of the chrome ladder, spent on what annotates a
      row rather than what the row says — keycaps, pill and rail counts, the
      "changed" flag, and the review surface's uppercase letterspaced captions.
@@ -1101,18 +1129,14 @@ html, body, #root {
      with: a viewport size or an error count laid over the capture, where the
      chrome rung would cover what it labels. It began as the pull request
      review's meta rung; the review now reads at the chrome rung like the rest
-     of the workspace, and only these overlays still want the smaller step.
-     Steps down on a precise-pointer laptop for the same reason every rung
-     above does; touch keeps the desktop size. */
+     of the workspace, and only these overlays still want the smaller step. */
   --text-review-meta: 0.6875rem;
   --text-review-meta--line-height: 1.45;
   /* File paths in the pull request rail are dense reference data rather than
-     action labels. Keep them below the rail chrome: 12px on desktop and touch,
-     then 10px on a precise-pointer laptop. */
+     action labels. Keep them below the rail chrome: 12px. */
   --text-review-file: 0.75rem;
   --text-review-file--line-height: 1.25;
-  /* Compact controls embedded in pull request diffs: 12px on desktop and
-     touch, then 10px on a precise-pointer laptop. */
+  /* Compact controls embedded in pull request diffs: 12px. */
   --text-review-control: 0.75rem;
   --text-review-control--line-height: 1rem;
   /* The symbol card's two dense rungs. The card is a reference surface floating
@@ -1121,11 +1145,7 @@ html, body, #root {
      the section label, the directory beside a filename, the `:line` suffix, the
      reference counts. `code` is a quoted line of source, and it runs a step
      under the sans filename above it because monospace at an equal size reads
-     larger and takes the section over — the two share a value on a large
-     display and separate on a laptop, where only the sans has room to give.
-     Both step down on a precise-pointer laptop like the chrome rung they hang
-     from; code steps more gently, because a quoted line loses legibility faster
-     than a label does. The line number inside a quoted row is the shared
+     larger and takes the section over. The line number inside a quoted row is the shared
      `--text-micro` rung above, not a card-owned one. */
   --text-symbol-card-meta: 0.75rem;
   --text-symbol-card-meta--line-height: 1.25;
@@ -1135,10 +1155,7 @@ html, body, #root {
      diff-summary and subagent cards that interrupt the reading column. They are
      a surface of their own — not rails, not prose — so they get a rung pair
      rather than borrowing the chrome one: a card carries a label line and a
-     meta line, and the two must stay one step apart at every width. Both follow
-     the display for the same reason the chrome rung does, because a laptop
-     spends the card's height on reading column it cannot recover. Touch keeps
-     the larger size, the same guard every rung above uses. */
+     meta line, and the two must stay one step apart. */
   --text-transcript-card: 0.875rem;
   --text-transcript-card--line-height: 1.3;
   --text-transcript-meta: 0.75rem;
@@ -1147,8 +1164,7 @@ html, body, #root {
      nested tool detail without taking the full transcript-card rung. */
   --text-activity-label: 0.8125rem;
   /* Expanded tool groups are diagnostic detail below the transcript caption.
-     Keep each tool call at 12px on large and touch displays, then step it down
-     to 10px on a precise-pointer laptop without tightening the row height. */
+     Keep each tool call at 12px. */
   --text-tool-step: 0.75rem;
   --text-tool-step--line-height: 1rem;
   /* The content ladder's annotation rung: the subtitle, field row, badge or
@@ -1160,9 +1176,7 @@ html, body, #root {
   --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
   --text-caption--line-height: 1.5;
   /* Task and pull request descriptions, plus their posted comments, are
-     reading content inside dense workspace surfaces. They sit one step above
-     their previous size on each precise-pointer display rung, while touch
-     keeps the larger values. */
+     reading content inside dense workspace surfaces. */
   --text-description-prose: calc(1rem * var(--solus-font-scale, 1));
   --text-pr-prose-compact: calc(0.875rem * var(--solus-font-scale, 1));
   --text-body: calc(0.875rem * var(--solus-font-scale, 1));
@@ -1173,41 +1187,6 @@ html, body, #root {
   --text-h2--line-height: 1.3;
   --text-h1: calc(1.6875rem * var(--solus-font-scale, 1));
   --text-h1--line-height: 1.25;
-}
-
-/* The runtime owns the laptop boundary through LAPTOP_SCREEN_MAX_WIDTH and
-   stamps this class on the document. Keep the responsive type decision here,
-   at the canonical rung, so rails do not recreate that boundary themselves.
-   Coarse-pointer clients retain the touch-readable desktop size. */
-@media (pointer: fine) {
-  html.is-laptop-display {
-    --row-py: 10px;
-    --text-workspace-chrome: 0.75rem;
-    --text-sidebar-time: 0.625rem;
-    --text-conversation-gutter: 0.625rem;
-    --text-insights-chrome: 0.625rem;
-    --text-insights-query: 0.75rem;
-    --text-insights-table: 0.6875rem;
-    --text-insights-summary: calc(0.75rem * var(--solus-font-scale, 1));
-    --text-insights-summary-heading: calc(0.875rem * var(--solus-font-scale, 1));
-    /* `--text-menu` and `--text-chrome-shelf` are deliberately absent here. A
-       menu is a decision surface, not a band you scan past, so it holds 14px on
-       both displays and its shortcut hints hold 12px. Stepping them made a
-       laptop menu read as squinted-at rather than quiet, which is what this
-       block is for everywhere else. */
-    --text-review-meta: 0.625rem;
-    --text-review-file: 0.625rem;
-    --text-review-control: 0.625rem;
-    --text-symbol-card-meta: 0.625rem;
-    --text-symbol-card-code: 0.6875rem;
-    --text-micro: 0.5625rem;
-    --text-transcript-card: 0.75rem;
-    --text-transcript-meta: 0.6875rem;
-    --text-activity-label: 0.6875rem;
-    --text-description-prose: calc(0.875rem * var(--solus-font-scale, 1));
-    --text-pr-prose-compact: calc(0.75rem * var(--solus-font-scale, 1));
-    --text-tool-step: 0.625rem;
-  }
 }
 
 /* Touch keeps the readable size on the dense rung too. */
@@ -1586,6 +1565,9 @@ button.solus-token {
 .solus-token--slash { --solus-token-accent: oklch(0.62 0.13 335); }      /* plum, far side */
 .solus-token--task { --solus-token-accent: oklch(0.62 0.10 152); }       /* sage */
 .solus-token--automation { --solus-token-accent: oklch(0.62 0.12 68); }  /* amber */
+.solus-token--person { --solus-token-accent: var(--solus-accent); }     /* a mention reads as the accent, like a comment's */
+/* A mention of a person who left the organization: the saved name, no chip. */
+.solus-mention-left { color: var(--solus-text-tertiary); }
 .solus-token__line-number {
   opacity: 0.5;
   font-weight: 400;
@@ -1736,18 +1718,20 @@ button.solus-token {
 /* Inline code reads as code by shape (mono) and a half-strength terracotta
    tint — no chip. A filled chip behind every span pockmarks dense technical
    prose, and full accent ink reads as a link. Chat prose keeps its 72% mix;
-   only the long-form column tones down this far. */
+   only the long-form column tones down this far. The size is em-relative: at
+   the body's own px size the wide mono face sets visibly larger than the prose
+   around it, and a fixed size ignores headings and the phone body scale. */
 .solus-doc-editor .ProseMirror code {
   background: transparent;
   color: color-mix(in srgb, var(--solus-accent) 50%, var(--solus-text-primary));
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: 0.85em;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
   font-feature-settings: 'calt' 1, 'liga' 0;
   font-weight: 400;
   margin-inline: 0.1em;
 }
-/* Block code is the one thing in the column that gets a fill — the parchment
-   raised tone, which is the only step of the palette that reads as filled in
+/* Block code is the one thing in the column that gets a fill — the raised
+   tone, which is the only step of the palette that reads as filled in
    light mode too (--solus-art-surface is within a hair of the page there). */
 .solus-doc-editor .ProseMirror pre {
   background: var(--solus-art-raised);
@@ -1801,6 +1785,30 @@ button.solus-token {
 .solus-doc-editor .ProseMirror img.ProseMirror-selectednode {
   outline: 0.125rem solid var(--solus-accent);
   outline-offset: 0.0625rem;
+}
+/* Live editing: a teammate's caret and name, in their presence colour (set
+   inline by the caret extension). Finite, no animation; a label over the line. */
+.solus-doc-editor .ProseMirror .collaboration-carets__caret {
+  position: relative;
+  margin-left: -0.0625rem;
+  margin-right: -0.0625rem;
+  border-left: 0.0625rem solid;
+  border-right: 0.0625rem solid;
+  pointer-events: none;
+  word-break: normal;
+}
+.solus-doc-editor .ProseMirror .collaboration-carets__label {
+  position: absolute;
+  top: -1.35em;
+  left: -0.0625rem;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 0.25rem 0.25rem 0.25rem 0;
+  color: var(--solus-on-accent, #fff);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  user-select: none;
 }
 /* Find & replace highlights (search decorations live inside .ProseMirror). */
 .solus-doc-editor .ProseMirror .search-match {
@@ -2168,13 +2176,6 @@ button.solus-token {
      further down steps this single declaration; the prose column maps it into
      --doc-pad-x below. */
   --solus-doc-pad-x: 3.5rem;
-}
-/* Keep some laptop margin for the outline, but let the document use more of the
-   pane than the large-display step. The column still tracks the pane, so a
-   narrow split remains constrained by its own width. Peek sets its own measure
-   and is excluded, because a 19rem preview column has no margin to win back. */
-html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
-  --solus-doc-measure: clamp(66ch, 56cqi, 92ch);
 }
 .doc-shell-root .solus-doc-editor .ProseMirror {
   --doc-pad-x: var(--solus-doc-pad-x);
@@ -2871,71 +2872,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   opacity: 1;
 }
 
-/* hljs syntax tokens for chat code blocks — shares the --solus-syntax-* palette
-   with the doc editor so chat and the plan modal stay identical. */
-.solus-code-block .hljs-comment,
-.solus-code-block .hljs-quote {
-  color: var(--solus-syntax-comment);
-  font-style: italic;
-}
-.solus-code-block .hljs-keyword,
-.solus-code-block .hljs-selector-tag,
-.solus-code-block .hljs-subst {
-  color: var(--solus-syntax-keyword);
-}
-.solus-code-block .hljs-number,
-.solus-code-block .hljs-literal,
-.solus-code-block .hljs-variable,
-.solus-code-block .hljs-template-variable,
-.solus-code-block .hljs-tag .hljs-attr {
-  color: var(--solus-syntax-number);
-}
-.solus-code-block .hljs-string,
-.solus-code-block .hljs-doctag {
-  color: var(--solus-syntax-string);
-}
-.solus-code-block .hljs-title,
-.solus-code-block .hljs-section,
-.solus-code-block .hljs-selector-id {
-  color: var(--solus-syntax-function);
-  font-weight: 500;
-}
-.solus-code-block .hljs-type,
-.solus-code-block .hljs-class .hljs-title {
-  color: var(--solus-syntax-type);
-}
-.solus-code-block .hljs-attribute,
-.solus-code-block .hljs-name {
-  color: var(--solus-syntax-attr);
-}
-.solus-code-block .hljs-regexp,
-.solus-code-block .hljs-link {
-  color: var(--solus-syntax-string);
-}
-.solus-code-block .hljs-symbol,
-.solus-code-block .hljs-bullet {
-  color: var(--solus-syntax-number);
-}
-.solus-code-block .hljs-built_in,
-.solus-code-block .hljs-builtin-name {
-  color: var(--solus-syntax-type);
-}
-.solus-code-block .hljs-meta {
-  color: var(--solus-syntax-comment);
-}
-.solus-code-block .hljs-deletion {
-  color: var(--solus-syntax-deletion);
-}
-.solus-code-block .hljs-addition {
-  color: var(--solus-syntax-addition);
-}
-.solus-code-block .hljs-emphasis {
-  font-style: italic;
-}
-.solus-code-block .hljs-strong {
-  font-weight: 500;
-}
-
 .prose-cloud ul {
   padding-left: 1.4em;
   margin: 0.4em 0;
@@ -3090,8 +3026,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   font-size: var(--text-body);
   line-height: 1.78;
   /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
-     pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
-     the root font-size floors on a laptop screen. (An interpolated weight like
+     pixel grid and stay crisp at small reading sizes. (An interpolated weight like
      520 falls between masters, renders un-hinted, and reads soft.) We deliberately
      run body at 400 — not 500 — so the jump to 600 headings / strong is a full
      200 units and emphasis actually separates from the surrounding prose. */
@@ -3133,8 +3068,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .prose-reading h4 { font-size: var(--text-body); }
 
 /* Review-guide narration belongs to the surrounding review chrome rather than
-   the transcript's reading ladder. Inherit the responsive workspace rung so the
-   guide steps down with the rest of the review surface on a laptop. */
+   the transcript's reading ladder, so it inherits the workspace rung. */
 .prose-reading.prose-review-guide { font-size: inherit; }
 
 /* ─── Transcript prose (the "Conversation assets" spec, §4 · §5 · §14) ───
@@ -3151,16 +3085,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    specificity with a `.prose-cloud` / `.prose-reading` rule above, so source
    order is what decides them. */
 .prose-transcript {
-  /* A share of the reading column, not a fixed measure — matches the 88% the
-     conversation cards take, so prose and cards read as one column at every
-     pane width. */
-  max-width: 88%;
-  /* Primary conversation text uses the body rung. On the laptop's default 90%
-     display zoom this resolves to about 14px instead of the previous 12.6px. */
+  /* A share of the reading column, not a fixed measure, so the measure holds
+     at every pane width. */
+  max-width: 82%;
+  /* Primary conversation text uses the body rung. */
   font-size: var(--text-body);
-  /* Set by the tallest thing a paragraph can hold, not by the text. A chip box is
-     ~22px; at 1.62 the borders of stacked lines nearly touch. */
-  line-height: 1.75;
+  line-height: 1.625;
   font-weight: 400;
   color: var(--solus-text-primary);
   text-wrap: pretty;
@@ -3171,18 +3101,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   max-width: none;
 }
 .prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
-  max-width: 88%;
+  max-width: 82%;
 }
-@media (pointer: fine) {
-  html.is-laptop-display .prose-transcript-main { max-width: 82%; }
-
-  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) {
-    max-width: none;
-  }
-
-  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
-    max-width: 82%;
-  }
+/* The reply's own text takes the Appearance opacity. Headings keep full ink,
+   so the structure of a reply stays visible at a low setting. */
+.prose-transcript-main {
+  color: color-mix(in oklch, var(--solus-text-primary) var(--solus-assistant-text-opacity, 100%), transparent);
 }
 /* Element margins alone set the rhythm; the generic sibling step would add to
    the asymmetric heading spacing below. */
@@ -3191,17 +3115,20 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .prose-transcript > :first-child { margin-top: 0; }
 .prose-transcript > :last-child { margin-bottom: 0; }
 
-/* Headings — two steps, never more. */
+/* Headings — four sizes: h1 to h3 step down, h4 to h6 hold the body size. */
 .prose-transcript h1,
-.prose-transcript h2 {
-  margin: 1.375rem 0 0.4375rem;
-  line-height: 1.35;
+.prose-transcript h2,
+.prose-transcript h3,
+.prose-transcript h4,
+.prose-transcript h5,
+.prose-transcript h6 {
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--solus-text-primary);
 }
 .prose-transcript h1 {
   font-size: calc(1.25rem * var(--solus-font-scale, 1));
-  font-weight: 600;
-  line-height: 1.25;
   letter-spacing: -0.015em;
   text-wrap: balance;
 }
@@ -3219,20 +3146,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
     transparent
   );
 }
-.prose-transcript h2 {
-  font-size: var(--text-body);
-  font-weight: 500;
-}
-.prose-transcript h3,
+.prose-transcript h2 { font-size: calc(1.125rem * var(--solus-font-scale, 1)); }
+.prose-transcript h3 { font-size: calc(1rem * var(--solus-font-scale, 1)); }
 .prose-transcript h4,
 .prose-transcript h5,
-  .prose-transcript h6 {
-  margin: 1rem 0 0.3125rem;
-  font-size: var(--text-body);
-  font-weight: 500;
-  line-height: 1.35;
-  color: var(--solus-text-primary);
-}
+.prose-transcript h6 { font-size: var(--text-body); }
+.prose-transcript h6 { color: var(--solus-text-tertiary); }
 
 /* Lists — a bullet is drawn, so its dot/ring size stays on the ladder instead of
    tracking the font. A numeral is text and stays native: only the browser can
@@ -3249,14 +3168,13 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .prose-transcript li {
   position: relative;
   margin: 0 0 0.25rem;
-  line-height: 1.55;
 }
 .prose-transcript li > p { margin: 0; }
 .prose-transcript ul > li::before {
   content: "";
   position: absolute;
   left: -1.125rem;
-  top: 0.5625rem;
+  top: 0.625rem;
   width: 0.1875rem;
   height: 0.1875rem;
   border-radius: 9999px;
@@ -3265,7 +3183,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 /* One level of nesting only — the marker becomes a ring and anything deeper
    flattens onto it rather than inventing a third marker. */
 .prose-transcript ul ul > li::before {
-  top: 0.5rem;
+  top: 0.5625rem;
   width: 0.25rem;
   height: 0.25rem;
   background: none;
@@ -3329,39 +3247,86 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   opacity: 1;
 }
 
-/* §4 — table: prose, not a card. Hairlines only, no filled header and no outer
-   box, so the head reads as a heading without a wash. Tables use the assistant
-   body rung and a little extra separation from the prose around them. */
-.prose-transcript table {
-  margin: 1rem 0;
-  font-size: var(--text-body);
-  border-collapse: collapse;
+/* A `<details>` block: a disclosure between two rules. The chevron turns
+   when the block opens; the body is indented under the summary. */
+.prose-transcript details {
+  margin: 0.5rem 0;
+  border-block: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
 }
-.prose-transcript th {
-  padding: 0 0.625rem 0.375rem 0;
-  border-bottom: none;
-  background: none;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+.prose-transcript details[open] { padding-bottom: 0.75rem; }
+.prose-transcript details > :not(summary) { padding-left: 1.5rem; }
+.prose-transcript summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  list-style: none;
+  cursor: pointer;
   font-weight: 500;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--solus-text-tertiary);
-}
-.prose-transcript td {
-  padding: 0.5rem 0.625rem 0.5rem 0;
-  line-height: 1.5;
   color: var(--solus-text-primary);
-  text-wrap: pretty;
-  border-bottom: none;
-  /* The head reads as a heading because its rule is a step darker than the
-     body's; every later row shares the lighter one. */
-  border-top: 0.0625rem solid var(--solus-tx-rule);
 }
-.prose-transcript tbody tr:first-child td {
-  border-top: 0.0625rem solid var(--solus-tx-rule-strong);
+.prose-transcript summary::-webkit-details-marker { display: none; }
+.prose-transcript summary::before {
+  content: "";
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin: 0 0.3125rem 0 0.25rem;
+  border-right: 0.09375rem solid var(--muted-foreground);
+  border-bottom: 0.09375rem solid var(--muted-foreground);
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
 }
-.prose-transcript th:last-child,
-.prose-transcript td:last-child { padding-right: 0; }
+.prose-transcript details[open] > summary::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) {
+  .prose-transcript summary::before { transition: none; }
+}
+
+/* §4 — table: a compact grid in its own horizontal scroller. Row rules only,
+   no filled header and no stripes. The header takes the body colour at 600. */
+.prose-transcript .transcript-table {
+  max-width: 100%;
+  margin: 0.65rem 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.prose-transcript table {
+  width: 100%;
+  margin: 0.65rem 0;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  border-collapse: collapse;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+/* A table fits the column and its cells wrap. The scroller is only for a
+   cell that cannot break, such as a long unbroken token. */
+.prose-transcript .transcript-table table {
+  margin: 0;
+}
+.prose-transcript th,
+.prose-transcript td {
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+.prose-transcript thead th {
+  padding-block: 0.55rem;
+  border-bottom: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+}
+/* A long cell wraps at 24rem, so one wide column cannot push the others out. */
+.prose-transcript tbody td {
+  max-width: 24rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  border-bottom: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
+}
 
 /* §5 — inline reference chips. One shell for everything atomic and copyable in a
    message: code spans, file paths, PR and session refs. Card fill under a
@@ -3417,27 +3382,27 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 /* The block trades its 1px border for a hairline and sits on a 1.5% wash over
    card — enough to separate from prose without becoming a dark slab. */
 .prose-transcript .solus-code-block {
-  margin: 0.75rem 0 0.875rem;
+  margin: 0.7rem 0 0.75rem;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.625rem;
   background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
   box-shadow: 0 0 0 0.03125rem
     color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 .prose-transcript .solus-code-head {
-  padding: 0.4375rem 0.75rem;
+  padding: 0.375rem 0.75rem;
   border-bottom: none;
-  background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
+  background: color-mix(in oklch, var(--foreground) 1.75%, transparent);
 }
 .prose-transcript .solus-code-lang {
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
-  letter-spacing: 0.09em;
+  font-size: calc(0.71875rem * var(--solus-font-scale, 1));
+  letter-spacing: 0.045em;
   text-transform: uppercase;
 }
 .prose-transcript .solus-code-block pre {
   padding: 0.75rem 0.875rem;
   font-size: calc(0.8125rem * var(--solus-font-scale, 1));
-  line-height: 1.7;
+  line-height: 1.55;
 }
 
 /* §8 — links. A link is body text with an underline: it inherits currentColor,
@@ -3490,7 +3455,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    question about code the reader can't copy is one they answer blind.
 
    Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
-   `max-w-none` at the call site could never beat its `max-width: 88%`. */
+   `max-w-none` at the call site could never beat its `max-width: 82%`. */
 .prose-interrupt {
   max-width: none;
 }
@@ -3513,6 +3478,32 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   white-space: pre-wrap;
 }
 
+/* ─── Thought prose (the agent's reasoning, opened from its row) ───
+   Context for the answer, not the answer: one step down in size and tone, and
+   the full width of the disclosure it opens in. Must sit after
+   `.prose-transcript` for the same reason as `.prose-interrupt`. */
+.prose-thought {
+  max-width: none;
+  font-size: var(--text-caption);
+  line-height: 1.65;
+  color: var(--solus-text-secondary);
+}
+
+/* Both providers lead a summary with a `**title**`. In a thought that bold is
+   structure, not emphasis, so it keeps the thought's own weight. */
+.prose-thought strong {
+  font-weight: inherit;
+}
+
+/* A thought opened inside a tool group sits between tool steps, so it takes
+   the steps' size and tone instead of reading louder than they do. */
+.prose-thought.is-step {
+  font-size: var(--text-tool-step);
+  line-height: 1.6;
+  color: inherit;
+  opacity: 0.8;
+}
+
 /* ─── Report prose (2a — the sub-agent's answer) ───
    Two steps, both applied alongside `.prose-transcript`: the verdict the report
    leads with, and the section bodies under it. Section headings are drawn as
@@ -3523,7 +3514,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    leading everywhere, including list items, where the transcript's tighter
    1.55 lets stacked chip borders touch.
 
-   The measure is set by the report's own column, so the 88% share is released;
+   The measure is set by the report's own column, so the 82% share is released;
    pinning it here instead would compound against that column.
 
    Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
@@ -3565,7 +3556,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    shell on code spans (`.prose-transcript code`); dropping it would silently
    revert them to the accent-coloured borderless treatment. Must sit after that
    ruleset — it is unlayered, so a Tailwind class at the call site could never
-   beat its `max-width: 88%`. */
+   beat its `max-width: 82%`. */
 .prose-agent-card {
   max-width: none;
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
@@ -3733,7 +3724,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    (a drag-handle lane the task header doesn't use) indents the body off the
    title's left edge. */
 .task-description-prose .solus-doc-editor .ProseMirror {
-  line-height: 1.8;
   padding-left: 0;
   padding-right: 0;
 }
@@ -3832,6 +3822,21 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
      The ratio is the transcript's, so a literal is the same size next to a
      reference here as it is in a message. */
   font-size: 0.9286em;
+}
+
+/* When a code span is also bold, show the bold treatment. Keep the markup so
+   copying and saving still preserve the author's Markdown. */
+:is(.prose-cloud, .solus-doc-editor .ProseMirror, .task-description-prose .solus-doc-editor .ProseMirror) strong > code {
+  font-family: inherit;
+  font-feature-settings: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin-inline: 0;
 }
 /* The fenced block already is the chip; its inner `code` carries none of it. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre code {
@@ -4071,14 +4076,20 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    at every display width, and a small heading ladder so a bot's
    `## Walkthrough` still reads as a heading. Each selector is chained on
    `.github-markdown.prose-pr` so it outranks the shared `:is(.prose-pr, …)`
-   rules above, which carry the task editor's three-class specificity. */
-.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) {
+   rules above, which carry the task editor's three-class specificity.
+   A task description is the same kind of document, so its editor reads at the
+   same sizes: editing it must not re-set the page in a larger type. */
+.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity),
+.task-description-prose .solus-doc-editor .ProseMirror {
   --prose-pr-size: var(--text-caption);
   line-height: 1.625;
 }
-.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h1 { font-size: calc(var(--prose-pr-size) * 1.25); }
-.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h2 { font-size: calc(var(--prose-pr-size) * 1.125); }
-.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h6 { color: var(--solus-text-secondary); }
+.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h1,
+.task-description-prose .solus-doc-editor .ProseMirror h1 { font-size: calc(var(--prose-pr-size) * 1.25); }
+.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h2,
+.task-description-prose .solus-doc-editor .ProseMirror h2 { font-size: calc(var(--prose-pr-size) * 1.125); }
+.github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h6,
+.task-description-prose .solus-doc-editor .ProseMirror h6 { color: var(--solus-text-secondary); }
 /* An `@login` reads as a person, not a word in the sentence: primary ink and
    weight, as GitHub sets it apart. */
 .github-markdown .markdown-mention {
@@ -4177,65 +4188,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .agent-typing-dot:nth-child(2) { animation-delay: 0.16s; }
 .agent-typing-dot:nth-child(3) { animation-delay: 0.32s; }
 
-/* The header's direction dot travels toward whoever the in-flight message is
-   going to: leftward while the agent is replying to you, rightward while your
-   prompt is on its way out. */
-@keyframes flowL {
-  0% { transform: translateX(2.0625rem); opacity: 0; }
-  18%, 82% { opacity: 1; }
-  100% { transform: translateX(0); opacity: 0; }
-}
-@keyframes flowR {
-  0% { transform: translateX(0); opacity: 0; }
-  18%, 82% { opacity: 1; }
-  100% { transform: translateX(2.0625rem); opacity: 0; }
-}
-.agent-flow-dot--to-you {
-  animation: flowL 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-.agent-flow-dot--to-agent {
-  animation: flowR 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-
-/* Folding the body away. A grid track rather than max-height: the body's real
-   height is whatever the reply is, and a max-height guess either clips a long
-   one or spends the first half of the animation travelling through empty space.
-   0fr → 1fr measures it, so every card folds at the same speed regardless of
-   how much it holds.
-
-   The body stays mounted while folded — it is the transcript this card exists
-   to keep, and unmounting it would re-run the markdown parse on every open. */
-.agent-card-fold {
-  display: grid;
-  grid-template-rows: 1fr;
-  /* Decelerating: the fold leaves quickly and arrives gently, which is what
-     makes it read as the card settling rather than as a panel being driven. */
-  transition:
-    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 140ms ease-out;
-}
-.agent-card-fold--closed {
-  grid-template-rows: 0fr;
-  /* Faster out than in, so the words are gone before the height finishes
-     closing and nothing is caught mid-crush. */
-  opacity: 0;
-  transition:
-    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 90ms ease-in;
-}
-
-/* Dots, the direction dot and the fold are the only motion this component has,
-   so this is the whole of its reduced-motion contract. */
+/* The typing dots are the only motion the agent exchange card has, so this is
+   the whole of its reduced-motion contract. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-typing-dot,
-  .agent-flow-dot--to-you,
-  .agent-flow-dot--to-agent {
+  .agent-typing-dot {
     animation: none;
     opacity: 0.7;
-  }
-  .agent-card-fold,
-  .agent-card-fold--closed {
-    transition: none;
   }
 }
 
@@ -4375,8 +4333,7 @@ html.is-mac-workspace
      --solus-font-scale (that preference belongs to the transcript).
      A menu item is a label you read to make a decision, which is the rule that
      put every other row label in the app on the 14px rung — so menus join them,
-     with their shortcut hints a step below at 12px. Neither steps on a laptop:
-     see the note in the `html.is-laptop-display` block.
+     with their shortcut hints a step below at 12px.
      Kept as a token, unlike the rest of chrome, while the value settles: one
      edit here moves every menu in the app. Fold it into `text-sm` once it has. */
   --text-menu: 0.875rem;
@@ -4385,12 +4342,7 @@ html.is-mac-workspace
 @utility menu-surface {
   overflow: hidden;
   border: 0;
-  /* Ten call sites restate their own radius over this one, and they mean it —
-     GitSection's menu is deliberately 8px where the pickers are 16px. Stepping
-     the radius *here* on a laptop would compile to `html.is-laptop-display
-     .menu-surface`, which outranks every one of those utilities and would
-     inflate the 8px menu rather than shrink it. The surfaces that want the step
-     opt into it themselves. */
+  /* Call sites restate their own radius over this one. */
   border-radius: 1rem;
   /* A menu is a *portalled* surface: bits-ui mounts it on `document.body`, so it
      sits outside `#root` and inherits nothing from the page that opened it. Its
@@ -4413,6 +4365,9 @@ html.is-mac-workspace
   box-shadow: var(--solus-menu-shadow);
   animation: var(--animate-menu-pop-in);
   @media (prefers-reduced-motion: reduce) { animation: none; }
+  /* Electron hit-tests drag regions without z-index, so a menu that drops over
+     the titlebar loses its clicks to window movement unless it opts out. */
+  -webkit-app-region: no-drag;
 }
 
 /* The current row is ink + check — two quiet signals rather than one loud
@@ -4478,17 +4433,9 @@ html.is-mac-workspace
 
 @utility menu-heading {
   padding: 0.5rem 0.625rem 0.3125rem;
-  /* Tracks the row inset it labels, so the heading stays left-aligned with the
-     rows under it once those step to 8px. */
-  @media (pointer: fine) {
-    html.is-laptop-display & {
-      padding: 0.375rem 0.5rem 0.25rem;
-    }
-  }
-  /* The shelf rung, the same one every other heading-above-a-list takes: a
-     group heading has to stay a step under its rows at *both* display sizes,
-     and a flat 12px met the rows once they stepped down to 12px on a laptop. */
-  font-size: var(--text-chrome-shelf);
+  /* A group heading stays a step under its 14px rows, so the letterspaced caps
+     do not read as loud as the rows. */
+  font-size: var(--text-menu-heading);
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.09em;

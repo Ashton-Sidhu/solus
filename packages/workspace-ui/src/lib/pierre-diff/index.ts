@@ -10,6 +10,7 @@ export {
   clearPatchMetadataCache,
   collapseHunks,
   compactPartialHunkOffsets,
+  parsePatchFileList,
   parsePatchMetadata,
   patchCacheKey,
   patchMetadataCacheStats,

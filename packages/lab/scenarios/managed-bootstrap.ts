@@ -8,7 +8,7 @@ import { expectOk, expectRefused, scenario } from '../src/scenario'
 /**
  * Step 3 (docs/plans/managed-hosts.md §1–§2): a managed host stores the link its
  * environment carries and then trusts nobody by network position. The Lab issuer
- * plays the provisioner; the host under test is the real server in managed mode.
+ * plays the provisioner; the host under test is the real server booted from that link.
  */
 const linkRecordSchema = z.object({
   desired: z.literal('linked'),
@@ -17,7 +17,7 @@ const linkRecordSchema = z.object({
 
 export default scenario('managed link: stored from the environment, system-owned, nothing trusted by position', async (ctx) => {
   ctx.step('the host stored the link its environment carried')
-  ctx.check('the Lab booted the host in managed mode', ctx.host.managedMode)
+  ctx.check('the Lab booted the host from its provisioned link', ctx.host.managedMode)
   const issued = ctx.issuer.issuedLink(ctx.host.hostId)
   ctx.check('the issuer holds the link it handed out, naming the port the host bound', issued?.proxiedPort === Number(new URL(ctx.host.tunnelUrl).port), JSON.stringify(issued))
   const recordPath = join(ctx.host.dataDir, 'uplink-link.json')

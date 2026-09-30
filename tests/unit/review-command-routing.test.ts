@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isRawReviewSkill } from '@solus/server/agents/review-command'
+import { isRawReviewSkill } from '@solus/server/execution/agents/review-command'
 
 describe('review command provider routing', () => {
   test('hides the author-only skill on both providers', () => {

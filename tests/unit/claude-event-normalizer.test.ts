@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { ClaudeTurnNormalizer } from '@solus/server/agents/claude/claude-event-normalizer'
+import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
 import type { ClaudeEvent } from '@solus/contracts/claude-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
@@ -97,7 +97,7 @@ describe('ClaudeTurnNormalizer', () => {
       session_id: 'claude-session-1',
     })).toEqual([
       { type: 'context_compaction', state: 'start', trigger: 'auto' },
-      { type: 'permission_mode_changed', permissionMode: 'ask' },
+      { type: 'permission_mode_changed', permissionMode: 'supervised' },
     ])
   })
 
@@ -114,7 +114,7 @@ describe('ClaudeTurnNormalizer', () => {
       session_id: 'claude-session-1',
     })).toEqual([
       { type: 'context_compaction', state: 'stop', trigger: 'auto' },
-      { type: 'permission_mode_changed', permissionMode: 'ask' },
+      { type: 'permission_mode_changed', permissionMode: 'supervised' },
     ])
   })
 
@@ -130,7 +130,31 @@ describe('ClaudeTurnNormalizer', () => {
       permissionMode: 'default',
       uuid: 'status-3',
       session_id: 'claude-session-1',
-    })).toEqual([{ type: 'permission_mode_changed', permissionMode: 'ask' }])
+    })).toEqual([{ type: 'permission_mode_changed', permissionMode: 'supervised' }])
+  })
+
+  test('closes a thinking span with the thought its deltas carried', () => {
+    // WHY: the activity row shows the first line of the thought beside its
+    // label, and content_block_stop is the only place the whole thought is known.
+    const normalizer = new ClaudeTurnNormalizer()
+    const thinkingBlock = (index: number, thinking: string[]) => [
+      { type: 'stream_event', event: { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } } },
+      ...thinking.map((text) => ({
+        type: 'stream_event',
+        event: { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: text } },
+      })),
+      { type: 'stream_event', event: { type: 'content_block_stop', index } },
+    ] as ClaudeEvent[]
+
+    expect(thinkingBlock(0, ['**Reading the ', 'stylesheet**\n\nThe rule is unlayered.']).flatMap((raw) => normalizer.push(raw))).toEqual([
+      { type: 'thinking', state: 'start' },
+      { type: 'thinking', state: 'stop', text: '**Reading the stylesheet**\n\nThe rule is unlayered.' },
+    ])
+    // Omitted or redacted thinking sends no text; the span still closes.
+    expect(thinkingBlock(1, []).flatMap((raw) => normalizer.push(raw))).toEqual([
+      { type: 'thinking', state: 'start' },
+      { type: 'thinking', state: 'stop' },
+    ])
   })
 
   test('streams parented text into the subagent transcript', () => {
@@ -218,7 +242,7 @@ describe('ClaudeTurnNormalizer', () => {
 
   // TaskStop is the only account a killed task ever gets: the SDK sends no
   // task_updated patch and no task_notification afterwards. Without a settle here
-  // the task stays in the ControlPlane's in-flight set, task_complete takes the
+  // the task stays in the SessionRuntime's in-flight set, task_complete takes the
   // "background work still running" branch, and the session reads Running forever
   // even though the agent has answered.
   test('settles a background task that TaskStop killed', async () => {

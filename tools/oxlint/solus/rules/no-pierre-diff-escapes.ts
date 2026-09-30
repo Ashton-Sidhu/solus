@@ -19,10 +19,9 @@ const renderedDiffRoot = 'packages/workspace-ui/src/'
 const boundaryModule = 'packages/workspace-ui/src/lib/pierre-diff/'
 
 const allowedFiles = new Set([
-  // Move analysis and the heat map read hunk contents and line arrays, and never
-  // hand a FileDiffMetadata to a renderer, so row offsets cannot matter to them.
+  // Move analysis reads hunk contents and line arrays, and never hands a
+  // FileDiffMetadata to a renderer, so row offsets cannot matter to it.
   'packages/workspace-ui/src/lib/diff-moves.ts',
-  'packages/workspace-ui/src/components/pr-review/PrReviewPane.svelte',
   // Parses per `diff --git` chunk so a live refresh reuses untouched files, then
   // normalizes both of its parse paths through compactPartialHunkOffsets.
   'packages/workspace-ui/src/lib/diff-state.svelte.ts',

@@ -1,9 +1,15 @@
 import { afterPaint } from '../../lib/after-paint'
+import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
+import { sessionStatesStore } from '../workspace/session-states.store.svelte'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
-import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
+import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { onDirectoryAnswered } from '@solus/client-core/server-registry'
+import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
+import { hasSessionStarted } from '../../lib/sessionUtils'
+import type { Session } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 
@@ -31,9 +37,32 @@ export function refreshRuntime(
   void bootstrapRuntimeTabs(session)
     .then(() => {
       void sidebarStore.loadPinnedSessions()
+      void sessionPullRequestsStore.load()
+      void sessionStatesStore.load()
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
 
+}
+
+/**
+ * Clear references to machines that are gone (`reconcileMachineReferences`),
+ * only once the saved hosts are authoritative: a directory read succeeded, or
+ * this client has no directory to wait for.
+ */
+function reconcileGoneMachines(session: WorkspaceContext): void {
+  if (!savedHostsAreAuthoritative()) return
+  reconcileMachineReferences(
+    {
+      settings: session.settings,
+      unstartedRuns: () => session.unstartedRuns(),
+      startedSessions: () => session.tabOrder
+        .map((tabId) => session.sessionFor(tabId))
+        .filter((tabSession): tabSession is Session => !!tabSession && hasSessionStarted(tabSession)),
+      get defaultRunConfig() { return session.defaultRunConfig },
+    },
+    (serverId) => serverConnections.isKnownServer(serverId),
+    () => serverConnections.defaultMachineId() !== null,
+  )
 }
 
 export function initializeRuntime(
@@ -41,10 +70,20 @@ export function initializeRuntime(
   sidebarStore: SessionSidebarStore,
 ): () => void {
   refreshRuntime(session, sidebarStore)
+  // Restored tabs and drafts may name a machine a previous load saw deleted.
+  reconcileGoneMachines(session)
+  const stopDirectory = onDirectoryAnswered(() => {
+    reconcileGoneMachines(session)
+    // A tab on a host that was missing before the directory answered waited;
+    // the open one restores now, the rest when they are selected.
+    if (session.activeTabId) prioritizeTabHydration(session, session.activeTabId)
+  })
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
   const stopConnections = serverConnections.onConnectionCreated(() => {
     void sidebarStore.loadPinnedSessions()
+    void sessionPullRequestsStore.load()
+    void sessionStatesStore.load()
   })
 
   // The durable send outbox drains when a host's supervisor reports live:
@@ -52,11 +91,18 @@ export function initializeRuntime(
   const stopPhases = serverConnections.onPhaseChange((serverId, phase) => {
     if (phase !== 'connected') return
     void sendOutbox.drain(serverId, (record) => session.dispatch.redeliverOutboxPrompt(serverId, record))
+    // A window that booted with no machine (the account origin) reads the
+    // machine facts once one connects; a no-op while the default is unchanged.
+    void session.lifecycle.initStaticInfo()
+      .catch((error) => logConnectionReadError('static info initialization', error))
+    // Work left on a gone machine while there was nowhere to move it moves now.
+    reconcileGoneMachines(session)
   })
 
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
   return () => {
+    stopDirectory()
     stopConnections()
     stopPhases()
   }

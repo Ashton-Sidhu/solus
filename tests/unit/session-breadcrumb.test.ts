@@ -61,13 +61,22 @@ describe('breadcrumbLeafLabels', () => {
       task: 'Fix reconnect',
       session: 'New session',
     })
-    expect(breadcrumbLeafLabels('Session', 'Session', 'new-task')).toEqual({
-      task: 'New task',
-      session: 'New session',
-    })
     expect(breadcrumbLeafLabels('Session', 'Session', 'no-task')).toEqual({
       task: null,
       session: 'New session',
+    })
+  })
+
+  it('gives a started session with no task no task crumb', () => {
+    // WHY: a session has a task only when it joins one. A crumb that repeats
+    // the session title as a task names a record that does not exist.
+    expect(breadcrumbLeafLabels(null, 'Fix the reconnect loop', null)).toEqual({
+      task: null,
+      session: 'Fix the reconnect loop',
+    })
+    expect(breadcrumbLeafLabels('Stabilize sync', 'Fix the reconnect loop', null)).toEqual({
+      task: 'Stabilize sync',
+      session: 'Fix the reconnect loop',
     })
   })
 })

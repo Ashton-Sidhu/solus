@@ -26,7 +26,8 @@ mock.module('@solus/server/git/exec', () => ({
     if (command === 'rev-parse') {
       if (args.includes('HEAD')) return target.headSha
       if (args.includes('refs/solus/review/base')) return target.baseSha
-      return 'true'
+      // `--is-shallow-repository`: a managed checkout has its full history.
+      return 'false'
     }
     if (command !== 'clone' && command !== 'fetch') return ''
     const token = options?.env?.SOLUS_GIT_PASSWORD ?? ''

@@ -1,5 +1,4 @@
 import { resolveArtifactTitle } from "@solus/contracts/work-preview";
-import { needsSandbox } from "../../artifact/lib/artifact-view";
 import { exportFileName } from "../../pickers/lib/export-file-name";
 
 /** The file an HTML block is saved to the device as: named after its own
@@ -8,44 +7,9 @@ export function htmlBlockFileName(html: string): string {
   return exportFileName(resolveArtifactTitle(undefined, html), "html", "artifact");
 }
 
-/**
- * How a fenced ```html block reads in a reply.
- *
- * - **block** — a page to look at. It renders live in the sandbox frame.
- * - **snippet** — code to read. It stays a code block, with a Render action.
- *
- * The content decides, because an agent explaining a template bug pastes a
- * `<div>` to be read and rendering it would show an empty frame where the code
- * was. A fragment that carries its own styles or behaviour was written to be
- * looked at. The info string overrides the test in either direction, for the
- * cases it gets wrong: ```html render and ```html source.
- */
-export type FenceRenderMode = "block" | "snippet";
-
-/** The words a fence's info string carries: the language, then any directive. */
-function infoWords(info: string | undefined): string[] {
-  return (info ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-}
-
-/** The language a fence declares — the first word of its info string, so a
- *  directive after it never reaches a highlighter or a language label. */
-export function fenceLanguage(info: string | undefined): string {
-  return infoWords(info)[0] ?? "";
-}
-
-export function isHtmlFence(info: string | undefined): boolean {
-  return fenceLanguage(info) === "html";
-}
-
-export function fenceRenderMode(
-  info: string | undefined,
-  html: string,
-): FenceRenderMode {
-  const directives = infoWords(info).slice(1);
-  if (directives.includes("render")) return "block";
-  if (directives.includes("source")) return "snippet";
-  return needsSandbox(html) ? "block" : "snippet";
-}
+/** How a fenced ```html block reads is the document model's rule, so a reply
+ *  and a document make the same choice. */
+export { fenceLanguage, fenceRenderMode, isHtmlFence, type FenceRenderMode } from "@solus/document-model/fences";
 
 /** Whether the fence's closing delimiter has arrived. While a message streams,
  *  a growing fence must render as source: swapping to a frame per token would

@@ -8,6 +8,7 @@ import type {
 } from '@solus/contracts/types'
 import type { PullRequest } from '@solus/contracts/providers'
 import { runAsync } from './exec'
+import type { GitIdentity } from './git-identity-manager'
 import { toRootRelativePath } from '../paths'
 import { authorPullRequest, type PullRequestWriter } from './pull-request-authoring'
 
@@ -22,6 +23,10 @@ export interface GitActionManagerOptions {
     body: string
   }): Promise<PullRequest>
   publish(event: GitActionProgressEvent): void
+  /** Who the commit and push act as, resolved once by the caller from its principal. */
+  identity: GitIdentity
+  /** Keeps a member's credential readable while the action runs; returns the release. */
+  holdIdentity(identity: GitIdentity): () => void
 }
 
 const activeActionCwds = new Set<string>()
@@ -77,13 +82,14 @@ async function commitSelectedFiles(
   cwd: string,
   filePaths: string[],
   subject: string,
+  gitEnv: NodeJS.ProcessEnv | undefined,
 ): Promise<GitActionResult['commit']> {
   const untracked = await untrackedPathsAmong(cwd, filePaths)
   if (untracked.length > 0) {
     await runAsync('git', ['add', '--', ...untracked], cwd)
   }
   try {
-    await runAsync('git', ['commit', '-m', subject, '--', ...filePaths], cwd)
+    await runAsync('git', ['commit', '-m', subject, '--', ...filePaths], cwd, { env: gitEnv })
   } catch (error) {
     if (untracked.length > 0) {
       await runAsync('git', ['reset', '--', ...untracked], cwd).catch(() => {})
@@ -199,6 +205,9 @@ async function runGitActionUnlocked(
     || request.action === 'commit_push_pull_request'
     || (request.action === 'create_pull_request'
       && (!initialUpstream.upstreamRef || initialUpstream.aheadCount > 0))
+  // A member without a Git identity never commits or pushes as the host.
+  if (options.identity.kind === 'unavailable' && (commitRequested || pushRequested)) throw new Error(options.identity.reason)
+  const gitEnv = options.identity.kind === 'host' ? undefined : options.identity.env
   const phases: GitActionPhase[] = [
     ...(request.createFeatureBranch ? ['branch' as const] : []),
     ...(commitRequested ? ['commit' as const] : []),
@@ -235,12 +244,12 @@ async function runGitActionUnlocked(
       if (selectedFilePaths) {
         const subject = await commitSubject()
         options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
-        commitStep = await commitSelectedFiles(cwd, selectedFilePaths, subject)
+        commitStep = await commitSelectedFiles(cwd, selectedFilePaths, subject, gitEnv)
       } else if (await workingTreeIsDirty(cwd)) {
         const subject = await commitSubject()
         options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Committing…' })
         await runAsync('git', ['add', '-A'], cwd)
-        await runAsync('git', ['commit', '-m', subject], cwd)
+        await runAsync('git', ['commit', '-m', subject], cwd, { env: gitEnv })
         const sha = await runAsync('git', ['rev-parse', 'HEAD'], cwd)
         commitStep = { status: 'created', sha, subject }
       } else {
@@ -252,7 +261,7 @@ async function runGitActionUnlocked(
     if (pushRequested) {
       currentPhase = 'push'
       options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Pushing…' })
-      await runAsync('git', ['push', '-u', 'origin', branch], cwd)
+      await runAsync('git', ['push', '-u', 'origin', branch], cwd, { env: gitEnv })
       pushStep = { status: 'pushed', branch }
     }
 
@@ -273,7 +282,7 @@ async function runGitActionUnlocked(
         if (!(await branchHasPullRequestChanges(cwd, gitContext.targetBranch))) {
           throw new Error(`The ${branch} branch has no changes to open against ${gitContext.targetBranch}.`)
         }
-        const draft = await authorPullRequest(cwd, gitContext.targetBranch, branch, options.writer)
+        const draft = await authorPullRequest(cwd, gitContext.targetBranch, branch, options.writer, gitEnv)
         currentPhase = 'create_pull_request'
         options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Creating pull request…' })
         if (!options.createPullRequest) throw new Error('GitHub is not connected')
@@ -320,9 +329,11 @@ export async function runGitAction(
     throw new Error('Another Git action is already running for this working tree.')
   }
   activeActionCwds.add(cwd)
+  const releaseIdentity = options.holdIdentity(options.identity)
   try {
     return await runGitActionUnlocked(request, gitContext, workingDirectory, options)
   } finally {
+    releaseIdentity()
     activeActionCwds.delete(cwd)
   }
 }

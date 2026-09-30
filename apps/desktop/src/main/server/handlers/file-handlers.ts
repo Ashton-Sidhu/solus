@@ -1,14 +1,14 @@
 import { dialog, shell } from 'electron'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
-import { join, basename, dirname, resolve as pathResolve, relative as pathRelative } from 'path'
+import { join, dirname } from 'path'
 import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
-import { appendFile, mkdir, readFile as readBinaryFile, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
+import { appendFile, mkdir, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
+import type { AgentId, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
-import { expandHome } from '@solus/server/server/handlers/lib/host-path'
+import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/media-types'
 import { transcribeAudio, warmTranscription } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '@solus/server/model-downloader'
@@ -19,13 +19,8 @@ import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { getCliEnv } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
 import { solusDir } from '@solus/server/platform/paths'
-import { getFinder, refreshFinder } from '@solus/server/server/file-finder'
-import { browseFileMatches } from '@solus/server/server/handlers/lib/file-browse'
-import { projectRootForRequest, readFilePreview, resolvePreviewPath } from '@solus/server/server/handlers/lib/file-preview'
-import { isInsideRoot } from '@solus/server/paths'
-import { searchProjectContents } from '@solus/desktop-main/server/handlers/lib/content-search'
-import type { SolusServer } from '@solus/server/server/server'
-import { filePathsToAttachments } from '@solus/server/server/attachment-utils'
+import type { SolusServer } from '@solus/server/transport/server'
+import { filePathsToAttachments } from '@solus/server/transport/attachment-utils'
 import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachment-read'
 
 const log = createLogger('main', 'file-handlers')
@@ -48,6 +43,8 @@ export interface FileDeps {
   bumpPasteCounter(): number
   /** Returns the work-area rect of the cursor's display, used as design-mode capture region. */
   designModeCaptureRegion(): { x: number; y: number; width: number; height: number }
+  /** Whether a capture can run now. Asks macOS for Screen Recording on first use. */
+  ensureScreenCaptureAccess(): Promise<boolean>
 }
 
 const IS_DEV_MODE = Boolean(process.env.ELECTRON_RENDERER_URL)
@@ -159,7 +156,8 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'All Files', extensions: ['*'] },
-        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+        { name: 'Images', extensions: [...IMAGE_FILE_EXTENSIONS] },
+        { name: 'Videos', extensions: [...VIDEO_FILE_EXTENSIONS] },
         { name: 'Code', extensions: ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'md', 'json', 'yaml', 'toml'] },
       ],
     }
@@ -178,6 +176,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   server.register('takeScreenshot', async () => {
     const win = deps.getWorkspaceWindow()
     if (!win) return null
+    if (!(await deps.ensureScreenCaptureAccess())) return null
 
     win.hide()
     await new Promise((r) => setTimeout(r, 300))
@@ -208,6 +207,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   server.register('enterDesignMode', async () => {
     const win = deps.getWorkspaceWindow()
     if (!win) return null
+    if (!(await deps.ensureScreenCaptureAccess())) return null
 
     const { x: wx, y: wy, width: ww, height: wh } = deps.designModeCaptureRegion()
 
@@ -337,161 +337,6 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       await appendFile(VOICE_TRANSCRIPTIONS_CSV, `${prefix}${values}\n`, 'utf8')
     } catch (err) {
       log.warn('voice_transcription_csv_write_failed', { error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  server.register('searchFiles', async (args) => {
-    const [query, cwd] = args
-    // Keep the native page small: results render ranked by match score, and a
-    // large page buries good matches in noise. fff does not index dotfiles or
-    // dot-directories, so hidden paths are intentionally absent from results.
-    const MAX = 25
-
-    const cwdRoot = cwd.replace(/\/+$/, '')
-    const toDisplay = (p: string): string =>
-      p === cwdRoot ? basename(p) : p.startsWith(cwdRoot + '/') ? p.slice(cwdRoot.length + 1) : p
-
-    // Explicit paths browse one directory, including paths outside the project.
-    // Only plain project queries may create a recursive index.
-    const browsed = await browseFileMatches(query, cwd)
-    if (browsed) return { files: browsed }
-
-    const base = cwd
-    const search = query
-
-    const finder = await getFinder(base)
-    if (!finder) return { files: [] }
-
-    const result = finder.mixedSearch(search, { pageSize: MAX })
-    if (!result.ok) {
-      log.warn('search_files_mixed_search_failed', { search, base, error: result.error })
-      return { files: [] }
-    }
-
-    const files: FileMatch[] = []
-    for (const entry of result.value.items) {
-      const relativePath =
-        entry.type === 'directory' && (
-          entry.item.relativePath === '' ||
-          entry.item.relativePath === '.' ||
-          entry.item.relativePath === '/'
-        )
-          ? entry.item.dirName.replace(/\/$/, '')
-          : entry.item.relativePath
-      const path = join(base, relativePath).replace(/\/+$/, '')
-      files.push({ path, display: toDisplay(path), isDir: entry.type === 'directory' })
-    }
-
-    // mixedSearch already returns relevance order. Unlike browse mode above,
-    // do not regroup directories ahead of files after the user starts typing.
-    return { files }
-  })
-
-  server.register('searchProjectContents', async (args) => {
-    const [ctx, request] = args
-    // Scoped to the caller's environment cwd, which already resolves to the
-    // worktree path for an isolated session — searching the main checkout would
-    // return matches the session cannot act on.
-    const rawRoot = projectRootForRequest(ctx, request?.cwd)
-    if (!rawRoot) return { ok: false, error: 'No project directory is available.' } satisfies ProjectContentSearchResult
-
-    let root: string
-    try {
-      root = await realpath(rawRoot)
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) } satisfies ProjectContentSearchResult
-    }
-    return searchProjectContents(root, request)
-  })
-
-  server.register('readProjectFile', async (args) => {
-    const [ctx, request] = args
-    return readFilePreview(ctx, request)
-  })
-
-  server.register('writeFile', async (args) => {
-    const [ctx, request] = args
-    // A host-destination write is a destination the user picked themselves in
-    // the directory picker, so it is not anchored to a project at all.
-    const toHost = request?.destination === 'host'
-    const rawRoot = toHost ? null : projectRootForRequest(ctx, request?.cwd)
-    const requestedPath = request?.path ?? ''
-    if (!toHost && !rawRoot) {
-      return { ok: false, path: requestedPath, error: 'No project directory is available.' } satisfies WriteFileResult
-    }
-    if (!requestedPath) {
-      return { ok: false, path: requestedPath, error: 'No file path was provided.' } satisfies WriteFileResult
-    }
-
-    let root: string | null = null
-    if (rawRoot) {
-      try {
-        root = await realpath(rawRoot)
-      } catch (err) {
-        return {
-          ok: false,
-          path: requestedPath,
-          error: err instanceof Error ? err.message : String(err),
-        } satisfies WriteFileResult
-      }
-    }
-
-    const resolved = toHost ? expandHome(requestedPath) : resolvePreviewPath(requestedPath, root ?? undefined)
-    let target = resolved
-
-    try {
-      target = await realpath(resolved)
-    } catch {
-      try {
-        const parent = await realpath(dirname(resolved))
-        target = pathResolve(parent, basename(resolved))
-      } catch (err) {
-        return {
-          ok: false,
-          path: resolved,
-          error: err instanceof Error ? err.message : String(err),
-        } satisfies WriteFileResult
-      }
-    }
-
-    if (root && !isInsideRoot(root, target)) {
-      return {
-        ok: false,
-        path: target,
-        error: 'File path is outside the project directory.',
-      } satisfies WriteFileResult
-    }
-
-    try {
-      if (request.expectedContents !== undefined) {
-        const currentContents = await readBinaryFile(target, 'utf8')
-        if (currentContents !== request.expectedContents) {
-          return {
-            ok: false,
-            path: target,
-            error: 'File changed on disk. Reload before saving.',
-            conflict: true,
-          } satisfies WriteFileResult
-        }
-      }
-      const encoding = request.encoding === 'base64' ? 'base64' : 'utf8'
-      const payload = Buffer.from(request.contents, encoding)
-      await writeTextFile(target, payload)
-      if (root) await refreshFinder(root)
-      return {
-        ok: true,
-        path: target,
-        // Relative to the project it belongs to; an export has no project to be
-        // relative to, so it reports where it actually landed.
-        displayPath: root ? pathRelative(root, target) || basename(target) : target,
-        size: payload.byteLength,
-      } satisfies WriteFileResult
-    } catch (err) {
-      return {
-        ok: false,
-        path: target,
-        error: err instanceof Error ? err.message : String(err),
-      } satisfies WriteFileResult
     }
   })
 

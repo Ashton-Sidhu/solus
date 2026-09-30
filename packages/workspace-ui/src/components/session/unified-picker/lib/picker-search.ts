@@ -1,9 +1,12 @@
+import { holdsEveryWord, wordStartIndex } from '@solus/contracts/word-match'
+
+export { queryWords, wordStartIndex } from '@solus/contracts/word-match'
+
 /**
  * How the picker reads a query, and the two choices the reader makes about it.
  *
- * The full-text index the hosts search splits a query into words, requires
- * every word, and matches each at the start of a token. The picker's own pass
- * over task titles and session names follows the same rule, so one query means
+ * The picker's pass over task titles and session names follows the word rule
+ * the hosts' indexes follow (`@solus/contracts/word-match`), so one query means
  * one thing in both sections and the marks in a row agree with the index.
  */
 
@@ -25,34 +28,41 @@ export const PICKER_SORT_HINTS = {
   recency: 'newest first',
 } satisfies Record<PickerSort, string>
 
-/** The query's words, lower-cased. Empty for a blank query. */
-export function queryWords(query: string): string[] {
-  return query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+/** Lower-cased texts, kept across keystrokes. Every keystroke reads every
+ *  task's title and body again, and lower-casing each of them was most of the
+ *  time the list took to build. A string key costs its hash once. */
+const lowered = new Map<string, string>()
+const flattened = new Map<string, string>()
+const LOWERED_CAP = 8192
+
+function cached(cache: Map<string, string>, text: string, derive: (text: string) => string): string {
+  let value = cache.get(text)
+  if (value === undefined) {
+    if (cache.size >= LOWERED_CAP) cache.clear()
+    value = derive(text)
+    cache.set(text, value)
+  }
+  return value
 }
 
-/** A token starts where the text starts or after a character that is neither a
- *  letter nor a digit — the same boundary the index's unicode61 tokenizer uses. */
-function startsToken(text: string, at: number): boolean {
-  return at === 0 || !/[\p{L}\p{N}]/u.test(text[at - 1]!)
+/** `text` lower-cased. Its positions are the positions of `text`. */
+export function lowerCased(text: string): string {
+  return cached(lowered, text, (source) => source.toLocaleLowerCase())
 }
 
-/** Where `word` first starts a token of `text`, or -1. `text` is lower-cased
- *  by the caller once, not per word. */
-export function wordStartIndex(lowerText: string, word: string, from = 0): number {
-  let at = lowerText.indexOf(word, from)
-  while (at >= 0 && !startsToken(lowerText, at)) at = lowerText.indexOf(word, at + 1)
-  return at
+/** `text` lower-cased, whitespace collapsed and trimmed: a name compared as a whole. */
+export function flattenedLower(text: string): string {
+  return cached(flattened, text, (source) => lowerCased(source).replace(/\s+/g, ' ').trim())
 }
 
 /** True when every word starts a token of `text`. No words match everything. */
 export function matchesEveryWord(text: string, words: readonly string[]): boolean {
-  const lower = text.toLocaleLowerCase()
-  return words.every((word) => wordStartIndex(lower, word) >= 0)
+  return holdsEveryWord(lowerCased(text), words)
 }
 
 /** The position of the earliest word of the query in `text`, or -1. */
 export function firstWordIndex(text: string, words: readonly string[]): number {
-  const lower = text.toLocaleLowerCase()
+  const lower = lowerCased(text)
   let earliest = -1
   for (const word of words) {
     const at = wordStartIndex(lower, word)

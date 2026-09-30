@@ -6,16 +6,16 @@ import { join } from 'node:path'
 import { CONFIGURABLE_SOLUS_TOOL_NAMES, SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
 import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, isAgentWritableHostConfigKey } from '@solus/contracts/host-config'
 import { matchingToolGroups, groupPatch, groupSummary } from '../../packages/workspace-ui/src/components/settings/lib/solus-tool-groups'
-import type { AgentTool, AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-tool-settings-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
-let settings: typeof import('@solus/server/server/settings')
-let agentTools: typeof import('@solus/server/agents/tools/agent-tool')
-let codex: typeof import('@solus/server/agents/codex/codex-tool-adapter')
-let claude: typeof import('@solus/server/agents/claude/claude-tool-adapter')
+let settings: typeof import('@solus/server/host/settings')
+let agentTools: typeof import('@solus/server/execution/agents/tools/agent-tool')
+let codex: typeof import('@solus/server/execution/agents/codex/codex-tool-adapter')
+let claude: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')
 let credentials: typeof import('@solus/server/typesafe/credentials')
 let calls = 0
 const tool: AgentTool = { name: 'read_work', description: 'Read a work', inputFields: {}, requiresApproval: false,
@@ -26,10 +26,10 @@ const context: AgentToolContext = { provider: 'codex', cwd: dataDir, sessionId: 
 beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   credentials = await import('@solus/server/typesafe/credentials')
-  settings = await import('@solus/server/server/settings')
-  agentTools = await import('@solus/server/agents/tools/agent-tool')
-  codex = await import('@solus/server/agents/codex/codex-tool-adapter')
-  claude = await import('@solus/server/agents/claude/claude-tool-adapter')
+  settings = await import('@solus/server/host/settings')
+  agentTools = await import('@solus/server/execution/agents/tools/agent-tool')
+  codex = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
+  claude = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
 })
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
@@ -39,7 +39,7 @@ afterAll(() => {
 
 describe('Solus tool settings', () => {
   test('catalog covers every toolbox tool once and explicit subagents', async () => {
-    const { solusToolbox } = await import('@solus/server/agents/tools/solus-toolbox')
+    const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
     const expected = Object.values(solusToolbox).flatMap((group) => Object.values(group).map((tool) => tool.name))
     expect([...CONFIGURABLE_SOLUS_TOOL_NAMES].sort()).toEqual([...expected, 'claude_subagent', 'codex_subagent'].sort())
     expect(new Set(CONFIGURABLE_SOLUS_TOOL_NAMES).size).toBe(CONFIGURABLE_SOLUS_TOOL_NAMES.length)

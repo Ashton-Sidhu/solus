@@ -1,5 +1,6 @@
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { toasts } from '../../lib/toasts'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 /** The workspace members this controller reads or calls, and no others. */
@@ -30,7 +31,8 @@ export class SessionControls {
   }
 
   respondPermission(tabId: string, questionId: string, optionId: string): void {
-    this.workspace.apiFor(tabId).respondPermission(this.workspace.ctxFor(tabId), questionId, optionId)
+    const ctx = this.workspace.ctxFor(tabId)
+    this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId)
     track('permission_responded', { decision: optionId })
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
@@ -38,13 +40,25 @@ export class SessionControls {
     if (idx !== -1) session.permissionQueue.splice(idx, 1)
   }
 
-  respondQuestion(tabId: string, questionId: string, answers: Record<string, string>): void {
-    this.workspace.apiFor(tabId).respondQuestion(this.workspace.ctxFor(tabId), questionId, answers)
+  async respondQuestion(tabId: string, questionId: string, answers: Record<string, string>): Promise<boolean> {
+    const ctx = this.workspace.ctxFor(tabId)
+    let answered: boolean
+    try {
+      answered = await this.workspace.apiFor(tabId).respondQuestion(ctx, ctx.session.sessionId, questionId, answers)
+    } catch (error) {
+      toasts.error("Couldn't send answer", { description: String(error) })
+      return false
+    }
+    if (!answered) {
+      toasts.error('This question is no longer open')
+      return false
+    }
     const session = this.workspace.sessionFor(tabId)
-    if (!session) return
+    if (!session) return true
     const idx = session.questionQueue.findIndex((q) => q.questionId === questionId)
     if (idx !== -1) session.questionQueue.splice(idx, 1)
     requestInputFocus({ tabId })
+    return true
   }
 
   interruptSession(sessionId: string, opts: { notice?: boolean } = {}): void {

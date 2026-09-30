@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { PlanComment } from '@solus/contracts/types'
-import type { TurnAuthor } from '@solus/contracts/presence'
+import type { Attribution, User } from '@solus/contracts/user'
 import {
   applyCommentCommand,
   CommentCommandError,
@@ -18,16 +18,18 @@ import {
   type CommentActor,
 } from '@solus/contracts/comment-commands'
 
-const ALICE: TurnAuthor = { userId: 'alice', displayName: 'Alice', colorIndex: 1 }
-const BOB: TurnAuthor = { userId: 'bob', displayName: 'Bob', colorIndex: 2 }
+const ALICE: User = { id: { kind: 'account', accountId: 'alice' }, displayName: 'Alice' }
+const BOB: User = { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' }
+const by = (user: User): Attribution => ({ kind: 'user', user })
+const HOST: Attribution = { kind: 'system' }
 
-const actor = (person: TurnAuthor | null, canModerate = false, now = 1000): CommentActor => ({ person, canModerate, now })
+const actor = (person: User | null, canModerate = false, now = 1000): CommentActor => ({ by: person ? by(person) : HOST, canModerate, now })
 
 const thread = (extra: Partial<PlanComment> = {}): PlanComment => ({
   id: 'c1',
   selectedText: 'Pin 1',
   comment: 'Tighten this',
-  author: 'you',
+  author: HOST,
   createdAt: 500,
   ...extra,
 })
@@ -35,14 +37,15 @@ const thread = (extra: Partial<PlanComment> = {}): PlanComment => ({
 describe('adding a thread', () => {
   test('the host names the person and starts their read mark; the client cannot say who it is', () => {
     const [created] = applyCommentCommand([], { kind: 'add', comment: { id: 'c1', selectedText: 'Pin 1', comment: 'Tighten this', pin: { x: 0.25, y: 0.5 } } }, actor(ALICE))
-    expect(created).toMatchObject({ id: 'c1', author: 'you', person: ALICE, createdAt: 1000, pin: { x: 0.25, y: 0.5 } })
+    expect(created).toMatchObject({ id: 'c1', author: by(ALICE), createdAt: 1000, pin: { x: 0.25, y: 0.5 } })
     expect(created!.readBy).toEqual([{ userId: 'alice', readAt: 1000 }])
     expect(created!.readAt).toBeUndefined()
   })
 
-  test('the host’s own work carries no name and keeps the single-reader mark', () => {
+  test('the host’s own work is Solus’s, names no person, and keeps the single-reader mark', () => {
     const [created] = applyCommentCommand([], { kind: 'add', comment: { id: 'c1', selectedText: 'x', comment: 'note' } }, actor(null))
-    expect(created!.person).toBeUndefined()
+    expect(created!.author).toEqual(HOST)
+    expect(created!.readBy).toBeUndefined()
     expect(created!.readAt).toBe(1000)
   })
 
@@ -51,15 +54,15 @@ describe('adding a thread', () => {
   })
 
   test('the wire schema rejects a client that tries to stamp author or person itself', () => {
-    const parsed = workCommentCommandSchema.safeParse({ kind: 'add', comment: { id: 'c1', selectedText: 'x', comment: 'note', person: BOB } })
+    const parsed = workCommentCommandSchema.safeParse({ kind: 'add', comment: { id: 'c1', selectedText: 'x', comment: 'note', author: by(BOB) } })
     // Zod strips unknown keys: whatever the client claimed about who wrote it is gone.
-    expect(parsed.success && parsed.data.kind === 'add' && 'person' in parsed.data.comment).toBe(false)
+    expect(parsed.success && parsed.data.kind === 'add' && 'author' in parsed.data.comment).toBe(false)
     expect(workCommentCommandSchema.safeParse({ kind: 'add', comment: { id: 'c1', selectedText: 'x', comment: 'note', pin: { x: 2, y: 0 } } }).success).toBe(false)
   })
 })
 
 describe('changing a thread', () => {
-  const alices = thread({ person: ALICE })
+  const alices = thread({ author: by(ALICE) })
 
   test('the author edits and deletes their own thread; another member may not', () => {
     expect(applyCommentCommand([alices], { kind: 'edit', commentId: 'c1', text: 'Loosen this' }, actor(ALICE))[0]!.comment).toBe('Loosen this')
@@ -73,25 +76,32 @@ describe('changing a thread', () => {
   })
 
   test('an agent’s note belongs to nobody in particular, so any editor may tidy it', () => {
-    const agents = thread({ author: 'solus' })
+    const agents = thread({ author: { kind: 'agent', sessionId: 's1', provider: 'codex', for: ALICE } })
     expect(mayChangeThread(agents, actor(BOB))).toBe(true)
   })
 
-  test('a thread written before works had people is the moderator’s, not every member’s', () => {
+  test('the host’s own thread is the moderator’s, not every member’s', () => {
     expect(mayChangeThread(thread(), actor(BOB))).toBe(false)
     expect(mayChangeThread(thread(), actor(BOB, true))).toBe(true)
   })
 
+  test('a person is the same person by user id, not by name', () => {
+    const renamed: User = { ...ALICE, displayName: 'Alice Smith' }
+    const impostor: User = { id: { kind: 'guest', guestId: 'alice' }, displayName: 'Alice' }
+    expect(mayChangeThread(alices, actor(renamed))).toBe(true)
+    expect(mayChangeThread(alices, actor(impostor))).toBe(false)
+  })
+
   test('a reply and a resolve are any editor’s, and both carry who did them', () => {
     const replied = applyCommentCommand([alices], { kind: 'reply', commentId: 'c1', reply: { id: 'r1', text: 'Agreed' } }, actor(BOB))
-    expect(replied[0]!.replies).toEqual([{ id: 'r1', author: 'you', person: BOB, text: 'Agreed', createdAt: 1000 }])
+    expect(replied[0]!.replies).toEqual([{ id: 'r1', author: by(BOB), text: 'Agreed', createdAt: 1000 }])
     // Answering is reading: Bob's own mark moves to now, so his reply is not unread to him.
     expect(replied[0]!.readBy).toEqual([{ userId: 'bob', readAt: 1000 }])
     const settled = applyCommentCommand(replied, { kind: 'resolve', commentId: 'c1', resolved: true }, actor(BOB))
-    expect(settled[0]).toMatchObject({ resolvedAt: 1000, resolvedBy: 'you', resolvedByPerson: BOB })
+    expect(settled[0]).toMatchObject({ resolvedAt: 1000, resolvedBy: by(BOB) })
     const reopened = applyCommentCommand(settled, { kind: 'resolve', commentId: 'c1', resolved: false }, actor(ALICE))
     expect(reopened[0]!.resolvedAt).toBeUndefined()
-    expect(reopened[0]!.resolvedByPerson).toBeUndefined()
+    expect(reopened[0]!.resolvedBy).toBeUndefined()
   })
 
   test('a missing thread is not found', () => {
@@ -101,7 +111,7 @@ describe('changing a thread', () => {
 
 describe('read marks', () => {
   test('are per person: Bob reading does not mark the thread read for Alice, and his second read replaces his first', () => {
-    let threads = applyCommentCommand([thread({ person: ALICE, readBy: [{ userId: 'alice', readAt: 500 }] })], { kind: 'read', commentId: 'c1' }, actor(BOB, false, 700))
+    let threads = applyCommentCommand([thread({ author: by(ALICE), readBy: [{ userId: 'alice', readAt: 500 }] })], { kind: 'read', commentId: 'c1' }, actor(BOB, false, 700))
     threads = applyCommentCommand(threads, { kind: 'read', commentId: 'c1' }, actor(BOB, false, 900))
     expect(threads[0]!.readBy).toEqual([{ userId: 'alice', readAt: 500 }, { userId: 'bob', readAt: 900 }])
   })
@@ -112,7 +122,7 @@ describe('resolving every open thread', () => {
     const open = thread({ id: 'a' })
     const settled = thread({ id: 'b', resolvedAt: 1 })
     const next = applyCommentCommand([open, settled], { kind: 'resolve-open' }, actor(ALICE))
-    expect(next[0]).toMatchObject({ id: 'a', resolvedAt: 1000, resolvedByPerson: ALICE })
+    expect(next[0]).toMatchObject({ id: 'a', resolvedAt: 1000, resolvedBy: by(ALICE) })
     expect(next[1]).toBe(settled)
   })
 })

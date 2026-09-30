@@ -77,18 +77,31 @@ async function main(): Promise<void> {
   }
 
   if (args.command === 'auth-session-create') {
-    const auth = await import('@solus/server/server/auth')
+    const auth = await import('@solus/server/admission/auth')
     const result = auth.issueSshBootstrapCredential((args.deviceLabel ?? 'Solus desktop').slice(0, 64))
     process.stdout.write(args.json ? `${JSON.stringify(result)}\n` : `${result.sessionToken}\n`)
     return
   }
 
-  const [{ bootCore }, auth, { listReachableEndpoints }, { isManagedHost }, { isWorkspaceMode }] = await Promise.all([
+  // Branch before importing bootCore: a workspace service owns no execution runtime.
+  if (process.env.SOLUS_API === '1') {
+    const { bootSolusApi } = await import('@solus/server/boot-solus-api')
+    const service = await bootSolusApi({ host: args.host, port: args.port, staticDir: join(__dirname, '../client') })
+    process.stdout.write(`Solus API reachable at http://${hostForUrl(service.host)}:${service.port}\n`)
+    const stopService = installShutdownHandlers(service, null)
+    if (process.send && process.env.SOLUS_UPDATE_SUPERVISED === '1') {
+      process.once('disconnect', stopService)
+      process.send({ type: 'solus:ready', version: packageJson.version })
+    }
+    return
+  }
+
+  const [{ bootCore }, auth, { listReachableEndpoints }, { hostCategory }, { isApiMode }] = await Promise.all([
     import('@solus/server/boot-core'),
-    import('@solus/server/server/auth'),
-    import('@solus/server/server/endpoints'),
-    import('@solus/server/server/managed-mode'),
-    import('@solus/server/server/workspace-mode'),
+    import('@solus/server/admission/auth'),
+    import('@solus/server/transport/endpoints'),
+    import('@solus/server/host/host-category'),
+    import('@solus/server/host/api-mode'),
   ])
 
   let stopForUpdate: (() => void) | undefined
@@ -119,6 +132,8 @@ async function main(): Promise<void> {
     host: args.host,
     port: args.port,
     staticDir: join(__dirname, '../client'),
+    // A standalone server is a registered self-hosted Solus server (organization-scope §3.1), never a personal computer.
+    hostCategory: 'self-hosted',
   })
 
   // This process is not Electron, so it has no Chromium of its own to host a
@@ -126,7 +141,17 @@ async function main(): Promise<void> {
   // optional: without it the server behaves exactly as it did before, and its
   // browser verbs say they have nowhere to render.
   const { registerPlaywrightBrowserHost } = await import('@solus/server/browser/playwright-host')
-  const closeBrowserHost = await registerPlaywrightBrowserHost()
+  const { registerPlaywrightRecordingEncoderHost } = await import('@solus/server/browser/recording-encoder-playwright')
+  const closePageHost = await registerPlaywrightBrowserHost()
+  // Recording uses the same Chromium install, in a browser of its own that
+  // starts with the first recording.
+  const closeRecordingEncoder = await registerPlaywrightRecordingEncoderHost()
+  const closeBrowserHost = closePageHost || closeRecordingEncoder
+    ? async () => {
+      await closeRecordingEncoder?.()
+      await closePageHost?.()
+    }
+    : null
 
   const endpoint = bestEndpoint(await listReachableEndpoints(core.booted.host, core.booted.port))!
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
@@ -134,7 +159,7 @@ async function main(): Promise<void> {
 
   // A managed host and the workspace service have no pairing (docs/plans/managed-hosts.md §1,
   // cloud-service-model.md §15): a grant is the only way in, so there is no code to print.
-  if (!isManagedHost() && !isWorkspaceMode()) {
+  if (hostCategory() !== 'managed' && !isApiMode()) {
     const pairToken = auth.generatePairToken()
     const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
     process.stdout.write([
@@ -152,7 +177,7 @@ async function main(): Promise<void> {
   }
 }
 
-function installShutdownHandlers(core: BootCore, closeBrowserHost: (() => Promise<void>) | null): () => void {
+function installShutdownHandlers(core: Pick<BootCore, 'shutdown'>, closeBrowserHost: (() => Promise<void>) | null): () => void {
   let shuttingDown = false
   const shutdown = async (signal: NodeJS.Signals) => {
     if (shuttingDown) return
@@ -183,7 +208,12 @@ function installShutdownHandlers(core: BootCore, closeBrowserHost: (() => Promis
 }
 
 main().catch((err) => {
-  log.error('standalone_boot_failed', { error: String(err?.message ?? err) })
+  // A driver error arrives wrapped (drizzle's "Failed query"); the cause says why.
+  const cause = err?.cause ? String(err.cause.message ?? err.cause) : undefined
+  log.error('standalone_boot_failed', { error: String(err?.message ?? err), cause })
   flushLogs()
+  // A packaged server logs only to its file, which a container loses on restart;
+  // the reason it never started must also reach the platform's log.
+  process.stderr.write(`Solus server failed to start: ${String(err?.message ?? err)}${cause ? ` (${cause})` : ''}\n`)
   process.exit(1)
 })

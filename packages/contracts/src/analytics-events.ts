@@ -22,7 +22,7 @@ export interface SolusEventMap {
   worktree_mode_toggled: { enabled: boolean; via?: Via }
   worktree_switched: { via?: Via }
   branch_switched: { via?: Via }
-  plan_approved: { mode: 'ask' | 'auto' }
+  plan_approved: { mode: 'supervised' | 'default' }
   plan_rejected: { has_comment: boolean }
   surface_viewed: { surface: 'workspace' | 'tasks' | 'prs' | 'automations' | 'insights' | 'review' | 'pr_review' | 'plan_modal' | 'work_modal' | 'settings'; via?: Via }
   palette_command_run: { command_id: string }

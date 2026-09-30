@@ -1,6 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
-import type { AgentId, CommentAuthor, IpcContext, Plan, PlanComment, PlanCommentReply, PlanAnnotations, PlanDescriptor, PermissionOption } from '@solus/contracts/types'
+import type { AgentId, IpcContext, Plan, PlanComment, PlanCommentReply, PlanAnnotations, PlanDescriptor, PermissionOption } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import { MemoryCache } from '@solus/contracts/cache'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -292,12 +293,12 @@ export class PlanStore {
     this.scheduleSave(planId)
   }
 
-  setCommentResolved(planId: string, commentId: string, by: CommentAuthor | null): void {
+  /** The host stamps who resolved it when the plan is saved. */
+  setCommentResolved(planId: string, commentId: string, resolved: boolean): void {
     const comment = this.plans[planId]?.comments.find((c) => c.id === commentId)
     if (!comment) return
-    if (by) {
+    if (resolved) {
       comment.resolvedAt = Date.now()
-      comment.resolvedBy = by
     } else {
       delete comment.resolvedAt
       delete comment.resolvedBy
@@ -528,7 +529,9 @@ export class PlanStore {
     descriptors: PlanDescriptor[]
     failedServerIds: Set<string>
   }> {
-    const catalogServerIds = serverConnections.connectedServerIds()
+    // Plans live in provider transcripts on a machine. An organization's Solus
+    // API is connected too, but it is not a machine and has no plans to list.
+    const catalogServerIds = serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId))
     const serverIds = catalogServerIds.filter(
       (serverId) => serverConnections.phaseFor(serverId) === 'connected',
     )

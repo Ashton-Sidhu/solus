@@ -7,7 +7,7 @@ import {
   isConnectionProvider,
 } from '@solus/contracts/connections'
 import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
-import type { AgentTool } from '../agents/tools/agent-tool'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { loadToken as loadCloudflareToken } from '../cloudflare/token-store'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
 import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { TextGenerator } from '@solus/server/agents/text-generator'
-import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
+import { TextGenerator } from '@solus/server/execution/agents/text-generator'
+import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 
 class CapturingDispatcher implements AgentDispatcher {
   requests: AgentRunRequest[] = []

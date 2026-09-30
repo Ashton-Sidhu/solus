@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { QuestionItem } from './types'
+import type { QuestionAnswer, QuestionItem } from './types'
 
 export function isQuestionTool(name: string | undefined): boolean {
   return !!name && /(?:^|[._])(?:AskUserQuestion|request_user_input)$/.test(name)
@@ -27,4 +27,12 @@ export function parseQuestionInput(input: string | undefined): {
   } catch {
     return undefined
   }
+}
+
+/** Text sent to providers for a non-blocking question response. */
+export function questionReply(answer: QuestionAnswer): string {
+  return answer.questions.map((question) => {
+    const value = answer.answers[question.id ?? question.question]?.trim()
+    return value ? `${question.question}\n${value}` : ''
+  }).filter(Boolean).join('\n\n')
 }

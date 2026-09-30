@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   fileChipParts,
+  fileMentionTarget,
   tokenizeMarkdownText,
 } from "@solus/workspace-ui/components/conversation/lib/markdown-text";
 
@@ -37,6 +38,30 @@ describe("user message inline tokens", () => {
       expect(copied).toBe(`@${path}`);
       expect(tokenizeMarkdownText(copied)).toEqual([{ type: "file", path }]);
     }
+  });
+
+  test("a sent file path with spaces stays one chip, and copies whole", () => {
+    // WHY: the composer quotes a path with spaces. The sent message must show
+    // the same single chip, and a copy must paste the quoted form back.
+    const path = "My Notes/plan v2.md";
+    expect(tokenizeMarkdownText(`read @"${path}" now`)).toEqual([
+      { type: "text", value: "read " },
+      { type: "file", path },
+      { type: "text", value: " now" },
+    ]);
+
+    const parts = fileChipParts(path);
+    expect(parts.label).toBe("plan v2.md");
+    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(`@"${path}"`);
+  });
+
+  test("a file chip with a line suffix opens that line", () => {
+    // WHY: `path:12` is how a message points at code; dropping the line opens
+    // the file at the top, and keeping it in the path opens nothing.
+    expect(fileMentionTarget("src/App.svelte:12")).toEqual({ path: "src/App.svelte", line: 12 });
+    expect(fileMentionTarget("src/App.svelte:12-18")).toEqual({ path: "src/App.svelte", line: 12 });
+    expect(fileMentionTarget("src/App.svelte")).toEqual({ path: "src/App.svelte" });
+    expect(fileMentionTarget("src/renderer/")).toEqual({ path: "src/renderer/" });
   });
 
   test("shows the folder name on a folder chip, not the trailing slash", () => {

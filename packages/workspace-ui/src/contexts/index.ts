@@ -3,7 +3,7 @@
  * If it isn't exported here, it's an internal organ — import it only from within its folder.
  */
 
-/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/router. */
+/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/watchesStore/router. */
 export { getWorkspaceContext, setWorkspaceContext } from './workspace/workspace.context.svelte'
 
 /** Every session this client holds, by id — with or without a tab showing it. */
@@ -38,7 +38,6 @@ export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
 export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
-export { inboxStore } from './tasks/inbox.store.svelte'
 
 /** Known projects and per-project configuration. */
 export { projectsStore } from './projects/projects.store.svelte'
@@ -49,17 +48,14 @@ export { getPullRequestsContext } from './prs/pull-requests.context.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
 export { getOtelSettingsStore } from './projects/otel-settings.store.svelte'
 
-/** Shared project identity and page-picker option helpers. */
+/** Shared project identity helpers. */
 export {
-  mergeProjectOptions,
   normalizeProjectRoot,
   projectRefKey,
 } from './projects/project-catalog'
 export type {
   LogicalProject,
   ProjectCatalogEntry,
-  ProjectOptionSource,
-  ProjectPickerOption,
   ProjectRef,
 } from './projects/project-catalog'
 
@@ -112,12 +108,13 @@ export { connectRequestStore } from './connections/connect-request.store.svelte'
 export type { ConnectRequest } from './connections/connect-request.store.svelte'
 /** Provider seats: a member's own Claude and Codex logins on a shared host. */
 export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.store.svelte'
+/** A member's agent profile: their instructions and skills, copied into their seats on a shared host. */
+export { agentProfileStore } from './seats/agent-profile.store.svelte'
 export { presenceStore } from './presence/presence.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 
 /** Session sidebar navigation and historical-session loading. */
 export { getSessionSidebarStore } from './workspace/session-sidebar.store.svelte'
-export { createSessionHistoryStore } from './workspace/session-history.store.svelte'
 
 /** Public types consumed outside the contexts feature. */
 export type { WorkspaceContext } from './workspace/workspace.context.svelte'

@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import type { User } from './user'
 
 /**
  * What can be shared. A task's share reaches everything in it: the task page and
@@ -21,14 +22,17 @@ export const shareResourceSchema = z.object({
 })
 export type ShareResource = z.infer<typeof shareResourceSchema>
 
-export const shareRoleSchema = z.enum(['viewer', 'editor'])
+/** `commenter` reads, comments, and gives a review decision on a work, but
+ *  cannot edit it (docs/plans/work-review-and-live-editing.md). On a session
+ *  or a task it is a viewer. */
+export const shareRoleSchema = z.enum(['viewer', 'commenter', 'editor'])
 export type ShareRole = z.infer<typeof shareRoleSchema>
 
 /** What a principal may do with a resource, highest first. */
-export const resourceRoleSchema = z.enum(['none', 'viewer', 'editor', 'owner'])
+export const resourceRoleSchema = z.enum(['none', 'viewer', 'commenter', 'editor', 'owner'])
 export type ResourceRole = z.infer<typeof resourceRoleSchema>
 
-const RESOURCE_ROLE_RANK = { none: 0, viewer: 1, editor: 2, owner: 3 } as const satisfies Record<ResourceRole, number>
+const RESOURCE_ROLE_RANK = { none: 0, viewer: 1, commenter: 2, editor: 3, owner: 4 } as const satisfies Record<ResourceRole, number>
 
 export function resourceRoleAtLeast(role: ResourceRole, required: ResourceRole): boolean {
   return RESOURCE_ROLE_RANK[role] >= RESOURCE_ROLE_RANK[required]
@@ -61,12 +65,6 @@ export const shareGrantSchema = z.object({
   createdAt: z.number(),
 })
 export type ShareGrant = z.infer<typeof shareGrantSchema>
-
-/**
- * A resource's owner id. `host-owner` stands for the personal host's owner when
- * the resource was created over a local connection, which knows no account id.
- */
-export const HOST_OWNER_USER_ID = 'host-owner'
 
 export const shareListSchema = z.object({
   resource: shareResourceSchema,
@@ -119,8 +117,8 @@ export type ShareTransferRequest = z.infer<typeof shareTransferRequestSchema>
 export interface ShareChangedEvent {
   resource: ShareResource
   ownerUserId: string
-  /** Who changed it, for "Access removed by <name>". */
-  changedBy: { userId: string; displayName: string }
+  /** Who changed it, for "Access removed by <name>"; absent when the host itself changed it. */
+  changedBy?: User
   /** Subjects whose access this change removed; a client that is one of them shows the notice. */
   removedUserIds: string[]
 }

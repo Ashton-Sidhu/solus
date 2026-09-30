@@ -7,7 +7,7 @@ import { Database } from 'bun:sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type ReadStateModule = typeof import('@solus/server/sessions/session-read-state')
+type ReadStateModule = typeof import('@solus/server/data/sessions/session-read-state')
 
 let dataDir: string
 let db: DbModule
@@ -18,7 +18,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-read-state-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  readState = await import('@solus/server/sessions/session-read-state')
+  readState = await import('@solus/server/data/sessions/session-read-state')
 })
 
 beforeEach(() => {

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { createArtifactRevisionIndexer } from '../../packages/workspace-ui/src/components/conversation/lib/artifact-revisions'
+import { artifactRevisions, createArtifactRevisionIndexer } from '../../packages/workspace-ui/src/components/conversation/lib/artifact-revisions'
 import type { Message, Session } from '@solus/contracts/types'
 import type { WorksStore } from '../../packages/workspace-ui/src/contexts/works/works.store.svelte'
 import type { RouterStore } from '../../packages/workspace-ui/src/contexts/workspace/routing/router.store.svelte'
@@ -111,14 +111,14 @@ test('update lifecycle preserves the revision index and leaves saved work metada
   const { tracker, session, messages, replacements } = await fixture()
   const index = createArtifactRevisionIndexer()
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', title: 'V1', html: '<p>One</p>' })
-  const first = index(messages)
+  const first = index(artifactRevisions(messages))
   const original = first.get('work:work')![0]
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>Two', 'update')
-  expect(index(messages)).toBe(first)
+  expect(index(artifactRevisions(messages))).toBe(first)
   const event = { type: 'work_updated' as const, toolId: 'update', workId: 'work', title: 'V2', docType: 'artifact' as const, content: '<p>Two</p>', updatedAt: '2026-09-22T00:00:00Z' }
   tracker.updateArtifact(session, event)
   expect(replacements()).toBe(1)
-  const revisions = index(messages).get('work:work')!
+  const revisions = index(artifactRevisions(messages)).get('work:work')!
   expect(revisions.map(entry => entry.html)).toEqual(['<p>One</p>', '<p>Two</p>'])
   expect(revisions[0]).toEqual(original)
   expect(revisions.at(-1)?.messageId).toBe(messages[1].id)
@@ -126,7 +126,7 @@ test('update lifecycle preserves the revision index and leaves saved work metada
   expect(messages).toHaveLength(2)
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>Failed', 'failed')
   tracker.failArtifact(session, 'failed')
-  expect(index(messages).get('work:work')).toBe(revisions)
+  expect(index(artifactRevisions(messages)).get('work:work')).toBe(revisions)
 })
 
 test('a cloud-owned save completes its artifact update card although it reports doc and no title', async () => {

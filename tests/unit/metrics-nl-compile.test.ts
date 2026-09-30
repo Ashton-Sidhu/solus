@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { compileNlToSql, extractSql, nlCompileSystemPrompt } from '@solus/server/observability/nl-compile'
+import { compileNlToSql, extractSql, nlCompileSystemPrompt } from '@solus/server/data/insights/nl-compile'
 import type { MetricsSqlValidation } from '@solus/contracts/observability-types'
 
 const ok: MetricsSqlValidation = { ok: true, columns: ['n'] }

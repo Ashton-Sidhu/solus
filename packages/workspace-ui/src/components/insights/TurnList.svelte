@@ -6,7 +6,12 @@
     functionalUpdate,
     type SortingState,
   } from "@tanstack/svelte-table";
-  import { ChevronRight as CaretRightIcon, Layers2 as StackSimpleIcon } from "@lucide/svelte";
+  import {
+    ChevronRight as CaretRightIcon,
+    Layers2 as StackSimpleIcon,
+    MessageSquare as SessionIcon,
+    CircleDashed as RunningIcon,
+  } from "@lucide/svelte";
   import * as Table from "../ui/table";
   import DataTableEmptyState from "./data-table/DataTableEmptyState.svelte";
   import DataTableColumnsMenu from "./data-table/DataTableColumnsMenu.svelte";
@@ -40,10 +45,16 @@
     spansMultipleDays,
   } from "./lib/format";
   import { MIN_TRACK_PX } from "./lib/table-grid";
+  import { modelName, providerMark } from "./lib/provider";
+  import ProviderMark from "../ui/ProviderMark.svelte";
+  import type { TurnFlag } from "@solus/contracts/observability-types";
+  import { flagChoice, flagColor, flagTitle } from "./lib/turn-flags";
   import {
     countByStatus,
     groupBySession,
+    isRunningTurn,
     p95Duration,
+    sessionCellLabel,
     withStatus,
     type TurnRow,
     type TurnSort,
@@ -63,6 +74,12 @@
     selectedTraceId: string | null;
     onOpenTurn: (row: TurnRow) => void;
     onOpenSession: (sessionId: string) => void;
+    /** The session's own Insights page — every turn of it on one axis. */
+    onOpenSessionPage?: (sessionId: string) => void;
+    /** The session's own name, when the host has one, for a turn with no task. */
+    sessionName?: (sessionId: string) => string | null;
+    /** A person's marks on turns, by trace, for the chip beside the prompt. */
+    flags?: ReadonlyMap<string, TurnFlag>;
     emptyHint: string;
     totalRows?: number;
     pageIndex?: number;
@@ -86,6 +103,9 @@
     selectedTraceId,
     onOpenTurn,
     onOpenSession,
+    onOpenSessionPage,
+    sessionName,
+    flags,
     emptyHint,
     totalRows,
     pageIndex,
@@ -145,13 +165,13 @@
     { key: "tokens", label: "Tokens", align: "end" },
   ];
   // Default widths, in pixels and including the cell's own padding, sized from
-  // what each column holds: a wall-clock instant with its day, a session uuid,
-  // a model name, and measures no wider than their widest value. They are only
-  // defaults — every column is resizable.
+  // what each column holds: a wall-clock instant with its day, a task title or
+  // a short session id, a model name, and measures no wider than their widest
+  // value. They are only defaults — every column is resizable.
   const WIDTHS = {
     startedAt: 124,
     prompt: 360,
-    sessionId: 216,
+    sessionId: 184,
     model: 152,
     durationMs: 104,
     costUsd: 92,
@@ -315,11 +335,16 @@
   function rowMenuActions(row: TurnRow): { label: string; run: () => void }[] {
     const actions = [{ label: "Open turn", run: () => onOpenTurn(row) }];
     const sessionId = row.sessionId;
-    if (sessionId)
+    if (sessionId) {
       actions.push({
         label: "Open session",
         run: () => onOpenSession(sessionId),
       });
+      const openPage = onOpenSessionPage;
+      if (openPage) {
+        actions.push({ label: "Session page", run: () => openPage(sessionId) });
+      }
+    }
     return actions;
   }
 
@@ -338,6 +363,8 @@
       return "color-mix(in oklch, var(--failure) 7%, transparent)";
     if (row.status === "interrupted")
       return "color-mix(in oklch, var(--warning) 8%, transparent)";
+    if (isRunningTurn(row))
+      return "color-mix(in oklch, var(--primary) 5%, transparent)";
     return "transparent";
   }
 
@@ -403,34 +430,81 @@
       {spansDays ? formatDayClock(row.startedAt) : formatClock(row.startedAt)}
     </span>
   {:else if columnId === "prompt"}
+    {@const flag = flags?.get(row.traceId)}
     <span class="flex min-w-0 items-center gap-2">
       <span class="truncate text-insights-table" title={row.prompt}
         >{singleLine(row.prompt) || "—"}</span
       >
+      {#if flag}
+        {@const choice = flagChoice(flag.kind)}
+        <!-- The person's own mark, in the row: it is why the row is worth a
+             second look, and the query surface later filters on it. -->
+        <span
+          class="flex shrink-0 items-center gap-1 text-insights-table"
+          style="color:{flagColor(flag.kind)}"
+          title={flagTitle(flag.kind, flag.note)}
+        >
+          <choice.icon class="size-3.5" aria-hidden="true" />
+          {choice.short}
+        </span>
+      {/if}
     </span>
   {:else if columnId === "sessionId"}
     {#if grouped}
       <span></span>
     {:else}
-      <button
-        type="button"
-        class="cursor-pointer truncate text-left text-insights-table text-muted-foreground transition-colors hover:text-(--primary) hover:underline"
-        onclick={(event) => {
-          event.stopPropagation();
-          if (row.sessionId) onOpenSession(row.sessionId);
-        }}
-        disabled={!row.sessionId}>{row.sessionId ?? "—"}</button
-      >
+      <!-- Text, not a link: the row is the target, and it opens the turn. A
+           session cell that was itself a button caught every click that landed
+           mid-row and opened the conversation instead. The way to the session
+           is the small control at the cell's edge, shown on hover and always
+           in the tab order, and the row's context menu. -->
+      {@const label = sessionCellLabel(row, row.sessionId ? (sessionName?.(row.sessionId) ?? null) : null)}
+      <span class="flex min-w-0 items-center gap-1">
+        <span
+          class="min-w-0 truncate text-insights-table text-muted-foreground {label.isId
+            ? 'font-mono'
+            : ''}"
+          title={row.sessionId ?? undefined}
+          >{label.text}</span
+        >
+        {#if row.sessionId}
+          {@const sessionId = row.sessionId}
+          <button
+            type="button"
+            class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-colors group-hover/turn:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) pointer-coarse:opacity-100"
+            title="Open the session"
+            aria-label="Open the session"
+            onclick={(event) => {
+              event.stopPropagation();
+              onOpenSession(sessionId);
+            }}><SessionIcon class="size-3" aria-hidden="true" /></button
+          >
+        {/if}
+      </span>
     {/if}
   {:else if columnId === "model"}
-    <span class="block truncate text-insights-table text-muted-foreground"
-      >{row.model ?? "—"}</span
-    >
+    <!-- The model by its own name, behind its backend's logo. The recorded
+         id — what a query filters on — is the hover. -->
+    <span class="flex min-w-0 items-center gap-1.5" title={row.model ?? undefined}>
+      <ProviderMark mark={providerMark(row.provider)} size={12} />
+      <span class="truncate text-insights-table text-muted-foreground"
+        >{modelName(row.provider, row.model) ?? "—"}</span
+      >
+    </span>
   {:else if columnId === "durationMs"}
-    <span
-      class="block text-right text-insights-table tabular-nums"
-      style="color:{durationColor(row)}">{formatDuration(row.durationMs)}</span
-    >
+    {#if isRunningTurn(row)}
+      <!-- A turn with no end is still running. The state is a shape, not a
+           word, and the glyph is the rail's, so a running turn reads the same
+           in both. It does not animate: the row changes when the turn ends. -->
+      <span class="flex items-center justify-end text-(--primary)" role="img" aria-label="Running" title="Running">
+        <RunningIcon class="size-3.5 shrink-0" aria-hidden="true" />
+      </span>
+    {:else}
+      <span
+        class="block text-right text-insights-table tabular-nums"
+        style="color:{durationColor(row)}">{formatDuration(row.durationMs)}</span
+      >
+    {/if}
   {:else if columnId === "costUsd"}
     <span class="block text-right text-insights-table tabular-nums"
       >{formatCost(row.costUsd)}</span
@@ -454,7 +528,7 @@
 {#snippet turnRow(row: TurnRow, indent: number)}
   {@const current = row.traceId === selectedTraceId}
   <Table.Row
-    class="h-10 cursor-pointer border-0 outline-none transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {current
+    class="group/turn h-10 cursor-pointer border-0 outline-none transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {current
       ? 'shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--solus-art-1)_55%,transparent)]'
       : 'shadow-[inset_0_-0.5px_0_var(--hairline)]'}"
     style="background:{rowBackground(row)}"
@@ -603,7 +677,9 @@
                       >{singleLine(group.firstPrompt)}</span
                     >
                   {:else if column.id === "sessionId"}
-                    <span class="block truncate">{group.sessionId}</span>
+                    <span class="block truncate" title={group.sessionId}
+                      >{sessionCellLabel(group, sessionName?.(group.sessionId) ?? null).text}</span
+                    >
                   {:else if column.id === "durationMs"}
                     <span class="block text-right tabular-nums"
                       >{formatDuration(group.totalDurationMs)}</span
@@ -618,8 +694,8 @@
             </Table.Row>
             {#if open}
               <!-- An expanded session is bounded so it stays an entry in a list
-                   of sessions: three turns on a laptop, five on a taller
-                   desktop display, then the session scrolls in place under the
+                   of sessions: three turns, five on a taller display, then
+                   the session scrolls in place under the
                    app's standard thumb. Without it one long session pushes
                    every other session off the screen.
 

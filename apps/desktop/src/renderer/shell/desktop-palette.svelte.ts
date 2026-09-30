@@ -26,11 +26,16 @@ import {
   RefreshCw as RefreshIcon,
   Download as DownloadIcon,
   Users as UsersIcon,
+  Building2 as OrganizationIcon,
 } from "@lucide/svelte";
 
 import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
+import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
+import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
+import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
+import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
 import {
   activeSessionShareTarget,
   projectsStore,
@@ -60,10 +65,41 @@ import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
 
+/**
+ * "Switch organization…" (organization-scope §2): the window's organization is a
+ * filter on what it shows beside Local, never a move of any record. Absent when
+ * the account holds no organization.
+ */
+function switchOrganizationCommands(): Command[] {
+  const organizations = serversStore.organizations;
+  if (organizations.length === 0) return [];
+  return [{
+    id: "switch-organization",
+    label: "Switch organization…",
+    group: "General",
+    icon: OrganizationIcon,
+    hint: comboHint("global.switch-organization"),
+    keywords: ["organization", "org", "team", "workspace", "cloud"],
+    children: organizations.map((organization) => ({
+      id: `switch-organization:${organization.organizationId}`,
+      label: organization.name,
+      group: "Organizations",
+      icon: OrganizationIcon,
+      hint: organization.isActive
+        ? "Active"
+        : organization.policy.allowsPersonalHosts
+          ? undefined
+          : "Personal computers not allowed",
+      keywords: ["organization", "org", organization.organizationId],
+      run: () => serversStore.selectOrganization(organization.organizationId),
+    })),
+  }];
+}
+
 export function createDesktopPalette(
   core: DesktopAppCore,
   ui: DesktopDialogs,
-  startOpenProject: (options?: { sourceId?: string }) => void,
+  startOpenProject: (options?: { sourceId?: string; source?: ProjectSource }) => void,
 ) {
   const {
     settings,
@@ -187,7 +223,6 @@ export function createDesktopPalette(
       icon: FolderOpenIcon,
       hint: comboHint("global.select-project"),
       keywords: [
-        "new project",
         "clone",
         "repository",
         "git",
@@ -199,6 +234,15 @@ export function createDesktopPalette(
       ],
       run: () =>
         startOpenProject({ sourceId: session.focusedSourceId ?? undefined }),
+    },
+    {
+      id: "new-project",
+      label: "New project…",
+      group: "General",
+      icon: PlusIcon,
+      keywords: ["create", "folder", "start", "empty", "git init", "website", "app"],
+      run: () =>
+        startOpenProject({ sourceId: session.focusedSourceId ?? undefined, source: "new" }),
     },
     {
       id: "go-to-file",
@@ -219,21 +263,21 @@ export function createDesktopPalette(
       run: () => (ui.projectSearchOpen = true),
     },
     {
-      id: "new-task",
-      label: "New task",
-      group: "General",
-      icon: PlusIcon,
-      hint: comboHint("global.new-task"),
-      keywords: ["create", "task"],
-      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
-    },
-    {
-      id: "new-tab",
+      id: "new-session",
       label: "New session",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-session"),
-      keywords: ["create", "session", "tab"],
+      keywords: ["create", "session", "tab", "chat"],
+      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
+    },
+    {
+      id: "new-session-in-task",
+      label: "New session in task",
+      group: "General",
+      icon: PlusIcon,
+      hint: comboHint("global.new-session-in-task"),
+      keywords: ["create", "session", "tab", "task"],
       run: () => session.drafts.openSessionDraft({ via: "palette" }),
     },
     {
@@ -246,6 +290,7 @@ export function createDesktopPalette(
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
+    justChatCommand(session),
     {
       id: "save-prompt",
       label: "Save prompt",
@@ -404,7 +449,7 @@ export function createDesktopPalette(
   }
 
   const paletteCommands = $derived.by(() => {
-    const commands: Command[] = [...baseCommands];
+    const commands: Command[] = [...baseCommands, ...workReviewPaletteCommands(session)];
 
     if (updatesStore.isAvailable) {
       commands.push({
@@ -474,6 +519,8 @@ export function createDesktopPalette(
       children: switchServerChildren,
     });
 
+    commands.push(...switchOrganizationCommands());
+
     for (const host of serversStore.nearbyHosts) {
       commands.push({
         id: `connect-host:${host.server.installationId}`,
@@ -517,6 +564,8 @@ export function createDesktopPalette(
       ],
       run: () => session.openBrowser(),
     });
+    // Start or stop recording the page the browser pane shows.
+    commands.push(...browserRecordingCommands(() => focusLeadingComposer(session.router)));
 
     commands.push({
       id: "open-plan",
@@ -588,7 +637,7 @@ export function createDesktopPalette(
       children: automationChildren,
     });
     // Create a task — one entry scoped to the status-bar project, plus a sub-page
-    // to pick any other known project. Both pop the standalone create-task modal.
+    // to pick any other known project. Both start a new task (`startNewTask`).
     const taskContext = session.taskCreationContext;
     const taskCwd = taskContext?.projectKey ?? null;
     if (taskContext && taskCwd) {
@@ -599,9 +648,9 @@ export function createDesktopPalette(
         label: `Create task in ${taskProjectName}`,
         group: "Tasks",
         icon: CheckSquareIcon,
-        hint: comboHint("global.create-task"),
+        hint: comboHint("global.new-task"),
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => session.openTaskComposer(taskContext.serverId, taskCwd, true),
+        run: () => void session.startNewTask(taskContext.serverId, taskCwd, true),
       });
     }
     const projectsServerId = paletteProjectsServerId;
@@ -613,7 +662,7 @@ export function createDesktopPalette(
           group: "Projects",
           icon: FolderIcon,
           keywords: [p.folderName, p.path],
-          run: () => session.openTaskComposer(projectsServerId, p.path),
+          run: () => void session.startNewTask(projectsServerId, p.path),
         }))
       : [];
     commands.push({
@@ -637,7 +686,6 @@ export function createDesktopPalette(
           label: t.title,
           group: "Tasks",
           icon: ListChecksIcon,
-          hint: t.kind === "epic" ? "Epic" : undefined,
           keywords: ["task", t.id, t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
         }))

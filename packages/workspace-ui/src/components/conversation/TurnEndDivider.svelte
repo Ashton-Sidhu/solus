@@ -7,6 +7,8 @@
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import { NO_REPLY_LABEL } from "./lib/transient";
   import type { TurnEnd } from "./lib/turns";
+  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
+  import { actorName } from "../presence/lib/actor-name";
 
   /**
    * §17's two transient endings — a stop and a turn that answered nothing. Both
@@ -23,9 +25,14 @@
     /** Retry re-runs the last prompt, so only the last turn can offer it. */
     onRetry?: () => void;
     skipMotion?: boolean;
+    /** The session's host, which says who the reader is there. */
+    serverId?: string;
   }
 
-  let { end, onRetry, skipMotion = false }: Props = $props();
+  let { end, onRetry, skipMotion = false, serverId }: Props = $props();
+
+  // Only a stop the host named has a person; "by you" only when it was the reader.
+  const stopper = $derived(end.by && serverId ? actorName(end.by, presenceStore.currentUserId(serverId)) : null);
 
   // §17 — the same words on whichever surface fired, so there is one retry
   // pattern to learn.
@@ -52,6 +59,6 @@
   {#if end.kind === "no-reply"}
     {NO_REPLY_LABEL}
   {:else}
-    Stopped{end.cause ? ` ${end.cause}` : ""}
+    Stopped{stopper ? ` by ${stopper}` : end.cause ? ` ${end.cause}` : ""}
   {/if}
 </TranscriptDivider>

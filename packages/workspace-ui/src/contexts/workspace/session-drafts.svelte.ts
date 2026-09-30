@@ -5,7 +5,7 @@ import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { type NavTarget, type PaneId } from './routing/location'
 import { CHAT_ROUTE } from './routing/route-registry'
-import { SessionDraft, existingTaskId, requestedTaskTarget, taskBindingSessionId } from './session-draft.svelte'
+import { SessionDraft, requestedTaskTarget } from './session-draft.svelte'
 import { alignRunProvider, resolveNewRunConfig } from './run-config'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import type { WorkspaceContext, PersistedSessionDrafts, CreateTabOptions } from './workspace.context.svelte'
@@ -23,7 +23,6 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
   | 'runFor'
   | 'sessionFor'
   | 'sessions'
-  | 'settings'
   | 'tasksStore'
 >
 
@@ -110,17 +109,13 @@ export class SessionDrafts {
       serverId: options.serverId,
       taskServerId: options.taskServerId,
     })
-    // A new task (⌘N) keeps the focused session's project, model, and mode, and
-    // starts in the project's main checkout. Its host is the focused one while
-    // that host is up; when it is not, the run-on rule picks another checkout of
-    // the project (docs/plans/project-model.md §6). ⌘T keeps everything.
+    // A new session (⌘N) keeps the focused session's project, model, and mode,
+    // and starts in the project's main checkout. Its host is the focused one
+    // while that host is up; when it is not, the run-on rule picks another
+    // checkout of the project (docs/plans/project-model.md §6). New session in
+    // task keeps everything.
     if (options.freshTask && !options.serverId && serversStore.statusFor(run.serverId) !== 'online') {
       this.workspace.opening.moveToRunOnHost(run)
-    }
-    // A host several people share starts every new session in its own worktree
-    // (docs/plans/project-model.md §7); a person's own machine does not.
-    if (serversStore.isolatesSessions(run.serverId) && !run.gitContext?.worktreePath) {
-      run.worktree = run.worktree ?? { baseBranch: null }
     }
     const draft = new SessionDraft(this.workspace.defaultRunConfig, run)
     if (options.worktreeRequested) {
@@ -149,24 +144,6 @@ export class SessionDrafts {
   startSessionDraft(draftId: string, options: CreateTabOptions = {}): string | null {
     const draft = this.sessionDrafts.get(draftId)
     if (!draft) return null
-    // With the task system off, the composer starts every session with no task.
-    // Decided here, at send, so a draft written or saved before the switch was
-    // flipped follows the setting as it is now.
-    if (!this.workspace.settings.tasksEnabled) draft.task = { kind: 'none' }
-    // A draft left behind by a background start files under the session that
-    // start fired. That session was minting its task at the time, so the id
-    // could not be read then; it can be now — from the durable link once it is
-    // in the store, or from the binding the mint left on the session before
-    // that. If neither has landed, `{ kind: 'new' }` stands and this session
-    // mints its own.
-    const followedSessionId = draft.taskFollowsSessionId
-    const followedTaskId = followedSessionId
-      ? this.workspace.tasksStore.taskForSession(followedSessionId)?.id
-        ?? existingTaskId(this.workspace.sessions.byId[followedSessionId]?.task ?? { kind: 'new' })
-      : null
-    if (followedTaskId && draft.task.kind === 'new') {
-      draft.task = { kind: 'existing', taskId: followedTaskId }
-    }
     const tabId = this.workspace.createSession(draft.spec, options)
     this.dropDraft(draftId)
     return tabId
@@ -191,9 +168,9 @@ export class SessionDrafts {
     const tabId = this.startSessionDraft(draftId, { activate: false, reveal: false, via: 'keybinding' })
     if (!tabId) return false
     const started = this.workspace.sessionFor(tabId)
-    // Read the target back off the session rather than the draft: a draft that
-    // was following an earlier send had its own target resolved on the way in,
-    // and the next one in the run must inherit *that*, not what it said before.
+    // Read the target back off the session rather than the draft: starting the
+    // draft can change it (the task system switched off), and the next one in
+    // the run must inherit what was sent.
     const task = started?.task ?? draft.task
     if (!this.workspace.dispatch.sendMessage(text, undefined, tabId)) return false
     // The draft's prompt object belongs to the started session now, and the
@@ -212,8 +189,6 @@ export class SessionDrafts {
     next.run.worktree = run.worktree ? { ...run.worktree } : null
     next.task = task
     next.boundWorkId = boundWorkId
-    // Aimed at a new task, the next send joins the one this send is minting.
-    next.taskFollowsSessionId = task.kind === 'new' && started ? taskBindingSessionId(started) : null
     this.sessionDrafts.set(next.id, next)
     this.workspace.router.navigate({ name: 'draft', params: { draftId: next.id } }, { via: 'keybinding', target })
     toasts.success('Session started in the background')

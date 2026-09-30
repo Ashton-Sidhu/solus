@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import type { Message, Session, Tab, SettingsCtx } from '@solus/contracts/types'
 
 import { needsRateLimitDecision } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -27,7 +28,7 @@ async function createReducer(
     permissionQueue: [],
     questionQueue: [],
     run: {},
-    task: { kind: 'new' },
+    task: { kind: 'none' },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
   const settings: Pick<SettingsCtx, 'rateLimitBehavior'> = { rateLimitBehavior: 'ask' }
@@ -62,6 +63,27 @@ async function createReducer(
 }
 
 describe('SessionEventReducer card stream boundaries', () => {
+  test('keeps async questions after turn settlement and shows a blocking question first', async () => {
+    const { reducer, session } = await createReducer([])
+    const [asyncQuestion] = new CodexTurnNormalizer({ planMode: false }).push({
+      method: 'item/completed', params: { threadId: 'provider-1', item: {
+        type: 'agentMessage', id: 'async-1', delivery: 'async', text: 'Which package?',
+        questions: [{ title: 'Which package?', options: [] }],
+      } },
+    })
+    expect(asyncQuestion?.type).toBe('question_request')
+    if (!asyncQuestion) throw new Error('Codex async question was not normalized')
+    reducer.apply('session-1', asyncQuestion)
+    reducer.apply('session-1', { type: 'question_request', questionId: 'blocking-1',
+      questions: [{ id: 'branch', question: 'Which branch?', options: [], multiSelect: false }] })
+    expect(session.questionQueue.map((question) => question.questionId)).toEqual(['blocking-1', 'codex-async:provider-1:async-1'])
+    reducer.apply('session-1', { type: 'task_complete', result: '', costUsd: 0, durationMs: 1, numTurns: 1, usage: {}, sessionId: 'provider-1' })
+    reducer.apply('session-1', { type: 'turn_settled', turnId: 'turn-1', outcome: 'completed', settledAt: Date.now() })
+    expect(session.questionQueue.map((question) => question.questionId)).toEqual(['codex-async:provider-1:async-1'])
+    reducer.apply('session-1', { type: 'status_change', status: 'idle' })
+    expect(session.questionQueue.map((question) => question.questionId)).toEqual(['codex-async:provider-1:async-1'])
+  })
+
   test('an accepted question becomes one visible receipt and clears pending input on each client', async () => {
     const { reducer, session } = await createReducer([])
     const questions = [{ id: 'scope', question: 'Which branch?', options: [], multiSelect: false }]
@@ -73,6 +95,18 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.questionQueue).toHaveLength(0)
     expect(session.messages.filter((message) => message.questionAnswer)).toHaveLength(1)
     expect(session.messages[0].questionAnswer?.answers).toEqual({ scope: 'main' })
+  })
+
+  test('async reply delivery and event replay leave only one Q&A row', async () => {
+    const { reducer, session } = await createReducer([])
+    const questionId = 'codex-async:provider-1:ask'
+    const answer = { questionId, questions: [{ id: '0', question: 'Which branch?', options: [], multiSelect: false }], answers: { '0': 'main' } }
+    const delivery = { type: 'user_message' as const, text: 'Which branch?\nmain', via: 'question-answer' as const }
+    reducer.apply('session-1', delivery)
+    reducer.apply('session-1', { type: 'question_answered', answer, timestamp: 10 })
+    reducer.apply('session-1', delivery)
+    expect(session.messages).toHaveLength(1)
+    expect(session.messages[0].questionAnswer).toEqual(answer)
   })
 
   test('keeps provisional task ownership until the durable session link hydrates', async () => {
@@ -87,7 +121,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => hydration,
       (taskId, sessionId) => { tracked = [taskId, sessionId] },
     )
-    session.task = { kind: 'existing', taskId: 'subtask-1' }
+    session.task = { kind: 'existing', taskId: 'new-task-1' }
     session.currentTurnStart = 'fresh'
     session.run.serverId = 'remote-host'
     session.run.taskServerId = 'task-host'
@@ -100,16 +134,16 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
 
     // WHY: clearing this before hydration resolves gives the sidebar one frame
-    // where the new subtask is rendered as an unrelated loose session.
-    expect(tracked).toEqual(['subtask-1', 'session-1'])
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
+    // where the new task is rendered as an unrelated loose session.
+    expect(tracked).toEqual(['new-task-1', 'session-1'])
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
 
-    finishHydration({ id: 'subtask-1' })
+    finishHydration({ id: 'new-task-1' })
     await hydration
     await Promise.resolve()
     // WHY: the durable link is authoritative once it exists, so the mounted
     // session keeps its durable task identity.
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
   })
 
   test('links a fresh dispatched session without task-owned branch metadata', async () => {
@@ -196,6 +230,44 @@ describe('SessionEventReducer card stream boundaries', () => {
 
     reducer.apply('session-1', { type: 'thinking', state: 'start' })
     expect(session.currentActivity).toBe('Thinking...')
+  })
+
+  test('hands the thoughts to the next tool call, once', async () => {
+    // WHY: the tool group opens the thoughts that led to the call. A thought
+    // with no readable text adds nothing, and thoughts must not leak onto a
+    // later call.
+    const { reducer, session } = await createReducer([])
+    const think = (text?: string) => {
+      reducer.apply('session-1', { type: 'thinking', state: 'start' })
+      reducer.apply('session-1', { type: 'thinking', state: 'stop', ...(text ? { text } : {}) })
+    }
+    think('An early idea')
+    think('**Reading the stylesheet**\n\nThe rule is unlayered.')
+    think()
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Read', toolId: 'read', index: 0 })
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Edit', toolId: 'edit', index: 1 })
+
+    expect(session.messages.map((message) => message.thoughts)).toEqual([
+      ['An early idea', '**Reading the stylesheet**\n\nThe rule is unlayered.'],
+      undefined,
+    ])
+  })
+
+  test('starts a new prose block after a thought, carrying it', async () => {
+    // WHY: a thought between two prose blocks renders where it happened, and
+    // the reloaded transcript splits the prose the same way. Text with no
+    // thought before it keeps appending to the open block.
+    const { reducer, session } = await createReducer([])
+    reducer.apply('session-1', { type: 'text_chunk', text: 'Looking.' })
+    reducer.apply('session-1', { type: 'text_chunk', text: ' Still looking.' })
+    reducer.apply('session-1', { type: 'thinking', state: 'start' })
+    reducer.apply('session-1', { type: 'thinking', state: 'stop', text: 'The rule is unlayered.' })
+    reducer.apply('session-1', { type: 'text_chunk', text: 'Found it.' })
+
+    expect(session.messages.map((message) => [message.content, message.thoughts])).toEqual([
+      ['Looking. Still looking.', undefined],
+      ['Found it.', ['The rule is unlayered.']],
+    ])
   })
 
   test('adds an interrupt divider immediately and deduplicates the provider confirmation', async () => {
@@ -357,7 +429,7 @@ describe('SessionEventReducer card stream boundaries', () => {
         cwd: '/project',
         origin: 'created',
         exchanges: [{
-          exchangeId: 'x1',
+          messageId: 'x1',
           index: 1,
           prompt: 'Investigate the issue',
           dispatchedAt: 0,
@@ -387,14 +459,14 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x1', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x1', origin: 'prompted',
         prompt: 'First question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 1,
       },
     })
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x2', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x2', origin: 'prompted',
         prompt: 'Second question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 2,
       },
     })
@@ -407,7 +479,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x3', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', messageId: 'x3', origin: 'prompted',
         prompt: 'Third question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 3,
       },
     })
@@ -417,7 +489,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', {
       type: 'agent_conversation_update',
       update: {
-        phase: 'settled', agentSessionId: 'agent-1', exchangeId: 'x1', status: 'completed',
+        phase: 'settled', agentSessionId: 'agent-1', messageId: 'x1', status: 'completed',
         replyText: 'First answer', settledAt: 4,
       },
     })
@@ -435,7 +507,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       text: '[session report] Session abc finished (status: completed). Final reply:\nhello',
       via: 'session-report',
       agentSessionId: 'abc',
-      agentExchangeId: 'x1',
+      agentMessageId: 'x1',
     })
     expect(session.messages).toHaveLength(0)
 
@@ -451,7 +523,7 @@ describe('SessionEventReducer card stream boundaries', () => {
 
   test('a held prompt keeps the author the host stamped, so the queue names who is waiting', async () => {
     const { reducer, session } = await createReducer([])
-    const author = { userId: 'cara', displayName: 'Cara', colorIndex: 3 }
+    const author = { id: { kind: 'account' as const, accountId: 'cara' }, displayName: 'Cara' }
 
     // docs/plans/multiplayer-presence.md §5: another person's held prompt is
     // labelled like their sent one; a client that never saw the author would
@@ -562,4 +634,21 @@ describe('host rate-limit state across client preferences', () => {
       expect(needsRateLimitDecision(session)).toBe(false)
     })
   }
+})
+
+describe('browser recordings in the transcript', () => {
+  test('a recording the agent stopped becomes its own message at that moment', async () => {
+    const { reducer, session } = await createReducer([])
+    const recording = {
+      browserPageId: 'page-1', assetId: `${'c'.repeat(64)}.mp4`, hostPath: '/host/recording.mp4',
+      url: 'http://localhost:5173/', title: 'Home', viewport: 'Desktop — 1280×800',
+      durationMs: 12_000, sizeBytes: 900_000, capturedAt: 5,
+    }
+    reducer.apply('session-1', { type: 'browser_recording_captured', recording })
+
+    // WHY: the user must see the recording whatever the agent writes next, so
+    // it is a message of its own and not folded into later prose.
+    expect(session.messages).toHaveLength(1)
+    expect(session.messages[0]).toMatchObject({ role: 'assistant', content: '', browserRecording: recording })
+  })
 })

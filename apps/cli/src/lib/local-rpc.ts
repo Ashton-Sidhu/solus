@@ -1,7 +1,7 @@
 /**
  * A one-shot RPC call to the Solus server running on this machine. A loopback
  * socket is admitted as the local owner with no credential
- * (`packages/server/src/server/trusted-requesters.ts`), which is exactly the
+ * (`packages/server/src/transport/trusted-requesters.ts`), which is exactly the
  * trust `solus update`/`solus status` need: whoever can run this CLI already
  * has the same filesystem access as the server.
  */

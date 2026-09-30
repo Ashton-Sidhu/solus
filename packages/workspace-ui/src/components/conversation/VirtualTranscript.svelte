@@ -35,12 +35,19 @@
   $effect(() => {
     if (active && slots.length) return observeStartupTranscriptPaint(tabId);
   });
+  // Runs after the slots reach the DOM, before paint: a row that mounted or
+  // unmounted above the reader is corrected in the same frame.
+  $effect(() => {
+    void slots;
+    void trailingSpace;
+    untrack(() => virtualizer.rendered());
+  });
 </script>
 
 <div bind:this={element} class="relative messages-list cv-list" style="overflow-anchor:none">
   {#each slots as slot (slot.key)}
     <div aria-hidden="true" style:height="{slot.space}px"></div>
-    <div use:virtualizer.row={slot.key} data-transcript-turn-id={slot.key} class="virtual-turn flow-root pb-2 @max-[30rem]/pane:pb-3">
+    <div use:virtualizer.row={slot.key} data-transcript-turn-id={slot.key} class="virtual-turn flow-root pb-4">
       <div class="space-y-2 @max-[30rem]/pane:space-y-3">
         {#if turns[slot.index]}
           {@render children(turns[slot.index], slot.index)}

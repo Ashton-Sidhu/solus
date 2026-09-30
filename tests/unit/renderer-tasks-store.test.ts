@@ -68,7 +68,6 @@ function task(): Task {
   return {
     id: 'task-1',
     providerId: 'local',
-    kind: 'task',
     title: 'Hydrated task',
     body: '',
     status: 'in_progress',
@@ -199,7 +198,6 @@ describe('renderer task hydration', () => {
         comments: [{ id: 'comment-1', body: 'Landed' }],
         events: [],
         links: [],
-        subtasks: [],
       }),
     }
     taskServerConnections.registerPrimary('local', api)
@@ -308,7 +306,6 @@ describe('renderer task hydration', () => {
           comments: [],
           events: [],
           links: [],
-          subtasks: [],
         }
       },
     }
@@ -336,6 +333,58 @@ describe('renderer task hydration', () => {
     stopWatching()
   })
 
+  test('a named task change re-reads that task alone and merges it in place', async () => {
+    // WHY: the whole sidebar list is over a megabyte at a thousand tasks, and
+    // agents change titles and branches every few seconds. Re-reading the whole
+    // list for each of those sent ~15 MB a minute to every connected client.
+    jest.useFakeTimers()
+    installStateRune()
+    const sidebarReads: Array<string[] | undefined> = []
+    let rows = [
+      { ...task(), id: 'renamed', title: 'Old title' },
+      { ...task(), id: 'deleted' },
+      { ...task(), id: 'untouched' },
+    ]
+    const api = {
+      tasksSidebarSnapshot: async (filter?: { taskIds?: string[] }) => {
+        sidebarReads.push(filter?.taskIds)
+        const tasks = filter?.taskIds ? rows.filter((row) => filter.taskIds?.includes(row.id)) : rows
+        return {
+          tasks,
+          sessionsByTask: Object.fromEntries(tasks.map((row) => [row.id, [{ sessionId: `${row.id}-session`, role: 'working' as const, linkedAt: 0 }]])),
+        }
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: api } })
+    const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const untouched = store.get('untouched')
+    sidebarReads.splice(0)
+
+    rows = [{ ...rows[0], title: 'New title' }, rows[2]]
+    taskServerConnections.emit('local', 'tasks.invalidated', { taskId: 'renamed' })
+    taskServerConnections.emit('local', 'tasks.invalidated', { taskId: 'deleted' })
+    jest.advanceTimersByTime(101)
+    await flush()
+
+    expect(sidebarReads).toEqual([['renamed', 'deleted']])
+    expect(store.get('renamed').title).toBe('New title')
+    expect(store.tasks.map((row) => row.id)).toEqual(['renamed', 'untouched'])
+    expect(store.taskForSession('deleted-session')).toBeNull()
+    expect(store.taskForSession('renamed-session')?.id).toBe('renamed')
+    expect(store.tasks[1]).toBe(untouched)
+
+    // A host that cannot name the change (a bulk sync) still gets the whole list.
+    taskServerConnections.emit('local', 'tasks.invalidated', {})
+    jest.advanceTimersByTime(101)
+    await flush()
+    expect(sidebarReads).toEqual([['renamed', 'deleted'], undefined])
+  })
+
   test('coalesces detail reads for the same task', async () => {
     // WHY: the visible task page and its project rail can ask for the same detail
     // on one frame. They must share the RPC rather than racing duplicate reads.
@@ -346,14 +395,12 @@ describe('renderer task hydration', () => {
       comments: []
       events: []
       links: []
-      subtasks: []
     }) => void
     const details = new Promise<{
       task: Task
       comments: []
       events: []
       links: []
-      subtasks: []
     }>((resolve) => { resolveDetails = resolve })
     const api = {
       tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
@@ -377,7 +424,7 @@ describe('renderer task hydration', () => {
 
     expect(first).toBe(second)
     expect(detailReads).toBe(1)
-    resolveDetails({ task: task(), comments: [], events: [], links: [], subtasks: [] })
+    resolveDetails({ task: task(), comments: [], events: [], links: [] })
     await first
   })
 
@@ -479,6 +526,12 @@ describe('renderer task hydration', () => {
         return remoteSnapshot
       },
     }
+    let localReads = 0
+    const countedLocalRead = localApi.tasksSidebarSnapshot
+    localApi.tasksSidebarSnapshot = () => {
+      localReads++
+      return countedLocalRead()
+    }
     taskServerConnections.registerPrimary('local', localApi)
     taskServerConnections.registerHost('remote', remoteApi)
     hostPhases.set('remote', 'offline')
@@ -498,17 +551,60 @@ describe('renderer task hydration', () => {
 
     hostPhases.set('remote', 'connected')
     phaseChangeListener?.('remote', 'connected')
-    const connectedLoad = store.load()
     resolveRemoteSnapshot({
       tasks: [remoteTask],
       sessionsByTask: {
         'remote-task': [{ taskId: 'remote-task', sessionId: 'remote-session', linkedAt: 2 }],
       },
     })
-    await connectedLoad
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(store.taskForSession('remote-session')?.id).toBe('remote-task')
+    expect(store.taskForSession('local-session')?.id).toBe('local-task')
     expect(remoteReads).toBe(1)
+    expect(localReads).toBe(1)
+  })
+
+  test('a reconnecting host re-reads its own list, not every host\'s', async () => {
+    // WHY: a granted socket re-dials each time its grant expires (ten
+    // minutes). Reading every host on that edge re-read each other host's
+    // full list — over a megabyte at a thousand tasks — and drove the cloud
+    // database to ~80k task-list reads a week. The host that was away still
+    // needs a full read: it missed its invalidations, so a task deleted there
+    // meanwhile must leave the list.
+    installStateRune()
+    let localReads = 0
+    const localApi = {
+      tasksSidebarSnapshot: async () => {
+        localReads++
+        return { tasks: [{ ...task(), id: 'local-task' }], sessionsByTask: {} }
+      },
+    }
+    let remoteTasks: Task[] = [{ ...task(), id: 'remote-kept' }, { ...task(), id: 'remote-deleted' }]
+    let remoteReads = 0
+    const remoteApi = {
+      tasksSidebarSnapshot: async () => {
+        remoteReads++
+        return { tasks: remoteTasks, sessionsByTask: {} }
+      },
+    }
+    taskServerConnections.registerPrimary('local', localApi)
+    taskServerConnections.registerHost('remote', remoteApi)
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: localApi } })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    expect(store.tasks.map((row) => row.id).sort()).toEqual(['local-task', 'remote-deleted', 'remote-kept'])
+
+    remoteTasks = [{ ...task(), id: 'remote-kept' }, { ...task(), id: 'remote-created' }]
+    phaseChangeListener?.('remote', 'reconnecting')
+    phaseChangeListener?.('remote', 'connected')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(localReads).toBe(1)
+    expect(remoteReads).toBe(2)
+    expect(store.tasks.map((row) => row.id).sort()).toEqual(['local-task', 'remote-created', 'remote-kept'])
   })
 
   test('lists a task once when two hosts serve the same task store', async () => {
@@ -582,7 +678,7 @@ describe('renderer task hydration', () => {
     resolveSnapshot({
       tasks: [
         { ...task(), id: 'parent' },
-        { ...task(), id: 'child', parentId: 'parent' },
+        { ...task(), id: 'child' },
       ],
       sessionsByTask: {
         parent: [{ taskId: 'parent', sessionId: 'resumed-session', role: 'referenced', linkedAt: 0 }],
@@ -593,10 +689,10 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('resumed-session')?.id).toBe('child')
     expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
-    expect(store.get('parent').attempts.map(({ sessionId }) => sessionId)).toEqual([
+    expect(store.get('parent').sessions.map(({ sessionId }) => sessionId)).toEqual([
       'resumed-session',
     ])
-    expect(store.get('child').attempts.map(({ sessionId }) => sessionId)).toEqual([
+    expect(store.get('child').sessions.map(({ sessionId }) => sessionId)).toEqual([
       'resumed-session',
     ])
   })
@@ -613,7 +709,7 @@ describe('renderer task hydration', () => {
       targetKey: '65',
       title: '#65 Keep identity',
       url: 'https://github.com/openai/solus/pull/65',
-      createdBy: 'system' as const,
+      createdBy: { kind: 'system' as const },
       originSessionId: 'session-65',
     }]
     const api = {
@@ -623,7 +719,6 @@ describe('renderer task hydration', () => {
         comments: [],
         events: [],
         links: links.map((link) => ({ ...link })),
-        subtasks: [],
       }),
     }
     taskServerConnections.registerPrimary('local', api)
@@ -641,7 +736,7 @@ describe('renderer task hydration', () => {
       kind: 'pr' as const,
       targetScope: '/repo',
       targetKey: '65',
-      createdBy: 'system' as const,
+      automatic: true,
     }
     await store.get('task-1').link(input)
     const storedTask = store.tasks[0]
@@ -670,7 +765,7 @@ describe('renderer task hydration', () => {
                 {
                   number: 43,
                   url: 'https://github.com/openai/solus/pull/43',
-                  createdBy: 'system',
+                  createdBy: { kind: 'system' },
                   originSessionId: 'session-43',
                 },
                 { number: 44, url: 'https://github.com/openai/solus/pull/44' },
@@ -688,7 +783,7 @@ describe('renderer task hydration', () => {
     expect(store.get('task-1').prLink).toEqual({
       number: 43,
       url: 'https://github.com/openai/solus/pull/43',
-      createdBy: 'system',
+      createdBy: { kind: 'system' },
       originSessionId: 'session-43',
     })
     expect(store.get('task-1').prLinks).toHaveLength(2)
@@ -730,7 +825,7 @@ describe('renderer task hydration', () => {
     // not for a "no task" answer.
     installStateRune()
     const parent = { ...task(), id: 'parent', title: 'Parent task' }
-    const child = { ...task(), id: 'child', parentId: 'parent', title: 'Current subtask' }
+    const child = { ...task(), id: 'child', title: 'Current task' }
     let calls = 0
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
@@ -772,9 +867,6 @@ describe('renderer task hydration', () => {
         solus: {
           tasksForSession: async () => ({
             task: owner,
-            parent: null,
-            subtasks: [],
-            siblings: [],
             attempts: [],
           }),
           tasksSidebarSnapshot: async () => {
@@ -794,15 +886,13 @@ describe('renderer task hydration', () => {
     expect(snapshots).toBe(1)
   })
 
-  test('hydrates the complete related tree when the snapshot already knows the selected session', async () => {
+  test('hydrates every named attempt when the snapshot already knows the selected session', async () => {
     // WHY: opening from the session picker must not stop at the first known
-    // task binding. Sibling subtasks and their named session links are cheap
-    // metadata and must appear before any sibling transcript is opened.
+    // task binding. The task's other attempts and their names are cheap
+    // metadata and must appear before any of their transcripts is opened.
     installStateRune()
-    const parent = { ...task(), id: 'parent', title: 'Parent task' }
-    const selected = { ...task(), id: 'selected', parentId: parent.id, title: 'Selected subtask' }
-    const sibling = { ...task(), id: 'sibling', parentId: parent.id, title: 'Named sibling' }
-    let treeReads = 0
+    const selected = { ...task(), id: 'selected', title: 'Selected task' }
+    let taskReads = 0
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
@@ -815,25 +905,12 @@ describe('renderer task hydration', () => {
             },
           }),
           tasksForSession: async () => {
-            treeReads++
+            taskReads++
             return {
               task: selected,
-              parent,
-              subtasks: [selected, sibling],
-              siblings: [sibling],
               attempts: [
-                {
-                  taskId: selected.id,
-                  sessionId: 'selected-session',
-                  sessionTitle: 'Selected session',
-                  linkedAt: 1,
-                },
-                {
-                  taskId: sibling.id,
-                  sessionId: 'sibling-session',
-                  sessionTitle: 'Named sibling session',
-                  linkedAt: 2,
-                },
+                { taskId: selected.id, sessionId: 'selected-session', sessionTitle: 'Selected session', linkedAt: 1 },
+                { taskId: selected.id, sessionId: 'other-session', sessionTitle: 'Another attempt', linkedAt: 2 },
               ],
             }
           },
@@ -845,15 +922,12 @@ describe('renderer task hydration', () => {
     const store = new TasksStore()
     await store.ensureSessionBinding('selected-session')
 
-    expect(treeReads).toBe(1)
-    expect(store.tasks.map(({ id }) => id).sort()).toEqual(['parent', 'selected', 'sibling'])
-    expect(store.get('sibling').sessions).toEqual([
-      expect.objectContaining({
-        sessionId: 'sibling-session',
-        sessionTitle: 'Named sibling session',
-      }),
+    expect(taskReads).toBe(1)
+    expect(store.get('selected').sessions).toEqual([
+      expect.objectContaining({ sessionId: 'selected-session', sessionTitle: 'Selected session' }),
+      expect.objectContaining({ sessionId: 'other-session', sessionTitle: 'Another attempt' }),
     ])
-    expect(store.taskForSession('sibling-session')?.title).toBe('Named sibling')
+    expect(store.taskForSession('other-session')?.id).toBe('selected')
   })
 
   test('publishes a started session before durable link hydration settles', async () => {
@@ -1110,7 +1184,6 @@ describe('renderer task hydration', () => {
             comments: [],
             events: [],
             links: [],
-            subtasks: [],
           }),
         },
       },
@@ -1171,6 +1244,35 @@ describe('renderer task hydration', () => {
     expect(maximumActiveDeletes).toBeLessThanOrEqual(8)
   })
 
+  test('keeps a deleted task off the list once its delete commits', async () => {
+    // WHY: the host drops the row only after its invalidation reload. Listing
+    // the task again between the commit and that reload makes a deleted task
+    // flash back on screen, and a snapshot read before the delete would keep it.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+          tasksDelete: async () => {},
+        },
+      },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const pending = store.softRemove(['task-1'])
+
+    await store.commitPending(pending)
+    expect(store.tasks).toEqual([])
+
+    // A stale snapshot that still lists the task must not resurrect it.
+    await store.load()
+    expect(store.tasks).toEqual([])
+  })
+
   test('homes a cross-host inbox ticket, and routes its writes there afterwards', async () => {
     // WHY: a ticket in the inbox reaches this client from several hosts at once,
     // and which one owns it is the user's choice after deduplication — the only
@@ -1183,7 +1285,6 @@ describe('renderer task hydration', () => {
     const ticket: Task = {
       id: '87',
       providerId: 'github',
-      kind: 'task',
       title: 'Inbox ticket',
       body: '',
       status: 'todo',
@@ -1231,7 +1332,6 @@ describe('renderer task hydration', () => {
       id: '31',
       providerId: 'github',
       projectKey,
-      kind: 'task',
       title: 'GitHub issue',
       body: '',
       status: 'todo',
@@ -1272,7 +1372,7 @@ describe('renderer task hydration', () => {
     await store.get(issue.id).comment('Posted from Solus')
 
     expect(store.get(issue.id).details?.comments).toEqual([
-      expect.objectContaining({ body: 'Posted from Solus', author: 'octocat' }),
+      expect.objectContaining({ body: 'Posted from Solus', externalAuthor: 'octocat' }),
     ])
   })
 
@@ -1285,7 +1385,6 @@ describe('renderer task hydration', () => {
       id: '87',
       providerId: 'github',
       projectKey,
-      kind: 'task',
       title: 'Direct issue',
       body: '',
       status: 'todo',
@@ -1446,5 +1545,82 @@ describe('conversation-card reverse links', () => {
     await Promise.resolve()
 
     expect(store.linkedTasksFor(target)).toEqual([])
+  })
+})
+
+describe('the every-project task list', () => {
+  test('lists every task of the given projects in any status, and tasks with no project', async () => {
+    // WHY: "All projects" on the tasks page once showed only tasks still in
+    // the `inbox` status, so projects full of open work read as "Inbox zero".
+    // It is the same list as one project's, over each project the session
+    // sidebar shows; the page's status filter is what hides finished work.
+    installStateRune()
+    const api = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [
+          { ...task(), id: 'todo', status: 'todo', projectKey: 'github.com/acme/app' },
+          { ...task(), id: 'done', status: 'done', projectKey: 'github.com/acme/app' },
+          { ...task(), id: 'elsewhere', status: 'todo', projectKey: 'github.com/acme/other' },
+          { ...task(), id: 'loose', status: 'inbox' },
+        ],
+        sessionsByTask: {},
+      }),
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, writable: true, value: { solus: api },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    const ids = (projectKeys: string[]) =>
+      store.tasksInProjects(new Set(projectKeys)).map(({ id }) => id).sort()
+    expect(ids(['github.com/acme/app'])).toEqual(['done', 'loose', 'todo'])
+    expect(ids(['github.com/acme/app', 'github.com/acme/other'])).toContain('elsewhere')
+    expect(ids([])).toEqual(['loose'])
+  })
+})
+
+describe('New task naming', () => {
+  test('the lead prompt names only an untitled task, and keeps a description a person wrote', async () => {
+    // WHY: New task files "Untitled task" and its lead's first prompt names it.
+    // A title or description a person already wrote is theirs, never replaced.
+    installStateRune()
+    const patches: Array<{ taskId: string; patch: unknown }> = []
+    const api = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [
+          { ...task(), id: 'blank', title: 'Untitled task' },
+          { ...task(), id: 'described', title: 'Untitled task', body: 'Written by hand' },
+          { ...task(), id: 'named', title: 'Named by hand' },
+        ],
+        sessionsByTask: {},
+      }),
+      tasksUpdate: async (taskId: string, patch: Partial<Task>) => {
+        patches.push({ taskId, patch })
+        return { ...task(), id: taskId, ...patch }
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, writable: true, value: { solus: api },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const metadata = { title: 'Fix login redirect', description: 'Redirect after login drops the query.' }
+
+    await store.get('blank').nameFromLeadPrompt(metadata)
+    await store.get('described').nameFromLeadPrompt(metadata)
+    await store.get('named').nameFromLeadPrompt(metadata)
+
+    expect(patches).toEqual([
+      { taskId: 'blank', patch: { title: 'Fix login redirect', body: 'Redirect after login drops the query.' } },
+      { taskId: 'described', patch: { title: 'Fix login redirect' } },
+    ])
+    expect(store.get('blank').title).toBe('Fix login redirect')
   })
 })

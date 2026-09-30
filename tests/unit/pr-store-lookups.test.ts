@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import type { PrListPage, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideMetadataRequest, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
+import { listingFrom, readFirstPage } from './__fixtures__/pr-listing'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -107,7 +108,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     const store = new PrsStore()
     const labels = [{ name: 'bug', color: 'd73a4a' }]
     let commentReads = 0
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(65)], page: 1, hasMore: false }),
       prSetLabels: async () => pr(65, { labels }),
       prListComments: async () => {
@@ -115,9 +116,9 @@ describe('PrsStore lookups are scoped to one project', () => {
         return []
       },
       ...NO_CHECKS,
-    })
+    }))
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
-    await project.list()
+    await readFirstPage(store, project)
     const pullRequest = project.get(65)
     const held = project.items[0]
     await pullRequest.loadComments()
@@ -260,18 +261,6 @@ describe('branch discovery shared by mobile and the git rail', () => {
     expect(project.prForBranch('feature/x')?.number).toBe(7)
   })
 
-  test('an empty background interest does not ask the host', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    let reads = 0
-    const api = asHostApi({ prList: async (): Promise<PrListPage> => {
-      reads++
-      return { items: [], page: 1, hasMore: false }
-    } })
-    const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
-    await project.refreshObserved([], [])
-    expect(reads).toBe(0)
-  })
 })
 
 describe('one pull request, one object', () => {
@@ -315,8 +304,8 @@ describe('a refresh reaches the code host', () => {
 
     let invalidations = 0
     const order: string[] = []
-    const api = asHostApi({
-      prInvalidate: async () => {
+    const api = asHostApi(listingFrom({
+      prRefresh: async () => {
         invalidations++
         order.push('invalidate')
       },
@@ -325,14 +314,14 @@ describe('a refresh reaches the code host', () => {
         return { items: [pr(7)], page: 1, hasMore: false }
       },
       ...NO_CHECKS,
-    })
+    }))
 
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list()
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')))
     // An ordinary read shares whatever the host has already fetched; only a
     // person's refresh is allowed to spend a code-host request.
     expect(invalidations).toBe(0)
 
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list({ force: true })
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')), { force: true })
     expect(invalidations).toBe(1)
     // And it has to land before the read, or the read is served the very answer
     // the refresh was asking to replace.
@@ -344,15 +333,15 @@ describe('a refresh reaches the code host', () => {
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
-    const api = asHostApi({
-      prInvalidate: async () => { throw new Error('no repository here') },
+    const api = asHostApi(listingFrom({
+      prRefresh: async () => { throw new Error('no repository here') },
       prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
+    }))
 
     // The read that follows owns the error message, so a refused invalidation
     // must not become the one the user sees.
-    await store.get(api, 'host-a', ctxFor('/repos/a')).list({ force: true })
+    await readFirstPage(store, store.get(api, 'host-a', ctxFor('/repos/a')), { force: true })
     expect((store.at('host-a', '/repos/a')?.prFor(7) ?? null)?.number).toBe(7)
   })
 })
@@ -371,7 +360,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     const ctx = ctxFor('/repos/a')
     const requests: PrGuideMetadataRequest[] = []
     const target = pr(7)
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [target, pr(8)], page: 1, hasMore: false }),
       prChecks: async () => ({ repo: { host: 'github.com', owner: 'acme', repo: 'a' }, checks: [] }),
       prGuideStatuses: async (_ctx, batch) => batch.map(({ target: request }) => {
@@ -382,9 +371,9 @@ describe('review guide metadata is scoped to one pull request', () => {
           generatedAt: '2026-01-01T00:00:00Z', updatedAt: 1,
         }
       }),
-    })
+    }))
 
-    await store.get(api, 'host-a', ctx).list()
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
     expect(requests).toEqual([])
 
     await guides.loadMetadata(api, 'host-a', ctx, [target])
@@ -404,7 +393,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     let head = 'sha-7'
     let failNext = false
     const probes: string[] = []
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [{ ...pr(7), headSha: head }], page: 1, hasMore: false }),
       ...NO_CHECKS,
       prGuideStatuses: async (_ctx, batch) => {
@@ -415,20 +404,20 @@ describe('review guide metadata is scoped to one pull request', () => {
         }
         return batch.map(() => null)
       },
-    })
+    }))
     const project = store.get(api, 'host-a', ctx)
 
     // Reopening the page, or a refresh with nothing pushed, asks nothing new:
     // a guide's later changes arrive as events, not as answers to a poll.
-    await project.list()
+    await readFirstPage(store, project)
     await guides.loadListed(project)
-    await project.list({ force: true })
+    await readFirstPage(store, project, { force: true })
     await guides.loadListed(project)
     expect(probes).toEqual(['sha-7'])
 
     head = 'sha-7b'
     failNext = true
-    await project.list({ force: true })
+    await readFirstPage(store, project, { force: true })
     await guides.loadListed(project)
     await guides.loadListed(project)
     expect(probes).toEqual(['sha-7', 'sha-7b', 'sha-7b'])
@@ -443,7 +432,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     const guides = new PrGuidesStore(store, new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {}))
     const batches: { number: number; headRef: string }[][] = []
     let singleProbes = 0
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({
         items: [7, 8, 9, 10, 11].map((number) => pr(number, { headRef: `feature/${number}` })),
         page: 1,
@@ -457,10 +446,10 @@ describe('review guide metadata is scoped to one pull request', () => {
         batches.push(batch.map(({ target, headRef }) => ({ number: target.number, headRef })))
         return batch.map(() => null)
       },
-    })
+    }))
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
 
-    await project.list()
+    await readFirstPage(store, project)
     await guides.loadListed(project)
 
     expect(singleProbes).toBe(0)
@@ -476,11 +465,11 @@ describe('review guide metadata is scoped to one pull request', () => {
     const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
     const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7), pr(8)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
-    await store.get(api, 'host-a', ctx).list()
+    }))
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
 
     const event: ReviewGuideStatusEvent = {
       repoRoot: '/repos/a',
@@ -511,11 +500,11 @@ describe('review guide metadata is scoped to one pull request', () => {
     const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
     const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
-    const api = asHostApi({
+    const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
       ...NO_CHECKS,
-    })
-    await store.get(api, 'host-a', ctx).list()
+    }))
+    await readFirstPage(store, store.get(api, 'host-a', ctx))
 
     shared.set('host-a', {
       repoRoot: '/repos/a',
@@ -616,39 +605,6 @@ describe('PrsStore learns about a pull request Solus just created', () => {
 })
 
 describe('PrsStore indexes the full detail so surfaces cannot go stale', () => {
-  test('a lifecycle change reaches a surface reading the detail index', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    const ctx = ctxFor('/repos/a')
-
-    const api = asHostApi({
-      prGetDetail: async () => ({
-        ...pr(3, { headRef: 'feature/x' }),
-        body: '',
-        baseRef: 'main',
-        headRef: 'feature/x',
-        baseSha: 'base',
-        changedFiles: 1,
-        mergeable: true,
-        mergeStateStatus: null,
-        headRepo: { owner: 'acme', repo: 'a', isFork: false },
-      }),
-    })
-
-    await store.get(api, 'host-a', ctx).get(3).loadDetail()
-    expect((store.at('host-a', '/repos/a')?.prFor(3) ?? null)?.state).toBe('open')
-
-    // A merge landing anywhere — the host broadcast, another pane — is applied
-    // through the store, and the index is what every surface reads.
-    const merged = { ...((store.at('host-a', '/repos/a')?.prFor(3) ?? null)!), state: 'merged' as const }
-    store.at('host-a', projectScopeOf(ctx.session))?.applyPullRequest(merged)
-
-    expect((store.at('host-a', '/repos/a')?.prFor(3) ?? null)?.state).toBe('merged')
-    // …and the summary lookup agrees, so a row and a rail cannot disagree.
-    expect((store.at('host-a', '/repos/a')?.prFor(3) ?? null)?.state).toBe('merged')
-  })
-
   test('a listed pull request already answers what the viewer may do to it', async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
@@ -779,308 +735,5 @@ describe('PrsStore carries an optimistic lifecycle edit and its rollback', () =>
     const current = store.at('host-a', '/repos/a')?.prFor(6) ?? null
     expect(current?.state === optimistic.state && current.draft === optimistic.draft).toBe(false)
     expect(current?.state).toBe('merged')
-  })
-})
-
-describe('PrsStore stops asking for a pull request the provider refuses', () => {
-  test('background failures retry after the cooldown instead of remaining unavailable forever', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const clock = spyOn(Date, 'now').mockReturnValue(1_000)
-    let reads = 0
-    try {
-      const project = new PrsStore().get(asHostApi({
-        prGetDetail: async () => {
-          if (++reads === 1) throw new Error('Host unavailable')
-          return pr(7)
-        },
-      }), 'host-a', ctxFor('/repos/a'))
-      await project.refreshObserved([], [], [7])
-      await project.refreshObserved([], [], [7])
-      expect(reads).toBe(1)
-      clock.mockReturnValue(301_001)
-      await project.refreshObserved([], [], [7])
-      expect(reads).toBe(2)
-      expect(project.prFor(7)?.number).toBe(7)
-    } finally { clock.mockRestore() }
-  })
-
-  test('repeated background passes do not retry missing PR details; explicit reads still work', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    let reads = 0
-    let available = false
-    const project = new PrsStore().get(asHostApi({
-      prList: async () => ({ items: [], page: 1, hasMore: false }),
-      prGetDetail: async (_ctx, number) => {
-        reads++
-        if (!available) throw new Error('Not Found')
-        return pr(number)
-      },
-    }), 'host-a', ctxFor('/repos/a'))
-    await project.refreshObserved([65, 66, 67, 68], [])
-    expect(reads).toBe(0)
-    await project.refreshObserved([65, 66, 67, 68], [], [65])
-    await project.refreshObserved([65, 66, 67, 68], [])
-    await project.refreshObserved([], [], [65])
-    expect(reads).toBe(1)
-    available = true
-    await project.get(65).loadDetail()
-    expect(reads).toBe(2)
-    expect(project.prFor(65)?.number).toBe(65)
-    project.forgetAll()
-    await project.refreshObserved([], [], [66])
-    expect(reads).toBe(3)
-  })
-
-  test('an unavailable project does not fan out into individual PR lookups', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    let lists = 0
-    let details = 0
-    const project = new PrsStore().get(asHostApi({
-      prList: async () => { lists++; throw new Error('no recognizable git remote') },
-      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
-    }), 'host-a', ctxFor('github.com/acme/repo'))
-    await project.refreshObserved([35], ['main'])
-    await project.refreshObserved([35], ['main'])
-    expect(lists).toBe(1)
-    expect(details).toBe(0)
-  })
-
-  test('visible detail interests load merge fields even when the list already describes the PR', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    let details = 0
-    const project = new PrsStore().get(asHostApi({
-      prList: async () => ({ items: [pr(7)], page: 1, hasMore: false }),
-      prGetDetail: async () => { details++; return pr(7, { mergeable: true }) },
-    }), 'host-a', ctxFor('/repos/a'))
-    await project.refreshObserved([7], [], [7])
-    await project.refreshObserved([], [], [7])
-    expect(details).toBe(1)
-    expect(project.prFor(7)?.mergeable).toBe(true)
-  })
-
-  test('background interests combine after paint and explicit reads do not wait for them', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const paint = Promise.withResolvers<void>()
-    let listenerStarts = 0
-    let listenerStops = 0
-    const store = new PrsStore(() => paint.promise, () => {
-      listenerStarts++
-      return () => { listenerStops++ }
-    })
-    let lists = 0
-    let details = 0
-    const api = asHostApi({
-      prList: async () => {
-        lists++
-        return { items: [pr(7)], page: 1, hasMore: false }
-      },
-      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
-    })
-    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
-    const settled = Array.from({ length: 10 }, () => Promise.withResolvers<void>())
-    const releases = settled.map((done) => store.watch(project, { numbers: [7], branches: ['feature/7'] }, done.resolve))
-    try {
-      expect(lists).toBe(0)
-      expect(listenerStarts).toBe(1)
-      await project.get(8).loadDetail()
-      expect(details).toBe(1)
-      paint.resolve()
-      await Promise.all(settled.map((done) => done.promise))
-      expect(lists).toBe(1)
-      expect(details).toBe(1)
-      expect(project.prFor(7)?.number).toBe(7)
-    } finally {
-      for (const release of releases) release()
-    }
-    expect(listenerStops).toBe(1)
-  })
-
-  test('restoring many saved PR links issues one summary list and zero full-detail requests', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore(() => Promise.resolve(), () => () => {})
-    let lists = 0
-    let details = 0
-    const project = store.get(asHostApi({
-      prList: async () => {
-        lists++
-        return { items: [pr(1)], page: 1, hasMore: true }
-      },
-      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
-    }), 'host-a', ctxFor('/repos/a'))
-    const settled = Array.from({ length: 100 }, () => Promise.withResolvers<void>())
-    const releases = settled.map((done, index) => store.watch(project, { numbers: [index + 1] }, done.resolve))
-    try {
-      await Promise.all(settled.map((done) => done.promise))
-      expect(lists).toBe(1)
-      expect(details).toBe(0)
-      expect(project.prFor(68)).toBeNull()
-      await project.get(68).loadDetail()
-      expect(details).toBe(1)
-      expect(project.prFor(68)?.number).toBe(68)
-    } finally {
-      for (const release of releases) release()
-    }
-  })
-
-  test('a surface removed before paint starts no reads and receives no callback', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const paint = Promise.withResolvers<void>()
-    const settled = Promise.withResolvers<void>()
-    const store = new PrsStore(() => paint.promise, () => () => {})
-    let staleReads = 0
-    let staleCallbacks = 0
-    const abandoned = store.get(asHostApi({ prList: async () => {
-      staleReads++
-      return { items: [], page: 1, hasMore: false }
-    } }), 'host-a', ctxFor('/abandoned'))
-    const release = store.watch(abandoned, { branches: ['main'] }, () => { staleCallbacks++ })
-    release()
-    const current = store.get(asHostApi({ prList: async () => ({ items: [], page: 1, hasMore: false }) }), 'host-a', ctxFor('/current'))
-    const stop = store.watch(current, { branches: ['main'] }, settled.resolve)
-    try {
-      paint.resolve()
-      await settled.promise
-      expect(staleReads).toBe(0)
-      expect(staleCallbacks).toBe(0)
-    } finally { stop() }
-  })
-
-  test('a host update wins over an older pending detail read', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    const response = Promise.withResolvers<PullRequest>()
-    const project = store.get(asHostApi({ prGetDetail: () => response.promise }), 'host-a', ctxFor('/repos/a'))
-    const pending = project.get(7).loadDetail()
-    project.applyPullRequest(pr(7, { state: 'merged' }))
-    response.resolve(pr(7, { state: 'open' }))
-    await pending
-    expect(project.prFor(7)?.state).toBe('merged')
-    expect(project.mirrors.detail.fresh('7')?.state).toBe('merged')
-  })
-
-  test('concurrent sidebar rows wait for the shared list before requesting missing details', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    const page = Promise.withResolvers<PrListPage>()
-    let listReads = 0
-    const detailReads: number[] = []
-    const api = asHostApi({
-      prList: async () => {
-        listReads++
-        return page.promise
-      },
-      prGetDetail: async (_ctx, number) => {
-        detailReads.push(number)
-        return pr(number)
-      },
-    })
-    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
-    const rows = [project.ensureNumbers([1]), project.ensureNumbers([2]), project.ensureNumbers([3])]
-    expect(listReads).toBe(1)
-    expect(detailReads).toEqual([])
-    page.resolve({ items: [pr(1), pr(2)], page: 1, hasMore: false })
-    await Promise.all(rows)
-    expect(detailReads).toEqual([3])
-    expect(project.prFor(2)?.number).toBe(2)
-    await project.ensureNumbers([1, 2, 3])
-    expect(listReads).toBe(1)
-    expect(detailReads).toEqual([3])
-  })
-
-  test('linked PRs with empty cached entities still load their merged status', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const { prChipForChoices } = await import('@solus/workspace-ui/components/session/lib/task-list')
-    const detailReads: number[] = []
-    const store = new PrsStore()
-    const project = store.get(asHostApi({
-      prList: async () => ({ items: [pr(1, { state: 'merged' })], page: 1, hasMore: true }),
-      prGetDetail: async (_ctx, number) => {
-        detailReads.push(number)
-        return pr(number, { state: 'merged' })
-      },
-    }), 'host-a', ctxFor('/repos/a'))
-    // A pane can allocate an entity before it reads any provider data. That
-    // empty entity must not keep an older linked PR outside the list unloaded.
-    project.get(2)
-    await project.ensureNumbers([1, 2])
-    expect(detailReads).toEqual([2])
-    expect(prChipForChoices([1, 2].map((number) => ({
-      number,
-      targetScope: '/repos/a',
-      title: `#${number}`,
-      url: null,
-      pullRequest: project.prFor(number),
-    })))?.state).toBe('merged')
-  })
-
-  test('a failed shared list still resolves linked numbers and invalidation permits a new list', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    let listReads = 0
-    const detailReads: number[] = []
-    const api = asHostApi({
-      prList: async (): Promise<PrListPage> => {
-        listReads++
-        if (listReads === 1) throw new Error('List unavailable')
-        return { items: [pr(3)], page: 1, hasMore: false }
-      },
-      prGetDetail: async (_ctx, number) => {
-        detailReads.push(number)
-        return pr(number)
-      },
-    })
-    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
-    await Promise.all([project.ensureNumbers([1]), project.ensureNumbers([2])])
-    expect(listReads).toBe(1)
-    expect(detailReads).toEqual([1, 2])
-    project.forgetAll()
-    await project.ensureNumbers([3])
-    expect(listReads).toBe(2)
-    expect(detailReads).toEqual([1, 2])
-    expect(project.prFor(3)?.number).toBe(3)
-  })
-
-  test('a number that fails once is not requested again', async () => {
-    installStateRune()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-
-    let detailReads = 0
-    const api = asHostApi({
-      prList: async (): Promise<PrListPage> => ({ items: [], page: 1, hasMore: false }),
-      prGetDetail: async () => {
-        detailReads++
-        throw new Error('Not Found')
-      },
-      ...NO_CHECKS,
-    })
-    const target = {
-      serverId: 'host-a',
-      projectRoot: '/repos/a',
-      label: 'A',
-      api,
-      ctx: ctxFor('/repos/a'),
-    }
-
-    store.get(target.api, target.serverId, target.ctx).ensureNumbers([999])
-    await Bun.sleep(5)
-    store.get(target.api, target.serverId, target.ctx).ensureNumbers([999])
-    await Bun.sleep(5)
-
-    // Without the negative cache a render-driven caller re-asks forever: the
-    // failed read leaves no cache entry to hit.
-    expect(detailReads).toBe(1)
-    expect((store.at('host-a', '/repos/a')?.prFor(999) ?? null)).toBeNull()
   })
 })

@@ -25,7 +25,7 @@ function upstreamComments(task: Task): TaskComment[] {
     return [{
       id: comment.id ?? `${task.providerId}:${task.id}:${index}`,
       taskId: task.id,
-      author: comment.author?.login ?? null,
+      externalAuthor: comment.author?.login ?? null,
       source: 'external' as const,
       externalId: comment.id ?? null,
       body: comment.body,
@@ -35,14 +35,11 @@ function upstreamComments(task: Task): TaskComment[] {
 }
 
 /** Adapt a hydrated provider ticket to the local task page's detail contract. */
-export function upstreamTaskDetails(task: Task, knownTasks: Task[]): TaskDetails {
-  const childIds = new Set(task.childIds ?? [])
+export function upstreamTaskDetails(task: Task): TaskDetails {
   return {
     task,
-    subtasks: knownTasks.filter((candidate) =>
-      candidate.parentId === task.id || childIds.has(candidate.id)),
     comments: upstreamComments(task),
     links: [],
-    events: [],
+    activity: [],
   }
 }

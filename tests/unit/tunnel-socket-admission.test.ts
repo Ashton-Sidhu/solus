@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type Server } from 'http'
 import { io as connect } from 'socket.io-client'
-import { issueGrantWsTicket, resetAuthStateForTests } from '@solus/server/server/auth'
-import { SolusServer } from '@solus/server/server/server'
-import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
-import { attachWebSocketTransport } from '@solus/server/transports/websocket'
+import { issueGrantWsTicket, resetAuthStateForTests } from '@solus/server/admission/auth'
+import { SolusServer } from '@solus/server/transport/server'
+import { ClientEventRegistry } from '@solus/server/transport/events/client-event-registry'
+import { attachWebSocketTransport } from '@solus/server/transport/websocket'
 
 // docs/plans/personal-uplink.md H3, the proxied-listener rule, on the socket path:
 // a WebSocket that arrived through the tunnel listener is loopback on the wire and

@@ -2,8 +2,9 @@ import { KEYBINDINGS, bindingsForScope, type BindingId } from './manifest'
 import { comboEquals, defaultCombo, formatCombo } from './match'
 import type { BindingDef, KeyCombo, Scope } from './types'
 
-/** The user's rebinds, keyed by binding id. Absent = the shipped default. */
-export type BindingOverrides = Record<string, KeyCombo>
+/** The user's rebinds, keyed by binding id. Absent = the shipped default;
+ *  `null` = the user removed the shortcut, so nothing fires it. */
+export type BindingOverrides = Record<string, KeyCombo | null>
 
 /**
  * Display categories shared by the ⌘/ overlay and Settings → Keybindings, in
@@ -16,7 +17,7 @@ export type BindingOverrides = Record<string, KeyCombo>
 export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[] }[] = [
   { key: 'global', label: 'Global', scopes: ['global'] },
   { key: 'diff-panel', label: 'Diff Panel', scopes: ['diff-panel'] },
-  { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox'] },
+  { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox', 'browser-pane'] },
   { key: 'editors', label: 'Editors', scopes: ['file-editor', 'files-pane', 'plan-modal', 'document-modal'] },
   { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs'] },
   { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review', 'design-annotation'] },
@@ -32,6 +33,7 @@ export const SCOPE_LABELS = {
   workspace: 'Workspace',
   'attachment-preview': 'Attachment preview',
   'snapshot-lightbox': 'Snapshot lightbox',
+  'browser-pane': 'Browser pane',
   'file-editor': 'File editor',
   'files-pane': 'Files pane',
   'plan-modal': 'Plan modal',
@@ -63,9 +65,11 @@ export function isBindingId(value: string): value is BindingId {
   return value in KEYBINDINGS
 }
 
-/** `null` when the binding ships unassigned and the user hasn't given it a key. */
+/** `null` when the binding ships unassigned and the user hasn't given it a key,
+ *  or when the user removed its shortcut. */
 export function effectiveCombo(id: BindingId, overrides: BindingOverrides): KeyCombo | null {
-  return overrides[id] ?? defaultCombo(KEYBINDINGS[id])
+  const override = overrides[id]
+  return override === undefined ? defaultCombo(KEYBINDINGS[id]) : override
 }
 
 export function isOverridden(id: BindingId, overrides: BindingOverrides): boolean {
@@ -113,6 +117,16 @@ export function withBinding(id: BindingId, combo: KeyCombo, overrides: BindingOv
   return next
 }
 
+/** Overrides with `id` left without a shortcut. A binding that ships
+ *  unassigned needs no override to stay that way. */
+export function withBindingRemoved(id: BindingId, overrides: BindingOverrides): BindingOverrides {
+  const next = { ...overrides }
+  if (defaultCombo(KEYBINDINGS[id]) === null) delete next[id]
+  else next[id] = null
+  return next
+}
+
+/** Overrides with `id` back on its shipped default. */
 export function withoutBinding(id: BindingId, overrides: BindingOverrides): BindingOverrides {
   const next = { ...overrides }
   delete next[id]

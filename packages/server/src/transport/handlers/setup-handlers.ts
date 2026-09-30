@@ -1,0 +1,1137 @@
+import { execFile, execFileSync, spawn as nodeSpawn, type ChildProcess } from 'child_process'
+import { existsSync, mkdirSync, readdirSync } from 'fs'
+import { mkdir, readdir, rm } from 'fs/promises'
+import { homedir } from 'os'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
+import { z } from 'zod'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
+import { providerLoginConnected, type LoginProbe } from '../../execution/seats/seat-login'
+import type { SeatStore } from '../../execution/seats/seat-manager'
+import { seatFor } from '../../admission/actor'
+import type { SeatProvider } from '@solus/contracts/seats'
+import { GithubConnectionRequiredError } from '../../providers/github/connection-required'
+import { usesAccountIntegration } from '../../vault/provider-credentials'
+import type { SolusServer, HandlerCtx } from '../server'
+import type { Principal } from '../../admission/principal'
+import type { HostEventPublisher } from '../events/host-event-publisher'
+import { getCliEnv } from '../../cli-env'
+import { createLogger } from '../../logger'
+import { runAsync } from '../../git/exec'
+import { isGitUsable } from '../../git/git-availability'
+import { createGitAskpassHelper, gitAuthEnv, type GitAuthEnv } from '../../git/git-auth-env'
+import { loadToken as loadGithubToken } from '../../providers/github/token-store'
+import { saveDelegation } from '../../providers/github/delegation-store'
+import { GitHubAuth } from '../../providers/github/auth'
+import { buildClient } from '../../providers/github/octokit'
+import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
+import { PARAKEET_MODEL_DIR } from '../../model-downloader'
+import { getHostConfig, getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
+import { MEMBER_CHAT_FOLDER_NAME, memberFolderUserIdSchema, setupProjectsRoot, WORKSPACE_DIR } from '../../workspace'
+import { listProjects, recordProject } from '../../project-config/projects-manifest'
+import { resolveProjectKey } from '../../project-config/project-config'
+import { expandHome } from '../../files/host-path'
+import { sshConnectionOptions } from './lib/ssh-options'
+import {
+  agentInstallCompatibilityError,
+  applyCloneProtocol,
+  buildAgentInstallCommand,
+  buildPackageInstallCommand,
+  commandExists,
+  type InstallablePackage,
+  isValidCloneHost,
+  parseCloneUrlParts,
+  resolveAgentOwnership,
+  resolveCloneDestination,
+  validateCloneUrl,
+} from './setup-commands'
+import { safeProjectDirName } from '@solus/contracts/project-folder-name'
+import { initRepository } from '../../git/git-init'
+import { GITHUB_CREDENTIAL_KEY, resolveSolusCli } from '../../providers/github/git-credential'
+import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
+import type { CheckoutService } from '../../git/checkout-service'
+import type { GitIdentityManager } from '../../git/git-identity-manager'
+import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
+
+const log = createLogger('main', 'setup-handlers')
+
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
+const MAX_SETUP_LOG_LINES = 1_000
+/** Probes must never hang the readiness rail; nothing here talks to the network. */
+const PROBE_TIMEOUT_MS = 2_000
+const SSH_COMMAND_TIMEOUT_MS = 10_000
+const GH_AUTH_TIMEOUT_MS = 10_000
+const MAX_DISPATCH_HISTORY_REPO_KEYS = 32
+
+const setupAgentSchema = z.enum(['claude', 'codex'])
+const delegatedCredentialSchema = z.object({
+  accessToken: z.string(),
+  login: z.string(),
+}).strict()
+const setupAgentRequestSchema = z.object({ agent: setupAgentSchema }).strict()
+const setupPrepareProjectSchema = z.object({
+  cloneUrl: z.string(),
+  credential: delegatedCredentialSchema.optional(),
+  worktreePath: z.string().trim().min(1).optional(),
+  baseBranch: z.string().trim().min(1).optional(),
+}).strict()
+const setupCloneProjectSchema = z.object({
+  cloneUrl: z.string(),
+  name: z.string().optional(),
+  destination: z.string().optional(),
+  protocol: z.enum(['https', 'ssh']).optional(),
+  clean: z.boolean().optional(),
+  credential: delegatedCredentialSchema.optional(),
+  partialClone: z.boolean().optional(),
+}).strict()
+const setupSyncProjectSchema = z.object({
+  path: z.string(),
+  cloneUrl: z.string(),
+}).strict()
+const setupAdoptProjectSchema = z.object({
+  path: z.string(),
+  cloneUrl: z.string().optional(),
+}).strict()
+const setupCreateProjectSchema = z.object({
+  name: z.string().trim().min(1, 'Name the project.'),
+  parent: z.string().trim().min(1).optional(),
+}).strict()
+
+interface LineBuffer {
+  write(chunk: Buffer | string): void
+  flush(): void
+}
+
+interface ProcessCommandSpec {
+  command: string
+  args: string[]
+  display: string
+}
+
+export type SpawnProcess = (
+  command: string,
+  args: string[],
+  options: Parameters<typeof nodeSpawn>[2],
+) => ChildProcess
+
+export interface SetupHandlerDeps extends AgentAuthProbeDeps {
+  /** Who a caller's clone and fetches act as: a member never uses the host's credentials. */
+  gitIdentities: GitIdentityManager
+  checkouts?: CheckoutService
+  events?: HostEventPublisher
+  spawnProcess?: SpawnProcess
+  hasCommand?: (command: string) => boolean
+  loadGithubToken?: typeof loadGithubToken
+  registerProject?: (path: string) => Promise<string>
+  projectsRoot?: () => string
+  assertNewWorkAllowed?: () => void
+  onActiveStepsChanged?: (count: number) => void
+  onProviderInstalled?: (agent: SetupAgent) => Promise<void>
+  /**
+   * The caller's own provider seat answers "signed in" (provider-seats.md): a member
+   * of a managed host signs in to their seat, never to the host login.
+   */
+  seats?: Pick<SeatStore, 'status'>
+}
+
+export interface AgentAuthProbeDeps {
+  resolveAgentBinary?: typeof whichAgentBinary
+  hasClaudeAuth?: () => Promise<boolean>
+  hasCodexAuth?: () => Promise<boolean>
+}
+
+export interface CapabilityProbeOptions {
+  headless: boolean
+  desktopHandlers: boolean
+  version: string
+  /** Who is asking: a member's pickers open on their own member folder (managed-hosts.md §3). */
+  principal?: Principal
+}
+
+export async function probeServerCapabilities(opts: CapabilityProbeOptions): Promise<ServerCapabilities> {
+  const projects = projectsVisibleTo(opts.principal, await listProjects().catch(() => []))
+  return {
+    headless: opts.headless,
+    desktopHandlers: opts.desktopHandlers,
+    agents: {
+      claude: !!await whichAgentBinary('claude-code'),
+      codex: !!await whichAgentBinary('codex'),
+    },
+    dictation: existsSync(join(PARAKEET_MODEL_DIR, '.installed')),
+    platform: process.platform,
+    version: opts.version,
+    projectCount: projects.length,
+    agentAuth: {
+      claude: await hasClaudeAuth(),
+    },
+    gitAuth: {
+      github: await hasGithubAuth(),
+    },
+    ...projectsBaseDirectoryFor(opts.principal),
+    agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
+    ...chatFolderCapability(opts.principal),
+  }
+}
+
+/**
+ * The caller's chat folder, as capabilities report it. A chat folder inside a Git
+ * work tree (a worktree-local `SOLUS_DATA_DIR` in development) is left out: an
+ * agent there would read and change that repository, so the client hides
+ * Scratchpad instead.
+ */
+export function chatFolderCapability(principal: Principal | undefined, hostRoot = setupProjectsRoot()): Pick<ServerCapabilities, 'workspacePath'> {
+  const chatFolder = chatFolderFor(principal, hostRoot)
+  return isInsideGitWorkTree(chatFolder) ? {} : { workspacePath: chatFolder }
+}
+
+/** Per folder: every capability probe asks, and the answer does not change while the host runs. */
+const gitWorkTreeFolders = new Map<string, boolean>()
+
+/** True when a `.git` entry sits in the folder or above it. No git process: this runs on every probe. */
+function isInsideGitWorkTree(folder: string): boolean {
+  const known = gitWorkTreeFolders.get(folder)
+  if (known !== undefined) return known
+  let inside = false
+  for (let dir = resolve(folder); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, '.git'))) {
+      inside = true
+      break
+    }
+    if (dirname(dir) === dir) break
+  }
+  gitWorkTreeFolders.set(folder, inside)
+  if (inside) log.warn('chat_folder_in_git_worktree', { chatFolder: folder })
+  return inside
+}
+
+/** Capability probes intentionally skip the launcher's cache. Off the main
+ *  thread: the capability read is the renderer's first request, and a spawn
+ *  that blocks here holds the first transcript page behind it. */
+function whichAgentBinary(agentId: AgentId): Promise<string | null> {
+  const bin = AGENT_BIN[agentId]
+  if (!bin) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    execFile('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }, (error, stdout) => {
+      resolve(error ? null : stdout.trim() || null)
+    })
+  })
+}
+
+/** The host login is the owner's seat: the seat module owns the one honest probe for it. */
+export function hasClaudeAuth(succeeds?: LoginProbe): Promise<boolean> {
+  return providerLoginConnected('claude-code', null, succeeds)
+}
+
+export function hasCodexAuth(): Promise<boolean> {
+  return providerLoginConnected('codex', null)
+}
+
+export async function hasGithubAuth(): Promise<boolean> {
+  return !!(await safeLoadGithubToken())
+}
+
+/**
+ * Everything the "New project" dialog needs to decide whether a host can clone
+ * and then push. Nothing here touches the network, so it stays cheap enough to
+ * run every time the dialog opens.
+ */
+export async function probeHostReadiness(
+  hasCommand: (command: string) => boolean = commandExists,
+  agentDeps: AgentAuthProbeDeps = {},
+  projectsRoot: string = setupProjectsRoot(),
+): Promise<HostReadiness> {
+  // Checked again on each probe: the user opens this after an install. Without
+  // git, the git config probes are not run, because the macOS stub would open
+  // the "Install developer tools" dialog for each one.
+  const gitInstalled = isGitUsable({ recheck: true })
+  const token = await safeLoadGithubToken()
+  const ghCli = hasCommand('gh')
+  return {
+    platform: process.platform,
+    home: homedir(),
+    projectsRoot,
+    git: {
+      installed: gitInstalled,
+      identity: gitInstalled ? readGitIdentity() : null,
+      credentialHelper: gitInstalled && !!runProbe('git', ['config', '--global', '--get', GITHUB_CREDENTIAL_KEY]),
+    },
+    github: {
+      solusToken: !!token,
+      solusLogin: token?.login ?? null,
+      solusScopes: token ? parseGithubScopes(token.scope) : undefined,
+      ghCli,
+      // `gh auth status` reports on stderr either way, so only its exit code says
+      // whether the CLI actually holds credentials.
+      ghAuthenticated: ghCli && probeSucceeds('gh', ['auth', 'status']),
+    },
+    ssh: { publicKeys: listSshPublicKeys() },
+    agents: {
+      claude: await agentReadiness('claude', agentDeps),
+      codex: await agentReadiness('codex', agentDeps),
+    },
+    installGit: gitInstalled ? null : buildPackageInstallCommand('git', { hasCommand }),
+    installGh: ghCli ? null : buildPackageInstallCommand('gh', { hasCommand }),
+  }
+}
+
+export function coerceSetupAgent(value: string): SetupAgent {
+  const parsed = setupAgentSchema.safeParse(value)
+  if (parsed.success) return parsed.data
+  throw new Error('Unsupported setup agent.')
+}
+
+
+
+
+
+
+
+/**
+ * The projects folder as this principal's pickers and Settings see it: the
+ * folder in use, never the raw setting, so a cloud member reads their own
+ * `/data/projects/<userId>` and an unset host reads `~/projects`. The folder is
+ * created here because this is how a client first learns of it, and a picker
+ * that opens on a missing folder shows an error instead of a place.
+ */
+export function projectsBaseDirectoryFor(
+  principal: Principal | undefined,
+): Pick<ServerCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'> {
+  const root = projectsRootFor(principal)
+  // Best effort: an unwritable root still reports, and the picker says why.
+  try { mkdirSync(root, { recursive: true }) } catch {}
+  return {
+    projectsBaseDirectory: root,
+    projectsBaseDirectoryIsSet: principal?.kind !== 'org-member' && !!getServerSettings().projectsBaseDirectory,
+  }
+}
+
+/**
+ * Where one person's projects land (managed-hosts.md §3). The host's root for its
+ * owner and for the host's own work; a member of the organization gets a member
+ * folder of their own beneath it, named by their account id, so each person clones
+ * into a folder that is theirs and two people never share one main checkout. It is
+ * a default and the member's view (`projectsVisibleTo`), not a boundary: a member
+ * may still open a path a shared session names.
+ */
+export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  if (principal?.kind !== 'org-member') return hostRoot
+  const memberFolder = join(hostRoot, memberFolderUserIdSchema.parse(principal.userId))
+  mkdirSync(memberFolder, { recursive: true })
+  return memberFolder
+}
+
+/**
+ * Where this principal's sessions with no project run (Scratchpad). A member of an
+ * organization gets a chat folder inside their member folder, so two members never
+ * share one; this also holds on a personal host shared with an organization. The
+ * owner, the host itself, and a personal host keep the owner's chat folder
+ * (`WORKSPACE_DIR`) at its old path, so old sessions still resume.
+ */
+export function chatFolderFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  const chatFolder = principal?.kind === 'org-member'
+    ? join(projectsRootFor(principal, hostRoot), MEMBER_CHAT_FOLDER_NAME)
+    : WORKSPACE_DIR
+  try {
+    mkdirSync(chatFolder, { recursive: true })
+  } catch (err) {
+    log.warn('chat_folder_create_failed', { chatFolder, error: String(err) })
+  }
+  return chatFolder
+}
+
+/** A bare `~` is the client's "no folder known yet": the caller's chat folder. `~/x` is a home path and stays. */
+export function resolveUnknownFolder(path: string, principal: Principal | undefined): string {
+  return path === '~' ? chatFolderFor(principal) : path
+}
+
+/**
+ * The projects a listing shows this principal: a member sees their own member
+ * folder only, so another person's checkout is never offered as theirs to open;
+ * the owner and the host itself see every project.
+ */
+export function projectsVisibleTo<T extends { path: string }>(principal: Principal | undefined, projects: T[], hostRoot = setupProjectsRoot()): T[] {
+  if (principal?.kind !== 'org-member') return projects
+  const memberFolder = projectsRootFor(principal, hostRoot)
+  return projects.filter((project) => {
+    const inside = relative(memberFolder, resolve(project.path))
+    return inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))
+  })
+}
+
+export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps): void {
+  const checkouts = deps.checkouts
+  const spawnProcess = deps.spawnProcess ?? nodeSpawn
+  const hasCommand = deps.hasCommand ?? commandExists
+  const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
+  const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
+  /** The caller's own member folder beneath the host root (managed-hosts.md §3). */
+  const projectsRootOf = (ctx: HandlerCtx) => projectsRootFor(ctx.principal, projectsRoot())
+  /** The last step of both cloning and adopting; returns the key both promise. */
+  const registerProject = deps.registerProject ?? (async (path: string) => {
+    await recordProject(path)
+    return resolveProjectKey(path)
+  })
+  /** The auth probes for the caller: their seat when the host has seats, else the host login. */
+  const agentDepsFor = (ctx: HandlerCtx): AgentAuthProbeDeps => {
+    const seats = deps.seats
+    if (!seats) return deps
+    const seat = seatFor(ctx.actor)
+    const connected = async (provider: SeatProvider) => (await seats.status(seat, provider)).state === 'connected'
+    return { ...deps, hasClaudeAuth: () => connected('claude-code'), hasCodexAuth: () => connected('codex') }
+  }
+  const activeSteps = new Set<SetupStreamStep>()
+  /** The one path `clean: true` is allowed to delete: what this host's last clone left behind. */
+  let lastFailedCloneDestination: string | null = null
+
+  const eventSink = (clientId: string | undefined) => ({
+    emitStatus: (event: SetupStatusEvent) => {
+      if (clientId) deps.events?.publish(clientId, 'setup.statusChanged', event)
+    },
+    emitLog: (event: SetupLogEvent) => {
+      if (clientId) deps.events?.publish(clientId, 'setup.logAppended', event)
+    },
+  })
+
+  server.register('resolveDispatchHistoryRoots', async (args, ctx): Promise<DispatchHistoryRoot[]> => {
+    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDeviceScopedSetupContext(ctx))
+    const [requestRepoKeys] = args
+    const repoKeys = z.array(z.string()).parse(requestRepoKeys)
+    if (repoKeys.length > MAX_DISPATCH_HISTORY_REPO_KEYS) {
+      throw new Error(`Dispatch history is limited to ${MAX_DISPATCH_HISTORY_REPO_KEYS} repositories per request.`)
+    }
+    return resolveDispatchHistoryRoots(projectsRootOf(ctx), ownerKey, repoKeys)
+  })
+
+  server.register('setProjectsBaseDirectory', (args, ctx) => {
+    const [path] = args
+    setProjectsBaseDirectory(z.string().parse(path))
+    return projectsBaseDirectoryFor(ctx.principal)
+  })
+
+  server.register('setupInstallAgentCli', async (args, ctx) => {
+    const { emitStatus, emitLog } = eventSink(ctx.clientId)
+    const [request] = args
+    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
+    const step = installStepForAgent(setupAgent)
+
+    return runExclusive(step, async () => {
+      try {
+        const compatibilityError = agentInstallCompatibilityError(setupAgent)
+        if (compatibilityError) throw new Error(compatibilityError)
+        const ownership = resolveAgentOwnership(setupAgent)
+        if (ownership.kind === 'unmanaged') {
+          const label = setupAgent === 'claude' ? 'Claude' : 'Codex'
+          throw new Error(`${label} is already installed at ${ownership.resolvedPath}, outside Solus's installer. Update it there, then check again.`)
+        }
+        const spec = buildAgentInstallCommand(setupAgent, { hasCommand })
+        emitLog({ step, line: `Running ${spec.display}` })
+        const result = await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
+        await deps.onProviderInstalled?.(setupAgent)
+        return result
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err)
+        emitStatus({ step, status: 'failed', error })
+        throw err
+      }
+    })
+  })
+
+  server.register('setupCheckAgentAuth', (args, ctx): Promise<SetupAgentAuthCheckResult> => {
+    const [request] = args
+    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
+    return checkAgentAuth(setupAgent, agentDepsFor(ctx))
+  })
+
+  // Signing an agent in is the seat connect (`seatConnectStart` and friends): the
+  // host login is the owner's seat, so the wizard and a member's row share one relay.
+
+  server.register('setupListGithubRepos', async (): Promise<SetupGithubReposResult> => {
+    if (!(await hasGithubAuth())) return { connected: false }
+
+    const client = await buildClient(new GitHubAuth())
+    const res = await client.rest.repos.listForAuthenticatedUser({
+      affiliation: 'owner,collaborator,organization_member',
+      sort: 'updated',
+      direction: 'desc',
+      per_page: 50,
+    })
+    const repos: SetupGithubRepo[] = res.data.map((repo) => ({
+      name: repo.name,
+      fullName: repo.full_name,
+      private: repo.private,
+      cloneUrl: repo.clone_url,
+      updatedAt: repo.updated_at ?? repo.pushed_at ?? '',
+    }))
+    return { connected: true, repos }
+  })
+
+  server.register('setupHostReadiness', (_args, ctx): Promise<HostReadiness> => {
+    return probeHostReadiness(hasCommand, agentDepsFor(ctx), projectsRootOf(ctx))
+  })
+
+  server.register('setupInstallGit', (_args, ctx) => {
+    return installPackage('git', 'install-git', 'git', ctx.clientId)
+  })
+
+  server.register('setupInstallGh', (_args, ctx) => {
+    return installPackage('gh', 'install-gh', 'the GitHub CLI', ctx.clientId)
+  })
+
+  /** The two packages Solus installs on a host, run the same way and reported on the same channel. */
+  async function installPackage(
+    pkg: InstallablePackage,
+    step: SetupStreamStep,
+    label: string,
+    clientId: string | undefined,
+  ) {
+    const { emitStatus, emitLog } = eventSink(clientId)
+    const spec = buildPackageInstallCommand(pkg, { hasCommand })
+    if (!spec) throw new Error(`No package manager was found on this host. Install ${label} manually, then re-check.`)
+    if (!spec.autoRunnable) {
+      throw new Error(`Solus can’t run this without elevation. Run it on the host, then re-check:\n${spec.display}`)
+    }
+
+    return runExclusive(step, async () => {
+      emitLog({ step, line: `Running ${spec.display}` })
+      try {
+        return await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
+      } catch (err) {
+        emitStatus({ step, status: 'failed', error: err instanceof Error ? err.message : String(err) })
+        throw err
+      }
+    })
+  }
+
+  server.register('setupSetGitIdentity', (args): GitCommitIdentity => {
+    const [request] = args
+    const { name, email } = z.object({ name: z.string(), email: z.string() }).strict().parse(request)
+    const identity = {
+      name: coerceConfigValue(name, 'Name'),
+      email: coerceConfigValue(email, 'Email'),
+    }
+    execFileSync('git', ['config', '--global', 'user.name', identity.name], { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS })
+    execFileSync('git', ['config', '--global', 'user.email', identity.email], { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS })
+    return identity
+  })
+
+  server.register('setupCheckSshAccess', (args): SetupSshAccessResult => {
+    const [request] = args
+    const { host } = z.object({ host: z.string().optional() }).strict().parse(request)
+    const target = host?.trim() || 'github.com'
+    if (!isValidCloneHost(target)) throw new Error('That is not a valid host name.')
+
+    // A code host answers the shell request with a greeting and a non-zero exit,
+    // so the greeting — not the exit code — is what says the key is accepted.
+    let output = ''
+    try {
+      output = execFileSync('ssh', [
+        ...sshConnectionOptions(),
+        '-T', `git@${target}`,
+      ], { encoding: 'utf8', env: getCliEnv(), timeout: SSH_COMMAND_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+      return { host: target, ok: true, message: output.trim() || `Connected to ${target}.` }
+    } catch (err) {
+      // SAFETY: Node adds captured stdout and stderr to the Error thrown by execFileSync.
+      const failure = err as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+      output = [failure.stdout, failure.stderr].map((part) => part?.toString() ?? '').join('\n').trim()
+      const ok = /successfully authenticated/i.test(output)
+      return { host: target, ok, message: output || failure.message || `Couldn’t reach ${target} over SSH.` }
+    }
+  })
+
+  server.register('setupAuthorizeGhCli', async () => {
+    const token = await safeLoadGithubToken()
+    if (!token) throw new Error('Connect GitHub on this host before authorizing the gh CLI.')
+    if (!hasCommand('gh')) throw new Error('The GitHub CLI (gh) is not installed on this host.')
+    if (!hasGithubCliScopes(parseGithubScopes(token.scope))) {
+      throw new Error('Reconnect GitHub on this host to grant the scopes required by the gh CLI.')
+    }
+
+    // `--with-token` reads stdin, so the token never becomes an argument.
+    execFileSync('gh', ['auth', 'login', '--with-token'], {
+      input: `${token.accessToken}\n`,
+      env: getCliEnv(),
+      timeout: GH_AUTH_TIMEOUT_MS,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    return { ok: true } as const
+  })
+
+  server.register('setupInstallGitCredentialHelper', () => {
+    const solusPath = resolveSolusCli()
+    if (!solusPath) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
+    // The leading "!" makes git run this as a shell command rather than looking
+    // for a `git-credential-<name>` binary — so the path has to survive a shell.
+    execFileSync('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, `!'${solusPath}' git-credential`], {
+      env: getCliEnv(),
+      timeout: PROBE_TIMEOUT_MS,
+    })
+    return { ok: true } as const
+  })
+
+  server.register('setupPrepareProject', async (args, ctx): Promise<SetupPrepareProjectResult> => {
+    // The owner key is the key the checkout path and the delegated token are both
+    // stored and read back under: the device, or the member on a managed host.
+    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDeviceScopedSetupContext(ctx))
+    const [request] = args
+    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch } = setupPrepareProjectSchema.parse(request)
+    if (baseBranch && !checkouts) throw new Error('The checkout service is not available')
+    const credential = coerceDelegatedCredential(rawCredential)
+    const parsed = validateCloneUrl(cloneUrl)
+    const repoKey = cloneRepoKey(parsed.cloneUrl)
+    if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
+
+    // Only the host's own work keeps an identity in checkout config (the paired
+    // device's helper and author); a member's processes take theirs per process.
+    const identity = await deps.gitIdentities.resolve(seatFor(ctx.actor))
+    const configure = (path: string) => {
+      if (credential && identity.kind === 'host') configureDelegatedCheckout(path, ownerKey, credential)
+    }
+    const prepare = async (path: string): Promise<string> => {
+      const gitEnv = identity.kind === 'host' ? undefined : identity.env
+      const release = deps.gitIdentities.hold(identity)
+      try {
+        // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
+        await ensureFullHistory(path, gitEnv)
+        if (!baseBranch) return resolveDispatchWorktree(path, worktreePath)
+        return (await checkouts!.ensureBranch(path, baseBranch, gitEnv)).worktreePath ?? path
+      } finally {
+        release()
+      }
+    }
+
+    const checkoutPath = dispatchCheckoutPath(projectsRootOf(ctx), ownerKey, repoKey)
+    if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
+      const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx)
+      configure(checkoutPath)
+      return { ...result, path: await prepare(checkoutPath), action: 'updated' }
+    }
+
+    const cloneRequest = {
+      cloneUrl: parsed.cloneUrl,
+      destination: checkoutPath,
+      partialClone: true,
+    }
+    if (credential) Object.assign(cloneRequest, { credential })
+    const result = await server.handle('setupCloneProject', [cloneRequest], ctx)
+    configure(result.path)
+    return {
+      path: await prepare(result.path),
+      projectKey: result.projectKey,
+      action: 'cloned',
+    }
+  })
+
+  server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
+    const { emitStatus, emitLog } = eventSink(ctx.clientId)
+    const [request] = args
+    const { cloneUrl, name, destination, protocol, clean, credential: rawCredential, partialClone } = setupCloneProjectSchema.parse(request)
+    const credential = coerceDelegatedCredential(rawCredential)
+    const parsed = validateCloneUrl(cloneUrl)
+    const selectedProtocol = coerceCloneProtocol(protocol)
+    // A member clones with their own token alone: not the host's SSH key, and not a helper the host configured.
+    const actsAsMember = seatFor(ctx.actor).kind === 'user'
+    const cloneUrls = credential || actsAsMember
+      ? [applyCloneProtocol(parsed.cloneUrl, 'https')]
+      : selectedProtocol
+      ? [applyCloneProtocol(parsed.cloneUrl, selectedProtocol)]
+      : [
+          applyCloneProtocol(parsed.cloneUrl, 'ssh'),
+          applyCloneProtocol(parsed.cloneUrl, 'https'),
+        ]
+    const step: SetupStreamStep = 'clone'
+
+    return runExclusive(step, async () => {
+      const hostProjectsRoot = projectsRootOf(ctx)
+      // Only a directory this host's own clone left behind can be removed, so a
+      // stray `clean` can never delete a folder the user chose. It runs before the
+      // destination resolves: a retry that names no destination must land back on
+      // the original path, not beside the partial under a "-2" suffix.
+      if (clean === true && lastFailedCloneDestination) {
+        await rm(lastFailedCloneDestination, { recursive: true, force: true })
+        lastFailedCloneDestination = null
+      }
+      const targetPath = resolveCloneDestination({
+        destination: destination?.trim() ? expandHome(destination.trim()) : undefined,
+        name,
+        repoName: parsed.repoName,
+        projectsRoot: hostProjectsRoot,
+      })
+      await assertEmptyDestination(targetPath)
+      const targetExistedBeforeClone = existsSync(targetPath)
+
+      const parent = dirname(targetPath)
+      await mkdir(parent, { recursive: true })
+      let auth: CloneAuth | null = null
+      // A GitHub clone over HTTPS that had no token to offer: on a host that
+      // clones with the account's connection, that is the likely cause.
+      let githubAttemptWithoutToken = false
+
+      for (const [index, attemptUrl] of cloneUrls.entries()) {
+        const isHttps = attemptUrl.startsWith('https://')
+        const attemptParts = parseCloneUrlParts(attemptUrl)
+        const isGithubHttps = isHttps && attemptParts?.host.toLowerCase() === 'github.com'
+        const token = credential ?? (
+          isGithubHttps
+            ? await safeLoadGithubToken(loadStoredGithubToken)
+            : null
+        )
+        if (isGithubHttps && !token) githubAttemptWithoutToken = true
+        const askpass = token ? await createGitAskpassHelper() : null
+        try {
+          auth = await attemptClone({
+            step,
+            attemptUrl,
+            parent,
+            targetPath,
+            isHttps,
+            token,
+            askpass,
+            isolateHelpers: actsAsMember,
+            partialClone: partialClone === true,
+            spawnProcess,
+            emitStatus,
+            emitLog,
+            emitFailureStatus: index === cloneUrls.length - 1,
+          })
+          break
+        } catch (err) {
+          const hasFallback = index < cloneUrls.length - 1
+          if (!hasFallback) {
+            // Name only a partial checkout this clone created, so `clean` can
+            // never delete a folder the user already owned.
+            if (!targetExistedBeforeClone && existsSync(targetPath)) {
+              lastFailedCloneDestination = targetPath
+            }
+            if (githubAttemptWithoutToken && usesAccountIntegration()) throw new GithubConnectionRequiredError()
+            throw err
+          }
+
+          try {
+            await prepareDestinationForCloneRetry(targetPath, targetExistedBeforeClone)
+          } catch (cleanupErr) {
+            const error = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+            emitStatus({ step, status: 'failed', error })
+            throw cleanupErr
+          }
+          emitLog({ step, line: 'SSH clone failed; trying HTTPS.' })
+        } finally {
+          if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
+        }
+      }
+
+      if (!auth) throw new Error('Clone failed without an authentication result.')
+      lastFailedCloneDestination = null
+      return { path: targetPath, projectKey: await registerProject(targetPath), auth }
+    })
+  })
+
+  function configureDelegatedCheckout(
+    checkoutPath: string,
+    ownerKey: string,
+    credential: GithubDelegatedCredential,
+  ): void {
+    saveDelegation(ownerKey, credential)
+    const solusPath = resolveSolusCli()
+    if (!solusPath) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
+    const config = (key: string, value: string) => execFileSync(
+      'git',
+      ['-C', checkoutPath, 'config', '--local', key, value],
+      { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS },
+    )
+    // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
+    config(GITHUB_CREDENTIAL_KEY, `!'${solusPath}' git-credential --delegation ${ownerKey}`)
+    config('user.name', credential.login)
+    config('user.email', `${credential.login}@users.noreply.github.com`)
+  }
+
+  server.register('setupSyncProject', async (args): Promise<SetupAdoptProjectResult> => {
+    const [request] = args
+    const { path, cloneUrl } = setupSyncProjectSchema.parse(request)
+    const rawPath = path.trim()
+    if (!rawPath) throw new Error('A checkout path is required.')
+    const checkoutPath = expandHome(rawPath)
+    const expected = cloneRepoKey(validateCloneUrl(cloneUrl).cloneUrl)
+    const origin = runProbe('git', ['-C', checkoutPath, 'config', '--get', 'remote.origin.url'])
+    const actual = origin ? cloneRepoKey(origin) : null
+    if (!runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
+      throw new Error(`There’s no git checkout at ${checkoutPath}.`)
+    }
+    if (!expected || !actual || actual !== expected) {
+      throw new Error(`The git checkout at ${checkoutPath} does not match ${expected ?? 'the selected repository'}.`)
+    }
+
+    try {
+      // Dispatch must never create a surprise merge on an unattended host.
+      // Fast-forward updates are automatic; dirty, divergent, or conflicted
+      // checkouts stop here with Git's own actionable error.
+      await runAsync('git', ['pull', '--ff-only'], checkoutPath, {
+        timeout: 120_000,
+        env: { GIT_TERMINAL_PROMPT: '0' },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Couldn’t update ${checkoutPath}: ${message}`)
+    }
+    return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
+  })
+
+  server.register('setupAdoptProject', async (args): Promise<SetupAdoptProjectResult> => {
+    const [request] = args
+    const { path, cloneUrl } = setupAdoptProjectSchema.parse(request)
+    const rawPath = path.trim()
+    if (!rawPath) throw new Error('A checkout path is required.')
+    const checkoutPath = expandHome(rawPath)
+    const checkoutRoot = runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])
+    if (!checkoutRoot) throw new Error(`There’s no git checkout at ${checkoutPath}.`)
+
+    if (cloneUrl?.trim()) {
+      const expected = cloneRepoKey(validateCloneUrl(cloneUrl).cloneUrl)
+      if (!expected) throw new Error('The clone URL must name both an owner and repository.')
+      const origin = runProbe('git', ['-C', checkoutPath, 'config', '--get', 'remote.origin.url'])
+      if (!origin) {
+        throw new Error(`The git checkout at ${checkoutPath} has no origin configured.`)
+      }
+      const actual = cloneRepoKey(origin)
+      if (!actual || actual !== expected) {
+        throw new Error(`The git checkout at ${checkoutPath} has origin ${origin}, not ${expected}.`)
+      }
+    }
+
+    return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
+  })
+
+  /**
+   * A project from nothing: an empty folder in the caller's projects root (or the
+   * parent they chose), a git repository in it, and the project recorded. A name
+   * already taken is refused rather than suffixed — the user typed it.
+   */
+  server.register('setupCreateProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
+    const [request] = args
+    const { name, parent } = setupCreateProjectSchema.parse(request)
+    const projectPath = join(parent ? expandHome(parent) : projectsRootOf(ctx), safeProjectDirName(name))
+    if (existsSync(projectPath)) throw new Error(`${projectPath} already exists. Choose another name.`)
+    await mkdir(projectPath, { recursive: true })
+    try {
+      await initRepository(projectPath)
+    } catch (err) {
+      // A retry must not find its own half-made folder "already exists".
+      await rm(projectPath, { recursive: true, force: true })
+      throw err
+    }
+    return { path: projectPath, projectKey: await registerProject(projectPath) }
+  })
+
+  async function runExclusive<T>(step: SetupStreamStep, task: () => Promise<T>): Promise<T> {
+    deps.assertNewWorkAllowed?.()
+    if (activeSteps.has(step)) throw new Error(`Setup step "${step}" is already running.`)
+    activeSteps.add(step)
+    deps.onActiveStepsChanged?.(activeSteps.size)
+    try {
+      return await task()
+    } finally {
+      activeSteps.delete(step)
+      deps.onActiveStepsChanged?.(activeSteps.size)
+    }
+  }
+
+}
+
+function installStepForAgent(agent: SetupAgent): SetupStreamStep {
+  return agent === 'claude' ? 'install-claude' : 'install-codex'
+}
+
+/** Readiness cares only about "can this host run the agent", so an unknown auth probe reads as not signed in. */
+async function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Promise<HostReadiness['agents'][SetupAgent]> {
+  const check = await checkAgentAuth(agent, deps)
+  return { installed: check.installed, signedIn: check.installed && check.authenticated === true }
+}
+
+async function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Promise<SetupAgentAuthCheckResult> {
+  const resolveBinary = deps.resolveAgentBinary ?? whichAgentBinary
+  const checkClaudeAuth = deps.hasClaudeAuth ?? hasClaudeAuth
+  const checkCodexAuth = deps.hasCodexAuth ?? hasCodexAuth
+  const installed = !!await resolveBinary(agent === 'claude' ? 'claude-code' : 'codex')
+  return {
+    agent,
+    installed,
+    authenticated: installed
+      ? await (agent === 'claude' ? checkClaudeAuth() : checkCodexAuth())
+      : false,
+  }
+}
+
+/**
+ * Only the dispatch handlers need a device: a checkout belongs to the paired
+ * device that asked for it (ADR-0011), so without one there is no path to write
+ * to. The rest of setup does not — reaching a handler at all already means the
+ * socket was admitted, and the handshake admits nobody the bind policy has not
+ * already trusted. A loopback or trusted-network client connects tokenless by
+ * design, so a blanket device check here rejects exactly the clients the policy
+ * meant to let in.
+ */
+function requireDeviceScopedSetupContext(ctx: HandlerCtx): string {
+  if (!ctx.deviceId) throw new Error('Dispatch checkouts require a paired device. Pair this client with the host, then try again.')
+  return ctx.deviceId
+}
+
+function coerceCloneProtocol(value: CloneProtocol | undefined): CloneProtocol | undefined {
+  return value
+}
+
+function coerceDelegatedCredential(value: GithubDelegatedCredential | undefined): GithubDelegatedCredential | undefined {
+  if (!value) return undefined
+  const { accessToken, login } = value
+  const normalized = { accessToken: accessToken.trim(), login: login.trim() }
+  return normalized.accessToken && normalized.login ? normalized : undefined
+}
+
+/** Git config values reach a shell-free execFile, but newlines would still corrupt the config file. */
+function coerceConfigValue(value: string, label: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) throw new Error(`${label} is required.`)
+  if (trimmed.length > 200 || [...trimmed].some((character) => character === '\r' || character === '\n' || character === '\0')) {
+    throw new Error(`${label} contains characters git can’t store.`)
+  }
+  return trimmed
+}
+
+/** `host/owner/repo`, independent of whether git stored SSH or HTTPS as origin. */
+function cloneRepoKey(cloneUrl: string): string | null {
+  const parts = parseCloneUrlParts(cloneUrl)
+  if (!parts) return null
+  const repoPath = parts.repoPath.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
+  if (!repoPath.includes('/')) return null
+  return `${parts.host.toLowerCase()}/${repoPath}`
+}
+
+/** Runs a short read-only command and returns its trimmed output, or null if it can't. */
+function runProbe(command: string, args: string[]): string | null {
+  try {
+    const out = execFileSync(command, args, {
+      encoding: 'utf8',
+      env: getCliEnv(),
+      timeout: PROBE_TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    return out.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/** For probes whose answer is the exit code rather than anything they print. */
+function probeSucceeds(command: string, args: string[]): boolean {
+  try {
+    execFileSync(command, args, {
+      env: getCliEnv(),
+      timeout: PROBE_TIMEOUT_MS,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Both halves are required before a commit works, so a partial identity reads as none. */
+function readGitIdentity(): GitCommitIdentity | null {
+  const name = runProbe('git', ['config', '--global', '--get', 'user.name'])
+  const email = runProbe('git', ['config', '--global', '--get', 'user.email'])
+  return name && email ? { name, email } : null
+}
+
+function listSshPublicKeys(): string[] {
+  try {
+    return readdirSync(join(homedir(), '.ssh')).filter((name) => name.endsWith('.pub')).sort()
+  } catch {
+    return []
+  }
+}
+
+async function safeLoadGithubToken(
+  loader: typeof loadGithubToken = loadGithubToken,
+): ReturnType<typeof loadGithubToken> {
+  try {
+    return await loader()
+  } catch {
+    return null
+  }
+}
+
+async function attemptClone(opts: {
+  step: SetupStreamStep
+  attemptUrl: string
+  parent: string
+  targetPath: string
+  isHttps: boolean
+  token: { accessToken: string } | null
+  askpass: { path: string } | null
+  isolateHelpers: boolean
+  partialClone: boolean
+  spawnProcess: SpawnProcess
+  emitStatus(event: SetupStatusEvent): void
+  emitLog(event: SetupLogEvent): void
+  emitFailureStatus: boolean
+}): Promise<CloneAuth> {
+  const {
+    step, attemptUrl, parent, targetPath, isHttps, token, askpass, isolateHelpers, partialClone,
+    spawnProcess, emitStatus, emitLog, emitFailureStatus,
+  } = opts
+  const cloneArgs = partialClone ? PARTIAL_CLONE_ARGS : []
+  // Cloning into a basename from the parent keeps git's counting/receiving
+  // lines on the stream; a full destination path suppresses them.
+  const spec: ProcessCommandSpec = {
+    command: 'git',
+    args: ['clone', '--progress', ...cloneArgs, attemptUrl, basename(targetPath)],
+    display: ['git clone --progress', ...cloneArgs, attemptUrl, basename(targetPath)].join(' '),
+  }
+  const env = gitAuthEnv({
+    isHttps,
+    token: token?.accessToken ?? null,
+    askpassPath: askpass?.path ?? null,
+    isolateHelpers,
+  })
+  emitLog({ step, line: `Cloning ${attemptUrl} into ${targetPath}` })
+  await runSetupProcess({
+    step,
+    spec,
+    spawnProcess,
+    emitStatus,
+    emitLog,
+    cwd: parent,
+    emitFailureStatus,
+    env,
+  })
+  return isHttps ? (token ? 'token' : 'anonymous') : 'ssh'
+}
+
+/** A destination that already holds files is never clobbered — the user chooses. */
+async function assertEmptyDestination(target: string): Promise<void> {
+  const contents = await readdir(target).catch(() => null)
+  if (contents === null) return
+  if (contents.length > 0) {
+    throw new Error(`${target} already exists and is not empty. Choose another folder or remove it first.`)
+  }
+}
+
+/**
+ * SSH fallback may remove only a destination that this clone created. An
+ * existing empty folder can be reused only if SSH left it empty.
+ */
+async function prepareDestinationForCloneRetry(target: string, existedBeforeClone: boolean): Promise<void> {
+  if (!existsSync(target)) return
+  if (!existedBeforeClone) {
+    await rm(target, { recursive: true, force: true })
+    return
+  }
+  const contents = await readdir(target)
+  if (contents.length === 0) return
+  throw new Error(
+    `SSH left files in ${target}. Solus didn’t remove them because the folder already existed; empty it before trying HTTPS.`,
+  )
+}
+
+async function runSetupProcess(opts: {
+  step: SetupStreamStep
+  spec: ProcessCommandSpec
+  spawnProcess: SpawnProcess
+  emitStatus(event: SetupStatusEvent): void
+  emitLog(event: SetupLogEvent): void
+  cwd?: string
+  /** Secrets belong here, never in `spec.args` — argv is world-readable. */
+  env?: GitAuthEnv
+  /** A fallback attempt is not a failed setup step until its final attempt fails. */
+  emitFailureStatus?: boolean
+  /** Returns a user-facing error when a zero exit did not achieve the intended state. */
+  verifySuccess?(): string | null
+}): Promise<SetupStepResult> {
+  const {
+    step,
+    spec,
+    spawnProcess,
+    emitStatus,
+    emitLog,
+    cwd,
+    env,
+    emitFailureStatus = true,
+    verifySuccess,
+  } = opts
+  emitStatus({ step, status: 'running' })
+
+  const child = spawnProcess(spec.command, spec.args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: getCliEnv({ FORCE_COLOR: '0', ...env }),
+  })
+
+  let settled = false
+  const outputTail: string[] = []
+  const emitOutputLine = (line: string) => {
+    emitLog({ step, line })
+    if (!line.trim()) return
+    outputTail.push(line)
+    if (outputTail.length > 3) outputTail.shift()
+  }
+  const stdout = createLineBuffer(emitOutputLine)
+  const stderr = createLineBuffer(emitOutputLine)
+  child.stdout?.on('data', (chunk) => stdout.write(chunk))
+  child.stderr?.on('data', (chunk) => stderr.write(chunk))
+
+  return await new Promise<SetupStepResult>((resolve, reject) => {
+    const finish = (status: 'done' | 'failed', error?: string) => {
+      if (settled) return
+      settled = true
+      stdout.flush()
+      stderr.flush()
+      if (status === 'done' || emitFailureStatus) {
+        emitStatus(error ? { step, status, error } : { step, status })
+      }
+      const result: SetupStepResult = { step, status, error }
+      if (status === 'failed') reject(new Error(error ?? 'Setup step failed.'))
+      else resolve(result)
+    }
+
+    child.once('error', (err) => {
+      finish('failed', err instanceof Error ? err.message : String(err))
+    })
+    child.once('close', (code, signal) => {
+      if (signal) {
+        finish('failed', 'Setup step cancelled.')
+        return
+      }
+      if (code === 0) {
+        const verificationError = verifySuccess?.()
+        if (verificationError) finish('failed', verificationError)
+        else finish('done')
+      }
+      else {
+        const detail = outputTail.length > 0 ? `:\n${outputTail.join('\n')}` : ''
+        finish('failed', `Exited with code ${code ?? 'unknown'}${detail}`)
+      }
+    })
+  })
+}
+
+function createLineBuffer(onLine: (line: string) => void): LineBuffer {
+  let buffered = ''
+  let emitted = 0
+  const emit = (value: string) => {
+    const line = value.replace(ANSI_RE, '').trimEnd()
+    if (!line.trim()) return
+    emitted++
+    if (emitted > MAX_SETUP_LOG_LINES) return
+    onLine(line)
+  }
+  return {
+    write(chunk) {
+      buffered += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk)
+      const parts = buffered.split(/\r?\n/)
+      buffered = parts.pop() ?? ''
+      for (const part of parts) emit(part)
+    },
+    flush() {
+      if (!buffered) return
+      emit(buffered)
+      buffered = ''
+    },
+  }
+}

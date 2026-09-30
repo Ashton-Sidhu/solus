@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { describePendingInput } from '@solus/server/sessions/pending-input'
+import { describePendingInput } from '@solus/server/execution/sessions/pending-input'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 /**

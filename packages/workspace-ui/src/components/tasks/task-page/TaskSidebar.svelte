@@ -11,6 +11,7 @@
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
   import {
     syncToneColor,
+    taskEpicRow,
     type TaskPublishTarget,
     type TaskUpstreamState,
   } from "./lib/task-upstream";
@@ -19,9 +20,11 @@
 
   interface Props {
     task: Task;
-    /** Which of the sidebar's two homes this is. The sheet is portalled to the
-     *  body, so it cannot be told apart by a container query. */
-    variant?: "column" | "sheet";
+    /** Which of the sidebar's homes this is: the rail beside the task, a
+     *  panel opened under the task's title where the rail has folded, or the
+     *  phone's sheet. The sheet is portalled to the body, so it cannot be told
+     *  apart by a container query. The panel takes the column's rhythm. */
+    variant?: "column" | "panel" | "sheet";
     projectLabel: string;
     projectRoot?: string;
     serverId?: string | null;
@@ -88,6 +91,16 @@
   const ROW = $derived(row(sheet));
   const ROW_LABEL = $derived(rowLabel(sheet));
   const VALUE_BUTTON = $derived(valueButton(sheet));
+  // The panel spans the task's column, which can be three rails wide. One list
+  // of 34px rows there leaves every value against the left edge and the rest
+  // of the card empty, so where a row still gets a rail's width the rows pair
+  // up into two columns.
+  const panel = $derived(variant === "panel");
+  const ROWS = $derived(
+    panel
+      ? "grid grid-cols-1 gap-x-8 gap-y-1 @[40rem]:grid-cols-2"
+      : "flex flex-col gap-1",
+  );
   // The static twin of VALUE_BUTTON. In the column it takes the row's remaining
   // width; in the sheet the label already has it, so the value sizes to itself.
   const VALUE = $derived(
@@ -101,22 +114,25 @@
   // Task labels are names alone; the picker draws them in the accent.
   const taskLabels = $derived(task.labels.map((name) => ({ name })));
   const labelCandidateOptions = $derived(labelCandidates.map((name) => ({ name })));
+  const epic = $derived(taskEpicRow(task));
 </script>
 
 
 <div
   class={sheet
     ? "flex w-full flex-col gap-3.5"
-    : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px]"}
+    : variant === "panel"
+    ? "@container flex w-full flex-col rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
+    : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"}
 >
-  <div class={GROUP}>
+  <div class={panel ? `${ROWS} px-3.5 pt-[15px] pb-4` : GROUP}>
     <div class={ROW}>
       <span class={ROW_LABEL}>Status</span>
       <TaskStatusMenu
         status={task.status}
         options={editableStatuses}
         onSelect={(next) => onSave({ status: next })}
-        align="end"
+        align={sheet ? "end" : "start"}
         triggerClass={VALUE_BUTTON}
       >
         {#snippet trigger()}
@@ -144,7 +160,7 @@
         priority={task.priority}
         disabled={!canEditPriority}
         onSelect={(next) => onSave({ priority: next })}
-        align="end"
+        align={sheet ? "end" : "start"}
         triggerClass={VALUE_BUTTON}
       >
         {#snippet trigger()}
@@ -170,6 +186,7 @@
         loading={assigneeCandidatesLoading}
         error={assigneeCandidatesError}
         disabled={!canEditAssignee}
+        align={sheet ? "end" : "start"}
         triggerClass={canEditAssignee ? VALUE_BUTTON : VALUE}
         onOpen={onOpenAssigneeMenu}
         onSelect={(assignee) => onSave({ assignee })}
@@ -187,6 +204,28 @@
         <span class="truncate">{projectLabel}</span>
       </span>
     </div>
+
+    <!-- Read-only: the epic comes with the upstream ticket, and Solus never
+         moves a task between epics. Its description is agent context, so the
+         row only names it and opens it upstream. -->
+    {#if epic}
+      {@const epicUrl = epic.url}
+      <div class={ROW}>
+        <span class={ROW_LABEL}>Epic</span>
+        <button
+          type="button"
+          class="{VALUE_BUTTON} min-w-0 overflow-hidden"
+          onclick={() => onOpenUpstream(epicUrl)}
+          disabled={!epicUrl}
+          title={epic.hint}
+        >
+          <SourceLogo source={epic.providerId} />
+          <span class="truncate">{epic.title}</span>
+          <span class="flex-1"></span>
+          <span class="shrink-0 text-muted-foreground opacity-80">{epic.ref}</span>
+        </button>
+      </div>
+    {/if}
 
     <div
       class="flex min-h-[34px] items-center {sheet
@@ -238,7 +277,7 @@
           ? 'pl-1'
           : 'pl-0.5'}">Upstream</span
       >
-      <div class={sheet ? GROUP : "flex flex-col gap-1"}>
+      <div class={sheet ? GROUP : ROWS}>
         <div class={ROW}>
           <span class={ROW_LABEL}>Provider</span>
           {#if upstream.url}
@@ -358,7 +397,7 @@
           ? 'pl-1'
           : 'pl-0.5'}">Upstream</span
       >
-      <div class={sheet ? GROUP : "flex flex-col gap-1"}>
+      <div class={sheet ? GROUP : ROWS}>
         <div class={ROW}>
           <span class={ROW_LABEL}>Provider</span>
           <!-- Only the provider: the repository is the project this page is
@@ -411,7 +450,13 @@
     <span class="text-muted-foreground opacity-65">
       {task.createdAt ? relativeTime(task.createdAt) : "—"}
     </span>
-    <span class="flex-1"></span>
+    <!-- Across the panel's width the two dates would sit a card apart; they
+         are one fact about the record, so there they stay together. -->
+    {#if panel}
+      <span class="mx-1 h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
+    {:else}
+      <span class="flex-1"></span>
+    {/if}
     <span class="text-muted-foreground opacity-80">Updated</span>
     <span class="text-muted-foreground opacity-65">
       {relativeTime(task.updatedAt)}

@@ -2,14 +2,15 @@ import type { DocProviderId } from '@solus/contracts/docs'
 import type { DocCommentThread, ExternalCommentOperation, WorkExternalComments } from '@solus/contracts/work-comments'
 import type { PlanComment } from '@solus/contracts/types'
 import { docProviderLabel } from './work-publish'
+import { isAgentMessage } from '../../comments/lib/thread'
 
 /**
  * Google stamps the connected account as the author of everything posted
  * through it, so an agent message has to say so in its own body or it reads as
  * the user's words.
  */
-export function outboundText(text: string, author?: 'you' | 'solus'): string {
-  return (author === 'solus' ? `Solus: ${text}` : text).trim()
+export function outboundText(text: string, byAgent = false): string {
+  return (byAgent ? `Solus: ${text}` : text).trim()
 }
 
 /** Keep private history, but do not draw a second copy of an acknowledged share. */
@@ -28,7 +29,7 @@ export function localCommentsForDisplay(comments: PlanComment[], snapshot?: Work
   return comments.filter(comment => {
     if (comment.replies?.length || comment.externalThreadId) return true
     return !shares.get(comment.id)?.some(operation => operation.command.kind === 'share'
-      && operation.command.text === outboundText(comment.comment, comment.author)
+      && operation.command.text === outboundText(comment.comment, isAgentMessage(comment))
       && (operation.command.quote ?? '') === (comment.selectedText ?? '').trim())
   })
 }

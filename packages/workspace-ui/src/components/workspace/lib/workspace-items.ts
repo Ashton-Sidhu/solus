@@ -1,5 +1,7 @@
-import type { PlanDescriptor, Work } from '@solus/contracts/types'
+import type { PlanDescriptor } from '@solus/contracts/types'
+import type { WorkListing } from '../../../contexts/works/works.store.svelte'
 import type { DocProviderId } from '@solus/contracts/docs'
+import type { WorkReviewState } from '@solus/contracts/work-review'
 import { planKey } from '@solus/contracts/types'
 import { hostKey } from '@solus/client-core/host-key'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
@@ -51,9 +53,13 @@ export type WorkspaceItem = {
   projectLabel: string
   /** Plans only; docs and diagrams leave the status column blank. */
   status: PlanStatus | null
+  /** Works only: the review state, when the work has reviewers. */
+  reviewState: WorkReviewState | null
+  /** Works only: a review request waits for the reader. */
+  awaitingMyReview: boolean
   source:
     | { kind: 'plan'; descriptor: PlanDescriptor }
-    | { kind: 'work'; work: Work }
+    | { kind: 'work'; work: WorkListing }
 }
 
 /** Structural shape of `OpenProject` — the ledger only needs identity, a label,
@@ -116,11 +122,21 @@ export function planItem(d: PlanDescriptor, project: WorkspaceProject): Workspac
     pinnedAt: d.bookmarkedAt ?? d.timestamp,
     cwd: d.cwd,
     status: d.status,
+    reviewState: null,
+    awaitingMyReview: false,
     source: { kind: 'plan', descriptor: d },
   }
 }
 
-export function workItem(w: Work, project: WorkspaceProject): WorkspaceItem {
+/** What the ledger knows about each work's review, from the review store. */
+export interface WorkReviewLookup {
+  stateOf(workId: string): WorkReviewState | undefined
+  awaitsMe(workId: string): boolean
+}
+
+const NO_REVIEWS: WorkReviewLookup = { stateOf: () => undefined, awaitsMe: () => false }
+
+export function workItem(w: WorkListing, project: WorkspaceProject, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
   const updated = new Date(w.updatedAt).getTime() || 0
   // The newest collaborator is the session a reader wants to land in; the
   // legacy single `sessionId` covers works written before that list existed.
@@ -141,7 +157,22 @@ export function workItem(w: Work, project: WorkspaceProject): WorkspaceItem {
     pinnedAt: updated,
     cwd: w.cwd,
     status: null,
+    reviewState: reviews.stateOf(w.id) ?? null,
+    awaitingMyReview: reviews.awaitsMe(w.id),
     source: { kind: 'work', work: w },
+  }
+}
+
+/** The status column: a plan's lifecycle, or a work's review state in a word
+ *  that fits the column. A work the reader must review says so first. */
+export function rowStatusLabel(item: Pick<WorkspaceItem, 'status' | 'reviewState' | 'awaitingMyReview'>): string {
+  if (item.status) return item.status.charAt(0).toUpperCase() + item.status.slice(1)
+  if (item.awaitingMyReview) return 'Review'
+  switch (item.reviewState) {
+    case 'in_review': return 'In review'
+    case 'approved': return 'Approved'
+    case 'changes_requested': return 'Changes'
+    default: return ''
   }
 }
 
@@ -166,8 +197,9 @@ function projectFor(cwd: string | undefined, projects: WorkspaceProject[]): Work
  *  carries the project it came from so the ledger can scope to one. */
 export function buildWorkspaceItems(
   descriptors: PlanDescriptor[],
-  works: Work[],
+  works: WorkListing[],
   projects: WorkspaceProject[],
+  reviews: WorkReviewLookup = NO_REVIEWS,
 ): WorkspaceItem[] {
   const items: WorkspaceItem[] = []
   const seenRowKeys = new Set<string>()
@@ -182,7 +214,7 @@ export function buildWorkspaceItems(
   for (const w of works) {
     const project = projectFor(w.cwd, projects)
     if (!project) continue
-    const item = workItem(w, project)
+    const item = workItem(w, project, reviews)
     if (seenRowKeys.has(item.rowKey)) continue
     seenRowKeys.add(item.rowKey)
     items.push(item)
@@ -270,6 +302,8 @@ export type WorkspaceFilter = {
   type: TypeFilter
   status: StatusFilter
   pinnedOnly: boolean
+  /** Only works whose review request waits for the reader. */
+  awaitingMyReview: boolean
   time: TimeFilter
   /** Free text — matched against title + snippet, case-insensitive. */
   text: string
@@ -279,12 +313,13 @@ export const DEFAULT_FILTER: WorkspaceFilter = {
   type: 'all',
   status: 'any',
   pinnedOnly: false,
+  awaitingMyReview: false,
   time: 'all',
   text: '',
 }
 
 export function isDefaultFilter(f: WorkspaceFilter): boolean {
-  return f.type === 'all' && f.status === 'any' && !f.pinnedOnly && f.time === 'all' && !f.text.trim()
+  return f.type === 'all' && f.status === 'any' && !f.pinnedOnly && !f.awaitingMyReview && f.time === 'all' && !f.text.trim()
 }
 
 const TYPE_TOKENS = new Map<string, TypeFilter>([['plan', 'plan'], ['doc', 'doc'], ['diagram', 'diagram']])
@@ -305,6 +340,7 @@ export function parseToken(word: string): Partial<WorkspaceFilter> | null {
   const status = STATUS_TOKENS.get(value)
   if (key === 'status' && status) return { status }
   if (key === 'is' && value === 'pinned') return { pinnedOnly: true }
+  if (key === 'is' && value === 'review-requested') return { awaitingMyReview: true }
   const time = TIME_TOKENS.get(value)
   if (key === 'time' && time) return { time }
   return null
@@ -324,13 +360,14 @@ export function applyFilter(items: WorkspaceItem[], filter: WorkspaceFilter): Wo
     if (filter.type !== 'all' && item.type !== filter.type) return false
     if (filter.status !== 'any' && item.status !== filter.status) return false
     if (filter.pinnedOnly && !item.pinned) return false
+    if (filter.awaitingMyReview && !item.awaitingMyReview) return false
     if (!inTimeBucket(item.timestamp, filter.time, now)) return false
     if (!q) return true
     return item.title.toLowerCase().includes(q) || item.snippet.toLowerCase().includes(q)
   })
 }
 
-export type FilterChip = { key: 'type' | 'status' | 'pinned' | 'time'; token: string }
+export type FilterChip = { key: 'type' | 'status' | 'pinned' | 'review' | 'time'; token: string }
 
 /** The active non-default filter axes, as removable `key:value` chips. */
 export function filterChips(filter: WorkspaceFilter): FilterChip[] {
@@ -338,6 +375,7 @@ export function filterChips(filter: WorkspaceFilter): FilterChip[] {
   if (filter.type !== 'all') chips.push({ key: 'type', token: `type:${filter.type}` })
   if (filter.status !== 'any') chips.push({ key: 'status', token: `status:${filter.status}` })
   if (filter.pinnedOnly) chips.push({ key: 'pinned', token: 'is:pinned' })
+  if (filter.awaitingMyReview) chips.push({ key: 'review', token: 'is:review-requested' })
   if (filter.time !== 'all') chips.push({ key: 'time', token: `time:${filter.time}` })
   return chips
 }
@@ -346,6 +384,7 @@ export function clearChip(filter: WorkspaceFilter, key: FilterChip['key']): void
   if (key === 'type') filter.type = 'all'
   if (key === 'status') filter.status = 'any'
   if (key === 'pinned') filter.pinnedOnly = false
+  if (key === 'review') filter.awaitingMyReview = false
   if (key === 'time') filter.time = 'all'
 }
 

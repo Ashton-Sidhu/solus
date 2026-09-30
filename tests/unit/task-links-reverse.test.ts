@@ -5,13 +5,16 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 
+/** The person every change in this file is made by. */
+const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
+
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
-type TaskModule = typeof import('@solus/server/tasks/task')
-type TaskLinksModule = typeof import('@solus/server/tasks/task-links')
-type WorksModule = typeof import('@solus/server/folio/works')
+type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskModule = typeof import('@solus/server/data/tasks/task')
+type TaskLinksModule = typeof import('@solus/server/data/tasks/task-links')
+type WorksModule = typeof import('@solus/server/data/works/works')
 
 let dataDir: string
 let db: DbModule
@@ -25,10 +28,10 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-links-reverse-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/tasks/task-store')
-  tasks = await import('@solus/server/tasks/task')
-  taskLinks = await import('@solus/server/tasks/task-links')
-  works = await import('@solus/server/folio/works')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  tasks = await import('@solus/server/data/tasks/task')
+  taskLinks = await import('@solus/server/data/tasks/task-links')
+  works = await import('@solus/server/data/works/works')
 })
 
 afterEach(async () => {
@@ -51,9 +54,9 @@ describe('which tasks link a target', () => {
     const work = await works.createWork('local', 'Latency report', 'artifact', '<html></html>', '', undefined, 'claude-code', '~')
     const first = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Fix sync' })).id)
     const second = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Ship it' })).id)
-    await first.link({ kind: 'work', targetKey: work.id })
-    await second.link({ kind: 'work', targetKey: work.id })
-    await second.link({ kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' })
+    await first.link({ kind: 'work', targetKey: work.id }, BY)
+    await second.link({ kind: 'work', targetKey: work.id }, BY)
+    await second.link({ kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' }, BY)
 
     const linked = await taskLinks.readTasksLinkingTargets(taskStore.database(), 'local', [
       { kind: 'work', targetScope: '', targetKey: work.id },
@@ -79,10 +82,10 @@ describe('which tasks link a target', () => {
     // WHY: Unlink on the card is the reverse state; the next read must not
     // still say "Linked".
     const task = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Fix sync' })).id)
-    await task.link({ kind: 'automation', targetKey: 'auto-1', title: 'Nightly' })
+    await task.link({ kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }, BY)
     const target = { kind: 'automation' as const, targetScope: '', targetKey: 'auto-1' }
     expect(await taskLinks.readTasksLinkingTargets(taskStore.database(), 'local', [target])).toHaveLength(1)
-    await task.unlink('automation', 'auto-1', '')
+    await task.unlink('automation', 'auto-1', '', BY)
     expect(await taskLinks.readTasksLinkingTargets(taskStore.database(), 'local', [target])).toEqual([])
   })
 

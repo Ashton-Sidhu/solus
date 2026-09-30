@@ -6,9 +6,10 @@
     SquareTerminal as TerminalWindowIcon,
   } from "@lucide/svelte";
   import type { ShareResource, ShareRole } from "@solus/contracts/sharing";
+  import { userKey } from "@solus/contracts/user";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
   import { presenceStore } from "@solus/workspace-ui/contexts/presence/presence.store.svelte";
-  import PresenceAvatar from "@solus/workspace-ui/components/presence/PresenceAvatar.svelte";
+  import UserAvatar from "@solus/workspace-ui/components/users/UserAvatar.svelte";
   import { guestAccessLine, guestSessionRows } from "./lib/guest-rail";
 
   /**
@@ -39,7 +40,7 @@
   const rows = $derived(guestSessionRows(sessions, screenSessionId, liveTitleFor));
   const people = $derived(screenSessionId ? presenceStore.sessionPeople(serverId, screenSessionId) : []);
   const room = $derived(screenSessionId ? presenceStore.sessionRoom(serverId, screenSessionId) : undefined);
-  const activeUserId = $derived(room?.activeTurn?.authorUserId ?? null);
+  const activeUserId = $derived(room?.activeTurn ? userKey(room.activeTurn.author.id) : null);
 </script>
 
 <aside class="flex h-full w-[16.5rem] shrink-0 flex-col gap-5 overflow-y-auto border-l border-(--hairline) bg-(--solus-rail-bg) px-3 py-4" aria-label="What you're in" data-testid="guest-rail">
@@ -107,7 +108,7 @@
       {:else}
         {#each people as person (person.userId)}
           <div class="flex min-h-8 items-center gap-2 px-2" data-testid="guest-rail-person">
-            <PresenceAvatar {person} size={18} ringed={person.userId === activeUserId} composing={person.isComposing} />
+            <UserAvatar user={person.user} size={18} ringed={person.userId === activeUserId} composing={person.isComposing} />
             <span class="truncate text-(--solus-text-primary)">{person.displayName}</span>
             {#if person.userId === activeUserId}
               <span class="ml-auto shrink-0 text-[0.875em] text-(--solus-text-tertiary)">running a turn</span>

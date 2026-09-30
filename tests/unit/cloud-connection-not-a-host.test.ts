@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 
-// WHY: the organization's workspace service is the control plane the records
-// live in — one service, every organization scoped by its grant — not a
-// machine (docs/plans/cloud-service-model.md §15). The client holds a
-// connection to it per organization, and the moment that connection is listed
-// as a host, the person sees a "machine" named after their organization in
-// Connections, in the Run-on picker, and on every badge. `servers` is the
-// machines alone; the connection is reachable only by id.
+// WHY: the organization's workspace service is a cloud service the records
+// live in — one service, every organization scoped by its grant — never a host
+// (docs/plans/workspace-and-machines.md §4). The client holds a connection to
+// it per organization, and the moment that connection is listed as a host, the
+// person sees a "machine" named after their organization in Connections, in the
+// Run-on picker, and on every badge. `servers` is the machines alone; the
+// connection is kept in its own registry and reachable only by id.
 
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -22,14 +22,14 @@ const values = new Map<string, string>([
       installationId: 'build-host',
       lastConnected: 1,
     },
+  ])],
+  ['solus.workspaces', JSON.stringify([
     {
-      id: 'workspace:org-1',
+      organizationId: 'org-1',
       label: 'eng',
-      url: 'https://workspace.solus.sh',
-      sessionToken: 'token',
-      installationId: 'workspace:org-1',
-      lastConnected: 1,
-      uplink: { hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh', kind: 'cloud', organizationId: 'org-1' },
+      routes: [{ kind: 'tunnel', url: 'https://workspace.solus.sh' }],
+      isActive: true,
+      directoryUrl: 'https://app.solus.sh',
     },
   ])],
 ])
@@ -70,10 +70,10 @@ describe('the workspace service connection', () => {
   test('is not among the hosts, only among the cloud connections', () => {
     expect(serversStore.servers.map((server) => server.id)).toEqual(['remote'])
     expect(serversStore.cloudConnections.map((server) => server.id)).toEqual(['workspace:org-1'])
+    expect(serversStore.activeCloudServerId).toBe('workspace:org-1')
   })
 
   test('still answers by id, so a record that lives there names its home', () => {
-    expect(serversStore.isCloudHost('workspace:org-1')).toBe(true)
     expect(serversStore.cloudHomeLabel('workspace:org-1')).toBe('Solus Cloud')
     expect(serversStore.hostFor('workspace:org-1')?.label).toBe('eng')
   })

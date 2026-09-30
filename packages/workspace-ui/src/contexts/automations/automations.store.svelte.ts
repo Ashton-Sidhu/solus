@@ -1,7 +1,9 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import type { Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '@solus/contracts/types'
+import type { Automation, AutomationAction, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
+import { visibleInWindow } from '../../lib/organization-filter'
+import { organizationSelection } from '../connections/organization-selection.store.svelte'
 
 // Renderer-side cache + RPC wrapper for automations. Mirrors WorksStore: the UI
 // reads reactive state here and calls these methods, which forward to the same
@@ -52,9 +54,20 @@ export class AutomationsStore {
     }
   }
 
+  /** The automations this window shows: Local ones, and the selected organization's (organization-scope §2). */
+  get visibleItems(): Automation[] {
+    const activeOrganizationId = organizationSelection.activeOrganizationId
+    return this.items.filter((automation) => visibleInWindow(automation.organizationId, activeOrganizationId))
+  }
+
   itemsForHost(serverId: string): Automation[] {
-    const resolvedServerId = serverConnections.resolveId(serverId)
-    return this.items.filter((automation) => this.hostByAutomationId.get(automation.id) === resolvedServerId)
+    return this.itemsForHosts([serverId])
+  }
+
+  /** The automations stored on any of these machines, merged into one list. */
+  itemsForHosts(serverIds: readonly string[]): Automation[] {
+    const resolvedServerIds = new Set(serverIds.map((serverId) => serverConnections.resolveId(serverId)))
+    return this.visibleItems.filter((automation) => resolvedServerIds.has(this.hostByAutomationId.get(automation.id) ?? ''))
   }
 
   hasLoadedHost(serverId: string): boolean {
@@ -65,11 +78,21 @@ export class AutomationsStore {
     return this.loadingServerIds.has(serverConnections.resolveId(serverId))
   }
 
+  /** A machine is still reading its first list. */
+  isInitialLoadingHosts(serverIds: readonly string[]): boolean {
+    return serverIds.some((serverId) => !this.hasLoadedHost(serverId) && this.isLoadingHost(serverId))
+  }
+
+  /** Load one machine, or every connected host. */
   loadAll(serverId?: string): Promise<void> {
-    const serverIds = serverId
-      ? [serverConnections.resolveId(serverId)]
-      : serverConnections.connectedServerIds()
-    const loadKey = serverId ? serverIds[0] : '*'
+    return serverId === undefined ? this.loadHosts(serverConnections.connectedServerIds(), '*') : this.loadHosts([serverId])
+  }
+
+  /** Load the named machines. A host without the automations capability (the
+   *  Solus API) answers nothing. */
+  loadHosts(scope: readonly string[], loadKey?: string): Promise<void> {
+    const serverIds = loadKey === '*' ? scope : scope.map((serverId) => serverConnections.resolveId(serverId))
+    loadKey ??= serverIds.join('\n')
     const existingLoad = this.listLoads.get(loadKey)
     if (existingLoad) return existingLoad
     for (const targetServerId of serverIds) {
@@ -204,8 +227,8 @@ export class AutomationsStore {
     if ((await serverConnections.capabilitiesFor(serverId)).automations !== true) {
       throw new Error('Automations are not supported on this host')
     }
-    const createdBy: AutomationCreator = { kind: 'user' }
-    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, createdBy, enabled, trigger)
+    // The host records who made it from the admitted caller.
+    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, enabled, trigger)
     this.hostByAutomationId.set(created.id, serverId)
     this.upsert(created)
     return created

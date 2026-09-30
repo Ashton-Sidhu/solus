@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import type { Attribution } from '@solus/contracts/user'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -101,16 +102,26 @@ mock.module('@solus/server/docs/registry', () => ({
   }),
 }))
 
-let works: typeof import('@solus/server/folio/works')
-let workSync: typeof import('@solus/server/folio/work-sync')
+let works: typeof import('@solus/server/data/works/works')
+let workModule: typeof import('@solus/server/data/works/work')
+const EDITOR = { kind: 'user', user: { id: { kind: 'local', localId: 'owner' }, displayName: 'Owner' } } satisfies Attribution
+const AGENT = { kind: 'agent', sessionId: '' } satisfies Attribution
+
+/** Read the work, then write naming the content version that read saw. */
+async function edit(scope: string, workId: string, write: { content: string; title?: string; author: Attribution; reason: 'edit' | 'agent' }) {
+  const work = await workModule.Work.byId(scope, workId)
+  return work.updateContent({ ...write, expectedContentVersion: work.contentVersion })
+}
+let workSync: typeof import('@solus/server/data/works/work-sync')
 let planSync: typeof import('@solus/server/plans/plan-sync')
 let annotations: typeof import('@solus/server/plans/annotations')
 let workId: string
 
 beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = mkdtempSync(join(tmpdir(), 'solus-work-sync-'))
-  works = await import('@solus/server/folio/works')
-  workSync = await import('@solus/server/folio/work-sync')
+  works = await import('@solus/server/data/works/works')
+  workModule = await import('@solus/server/data/works/work')
+  workSync = await import('@solus/server/data/works/work-sync')
   planSync = await import('@solus/server/plans/plan-sync')
   annotations = await import('@solus/server/plans/annotations')
 })
@@ -160,7 +171,7 @@ describe('publishWork', () => {
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     expect((await linkOf(workId))?.syncState).toBe('ok')
 
-    await works.saveWork('local', workId, { content: '# Local, edited' })
+    await edit('local', workId, { content: '# Local, edited', author: EDITOR, reason: 'edit' })
 
     // Derived from the content, not stored: an edit never touches the link.
     expect((await linkOf(workId))?.syncState).toBe('dirty')
@@ -170,10 +181,10 @@ describe('publishWork', () => {
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
+    await (await workModule.Work.byId('local', workId)).setMirroredDoc({ ...link, provider: 'gdrive' })
     upstream.version = '9'
     const result = await workSync.publishWork('local', workId)
-    expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    expect(result).toMatchObject({ ok: false, error: workModule.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
   })
 
@@ -181,11 +192,11 @@ describe('publishWork', () => {
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
+    await (await workModule.Work.byId('local', workId)).setMirroredDoc({ ...link, provider: 'gdrive' })
     upstream.version = '9'
     upstream.markdown = '# Changed by reviewer'
     const result = await workSync.publishWork('local', workId)
-    expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    expect(result).toMatchObject({ ok: false, error: workModule.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
   })
 
@@ -201,7 +212,7 @@ describe('publishWork', () => {
   test('reports a conflict, and does not overwrite, when upstream moved', async () => {
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
-    await works.saveWork('local', workId, { content: '# Local, edited' })
+    await edit('local', workId, { content: '# Local, edited', author: EDITOR, reason: 'edit' })
 
     const result = await workSync.publishWork('local', workId)
 
@@ -213,7 +224,7 @@ describe('publishWork', () => {
   test('publishes over an upstream change only when the user chose to', async () => {
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
-    await works.saveWork('local', workId, { content: '# Local, edited' })
+    await edit('local', workId, { content: '# Local, edited', author: EDITOR, reason: 'edit' })
 
     const result = await workSync.publishWork('local', workId, { force: true })
 
@@ -467,7 +478,7 @@ describe('pullWorkUpstream', () => {
     expect(result.ok).toBe(true)
     expect((await works.loadWork('local', workId))?.content).toBe('# Upstream')
     // A pull the user dislikes has to be one revert away.
-    expect((await works.loadWorkPrevious('local', workId))?.content).toBe('# Local')
+    expect((await (await workModule.Work.byId('local', workId)).previous())?.content).toBe('# Local')
     const link = await linkOf(workId)
     expect(link?.upstreamVersion).toBe('9')
     expect(link?.syncState).toBe('ok')
@@ -555,25 +566,26 @@ describe('Google-linked work read-only policy', () => {
     const result = await workSync.publishWork('local', workId, { destination: { provider: 'gdrive', scope: 'root' } })
     expect(result.ok).toBe(true)
     expect((await linkOf(workId))?.provider).toBe('gdrive')
-    await expect(works.agentSaveWork('local', workId, { content: '# Later edit' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(edit('local', workId, { content: '# Later edit', author: AGENT, reason: 'agent' })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
     expect((await works.loadWork('local', workId))?.content).toBe('# Local')
   })
 
   test('blocks local and agent writes and restore, but allows pull, comments and unlink', async () => {
-    await works.agentSaveWork('local', workId, { content: '# Before linking' })
+    await edit('local', workId, { content: '# Before linking', author: AGENT, reason: 'agent' })
     await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
-    await expect(works.saveWork('local', workId, { content: '# Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.saveWork('local', workId, { title: 'Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.agentSaveWork('local', workId, { content: '# Blocked agent' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.revertWork('local', workId)).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    expect(await workSync.publishWork('local', workId, { force: true })).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    await (await workModule.Work.byId('local', workId)).setMirroredDoc({ ...link, provider: 'gdrive' })
+    await expect(edit('local', workId, { content: '# Blocked', author: EDITOR, reason: 'edit' })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
+    await expect((await workModule.Work.byId('local', workId)).updateTitle({ title: 'Blocked' })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
+    await expect(edit('local', workId, { content: '# Blocked agent', author: AGENT, reason: 'agent' })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
+    const blocked = await workModule.Work.byId('local', workId)
+    await expect(blocked.restoreRevision({ revisionId: blocked.previousRevisionId ?? 1, expectedContentVersion: blocked.contentVersion, author: EDITOR })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
+    expect(await workSync.publishWork('local', workId, { force: true })).toMatchObject({ ok: false, error: workModule.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
     expect((await works.loadWork('local', workId))?.content).toBe('# Before linking')
 
-    const localComments = await import('@solus/server/folio/work-annotations')
+    const localComments = await import('@solus/server/data/works/work-annotations')
     await localComments.saveWorkAnnotations('local', { version: 1, updatedAt: Date.now(), workId, comments: [{ id: 'private', comment: 'Keep commenting', author: 'you', createdAt: Date.now() }] })
     upstream.markdown = '# Edited in Google'
     upstream.title = 'Google title'
@@ -581,7 +593,7 @@ describe('Google-linked work read-only policy', () => {
     expect((await works.loadWork('local', workId))?.content).toBe(upstream.markdown)
     expect((await localComments.loadWorkAnnotations('local', workId))?.comments).toHaveLength(1)
     await workSync.unlinkWork('local', workId)
-    await works.saveWork('local', workId, { content: '# Editable again' })
+    await edit('local', workId, { content: '# Editable again', author: EDITOR, reason: 'edit' })
     expect((await works.loadWork('local', workId))?.content).toBe('# Editable again')
   })
 })

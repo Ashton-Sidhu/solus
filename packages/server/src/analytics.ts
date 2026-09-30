@@ -1,9 +1,9 @@
 import { PostHog } from 'posthog-node'
-import { getInstallationId } from './server/auth'
-import { getHostConfig } from './server/settings'
+import { getInstallationId } from './admission/auth'
+import { getHostConfig } from './host/settings'
 import { createLogger } from './logger'
 import type { ServerEventMap } from '@solus/contracts/analytics-events'
-import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './observability/telemetry-shutdown'
+import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './execution/observability/telemetry-shutdown'
 
 const log = createLogger('main', 'analytics')
 

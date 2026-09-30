@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { loadCodexHistory, type CodexItemsListParams } from '@solus/server/agents/codex/codex-history'
-import type { CodexTurnHistory } from '@solus/server/agents/codex/codex-utils'
+import { loadCodexHistory, type CodexItemsListParams } from '@solus/server/execution/agents/codex/codex-history'
+import type { CodexTurnHistory } from '@solus/server/execution/agents/codex/codex-utils'
 
 test('a first open reads only the newest requested items, not every turn', async () => {
   const turns: CodexTurnHistory[] = Array.from({ length: 100 }, (_, index) => ({

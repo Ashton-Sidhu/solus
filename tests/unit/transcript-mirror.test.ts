@@ -8,14 +8,16 @@ import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/cloud-service-model.md §6: the transcript producer reads a
+// docs/plans/organization-scope.md §4, §6, §7: the transcript producer reads a
 // session's history once its events settle, and appends only the rows whose
 // content changed since the last pass — plus a truncate when the transcript
-// got shorter. A host that mirrors nowhere appends nothing and marks nothing.
+// got shorter — to the organization the session's record names. Only a
+// `published` record of a real organization ships its transcript: a Local or
+// merely organization-attributed session reads nothing and marks nothing.
 
-let TranscriptMirrorModule: typeof import('@solus/server/mirror/transcript-mirror')
-let mirrorLog: typeof import('@solus/server/mirror/mirror-log')
-let ownership: typeof import('@solus/server/outbox/cloud-ownership')
+let TranscriptMirrorModule: typeof import('@solus/server/sync/mirror/transcript-mirror')
+let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
+let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -24,14 +26,13 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-transcript-mirror-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  TranscriptMirrorModule = await import('@solus/server/mirror/transcript-mirror')
-  mirrorLog = await import('@solus/server/mirror/mirror-log')
-  ownership = await import('@solus/server/outbox/cloud-ownership')
+  TranscriptMirrorModule = await import('@solus/server/sync/mirror/transcript-mirror')
+  mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
+  records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
 })
 
 afterAll(async () => {
-  ownership.setCloudOwnedOrganization(null)
   await resetTestDatabase()
   dbModule.closeDb()
   rmSync(dataDir, { recursive: true, force: true })
@@ -60,10 +61,20 @@ function rememberedPositions(sessionId: string): number[] {
   return rows.map((row) => (row as { position: number }).position)
 }
 
-function drainLog() {
-  const items = mirrorLog.listMirror(100)
-  if (items.length) mirrorLog.ackMirrorThrough(items[items.length - 1].seq)
+/** The rows queued for an organization. These sessions have no owner, so the person who linked the host carries them. */
+function drainLog(organizationId = 'org1') {
+  const destination = { organizationId, actorUserId: '' }
+  const items = mirrorLog.listMirror(destination, 100)
+  if (items.length) mirrorLog.ackMirrorThrough(destination, items[items.length - 1].seq)
   return items.map((item) => ({ domain: item.domain, key: item.key, payload: item.payload }))
+}
+
+/** A session this host recorded, assigned to an organization and published there when asked. */
+async function session(sessionId: string, state: 'local' | 'assigned' | 'published', organizationId = 'org1'): Promise<void> {
+  await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+  if (state === 'local') return
+  await records.assignSessionOrganization(sessionId, organizationId)
+  if (state === 'published') await records.markSessionPublished(sessionId)
 }
 
 function mirror() {
@@ -77,34 +88,49 @@ function mirror() {
 }
 
 describe('transcript mirror', () => {
-  test('a host that mirrors nowhere reads nothing and remembers nothing', async () => {
-    ownership.setCloudOwnedOrganization(null)
+  test('a Local session, and one assigned to an organization but not published, read nothing and remember nothing', async () => {
+    // WHY: sending Insights or picking an organization in the window publishes no
+    // transcript (§3). Only a publication does, and it says so on the record.
+    await session('quiet', 'local')
+    await session('attributed', 'assigned')
     transcripts.set('quiet', [message('a')])
+    transcripts.set('attributed', [message('a')])
+    expect(await TranscriptMirrorModule.transcriptDestination('quiet')).toBeNull()
+    expect(await TranscriptMirrorModule.transcriptDestination('attributed')).toBeNull()
+    expect(await TranscriptMirrorModule.transcriptDestination('never-recorded')).toBeNull()
     const producer = mirror()
     producer.touch('quiet', { provider: 'claude-code' })
-    await producer.flushNow('quiet')
+    producer.touch('attributed', { provider: 'claude-code' })
+    expect(await producer.flushNow('quiet')).toBe(0)
+    expect(await producer.flushNow('attributed')).toBe(0)
     expect(loads).toEqual([])
-    expect(drainLog()).toEqual([])
+    expect(mirrorLog.mirrorDestinations()).toEqual([])
     expect(rememberedPositions('quiet')).toEqual([])
+    expect(rememberedPositions('attributed')).toEqual([])
     producer.dispose()
   })
 
-  test('the first pass appends every row; the next appends only what changed; a shorter transcript appends a truncate', async () => {
-    ownership.setCloudOwnedOrganization('org1')
+  test('the first pass appends every row to the record\'s organization; the next appends only what changed; a shorter transcript appends a truncate', async () => {
+    await session('s1', 'published')
+    expect(await TranscriptMirrorModule.transcriptDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
     const producer = mirror()
     transcripts.set('s1', [message('a'), message('b'), message('c')])
     producer.touch('s1', { provider: 'claude-code', projectPath: '-repo' })
-    await producer.flushNow('s1')
-    expect(drainLog()).toEqual([
+    const lastSeq = await producer.flushNow('s1')
+    const first = drainLog()
+    expect(first).toEqual([
       { domain: 'transcripts', key: 's1:0', payload: { sessionId: 's1', position: 0, message: message('a') } },
       { domain: 'transcripts', key: 's1:1', payload: { sessionId: 's1', position: 1, message: message('b') } },
       { domain: 'transcripts', key: 's1:2', payload: { sessionId: 's1', position: 2, message: message('c') } },
     ])
+    // The flush answers the highest sequence it appended: what a publication waits for.
+    expect(lastSeq).toBeGreaterThan(0)
+    expect(mirrorLog.mirrorPendingThrough('org1', lastSeq)).toBe(false)
     expect(rememberedPositions('s1')).toEqual([0, 1, 2])
 
     // Nothing changed: nothing is appended.
     producer.touch('s1', { provider: 'claude-code' })
-    await producer.flushNow('s1')
+    expect(await producer.flushNow('s1')).toBe(0)
     expect(drainLog()).toEqual([])
 
     // One row finished (a tool call got its result) and one row was added.
@@ -128,8 +154,21 @@ describe('transcript mirror', () => {
     producer.dispose()
   })
 
+  test('every row of one session goes to its own organization; another organization\'s queue never sees it', async () => {
+    await session('s-org2', 'published', 'org2')
+    const producer = mirror()
+    transcripts.set('s-org2', [message('two')])
+    producer.touch('s-org2', { provider: 'codex' })
+    await producer.flushNow('s-org2')
+    expect(drainLog('org1')).toEqual([])
+    expect(drainLog('org2')).toEqual([
+      { domain: 'transcripts', key: 's-org2:0', payload: { sessionId: 's-org2', position: 0, message: message('two') } },
+    ])
+    producer.dispose()
+  })
+
   test('what is mirrored is the row a client may see: tool bodies are gone, their size and error head stay, images stay', async () => {
-    ownership.setCloudOwnedOrganization('org1')
+    await session('shown', 'published')
     const producer = mirror()
     transcripts.set('shown', turnWithTool())
     producer.touch('shown', { provider: 'claude-code', projectPath: '-repo' })
@@ -148,15 +187,65 @@ describe('transcript mirror', () => {
     producer.dispose()
   })
 
+  test('a published session\'s activity is queued once, named by the id its transcript is mirrored under; a Local or unpublished session\'s is not', async () => {
+    // WHY: plans/012 §5, stage 8. The Solus API merges a session's activity into the
+    // history it serves, so the rows must travel with the transcript, once each, and
+    // under the id the API knows the session by. Only a publication sends anything.
+    const { appendActivity, newActivity } = await import('@solus/server/data/activity/activity')
+    const alice = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice' } }
+    await session('act-pub', 'published')
+    await session('act-local', 'local')
+    await session('act-attributed', 'assigned')
+    for (const id of ['act-pub', 'act-local', 'act-attributed']) transcripts.set(id, [message('a')])
+    // Recorded under the Solus session id, before the session was published (as Local).
+    const stopped = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'stopped' }, 1_500)
+    const renamed = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'renamed', title: 'Spec' }, 2_500)
+    await appendActivity('local', stopped)
+    await appendActivity('org1', renamed)
+    await appendActivity('local', newActivity({ kind: 'session', id: 'solus:act-local' }, alice, { kind: 'stopped' }, 1_500))
+    await appendActivity('org1', newActivity({ kind: 'session', id: 'solus:act-attributed' }, alice, { kind: 'stopped' }, 1_500))
+    const producer = new TranscriptMirrorModule.TranscriptMirror({
+      loadSession: async (_provider, sessionId) => transcripts.get(sessionId) ?? [],
+      activitySubjectId: (sessionId) => `solus:${sessionId}`,
+      debounceMs: 5,
+    })
+    const flush = async (sessionId: string) => {
+      producer.touch(sessionId, { provider: 'claude-code' })
+      return producer.flushNow(sessionId)
+    }
+    for (const id of ['act-local', 'act-attributed']) expect(await flush(id)).toBe(0)
+    expect(mirrorLog.mirrorDestinations()).toEqual([])
+
+    const lastSeq = await flush('act-pub')
+    const activityItems = drainLog().filter((item) => item.domain === 'activity')
+    expect(activityItems).toEqual([
+      { domain: 'activity', key: stopped.id, payload: { activity: { ...stopped, subject: { kind: 'session', id: 'act-pub' } } } },
+      { domain: 'activity', key: renamed.id, payload: { activity: { ...renamed, subject: { kind: 'session', id: 'act-pub' } } } },
+    ])
+    // A publication waits for the activity too.
+    expect(mirrorLog.mirrorPendingThrough('org1', lastSeq)).toBe(false)
+
+    // Nothing new: nothing is sent again. A new activity, while the transcript stays, is sent alone.
+    expect(await flush('act-pub')).toBe(0)
+    expect(drainLog()).toEqual([])
+    const answered = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'question_answered', questionId: 'q1' }, 3_500)
+    await appendActivity('org1', answered)
+    await flush('act-pub')
+    expect(drainLog()).toEqual([
+      { domain: 'activity', key: answered.id, payload: { activity: { ...answered, subject: { kind: 'session', id: 'act-pub' } } } },
+    ])
+    producer.dispose()
+  })
+
   test('a flush with nothing pending reads nothing; a disposed mirror ignores a touch', async () => {
-    ownership.setCloudOwnedOrganization('org1')
+    await session('s2', 'published')
     const producer = mirror()
     transcripts.set('s2', [message('x')])
     const loadsBefore = loads.length
-    await producer.flushNow('s2')
+    expect(await producer.flushNow('s2')).toBe(0)
     producer.dispose()
     producer.touch('s2', { provider: 'codex' })
-    await producer.flushNow('s2')
+    expect(await producer.flushNow('s2')).toBe(0)
     expect(loads.length).toBe(loadsBefore)
     expect(drainLog()).toEqual([])
   })

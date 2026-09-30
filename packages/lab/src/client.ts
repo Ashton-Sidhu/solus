@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { io, type Socket } from 'socket.io-client'
 import { z } from 'zod'
+import { SolusApiClient } from '@solus/contracts/solus-api/client'
+import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { HostEvent } from '@solus/contracts/host-events'
@@ -45,6 +47,8 @@ export interface LabClientOptions {
   shareSecret?: string
   /** No grant at all: a trusted loopback caller, the local owner (personal hosts). */
   credentialFree?: boolean
+  /** The paired token a credential-free caller presents to the record API, which admits no one without a bearer. */
+  localOwnerToken?: () => Promise<string>
   /** Seconds; a short grant proves the expiry disconnect. */
   grantTtlSeconds?: number
   onTimeline?: (entry: TimelineEntry) => void
@@ -65,6 +69,10 @@ type RpcResult<M extends RpcInvokeMethod> = Awaited<ReturnType<SolusAPI[M]>>
 
 export class LabClient {
   readonly persona: Persona
+  /** The record API on the same authority the socket dials with: a fresh grant per exchange, or the owner's paired token. */
+  readonly api: SolusApiClient
+  /** The record methods as the clients call them, over `api`. */
+  readonly records: ReturnType<typeof workspaceRecordMethods>
   private socket: Socket | null = null
   private readonly events: HostEvent[] = []
   private readonly eventWaiters: Array<(event: HostEvent) => void> = []
@@ -74,20 +82,31 @@ export class LabClient {
 
   constructor(private readonly options: LabClientOptions) {
     this.persona = options.persona
+    this.api = new SolusApiClient({
+      baseUrl: () => options.hostUrl,
+      contextKey: () => options.persona.id,
+      acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.mintGrant(),
+      shareSecret: options.shareSecret,
+    })
+    this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
   }
 
   get connected(): boolean {
     return this.socket?.connected ?? false
   }
 
-  /** Mints a grant and exchanges it for one ticket; null with the refusal status. */
-  async fetchTicket(): Promise<{ ticket: string } | { status: number }> {
-    const grant = this.options.issuer.mint(this.persona, {
+  private mintGrant(): string {
+    return this.options.issuer.mint(this.persona, {
       hostId: this.options.hostId,
       hostKind: this.options.hostKind,
       hostOwnerUserId: this.options.hostOwnerUserId,
       ttlSeconds: this.options.grantTtlSeconds,
     })
+  }
+
+  /** Mints a grant and exchanges it for one ticket; null with the refusal status. */
+  async fetchTicket(): Promise<{ ticket: string } | { status: number }> {
+    const grant = this.mintGrant()
     const response = await fetch(`${this.options.hostUrl}/auth/ws-ticket`, {
       method: 'POST',
       headers: { authorization: `Bearer ${grant}`, 'content-type': 'application/json' },

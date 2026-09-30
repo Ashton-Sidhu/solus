@@ -10,10 +10,8 @@ import {
   sectionJumpIndex,
   type OutlineReason,
 } from '@solus/workspace-ui/components/document-shell/lib/outline'
-import {
-  commentMarkPositions,
-  countThreadsByHeading,
-} from '@solus/workspace-ui/components/comments/lib/anchors'
+import { countThreadsByHeading } from '@solus/workspace-ui/components/comments/lib/anchors'
+import { commentHighlightPositions } from '@solus/workspace-ui/components/comments/lib/comment-highlights'
 
 // The outline holds itself open for several independent reasons at once. That
 // is the whole reason it is a set and not a boolean: releasing one hold must
@@ -52,17 +50,12 @@ describe('outline lifecycle', () => {
     // The reveal is a margin note. A laptop-width shell, or a pane narrowed by
     // a side panel, has no gutter beside the prose for the panel to unfold
     // into, so it would cover the first lines until the reader scrolled.
-    expect(hasOutlineMarginRoom(1100, false)).toBe(false)
-    expect(hasOutlineMarginRoom(1280, false)).toBe(false)
-    expect(hasOutlineMarginRoom(1600, false)).toBe(true)
-    // A laptop display buys the margin back with a narrower measure, so a
-    // laptop-width shell keeps the reveal the standard one has to give up.
-    expect(hasOutlineMarginRoom(1280, true)).toBe(true)
-    expect(hasOutlineMarginRoom(1100, true)).toBe(true)
-    expect(hasOutlineMarginRoom(900, true)).toBe(false)
+    expect(hasOutlineMarginRoom(1100)).toBe(false)
+    expect(hasOutlineMarginRoom(1280)).toBe(false)
+    expect(hasOutlineMarginRoom(1600)).toBe(true)
     // Before the shell is measured nothing is revealed, so a narrow document
     // never flashes the panel over its own opening lines.
-    expect(hasOutlineMarginRoom(0, false)).toBe(false)
+    expect(hasOutlineMarginRoom(0)).toBe(false)
   })
 
   test('⌥n only claims digits the document actually has sections for', () => {
@@ -79,7 +72,7 @@ describe('thread counts per section', () => {
   test('a queued measurement ignores an editor whose schema was cleared on destroy', () => {
     const destroyedEditor = { isDestroyed: true, schema: null } as unknown as Editor
 
-    expect(commentMarkPositions(destroyedEditor)).toEqual([])
+    expect(commentHighlightPositions(destroyedEditor)).toEqual([])
   })
 
   test('a thread belongs to the last heading above it', () => {

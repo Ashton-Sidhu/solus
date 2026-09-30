@@ -27,6 +27,21 @@ describe('the cloud account source', () => {
     expect(await cookieCloudAccount(ORIGIN, bad.fetchImpl).readAccount()).toBeNull()
   })
 
+  test("reads the account's GitHub, the answer onboarding waits on after Connections", async () => {
+    // WHY: GitHub belongs to the account, so onboarding asks the account, not a machine or
+    // the Solus API. Connected, not connected, and unknown (an older control plane) must
+    // stay apart: unknown hides the "Get started" row instead of asking to connect again.
+    const base = { userId: 'ada', onboardingCompletedAt: null, activeOrganizationId: 'org', organizations: [] }
+    const read = (body: object) => cookieCloudAccount(ORIGIN, recordingFetch(() => Response.json(body)).fetchImpl).readAccount()
+    expect((await read({ ...base, github: { login: 'ada' } }))?.github).toEqual({ login: 'ada' })
+    expect((await read({ ...base, github: null }))?.github).toBeNull()
+    expect((await read(base))?.github).toBeUndefined()
+    // A malformed field costs only itself, never the whole account.
+    const malformed = await read({ ...base, github: { login: 7 } })
+    expect(malformed?.userId).toBe('ada')
+    expect(malformed?.github).toBeUndefined()
+  })
+
   test('ending onboarding, creating the cloud host and sharing a machine call the account origin', async () => {
     const { calls, fetchImpl } = recordingFetch((url) => url.endsWith('/v1/hosts')
       ? Response.json({ hostId: 'h_new' }, { status: 201 })
@@ -35,13 +50,18 @@ describe('the cloud account source', () => {
 
     expect(await source.completeOnboarding()).toBe(true)
     expect(await source.createManagedHost('org_acme')).toEqual({ ok: true, hostId: 'h_new' })
-    expect(await source.shareHost('h_laptop', 'org_acme')).toBe(true)
-    expect(await source.shareHost('h_laptop', null)).toBe(true)
+    expect(await source.createManagedHost('org_acme', { label: 'Acme', spec: { size: 'standard' } }))
+      .toEqual({ ok: true, hostId: 'h_new' })
+    // WHY (organization-scope R15): a host is shared with each organization on its
+    // own, so sharing adds one and taking it back removes that one alone.
+    expect(await source.shareHost('h_laptop', 'org_acme', true)).toBe(true)
+    expect(await source.shareHost('h_laptop', 'org_acme', false)).toBe(true)
     expect(calls.map((call) => [call.method, call.url.slice(ORIGIN.length), call.body])).toEqual([
       ['POST', '/v1/account/onboarding', null],
       ['POST', '/v1/hosts', JSON.stringify({ organizationId: 'org_acme' })],
-      ['PUT', '/v1/hosts/h_laptop/organization', JSON.stringify({ organizationId: 'org_acme' })],
-      ['PUT', '/v1/hosts/h_laptop/organization', JSON.stringify({ organizationId: null })],
+      ['POST', '/v1/hosts', JSON.stringify({ organizationId: 'org_acme', label: 'Acme', spec: { size: 'standard' } })],
+      ['POST', '/v1/hosts/h_laptop/organizations', JSON.stringify({ organizationId: 'org_acme' })],
+      ['DELETE', '/v1/hosts/h_laptop/organizations/org_acme', null],
     ])
     expect(source.connectionsUrl).toBe(`${ORIGIN}/connections`)
   })
@@ -52,6 +72,27 @@ describe('the cloud account source', () => {
       .toEqual({ ok: false, code: 'managed_host_limit', message: null })
     const unreachable = cookieCloudAccount(ORIGIN, recordingFetch(() => { throw new TypeError('offline') }).fetchImpl)
     expect(await unreachable.createManagedHost('org_acme')).toEqual({ ok: false, code: null, message: null })
+  })
+
+  test('the cookie names who is signed in, so the sidebar shows the account on a cloud host', async () => {
+    const me = { id: 'u_ada', email: 'ada@example.com', name: 'Ada', avatarUrl: null }
+    const { calls, fetchImpl } = recordingFetch((url) => url.endsWith('/api/account/me')
+      ? Response.json(me)
+      : new Response(null, { status: 200 }))
+    const source = cookieCloudAccount(ORIGIN, fetchImpl)
+    expect(await source.readProfile()).toEqual(me)
+    expect(await source.signOut()).toBe(true)
+    expect(calls.map((call) => [call.method, call.url.slice(ORIGIN.length)])).toEqual([
+      ['GET', '/api/account/me'],
+      ['POST', '/api/auth/sign-out'],
+    ])
+    expect(source.consoleUrl).toBe(ORIGIN)
+
+    // A signed-out cookie or a malformed answer is no account, never a blank one.
+    const signedOut = recordingFetch(() => new Response(null, { status: 401 }))
+    expect(await cookieCloudAccount(ORIGIN, signedOut.fetchImpl).readProfile()).toBeNull()
+    const malformed = recordingFetch(() => Response.json({ id: 'u_ada' }))
+    expect(await cookieCloudAccount(ORIGIN, malformed.fetchImpl).readProfile()).toBeNull()
   })
 
   test('boot starts one account read that the workspace reuses, so onboarding is known before it paints', async () => {

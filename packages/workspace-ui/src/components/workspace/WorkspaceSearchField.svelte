@@ -74,8 +74,7 @@
 <!-- The same field the list pages draw, so the four page-level bands read as one
      control: the focus ring every other Solus field takes, and at the record
      rung a 44px card with a 16px field — under 16px iOS zooms in on focus and
-     does not zoom back out. The laptop rung is this page's own, because its
-     chips beside it keep it too. -->
+     does not zoom back out. -->
 <div class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 text-workspace-chrome shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base">
   <MagnifyingGlassIcon size={16} class="shrink-0 text-muted-foreground" />
 

@@ -16,6 +16,7 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
+  import OrganizationsSection from "./OrganizationsSection.svelte";
 
   interface Props {
     serverId: string;
@@ -166,6 +167,13 @@
 <!-- The cloud link describes this server, so it sits with the Server card. -->
 <UplinkSection {serverId} />
 
+<!-- Where this machine stands in each organization, and its Insights choice
+     (organization-scope §6.1). The workspace service is never a settings host,
+     so `serverId` here is always a machine. Keyed so a new host is read afresh. -->
+{#key serverId}
+  <OrganizationsSection {serverId} />
+{/key}
+
 <!-- Pairing sits against the Server card because that card's "Pair a device"
      button is what fills it in: the code has to appear where the click was,
      not two sections further down the page. -->
@@ -184,7 +192,7 @@
 
 <SettingsSection label="Connected devices">
   {#if connections.sessions.length === 0}
-    <div class="flex flex-col items-center justify-center gap-2 py-8 [.is-laptop-display_&]:py-6">
+    <div class="flex flex-col items-center justify-center gap-2 py-8">
       <div
         class="flex size-10 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
       >
@@ -200,10 +208,10 @@
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 px-4 py-2.5 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
+        class="group flex items-center gap-3 px-4 py-2.5"
       >
         <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
         >
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>

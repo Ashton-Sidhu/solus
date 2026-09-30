@@ -1,14 +1,14 @@
-import { recordedRuns } from '../src/oracle'
+import { recordedRuns, seatOfRun } from '../src/oracle'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { ORGANIZATION_ID, personaForHost } from '../src/personas'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
-import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine, type WorkspaceService } from '../src/workspace'
+import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
 /**
  * The P2 exit test (docs/plans/cloud-service-model.md §6, §11, §18): a runner is
@@ -33,19 +33,15 @@ async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, t
   return last
 }
 
-async function runnerHoldsGrant(runner: LabHost, timeoutMs: number): Promise<boolean> {
+/** How many times the runner traded a person's token for a delegation, from its own log (plans/010-standard-oauth.md). */
+function delegationsHeld(runner: LabHost): number {
   const logFile = join(runner.dataDir, 'dev.log')
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (existsSync(logFile) && readFileSync(logFile, 'utf8').includes('"msg":"runner_grant_minted"')) return true
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  return false
+  return existsSync(logFile) ? readFileSync(logFile, 'utf8').split('"msg":"delegation_held"').length - 1 : 0
 }
 
 /** The renderer's prompt context for the session in the Lab's working directory; the provider thread id resumes it. */
 function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: sessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: sessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   // SAFETY: the host reads only the fields named here (run-input.ts), as the seats scenario relies on too.
@@ -60,19 +56,19 @@ async function prompt(client: LabClient, ctx: ScenarioContext, sessionId: string
 interface Proof {
   ctx: ScenarioContext
   tag: string
-  service: WorkspaceService
+  service: LabSolusApi
   clients: LabClient[]
 }
 
 function cloudClient(proof: Proof, personaId: string, shareSecret?: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', shareSecret })
+  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', shareSecret })
   proof.clients.push(client)
   return client
 }
 
-/** The owner on the runner's own listener: a trusted loopback caller, no grant. */
+/** The owner through the runner's proxied listener with her access token: the token the runner trades for a delegation. */
 async function ownerClient(proof: Proof, runner: LabHost): Promise<LabClient> {
-  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.localUrl, issuer: proof.ctx.issuer, hostId: runner.hostId, hostKind: 'personal', credentialFree: true })
+  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: proof.ctx.issuer, hostId: runner.hostId, hostKind: 'personal' })
   proof.clients.push(owner)
   proof.ctx.check(`${proof.tag} the owner reaches the runner`, (await owner.connect()).ok)
   return owner
@@ -83,7 +79,7 @@ function bootRunner(ctx: ScenarioContext, dataDir?: string): Promise<LabHost> {
 }
 
 async function transcriptOn(client: LabClient, sessionId: string): Promise<WireSessionLoadMessage[]> {
-  const page = await client.rpc('loadSessionPage', { sessionId, provider: 'claude-code', limit: 200 })
+  const page = await client.rpc('loadSessionPage', { sessionId, provider: 'claude-code', turnLimit: 100 })
   return page.messages
 }
 
@@ -95,10 +91,10 @@ async function streamStep(proof: Proof): Promise<{ runner: LabHost; alice: LabCl
   const { ctx, tag } = proof
   ctx.step(`${tag} a runner of the organization starts a slow turn; its rows reach the service as it streams`)
   const runner = await bootRunner(ctx)
-  ctx.check(`${tag} the runner minted a grant`, await runnerHoldsGrant(runner, 20_000))
   const owner = await ownerClient(proof, runner)
-  const started = await expectOk(ctx, `${tag} the owner starts the slow turn`, owner.rpc('createHeadlessSession', { prompt: FIRST_PROMPT, provider: 'claude-code', modelId: 'mock-model', reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd, skipTaskCreation: true }))
+  const started = await expectOk(ctx, `${tag} the owner starts the slow turn`, owner.rpc('createHeadlessSession', { prompt: FIRST_PROMPT, provider: 'claude-code', modelId: 'mock-model', reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }))
   const sessionId = started?.agentSessionId ?? ''
+  ctx.check(`${tag} the runner traded alice's token for one delegation`, delegationsHeld(runner) === 1, String(delegationsHeld(runner)))
   const alice = cloudClient(proof, 'alice')
   ctx.check(`${tag} alice reaches the service`, (await alice.connect()).ok)
   const streamed = await until(() => transcriptOn(alice, sessionId), (rows) => rows.some((row) => row.role === 'assistant'), 15_000)
@@ -113,23 +109,24 @@ async function killStep(proof: Proof, runner: LabHost, alice: LabClient, session
   await runner.stop({ kill: true })
   const afterKill = await transcriptOn(alice, sessionId)
   ctx.check(`${tag} the transcript mirrored so far is readable with the runner dead`, afterKill.length >= 2 && afterKill.length < 10, `${afterKill.length} rows`)
-  const records = await expectOk(ctx, `${tag} alice lists session records`, alice.rpc('sessionRecordList', {}))
+  const records = await expectOk(ctx, `${tag} alice lists session records`, alice.records.sessionRecordList({}).then((list) => list.records))
   ctx.check(`${tag} the session is listed while the runner is off, naming the runner`, records?.some((record) => record.sessionId === sessionId && record.runnerHostId === RUNNER_HOST_ID) === true)
   const infos = await expectOk(ctx, `${tag} the service describes the session from its record`, alice.rpc('getSessionInfos', [sessionId]))
   ctx.check(`${tag} the description is not null`, !!infos?.[0], JSON.stringify(infos))
 }
 
-/** The runner comes back on its data directory; its owner prompts it locally, and the new turn reaches the cloud. */
+/** The runner comes back on its data directory; its owner prompts it again, and the new turn reaches the cloud. */
 async function restartStep(proof: Proof, dataDir: string, alice: LabClient, sessionId: string): Promise<LabHost> {
   const { ctx, tag } = proof
-  ctx.step(`${tag} the runner restarts on its data directory and the owner prompts it locally`)
+  ctx.step(`${tag} the runner restarts on its data directory and the owner prompts it again`)
   const runner = await bootRunner(ctx, dataDir)
-  ctx.check(`${tag} the restarted runner minted a grant`, await runnerHoldsGrant(runner, 20_000))
   const owner = await ownerClient(proof, runner)
   await expectOk(ctx, `${tag} the owner prompts the session on the runner`, prompt(owner, ctx, sessionId, SECOND_PROMPT))
+  // The refresh token survived the restart: no second exchange.
+  ctx.check(`${tag} the restarted runner still acts for alice without a new exchange`, delegationsHeld(runner) === 0, String(delegationsHeld(runner)))
   const grown = await until(() => transcriptOn(alice, sessionId), (rows) => rows.some((row) => row.content.includes(SECOND_PROMPT)) && rows.some(isAnswer), 20_000)
   ctx.check(`${tag} the new turn's rows reached the service`, grown.some((row) => row.role === 'user' && row.content.includes(SECOND_PROMPT)) && grown.some(isAnswer), rowsOf(grown))
-  const settled = await until(() => alice.rpc('sessionRecordList', {}), (rows) => rows.find((row) => row.sessionId === sessionId)?.status === 'idle', 20_000)
+  const settled = await until(() => alice.records.sessionRecordList({}).then((list) => list.records), (rows) => rows.find((row) => row.sessionId === sessionId)?.status === 'idle', 20_000)
   const record = settled.find((row) => row.sessionId === sessionId)
   ctx.check(`${tag} the record settled to idle`, record?.status === 'idle', JSON.stringify(record))
   return runner
@@ -146,8 +143,8 @@ async function memberStep(proof: Proof, alice: LabClient, sessionId: string): Pr
   ctx.check(`${tag} bob sees the same rows`, (bobSees?.length ?? 0) === aliceSees.length && aliceSees.length > 0, `${bobSees?.length ?? 0} vs ${aliceSees.length}`)
 }
 
-async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
+async function proveSessions(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
+  const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   let runner: LabHost | null = null
@@ -176,7 +173,7 @@ async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, data
     const sent = await guest.rpc('sharedSessionPrompt', { sessionId: started.sessionId, text: 'P4 guest prompt' })
     ctx.check(`${engine}: runner acknowledges guest prompt`, sent.accepted)
     const run = await until(async () => recordedRuns({ ...ctx, host: runner! }).find((item) => item.prompt.includes('P4 guest prompt')), (item) => !!item, 15_000)
-    ctx.check(`${engine}: guest runs on sharer seat`, run?.seat?.userId === 'user-alice')
+    ctx.check(`${engine}: guest runs on sharer seat`, !!run && seatOfRun(run) === 'user-alice')
     ctx.check(`${engine}: guest uses the host-local sharer token`, run?.seat?.envToken === 'lab-token-sharer')
     const transcript = await until(() => transcriptOn(guest, started.sessionId), (rows) => rows.some((row) => row.content.includes('P4 guest prompt')), 15_000)
     ctx.check(`${engine}: guest prompt reaches cloud transcript`, transcript.some((row) => row.content.includes('P4 guest prompt')))

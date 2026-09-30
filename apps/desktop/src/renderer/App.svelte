@@ -17,11 +17,15 @@
   import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
+  import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
+  import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
 
   import DesignAnnotation from "@solus/workspace-ui/components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
+  import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
+  import BusyTreeConfirm from "@solus/workspace-ui/components/busy-tree/BusyTreeConfirm.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
@@ -40,12 +44,13 @@
   import { localApi } from "@solus/client-core/local-api";
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
-  import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-upload";
+  import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { installGlobalDispatcher } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
+  const skipOnboarding = skipsOnboarding(window.location.search);
 
   type WorkspaceLayoutModule =
     typeof import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte");
@@ -59,7 +64,7 @@
 
   const windowCtx = new DesktopWindow();
   const core = createAppCore(windowCtx);
-  const { settings, projectConfigStore, session, keybindings } = core;
+  const { settings, session, keybindings } = core;
 
   installDesktopRuntime(core);
   installDesktopUpdates(core);
@@ -88,48 +93,7 @@
   });
   serversStore.init();
 
-  // The standalone create-task composer (project cwd + optional session seed)
-  // lives on the UI store so the palette, the action orb, and create-from-session
-  // can all open it. Saves straight through to the provider.
-  const taskComposer = $derived(session.ui.taskComposer);
   const sessionRename = $derived(session.ui.sessionRename);
-  const taskComposerServerId = $derived(taskComposer?.serverId ?? null);
-  const taskComposerHost = $derived(
-    taskComposerServerId
-      ? {
-          serverId: taskComposerServerId,
-          api: serverConnections.apiFor(taskComposerServerId),
-        }
-      : null,
-  );
-  const taskComposerConfig = $derived(
-    taskComposer
-      ? projectConfigStore.configFor(
-          taskComposerServerId,
-          taskComposer.projectKey,
-        )
-      : undefined,
-  );
-  const taskComposerProvider = $derived(
-    taskComposerConfig?.taskProvider ?? "local",
-  );
-  const taskComposerTasks = $derived(
-    taskComposer
-      ? session.tasksStore.tasksForCheckout(taskComposer.serverId, taskComposer.projectKey)
-      : [],
-  );
-  const taskComposerEpics = $derived(
-    taskComposerTasks.filter((t) => t.kind === "epic"),
-  );
-  const taskComposerLabels = $derived(
-    taskComposer ? session.tasksStore.knownLabels(taskComposer.serverId, taskComposer.projectKey) : [],
-  );
-
-  $effect(() => {
-    if (!taskComposer || !taskComposerHost) return;
-    void projectConfigStore.load(taskComposerHost, taskComposer.projectKey);
-  });
-
   let workspaceLayoutComponent = $state.raw<Promise<WorkspaceLayoutModule> | null>(
     !untrack(() => initialWorkspaceLayout)
       ? import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte")
@@ -195,23 +159,17 @@
     ui.directoryPickerNewTab ||
       (!ui.directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
-  // Borrowed by the Open project flow, where the folder being chosen is a place
-  // to put a clone rather than a project to open — so it gets its own wording.
+  // Borrowed by the Open project flow, where the folder being chosen may be a
+  // place to put a clone or a new project — so the flow supplies the wording.
   const directoryPickerTitle = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) {
-      return openProjectStore.source === "local"
-        ? "Open a folder"
-        : "Choose where to clone";
-    }
+    if (ui.directoryPickerForOpenProject) return openProjectStore.browseTitle;
     if (ui.directoryPickerForAddProject) return "Add a project";
     return directoryPickerCreatesTab
       ? "Open project in a new tab"
       : "Change project folder";
   });
   const directoryPickerAction = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) {
-      return openProjectStore.source === "local" ? "Open" : "Clone here";
-    }
+    if (ui.directoryPickerForOpenProject) return openProjectStore.browseAction;
     if (ui.directoryPickerForAddProject) return "Add project";
     return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
   });
@@ -223,7 +181,7 @@
       (ui.directoryPickerTargetTabId
         ? session.sessionFor(ui.directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   // apiFor() opens the connection as a side effect, so only reach for the
@@ -232,7 +190,7 @@
     ui.directoryPickerOpen
       ? serverConnections.apiFor(directoryPickerServerId)
       : serverConnections.apiFor(
-          serverConnections.defaultServerId() ?? LOCAL_SERVER_ID,
+          serverConnections.defaultMachineId() ?? LOCAL_SERVER_ID,
         ),
   );
   const directoryPickerHostLabel = $derived(
@@ -301,8 +259,8 @@
     };
     const openProjectHandler = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
-      const detail: { tabId?: string } | undefined = event.detail;
-      startOpenProject({ sourceId: detail?.tabId });
+      const detail: { tabId?: string; source?: ProjectSource; serverId?: string } | undefined = event.detail;
+      startOpenProject({ sourceId: detail?.tabId, source: detail?.source, serverId: detail?.serverId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
@@ -611,7 +569,7 @@
 
     <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
-    {#if !settings.onboardingCompleted}
+    {#if !skipOnboarding && !settings.onboardingCompleted}
       {#await import("@solus/workspace-ui/components/onboarding/OnboardingSurface.svelte")}
         <!-- Opaque from the first frame: without this the workspace is visible for
          as long as the lazy chunk takes to arrive. Same composite as the
@@ -635,7 +593,7 @@
         {@const OpenProjectDialog = openProjectModule.default}
         <OpenProjectDialog
           onOpenProject={(path) =>
-            void openProjectAtPath(path, openProjectStore.source !== "local")}
+            void openProjectAtPath(path, openProjectStore.source)}
           onBrowse={browseForOpenProject}
           onBackgroundCloneFailure={(failure) =>
             toasts.error(failure.title, { description: failure.detail })}
@@ -657,6 +615,10 @@
       {/await}
     {/if}
 
+    <BusyTreeConfirm />
+
+    <SessionLinkPrompts />
+
     {#if sessionRename && session.tabs[sessionRename.tabId]}
       <RenameSessionDialog
         tabId={sessionRename.tabId}
@@ -672,42 +634,6 @@
         {#if sharesStore.dialog}
           <p role="alert">Could not load the share dialog.</p>
         {/if}
-      {/await}
-    {/if}
-
-    {#if taskComposer && taskComposerConfig !== undefined}
-      {#await import("@solus/workspace-ui/components/tasks/TaskComposer.svelte")}
-        <div class="lazy-modal-loading" role="status">
-          Loading task composer…
-        </div>
-      {:then taskComposerModule}
-        {@const TaskComposer = taskComposerModule.default}
-        <TaskComposer
-          epics={taskComposerEpics}
-          allowEpics={taskComposerProvider === "local"}
-          canPlan={taskComposerProvider === "local"}
-          knownLabels={taskComposerLabels}
-          workingDirectory={taskComposer.workingDirectory}
-          provider={settings.activeAgent}
-          onCreate={async (input) => {
-            const context = taskComposer;
-            if (!context) return;
-            try {
-              await session.tasksStore.create(
-                { ...input, projectKey: context.projectKey },
-                context.serverId,
-              );
-              toasts.success("Task created");
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              toasts.error("Couldn't create task", { description: message });
-              // Rethrow so the composer keeps the modal open; it owns dismissal on
-              // success (via onCancel) so "Create more" can stay open.
-              throw err;
-            }
-          }}
-          onCancel={() => (session.ui.taskComposer = null)}
-        />
       {/await}
     {/if}
 

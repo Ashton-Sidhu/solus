@@ -33,6 +33,7 @@
   let loadFinished = $state(false);
 
   const work = $derived(worksStore.works[workId]);
+  const saved = $derived(worksStore.saved[workId]);
   const title = $derived(work?.title || fallbackTitle || "Untitled artifact");
   const isWrongType = $derived(!!work && work.type !== "artifact");
   const isMissing = $derived(loadFinished && !work);
@@ -102,7 +103,7 @@
     {/if}
   </div>
 
-  {#if !isNearViewport || (!loadFinished && !work?.content)}
+  {#if !isNearViewport || (!loadFinished && !saved?.content)}
     <div class="flex h-52 items-center justify-center bg-(--solus-container-bg)" role="status">
       <ContentSkeleton label="Loading artifact" preview />
     </div>
@@ -117,11 +118,11 @@
       <WarningCircleIcon size={20} class="text-(--solus-status-error)" />
       <span class="text-sm font-medium text-(--solus-text-secondary)">Referenced work is not an artifact</span>
     </div>
-  {:else if work?.content}
+  {:else if saved?.content}
     <!-- Mounted only once the card is near the viewport, so a document full of
          embeds costs one frame per artifact the reader actually reaches. -->
     <div class="artifact-embed__body max-h-[70cqh] overflow-auto p-3">
-      <SandboxFrame html={work.content} isDark={dark} tooltips={false} />
+      <SandboxFrame html={saved.content} isDark={dark} tooltips={false} />
     </div>
   {:else}
     <div class="flex h-40 items-center justify-center text-sm text-(--solus-text-tertiary)">Empty artifact</div>

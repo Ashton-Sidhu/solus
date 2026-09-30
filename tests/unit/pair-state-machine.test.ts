@@ -9,8 +9,8 @@ import { z } from 'zod'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { buildHttpServer } = await import('@solus/server/server/http')
-const auth = await import('@solus/server/server/auth')
+const { buildHttpServer } = await import('@solus/server/transport/http')
+const auth = await import('@solus/server/admission/auth')
 
 interface PairRequestBody {
   code: string

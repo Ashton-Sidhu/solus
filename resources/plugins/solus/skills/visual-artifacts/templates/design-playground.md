@@ -62,10 +62,10 @@ If the user is working in Tailwind, suggest Tailwind v4 utilities; if raw CSS, u
 
 ## Solus styling notes
 
-- Drive every colour off Solus variables. Surfaces/panels: `--solus-art-surface`, `--solus-art-raised`. Hairlines: `--solus-art-border`, `--solus-art-border-strong`. Text: `--solus-text-primary/secondary/tertiary`. Accent: `--solus-accent`.
+- Use Solus variables for controls and general previews. For a real product mockup, read and reproduce that product's tokens and surface treatment; scope them to the preview. Solus surfaces: `--solus-art-surface`, `--solus-art-raised`. Hairlines: `--solus-art-border`, `--solus-art-border-strong`. Text: `--solus-text-primary/secondary/tertiary`. Accent: `--solus-accent`.
 - A single-series preview uses one colour (the accent). Only reach for the data palette (`--solus-art-1..6`) when swatches genuinely encode different categories.
 - No raw grey, no gradients or glow, thin 1px borders, sentence case, two font weights, nothing below 11px.
-- Animate control changes and entrance (~200–600ms ease-out); honour `prefers-reduced-motion`.
+- Use finite transitions when they clarify control changes; respect reduced motion. Do not restart entrance effects on each update.
 
 ## Example topics
 
@@ -78,4 +78,4 @@ If the user is working in Tailwind, suggest Tailwind v4 utilities; if raw CSS, u
 
 ## Finish
 
-Explain what you built in chat, then call `render_artifact` with the finished HTML as the last step.
+Implement the template in React and compile with `npm run bundle` as described in `SKILL.md`. Render the compiled HTML as a new work with `render_artifact`, or read and update the existing work. Use a compiled fence only for an explicitly unsaved or one-time inline result. Explain the result briefly; do not emit duplicate copies.

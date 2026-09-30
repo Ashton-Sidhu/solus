@@ -14,7 +14,10 @@ afterEach(() => {
 /** The workspace's surface for its one source. Git reads go to the host's own
  *  connection, so that connection serves the same fake. */
 function servedBy(api: HostApi): () => HostApi {
+  api.checkoutSnapshot ??= async () => ({ generation: 'test-host', revision: 0, states: [] })
   spyOn(serverConnections, 'apiFor').mockReturnValue(api)
+  // The serving host is a machine this client knows: Git is read only from one.
+  spyOn(serverConnections, 'isKnownServer').mockReturnValue(true)
   return () => api
 }
 
@@ -38,6 +41,46 @@ function gitState(branch: string): GitState {
 }
 
 describe('Git environment registration', () => {
+  test('a rename supersedes cached status and a status request already in flight on its host', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    let finish!: (state: GitState) => void
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const cwd = '/repo/.git/solus/worktrees/solus-12345678'
+    store.set('host-a', cwd, gitState('solus/12345678'))
+    store.set('host-b', cwd, gitState('solus/12345678'))
+    let finishRefs!: () => void
+    const refsApi = asHostApi({
+      worktreeListProject: async () => [{ path: cwd, branch: 'solus/12345678' }],
+      worktreeBranches: async () => ['main', 'solus/12345678'],
+    })
+    servedBy(refsApi)
+    const ctx = {} as IpcContext
+    await store.refreshRefs('host-a', '/repo', ctx)
+    servedBy(asHostApi({
+      gitRefreshState: () => new Promise<GitState>((resolve) => { finish = resolve }),
+      worktreeListProject: async () => {
+        await new Promise<void>((resolve) => { finishRefs = resolve })
+        return [{ path: cwd, branch: 'solus/12345678' }]
+      },
+      worktreeBranches: async () => ['main', 'solus/12345678'],
+    }))
+    const pendingRefs = store.refreshRefs('host-a', '/repo', ctx, { force: true })
+    const pending = store.refresh('host-a', cwd, { force: true })
+    store.checkouts.apply('host-a', { generation: 'test-host', cause: 'renamed', state: { cwd, revision: 2, checkout: {
+      repoRoot: '/repo', worktreePath: cwd, branch: 'solus/fix-layout', targetBranch: 'main',
+    } } })
+    expect(store.statusFor('host-a', cwd)?.branch).toBe('solus/fix-layout')
+    expect(store.statusFor('host-b', cwd)?.branch).toBe('solus/12345678')
+    expect(store.refsFor('host-a', '/repo').worktrees[0].branch).toBe('solus/fix-layout')
+    finish(gitState('solus/12345678'))
+    finishRefs()
+    await pending
+    await pendingRefs
+    expect(store.statusFor('host-a', cwd)?.branch).toBe('solus/fix-layout')
+    expect(store.refsFor('host-a', '/repo').worktrees[0].branch).toBe('solus/fix-layout')
+  })
+
   test("a new worktree starts from the organization's default branch for the project", async () => {
     // WHY: docs/plans/project-model.md §7 — a member sets the branch every new
     // worktree of a cloud project starts from; the host's detected default
@@ -211,6 +254,63 @@ describe('Git environment registration', () => {
   })
 })
 
+describe('Git environment reuse when a tab opens', () => {
+  test('a tab opened on a checkout another session runs in does not read it again', async () => {
+    // WHY: the host watches every registered checkout and pushes its status, so
+    // a second tab on the same project, worktree, and branch already holds a
+    // live answer. A different directory, or a host that forgot its
+    // registrations, still needs a real read.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const reads: string[] = []
+    const api = asHostApi({
+      gitIdentity: async () => gitState('main'),
+      gitRefreshState: async (cwd: string) => { reads.push(cwd); return gitState('main') },
+      gitRegisterEnvironment: async () => {},
+    })
+    const runs: Record<string, RunConfig> = {
+      first: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+      second: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+      other: { workingDirectory: '/other', gitContext: null, serverId: 'host-a' } as RunConfig,
+      third: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig,
+    }
+    const sessions: Record<string, Session> = {
+      first: { sessionId: 'first' } as Session,
+      second: { sessionId: 'second' } as Session,
+      other: { sessionId: 'other' } as Session,
+      third: { sessionId: 'third' } as Session,
+    }
+    const workspace = {
+      activeTabId: 'first',
+      tabOrder: Object.keys(runs),
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
+      runFor: (tabId: string) => runs[tabId],
+      sessionFor: (tabId: string) => sessions[tabId],
+      ctxFor: (tabId: string) => ({ session: { sessionId: tabId } }) as IpcContext,
+      apiFor: servedBy(api),
+      serverIdFor: () => 'host-a',
+    }
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+
+    await store.refreshEnvironment(workspace, { sourceId: 'first', force: false })
+    const second = await store.refreshEnvironment(workspace, { sourceId: 'second', force: false })
+    await store.refreshEnvironment(workspace, { sourceId: 'other', force: false })
+    // A restarted host watches nothing, so the next open reads once the last
+    // read is older than the store's freshness window.
+    store.invalidateRegistrationsForHost('host-a')
+    const now = Date.now()
+    spyOn(Date, 'now').mockReturnValue(now + 3_000)
+    await store.refreshEnvironment(workspace, { sourceId: 'third', force: false })
+
+    expect(reads).toEqual(['/repo', '/other', '/repo'])
+    expect(second.ok).toBe(true)
+    expect(runs.second.gitContext?.branch).toBe('main')
+  })
+})
+
 describe('Git environment full refresh', () => {
   function fullRefreshFixture(hostAnswersRefs: boolean) {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -275,5 +375,121 @@ describe('Git environment full refresh', () => {
     expect(result.ok).toBe(true)
     expect(fixture.separateRefsReads()).toBe(2)
     expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
+  })
+})
+
+describe('Git environment on a tab switch', () => {
+  function registeredTabFixture() {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const reads: Array<GitStateOptions | undefined> = []
+    const api = asHostApi({
+      gitIdentity: async () => gitState('main'),
+      gitRefreshState: async (_cwd: string, options?: GitStateOptions) => { reads.push(options); return gitState('main') },
+      gitRegisterEnvironment: async () => {},
+    })
+    const run = { workingDirectory: '/repo', gitContext: null, serverId: 'host-a' } as RunConfig
+    const session = { sessionId: 'only' } as Session
+    const workspace = {
+      activeTabId: 'only',
+      tabOrder: ['only'],
+      defaultRunConfig: { workingDirectory: '/repo', gitContext: null, serverId: 'host-a', worktree: null } as RunConfig,
+      runFor: () => run,
+      sessionFor: () => session,
+      ctxFor: () => ({ session: { sessionId: 'only' } }) as IpcContext,
+      apiFor: servedBy(api),
+      serverIdFor: () => 'host-a',
+    }
+    return { workspace, reads }
+  }
+
+  test('a checkout the host watches is read from the store, including by the tab registered on it', async () => {
+    // WHY: every mounted tab surface used to re-read Git when the active tab
+    // changed. The host pushes the status of every registered checkout, so a
+    // tab returning to its own checkout has nothing to ask for.
+    const { workspace, reads } = registeredTabFixture()
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindWorkspace(workspace)
+    await store.refreshEnvironment(workspace, { sourceId: 'only', force: false })
+    const readsAfterOpen = reads.length
+
+    await store.refreshEnvironment(workspace, { sourceId: 'only', force: false })
+    await store.refresh('host-a', '/repo')
+    expect(reads.length).toBe(readsAfterOpen)
+
+    // After a host restart nothing is watched until the tab registers again.
+    store.invalidateRegistrationsForHost('host-a')
+    await store.refresh('host-a', '/repo', { force: true })
+    expect(reads.length).toBe(readsAfterOpen + 1)
+  })
+
+  test('details are read again only after a status change nobody watched', async () => {
+    // WHY: the host pushes status but not line counts, ahead counts, or the pull
+    // request URL. A surface that mounts on a tab switch must not re-read them
+    // while they are current, and must re-read them once a change made them stale.
+    const { workspace, reads } = registeredTabFixture()
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindWorkspace(workspace)
+    await store.refreshEnvironment(workspace, { sourceId: 'only', level: 'details', force: false })
+    const detailReads = () => reads.filter((options) => options?.includeDetails).length
+    expect(detailReads()).toBe(1)
+
+    store.watchDetails('host-a', '/repo')()
+    await Bun.sleep(0)
+    expect(detailReads()).toBe(1)
+
+    store.set('host-a', '/repo', gitState('feature'))
+    store.watchDetails('host-a', '/repo')()
+    await Bun.sleep(0)
+    expect(detailReads()).toBe(2)
+  })
+
+  test('line counts a status push overtook are read again, not marked current', async () => {
+    // WHY: while an agent edits, the host pushes status during almost every
+    // details read. The store discards the overtaken answer; if it still called
+    // the details current, the Environment section showed a file count with no
+    // +/− line counts until the next change.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const edited = (): GitState => {
+      const state = gitState('main')
+      state.uncommittedChanges.files = [{ path: 'a.ts', conflicted: false }]
+      return state
+    }
+    const answers: Array<(state: GitState) => void> = []
+    const api = asHostApi({
+      gitRefreshState: (_cwd: string, options?: GitStateOptions) => {
+        if (!options?.includeDetails) return Promise.resolve(edited())
+        return new Promise<GitState>((resolve) => answers.push(resolve))
+      },
+    })
+    servedBy(api)
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.set('host-a', '/repo', edited())
+    const stopWatching = store.watchDetails('host-a', '/repo')
+    expect(answers).toHaveLength(1)
+
+    // The agent edits again before the first read answers.
+    const pushed = edited()
+    pushed.uncommittedChanges.files.push({ path: 'b.ts', conflicted: false })
+    store.set('host-a', '/repo', pushed)
+    const withCounts = edited()
+    withCounts.uncommittedChanges.insertions = 12
+    withCounts.uncommittedChanges.deletions = 3
+    answers[0](withCounts)
+    await Bun.sleep(200)
+
+    expect(answers).toHaveLength(2)
+    answers[1](withCounts)
+    await Bun.sleep(0)
+    expect(store.statusFor('host-a', '/repo')?.uncommittedChanges).toMatchObject({ insertions: 12, deletions: 3 })
+    stopWatching()
   })
 })

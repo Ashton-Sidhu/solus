@@ -19,6 +19,7 @@
 {:then filesModule}
   {@const FilesPane = filesModule.default}
   <FilesPane
+    serverId={params.serverId}
     {api}
     {ctx}
     cwd={params.cwd}

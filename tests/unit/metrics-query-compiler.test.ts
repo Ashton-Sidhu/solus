@@ -7,11 +7,11 @@ import type { MetricsQuerySpec } from '@solus/contracts/observability-types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('@solus/server/observability/span-table')
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type CompilerModule = typeof import('@solus/server/observability/query-compiler')
-type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
-type RegistriesModule = typeof import('@solus/server/observability/registries')
+type SpanTableModule = typeof import('@solus/server/data/insights/span-table')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type CompilerModule = typeof import('@solus/server/data/insights/query-compiler')
+type SqlGuardModule = typeof import('@solus/server/data/insights/sql-guard')
+type RegistriesModule = typeof import('@solus/server/data/insights/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -36,11 +36,11 @@ function columnNames(result: { columns: Array<{ name: string }> }): string[] {
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-compiler-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('@solus/server/observability/span-table')
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  compiler = await import('@solus/server/observability/query-compiler')
-  sqlGuard = await import('@solus/server/observability/sql-guard')
-  registries = await import('@solus/server/observability/registries')
+  spanTable = await import('@solus/server/data/insights/span-table')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  compiler = await import('@solus/server/data/insights/query-compiler')
+  sqlGuard = await import('@solus/server/data/insights/sql-guard')
+  registries = await import('@solus/server/data/insights/registries')
   metricsDb.closeMetricsDb()
 
   // Day 1 (epoch hour 0-2): turns and tool calls across two models.

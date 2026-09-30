@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getSessionRecords, getWorkspaceContext, getSessionSidebarStore, presenceStore, serversStore } from "@solus/workspace-ui/contexts";
-  import PresenceAvatar from "@solus/workspace-ui/components/presence/PresenceAvatar.svelte";
+  import UserAvatar from "@solus/workspace-ui/components/users/UserAvatar.svelte";
   import {
     canJumpTo,
     primaryPresence,
@@ -33,6 +33,7 @@
   const names: RosterNames = {
     get mountedSessions() { return Object.values(sessions.byId); },
     get sidebarSessions() { return sidebar.catalogTasks.flatMap((task) => sidebar.sessionsFor(task)); },
+    workTitle: (workId) => session.worksStore.get(workId)?.title ?? null,
   };
 
   function isFollowed(person: RosterPerson): boolean {
@@ -45,7 +46,8 @@
     if (!focus || focus.kind === "none") return;
     if (focus.kind === "session") {
       session.openRoute({ name: "chat", params: { sessionId: focus.sessionId, serverId: presence.serverId } }, { via: "click" });
-
+    } else if (focus.kind === "work") {
+      session.openRoute({ name: "work", params: { workId: focus.workId, serverId: presence.serverId } }, { via: "click" });
     }
     onNavigate();
   }
@@ -78,7 +80,7 @@
         aria-label={jumpable ? `Jump to ${person.displayName}` : person.displayName}
         onclick={() => jumpTo(person)}
       >
-        <PresenceAvatar {person} size={24} composing={person.isComposing} ringed={followed} />
+        <UserAvatar user={person.user} size={24} composing={person.isComposing} ringed={followed} />
         <span class="flex min-w-0 flex-1 flex-col">
           <span class="truncate font-medium text-(--solus-text-primary)">{person.displayName}</span>
           <span class="mt-[0.1875rem] truncate {SHEET_ROW_META}">{followed ? "Following" : rosterWhere(person, names, spansHosts, hostLabel)}</span>

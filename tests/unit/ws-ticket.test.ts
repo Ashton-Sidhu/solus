@@ -13,7 +13,7 @@ import {
   verifySessionToken,
   verifyWsTicket,
   WS_TICKET_TTL_MS,
-} from '@solus/server/server/auth'
+} from '@solus/server/admission/auth'
 
 describe('WebSocket tickets', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR

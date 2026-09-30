@@ -5,6 +5,7 @@ import {
   heatBreadcrumb,
   heatIntensity,
   heatNodeAtPath,
+  heatTone,
   layoutTreemap,
 } from '@solus/workspace-ui/components/diff/lib/heat-map'
 
@@ -82,6 +83,18 @@ describe('diff heat map tree', () => {
     // Log scaling keeps a 1-line change visible instead of rounding to zero.
     expect(cool).toBeGreaterThan(1 / max)
     expect(cool).toBeLessThan(1)
+  })
+
+  // WHY: heat alone says "a lot happened here". The hue says whether that was
+  // new code, removed code, or a rewrite — a folder of deletions and a folder
+  // of new files ask the reviewer different questions.
+  test('the tone says whether a node gained, lost, or rewrote its lines', () => {
+    const node = (additions: number, deletions: number) => ({ ...buildHeatMapTree([]), additions, deletions })
+    expect(heatTone(node(30, 2))).toBe('added')
+    expect(heatTone(node(1, 40))).toBe('removed')
+    expect(heatTone(node(10, 10))).toBe('mixed')
+    // A pure rename changes no lines.
+    expect(heatTone(node(0, 0))).toBe('mixed')
   })
 })
 

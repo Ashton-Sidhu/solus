@@ -34,7 +34,6 @@ export const LIST_PRIMARY_PANE_SIZE = 19
 export const SIDEBAR_PANE_MIN_SIZE = 14
 export const SIDEBAR_PANE_DEFAULT_SIZE = 17
 export const SIDEBAR_PANE_MAX_SIZE = 24
-export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
 
 /**
  * A fresh tab starts without the project rail, even when the user's conversation
@@ -55,25 +54,14 @@ export function companionMinimizesProjectPanel(ref: RouteRef | null): boolean {
 }
 
 /**
- * Keep heavy transcript rows for the visible chats plus the most recently
- * visited hidden chats. ConversationView itself stays mounted, preserving its
- * local interaction state; only cold message component trees are released.
+ * A companion pane takes the session sidebar's width, except the two that are
+ * navigated from it: the automation builder, and a task page beside the task's
+ * conversation, which is the split view the sidebar's task rows open
+ * (docs/plans/task-conversation.md). Closing the sidebar under the row that was
+ * just clicked would take away the way to the next task.
  */
-export function retainedConversationTabIds(
-  recentTabIds: readonly string[],
-  visibleTabIds: readonly string[],
-  openTabIds: readonly string[],
-  limit = MAX_RETAINED_CONVERSATION_TRANSCRIPTS,
-): string[] {
-  const open = new Set(openTabIds)
-  const retained: string[] = []
-  const add = (tabId: string) => {
-    if (open.has(tabId) && !retained.includes(tabId)) retained.push(tabId)
-  }
-
-  for (const tabId of visibleTabIds) add(tabId)
-  for (const tabId of recentTabIds) add(tabId)
-  return retained.slice(0, Math.max(limit, visibleTabIds.length))
+export function companionCollapsesSidebar(ref: RouteRef | null): boolean {
+  return ref !== null && ref.name !== 'automation' && ref.name !== 'task'
 }
 
 /**

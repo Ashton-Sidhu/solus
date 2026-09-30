@@ -1,34 +1,46 @@
 <script lang="ts">
-  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
+  import CommentMarkdown from '../../github-markdown/CommentMarkdown.svelte';
   import { SvelteSet } from "svelte/reactivity";
   import {
     ArrowUp as ArrowUpIcon,
     Check as CheckIcon,
+    ChevronDown as CaretDownIcon,
     LoaderCircle as CircleNotchIcon,
     SquareTerminal as TerminalWindowIcon,
     Trash2 as TrashIcon,
-    UserRound as UserIcon,
   } from "@lucide/svelte";
+  import type { User, UserId } from "@solus/contracts/user";
+  import type { Activity } from "@solus/contracts/activity";
   import type {
     TaskComment,
-    TaskEvent,
     TaskLink,
     TaskSessionLink,
   } from "@solus/contracts/task-types";
   import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
+  import UserAvatar from "../../users/UserAvatar.svelte";
+  import ActivityRow from "../../activity/ActivityRow.svelte";
+  import { activityLine } from "../../activity/lib/activity-line";
+  import { attributionName } from "../../presence/lib/actor-name";
+  import * as DropdownMenu from "../../ui/dropdown-menu";
+  import {
+    FILTER_CHIP,
+    FILTER_CHIP_OFF,
+    FILTER_CHIP_ON,
+  } from "../../ui/list-page/filter-styles";
+  import { requestInputFocus } from "../../../lib/inputFocus";
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import {
     activityFeed,
     commentSessionName,
-    eventLine,
-    linkedArtifactForEvent,
+    linkedArtifactForActivity,
   } from "./lib/task-page";
   import { commentSyncState } from "./lib/task-upstream";
 
   interface Props {
     comments: TaskComment[];
-    events: TaskEvent[];
-    /** The task's current links, so a `linked` event can show the artifact
+    /** The task's `task_changed` activity. */
+    activity: Activity[];
+    /** The task's current links, so a `linked` change can show the artifact
      *  it brought, collapsed, at the point in the story where it arrived. */
     links?: TaskLink[];
     /** False while the feed is mounted but hidden, so an opened render holds
@@ -36,6 +48,8 @@
     enabled?: boolean;
     sessions: TaskSessionLink[];
     onOpenSession: (sessionId: string) => void;
+    /** The reader on the task's host: their own comments and changes read "You". */
+    currentUserId: UserId | null;
     /** The system a comment can be published to, when this task has one. Null
      *  leaves every entry with no publish affordance at all. */
     provider: string | null;
@@ -51,11 +65,12 @@
 
   let {
     comments,
-    events,
+    activity,
     links = [],
     enabled = true,
     sessions,
     onOpenSession,
+    currentUserId,
     provider,
     onPublish,
     onDelete,
@@ -87,7 +102,24 @@
     }
   }
 
-  let filter = $state<"all" | "comments">("all");
+  type FeedFilter = "all" | "comments";
+  let filter = $state<FeedFilter>("all");
+
+  const filterOptions: { value: FeedFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "comments", label: "Comments" },
+  ];
+
+  const filterLabel = $derived(
+    filterOptions.find((option) => option.value === filter)?.label ?? "All",
+  );
+
+  function selectFilter(value: string) {
+    const option = filterOptions.find((option) => option.value === value);
+    if (!option) return;
+    filter = option.value;
+    requestInputFocus();
+  }
 
   /** One live frame at a time: the artifact card the reader has open. */
   let openArtifactWorkId = $state<string | null>(null);
@@ -96,171 +128,163 @@
     openArtifactWorkId = openArtifactWorkId === workId ? null : workId;
   }
 
-  const entries = $derived(activityFeed(comments, events));
+  const entries = $derived(activityFeed(comments, activity));
   const shown = $derived(
     filter === "all" ? entries : entries.filter((e) => e.type === "comment"),
   );
 
 
   /** An agent's comment is authored by a session, not a person, so it takes the
-   *  accent wash and the Solus mark instead of initials. */
+   *  accent wash and the Solus mark instead of a face. */
   function isAgent(comment: TaskComment): boolean {
-    return comment.author === "agent" || comment.author === "automation";
+    return !!comment.author && comment.author.kind !== "user";
   }
 
-  function isUser(comment: TaskComment): boolean {
-    return comment.author === "You";
+  /** The person who wrote a local comment, drawn with their face. */
+  function commentUser(comment: TaskComment): User | null {
+    return comment.author?.kind === "user" ? comment.author.user : null;
   }
 
+  /** Who wrote it: "You" for the reader, a person's name, an agent for its person, or an upstream login. */
   function authorName(comment: TaskComment): string {
-    if (comment.author === "agent") return "Solus";
-    if (comment.author === "automation") return "Automation";
-    return comment.author?.trim() || "Unknown";
+    if (!comment.author) return comment.externalAuthor?.trim() || "Unknown";
+    const name = attributionName(comment.author, currentUserId);
+    return name.charAt(0).toUpperCase() + name.slice(1);
   }
 </script>
 
-<div class="text-workspace-chrome {stacked ? 'pt-2' : 'pt-7'}">
-  <div class="flex items-center gap-2.5 pb-1">
-    <span
-      class="font-normal text-muted-foreground uppercase {stacked
-        ? 'tracking-[0.12em]'
-        : ''}"
-    >
+<!-- The pull request timeline's grammar (pr-review/ActivityTimeline.svelte):
+     the same dense type, 22px nodes on one hairline spine, events as one
+     muted line, and each comment a full-width bordered card whose author row
+     is its header, breaking the spine. A task and a pull request are read side by side, so their
+     histories read the same way. -->
+<div class="text-chrome-dense {stacked ? 'pt-2' : 'pt-10'}">
+  <div class="mb-4 flex items-center gap-2">
+    <h2 class="text-xs font-medium text-muted-foreground uppercase">
       {stacked ? "Newest last" : "Activity"}
-    </span>
-    <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
-    <span
-      class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
-    >
-      <button
-        type="button"
-        class="h-[22px] cursor-pointer rounded-full px-2.5 text-xs transition-colors duration-150 {filter === 'all'
-          ? 'bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'text-muted-foreground'}"
-        onclick={() => (filter = "all")}
-      >
-        All
-      </button>
-      <button
-        type="button"
-        class="h-[22px] cursor-pointer rounded-full px-2.5 text-xs transition-colors duration-150 {filter === 'comments'
-          ? 'bg-card text-foreground font-medium shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'text-muted-foreground'}"
-        onclick={() => (filter = "comments")}
-      >
-        Comments
-      </button>
-    </span>
+    </h2>
+    <span class="flex-1"></span>
+    <!-- The pull request feed's focus control (pr-review/ActivityFeed.svelte):
+         the list pages' filter chip and radio menu, tinted while it narrows
+         the feed. -->
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            class="{FILTER_CHIP} {filter !== 'all'
+              ? FILTER_CHIP_ON
+              : `${FILTER_CHIP_OFF} hover:bg-[var(--wash-2)] hover:text-foreground`}"
+            aria-label="Filter activity: {filterLabel}"
+          >
+            <span>{filterLabel}</span>
+            <CaretDownIcon size={12} class="shrink-0 opacity-70" aria-hidden="true" />
+          </button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-44">
+        <DropdownMenu.RadioGroup value={filter} onValueChange={selectFilter}>
+          {#each filterOptions as option (option.value)}
+            <DropdownMenu.RadioItem value={option.value}>
+              {option.label}
+            </DropdownMenu.RadioItem>
+          {/each}
+        </DropdownMenu.RadioGroup>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   </div>
 
-  <div class="relative pt-1.5">
-    <div
-      class="absolute top-4 bottom-3.5 left-3 w-px bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)]"
-      aria-hidden="true"
-    ></div>
+  <ol class="relative flex flex-col gap-5" role="list">
+    <span class="absolute top-2 bottom-2 left-[11px] w-px bg-border" aria-hidden="true"></span>
 
     {#each shown as entry (entry.key)}
-      {#if entry.type === "event"}
-        {@const line = eventLine(entry.event)}
-        {@const artifact = linkedArtifactForEvent(entry.event, links)}
-        <div class="relative flex gap-3 py-[5px]">
+      {#if entry.type === "activity"}
+        {@const glyph = activityLine(entry.activity, currentUserId).glyph}
+        {@const artifact = linkedArtifactForActivity(entry.activity, links)}
+        <li class="relative flex gap-2">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground"
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+            aria-hidden="true"
           >
-            <span
-              class="flex size-[19px] items-center justify-center rounded-full bg-[var(--wash-2)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"><path d={glyph} /></svg
             >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="opacity-75"
-                aria-hidden="true"><path d={line.icon} /></svg
-              >
-            </span>
           </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span
-              class="flex min-h-[25px] min-w-0 flex-wrap items-center gap-2"
-            >
-              <span class="leading-[1.55] text-muted-foreground"
-                >{line.text}</span
-              >
-              <span
-                class="text-muted-foreground opacity-60"
-              >
-                {relativeTime(entry.at)}
-              </span>
-            </span>
+          <div class="min-w-0 flex-1 pt-1">
+            <p class="text-muted-foreground">
+              <ActivityRow activity={entry.activity} self={currentUserId} />
+              <span>· {relativeTime(entry.at)}</span>
+            </p>
             {#if artifact}
               <!-- The render the link brought, collapsed where it arrived. -->
-              <ArtifactActivityCard
-                workId={artifact.targetKey}
-                title={artifact.liveTitle || artifact.title}
-                open={openArtifactWorkId === artifact.targetKey}
-                {enabled}
-                onToggle={() => toggleArtifact(artifact.targetKey)}
-              />
+              <div class="mt-2">
+                <ArtifactActivityCard
+                  workId={artifact.targetKey}
+                  title={artifact.liveTitle || artifact.title}
+                  open={openArtifactWorkId === artifact.targetKey}
+                  {enabled}
+                  onToggle={() => toggleArtifact(artifact.targetKey)}
+                />
+              </div>
             {/if}
-          </span>
-        </div>
+          </div>
+        </li>
       {:else}
         {@const comment = entry.comment}
         {@const agent = isAgent(comment)}
-        {@const user = isUser(comment)}
+        {@const user = commentUser(comment)}
         {@const originSessionId = comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
-        <div class="group/comment relative flex gap-3 py-3">
-          <span
-            class="relative z-10 flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
-            style={agent
-              ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
-              : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
+        <!-- A comment leaves the spine, as on the pull request timeline: a
+             full-width card with the author's mark in its tinted header, and
+             the rail broken half a gap above and below it. -->
+        <li class="relative -my-2.5 bg-background py-2.5">
+          <article
+            class="group/comment overflow-hidden rounded-lg border border-border/60 bg-background"
           >
-            {#if user}
-              <UserIcon size={13} strokeWidth={2.2} aria-hidden="true" />
-            {:else if agent}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 32 32"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <circle
-                  cx="16"
-                  cy="16"
-                  r="6.4"
-                  fill="currentColor"
-                  stroke="none"
-                />
-                <path d="M16 5A11 11 0 0127 16" opacity=".55" />
-                <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
-                <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
-              </svg>
-            {:else}
-              {authorInitials(comment.author)}
-            {/if}
-          </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="font-medium">
-                {authorName(comment)}
+            <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
+              <span class="flex min-w-0 flex-1 items-center gap-1.5">
+                {#if user}
+                  <UserAvatar {user} size={16} />
+                {:else}
+                <span
+                  class="grid size-4 shrink-0 place-items-center rounded-full text-[8px] font-medium"
+                  style={agent
+                    ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
+                    : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
+                >
+                  {#if agent}
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 32 32"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.6"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="16" cy="16" r="6.4" fill="currentColor" stroke="none" />
+                      <path d="M16 5A11 11 0 0127 16" opacity=".55" />
+                      <path d="M25.24 23.48A11 11 0 0112.48 26.56" opacity=".55" />
+                      <path d="M6.76 23.48A11 11 0 015 12.48" opacity=".55" />
+                    </svg>
+                  {:else}
+                    {authorInitials(comment.externalAuthor)}
+                  {/if}
+                </span>
+                {/if}
+                <span class="truncate font-medium text-foreground">{authorName(comment)}</span>
+                <span class="shrink-0 text-muted-foreground">{relativeTime(comment.createdAt)}</span>
               </span>
-              <span
-                class="text-muted-foreground opacity-60"
-              >
-                {relativeTime(comment.createdAt)}
-              </span>
-              <span class="flex-1"></span>
               {#if provider}
                 {@const sync = commentSyncState(comment, true)}
                 <!-- Publishing is per comment: a note meant for the team here is
@@ -326,20 +350,20 @@
                   {/if}
                 </button>
               {/if}
-            </span>
-            <div class="github-markdown prose-cloud prose-pr w-full">
-              <GithubMarkdown
-                source={comment.body}
-                policy="local"
-              />
             </div>
-          </span>
-        </div>
+            <div class="p-3">
+              <CommentMarkdown source={comment.body} policy="local" />
+            </div>
+          </article>
+        </li>
       {/if}
     {:else}
-      <div class="py-3 pl-9 text-muted-foreground">
-        {filter === "comments" ? "No comments yet." : "No activity yet."}
-      </div>
+      <li class="relative flex gap-2">
+        <span class="size-[22px] shrink-0" aria-hidden="true"></span>
+        <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
+          {filter === "comments" ? "No comments yet." : "No activity yet."}
+        </p>
+      </li>
     {/each}
-  </div>
+  </ol>
 </div>

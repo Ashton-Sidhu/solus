@@ -1,10 +1,13 @@
 import type { HostApi } from './host-api'
-import type { IpcContext } from '@solus/contracts/types'
-import type { SessionHistoryPage, SessionHistoryPageRequest, WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
 
-export const RESTORED_TRANSCRIPT_LIMIT = 200
+/** User turns a restored or opened conversation reads first. Few enough that
+ *  first paint does not depend on how long the session has run. */
+export const INITIAL_HISTORY_TURNS = 10
+/** User turns each scroll back to older history reads. */
+export const OLDER_HISTORY_TURNS = 20
 
-type HistoryApi = Pick<HostApi, 'loadSessionPage' | 'loadSession'>
+type HistoryApi = Pick<HostApi, 'loadSessionPage'>
 
 interface PrefetchedHistory {
   key: string
@@ -19,11 +22,10 @@ const prefetchedHistory = new WeakMap<HistoryApi, PrefetchedHistory>()
 
 function historyKey(request: SessionHistoryPageRequest): string {
   return JSON.stringify([request.sessionId, request.projectPath, request.provider,
-    request.limit, request.before, !!request.deferToolInputs])
+    request.turnLimit, request.before])
 }
 
-export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): Promise<SessionHistoryPage> | undefined {
-  if (!api.loadSessionPage) return undefined
+export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): Promise<SessionHistoryPage> {
   const key = historyKey(request)
   const existing = prefetchedHistory.get(api)
   if (existing?.key === key && existing.expiresAt > Date.now()) return existing.result
@@ -43,27 +45,11 @@ export function readPrefetchedSessionHistoryPage(api: HistoryApi, request: Sessi
   return entry?.key === historyKey(request) && entry.expiresAt > Date.now() ? entry.page : undefined
 }
 
-/** An older remote host can still open a transcript. Never fall back after a
- * cursor was issued, or turn a failed/unauthorized read into a different read. */
-export async function requestSessionHistoryPage(
-  api: HistoryApi,
-  request: SessionHistoryPageRequest,
-  ctx: IpcContext,
-): Promise<SessionHistoryPage | WireSessionLoadMessage[]> {
-  if (api.loadSessionPage) {
-    try {
-      const prefetched = prefetchedHistory.get(api)
-      prefetchedHistory.delete(api)
-      return await (prefetched?.key === historyKey(request) && prefetched.expiresAt > Date.now()
-        ? prefetched.result
-        : api.loadSessionPage(request))
-    } catch (error) {
-      const unsupported = error instanceof Error &&
-        (error.message.includes('Unknown method "loadSessionPage"') || error.message.includes('no handler for "loadSessionPage"'))
-      if (request.before || !unsupported) throw error
-    }
-  }
-  if (request.before) throw new Error('This host no longer supports history pages. Reopen the session.')
-  return api.loadSession(request.sessionId, request.projectPath, ctx, request.provider, request.limit,
-    request.deferToolInputs ? { deferToolInputs: true } : undefined)
+/** Read a page, taking the startup read when it is for the same request. */
+export async function requestSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): Promise<SessionHistoryPage> {
+  const prefetched = prefetchedHistory.get(api)
+  prefetchedHistory.delete(api)
+  return prefetched?.key === historyKey(request) && prefetched.expiresAt > Date.now()
+    ? prefetched.result
+    : api.loadSessionPage(request)
 }

@@ -1,21 +1,31 @@
 <script lang="ts">
   import {
-    ArrowRight as ArrowRightIcon,
     ExternalLink as ArrowSquareOutIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
-    LoaderCircle as CircleNotchIcon,
     Plus as PlusIcon,
     Square as StopIcon,
-    SquareTerminal as TerminalWindowIcon,
   } from "@lucide/svelte";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
   import * as TooltipUI from "../../ui/tooltip";
-  import { getSurfaceContext, isAgentRunningStatus, presenceStore, serversStore } from "../../../contexts";
+  import {
+    getSessionSidebarStore,
+    getSurfaceContext,
+    isAgentRunningStatus,
+    presenceStore,
+    serversStore,
+  } from "../../../contexts";
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { activeTurnAuthorOf } from "../../presence/lib/presence-people";
-  import { attemptServerId, sessionTitle } from "../../../lib/sessionUtils";
-  import { taskSessionRow, type TaskSessionHost } from "./lib/task-page";
+  import SessionStatusGlyph from "../../session/SessionStatusGlyph.svelte";
+  import {
+    attemptServerId,
+    attentionLabel,
+    getAttentionIcon,
+    sessionTitle,
+    type AttentionState,
+  } from "../../../lib/sessionUtils";
+  import { orderTaskSessions, taskSessionRow, type TaskSessionHost } from "./lib/task-page";
 
   interface Props {
     sessions: TaskSessionLink[];
@@ -27,6 +37,9 @@
     onUnlink: (sessionId: string) => void;
     /** Start a session on this task. Null where the task's host runs none (the workspace service). */
     onNewSession: (() => void) | null;
+    /** Start the task's lead, the session the task is talked to through. Null
+     *  once it has one, or where no session can start. */
+    onStartLead: (() => void) | null;
     /** True where the section is a tab of its own. The wide table hides four
      *  controls behind hover and spreads the attempt across five columns;
      *  neither survives a thumb, so each attempt becomes a card that states its
@@ -42,19 +55,30 @@
     onStop,
     onUnlink,
     onNewSession,
+    onStartLead,
     stacked = false,
   }: Props = $props();
 
   const session = getSurfaceContext();
+  // The sidebar's own answer for a session's state, so an attempt wears the
+  // glyph its sidebar row wears. The console has no sidebar; there the row
+  // knows only whether it runs.
+  const sidebarStore = session.workspace ? getSessionSidebarStore() : null;
   const now = Date.now();
+
+  /** Six rows, then "Show all", as the Linked list does. The lead is pinned
+   *  first, so the cap never hides it. */
+  const CAP = 6;
+  let expanded = $state(false);
 
   // Only "is it running right now" is read live — from the open session, or
   // from the host's status feed for a session with no tab — as that is the one
   // live fact the row acts on (Stop). Everything else comes off the link,
   // except who is in the session: that is the host's roster, so a row can name
-  // a teammate in an attempt this client never opened.
+  // a teammate in an attempt this client never opened. The lead — the session
+  // that owns the task's conversation — is pinned first, above the workers.
   const rows = $derived(
-    sessions.map((link) => {
+    orderTaskSessions(sessions).map((link) => {
       const taskServerId = link.taskId
         ? session.tasksStore.get(link.taskId).serverId
         : null;
@@ -69,23 +93,32 @@
       const people = serverId
         ? presenceStore.peopleFocusedOn(serverId, { kind: "session", sessionId: link.sessionId })
         : [];
+      const running = open
+        ? isAgentRunningStatus(open.status)
+        : session.tasksStore.isSessionRunning(serverId, link.sessionId);
+      const attention: AttentionState =
+        sidebarStore?.sessionAttention(serverId, link.sessionId) ?? (running ? "running" : null);
       return {
         ...taskSessionRow(
           link,
           open ? sessionTitle(open) : null,
           open?.run.provider ?? null,
-          open
-            ? isAgentRunningStatus(open.status)
-            : session.tasksStore.isSessionRunning(serverId, link.sessionId),
+          running,
           now,
           taskTitle,
           host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
         ),
+        attention,
+        // Stated in words only when there is something to say; an ended
+        // session's glyph and its tooltip already say "Idle".
+        statusLabel: attention === "running" ? "running" : attentionLabel(attention),
+        statusColor: getAttentionIcon(attention)?.color ?? null,
         people,
         activeUserId: activeTurnAuthorOf(people),
       };
     }),
   );
+  const shown = $derived(expanded ? rows : rows.slice(0, CAP));
 </script>
 
 {#if stacked}
@@ -95,6 +128,18 @@
        and unlink as the way back out. "Open in split" is not among them —
        there is no second pane on a phone to open into. -->
   <div class="flex flex-col gap-3 pt-3.5">
+    <!-- The lead is the way to talk to the task, so starting one is offered
+         above the attempts and not as the bar's run, which stays a plain
+         attempt. -->
+    {#if onStartLead}
+      <button
+        type="button"
+        class="flex h-11 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-transparent font-medium text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+        onclick={onStartLead}
+      >
+        Start lead
+      </button>
+    {/if}
     {#if !rows.length}
       <div class="px-1 py-3.5 text-muted-foreground">
         No session has worked on this task yet. Start one to run an agent against this task
@@ -106,29 +151,20 @@
           class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
         >
           <div class="flex items-start gap-2.5 px-[13px] pt-[13px] pb-3">
-            <span
-              class="flex size-[26px] shrink-0 items-center justify-center rounded-lg {row.running
-                ? 'bg-[color-mix(in_oklch,var(--running)_20%,transparent)] text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
-                : 'bg-[var(--wash-3)] text-muted-foreground'}"
-              aria-hidden="true"
-            >
-              {#if row.running}
-                <CircleNotchIcon
-                  size={14}
-                  class="animate-spin motion-reduce:animate-none"
-                />
-              {:else}
-                <TerminalWindowIcon size={14} />
-              {/if}
+            <span class="flex size-[26px] shrink-0 items-center justify-center rounded-lg bg-[var(--wash-2)]">
+              <SessionStatusGlyph attention={row.attention} />
             </span>
             <span class="flex min-w-0 flex-1 flex-col gap-1">
               <span class="leading-[1.35] font-medium text-pretty">{row.title}</span>
               <span class="flex flex-wrap items-center gap-[7px]">
-                {#if row.running}
+                {#if row.isLead}
                   <span
-                    class="text-[color-mix(in_oklch,var(--running)_72%,var(--foreground))]"
-                    >running</span
+                    class="rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1.5 text-xs font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
+                    >Lead</span
                   >
+                {/if}
+                {#if row.statusLabel}
+                  <span style:color={row.statusColor}>{row.statusLabel}</span>
                 {/if}
                 <span class="font-mono text-xs tabular-nums text-muted-foreground"
                   >{row.date}</span
@@ -199,36 +235,41 @@
     {/if}
   </div>
 {:else}
-<!-- The section takes the page's `text-chrome-dense` rung rather than pinning
-     `text-xs`: the rung is what steps for the pointer, and a section that
-     restates a size stops stepping with the page. -->
+<!-- Drawn like the Linked list above it: a quiet header, then one line per
+     attempt with its state glyph where Linked has its kind icon. No column
+     header and no rules — the glyph, the title and a muted meta cluster read
+     without them, and a column of Agent / Host / Started labels only restated
+     what each row already says. The section keeps the page's
+     `text-chrome-dense` rung so it steps with the pointer. -->
 <div class="flex flex-col gap-[7px] pt-[26px]">
-  <div class="flex items-center gap-2.5">
-    <span class="font-normal text-muted-foreground uppercase">
-      Sessions
-    </span>
-    <span class="tabular-nums text-muted-foreground opacity-70">
-      {sessions.length}
-    </span>
-    <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+  <div class="flex items-center gap-2">
+    <span class="font-normal text-muted-foreground uppercase">Sessions</span>
+    <span class="tabular-nums text-muted-foreground opacity-70">{sessions.length}</span>
+    <span class="flex-1" aria-hidden="true"></span>
+    <!-- Two ways in. The lead is the session the task is talked to through,
+         so it is offered until the task has one; New session is a plain
+         attempt at any time. -->
+    {#if onStartLead}
+      <button
+        type="button"
+        class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
+        onclick={onStartLead}
+      >
+        Start lead
+      </button>
+    {/if}
     {#if onNewSession}
       <button
         type="button"
-        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:h-[22px] [.is-laptop-display_&]:px-2"
+        class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
         onclick={onNewSession}
       >
-        <PlusIcon size={11} weight="bold" aria-hidden="true" />
+        <PlusIcon size={11} aria-hidden="true" />
         New session
       </button>
     {/if}
   </div>
 
-  <!-- Attempts are a history, so they are read down a column, not across two
-       lines each: agent, machine and date line up between rows and a long
-       history stays scannable. The card is bounded so it cannot push the rest
-       of the task off the page, and the header stays put while it scrolls.
-       With no attempt yet there is no card to bound — the section says so in the
-       same plain line the Linked table uses, and New session above is the way in. -->
   {#if !rows.length}
     <div class="px-1 py-3.5 text-muted-foreground">
       {#if onNewSession}
@@ -240,81 +281,54 @@
       {/if}
     </div>
   {:else}
-    <div
-      class="scrollbar-on-hover max-h-[min(22rem,42vh)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)] [.is-laptop-display_&]:rounded-lg"
-    >
-      <!-- Sticky so the columns stay named through a long history. It carries
-           the card's own fill, or rows would read through it as it scrolls. -->
-      <div
-        class="sticky top-0 z-10 flex h-[27px] items-center gap-[11px] bg-card pr-2 pl-[13px] font-normal text-muted-foreground uppercase opacity-75 shadow-[0_.5px_0_var(--hairline)] [.is-laptop-display_&]:h-[24px] [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:pl-[11px]"
-        aria-hidden="true"
-      >
-        <span class="w-3.5 shrink-0"></span>
-        <span class="min-w-0 flex-1">Session</span>
-        <span class="w-[104px] shrink-0 @max-[34rem]:hidden [.is-laptop-display_&]:w-[92px]">
-          Agent
-        </span>
-        <span class="w-[128px] shrink-0 @max-[46rem]:hidden [.is-laptop-display_&]:w-[110px]">
-          Host
-        </span>
-        <span class="w-[72px] shrink-0 text-right [.is-laptop-display_&]:w-[64px]">Started</span>
-        <!-- Sized for four controls, which is what a running row has: the cell
-             is `shrink-0` all the way down, so a width sized for three does not
-             clip the fourth, it paints it over Started. -->
-        <span class="w-[116px] shrink-0 [.is-laptop-display_&]:w-[100px]"></span>
-      </div>
-
-      {#each rows as row (row.sessionId)}
+    <div class="flex flex-col">
+      {#each shown as row (row.sessionId)}
         <div
-          class="group flex h-[34px] cursor-pointer items-center gap-[11px] border-t-[.5px] border-[color-mix(in_oklch,var(--hairline)_60%,transparent)] pr-2 pl-[13px] transition-colors first:border-t-0 hover:bg-[var(--wash-1)] [.is-laptop-display_&]:h-[30px] [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:pl-[11px]"
+          class="group flex h-[34px] cursor-pointer items-center gap-[11px] rounded-md px-1 transition-colors hover:bg-[var(--wash-1)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none"
           role="button"
           tabindex="0"
-          title={row.dateFull}
+          aria-label="Open session {row.title}"
           onclick={() => onOpen(row.sessionId)}
           onkeydown={(e) => {
+            if (e.target !== e.currentTarget) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onOpen(row.sessionId);
             }
           }}
         >
-          <span class="flex size-3.5 shrink-0 items-center justify-center">
-            <TerminalWindowIcon
-              size={13}
-              class="text-muted-foreground opacity-55"
-              aria-hidden="true"
-            />
-          </span>
+          <SessionStatusGlyph attention={row.attention} />
 
-          <!-- Running is stated only where it is true, beside the title it
-               belongs to. There is no state column: what a closed session did
-               next is unknowable, and a column of blanks would claim otherwise. -->
-          <span class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-            <span class="min-w-0 truncate font-medium">{row.title}</span>
-            {#if row.running}
+          <span class="flex min-w-0 flex-1 items-center gap-2">
+            <span class="min-w-0 truncate" title={row.title}>{row.title}</span>
+            <!-- The lead is the one row that is not an attempt: it owns the
+                 conversation above, so it says so. -->
+            {#if row.isLead}
               <span
-                class="shrink-0 text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]"
+                class="shrink-0 rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1.5 text-xs font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
+                >Lead</span
               >
-                Running
-              </span>
             {/if}
             <!-- Who is in this attempt right now, from the host's roster. The
                  ring marks whose prompt is running, the dot a draft being typed. -->
             <PresenceStack people={row.people} size={14} max={3} activeUserId={row.activeUserId} />
           </span>
 
-          <span
-            class="w-[104px] shrink-0 truncate text-muted-foreground opacity-70 @max-[34rem]:hidden [.is-laptop-display_&]:w-[92px]"
-          >
-            {row.agent}
-          </span>
+          {#if row.statusLabel}
+            <span class="shrink-0 whitespace-nowrap" style:color={row.statusColor}>
+              {row.statusLabel}
+            </span>
+          {/if}
 
-          <!-- The same laptop/globe pair the sidebar uses, so one machine reads
-               the same way wherever it is named. A host that cannot be named is
-               left blank rather than defaulting to this machine. -->
+          <!-- Agent and machine, one muted cluster instead of two columns. The
+               laptop/globe pair is the sidebar's, so one machine reads the same
+               way wherever it is named; a host that cannot be named is left out
+               rather than defaulting to this machine. -->
           <span
-            class="flex w-[128px] shrink-0 items-center gap-1 overflow-hidden text-muted-foreground opacity-70 @max-[46rem]:hidden [.is-laptop-display_&]:w-[110px]"
+            class="flex max-w-[16rem] shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground opacity-70 @max-[40rem]:hidden"
           >
+            {#if row.agent}<span class="truncate">{row.agent}</span>{/if}
+            {#if row.agent && row.host}<span aria-hidden="true">·</span>{/if}
             {#if row.host}
               {#if row.host.isRemote}
                 <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
@@ -326,20 +340,16 @@
           </span>
 
           <span
-            class="w-[72px] shrink-0 text-right tabular-nums text-muted-foreground opacity-65 [.is-laptop-display_&]:w-[64px]"
+            class="w-[52px] shrink-0 text-right tabular-nums text-muted-foreground opacity-65"
+            title={row.dateFull}
           >
             {row.date}
           </span>
 
-          <!-- The actions keep a column of their own so the date above stays
-               aligned when a row reveals them. They appear on hover, except on a
-               running row: Stop is the one action a user may need without
-               hunting for it. -->
-          <span
-            class="flex w-[116px] shrink-0 items-center justify-end gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 [.is-laptop-display_&]:w-[100px] {row.running
-              ? 'opacity-100'
-              : 'opacity-0'}"
-          >
+          <!-- Stop stays in view on a running row: it is the one action a user
+               may need without hunting for it. The rest appear on hover or
+               focus, as Linked's do; the row itself opens the session. -->
+          <span class="flex shrink-0 items-center gap-0.5">
             {#if row.running}
               <TooltipUI.Root>
                 <TooltipUI.Trigger>
@@ -347,7 +357,7 @@
                     <button
                       {...props}
                       type="button"
-                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))] [.is-laptop-display_&]:size-[22px]"
+                      class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
                       onclick={(e) => {
                         e.stopPropagation();
                         onStop(row.sessionId);
@@ -369,14 +379,14 @@
                     <button
                       {...props}
                       type="button"
-                      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                      class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:opacity-100"
                       onclick={(e) => {
                         e.stopPropagation();
                         openSplit(row.sessionId);
                       }}
                       aria-label="Open in split"
                     >
-                      <ArrowSquareOutIcon size={13} />
+                      <ArrowSquareOutIcon size={12} />
                     </button>
                   {/snippet}
                 </TooltipUI.Trigger>
@@ -389,26 +399,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onOpen(row.sessionId);
-                    }}
-                    aria-label="Open session"
-                  >
-                    <ArrowRightIcon size={13} />
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value="Open session" />
-            </TooltipUI.Root>
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:size-[22px]"
+                    class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:opacity-100"
                     onclick={(e) => {
                       e.stopPropagation();
                       onUnlink(row.sessionId);
@@ -416,8 +407,8 @@
                     aria-label="Unlink session"
                   >
                     <svg
-                      width="11"
-                      height="11"
+                      width="10"
+                      height="10"
                       viewBox="0 0 14 14"
                       fill="none"
                       stroke="currentColor"
@@ -433,6 +424,15 @@
           </span>
         </div>
       {/each}
+      {#if rows.length > shown.length}
+        <button
+          type="button"
+          class="flex h-[30px] cursor-pointer items-center self-start rounded-md px-1 text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+          onclick={() => (expanded = true)}
+        >
+          Show all {rows.length}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

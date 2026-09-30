@@ -74,15 +74,15 @@
   const styleOptions = {
     repo_conventions: {
       label: "Repository conventions",
-      description: "Match the writing patterns in each repository's recent commit messages.",
+      description: "Match each repository's recent commit style.",
     },
     conventional_commits: {
       label: "Conventional Commits",
-      description: "Use prefixes such as feat:, fix:, and docs: for commits. Pull-request titles stay plain language.",
+      description: "Prefix commits with feat:, fix:, docs:, and so on. PR titles stay plain.",
     },
     custom: {
       label: "Custom instructions",
-      description: "Use your saved instructions for commit messages, branch names, and pull requests.",
+      description: "Your instructions for commits, branches, and PRs.",
     },
   } satisfies Record<SourceControlWritingMode, { label: string; description: string }>;
 
@@ -241,7 +241,7 @@
 
   <SettingsRow
     label="Follow pull-request templates"
-    description="Structure pull-request descriptions with the current repository template when one is available."
+    description="Use the repository's PR template when there is one."
   >
     {#snippet control()}
       <Switch
@@ -255,7 +255,7 @@
 
   <SettingsRow
     label="Source-control writer model"
-    description="Optional model override for commits, pull requests, and branch names. Off uses the global text-generation model."
+    description="Model for commits, PRs, and branch names. Off uses the text-generation model."
   >
     {#snippet control()}
       <div class="flex flex-wrap items-center justify-end gap-2">

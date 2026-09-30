@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { readFilePreview } from '@solus/server/server/handlers/lib/file-preview'
+import { readFilePreview } from '@solus/server/files/file-preview'
 import { isInsideRoot } from '@solus/server/paths'
 import type { IpcContext } from '@solus/contracts/types'
 
@@ -33,48 +33,42 @@ describe('file preview paths', () => {
   })
 
   test.each([
-    ['PNG', 'image/png'], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'],
-    ['gif', 'image/gif'], ['webp', 'image/webp'], ['svg', 'image/svg+xml'],
-  ])('transports %s images as read-only data URLs instead of text', async (extension, mimeType) => {
+    ['PNG', 'image', 'image/png'], ['jpg', 'image', 'image/jpeg'], ['gif', 'image', 'image/gif'],
+    ['webp', 'image', 'image/webp'], ['avif', 'image', 'image/avif'], ['bmp', 'image', 'image/bmp'],
+    ['ico', 'image', 'image/x-icon'], ['svg', 'image', 'image/svg+xml'],
+    ['pdf', 'pdf', 'application/pdf'], ['mp4', 'video', 'video/mp4'], ['mov', 'video', 'video/quicktime'],
+  ])('names a .%s file as %s media without sending its bytes', async (extension, kind, mime) => {
+    // WHY: media loads from a signed URL. Bytes on the RPC channel would cap
+    // a video or PDF at the payload limit and stall every other message.
     const bytes = Buffer.from([137, 80, 78, 71, 0, 255])
-    const path = join(projectRoot, `image.${extension}`)
+    const path = join(projectRoot, `media.${extension}`)
     await writeFile(path, bytes)
     const result = await readFilePreview(ctx, { path })
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       ok: true,
-      contents: '',
-      imageDataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
-      mimeType,
-      isReadOnly: true,
+      kind: 'media',
+      path: await realpath(path),
+      displayPath: `media.${extension}`,
       size: bytes.length,
+      media: { kind, mime },
     })
   })
 
-  test('previews external PNG screenshots over the same transport', async () => {
-    const path = join(externalRoot, 'desktop.png')
-    const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
-    await writeFile(path, bytes)
+  test('names a large media file without a size limit', async () => {
+    const path = join(externalRoot, 'recording.mp4')
+    await writeFile(path, Buffer.alloc(20 * 1024 * 1024))
     expect(await readFilePreview(ctx, { path })).toMatchObject({
-      ok: true,
-      displayPath: await realpath(path),
-      imageDataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
-      isReadOnly: true,
+      ok: true, kind: 'media', displayPath: await realpath(path), size: 20 * 1024 * 1024,
     })
   })
 
-  test('rejects oversized images without returning a partial image', async () => {
-    const path = join(projectRoot, 'large.png')
-    await writeFile(path, Buffer.alloc(10 * 1024 * 1024 + 1))
-    expect(await readFilePreview(ctx, { path })).toMatchObject({
-      ok: false, error: 'Image exceeds the 10 MB preview limit.',
-    })
-  })
-
-  test('continues to reject unsupported binary files', async () => {
+  test('answers any other binary file with its size, never as text', async () => {
+    // WHY: a PDF-like file with an unknown extension must not open in the
+    // editor as garbage, and the pane needs the size for its fallback.
     const path = join(projectRoot, 'data.bin')
     await writeFile(path, Buffer.from([1, 0, 2]))
-    expect(await readFilePreview(ctx, { path })).toMatchObject({
-      ok: false, error: 'Binary files cannot be previewed.',
+    expect(await readFilePreview(ctx, { path })).toEqual({
+      ok: true, kind: 'binary', path: await realpath(path), displayPath: 'data.bin', size: 3,
     })
   })
 
@@ -102,6 +96,7 @@ describe('file preview paths', () => {
 
     expect(result).toEqual({
       ok: true,
+      kind: 'text',
       path: resolvedPath,
       displayPath: resolvedPath,
       contents: 'downloaded notes\n',

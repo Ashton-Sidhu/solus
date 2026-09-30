@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { serversStore, sharesStore, accountStore } from "../../contexts";
   import SeatsSettings from "../seats/SeatsSettings.svelte";
+  import AgentProfileSettings from "../seats/AgentProfileSettings.svelte";
   import CloudConnectionsPointer from "../seats/CloudConnectionsPointer.svelte";
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import CloudflareProviderSettings from "../cloudflare/CloudflareProviderSettings.svelte";
@@ -35,6 +36,7 @@
      host first, then the issue and document providers, then the deployment
      target. -->
 <SeatsSettings {serverId} />
+<AgentProfileSettings {serverId} />
 {#if cloudConnectionsUrl}
   <SettingsSection label="Connections">
     <CloudConnectionsPointer

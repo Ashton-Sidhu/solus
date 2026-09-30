@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Globe as GlobeIcon, Link as LinkIcon, Lock as LockIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
+  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Globe as GlobeIcon, Link as LinkIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, Share as ShareIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
   import type { ShareRole } from "@solus/contracts/sharing";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
@@ -9,6 +9,9 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, type PersonRow, type ScopeOption } from "./lib/share-rows";
+  import { publishProblemMessage } from "./lib/publish-copy";
+  import { userKey } from "@solus/contracts/user";
+  import UserAvatar from "../users/UserAvatar.svelte";
 
   /**
    * One share dialog for sessions, works, and tasks (docs/plans/multiplayer-sharing.md
@@ -21,6 +24,11 @@
    * it, so the whole dialog steps with the display like the settings rows do.
    */
   const target = $derived(sharesStore.dialog);
+  /** Set while the resource is still on a machine: Share uploads it first (organization-scope §7). */
+  const publication = $derived(target?.publication ?? null);
+  const publishProblem = $derived(
+    publication && target ? publishProblemMessage(publication.status, target.resource.kind, publication.organizationName) : null,
+  );
   const list = $derived(target ? sharesStore.listFor(target.serverId, target.resource) : undefined);
   const directory = $derived(target ? (sharesStore.directories.get(target.serverId) ?? null) : null);
   const identity = $derived(target ? sharesStore.identities.get(target.serverId) : undefined);
@@ -40,7 +48,7 @@
     query = "";
   });
 
-  const people = $derived(list ? personRows(list, directory, identity?.userId ?? null) : []);
+  const people = $derived(list ? personRows(list, directory, identity?.user ?? null) : []);
   const candidates = $derived(list && canShare ? personCandidates(list, directory, query) : []);
   const canInvite = $derived(!!directory && directory.members.length > 1);
 
@@ -83,7 +91,9 @@
     await sharesStore.removePerson(target.serverId, list, person.userId);
   }
 
-  const roleLabel = (role: ShareRole | "owner") => (role === "owner" ? "Owner" : role === "editor" ? "Can edit" : "Can view");
+  const roleLabel = (role: ShareRole | "owner") => (role === "owner" ? "Owner" : role === "editor" ? "Can edit" : role === "commenter" ? "Can comment" : "Can view");
+  // Only a work has comments and review decisions, so only a work offers a commenter.
+  const roleChoices = $derived<readonly ShareRole[]>(target?.resource.kind === "work" ? ["viewer", "commenter", "editor"] : ["viewer", "editor"]);
 
   const linkContext = $derived(target ? sharesStore.linkContext(target.serverId) : null);
   /** The link as the host now holds it: always at hand for whoever may share. */
@@ -127,13 +137,6 @@
   {/if}
 {/snippet}
 
-{#snippet face(name: string, avatarUrl: string | null)}
-  <span class="relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[0.75em] font-medium text-muted-foreground select-none" aria-hidden="true">
-    {name.trim().slice(0, 1).toUpperCase()}
-    {#if avatarUrl}<img src={avatarUrl} alt="" class="absolute inset-0 size-full object-cover" />{/if}
-  </span>
-{/snippet}
-
 {#snippet roleMenu(current: ShareRole, onSelect: (role: ShareRole) => void, onRemove: (() => void) | null, testId: string)}
   <DropdownMenu.Root>
     <DropdownMenu.Trigger>
@@ -145,7 +148,7 @@
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end" class="w-auto min-w-36" portalProps={menuPortal}>
-      {#each ["viewer", "editor"] as const as role (role)}
+      {#each roleChoices as role (role)}
         <DropdownMenu.Item onSelect={() => onSelect(role)}>
           <span class="flex-1">{roleLabel(role)}</span>
           {#if role === current}<CheckIcon />{/if}
@@ -160,7 +163,23 @@
 {/snippet}
 
 {#snippet dialogBody()}
-  {#if !list}
+  {#if publication && target}
+    <!-- Share is the opt-in: the resource is already on its way to the
+         window's organization, and the list below takes its place on receipt. -->
+    <section class="flex flex-col gap-2" aria-label="Uploading" data-testid="share-publish" data-state={publication.status.kind}>
+      {#if publication.status.kind === "pending"}
+        <p class="flex items-center gap-2 py-4 text-muted-foreground" role="status">
+          <CircleNotchIcon size={14} class="shrink-0 motion-safe:animate-spin" />
+          Uploading to {publication.organizationName} to get a link…
+        </p>
+      {:else if publishProblem}
+        <p class="text-pretty text-(--solus-status-error)" role="alert">{publishProblem}</p>
+      {/if}
+      <p class="text-pretty text-[0.875em] text-muted-foreground">
+        Sharing keeps this {kindWord} in {publication.organizationName}. The work keeps running on the computer that holds it.
+      </p>
+    </section>
+  {:else if !list}
     <p class="py-6 text-center text-muted-foreground" role="status">Loading who can open it…</p>
   {:else}
     <!-- People invited by name, the owner first. Each has a role of their own:
@@ -179,7 +198,8 @@
           />
           {#if query.trim() && candidates.length}
             <ul class="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-[shadow:var(--solus-popover-shadow)]" role="listbox" aria-label="People to add">
-              {#each candidates as candidate (candidate.userId)}
+              {#each candidates as candidate (userKey(candidate.id))}
+                {@const candidateKey = userKey(candidate.id)}
                 <li>
                   <button
                     type="button"
@@ -187,13 +207,13 @@
                     aria-selected="false"
                     class="flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left hover:bg-muted pointer-coarse:min-h-11"
                     data-testid="share-candidate"
-                    data-user-id={candidate.userId}
-                    onclick={() => void invite(candidate.userId)}
+                    data-user-id={candidateKey}
+                    onclick={() => void invite(candidateKey)}
                   >
-                    {@render face(candidate.name, candidate.avatarUrl)}
+                    <UserAvatar user={candidate} size={24} />
                     <span class="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span class="truncate text-foreground">{candidate.name}</span>
-                      {#if candidate.detail}<span class="truncate text-[0.875em] text-muted-foreground">{candidate.detail}</span>{/if}
+                      <span class="truncate text-foreground">{candidate.displayName}</span>
+                      {#if candidate.email}<span class="truncate text-[0.875em] text-muted-foreground">{candidate.email}</span>{/if}
                     </span>
                   </button>
                 </li>
@@ -207,9 +227,9 @@
       <ul class="flex flex-col gap-0.5" data-testid="share-people">
         {#each people as person (person.userId)}
           <li class="flex min-h-10 items-center gap-2.5 rounded-lg px-1.5 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
-            {@render face(person.name, person.avatarUrl)}
+            <UserAvatar user={person.user} size={24} />
             <span class="flex min-w-0 flex-1 flex-col leading-tight">
-              <span class="truncate text-foreground">{person.name}{person.isSelf ? " (you)" : ""}</span>
+              <span class="truncate text-foreground">{person.user.displayName}{person.isSelf ? " (you)" : ""}</span>
               {#if person.detail}<span class="truncate text-[0.875em] text-muted-foreground">{person.detail}</span>{/if}
             </span>
             {#if person.role === "owner" || !canShare}
@@ -291,7 +311,20 @@
 <!-- The footer is the dialog's two verbs: the link, one click away on every open,
      and the way out. The URL itself never needs to be read, so it is not shown. -->
 {#snippet dialogFooter()}
-
+  {#if publication}
+    {#if publication.status.kind === "failed" || publication.status.kind === "offline" || publication.status.kind === "waiting"}
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:h-10" onclick={() => void sharesStore.publish()} data-testid="share-publish-retry">Retry</Button>
+    {:else}
+      <span></span>
+    {/if}
+  {:else if canShare}
+    <Button size="sm" variant="outline" class="gap-1.5 text-workspace-chrome pointer-coarse:h-10" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyText ?? undefined}>
+      {#if copied}<CheckIcon />{:else}<LinkIcon />{/if}
+      {copied ? "Copied" : "Copy link"}
+    </Button>
+  {:else}
+    <span></span>
+  {/if}
   <Button size="sm" class="text-workspace-chrome pointer-coarse:h-10" onclick={close} data-testid="share-done">Done</Button>
 {/snippet}
 
@@ -300,7 +333,7 @@
     <BottomSheet label={`Share ${target.title}`} onClose={close}>
       {#snippet header()}
         <span class="flex min-w-0 items-center gap-2 font-medium text-foreground">
-          <UsersIcon size={14} class="shrink-0 text-(--solus-accent)" />
+          <ShareIcon size={14} class="shrink-0 text-(--solus-accent)" />
           <span class="truncate">Share “{target.title}”</span>
         </span>
       {/snippet}
@@ -329,7 +362,7 @@
         bind:this={dialogEl}
       >
         <div class="relative flex h-[2.875rem] shrink-0 items-center gap-2 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35] after:content-['']">
-          <UsersIcon size={14} class="shrink-0 text-(--solus-accent)" />
+          <ShareIcon size={14} class="shrink-0 text-(--solus-accent)" />
           <span class="min-w-0 flex-1 truncate font-medium text-foreground" title={`Share this ${kindWord}`}>Share “{target.title}”</span>
           <button
             type="button"

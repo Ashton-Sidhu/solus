@@ -1,7 +1,5 @@
-import type { HostGrantClaims, UplinkLinkConfig } from '@solus/contracts/uplink'
-import { isManagedHost } from '../server/managed-mode'
-import { isWorkspaceMode, workspaceConfig } from '../server/workspace-mode'
-import type { Principal } from '../server/principal'
+import { parseGrantSubject, type AccessTokenClaims, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { isApiMode, apiModeConfig } from '../host/api-mode'
 
 export type IntegrationProvider = 'github' | 'google' | 'atlassian'
 
@@ -11,48 +9,48 @@ interface Executor {
 }
 
 let executor: Executor | null = null
-const grants = new Map<string, { token: string; expiresAt: number }>()
+/** Each person's latest access token this server admitted, while it is valid. */
+const personTokens = new Map<string, { token: string; expiresAt: number }>()
+/** A person's delegated access token on this host, for their work after their client closed (plans/010-standard-oauth.md). */
+let delegatedToken: ((userId: string) => Promise<string | null>) | null = null
 
 export function useIntegrationExecutor(source: Executor): void { executor = source }
+export function useDelegatedTokens(source: ((userId: string) => Promise<string | null>) | null): void { delegatedToken = source }
+
 export function accountConnectionsUrl(): string | null {
-  const origin = isWorkspaceMode() ? workspaceConfig().issuer : executor?.link()?.directoryUrl
+  const origin = isApiMode() ? apiModeConfig().issuer : executor?.link()?.directoryUrl
   return origin ? new URL('/connections', origin).toString() : null
 }
 
-/** Called only after the ticket door verified the grant and accepted the user. Kept in server memory, never in a principal/event. */
-export function rememberIntegrationGrant(token: string, claims: HostGrantClaims): void {
+/**
+ * Called only after the ticket door verified the token and accepted the person. Kept in
+ * server memory, never in a principal or an event. On a host it is also the subject of
+ * the token exchange that lets the host act for the person (sync/delegations.ts).
+ */
+export function rememberPersonToken(token: string, claims: AccessTokenClaims): void {
   const now = Date.now()
-  for (const [userId, held] of grants) if (held.expiresAt <= now) grants.delete(userId)
-  if (!claims.sub.startsWith('user:') || claims.runner || !['owner', 'org-member'].includes(claims.access ?? '')) return
-  grants.set(claims.sub.slice(5), { token, expiresAt: claims.exp * 1000 })
+  for (const [userId, held] of personTokens) if (held.expiresAt <= now) personTokens.delete(userId)
+  const subject = parseGrantSubject(claims.sub)
+  if (subject.kind !== 'user' || !['owner', 'org-member'].includes(claims.access ?? '')) return
+  personTokens.set(subject.id, { token, expiresAt: claims.exp * 1000 })
 }
 
-/**
- * Whose account connections a call uses; null means the host's own store. The owner
- * of a personal host connects GitHub, Google, and Atlassian on that host, signed in
- * or not. Account connections are for cloud-managed hosts (managed hosts and the
- * workspace service) and for people who do not own the host.
- */
-export function integrationUserFor(principal: Principal): string | null {
-  switch (principal.kind) {
-    case 'local-owner': return null
-    case 'remote-owner': return isWorkspaceMode() || isManagedHost() ? principal.userId : null
-    case 'org-member': return principal.userId
-    case 'guest': return principal.accountUserId ?? principal.share.sharedByUserId
-    case 'runner':
-    case 'system': return null
-  }
+/** The access token a person last presented to this server, while it is valid. */
+export function heldPersonToken(userId: string): string | null {
+  const held = personTokens.get(userId)
+  return held && held.expiresAt > Date.now() ? held.token : null
 }
 
 export async function accountIntegrationCredential(userId: string, provider: IntegrationProvider): Promise<Response | null> {
   const path = `/v1/integrations/${provider}/credential`
-  const held = grants.get(userId)
-  if (!held || held.expiresAt <= Date.now()) return null
+  // The person's own token while they are connected; else this host's delegation for them.
+  const accessToken = heldPersonToken(userId) ?? await delegatedToken?.(userId).catch(() => null) ?? null
+  if (!accessToken) return null
   const link = executor?.link()
-  const origin = isWorkspaceMode() ? workspaceConfig().issuer : link?.directoryUrl
-  const token = isWorkspaceMode() ? process.env.SOLUS_INTEGRATION_SERVICE_KEY : executor?.hostToken()
+  const origin = isApiMode() ? apiModeConfig().issuer : link?.directoryUrl
+  const token = isApiMode() ? process.env.SOLUS_INTEGRATION_SERVICE_KEY : executor?.hostToken()
   if (!origin || !token) return null
-  return fetch(new URL(path, origin), { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ userGrant: held.token }), signal: AbortSignal.timeout(15_000), redirect: 'error' })
+  return fetch(new URL(path, origin), { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ accessToken }), signal: AbortSignal.timeout(15_000), redirect: 'error' })
 }
 
-export function resetAccountIntegrationsForTests(): void { executor = null; grants.clear() }
+export function resetAccountIntegrationsForTests(): void { executor = null; personTokens.clear(); delegatedToken = null }

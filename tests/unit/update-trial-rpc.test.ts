@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { INTERNAL_HANDLER_CTX, SolusServer } from '@solus/server/server/server'
+import { INTERNAL_HANDLER_CTX, SolusServer } from '@solus/server/transport/server'
 
 test('trial startup rejects RPC mutations before invoking their handlers and reopens after commit', async () => {
   const server = new SolusServer()

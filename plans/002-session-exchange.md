@@ -1,274 +1,227 @@
 # Session messages: one-table schema and exact SQL trace
 
-Status: design proof; not integrated into Solus.
-Written at base commit `7fc9de3f`, 2026-09-18, against the current working tree.
+> **Superseded 2026-09-23.** User decisions: no `session_message` table (state stays in memory; a restart loses queued follow-ups and owed results) and no coordinator (the deliverable is a new control plane). Current plan: Solus work "New Control Plane: Architecture and Plan" (71f9ba58-9e67-4d1d-9e91-26eb31fb1eba).
+
+Status: design proof; not integrated into Solus. Integration plan: `003-session-message-integration.md`.
+Revised 2026-09-23 against HEAD `07624969`. First written 2026-09-18 at `7fc9de3f`.
 Task: `01M2RDBWB45CX4C3EFFKWJ9Q5S` — Reliable Parent Task Orchestrator.
-Supersedes the two-table (exchange + turn) revision of the same date.
 
 ## Accepted direction
 
-User decisions, 2026-09-18:
+User decisions, 2026-09-18 to 2026-09-23:
 
 1. Minimal SQLite persistence. The ControlPlane owns scheduling and routing in
-   memory. SQLite stores what a restart must not lose: accepted inputs, launch
-   intent, outcomes, and inputs still waiting in a queue.
-2. One table. Every row is one input addressed to one session. The row that
-   runs a turn is also that turn's ledger entry, replacing the existing
-   `session_turn` shape. Steering input, answers, results and questions share
-   the table instead of separate receipt, outbox, inbox or request tables.
-3. Two commits per turn, idle or busy. One before the provider is called, one
-   when the turn settles. The settlement transaction also starts the next queued
-   row of the same session, so a busy session never pays a separate dispatch
-   commit. There is no separate provider-acceptance commit; provider ids are
-   recorded at settlement when the adapter reports them.
-4. The same path serves ordinary chat, agent tools, inline cards, automations,
-   and the future task coordinator. Peers exchange messages without becoming
-   children; delegation ownership is a separate concern above this layer.
-5. Host events drive scheduling and client updates. No SQL polling.
+   memory. SQLite stores only what a restart must not lose.
+2. One table, `session_message`. Every row is one input addressed to one session.
+   The `session_turn` ledger is deleted, not replaced: no production code read
+   it (2026-09-23).
+3. The fewest database calls that keep the guarantees. This revision applies one
+   rule to every path, below.
+4. The same path serves typed chat, agent tools, inline cards, automations, and
+   the future task coordinator. Peers exchange messages without becoming
+   children. Host events drive scheduling and client updates; no SQL polling.
+
+## The write rule
+
+**A row is written only when a party other than the turn's author depends on
+it. Every other turn writes nothing.**
+
+The rule rests on one fact: no provider turn outlives the host process. Codex runs as `codex app-server` over stdio
+(`agents/codex/codex-agent.ts`), and Claude runs through the SDK's `query()`
+with a local executable. Neither is detached. When the host dies, every running
+turn dies with it. So a record that only matters while a turn runs protects
+nothing across a restart. Stage 1 of the integration plan checked this by
+killing a host process that ran each provider's CLI; both CLIs exited. The CLIs
+were idle, with no turn running.
+
+What therefore must be durable:
+
+- **An input that has not started.** A queued follow-up must survive a restart.
+- **A turn that a sender depends on.** If it dies, the sender must be told.
+- **A result owed to a session.** The parent must receive it even if it was
+  busy, and even across a restart.
+
+What therefore is never persisted:
+
+- **Questions and answers.** A question dies with the turn that asked it. The
+  asking turn is persisted if anyone depends on it, so its death is reported.
+- **Steers without a sender.** A typed correction dies with its turn, as today.
+- **A turn nobody depends on.** Its prompt and reply live in the provider
+  transcript. `session_records` already marks such a session interrupted at
+  boot.
 
 ## Result
 
-For one request to an **existing idle child**, through storing its result as a
-**durable input for the parent**, the proof executes:
+| Path | Statements | Commits | Today's ledger |
+| --- | ---: | ---: | ---: |
+| Typed turn, idle session | 0 | 0 | 2 / 2 |
+| Typed follow-up on a busy session: save, start when the turn ahead ends, settle | 3 | 3 | 2 / 2, queue lost on restart |
+| Delegation round trip, idle parent: child accept, child settle + parent result born running, parent settle | 4 | 3 for two turns | 4 / 4, result lost on restart |
+| Same, busy parent in a typed turn: result waits, starts when that turn ends | 5 | 4 | same |
+| Card send, no model wake | 2 | 2 | 2 / 2 |
+| Steer from a sender | 1 | 1 | 0, route lost on restart |
+| Steer typed by a person | 0 | 0 | 0 |
+| Wait registered on a running turn | 1 | 1 | 0, lost on restart |
+| Question, answer | 0 | 0 | 0 |
+| Cancel a session's queued inputs | 1, 0 if none | 1 | 0 |
 
-- **3 data statements:** 1 INSERT before launch, then 1 UPDATE and 1 INSERT at
-  settlement.
-- **2 commit boundaries:** the pre-launch INSERT commits alone; settlement and
-  the parent input commit together.
-- **0 standalone SELECT statements** on the warm, nonduplicate success path.
-  Index, constraint and INSERT SELECT reads still occur.
-- Compared with the existing ledger's INSERT and UPDATE, **1 additional data
-  statement** and one additional row, in exchange for a request that survives
-  restart and a result that reaches the parent.
-
-| Path | Data statements | Commits |
-| --- | ---: | ---: |
-| Idle child request through queued parent result | 3 | 2 |
-| Busy child: accept now, start inside the previous settlement, then settle | 4 | 2 |
-| Ordinary request with no reply session | 3 (reply writes 0 rows) | 2 |
-| Parent consumes a queued result, no automatic reply | 3 (reply writes 0 rows) | 2 |
-| Question from a routed running turn | 1 (0 rows without a route) | 1 |
-| Answer, any surface | 2 | 2 |
-| Steer accepted by a running turn | 2 (accept + consume) | 2 |
-| Cancel a session's queue, then stop the running turn | 1 + normal settlement | 1 + 1 |
+"Statements" counts SQL calls on the success path. Commit counts include
+autocommitted single statements. "Today's ledger" is the `session_turn` ledger
+this table's design replaced; it is now deleted. The other per-turn calls the
+host makes, and who reads each one, are in the integration plan.
 
 ## Files and verification
 
 | File | Purpose |
 | --- | --- |
-| `plans/002-session-exchange/schema.sql` | Executable single-table schema |
+| `plans/002-session-exchange/schema.sql` | Executable schema |
 | `plans/002-session-exchange/statements.mjs` | Every statement used by the proof and benchmark |
-| `plans/002-session-exchange/normal-trace.sql` | Exact idle-path SQL with fixture parameters expanded |
-| `plans/002-session-exchange/proof.test.mjs` | Statement counts plus failure, restart, question, steer and cancel tests |
+| `plans/002-session-exchange/normal-trace.sql` | Exact delegation round-trip SQL with fixture values |
+| `plans/002-session-exchange/proof.test.mjs` | Counts, failure, restart, steer, wait and cancel tests over a model of the host's memory |
 | `plans/002-session-exchange/benchmark.mjs` | Disposable local SQLite latency study |
-| `plans/002-session-exchange/benchmark-results.json` | Measured samples summarized as percentiles |
+| `plans/002-session-exchange/benchmark-results.json` | Measured percentiles |
 
 Run `node --test plans/002-session-exchange/proof.test.mjs`. To regenerate the
-SQL evidence, set `EXPORT_EXCHANGE_TRACE=1`.
+trace, set `EXPORT_EXCHANGE_TRACE=1`. The proof uses `node:sqlite` in a new
+temporary directory per test with WAL and synchronous=NORMAL, as the host does.
+It never opens live Solus data. Do not apply schema.sql to an existing database.
 
-The proof uses Node's `node:sqlite` and a new temporary directory for each test,
-with WAL and synchronous=NORMAL, matching the host configuration. It does not
-import the application database module or touch live Solus data. Do not apply
-schema.sql to an existing database; it is not a migration.
-
-Verification on 2026-09-18: **24/24 tests passed** with Node v25.8.1. The
-exported normal-trace.sql was replayed against schema.sql in a second temporary
-database and produced one completed child turn and one queued parent result with
-no foreign-key violations.
+Verification on 2026-09-23 with Node v25.8.1: **20/20 tests pass**, including
+the coordinator self route and a typed turn that makes no call. The exported
+trace replays against schema.sql in a second temporary database: one completed
+child turn, one completed parent result turn, no foreign-key violations.
 
 ## Storage model
 
-One table, `session_message`. Columns in groups:
-
 | Group | Columns | Notes |
 | --- | --- | --- |
-| Command identity | message_id, actor_user_id, command_key, request_fingerprint | `(actor, command_key)` is unique. Exact retry returns the saved row; changed arguments are rejected. |
-| Routing | kind, mode, sender_session_id, recipient_session_id, reply_session_id | kind is instruction, result, question or answer. mode is auto, queue or steer. |
-| Payload | text, options_json | Result rows have no text; the payload is on the source row. |
-| Links | source_message_id, consumed_by_message_id | Source: the turn a result reports, the turn a question came from, the question an answer answers. Consumed-by: the running turn that accepted a steer or answer. |
-| Execution | state, attempt_no, seat_user_id, provider, execution_json, provider_thread_id, provider_turn_id | Filled when the row runs as a turn. Provider ids arrive at settlement. |
+| Identity | message_id, actor_user_id, seat_user_id | message_id is the command's own id: a client prompt id, `<sender>:<tool call id>`, or a host UUID. A resend conflicts on the primary key. The seat is what a queued row runs under after a restart. |
+| Routing | kind, sender_session_id, recipient_session_id, reply_session_id | kind is instruction, result or question. sender is who sent it, for card rehydration. reply is the wake route: who receives a result row. |
+| Payload | text, options_json | Kept only on rows someone reads. Result rows never copy the source payload. |
+| Links | source_message_id, consumed_by_message_id | Source: the turn a result or question came from. Consumed-by: the running turn that accepted a steer or wait. No foreign key on consumed-by: an unrouted turn has no row until it settles. |
+| Execution | state, attempt_no, provider, execution_json, provider_thread_id, provider_turn_id | Provider ids are written at settlement. Claude supplies no turn id. |
 | Outcome | result_text, error_text, created_at, started_at, settled_at | |
 
 States: `queued`, `running`, `consumed`, `completed`, `failed`, `cancelled`.
-The first two are unfinished and are the only rows recovery reads. `running`
-covers launch intent through settlement. A running row found at restart with no
-live handle is uncertain: it is reconciled and settled, never relaunched.
+Recovery reads only `queued` and `running` rows through a partial index. Rows
+inserted already settled never enter that index.
 
-Indexes: a partial index on unfinished rows per recipient; a partial unique
-index enforcing one running turn per session; an index on consumed-by for
-result fan-out; and the seat index the ledger has today. No triggers.
+Indexes, all partial: unfinished rows per recipient; one persisted running turn
+per session; consumed-by for restart recovery; sender for card rehydration.
+There are no triggers. The earlier revisions' command
+key, fingerprint, mode, and answer kind are removed: the primary key is the
+command id, mode is decided at command time, and answers are never stored.
 
-### What each kind means
+## Statements
 
-- **instruction** is what a user, tool, card or automation sends. On an idle
-  target it is inserted already `running`. On a busy target it is inserted
-  `queued`, and the settlement transaction of the turn ahead of it runs the
-  `dispatch` UPDATE that starts it.
-- **result** is inserted at the source turn's settlement, one per distinct reply
-  session, addressed to that session. It is the durable parent input. It has no
-  reply route, so handling a result cannot start a chain of results.
-- **question** is inserted when a running turn with a reply route raises a
-  question or permission request. It carries the provider question id and
-  revision. Without a route nothing is written; the human answers through the
-  pending-event path as today.
-- **answer** is inserted `queued` by any surface before the provider responder
-  is called, then `consumed` by the running turn or `failed`. It is never a turn.
+The host knows every live turn's wake routes and consumed steers in memory, so
+the hot path binds values directly. There is no INSERT SELECT and no join
+outside boot recovery.
 
-### Exact idle-path trace
+- **insert** writes any row born before or during a turn: a queued input, a
+  routed turn born `running`, a result owed to a session, a consumed steer, or a
+  wait. `ON CONFLICT (message_id) DO NOTHING RETURNING` makes a resend a no-op.
+- **settle** is one upsert for a turn someone depends on. It updates the row
+  written earlier, or inserts it when the first route joined through a steer. `DO UPDATE ... WHERE state = 'running'` makes
+  a repeated terminal event change nothing and return no row.
+- **dispatch** starts a queued row. It runs inside the settlement transaction of
+  the turn ahead of it.
+- **requeue**, **cancelQueued**, **cancelSessionQueue** are one UPDATE each.
+- **recover** and **consumedRoutes** run at boot only. **sentBy** serves card
+  rehydration.
 
-The fully bound statements are in `normal-trace.sql`.
+## Paths
 
-| # | Statement | Purpose | Compared with the current ledger |
-| --- | --- | --- | --- |
-| 1 | INSERT row as running, ON CONFLICT DO NOTHING, RETURNING | Save command, request, reply route and launch intent in one row | Replaces the ledger start INSERT |
-| 2 | UPDATE to completed with result and provider ids | Settle the exact attempt | Replaces the ledger settle UPDATE |
-| 3 | INSERT SELECT DISTINCT result rows | One durable input per distinct reply session among the turn and every row it consumed | +1 |
+**Typed turn on an idle session.** No write. A client retry within the process
+is still deduplicated by the in-memory accepted-prompt set, as today. If a
+queued row waits behind it, its end runs only the dispatch UPDATE.
 
-Statement 1 commits before the provider is called. If the one-turn index rejects
-it because a turn is active, nothing is written and the host accepts the same
-command through the queued INSERT instead. Statements 2 and 3 run in one BEGIN
-IMMEDIATE transaction, together with the `dispatch` UPDATE for the next queued
-row when the host has one ready. Nothing launches or wakes a parent before that
-commit succeeds. If the commit fails, the settled turn, the parent input and
-the next dispatch all roll back together; the proof checks this.
+**Routed turn.** A sender (agent tool or card) makes the turn a dependency. The
+row is inserted `running` before launch; if the insert fails, the host does not
+launch. At settlement one transaction runs: settle, then one result row per
+distinct wake route, then the next queued row of the same session. When the
+result's recipient is idle, its row is born `running`: delivery and wake are one
+write, and the parent turn launches after the commit. When the recipient is
+busy, the row is born `queued` and starts inside the recipient's own settlement.
 
-### Why not fewer
+**Result rows** carry no text and no reply route. The model-facing prompt is
+built from the source row. A result never starts a chain of results.
 
-The pre-launch write is the difference between a request that survives restart
-and today's lost reports. The settlement write is the result itself. Everything
-else rides inside those two commits. The only further reduction would be to
-skip persisting queued rows, which reintroduces the exact bug this replaces.
+**Self route.** A wake route to the turn's own session is how a long-running
+coordinator survives a restart. Normal settlement skips it, so a coordinator
+never wakes itself. Boot recovery honors it, so a coordinator turn killed by a
+restart gets a queued notice and resumes.
 
-## Question, steer and cancel
+**Steer.** The host calls the provider's steer first. If it is accepted and the
+steer has a sender, one INSERT records it `consumed` by the running turn, and
+its wake route joins the turn's routes. A refused steer falls back to start or
+queue. A typed steer writes nothing.
 
-**Question.** A question lives and dies with the running turn. If the host
-restarts, the child process is gone and the question cannot be answered.
-Persistence is for telling the parent and recording the answer outcome.
+**Wait.** `wait_for_session` on a running turn is one INSERT. If the turn has no
+row yet, the turn itself is inserted `running` with the waiter as its route, so
+a restart reports its death. Otherwise a textless `consumed` row records the
+extra route.
 
-- Statement `question`: one INSERT SELECT from the asking turn. Zero rows unless
-  the turn is running and has a reply session. Repeated provider events for the
-  same question id write nothing.
-- The parent dispatches a question row through the normal `dispatch` UPDATE,
-  which returns no row when the asking turn is no longer running. The scheduler
-  then runs `expireQuestion`, settling it `cancelled` with reason `stale`. No
-  write happens at child settlement to expire questions.
-- Whether a question steers a running parent or starts a new turn is wake
-  policy, decided in memory, not stored.
-- `answer` inserts the row `queued`; the host calls the provider responder;
-  `consume` settles it with consumed_by = the child's running turn, or `fail`
-  records `stale` or `rejected`. Human and agent answers use the same command.
-  At restart `failStaleAnswers` settles any answer still queued.
+**Question.** A child's question wakes the waiting sender through memory and a
+host event. The parent turn it starts is written at settlement as kind
+`question`, sourced from the child's turn. If the host dies, the child turn dies
+and its persisted row reports the failure.
 
-**Steer.** A steer never gets its own turn.
+**Answer.** The provider responder returns whether the question was still live.
+The answer's outcome is a host event. Nothing is stored.
 
-- The row is accepted `queued` like any instruction. If the target is running
-  and mode is auto or steer, the host calls the backend steer. On acceptance,
-  `consume` marks the row consumed by the running turn. On refusal at a turn
-  boundary nothing is written; the row stays queued and starts a normal turn
-  from the next settlement.
-- Mode `steer` is excluded from `dispatch` and is settled `failed` with
-  `not_running` when no turn is active.
-- At the turn's settlement, the `reply` statement fans out to each distinct
-  reply session among the turn and the rows it consumed. A parent that steered
-  a turn it did not start gets exactly one result. A steer from the same session
-  that started the turn adds no second row.
-- A consumed row cannot be consumed again or dispatched as a turn. It cannot be
-  withdrawn without interrupting the turn, as today.
+**Cancel.** Queued rows are cancelled in one UPDATE, and only when the host
+knows some exist. A running turn is interrupted through the backend and settles
+through the normal path as `cancelled`, so its routes receive the outcome.
 
-**Cancel.** Cancel is a command with no row and no intent marker. On restart an
-active turn is reconciled and never relaunched, so a marker would only protect a
-provider turn that outlives the host. Neither provider has one.
+**Retry.** A confirmed-safe retry re-queues the same row. No interim result is
+published. An uncertain launch is never retried automatically.
 
-- `cancelQueued` and `cancelSessionQueue` settle queued rows `cancelled` in one
-  write. The same write dismisses a queued result or question for a parent.
-- A running turn is interrupted through the backend and settles through the
-  normal `settle` statement with state `cancelled`. Its result rows carry that
-  outcome, so the parent learns the child was stopped without a separate notice.
-- The session slot stays occupied in memory until the backend confirms the stop
-  or the watchdog settles the turn as failed. The row stays `running` until then.
-- Cancel plus a new instruction is the restart mode: two commands, no new kind.
+**Boot.** One transaction reads the unfinished rows. A running result row is
+re-queued, so result delivery is at least once. Every other running row is
+settled `failed` with `host restarted`, and a queued result row is inserted for
+each of its wake routes and each consumed steer's route. Queued rows stay queued
+and start when their session is idle.
 
-**Retry.** A confirmed-safe retry, such as a rate-limit rejection, runs
-`requeue`: the same row returns to `queued` with the error recorded. No result
-row is published for the abandoned attempt. The next `dispatch` increments
-attempt_no. Retry timing stays in memory; if it must survive a restart it
-belongs in the row's options, not in a state. An uncertain launch is not a
-confirmed rejection and is never retried automatically.
+## Crash behavior
 
-## Crash and duplicate behavior
-
-| Boundary | Durable evidence | Required recovery behavior |
+| Boundary | Durable evidence | Recovery |
 | --- | --- | --- |
-| Before the accept commit | No row | Sender may retry the same command |
-| Queued, not dispatched | queued row | Eligible to start at the next settlement or when idle |
-| Running, provider outcome unknown | running row | Reconcile; settle failed or completed; never relaunch blindly |
-| During settlement | settle, reply and next dispatch commit together or not at all | Reapply once |
-| After settlement, before wake | result row queued, next row running | Rebuild the queue and wake when policy allows |
-| Answer in flight | queued answer | Settle failed stale |
+| Typed turn in flight | None | Session record marked interrupted at boot, as today |
+| Routed turn in flight | running row | Settled failed; each wake route gets a result row |
+| Queued input | queued row | Starts when the session is idle |
+| During settlement | settle, results and next dispatch commit together or not at all | Nothing partial exists |
+| Result delivered, parent turn killed | running result row | Re-queued; the parent may see the result twice |
+| Steer from a sender, turn killed | consumed row | Its route gets the failed outcome |
 
-The proof injects a rollback after each settlement write, exits a separate
-process without COMMIT while settlement is uncommitted, reopens after each
-committed boundary, rejects conflicting duplicates, and enforces one turn per
-session. No claim of exactly-once provider execution is made; the host cannot
-commit atomically with an external provider.
+The proof injects a rollback after the settle and after the result insert, and
+exits a separate process while settlement is uncommitted. It checks boot
+recovery for routed turns, steers, result deliveries, queued inputs and typed
+turns. No exactly-once provider execution is claimed.
 
 ## Measured database cost
 
-Run `node plans/002-session-exchange/benchmark.mjs`. Results from 2026-09-18 are
-in `benchmark-results.json`: separate disposable databases, WAL, synchronous
-NORMAL, 200 warm-up and 2,000 measured samples, 1 KiB prompt, 8 KiB result,
-Node v25.8.1 on this macOS host. Only SQL preparation and execution are timed.
+Run `node plans/002-session-exchange/benchmark.mjs`. Results from 2026-09-23 are
+in `benchmark-results.json`: disposable databases, WAL, synchronous=NORMAL,
+200 warm-up and 2,000 measured samples, 1 KiB prompt, 8 KiB result, Node
+v25.8.1 on this macOS host. Only SQL preparation and execution are timed.
+A typed turn makes no call, so only the routed path is measured.
 
-| Storage slice | Median total | p95 total | p99 total |
+| Case | Prepared per call, median | Reused prepared, median | Reused, p95 |
 | --- | ---: | ---: | ---: |
-| Existing ledger, two writes, prepared per call | 0.036 ms | 0.108 ms | 0.221 ms |
-| Proposed idle path, prepared per call | 0.179 ms | 0.425 ms | 2.843 ms |
-| Existing ledger, reused prepared statements | 0.021 ms | 0.042 ms | 0.085 ms |
-| Proposed idle path, reused prepared statements | 0.090 ms | 0.224 ms | 2.529 ms |
+| Delegated child turn through the parent's result row | 0.163 ms | 0.088 ms | 0.142 ms |
 
-The proposed path's pre-launch write measured 0.058 ms median per call and
-0.033 ms with reused statements. These are differences between sample medians of
-a storage slice, not end-to-end latency. Tail spikes above 2 ms occur in both
-cases and are not attributed. Synchronous SQLite work blocks the host event
-loop; contention, large histories and other writers need integrated measurement.
+The store must cache its prepared statements. Tail spikes of several
+milliseconds occur and are not attributed. This is a storage slice, not
+end-to-end latency.
 
-## Current code and replacement boundary
+## Decisions this revision asks for
 
-- `packages/server/src/sessions/turn-ledger.ts`: its table becomes this one.
-  Attribution intent from `tests/unit/turn-ledger.test.ts` carries over: rows
-  are attributed to actor and seat, and settle once.
-- `packages/server/src/control-plane.ts`: `requestQueue`, `pendingStarts` and
-  `completionRoutes` hold what `queued` rows and `reply_session_id` now hold.
-  `_startRunLifecycle` writes the ledger after launch; the accept INSERT must
-  commit before launch and a failed write must refuse the launch. The place
-  that today pops the next queued request after a run settles becomes the
-  `dispatch` statement inside the settlement transaction.
-  `_dispatchSessionReport` injects prose; the result row replaces it.
-  `_steerActiveTurn`, `stopSession`, `respondToQuestion` and
-  `respondToPermission` become the steer, cancel and answer commands.
-- `packages/server/src/agents/agent-backend.ts`: `steerSession` returns the
-  accepting run handle, which is how consume learns its turn. `cancelSession`
-  and the permission responder are unchanged in shape. Provider thread and turn
-  ids are passed to settle when the adapter has them; Claude has no turn id.
-- `packages/server/src/sessions/session-tools.ts`: create, prompt, wait, answer
-  and stop tools submit these commands instead of watches and exchange ids.
-- Session creation, worktree setup, delegation ownership, attention and task
-  linkage are outside this trace and keep their own writes.
+1. Result delivery after a restart is at least once. A parent turn killed while
+   handling a result will see it again.
+2. Accepted 2026-09-23: the turn ledger is deleted. A typed turn writes no row.
+   Existing `session_turn` rows stay in host databases untouched; nothing reads
+   or writes them.
 
-## Integration sequence
-
-1. Finalize the typed options envelope and canonical session identity. Preserve
-   history and seat attribution at cutover; no dual writers.
-2. Land the table and the accept, dispatch, settle, reply and recover statements
-   in the control-plane domain. Make writes fail closed before effects.
-3. Route ordinary chat, tools, cards and automations through the accept command.
-   Expose row state over both IPC and WebSockets; rehydrate cards from rows.
-4. Add question, answer, steer and cancel commands, replacing the in-memory
-   exchange watches, prose reports and completion routes in the same cutover.
-5. Instrument a fixture flow end to end for statement counts, bytes written and
-   event-loop delay, including creation, indexing and attention.
-
-Integration checks: focused ledger and session tests, `bun run check`, lint,
-`bun run build`, and runtime verification on desktop, web and mobile including
-reconnect. Stop and surface a design issue if more than one process writes this
-table, or a reply must be marked handled before the parent consumes it.
+The integration plan lists these again with the call reductions outside this
+table.

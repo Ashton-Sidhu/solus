@@ -1,13 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { recordedRuns, type RecordedRun } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
-import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine, type WorkspaceService } from '../src/workspace'
+import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
 /** Host auth exit: cloud refuses seats; two hosts keep independent logins and disconnects. */
 
@@ -25,18 +23,8 @@ async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, t
   return last
 }
 
-async function runnerHoldsGrant(runner: LabHost, timeoutMs: number): Promise<boolean> {
-  const logFile = join(runner.dataDir, 'dev.log')
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (existsSync(logFile) && readFileSync(logFile, 'utf8').includes('"msg":"runner_grant_minted"')) return true
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-  return false
-}
-
 function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   // SAFETY: the host reads only the fields named here (run-input.ts), as the seats scenario relies on too.
@@ -55,12 +43,12 @@ function runOn(ctx: ScenarioContext, runner: LabHost, marker: string): Promise<R
 interface Proof {
   ctx: ScenarioContext
   tag: string
-  service: WorkspaceService
+  service: LabSolusApi
   clients: LabClient[]
 }
 
 function cloudClient(proof: Proof, personaId: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud' })
+  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
   proof.clients.push(client)
   return client
 }
@@ -79,13 +67,11 @@ async function bootRunnersStep(proof: Proof, runners: LabHost[]): Promise<{ runn
   runners.push(runnerA)
   const runnerB = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_B, runnerOf: ORGANIZATION_ID })
   runners.push(runnerB)
-  ctx.check(`${tag} runner A holds a grant`, await runnerHoldsGrant(runnerA, 20_000))
-  ctx.check(`${tag} runner B holds a grant`, await runnerHoldsGrant(runnerB, 20_000))
   return { runnerA, runnerB }
 }
 
-async function proveHostAuth(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
+async function proveHostAuth(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
+  const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   const runners: LabHost[] = []

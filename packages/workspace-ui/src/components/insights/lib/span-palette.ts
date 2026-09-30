@@ -11,7 +11,7 @@ export const PROVIDER_WAIT_KIND = 'provider_wait'
 
 /** What the remaining provider wait means for the reader who hovers it. */
 export const PROVIDER_WAIT_EXPLANATION =
-  'Time spent waiting for provider activity that is not part of Thinking, response streaming, a tool call, or an explicit wait.'
+  'Time outside recorded activity. The trace does not establish whether this was inference, queueing, transport, or missing instrumentation.'
 
 /** The things such an interval can hold. Listed, because a reader who sees a
  *  large remainder asks what could be in it. */
@@ -22,12 +22,23 @@ export const PROVIDER_WAIT_CAUSES = [
   'work on older traces recorded before a boundary existed',
 ]
 
+/** Time the turn spent waiting on a person: permission and question dialogs,
+ *  read as one slice of the coverage bar. The two kinds keep their own rows in
+ *  the waterfall; the legend folds them because the reader's question is "how
+ *  long did it wait on me", not which dialog. */
+export const USER_WAIT_KIND = 'user_wait'
+
 const KIND_COLORS = new Map<string, string>([
+  [USER_WAIT_KIND, 'var(--solus-art-6)'],
   ['turn', 'var(--muted-foreground)'],
   [PROVIDER_WAIT_KIND, 'var(--solus-art-5)'],
   ['thinking', 'var(--solus-art-1)'],
   ['response_stream', 'var(--solus-art-2)'],
   ['tool_call', 'var(--solus-art-4)'],
+  // A tool call's phases wear its hue pulled toward the neutral, for the same
+  // reason a dispatch step wears setup's: they are the bar above, cut in two.
+  ['tool_input', 'color-mix(in oklch, var(--solus-art-4) 60%, var(--muted-foreground))'],
+  ['tool_execution', 'color-mix(in oklch, var(--solus-art-4) 60%, var(--muted-foreground))'],
   ['setup', 'var(--solus-art-3)'],
   // Setup's interior, so it wears setup's hue pulled toward the neutral: a
   // dispatch step reads as part of the bar above it, not as a rival to it.
@@ -44,10 +55,13 @@ const KIND_COLORS = new Map<string, string>([
 
 const KIND_LABELS = new Map<string, string>([
   ['turn', 'Turn'],
-  [PROVIDER_WAIT_KIND, 'Provider wait'],
+  [USER_WAIT_KIND, 'Waiting on user'],
+  [PROVIDER_WAIT_KIND, 'Unrecorded'],
   ['thinking', 'Thinking'],
   ['response_stream', 'Response streaming'],
   ['tool_call', 'Tool calls'],
+  ['tool_input', 'Tool input'],
+  ['tool_execution', 'Tool execution'],
   ['setup', 'Setup'],
   ['internal.dispatch_step', 'Dispatch steps'],
   ['permission_wait', 'Permission waits'],

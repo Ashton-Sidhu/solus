@@ -14,7 +14,7 @@
 
 <SettingsRow
   label="Delete archived automations after"
-  description="Days to keep archived automations and their run history on this host. Default: 30 days. Conversations are kept. Shortening this period applies to existing archives."
+  description="Days to keep archived automations and their runs. Conversations are kept."
   {visible}
 >
   {#snippet control()}
@@ -32,13 +32,5 @@
       />
       <span>{state?.saving ? "Saving…" : "days"}</span>
     </div>
-  {/snippet}
-  {#snippet body()}
-    {#if state?.error}
-      <div class="flex items-center gap-2 text-workspace-chrome" role="status">
-        <span class="text-destructive">{state.error}</span>
-        <button type="button" class="underline" onclick={() => store.load(serverId)}>Retry</button>
-      </div>
-    {/if}
   {/snippet}
 </SettingsRow>

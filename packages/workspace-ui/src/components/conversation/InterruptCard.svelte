@@ -44,11 +44,11 @@
 
 <div
   transition:fly={{ y: 8, duration: 200 }}
-  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-transcript-card shadow-[shadow:var(--solus-tx-raised-shadow)] pointer-fine:[.is-laptop-display_&]:my-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl"
+  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-transcript-card shadow-[shadow:var(--solus-tx-raised-shadow)]"
   data-testid={testId}
 >
   <div
-    class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem] pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-2.5"
+    class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem]"
   >
     <div class="flex min-w-0 flex-1 flex-col gap-[0.125rem]">
       <span class="interrupt-eyebrow">{eyebrow}</span>
@@ -79,7 +79,7 @@
   <!-- Escape hatch left, scope-broadening in the middle, the one filled default
        on the right. Never the reverse, on any interrupt. -->
   <div
-    class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem] pointer-fine:[.is-laptop-display_&]:py-2 pointer-fine:[.is-laptop-display_&]:pr-3 pointer-fine:[.is-laptop-display_&]:pl-3.5 {footerClass}"
+    class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem] {footerClass}"
   >
     {@render footer()}
   </div>
@@ -141,17 +141,6 @@
   /* The chassis is transcript content, so its height is reading column the user
      cannot recover. Geometry only — the type rungs above already follow the
      display, and touch keeps the larger hit target. */
-  @media (pointer: fine) {
-    :global(html.is-laptop-display .interrupt-btn) {
-      height: 1.625rem;
-    }
-    :global(html.is-laptop-display .interrupt-payload-body) {
-      padding: 0.5rem 0.6875rem 0.5625rem;
-    }
-    :global(html.is-laptop-display .interrupt-detail-table) {
-      padding: 0.5rem 0.625rem;
-    }
-  }
   :global(.interrupt-btn):hover:not(:disabled) {
     background: var(--muted);
     color: var(--foreground);

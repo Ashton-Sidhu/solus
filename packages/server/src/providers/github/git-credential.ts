@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process'
+import { text } from 'node:stream/consumers'
+import { getCliEnv } from '../../cli-env'
 import { readHostCredential } from '../../vault/provider-credentials'
 import { delegatedGithubToken } from './credentials'
 import { githubStoredTokenSchema } from './token-store'
-import { text } from 'node:stream/consumers'
 
 /**
  * `solus git-credential` speaks git's credential protocol so a host that cloned
@@ -10,6 +12,18 @@ import { text } from 'node:stream/consumers'
  * shape on stdout. Anything we can't answer prints nothing, which tells git to
  * fall through to the next helper rather than fail.
  */
+
+/** The git config key whose helper answers github.com HTTPS credentials. */
+export const GITHUB_CREDENTIAL_KEY = 'credential.https://github.com.helper'
+
+/** Absolute path so the credential helper keeps working under git's own PATH. */
+export function resolveSolusCli(): string | null {
+  try {
+    return execFileSync('which', ['solus'], { encoding: 'utf8', env: getCliEnv(), timeout: 2_000 }).trim() || null
+  } catch {
+    return null
+  }
+}
 
 /** Only github.com is served: the stored token is a GitHub OAuth user token. */
 const SUPPORTED_HOST = 'github.com'

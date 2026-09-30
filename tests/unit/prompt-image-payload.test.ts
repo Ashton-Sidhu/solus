@@ -22,11 +22,10 @@ function image(overrides: Partial<Attachment> = {}): Attachment {
   }
 }
 
-// The stores are only read for plan/work/task context, which no case here uses.
+// The stores are only read for plan/work context, which no case here uses.
 const composer = new PromptComposer(
   { get: () => undefined } as unknown as ConstructorParameters<typeof PromptComposer>[0],
   { get: () => undefined } as unknown as ConstructorParameters<typeof PromptComposer>[1],
-  { tasks: [], taskForSession: () => undefined } as unknown as ConstructorParameters<typeof PromptComposer>[2],
 )
 
 describe('how a turn carries its images', () => {

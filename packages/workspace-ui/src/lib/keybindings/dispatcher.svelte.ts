@@ -1,7 +1,8 @@
 import { createAppContext } from '../../contexts/app/create-app-context'
 import { KEYBINDINGS, type BindingId } from './manifest'
-import { comboFromEvent, comboIsTextInput, defaultCombo, eventMatches, isMac } from './match'
-import type { BindingDef, Handler, KeyCombo, RegisterOptions, Scope } from './types'
+import { comboFromEvent, comboIsTextInput, eventMatches, isMac } from './match'
+import { effectiveCombo, type BindingOverrides } from './editing'
+import type { BindingDef, Handler, RegisterOptions, Scope } from './types'
 import { track } from '../analytics'
 
 type ScopeEntry = { scope: Scope; exclusive: boolean }
@@ -29,7 +30,7 @@ const MAC_DEAD_KEY_CODES = new Set(['KeyE', 'KeyI', 'KeyU', 'KeyN', 'Backquote']
 
 /** True when the keystroke lands in a text field — <input>, <textarea>, or any
  *  contentEditable region (the chat composer's Tiptap editor included). */
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const el = target
   return (
@@ -44,9 +45,9 @@ export class KeybindingsContext {
   // Multiple components (e.g. one ActionOrb per tab) can register the same
   // binding ID. All entries are checked; the first whose `enabled` passes fires.
   private handlers = new Map<BindingId, Set<HandlerEntry>>()
-  overrides: Record<string, KeyCombo> = {}
+  overrides: BindingOverrides = {}
 
-  setOverrides(overrides: Record<string, KeyCombo>): void {
+  setOverrides(overrides: BindingOverrides): void {
     this.overrides = overrides
   }
 
@@ -130,13 +131,15 @@ export class KeybindingsContext {
   ): boolean {
     for (const [id, def] of bindings) {
       if (reservedOnly && !def.reserved) continue
-      // `null` is a binding that ships unassigned: only a user override can
-      // ever make it fire.
-      const combo = this.overrides[id] ?? defaultCombo(def)
-      // An override replaces the primary combo but keeps the built-in aliases.
+      // `null` is a binding that ships unassigned, or one the user removed:
+      // only a user override can make it fire.
+      const override = this.overrides[id]
+      const combo = effectiveCombo(id, this.overrides)
+      // An override replaces the primary combo but keeps the built-in aliases;
+      // a removed shortcut drops the aliases too, so nothing fires it.
       const matched =
         (combo !== null && eventMatches(e, combo)) ||
-        (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
+        (override !== null && (def.aliases?.some((a) => eventMatches(e, a)) ?? false))
       if (!matched) continue
       // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
       // navigation); everything else ignores repeats so toggles/actions don't

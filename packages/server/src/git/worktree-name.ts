@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import type { AgentDispatcher } from '../agents/agent-runner'
-import { TextGenerator } from '../agents/text-generator'
-import type { AgentTool } from '../agents/tools/agent-tool'
+import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import { TextGenerator } from '../execution/agents/text-generator'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
-import { resolveTextGenerationModel } from '../server/settings'
+import { resolveTextGenerationModel } from '../host/settings'
 import type { AgentId } from '@solus/contracts/types'
 
 const log = createLogger('WorktreeName', 'worktree-name.ts')

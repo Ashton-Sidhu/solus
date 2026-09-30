@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { userIdSchema, userKey } from '@solus/contracts/user'
 import type { ScenarioContext } from './scenario'
 
 /**
@@ -37,10 +38,9 @@ const recordedRunSchema = z.object({
   at: z.number(),
   prompt: z.string(),
   seat: z.object({
-    userId: z.string(),
+    seat: z.discriminatedUnion('kind', [z.object({ kind: z.literal('host-login') }), z.object({ kind: z.literal('user'), userId: userIdSchema })]),
     provider: z.string(),
     home: z.string(),
-    isHostLogin: z.literal(true).optional(),
     envToken: z.string().optional(),
   }).nullable(),
   /** The credential material the run saw (`.credentials.json`, or `token:<value>`); null for the host login or a run before the field existed. */
@@ -55,9 +55,15 @@ export function recordedRuns(ctx: ScenarioContext): RecordedRun[] {
   return readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => recordedRunSchema.parse(JSON.parse(line)))
 }
 
+/** Whose seat a run was on: `host-login`, or the user's key. */
+export function seatOfRun(run: RecordedRun): string | null {
+  if (!run.seat) return null
+  return run.seat.seat.kind === 'host-login' ? 'host-login' : userKey(run.seat.seat.userId)
+}
+
 /**
  * Seats: a turn runs on exactly the seat its author owns; the host owner's seat is
- * the host login (`host-owner`). A run with the wrong seat, or none, is the
+ * the host login (`host-login`). A run with the wrong seat, or none, is the
  * invariant this step exists to hold (docs/plans/provider-seats.md §3.3).
  */
 export function checkSeatOfRun(ctx: ScenarioContext, promptMarker: string, expectedSeatUserId: string): RecordedRun | undefined {
@@ -66,7 +72,7 @@ export function checkSeatOfRun(ctx: ScenarioContext, promptMarker: string, expec
     ctx.check(`oracle/seats: a run for "${promptMarker}" reached the provider`, false, 'no recorded run')
     return undefined
   }
-  const actual = run.seat?.userId ?? null
+  const actual = seatOfRun(run)
   ctx.check(`oracle/seats: "${promptMarker}" ran on ${expectedSeatUserId}'s seat`, actual === expectedSeatUserId, `seat=${actual ?? 'none'}`)
   return run
 }
@@ -74,7 +80,7 @@ export function checkSeatOfRun(ctx: ScenarioContext, promptMarker: string, expec
 /** Lists never leak: an id a persona cannot open never appears in their listing (§3.7). */
 export async function checkWorkListing(ctx: ScenarioContext, personaId: string, workId: string, expected: boolean): Promise<void> {
   const client = await ctx.as(personaId)
-  const works = await client.rpc('listWorks', ctx.cwd)
+  const works = await client.records.listWorks()
   const listed = works.some((work) => work.id === workId)
   ctx.check(`oracle/listing: ${personaId} ${expected ? 'sees' : 'does not see'} work ${workId} in listWorks`, listed === expected)
 }

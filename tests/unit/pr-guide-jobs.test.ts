@@ -4,8 +4,8 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
-import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewGuide, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import type { PrGuideJobDependencies, PrGuideJobRequest } from '@solus/server/review/pr-guide-jobs'
@@ -367,8 +367,8 @@ test('session guide reads in a PR session never return that PR guide', async () 
   try {
     const { writePrGuide } = await import('@solus/server/review/pr-guide-store')
     await writePrGuide(guide('PR guide'), target, () => true)
-    const { SolusServer } = await import('@solus/server/server/server')
-    const { registerReviewHandlers } = await import('@solus/server/server/handlers/review-handlers')
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerReviewHandlers } = await import('@solus/server/transport/handlers/review-handlers')
     const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
     const server = new SolusServer()
     registerReviewHandlers(server, {} as AgentDispatcher, {} as Parameters<typeof registerReviewHandlers>[2])

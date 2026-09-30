@@ -19,7 +19,8 @@
   import { buildAgentAvailabilityRows } from "@solus/workspace-ui/lib/agentAvailability";
   import { providerUsage } from "@solus/workspace-ui/components/project-panel/lib/usage-meters";
   import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
-  import { type AgentId, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
+  import { type AgentId, PERMISSION_MODES, type PermissionMode, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
+  import { PERMISSION_MODE_DISPLAY } from "@solus/workspace-ui/lib/permission-modes";
   import { portal } from "@solus/workspace-ui/components/portal";
   import { registerBackOverlay } from "../../lib/back-stack.svelte";
   import MobileSheet from "./MobileSheet.svelte";
@@ -74,7 +75,7 @@
   const supportsPlan = $derived(capabilities?.planMode !== false);
   const permissionMode = $derived(ctx.permissionMode);
   const permissionOptions = $derived(
-    (["ask", "auto", "plan"] as const).filter((id) => id !== "plan" || supportsPlan),
+    PERMISSION_MODES.filter((id) => id !== "plan" || supportsPlan),
   );
 
   // Only the agent this composer runs on: the sheet answers "what happens on my
@@ -134,7 +135,7 @@
     session.config.switchActiveAgent(agentId, composerSourceId);
   }
 
-  function selectPermissionMode(mode: "ask" | "auto" | "plan") {
+  function selectPermissionMode(mode: PermissionMode) {
     session.setPermissionMode(mode, composerSourceId);
   }
 
@@ -385,8 +386,9 @@
                 type="button"
                 class={permissionMode === mode ? SEGMENT_ON : SEGMENT_OFF}
                 onclick={() => selectPermissionMode(mode)}
+                aria-label={PERMISSION_MODE_DISPLAY[mode].label}
               >
-                {mode[0].toUpperCase() + mode.slice(1)}
+                {PERMISSION_MODE_DISPLAY[mode].shortLabel}
               </button>
             {/each}
           </div>

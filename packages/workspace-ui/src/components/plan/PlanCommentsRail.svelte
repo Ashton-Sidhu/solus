@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { X as CloseIcon } from '@lucide/svelte'
-  import type { CommentAuthor, PlanComment } from '@solus/contracts/types'
+  import type { PlanComment } from '@solus/contracts/types'
   import type { DocCommentThread } from '@solus/contracts/work-comments'
   import CommentThreadCard from '../comments/CommentThreadCard.svelte'
   import ExternalCommentCard from '../work/ExternalCommentCard.svelte'

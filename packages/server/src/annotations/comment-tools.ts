@@ -1,16 +1,18 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '../logger'
-import type { AgentTool } from '../agents/tools/agent-tool'
-import { loadWork } from '../folio/works'
-import { loadWorkAnnotations, saveWorkAnnotations } from '../folio/work-annotations'
-import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
+import { loadWork } from '../data/works/works'
+import { loadWorkAnnotations, saveWorkAnnotations } from '../data/works/work-annotations'
+import { ANY_ORGANIZATION } from '../admission/principal'
 import { loadAnnotations, saveAnnotations } from '../plans/annotations'
-import { extractPlanTitle } from '../agents/plan-text'
-import { findSession, getSessionController, type SessionToolCtx } from '../sessions/session-tools'
-import { foreignLinkedItemsFor } from '../tasks/foreign-tasks'
+import { extractPlanTitle } from '../execution/agents/plan-text'
+import { findSession, getSessionController, type SessionToolCtx } from '../execution/agents/tools/session-tools'
+import { foreignLinkedItemsFor } from '../data/tasks/foreign-tasks'
 import { notifyAnnotationsChanged } from './annotation-events'
-import type { CommentAgentAuthor, PlanAnnotations, PlanComment, SessionMeta } from '@solus/contracts/types'
+import type { PlanAnnotations, PlanComment, SessionMeta } from '@solus/contracts/types'
+import { attributionLabel, type Attribution } from '@solus/contracts/user'
+import { toolAgentAttribution } from '../execution/agents/tools/agent-attribution'
 import type { DocCommentThread } from '@solus/contracts/work-comments'
 
 const log = createLogger('annotations', 'comment-tools.ts')
@@ -52,9 +54,9 @@ interface TargetThreads {
 async function resolveTarget(targetId: string): Promise<(TargetThreads & { content: string | null }) | null> {
   if (isPlanTarget(targetId)) return resolvePlanTarget(targetId)
 
-  const work = await loadWork(LOCAL_ORGANIZATION_ID, targetId)
+  const work = await loadWork(ANY_ORGANIZATION, targetId)
   if (!work) return null
-  const existing = await loadWorkAnnotations(LOCAL_ORGANIZATION_ID, targetId)
+  const existing = await loadWorkAnnotations(ANY_ORGANIZATION, targetId)
   // Only the snapshot of the document the work is linked to right now: a
   // relinked work must not answer threads of the document it used to mirror.
   const link = work.mirroredDoc
@@ -68,7 +70,7 @@ async function resolveTarget(targetId: string): Promise<(TargetThreads & { conte
     externalThreads: linked ? snapshot.threads.filter((thread) => !thread.deleted) : [],
     externalLabel: link?.provider === 'confluence' ? 'Confluence' : 'Google Docs',
     save: async (comments) => {
-      await saveWorkAnnotations(LOCAL_ORGANIZATION_ID, { version: 1, workId: targetId, comments, updatedAt: Date.now() })
+      await saveWorkAnnotations(ANY_ORGANIZATION, { version: 1, workId: targetId, comments, updatedAt: Date.now() })
       notifyAnnotationsChanged({ kind: 'work', targetId })
     },
   }
@@ -83,7 +85,7 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
   const meta = await findSession(sessionId)
   if (!meta) return null
   const content = await controller.loadPlanContent(meta.provider, sessionId, meta.projectPath || meta.cwd, planToolUseId)
-  const existing = await loadAnnotations(LOCAL_ORGANIZATION_ID, sessionId, planToolUseId)
+  const existing = await loadAnnotations(ANY_ORGANIZATION, sessionId, planToolUseId)
   // A plan nobody has annotated yet has no row at all — the first comment on it
   // creates one, exactly as the first comment from the user's rail does.
   if (!existing && content === null) return null
@@ -107,7 +109,7 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
     externalThreads: [],
     externalLabel: '',
     save: async (comments) => {
-      await saveAnnotations(LOCAL_ORGANIZATION_ID, { ...base, comments, updatedAt: Date.now() })
+      await saveAnnotations(ANY_ORGANIZATION, { ...base, comments, updatedAt: Date.now() })
       controller.invalidatePlanCaches(sessionId)
       notifyAnnotationsChanged({ kind: 'plan', targetId })
     },
@@ -187,31 +189,24 @@ export function threadAnchorLabel(c: Pick<PlanComment, 'selectedText' | 'nodeId'
   return `On "${c.selectedText}"`
 }
 
-/** Who wrote a thread message: the agent that signed it, the person the host
- *  stamped, or "User" for a thread written before works had people. */
-function threadAuthor(message: Pick<PlanComment, 'author' | 'authorAgent' | 'person'>): string {
-  if ((message.author ?? 'you') !== 'solus') return message.person?.displayName ?? 'User'
-  return message.authorAgent?.title ?? 'Solus'
+/** Who wrote a thread message: the person, the agent that signed it, or "Solus". */
+function threadAuthor(message: { author?: Attribution }): string {
+  return message.author ? attributionLabel(message.author) : 'User'
 }
 
-/** Who a thread message written by a tool is attributed to. `CommentAuthor`
- *  alone can only say "solus", which is useless once several agents are
- *  reviewing the same document. */
-export async function callerAgent(ctx: SessionToolCtx | undefined): Promise<CommentAgentAuthor | undefined> {
-  if (!ctx?.sessionId) return undefined
+/** Who a thread message written by a tool is attributed to: the agent's session,
+ *  so several agents reviewing one document stay apart, and Solus itself for a
+ *  call with no session. */
+export async function callerAgent(ctx: SessionToolCtx | undefined): Promise<Attribution> {
+  if (!ctx?.sessionId) return { kind: 'system' }
   const meta = await findSession(ctx.sessionId)
-  const author: CommentAgentAuthor = {
-    sessionId: ctx.sessionId,
-    // The slug only — never `peerTitle`'s first-message fallback. A session is
-    // usually still unnamed when its agent writes the first comment, and that
-    // fallback would sign the thread with the user's raw prompt. No slug, no
-    // session to name: the thread signs as plain "Solus".
-    provider: ctx.agentProvider,
-  }
-  // Codex has no CLI slug: an unnamed thread reports its own first message as
-  // its name, which is the same first-message fallback under another field.
-  if (meta?.slug && meta.slug !== meta.firstMessage) author.title = meta.slug
-  return author
+  // The slug only — never a first-message fallback. A session is usually still
+  // unnamed when its agent writes the first comment, and that fallback would
+  // sign the thread with the user's raw prompt. No slug, no session to name:
+  // the thread signs as plain "Solus". Codex has no CLI slug: an unnamed thread
+  // reports its own first message as its name, the same fallback under another field.
+  const title = meta?.slug && meta.slug !== meta.firstMessage ? meta.slug : undefined
+  return toolAgentAttribution(ctx, title)
 }
 
 // ─── Schemas ───
@@ -248,7 +243,7 @@ const resolveCommentFields = {
 }
 
 const READ_PLAN_DESC =
-  'Read a plan a Solus session wrote, plus every open comment thread on it. Use it before reviewing a plan (review_plan rules on one that is still awaiting approval) or before commenting on it. Returns the plan id you pass to comment_document.'
+  'Read a plan a Solus session wrote, plus every open comment thread on it. Use it before reviewing a plan or commenting on it. Returns the plan id you pass to comment_document.'
 const COMMENT_DOCUMENT_DESC =
   "Leave anchored comment threads on a plan or a work, exactly where the user leaves theirs — they appear in the document's margin, attributed to you. Anchor each one by quoting the passage verbatim as it reads on screen; a quote that is not found, or found more than once, is refused rather than left floating. Use this to review a document instead of describing your notes in chat."
 const REPLY_COMMENT_DESC =
@@ -292,7 +287,7 @@ export async function executeCommentTool(
     if (name === 'read_plan') return await readPlan(args, deps)
     if (name === 'comment_document') return await commentDocument(args, deps)
     if (name === 'reply_comment') return await replyComment(args, deps)
-    if (name === 'resolve_comment') return await resolveComment(args)
+    if (name === 'resolve_comment') return await resolveComment(args, deps)
     return { ok: false, text: `Unknown comment tool: ${name}` }
   } catch (err: any) {
     log.error('comment_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
@@ -330,7 +325,7 @@ async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Prom
   const content = await controller.loadPlanContent(meta.provider, sessionId, meta.projectPath || meta.cwd, planToolUseId)
   if (content === null) return { ok: false, text: `Plan ${planToolUseId} could not be read for session ${sessionId}.` }
 
-  const annotations = await loadAnnotations(LOCAL_ORGANIZATION_ID, sessionId, planToolUseId)
+  const annotations = await loadAnnotations(ANY_ORGANIZATION, sessionId, planToolUseId)
   const title = annotations?.title || extractPlanTitle(content)
   const status = annotations?.status ?? 'pending'
   return {
@@ -405,13 +400,12 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
       id: randomUUID(),
       selectedText: quote,
       comment,
-      author: 'solus',
+      author,
       createdAt: Date.now(),
     }
     if (textOffset !== undefined) createdComment.textOffset = textOffset
     if (nodeId) createdComment.nodeId = nodeId
     if (edgeId) createdComment.edgeId = edgeId
-    if (author) createdComment.authorAgent = author
     created.push(createdComment)
   }
 
@@ -432,11 +426,10 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
   const author = await callerAgent(deps.ctx)
   const reply: NonNullable<PlanComment['replies']>[number] = {
     id: randomUUID(),
-    author: 'solus',
+    author,
     text,
     createdAt: Date.now(),
   }
-  if (author) reply.authorAgent = author
 
   const thread = target.comments.find((c) => c.id === commentId)
   if (thread) {
@@ -465,10 +458,9 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
     externalThreadId: commentId,
     selectedText: external.quote,
     comment: text,
-    author: 'solus',
+    author,
     createdAt: Date.now(),
   }
-  if (author) created.authorAgent = author
   if (external.quote && target.content !== null) {
     const anchor = anchorQuote(target.content, external.quote)
     if (anchor.ok) created.textOffset = anchor.textOffset
@@ -477,7 +469,7 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
   return { ok: true, text: `Replied privately to the ${target.externalLabel} thread ${where} on ${target.label}. ${outcome}` }
 }
 
-async function resolveComment(args: CommentToolArgs): Promise<CommentToolResult> {
+async function resolveComment(args: CommentToolArgs, deps: CommentToolDeps): Promise<CommentToolResult> {
   const targetId = String(args.target_id ?? '').trim()
   const commentId = String(args.comment_id ?? '').trim()
   if (!targetId || !commentId) return { ok: false, text: 'resolve_comment requires target_id and comment_id.' }
@@ -488,9 +480,10 @@ async function resolveComment(args: CommentToolArgs): Promise<CommentToolResult>
   if (!thread) return { ok: false, text: `No thread "${commentId}" on ${target.label}.` }
   if (thread.resolvedAt) return { ok: true, text: `Thread "${thread.selectedText}" was already resolved.` }
 
+  const resolvedBy = await callerAgent(deps.ctx)
   await target.save(target.comments.map((comment) => {
     if (comment.id !== commentId) return comment
-    return { ...comment, resolvedAt: Date.now(), resolvedBy: 'solus' }
+    return { ...comment, resolvedAt: Date.now(), resolvedBy }
   }))
   return { ok: true, text: `Resolved thread "${thread.selectedText}" on ${target.label}.` }
 }

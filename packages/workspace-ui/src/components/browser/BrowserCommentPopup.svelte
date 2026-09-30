@@ -28,7 +28,7 @@
 </script>
 
 <div
-  class="comment-pop text-workspace-chrome flex w-64 max-w-[calc(100%-1rem)] flex-col rounded-[14px] bg-[var(--popover)] px-3 py-2 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent),0_0.25rem_0.5rem_-0.25rem_rgba(0,0,0,0.14),0_1.5rem_2.75rem_-1.125rem_rgba(0,0,0,0.32)] [.is-laptop-display_&]:w-56"
+  class="comment-pop text-workspace-chrome flex w-64 max-w-[calc(100%-1rem)] flex-col rounded-[14px] bg-[var(--popover)] px-3 py-2 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent),0_0.25rem_0.5rem_-0.25rem_rgba(0,0,0,0.14),0_1.5rem_2.75rem_-1.125rem_rgba(0,0,0,0.32)]"
 >
   <CommentComposer
     surface="compact"
@@ -43,7 +43,7 @@
   >
     {#snippet leading()}
       <span
-        class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] font-semibold text-[color:var(--primary-foreground)] tabular-nums [.is-laptop-display_&]:size-4"
+        class="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] font-semibold text-[color:var(--primary-foreground)] tabular-nums"
       >
         {markNumber}
       </span>

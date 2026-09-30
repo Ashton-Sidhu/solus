@@ -15,12 +15,12 @@ const originalAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
 
 mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => store }))
 
-let SolusServer: typeof import('@solus/server/server/server')['SolusServer']
-let registerCloudflareHandlers: typeof import('@solus/server/server/handlers/cloudflare-handlers')['registerCloudflareHandlers']
+let SolusServer: typeof import('@solus/server/transport/server')['SolusServer']
+let registerCloudflareHandlers: typeof import('@solus/server/transport/handlers/cloudflare-handlers')['registerCloudflareHandlers']
 
 beforeAll(async () => {
-  ;({ SolusServer } = await import('@solus/server/server/server'))
-  ;({ registerCloudflareHandlers } = await import('@solus/server/server/handlers/cloudflare-handlers'))
+  ;({ SolusServer } = await import('@solus/server/transport/server'))
+  ;({ registerCloudflareHandlers } = await import('@solus/server/transport/handlers/cloudflare-handlers'))
 })
 
 beforeEach(() => {

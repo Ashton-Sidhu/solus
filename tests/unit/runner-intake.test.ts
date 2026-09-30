@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
-type Principal = import('@solus/server/server/principal').Principal
+type Principal = import('@solus/server/admission/principal').Principal
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -13,12 +13,12 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // ops in sequence order, in the runner's organization, through the same appliers
 // a host uses; its per-stream cursor is what makes a redelivery harmless.
 
-let intake: typeof import('@solus/server/server/runner-intake')
-let principalModule: typeof import('@solus/server/server/principal')
-let TaskModule: typeof import('@solus/server/tasks/task')
-let taskStore: typeof import('@solus/server/tasks/task-store')
-let works: typeof import('@solus/server/folio/works')
-let records: typeof import('@solus/server/sessions/session-records')
+let intake: typeof import('@solus/server/sync/runner-intake')
+let principalModule: typeof import('@solus/server/admission/principal')
+let TaskModule: typeof import('@solus/server/data/tasks/task')
+let taskStore: typeof import('@solus/server/data/tasks/task-store')
+let works: typeof import('@solus/server/data/works/works')
+let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
 let shareManager: typeof import('@solus/server/sharing/share-manager')
 let database: typeof import('@solus/server/db/database')
@@ -30,18 +30,18 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-runner-intake-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  intake = await import('@solus/server/server/runner-intake')
-  principalModule = await import('@solus/server/server/principal')
-  TaskModule = await import('@solus/server/tasks/task')
-  taskStore = await import('@solus/server/tasks/task-store')
-  works = await import('@solus/server/folio/works')
-  records = await import('@solus/server/sessions/session-records')
+  intake = await import('@solus/server/sync/runner-intake')
+  principalModule = await import('@solus/server/admission/principal')
+  TaskModule = await import('@solus/server/data/tasks/task')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  works = await import('@solus/server/data/works/works')
+  records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
   shareManager = await import('@solus/server/sharing/share-manager')
   database = await import('@solus/server/db/database')
   shares = new shareManager.ShareManager({ db: database.getDatabase() })
-  ;(await import('@solus/server/tasks/task-applier')).registerTaskOutboxApplier()
-  ;(await import('@solus/server/folio/work-applier')).registerWorkOutboxApplier()
+  ;(await import('@solus/server/data/tasks/task-applier')).registerTaskOutboxApplier()
+  ;(await import('@solus/server/data/works/work-applier')).registerWorkOutboxApplier()
 })
 
 afterAll(async () => {
@@ -52,7 +52,7 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const runner = () => principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', expiresAt: Date.now() + 600_000 })
+const runner = () => principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
 
 let opCounter = 0
 function op(domain: OutboxOp['domain'], resourceId: string, name: string, payload: unknown): OutboxOp {
@@ -63,7 +63,7 @@ function op(domain: OutboxOp['domain'], resourceId: string, name: string, payloa
 describe('runner intake', () => {
   test('ops land in the runner\'s organization in order; a redelivery applies nothing twice', async () => {
     const create = op('tasks', 'task-a', 'create', {
-      title: 'From the runner', projectKey: '/repo', body: 'body', kind: 'task', parentId: null, priority: 'high', labels: ['x'], dueDate: null, status: 'todo', originSessionId: 'thread-1', createdAt: 1_700_000_000_000,
+      title: 'From the runner', projectKey: '/repo', body: 'body', priority: 'high', labels: ['x'], dueDate: null, status: 'todo', originSessionId: 'thread-1', createdAt: 1_700_000_000_000,
     })
     const comment = op('tasks', 'task-a', 'comment', { body: 'first', author: 'agent' })
     const work = op('works', 'work-a', 'create', { title: 'Doc', docType: 'doc', content: '# Doc', originSessionId: 'thread-1', linkToSessionTask: true })
@@ -83,23 +83,30 @@ describe('runner intake', () => {
     expect(await shares.roleFor(colleague, { kind: 'task', id: 'task-a' })).toBe('editor')
     expect(await shares.roleFor(colleague, { kind: 'work', id: 'work-a' })).toBe('editor')
     expect(await shares.roleFor({ ...colleague, organizationId: 'org2' }, { kind: 'task', id: 'task-a' })).toBe('none')
-    expect(await shares.ownerOf('org1', { kind: 'task', id: 'task-a' })).toBe('host-owner')
+    // Owned by the person whose delegated token delivered it: a runner always acts for one.
+    expect(await shares.ownerOf({ kind: 'task', id: 'task-a' })).toBe('alice')
 
     // The runner lost the ack and sends the same batch again.
     expect(await intake.applyRunnerOutbox(runner(), batch, shares)).toEqual({ lastSeq: 3, failed: [] })
     expect((await TaskModule.Task.byId('org1', 'task-a').then((t) => t.details())).comments).toHaveLength(1)
   })
 
-  test('a permanent failure is skipped and named; a transient one holds the cursor', async () => {
-    // WHY: a comment on a task that is gone can never apply, and must not dam the
-    // stream behind it; an applier that merely failed this time gets another try.
+  test('a lost permanent-failure response is repeated; a received failure lets later ops proceed', async () => {
+    // WHY: advancing past a rejected item would turn a lost response into a
+    // success on retry, letting publication delete a task with missing comments.
     const gone = op('tasks', 'task-missing', 'comment', { body: 'lost', author: 'agent' })
     const fine = op('tasks', 'task-a', 'comment', { body: 'second', author: 'agent' })
     const skew = op('works', 'work-a', 'from-the-future', {})
     const after = op('tasks', 'task-a', 'comment', { body: 'third', author: 'agent' })
     const answer = await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 4, op: gone }, { seq: 5, op: fine }, { seq: 6, op: skew }, { seq: 7, op: after }] })
-    expect(answer.lastSeq).toBe(5)
-    expect(answer.failed.map((failure) => [failure.seq, failure.permanent])).toEqual([[4, true], [6, false]])
+    expect(answer.lastSeq).toBe(3)
+    expect(answer.failed.map((failure) => [failure.seq, failure.permanent])).toEqual([[4, true]])
+    // The response was lost: the same failure must still be visible on retry.
+    expect(await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 4, op: gone }, { seq: 5, op: fine }] })).toEqual(answer)
+    // The runner has now recorded the permanent failure and skips that item.
+    const continued = await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 5, op: fine }, { seq: 6, op: skew }, { seq: 7, op: after }] })
+    expect(continued.lastSeq).toBe(5)
+    expect(continued.failed.map((failure) => [failure.seq, failure.permanent])).toEqual([[6, false]])
     const comments = (await TaskModule.Task.byId('org1', 'task-a').then((t) => t.details())).comments.map((row) => row.body)
     expect(comments).toEqual(['first', 'second'])
     // A link op after the skew is applied once the runner sends from seq 6 again with a verb this build knows.
@@ -126,9 +133,27 @@ describe('runner intake', () => {
     await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [{ seq: 1, record: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'Stale', lastActivityAt: 10 } }] })
     expect((await records.getSessionRecord('org1', 's1'))?.title).toBe('First')
     // A different runner of the same organization has its own cursor.
-    const other = principalModule.runnerPrincipalFor({ hostId: 'runner-2', organizationId: 'org1', expiresAt: Date.now() + 600_000 })
+    const other = principalModule.runnerPrincipalFor({ hostId: 'runner-2', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
     expect(await intake.applyRunnerSessionRecords(other, { hostId: 'runner-2', reports: [{ seq: 1, record: { sessionId: 's2', provider: 'codex', projectPath: '-repo', lastActivityAt: 1 } }] })).toEqual({ lastSeq: 1 })
     expect((await records.listSessionRecords('org1')).map((record) => record.sessionId).sort()).toEqual(['s1', 's2'])
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
+
+  test('work publication links the imported work to its session task and retry does not duplicate the link', async () => {
+    const task = await TaskModule.Task.byId('org1', 'task-a')
+    await task.linkSession('thread-1')
+    const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')
+    const request = { hostId: 'runner-1', actorUserId: 'alice', transfer: await works.exportWorkForCloud('local', work.id) }
+    // This fixture uses one database to represent the service; remove the
+    // source fixture after taking its snapshot to model a different host.
+    await works.removePushedWork('local', work.id, request.transfer.fingerprint)
+    const receipt = await intake.applyRunnerWork(runner(), request, shares)
+    expect(receipt).toEqual({ workId: work.id, organizationId: 'org1' })
+    expect(await intake.applyRunnerWork(runner(), request, shares)).toEqual(receipt)
+    const links = (await task.details()).links.filter((link) => link.targetKey === work.id)
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ kind: 'work', title: 'Published', originSessionId: 'thread-1' })
+    expect(await shares.ownerOf({ kind: 'work', id: work.id })).toBe('alice')
+  })
+
 })

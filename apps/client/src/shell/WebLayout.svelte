@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import ConversationView from "@solus/workspace-ui/components/conversation/ConversationView.svelte";
+  import ConversationPool from "@solus/workspace-ui/components/conversation/ConversationPool.svelte";
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
   import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
+  // Eager, as in the desktop outlet: WorkPane owns one loading state for the
+  // content read, so a work opens through a single skeleton with a close.
+  import WorkPane from "@solus/workspace-ui/components/work/WorkPane.svelte";
   import DiffLoadingSkeleton from "@solus/workspace-ui/components/diff/DiffLoadingSkeleton.svelte";
   import { getPlanStore, getWorkspaceContext, runtime } from "@solus/workspace-ui/contexts";
 import { visibleRef } from "@solus/workspace-ui/contexts/workspace/routing/location";
@@ -59,12 +62,6 @@ import {
     }
     return null;
   });
-  const activeWork = $derived(
-    activeWorkRoute
-      ? session.worksStore.get(activeWorkRoute.params.workId) ?? null
-      : null,
-  );
-  let mobileWorkLoadAttempt = $state(0);
   const leadingDraftParams = $derived(
     router.leadingPane.base?.name === "draft"
       ? router.leadingPane.base.params
@@ -287,38 +284,13 @@ import {
     {/if}
     {#if !router.at("folio")}
       {#if activeWorkRoute}
-        {#key `${activeWorkRoute.params.workId}-${mobileWorkLoadAttempt}`}
-        {#await import("@solus/workspace-ui/components/work/WorkPane.svelte")}
-          <div class="mobile-surface flex min-h-0 flex-1 flex-col">
-            {@render loadingSurface(`Loading ${activeWork?.type ?? "work"}…`)}
-          </div>
-        {:then workModule}
-          {@const WorkPane = workModule.default}
+        {#key activeWorkRoute.params.workId}
           <div class="mobile-surface mobile-page-pane mobile-work-surface flex min-h-0 flex-1 flex-col">
             <WorkPane
               params={activeWorkRoute.params}
               paneId={activeWorkRoute.paneId}
             />
           </div>
-        {:catch error}
-          <div class="mobile-surface mobile-page-pane mobile-work-surface flex min-h-0 flex-1 flex-col">
-            <div class="grid min-h-0 flex-1 place-items-center gap-3 p-6 text-center">
-              <div>
-                <p class="text-sm font-medium text-(--solus-text-primary)">Couldn’t load this work.</p>
-                <p class="mt-1 text-xs text-(--solus-text-tertiary)">
-                  {error instanceof Error ? error.message : String(error)}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="min-h-10 rounded-lg border border-(--solus-container-border) px-3.5 text-sm font-medium text-(--solus-text-secondary)"
-                onclick={() => (mobileWorkLoadAttempt += 1)}
-              >
-                Try again
-              </button>
-            </div>
-          </div>
-        {/await}
         {/key}
       {:else if activePlan}
         {#await import("@solus/workspace-ui/components/plan/PlanModal.svelte")}
@@ -343,19 +315,11 @@ import {
             {#if session.activeTabId && !isMobile}
               <SessionBreadcrumb tabId={session.activeTabId} />
             {/if}
-            {#each session.tabOrder as tId (tId)}
-              <div
-                class="tab-slot flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
-                class:tab-hidden={tId !== session.activeTabId}
-              >
-                <ConversationView
-                  showActions={false}
-                  tabId={tId}
-                  bandAbove={!isMobile}
-
-                />
-              </div>
-            {/each}
+            <ConversationPool
+              active={isMobile}
+              showActions={false}
+              bandAbove={!isMobile}
+            />
           </div>
         {/if}
       {/if}
@@ -371,9 +335,9 @@ import {
            one wait rather than a label that swaps into a different placeholder. -->
       <div class="flex h-full min-h-0 flex-col" role="status" aria-label="Loading changes">
         <div class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0" aria-hidden="true"></div>
-        <!-- Matched to the view being opened, and skipped for the guide, which
-             reads none of what this chunk is fetching the panel for. -->
-        {#if reviewView !== "guide"}
+        <!-- Matched to the view being opened, and skipped for the guide and the
+             lens, which read none of what this chunk is fetching the panel for. -->
+        {#if reviewView !== "guide" && reviewView !== "lens"}
           <DiffLoadingSkeleton variant={reviewView === "map" ? "map" : "diff"} />
         {/if}
       </div>
@@ -438,7 +402,6 @@ import {
 {/if}
 
 <style>
-  .tab-hidden { display: none !important; }
   .mode-hidden { display: none !important; }
 
   /* The `pane` container, on the one pane a phone has. Every page surface below

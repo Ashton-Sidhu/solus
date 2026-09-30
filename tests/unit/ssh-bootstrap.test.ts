@@ -3,7 +3,7 @@ import { spawnSync } from 'child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { issueSshBootstrapCredential, resetAuthStateForTests, verifySessionToken } from '@solus/server/server/auth'
+import { issueSshBootstrapCredential, resetAuthStateForTests, verifySessionToken } from '@solus/server/admission/auth'
 import {
   bootstrapDiscoveredServerOverSsh,
   isSshAuthFailure,
@@ -11,7 +11,7 @@ import {
   resolveSshBootstrapTarget,
   SSH_BOOTSTRAP_CREDENTIAL_SCRIPT,
   type SshRunOptions,
-} from '@solus/server/server/ssh-bootstrap'
+} from '@solus/server/transport/ssh-bootstrap'
 import type { DiscoveredServer } from '@solus/contracts/types'
 
 const originalDataDir = process.env.SOLUS_DATA_DIR

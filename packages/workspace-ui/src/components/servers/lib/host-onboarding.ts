@@ -387,7 +387,7 @@ export function hostCarriedOverFacts(
       title: git?.installed ? 'git is already here' : "git isn't installed here",
       detail: git?.installed
         ? 'nothing to install'
-        : readiness?.installGit?.display ?? 'install it on the host to clone',
+        : readiness?.installGit?.label ?? readiness?.installGit?.display ?? 'install it on the host to clone',
       done: !!git?.installed,
     },
     {

@@ -20,7 +20,8 @@ export class ToolHistoryStore {
     for (const message of messages) {
       const ref = message.historyToolInput
       if (!ref) continue
-      if (message.toolInput !== undefined) { delete message.historyToolInput; continue }
+      // A live update replaced the summary with a full input: nothing to load.
+      if (message.toolInput !== ref.summary) { delete message.historyToolInput; continue }
       const key = sourceKey(ref)
       const group = groups.get(key)
       if (group) group.push(message)
@@ -57,7 +58,7 @@ export class ToolHistoryStore {
               return
             }
             // A live update can supply a newer input while the read is in flight.
-            if (message.toolInput === undefined) message.toolInput = input
+            if (message.toolInput === ref.summary) message.toolInput = input
             delete message.historyToolInput
           })
         } catch {

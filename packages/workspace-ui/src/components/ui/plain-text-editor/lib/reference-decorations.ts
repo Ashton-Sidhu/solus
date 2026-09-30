@@ -86,6 +86,7 @@ function appendTokenIcon(parent: HTMLElement, token: ReferenceToken): void {
     icon.appendChild(svg);
   } else if (token.kind !== "slash") {
     const iconName =
+      token.kind === "login" ? "person" :
       token.kind === "plan"
         ? token.status === "accepted"
           ? "planAccepted"
@@ -99,6 +100,8 @@ function appendTokenIcon(parent: HTMLElement, token: ReferenceToken): void {
 }
 
 function tokenVariant(token: ReferenceToken): TokenVariant {
+  // A login is text, never a chip; if one is ever drawn, it reads as a person.
+  if (token.kind === "login") return "person";
   if (token.kind !== "plan") return token.kind;
   return `plan-${token.status}`;
 }
@@ -121,6 +124,10 @@ function tokenLabel(token: ReferenceToken): string {
       return `#${token.number} ${token.title}`;
     case "slash":
       return token.command;
+    case "person":
+      return `@${token.name}`;
+    case "login":
+      return `@${token.login}`;
   }
 }
 
@@ -149,6 +156,8 @@ function tokenClick(
     case "session":
     case "task":
     case "automation":
+    case "person":
+    case "login":
       return null;
   }
 }

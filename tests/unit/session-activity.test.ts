@@ -46,6 +46,20 @@ describe('session activity for the sidebar column', () => {
     expect(reads.has('length')).toBe(false)
   })
 
+  test('a restored session keeps its saved start before its transcript loads', () => {
+    // WHY: a restored tab loads its transcript only when selected. Without the
+    // saved start, its row sorted as the newest until clicked, then dropped to
+    // its real place — the row moved under the pointer that selected it.
+    const { session } = recordedSession([])
+    session.startedAt = 1_000
+    expect(firstActivityAt(session)).toBe(1_000)
+
+    // A loaded window that starts later than the session does not move it.
+    const { session: windowed } = recordedSession([{ role: 'user', content: 'Later', timestamp: 9_000 }])
+    windowed.startedAt = 1_000
+    expect(firstActivityAt(windowed)).toBe(1_000)
+  })
+
   test("an untitled session's name comes from its prompt without subscribing to length", () => {
     // WHY: a new session has no title until one is generated, which is exactly
     // when its row is arriving and the column must stay still.

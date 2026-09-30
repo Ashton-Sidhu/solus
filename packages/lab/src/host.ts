@@ -1,10 +1,11 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import { MANAGED_LINK_ENV, type EnrollHostResponse, type HostKind } from '@solus/contracts/uplink'
+import { HOST_LINK_ENV, type EnrollHostResponse, type HostKind } from '@solus/contracts/uplink'
+import { ORGANIZATION_ID } from './personas'
 import type { LabIssuer } from './issuer'
 
 /**
@@ -26,7 +27,7 @@ export interface LabHostOptions {
   tempRoot?: string
   /**
    * How a managed host gets its link (docs/plans/managed-hosts.md §1–§2). `env` boots
-   * the server in managed mode with no link record and the issuer's link in its
+   * the server with no link record and the issuer's provisioned link in its
    * environment, so the host stores it the way a Fly machine does; `record` writes
    * the link record by hand as the personal flavor does. Defaults to `env` when the
    * issuer can issue links (the Lab's own), else `record` (a real cloud).
@@ -55,11 +56,13 @@ export interface LabHost {
   readonly tunnelUrl: string
   /** The ordinary listener: a trusted loopback caller is the local owner. */
   readonly localUrl: string
+  /** A paired session token the local owner presents to the record API, minted on the host's own keys. */
+  localOwnerToken(): Promise<string>
   readonly pid: number
   readonly logPath: string
-  /** The link the host was started with in its environment; set only for a managed host in managed mode. */
+  /** The link the host was started with in its environment; set only for a managed host booted from its environment link. */
   readonly managedLink: EnrollHostResponse | null
-  /** True when the server runs in managed mode (`SOLUS_MANAGED=1`). */
+  /** True when the server booted with a provisioned link in its environment (`SOLUS_HOST_LINK`), as a managed machine does. */
   readonly managedMode: boolean
   /** Ends the process; `{ kill: true }` sends SIGKILL at once, the way a machine dies mid-turn. */
   stop(options?: { kill?: boolean }): Promise<void>
@@ -73,6 +76,16 @@ function writeConnectorShim(dataDir: string): void {
 }
 
 const HOST_ID = 'labhostabcdefghi'
+
+/** The server's own `auth-session-create` on the host's data directory: a paired token its keys verify. */
+function mintLocalOwnerToken(entry: string, dataDir: string, env: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise((resolveToken, reject) => {
+    execFile(process.execPath.endsWith('bun') ? 'node' : process.execPath, [entry, 'auth-session-create', '--data-dir', dataDir, '--json'], { cwd: dataDir, env }, (error, stdout) => {
+      if (error) return reject(error)
+      resolveToken(z.object({ sessionToken: z.string().min(1) }).parse(JSON.parse(stdout)).sessionToken)
+    })
+  })
+}
 const linkFileSchema = z.object({ link: z.object({ proxiedPort: z.number().int().positive() }) })
 
 /** A restarted host must bind the proxied port its link names, or its record would be stale. */
@@ -141,19 +154,18 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
       options.issuer.attachHostToOrganization(hostId, options.runnerOf)
     }
   } else if (managedMode) {
-    // No record: the host boots as a Fly machine does, in managed mode with the
-    // provisioner's link in its environment, and stores it (§2). The proxied port is
-    // pinned so the link names the port the host bound.
-    if (!options.issuer.issueManagedLink) throw new Error('A managed host in managed mode needs an issuer that issues links')
-    managedLink = options.issuer.issueManagedLink(hostId, proxiedPort)
-    env.SOLUS_MANAGED = '1'
-    env[MANAGED_LINK_ENV] = JSON.stringify(managedLink)
+    // No record: the host boots as a Sprite does, with the provisioner's link in its
+    // environment, and stores it (§2); the organization the link names makes it a
+    // managed host. The proxied port is pinned so the link names the port the host bound.
+    if (!options.issuer.issueManagedLink) throw new Error('A managed host booted from its environment link needs an issuer that issues links')
+    managedLink = options.issuer.issueManagedLink(hostId, proxiedPort, 1, ORGANIZATION_ID)
+    env[HOST_LINK_ENV] = JSON.stringify(managedLink)
     env.SOLUS_TUNNEL_PORT = String(proxiedPort)
     writeConnectorShim(dataDir)
   } else if (options.runnerOf) {
     // A linked host with its credentials, shared with an organization: the record
     // and the tokens the real cloud's enrollment would have left, so the host's
-    // generation check passes and its runner delivery can mint a grant.
+    // generation check passes and it can trade a person's token for a delegation.
     if (options.flavor !== 'personal') throw new Error('A runner is a personal host')
     if (!options.issuer.issueManagedLink || !options.issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
     const enrolled = options.issuer.issueManagedLink(hostId, proxiedPort)
@@ -162,7 +174,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     // The standalone server keeps secrets in files under the data directory.
     const secrets = join(dataDir, 'secrets')
     mkdirSync(secrets, { recursive: true, mode: 0o700 })
-    writeFileSync(join(secrets, 'uplink-tokens.json'), JSON.stringify({ connectorToken: enrolled.connectorToken, hostToken: enrolled.hostToken }), { mode: 0o600 })
+    writeFileSync(join(secrets, 'uplink-tokens.json'), JSON.stringify({ connectorToken: enrolled.connectorToken, hostToken: enrolled.hostToken, oauthClient: enrolled.oauthClient }), { mode: 0o600 })
     writeConnectorShim(dataDir)
   } else {
     // The link record the real cloud would have written at enrolment. No tokens: the
@@ -219,6 +231,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     dataDir,
     tunnelUrl,
     localUrl,
+    localOwnerToken: () => mintLocalOwnerToken(entry, dataDir, env),
     pid,
     logPath,
     managedLink,

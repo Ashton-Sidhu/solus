@@ -31,7 +31,7 @@ export const MOBILE_STATE_INK = {
   failure: 'color-mix(in oklch, var(--failure) 62%, var(--foreground))',
   warning: 'color-mix(in oklch, var(--warning) 58%, var(--foreground))',
   success: 'color-mix(in oklch, var(--success) 58%, var(--foreground))',
-  unread: 'var(--solus-status-unread)',
+  unread: 'var(--primary)',
   muted: 'var(--muted-foreground)',
 } satisfies Record<MobileStateTone, string>
 
@@ -41,7 +41,7 @@ export const MOBILE_STATE_TILE_BG = {
   failure: 'color-mix(in oklch, var(--failure) 18%, transparent)',
   warning: 'color-mix(in oklch, var(--warning) 16%, transparent)',
   success: 'color-mix(in oklch, var(--success) 18%, transparent)',
-  unread: 'color-mix(in oklch, var(--solus-status-unread) 18%, transparent)',
+  unread: 'color-mix(in oklch, var(--primary) 16%, transparent)',
   muted: 'var(--wash-3)',
 } satisfies Record<MobileStateTone, string>
 
@@ -53,7 +53,7 @@ export const MOBILE_STATE_TILE_INK = {
   success: 'color-mix(in oklch, var(--success) 52%, var(--foreground))',
   // Unread is the one mark the sidebar keeps at full colour on a row that has
   // otherwise stepped back, so it is not mixed toward the foreground here either.
-  unread: 'var(--solus-status-unread)',
+  unread: 'var(--primary)',
   muted: 'var(--muted-foreground)',
 } satisfies Record<MobileStateTone, string>
 

@@ -17,11 +17,14 @@
   import type { WorkspaceItem } from "./lib/workspace-items";
   import {
     formatGeneratedDate,
+    rowStatusLabel,
     formatGeneratedFull,
     formatLedgerTime,
     upstreamProviderFor,
   } from "./lib/workspace-items";
   import { highlightRuns } from "../../lib/searchHighlight";
+  import PresenceStack from "../presence/PresenceStack.svelte";
+  import type { PresencePerson } from "../presence/lib/presence-people";
 
   /** One ledger row — the same 44px rhythm for every artifact, pinned or not.
    *  Type is a coloured glyph, never a badge; status is a word in a fixed
@@ -76,9 +79,12 @@
     onPeek?: (row: HTMLElement) => void;
     onPeekLeave?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
+    /** Works only: the people who have this work open now; "editing…" under whoever changes it. */
+    present?: PresencePerson[];
   }
 
   let {
+    present = [],
     item,
     selected,
     showProject,
@@ -95,9 +101,7 @@
     onContextMenu,
   }: Props = $props();
 
-  const statusLabel = $derived(
-    item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "",
-  );
+  const statusLabel = $derived(rowStatusLabel(item));
   const titleRuns = $derived(highlightRuns(item.title, query));
   const generated = $derived(formatGeneratedDate(item.createdAt));
   const upstreamProvider = $derived(upstreamProviderFor(item));
@@ -304,6 +308,10 @@
       <span class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 text-[0.8125em] leading-[1.4] text-(--solus-text-tertiary)" data-testid="workspace-row-home">{homeLabel}</span>
     {/if}
 
+    {#if present.length > 0}
+      <PresenceStack people={present} size={14} max={2} detail={(person) => (person.isEditing ? "editing…" : null)} class="shrink-0" />
+    {/if}
+
     <!-- Upstream is a logo-only column. Its fixed slot keeps the status and time
          columns aligned for local works and plans without adding placeholder
          prose to rows that have no external twin. The record has no columns to
@@ -324,10 +332,11 @@
          these are the facts a person scans the ledger for, and the title leads on
          weight instead. Pending is the one coloured word — the one live state. -->
     <span
-      class="w-[3.75rem] shrink-0 text-right @max-[30rem]/pane:w-auto @max-[30rem]/pane:text-left {item.status ===
- 'pending'
+      class="w-[3.75rem] shrink-0 truncate text-right @max-[30rem]/pane:w-auto @max-[30rem]/pane:text-left {item.status ===
+ 'pending' || item.awaitingMyReview
  ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
- : ''}"
+ : item.reviewState === 'changes_requested' ? 'text-(--solus-diff-removed-text)' : ''}"
+      title={item.awaitingMyReview ? "Your review is requested" : undefined}
     >
       {statusLabel}
     </span>

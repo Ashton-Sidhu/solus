@@ -27,7 +27,6 @@ export async function runSetup(paths: RuntimePaths, log: (line: string) => void)
   await waitForHealth(paths, 20_000)
   if (!serviceStatus(env).active) throw new Error('The server answered, but the Solus service is not running. Check solus status.')
   log('Solus server is running.')
-  log('Connect a client with `solus pair`, or link this host with `solus connect`.')
 }
 
 async function waitForHealth(paths: RuntimePaths, timeoutMs: number): Promise<void> {

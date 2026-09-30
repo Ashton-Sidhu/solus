@@ -3,13 +3,17 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   awaitsManagedCompute,
+  chooseDefaultMachine,
+  dialableRoutes,
   installationIdDecision,
-  isCloudServer,
   loadServers,
   LOCAL_SERVER_ID,
   nextRouteUrl,
+  savedServerRoutes,
   stampHostOperatingSystem,
 } from './server-registry'
+import { activeWorkspace, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
+import { solusApiId } from '@solus/contracts/uplink'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { BrowserFrameSubscriber } from './browser-frame-subscriber'
@@ -152,6 +156,7 @@ export class ServerConnections {
   startCatalogSupervisors(): void {
     for (const serverId of this.catalogServerIds()) {
       const connection = this.ensure(serverId)
+      this.followSavedRoutes(connection)
       if (this.undialedServerIds.has(serverId) && !awaitsManagedHost(serverId)) {
         this.undialedServerIds.delete(serverId)
         connection.supervisor.start()
@@ -196,7 +201,27 @@ export class ServerConnections {
     for (const server of loadServers()) {
       if (server.installationId !== localInstallationId) ids.add(server.id)
     }
+    // The window's organization's workspace service is held too: it is where
+    // that organization's records live, though it is not a host. Another
+    // organization's service is dialed only when the window selects it (§7).
+    const active = activeWorkspace(loadWorkspaces())
+    if (active) ids.add(solusApiId(active.organizationId))
     return [...ids]
+  }
+
+  /**
+   * The window selected another organization (organization-scope §7): the
+   * previous organization's workspace service is released, unless a surface
+   * still holds it, and the new one is dialed. When the released service was
+   * the new-work default — the web client at the account origin boots on it —
+   * the default moves to the new service first, so no default names a
+   * connection that is gone.
+   */
+  switchSolusApi(previousServiceId: string | null, nextServiceId: string | null): void {
+    if (previousServiceId === nextServiceId) return
+    if (previousServiceId && previousServiceId === this.primaryServerId && nextServiceId) this.setPrimary(nextServiceId)
+    if (previousServiceId) this.release(previousServiceId)
+    this.startCatalogSupervisors()
   }
 
   private superviseTransport(serverId: string, transport: WsTransport, api: SolusAPI): HostSupervisor {
@@ -236,6 +261,27 @@ export class ServerConnections {
     connection.target.url = next
     connection.transport.switchServerUrl(next)
     this.healthCache.delete(serverId)
+  }
+
+  /**
+   * A connection copies its host's routes when it is made; the directory can change
+   * them later (a managed host is reached at its machine's name once it links). Take
+   * the saved routes again, and re-aim a socket whose route is no longer listed.
+   */
+  private followSavedRoutes(connection: ManagedConnection): void {
+    const { target } = connection
+    if (target.local) return
+    const saved = loadServers().find((server) => server.id === connection.serverId)
+    if (!saved) return
+    const routes = savedServerRoutes(saved)
+    target.routes = routes
+    if (saved.uplink) target.uplink = saved.uplink
+    if (routes.some((route) => route.url === target.url)) return
+    const [first] = dialableRoutes(routes, globalThis.location?.origin ?? '')
+    if (!first) return
+    target.url = first.url
+    connection.transport.switchServerUrl(first.url)
+    this.healthCache.delete(connection.serverId)
   }
 
   /** Identity since the web `local` alias died (dispatch-client step 5):
@@ -296,6 +342,19 @@ export class ServerConnections {
    */
   defaultServerId(): string | null {
     return this.primaryServerId
+  }
+
+  /** Where new work runs when nothing narrower names a machine; null when the
+   *  window has none (`chooseDefaultMachine`). Unlike `defaultServerId`, never
+   *  the workspace service. */
+  defaultMachineId(): string | null {
+    return chooseDefaultMachine({
+      primaryId: this.primaryServerId,
+      localId: this.localServerId(),
+      saved: loadServers(),
+      activeOrganizationId: activeWorkspace(loadWorkspaces())?.organizationId ?? null,
+      isConnected: (serverId) => this.connections.get(serverId)?.supervisor.phase === 'connected',
+    })
   }
 
   /** The client machine's own registered host: the desktop's local target.
@@ -460,6 +519,8 @@ export class ServerConnections {
 
     const target = this.connections.get(serverId)?.target ?? this.resolveTarget(serverId)
     let value: ServerHealth | null = null
+    // A host the directory lists with no route yet has nothing to ask; `/health` alone is this page's origin.
+    if (!target.url) return null
     try {
       const response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
       if (response.ok) {
@@ -478,12 +539,10 @@ export class ServerConnections {
     if (target.local || target.id === LOCAL_SERVER_ID) return true
     const saved = loadServers().find((server) => server.id === target.id)
     // The primary web bootstrap is not necessarily a saved host. There is no
-    // durable identity to compare until the user pairs and saves it.
+    // durable identity to compare until the user pairs and saves it. A workspace
+    // service is never a saved host: its identity is the grant, which the service
+    // only admits when it was minted for its audience.
     if (!saved) return true
-    // One workspace service answers for every organization, so its installation
-    // id can never name one `workspace:<orgId>` row. Its identity is the grant:
-    // the service only admits a ticket minted for its audience.
-    if (isCloudServer(saved)) return true
 
     const health = await this.probeHealth(target.id, true)
     // Only a successful health response can establish or reject identity. A
@@ -502,11 +561,26 @@ export class ServerConnections {
     return value
   }
 
+  /**
+   * Whether `serverId` names a host this client can reach: the ids
+   * `resolveTarget` answers for, without the throw. A stored id that fails is a
+   * host that was deleted or never listed here (docs/plans/workspace-and-machines.md §6);
+   * a caller reads nothing from it rather than asking `apiFor`.
+   */
+  isKnownServer(serverId: string): boolean {
+    if (this.connections.has(serverId) || this.targets.has(serverId)) return true
+    if (loadServers().some((server) => server.id === serverId)) return true
+    if (this.savedWorkspaceTarget(serverId)) return true
+    return serverId === LOCAL_SERVER_ID && !!this.primaryServerId && this.targets.has(this.primaryServerId)
+  }
+
   private resolveTarget(serverId: string): SolusServerTarget {
     const registered = this.targets.get(serverId)
     if (registered) return registered
     const saved = loadServers().find((server) => server.id === serverId)
     if (saved) return savedServerTarget(saved)
+    const workspace = this.savedWorkspaceTarget(serverId)
+    if (workspace) return workspace
     if (serverId === LOCAL_SERVER_ID) {
       // On web the primary target answers for the local id (see `ensure`).
       const primary = this.primaryServerId ? this.targets.get(this.primaryServerId) : undefined
@@ -514,6 +588,11 @@ export class ServerConnections {
       throw new Error('The local Solus target must be registered before it can be used')
     }
     throw new Error(`Unknown Solus server: ${serverId}`)
+  }
+
+  private savedWorkspaceTarget(serverId: string): SolusServerTarget | null {
+    const workspace = savedWorkspaceFor(serverId)
+    return workspace ? workspaceTarget(workspace) : null
   }
 
   private emitConnectionCreated(connection: ManagedConnection): void {

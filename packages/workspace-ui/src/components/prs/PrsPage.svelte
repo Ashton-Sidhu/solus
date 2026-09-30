@@ -4,8 +4,8 @@
   import { fly } from "svelte/transition";
   import { SvelteMap } from "svelte/reactivity";
   import type { PrFilter, PullRequest } from "@solus/contracts/providers";
-  import { projectScopeOf } from "@solus/contracts/types";
   import {
+    getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
     runtime,
@@ -19,7 +19,6 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hostKey } from "@solus/client-core/host-key";
-  import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { Button } from "../ui/button";
   import {
     ListEmpty,
@@ -50,22 +49,33 @@
   import PrDetailPanel from "./PrDetailPanel.svelte";
   import PrListBody from "./PrListBody.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
+  import PrActionConfirm from "../pr-review/PrActionConfirm.svelte";
+  import {
+    prMergeConfirmation,
+    prRowActionForKey,
+    prRowActions,
+    runPrRowAction,
+    type PrRowActionKind,
+  } from "./lib/pr-row-actions";
+  import { ShiftHeld } from "./lib/shift-held.svelte";
   import PrsPageSkeleton from "./PrsPageSkeleton.svelte";
   import PrListToolbar from "./PrListToolbar.svelte";
   import PrListStates from "./PrListStates.svelte";
   import PrReviewActions from "./PrReviewActions.svelte";
   import PrCondensedCrumbs from "./PrCondensedCrumbs.svelte";
-  import PrPanelResizeHandle from "./PrPanelResizeHandle.svelte";
+  import DetailPanelResizeHandle from "../ui/list-page/DetailPanelResizeHandle.svelte";
+  import { FoldingToolbar } from "../ui/list-page/folding-toolbar.svelte";
   import {
-    canSplitPrPanel,
-    clampPrPanelWidth,
-    prPanelWidth,
-    readSavedPrPanelWidth,
-    savePrPanelWidth,
-  } from "./lib/pr-panel-width";
+    canSplitDetailPanel,
+    clampDetailPanelWidth,
+    detailPanelWidth,
+    readSavedDetailPanelWidth,
+    saveDetailPanelWidth,
+  } from "../ui/list-page/detail-panel-width";
   import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions } from "./lib/pr-filter-menu";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
+  import { reviewLensStore } from "../review/review-lens.store.svelte";
   import { PrPageScope } from "./lib/pr-page-scope.svelte";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
@@ -73,6 +83,7 @@
   let { paneId }: InlinePageProps = $props();
 
   const session = getSurfaceContext();
+  const shell = getClientShellContext();
   // The board is mounted by the workspace and by the cloud console alike
   // (docs/plans/cloud-console-native-pages.md §9). Review Mode, guide
   // generation, the detail panel (it prepares a worktree), the sidebar's live
@@ -99,6 +110,18 @@
   let pageWidth = $state(0);
   const viewerLogins = new SvelteMap<string, string>();
   let prContextMenu = $state<{ pr: PullRequest; x: number; y: number } | null>(null);
+
+  // Shift held while this page is open shows every row's quick actions.
+  const shiftHeld = new ShiftHeld();
+  $effect(() => {
+    if (!open) return;
+    return shiftHeld.listen(window);
+  });
+  // A merge cannot be taken back, so every path to it asks first. The row is
+  // held by key and read back, so the dialog describes the pull request as it
+  // is now.
+  let mergeKey = $state<string | null>(null);
+  let mergeConfirmOpen = $state(false);
 
   // Tick the clock so relative row times age instead of freezing at load.
   let now = $state(Date.now());
@@ -211,9 +234,8 @@
         (project) => (project.filter.query ?? "") === search.typedHostQuery,
       ),
   );
-  // A failed project keeps its last-safe rows, so a failure is only visible if
-  // it is said out loud: a banner when something did load, the page's own
-  // surface when nothing did.
+  // A failed project keeps its last-safe rows. Partial failures use a toast;
+  // when no rows loaded, the error takes the page.
   const projectsFailure = $derived(
     pageScope.allProjects
       ? prInboxFailure(
@@ -243,6 +265,11 @@
         ? pullRequests.guides.statusFor(scope.serverId, scope.ctx, pr.number)
         : undefined;
     },
+    lensJob: (pr) => {
+      const scope = lookupScopeFor(pr);
+      return scope ? reviewLensStore.pullRequestJobFor(scope.serverId, { ...pr.baseRepo, number: pr.number }) : null;
+    },
+    hasLens: hasSavedLens,
     isMine: (pr) => isAuthoredBy(pr, viewerLoginFor(pr)),
     isReviewRequested: (pr) => isReviewRequestedFrom(pr, viewerLoginFor(pr)),
   });
@@ -270,8 +297,14 @@
         const scope = lookupScopeFor(pr);
         return !!scope && !!pullRequests.guides.metadataFor(scope.serverId, scope.ctx, pr.number)?.generatedAt;
       },
+      hasLens: hasSavedLens,
     }),
   );
+
+  function hasSavedLens(pr: PullRequest): boolean {
+    const scope = lookupScopeFor(pr);
+    return !!scope && reviewLensStore.hasSavedPrLens(scope.serverId, { ...pr.baseRepo, number: pr.number });
+  }
   const { searched, filtered, sectioned, sections } = $derived(arranged);
   const showPageSkeleton = $derived(
     showsPrPageSkeleton(scopeSwitch, activeLoading, filtered.length),
@@ -315,7 +348,7 @@
 
   const synced = syncStamp(() => activeRefreshing);
 
-  // The list's own order, as drawn — what ↑ / ↓, J / K, the panel stepper, and
+  // The list's own order, as drawn — what ↑ / ↓ and
   // the review's crumb switcher walk. A folded section's rows are not on
   // screen, so they are not walked either.
   const listNavigationItems = $derived(
@@ -387,6 +420,7 @@
   }
 
   const selectedPr = $derived(selectedKey ? (prByKey(selectedKey) ?? null) : null);
+  const mergePr = $derived(mergeKey ? (prByKey(mergeKey) ?? null) : null);
 
   // ── The detail panel ──
   // A pull request comes out from the side of the list rather than replacing it:
@@ -401,11 +435,11 @@
   const panelOpen = $derived(
     showsPrDetailPanel(openPr !== null, openTarget !== null),
   );
-  const roomForSplit = $derived(canSplitPrPanel(pageWidth));
-  // 60% of the page until the reader drags the edge; the drag is remembered.
-  let savedPanelWidth = $state(readSavedPrPanelWidth());
-  const panelWidth = $derived(prPanelWidth(savedPanelWidth, pageWidth));
-  const maxPanelWidth = $derived(clampPrPanelWidth(Number.POSITIVE_INFINITY, pageWidth));
+  const roomForSplit = $derived(canSplitDetailPanel(pageWidth));
+  // Half the page until the reader drags the edge; the drag is remembered.
+  let savedPanelWidth = $state(readSavedDetailPanelWidth("prs"));
+  const panelWidth = $derived(detailPanelWidth("prs", savedPanelWidth, pageWidth));
+  const maxPanelWidth = $derived(clampDetailPanelWidth(Number.POSITIVE_INFINITY, pageWidth));
   const panelFullScreen = $derived(
     panelOpen && (listView.panelFullScreen || !roomForSplit),
   );
@@ -415,22 +449,12 @@
   // Scrolled past the narrowing row, the row folds into the crumb line as
   // `Pull requests / Open ▾ / All ▾`. It unfolds while the search field is in
   // use, and the crumb's search button unfolds it on purpose.
-  let searchFocused = $state(false);
-  let toolbarPinned = $state(false);
-  const condensed = $derived(
-    listView.scrollTop > 48 &&
-      !listView.query &&
-      !searchFocused &&
-      !toolbarPinned,
+  const fold = new FoldingToolbar(
+    () => listView.scrollTop,
+    () => !!listView.query,
+    () => searchEl,
   );
-  function onSearchFocusChange(focused: boolean) {
-    searchFocused = focused;
-    if (!focused) toolbarPinned = false;
-  }
-  function unfoldSearch() {
-    toolbarPinned = true;
-    void tick().then(() => searchEl?.focus());
-  }
+  const condensed = $derived(fold.condensed);
 
   function closePanel() {
     clearPanelState();
@@ -453,21 +477,6 @@
     listView.panelFullScreen = !listView.panelFullScreen;
   }
 
-  /** Step to the pull request before or after the open one, in the list's own
-   *  order — what J / K and the panel's stepper walk. */
-  function stepPanel(delta: number) {
-    if (listNavigationItems.length === 0 || openKey === null) return;
-    const index = listNavigationItems.findIndex((p) => keyOf(p) === openKey);
-    if (index === -1) return;
-    const next =
-      listNavigationItems[
-        (index + delta + listNavigationItems.length) % listNavigationItems.length
-      ];
-    // Stepping is a move inside one reading session, so it keeps the tab you
-    // are reading; only picking a row afresh re-decides that.
-    if (next && keyOf(next) !== openKey) selectPr(next, pullRequests.view.tab);
-  }
-
   function openPrContextMenu(event: MouseEvent, pr: PullRequest) {
     event.preventDefault();
     event.stopPropagation();
@@ -476,7 +485,56 @@
     prContextMenu = { pr, x: event.clientX, y: event.clientY };
   }
 
+  function requestRowAction(pr: PullRequest, kind: PrRowActionKind) {
+    if (kind === "merge") {
+      mergeKey = keyOf(pr);
+      mergeConfirmOpen = true;
+    } else void runRowAction(pr, kind);
+  }
+
+  async function runRowAction(pr: PullRequest, kind: PrRowActionKind) {
+    const target = targetFor(pr);
+    if (!target) return;
+    await runPrRowAction(store.get(target.api, target.serverId, target.ctx).get(pr.number), kind);
+  }
+
   // ── Data loading ──
+
+  // Repeated background reads can report the same failed projects. Notify
+  // once per failure until a successful read clears it.
+  let lastNotifiedPartialFailure = "";
+
+  function notifyPartialFailure(): void {
+    const failure = projectsFailure;
+    if (failure.placement !== "toast") {
+      lastNotifiedPartialFailure = "";
+      return;
+    }
+    const key = failure.kind === "github-auth"
+      ? `auth:${failure.serverId}`
+      : `${failure.summary}\n${failure.detail}`;
+    if (key === lastNotifiedPartialFailure) return;
+    lastNotifiedPartialFailure = key;
+    if (failure.kind === "github-auth") {
+      toasts.error("GitHub is not connected", {
+        action: {
+          label: "Connect GitHub",
+          onAction: () => shell.openResource({ kind: "connections", serverId: failure.serverId }),
+        },
+      });
+    } else {
+      toasts.error(failure.summary, {
+        description: failure.detail,
+        action: {
+          label: "Retry",
+          onAction: () => {
+            lastNotifiedPartialFailure = "";
+            readList(true);
+          },
+        },
+      });
+    }
+  }
 
   // A change of project is the only scope trigger this effect reacts to.
   // `session.ctx` reads reactive git state (gitContext, changedFiles) that the
@@ -561,6 +619,7 @@
   /** Read the list the page is on, then the checks and guides for the rows it holds. */
   function readList(force = false): void {
     const scopes = readTargets();
+    const readKey = listReadKey;
     void store
       .readPage(scopes, { ...listFilter }, {
         memoryKey: pageScope.allProjects ? "all" : pageScope.scopeKey,
@@ -568,6 +627,7 @@
         targets: pageScope.allProjects ? pageScope.projectTargets : undefined,
       })
       .then(() => {
+        if (open && pageScope.allProjects && readKey === listReadKey) notifyPartialFailure();
         for (const scope of scopes) {
           void pullRequests.checks.load(
             scope.hostApi,
@@ -576,9 +636,15 @@
             scope.items.map((pullRequest) => pullRequest.number),
           );
           void pullRequests.guides.loadListed(scope);
+          loadListedLenses(scope);
         }
       })
       .catch(() => {});
+  }
+
+  function loadListedLenses(scope: ProjectPrs): void {
+    const prs = scope.items.map((pr) => ({ ...pr.baseRepo, number: pr.number }));
+    void reviewLensStore.loadPrRevisions(scope.hostApi, scope.serverId, scope.hostContext, prs);
   }
 
   function loadViewers(): void {
@@ -632,30 +698,21 @@
     projectsStore.removeProject(option.key);
   }
 
+  // While the page is open, PR sync keeps every project it lists fresh, and
+  // what changes reaches the rows with no read. Closing the page stops it.
   $effect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = subscribeAllHosts(
-      "prs.invalidated",
-      (emittingServerId, { projectRoot: changedCwd }) => {
-        if (!open) return;
-        if (pageScope.allProjects) {
-          if (!pageScope.projectTargets.some((project) => project.serverId === emittingServerId && project.projectRoot === changedCwd)) return;
-          clearTimeout(timer);
-          timer = setTimeout(() => readList(true), 500);
-          return;
-        }
-        if (emittingServerId !== pageScope.serverId) return;
-        const scopedCtx = pageScope.ctx().session;
-        const ctxCwd = projectScopeOf(scopedCtx);
-        if (changedCwd !== ctxCwd) return;
-        clearTimeout(timer);
-        timer = setTimeout(() => readList(true), 500);
-      },
-    );
-    return () => {
-      unsub();
-      clearTimeout(timer);
-    };
+    if (!open) return;
+    void pageScope.reachableKey;
+    void pageScope.scopeKey;
+    void pageScope.allProjects;
+    return untrack(() => {
+      const releases = readTargets().map((scope) =>
+        store.want(scope.hostApi, scope.serverId, scope.hostContext, [{ kind: "repository" }]),
+      );
+      return () => {
+        for (const release of releases) release();
+      };
+    });
   });
 
   /** Open a pull request in the panel beside the list. The row stays selected,
@@ -730,8 +787,15 @@
   }
 
   function clearFilters() {
+    listView.query = "";
     clearPrFilters(listView);
     searchEl?.focus();
+  }
+
+  /** Clears what the Filters badge counts: the facets, and the project scope where the menu offers it. */
+  function clearMenuFilters() {
+    clearPrFilters(listView);
+    if (!splitList) session.setProjectPageScope({ kind: "all" });
   }
 
   // ── Keybindings ──
@@ -753,7 +817,11 @@
 
   // ── List keyboard nav ──
   function onListKeydown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const rowAction = selectedPr ? prRowActionForKey(e, prRowActions(selectedPr)) : null;
+    if (rowAction && selectedPr) {
+      e.preventDefault();
+      requestRowAction(selectedPr, rowAction);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const idx = selectedKey
         ? listNavigationItems.findIndex((p) => keyOf(p) === selectedKey)
@@ -782,8 +850,9 @@
   }
 
   async function loadMore(scope: ProjectPrs): Promise<void> {
-    await scope.list({ page: scope.nextPage });
+    await scope.loadMore();
     void pullRequests.guides.loadListed(scope);
+    loadListedLenses(scope);
     await pullRequests.checks.load(
       scope.hostApi,
       scope.serverId,
@@ -792,6 +861,12 @@
     );
   }
 </script>
+
+<svelte:window
+  onpointerdown={fold.pressStarted}
+  onpointerup={fold.pressEnded}
+  onpointercancel={fold.pressEnded}
+/>
 
 {#snippet pageActions()}
   {#if selected.length > 0 && workspace}
@@ -817,7 +892,8 @@
     {filterGroups}
     projectFilter={splitList ? undefined : projectFilter}
     projectFilterActive={!splitList && !pageScope.allProjects && !!pageScope.pageKey}
-    {onSearchFocusChange}
+    onClearFilters={clearMenuFilters}
+    onSearchFocusChange={fold.searchFocusChanged}
   />
 {/snippet}
 
@@ -837,7 +913,7 @@
 {/snippet}
 
 {#snippet condensedCrumbs()}
-  <PrCondensedCrumbs groups={crumbGroups} onSearch={unfoldSearch} />
+  <PrCondensedCrumbs groups={crumbGroups} onSearch={fold.unfoldSearch} />
 {/snippet}
 
 {#if open}
@@ -931,6 +1007,7 @@
           <PrListBody
             items={virtualItems}
             height={contentHeight}
+            split={splitList}
             activeKey={activeVirtualKey}
             bind:scrollTop={listView.scrollTop}
             {selectedKey}
@@ -939,12 +1016,14 @@
             hasMore={hasMorePullRequests}
             loadingMore={loadingMorePullRequests}
             {loadCapped}
+            showRowActions={shiftHeld.isHeld}
             {prByKey}
             {isSectionOpen}
             onToggleSection={(key) => (listView.collapsedGroups[key] = isSectionOpen(key))}
             onSelect={(pr) => selectPr(pr)}
             onContextMenu={openPrContextMenu}
             onToggleReview={(pr) => reviewSelection.toggle(pr)}
+            onRowAction={requestRowAction}
             onLoadMore={loadMoreAll}
           />
         {/if}
@@ -973,11 +1052,12 @@
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         {#if !panelFullScreen}
-          <PrPanelResizeHandle
+          <DetailPanelResizeHandle
             width={panelWidth}
             maxWidth={maxPanelWidth}
-            onResize={(width) => (savedPanelWidth = clampPrPanelWidth(width, pageWidth))}
-            onCommit={(width) => savePrPanelWidth(clampPrPanelWidth(width, pageWidth))}
+            label="Resize pull request panel"
+            onResize={(width) => (savedPanelWidth = clampDetailPanelWidth(width, pageWidth))}
+            onCommit={(width) => saveDetailPanelWidth("prs", clampDetailPanelWidth(width, pageWidth))}
           />
         {/if}
         <!-- One panel per pull request: a step to another one mounts a new
@@ -993,7 +1073,6 @@
           fullScreen={panelFullScreen}
           onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
           onClose={closePanel}
-          onStep={stepPanel}
         />
         {/key}
       </div>
@@ -1008,7 +1087,17 @@
         onOpen={() => selectPr(menuPr)}
         onReview={() => selectPr(menuPr, "diff")}
         onOpenWeb={() => void localApi.openExternal(menuPr.url)}
+        actions={prRowActions(menuPr)}
+        onAction={(kind) => requestRowAction(menuPr, kind)}
         onClose={() => (prContextMenu = null)}
+      />
+    {/if}
+    {#if mergePr}
+      {@const merging = mergePr}
+      <PrActionConfirm
+        bind:open={mergeConfirmOpen}
+        {...prMergeConfirmation(merging)}
+        onConfirm={() => void runRowAction(merging, "merge")}
       />
     {/if}
     {/if}

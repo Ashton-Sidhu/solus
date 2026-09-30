@@ -1,4 +1,4 @@
-import type { ProjectEntry, RecentProject } from '@solus/contracts/types'
+import { isRemoteDispatchCheckoutPath, type ProjectEntry, type RecentProject } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
@@ -51,6 +51,16 @@ function loadCatalog(): StoredCatalog {
   } catch {
     return { entries: [], ignoredDiscoveryKeys: [] }
   }
+}
+
+/**
+ * Whether a folder can be a project in the catalog. `'~'` names no folder yet,
+ * and a dispatch checkout is a clone a host keeps for one paired device: a
+ * checkout of the project it was sent from, never a project of its own. The
+ * host keeps both out of its own lists; this keeps the device's list the same.
+ */
+function isCatalogRoot(projectRoot: string): boolean {
+  return !!projectRoot && projectRoot !== '~' && !isRemoteDispatchCheckoutPath(projectRoot)
 }
 
 type FetchRecentProjects = (serverId: string) => Promise<RecentProject[]>
@@ -131,11 +141,11 @@ export class ProjectsStore {
     return this.entriesByKey.has(projectRefKey(ref))
   }
 
-  /** Record (or touch) a project the user opened, cloned, adopted, or ran a
-   *  session in. `'~'` and empty roots are not projects and are ignored. */
+  /** Write a catalog entry with this label. Product code adds projects
+   *  through `addProject`; a root that is not a project is ignored. */
   record(ref: ProjectRef, label: string): void {
     const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    if (!ref.serverId || !projectRoot || projectRoot === '~') return
+    if (!ref.serverId || !isCatalogRoot(projectRoot)) return
     const key = projectRefKey({ serverId: ref.serverId, projectRoot })
     this.ignoredDiscoveryKeys.delete(key)
     this.recordKey(key, ref.serverId, projectRoot, label)
@@ -153,7 +163,7 @@ export class ProjectsStore {
    *  open or session calls `record` and makes the project visible again. */
   recordDiscovered(ref: ProjectRef, label: string): void {
     const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    if (!ref.serverId || !projectRoot || projectRoot === '~') return
+    if (!ref.serverId || !isCatalogRoot(projectRoot)) return
     const key = projectRefKey({ serverId: ref.serverId, projectRoot })
     if (this.ignoredDiscoveryKeys.has(key)) return
     this.recordKey(key, ref.serverId, projectRoot, label)
@@ -327,33 +337,33 @@ export class ProjectsStore {
   }
 
   /**
-   * Add a project a person chose from the directory picker, without starting a
-   * session in it. The host's recents record it and the client catalog records
-   * it, so every page-level project switcher can scope to the project before an
-   * agent has ever run there.
+   * The one way a folder becomes a project: a person opened, cloned, or added
+   * it. This device's catalog records it at once, so the next surface already
+   * lists it; the host records it too, without holding the caller. Running a
+   * session in a folder does not add it (`touch` only reorders known ones).
    */
-  async addProject(
+  addProject(
     serverId: string,
     api: Pick<HostApi, 'trackRecentProject'>,
     path: string,
-  ): Promise<ProjectRef | null> {
-    const project = this.recordProject(serverId, path)
-    if (!project) return null
-    const { projectRoot } = project
-    await api.trackRecentProject(projectRoot).catch(() => {})
-    this.invalidateRecentProjects(serverId)
+  ): ProjectRef | null {
+    const projectRoot = normalizeProjectRoot(path)
+    if (!serverId || !isCatalogRoot(projectRoot)) return null
+    const project = { serverId, projectRoot }
+    this.record(project, projectDirLabel(projectRoot, null))
+    void api.trackRecentProject(project.projectRoot)
+      .catch(() => {})
+      .then(() => this.invalidateRecentProjects(serverId))
     return project
   }
 
-  /** Record a project immediately on the client. Opening a folder already
-   * tracks it on the host through the session path; this synchronous half keeps
-   * every page picker correct before a session starts. */
-  recordProject(serverId: string, path: string): ProjectRef | null {
-    const projectRoot = normalizeProjectRoot(path)
-    if (!serverId || !projectRoot || projectRoot === '~') return null
-    const project = { serverId, projectRoot }
-    this.record(project, projectDirLabel(projectRoot, null))
-    return project
+  /** A session ran in this folder: move it up the list if it is a project. */
+  touch(ref: ProjectRef): void {
+    const projectRoot = normalizeProjectRoot(ref.projectRoot)
+    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
+    const existing = this.entriesByKey.get(key)
+    if (!existing) return
+    this.recordKey(key, ref.serverId, projectRoot, existing.label)
   }
 
   invalidateRecentProjects(serverId?: string): void {

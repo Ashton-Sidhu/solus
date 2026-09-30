@@ -1,0 +1,498 @@
+import { homedir } from 'os'
+import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query } from '@anthropic-ai/claude-agent-sdk'
+import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
+import { TurnInputChannel } from './claude-turn-input'
+import { createLogger } from '../../../logger'
+import { resolveHomePath } from '../../../platform/paths'
+import { findOnPath, warmCliPath } from '../../../cli-env'
+import { SOLUS_PLUGINS_DIR } from '../plugins'
+import { parseClaudeUsageReport } from './claude-usage'
+import { toContextBreakdown } from './claude-context-usage'
+import type { ClaudeUsageWindows } from './claude-usage'
+import type { AgentSlashCommand, ContextUsage, NormalizedEvent, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
+import type { ResultEvent } from '@solus/contracts/claude-types'
+import { z } from 'zod'
+import type { GitIdentityEnv } from '../../../git/git-identity-manager'
+
+const log = createLogger('ClaudeAgent', 'claude-agent.ts')
+/** A detail row keeps its own name plus wherever it came from. */
+const detailRowSchema = z.object({ name: z.string(), tokens: z.number() })
+const contextUsageReportSchema = z.object({
+  totalTokens: z.number(),
+  maxTokens: z.number().optional(),
+  isAutoCompactEnabled: z.boolean().optional(),
+  autoCompactThreshold: z.number().optional(),
+  categories: z.array(z.object({
+    name: z.string(),
+    tokens: z.number(),
+    isDeferred: z.boolean().optional(),
+  })).optional(),
+  systemPromptSections: z.array(detailRowSchema).optional(),
+  systemTools: z.array(detailRowSchema).optional(),
+  mcpTools: z.array(detailRowSchema.extend({ serverName: z.string().optional() })).optional(),
+  memoryFiles: z.array(z.object({
+    path: z.string(),
+    tokens: z.number(),
+    type: z.string().optional(),
+  })).optional(),
+  agents: z.array(z.object({
+    agentType: z.string(),
+    tokens: z.number(),
+    source: z.string().optional(),
+  })).optional(),
+  skills: z.object({
+    skillFrontmatter: z.array(detailRowSchema.extend({ source: z.string().optional() })).optional(),
+  }).optional(),
+})
+const streamingTextEventSchema = z.object({
+  type: z.literal('stream_event'),
+  event: z.object({ type: z.literal('content_block_delta') }),
+})
+const initMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('init'),
+  session_id: z.string(),
+})
+
+/**
+ * The SDK's own accounting of the window it is about to send: exact totals, the
+ * real limit for this model (not the profile's guess), and the threshold it will
+ * auto-compact at. Reported per turn because all three move — a compaction drops
+ * the total, and the threshold follows whatever the CLI is configured with.
+ * Returns null when the CLI predates the control request, leaving the meter on
+ * the per-message figures the normalizer derives.
+ */
+async function readContextUsage(
+  cquery: { getContextUsage(): Promise<any> },
+): Promise<ContextUsage | null> {
+  try {
+    const parsed = contextUsageReportSchema.safeParse(await cquery.getContextUsage())
+    if (!parsed.success) return null
+    const report = parsed.data
+    return {
+      usedTokens: report.totalTokens,
+      windowTokens: report.maxTokens,
+      compactAtTokens: report.isAutoCompactEnabled && report.autoCompactThreshold !== undefined
+        ? report.autoCompactThreshold
+        : undefined,
+      // The same response already carries what fills the window, so the
+      // breakdown costs nothing beyond the call this turn already makes.
+      ...toContextBreakdown(report),
+    }
+  } catch (e) {
+    log.warn('context_usage_read_failed', { error: e instanceof Error ? e.message : String(e) })
+    return null
+  }
+}
+
+function logRawClaudeEvent<T>(sessionId: string | null, msg: T): void {
+  if (isNormalStreamingTextEvent(msg)) return
+
+  log.debug('raw_provider_event', {
+    provider: 'claude-code',
+    sessionId,
+    event: msg,
+  })
+}
+
+function isNormalStreamingTextEvent<T>(msg: T): boolean {
+  return streamingTextEventSchema.safeParse(msg).success
+}
+
+export const UI_TO_SDK_PERMISSION_MODE = {
+  supervised: 'default',
+  'accept-edits': 'acceptEdits',
+  auto: 'auto',
+  'full-access': 'bypassPermissions',
+  plan: 'plan',
+} satisfies Record<PermissionMode, SdkPermissionMode>
+
+// Harness built-ins that schedule work as cloud CCR agents. Solus owns
+// recurring work through its own automation domain (`create_automation`), which
+// runs on this host with the session's project and provider. Leaving these
+// reachable only offers a wrong way to answer "remind me every morning", so the
+// tools are withheld rather than argued against in the system prompt.
+// `allowedTools` cannot do this — it auto-approves, it does not filter.
+const BLOCKED_TOOLS = [
+  'RemoteTrigger',
+  'CronCreate', 'CronDelete', 'CronList',
+  'Skill(schedule)',
+]
+
+// Setup installs Claude on the host; the app does not ship the SDK's CLI.
+// Wait for PATH discovery before querying, and check the file on every request
+// so an install or removal after boot is visible without restarting Solus.
+async function resolveClaudeExecutable(): Promise<string> {
+  const executable = findOnPath('claude', await warmCliPath())
+  if (!executable) {
+    throw new Error('Claude Code was not found on this host. Install it through Solus setup, then try again.')
+  }
+  return executable
+}
+
+/** The Claude login a turn runs on: a config directory and, for a pasted setup-token, the token. */
+export interface ClaudeSeat {
+  home: string
+  /** The host's own login: the CLI stays on its defaults and the host process env passes through. */
+  isHostLogin?: boolean
+  envToken?: string
+  /** A member's Git identity and credential helper. */
+  gitEnv?: GitIdentityEnv
+}
+
+/**
+ * The child environment. The host login is the host process env as it stands:
+ * the CLI reads its own defaults, and an API key the host runs on still applies.
+ * A member's seat runs on the member's login and on nothing the host process
+ * carries: an API key or token in the server's env would otherwise answer for them.
+ */
+export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' }
+  if (!seat) return env
+  if (!seat.isHostLogin) {
+    delete env.ANTHROPIC_API_KEY
+    delete env.CLAUDE_CODE_OAUTH_TOKEN
+    env.CLAUDE_CONFIG_DIR = seat.home
+  }
+  if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
+  if (seat.gitEnv) Object.assign(env, seat.gitEnv)
+  return env
+}
+
+export interface ClaudeRunOptions {
+  /** A plain string for a one-shot turn (background/utility runs), or a
+   *  TurnInputChannel (streaming input mode) for session turns, whose stream is
+   *  held open across the turn so it can be steered while the agent loop runs. */
+  prompt: string | TurnInputChannel
+  cwd: string
+  sessionId?: string | null
+  model?: string | null
+  reasoningEffort?: ReasoningEffort
+  disableReasoning?: boolean
+  fastMode?: boolean
+  permissionMode?: PermissionMode
+  additionalDirectories?: string[]
+  allowedTools?: string[]
+  mcpServers?: Options['mcpServers']
+  systemPromptAppend?: string
+  maxTurns?: number
+  maxBudgetUsd?: number
+  canUseTool?: CanUseTool
+  persistSession?: boolean
+  abortController?: AbortController
+  /** Fires once when the SDK first reports a session id for this run. */
+  onSessionInit?: (sessionId: string) => Promise<void>
+  /** Persists the turn and returns the authoritative net session paths. */
+  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<string[] | null>
+  /** When true, the SDK creates a new forked session branching from opts.sessionId. */
+  forkSession?: boolean
+  /** Assistant message UUID through which the resumed fork includes history. */
+  resumeSessionAt?: string
+  /** Run on this member's login instead of the host's. */
+  seat?: ClaudeSeat
+}
+
+export interface ClaudeRunResult {
+  sessionId: string | null
+  toolCallCount: number
+  permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+  exitCode: 0 | null
+  signal: 'SIGINT' | null
+}
+
+export interface ClaudeRunExecution {
+  events: AsyncIterable<NormalizedEvent>
+  result: Promise<ClaudeRunResult>
+  /** Stop one background task on the open query without ending the turn.
+   *  False before the query exists; the SDK settles the task through its
+   *  usual `task_updated` / `task_notification` events. */
+  stopTask(taskId: string): Promise<boolean>
+}
+
+const autoAllow: CanUseTool = async (_toolName, input) => ({ behavior: 'allow', updatedInput: input })
+
+/**
+ * Session-agnostic wrapper around the Claude Agent SDK. Consumers get a stream
+ * of normalized events plus a result promise — no EventEmitter, no IpcContext,
+ * no permission UI. Usable for background tasks (title/summary generation)
+ * and composed into `ClaudeBackend` for session-tied runs.
+ */
+export class ClaudeAgent {
+  run(opts: ClaudeRunOptions): ClaudeRunExecution {
+    const abortController = opts.abortController ?? new AbortController()
+    const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode ?? 'full-access']
+
+    const systemPrompt: Options['systemPrompt'] = {
+      type: 'preset',
+      preset: 'claude_code',
+    }
+    if (opts.systemPromptAppend) systemPrompt.append = opts.systemPromptAppend
+
+    const claudeOptions: Options = {
+      // The CLI leaves TodoWrite out of the Claude 5 preset; naming it here adds
+      // it back so the progress tracker still fills (see claude-event-normalizer).
+      allowedTools: ['TodoWrite', ...(opts.allowedTools ?? [])],
+      disallowedTools: [...BLOCKED_TOOLS],
+      cwd: resolveHomePath(opts.cwd),
+      systemPrompt,
+      plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
+      maxTurns: opts.maxTurns,
+      maxBudgetUsd: opts.maxBudgetUsd,
+      additionalDirectories: opts.additionalDirectories,
+      model: opts.model ?? undefined,
+      abortController,
+      includePartialMessages: true,
+      settingSources: ['user', 'project'],
+      canUseTool: opts.canUseTool ?? autoAllow,
+      permissionMode: sdkPermissionMode,
+      allowDangerouslySkipPermissions: sdkPermissionMode === 'bypassPermissions',
+      fastMode: opts.fastMode ?? false,
+      persistSession: opts.persistSession ?? true,
+      extraArgs: { 'replay-user-messages': null },
+      env: claudeEnv(opts.seat),
+    }
+    if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
+    if (!opts.disableReasoning) {
+      claudeOptions.effort = opts.reasoningEffort ?? 'high'
+      // Request readable summaries without changing the model's thinking budget.
+      claudeOptions.settings = { showThinkingSummaries: true }
+    }
+
+    if (opts.sessionId) {
+      claudeOptions.resume = opts.sessionId
+      if (opts.resumeSessionAt) claudeOptions.resumeSessionAt = opts.resumeSessionAt
+      if (opts.forkSession) {
+        claudeOptions.forkSession = true
+      }
+    }
+
+    const state = {
+      sessionId: opts.sessionId ?? null,
+    }
+    const normalizer = new ClaudeTurnNormalizer()
+
+    let resolveResult!: (v: ClaudeRunResult) => void
+    let rejectResult!: (e: Error) => void
+    const result = new Promise<ClaudeRunResult>((res, rej) => {
+      resolveResult = res
+      rejectResult = rej
+    })
+
+    const input = opts.prompt instanceof TurnInputChannel ? opts.prompt : null
+    const promptInput = opts.prompt instanceof TurnInputChannel ? opts.prompt.stream : opts.prompt
+    const userMessagePreview = (input?.previewText ?? String(opts.prompt)).slice(0, 200)
+    let activeQuery: Query | null = null
+
+    const events = (async function* (): AsyncGenerator<NormalizedEvent> {
+      // A turn is over once its result lands, but the SDK keeps the query open
+      // while backgrounded sub-agents finish. Closing the input stream is what
+      // ends the query, so hold it open until nothing is still in flight —
+      // otherwise those tasks get cut off mid-run.
+      let sawResult = false
+      // Tracked by id, not counted: a task settles twice (`task_updated` and
+      // `task_notification` both normalize to `background_task_settled`), so a
+      // counter drains ahead of the real work and closes the stream mid-turn.
+      const backgroundTasks = new Set<string>()
+      try {
+        const executable = await resolveClaudeExecutable()
+        abortController.signal.throwIfAborted()
+        const cquery = query({
+          prompt: promptInput,
+          options: { ...claudeOptions, pathToClaudeCodeExecutable: executable },
+        })
+        activeQuery = cquery
+
+        for await (const msg of cquery) {
+          const initMessage = initMessageSchema.safeParse(msg)
+          if (initMessage.success) {
+            const newSid = initMessage.data.session_id
+            const firstSeen = state.sessionId !== newSid
+            state.sessionId = newSid
+            if (firstSeen && opts.onSessionInit) {
+              try { await opts.onSessionInit(newSid) }
+              catch (e) { log.warn('on_session_init_failed', { error: e instanceof Error ? e.message : String(e) }) }
+            }
+          }
+
+          logRawClaudeEvent(state.sessionId, msg)
+
+          const normalized = normalizer.push(msg)
+          for (const evt of normalized) {
+            if (evt.type === 'background_task_started') backgroundTasks.add(evt.taskId)
+            else if (evt.type === 'background_task_settled') backgroundTasks.delete(evt.taskId)
+          }
+          // An aborted request is reported as a result before the SDK restarts
+          // its loop on the same query. Closing the input there would pull the
+          // stream out from under the restart, and `canUseTool` rides that same
+          // stream — every later permission request would fail with
+          // "AbortError: Stream closed".
+          // SAFETY: The SDK message type discriminant identifies its result contract.
+          const resultMessage = msg.type === 'result' ? msg as ResultEvent : null
+          if (resultMessage && !isAbortSeamResult(resultMessage) && !isTaskNotificationResult(resultMessage)) {
+            sawResult = true
+            // A background task keeps the SDK query and its input loop alive, so
+            // Enter must still be able to steer the main agent while that task is
+            // running. With no background work, refuse input during the snapshot
+            // gap: `input.close()` below can lag and nothing would read it again.
+            if (backgroundTasks.size === 0) input?.seal()
+            const contextUsage = await readContextUsage(cquery)
+            if (contextUsage) yield { type: 'usage', context: contextUsage }
+            if (state.sessionId && opts.onTurnComplete) {
+              try {
+                const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                  partial: false,
+                  userMessagePreview,
+                  editedFiles: normalizer.editedFiles,
+                })
+                if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
+              }
+              catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
+            }
+          }
+          // Close only at a result. A settling background task is not an end: the
+          // SDK restarts its loop to hand the notification to the main agent, and
+          // `canUseTool` rides this stream, so closing on the settle made every
+          // permission request in that continuation — AskUserQuestion above all —
+          // fail with "AbortError: Stream closed". That continuation reports its
+          // own result, which is where the last task in flight gets to close.
+          if (msg.type === 'result' && sawResult && backgroundTasks.size === 0) input?.close()
+          for (const evt of normalized) yield evt
+        }
+
+        resolveResult({
+          sessionId: state.sessionId,
+          toolCallCount: normalizer.summary.toolCallCount,
+          permissionDenials: normalizer.summary.permissionDenials,
+          exitCode: 0,
+          signal: null,
+        })
+      } catch (err: any) {
+        const isAbort = abortController.signal.aborted || err?.name === 'AbortError'
+        if (isAbort) {
+          normalizer.interrupt()
+          if (state.sessionId && opts.onTurnComplete) {
+            try {
+              const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                partial: true,
+                userMessagePreview,
+                editedFiles: normalizer.editedFiles,
+              })
+              if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
+            }
+            catch (e) { log.warn('on_turn_complete_abort_failed', { error: e instanceof Error ? e.message : String(e) }) }
+          }
+          resolveResult({
+            sessionId: state.sessionId,
+            toolCallCount: normalizer.summary.toolCallCount,
+            permissionDenials: normalizer.summary.permissionDenials,
+            exitCode: null,
+            signal: 'SIGINT',
+          })
+        } else {
+          rejectResult(err instanceof Error ? err : new Error(String(err)))
+        }
+      } finally {
+        // An aborted or failed turn never reaches the result path above; release
+        // the stream so the query can't be left waiting on input that never comes.
+        input?.close()
+      }
+    })()
+
+    const stopTask = async (taskId: string): Promise<boolean> => {
+      if (!activeQuery) return false
+      await activeQuery.stopTask(taskId)
+      return true
+    }
+
+    return { events, result, stopTask }
+  }
+
+  /**
+   * Fetch the slash commands the SDK reports at init (built-ins, custom, skills)
+   * for a working directory. Opens a short-lived streaming query — the only mode
+   * in which `supportedCommands()` is available — drives it to init, reads the
+   * commands, then tears it down. No turn is ever sent.
+   */
+  async supportedCommands(opts: { cwd: string; model?: string | null }): Promise<AgentSlashCommand[]> {
+    const abortController = new AbortController()
+    // Streaming input mode (an async-iterable prompt) is required for
+    // `supportedCommands()`. This input yields no turn — it just stays open
+    // until we abort, so the subprocess lives long enough to report its init.
+    async function* emptyInput(): AsyncGenerator<never> {
+      await new Promise<void>((resolve) =>
+        abortController.signal.addEventListener('abort', () => resolve(), { once: true }))
+      yield* []
+    }
+
+    const cquery = query({
+      prompt: emptyInput(),
+      options: {
+        cwd: resolveHomePath(opts.cwd),
+        model: opts.model ?? undefined,
+        abortController,
+        settingSources: ['user', 'project'],
+        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
+        plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
+        env: claudeEnv(),
+      },
+    })
+    // Drive the subprocess so the init handshake completes; messages are ignored.
+    const drain = (async () => { try { for await (const _ of cquery) { /* until aborted */ } } catch { /* aborted */ } })()
+    try {
+      const commands = await cquery.supportedCommands()
+      return commands.map((c) => ({
+        name: c.name,
+        description: c.description,
+        argumentHint: c.argumentHint || undefined,
+        aliases: c.aliases,
+      }))
+    } finally {
+      abortController.abort()
+      await drain.catch(() => {})
+    }
+  }
+
+  /**
+   * Read the subscription quota windows by running `/usage` headless. The slash
+   * command costs $0 and zero turns — it never reaches the model — so this is
+   * cheap enough to poll. Returns null when the report doesn't parse. Under a
+   * pasted setup-token the command degrades to a cost report with no windows
+   * (proof of 2026-09-04), so a token seat is not probed at all.
+   */
+  async readUsageReport(seat?: ClaudeSeat): Promise<ClaudeUsageWindows | null> {
+    if (seat?.envToken) return null
+    const usageQuery = query({
+      prompt: '/usage',
+      options: {
+        // Quota is account-wide, so this deliberately runs outside any project:
+        // no project settings, no session file, nothing to leak into a transcript.
+        cwd: resolveHomePath(homedir()),
+        settingSources: [],
+        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
+        extraArgs: { 'no-session-persistence': null },
+        env: claudeEnv(seat),
+      },
+    })
+    for await (const message of usageQuery) {
+      if (message.type !== 'result') continue
+      if (message.subtype !== 'success') {
+        // Silent before: a meter that stays empty had nothing in the log to explain it.
+        log.warn('usage_report_failed', { subtype: message.subtype, seat: seat?.home ?? null })
+        return null
+      }
+      const windows = parseClaudeUsageReport(message.result)
+      // A half-read report is the signature of a wording change, and the
+      // missing window silently disappears from the panel. Keep the text that
+      // defeated the parser so the next occurrence is diagnosable.
+      if (!windows?.fiveHour || !windows?.weekly) {
+        log.warn('usage_report_partially_parsed', {
+          hasFiveHour: !!windows?.fiveHour,
+          hasWeekly: !!windows?.weekly,
+          report: message.result,
+        })
+      }
+      return windows
+    }
+    return null
+  }
+}

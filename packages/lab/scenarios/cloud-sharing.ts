@@ -1,14 +1,17 @@
-import { WORKSPACE_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '../src/client'
-import { personaForHost } from '../src/personas'
+import { bootLabHost, type LabHost } from '../src/host'
+import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
 import { expectRefused, scenario, type ScenarioContext } from '../src/scenario'
-import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine } from '../src/workspace'
+import { bootLabSolusApi, createLabDatabase, type SolusApiEngine } from '../src/solus-api'
 
-async function prove(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
+async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
+  const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
+  ctx.issuer.setWorkspaceRoute(service.url)
+  let runner: LabHost | null = null
   const clients: LabClient[] = []
   const client = (personaId: string, shareSecret?: string) => {
-    const value = new LabClient({ persona: personaForHost(personaId, 'managed'), issuer: ctx.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret })
+    const value = new LabClient({ persona: personaForHost(personaId, 'managed'), issuer: ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret })
     clients.push(value)
     return value
   }
@@ -17,18 +20,25 @@ async function prove(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?
     const carol = client('carol')
     ctx.check(`${engine}: owner admitted`, (await alice.connect()).ok)
     ctx.check(`${engine}: other organization admitted`, (await carol.connect()).ok)
-    const source = await ctx.as('alice')
-    const localWork = await source.rpc('createWork', 'Push with history', 'doc', 'before', '', undefined, 'claude-code', ctx.cwd)
-    await source.rpc('agentSaveWork', localWork.id, { content: 'after' })
+    runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: `labpublish${engine}`, runnerOf: ORGANIZATION_ID })
+    const source = new LabClient({ persona: personaForHost('alice', 'personal'), issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', hostOwnerUserId: PERSONAS.alice.userId, hostUrl: runner.tunnelUrl })
+    clients.push(source)
+    ctx.check(`${engine}: publication source admitted`, (await source.connect()).ok)
+    await source.rpc('hostOrganizations')
+    const localWork = await source.records.createWork('Push with history', 'doc', 'before', '', undefined, 'claude-code', ctx.cwd)
+    await source.rpc('agentSaveWork', localWork.id, { content: 'after' }, localWork.contentVersion)
     await source.rpc('applyWorkComment', localWork.id, { kind: 'add', comment: { id: 'push-comment', selectedText: 'after', comment: 'Keep the comment' } })
-    const transfer = await source.rpc('worksCloudExport', localWork.id)
-    await alice.rpc('worksCloudImport', transfer)
+    const resource = { kind: 'work', id: localWork.id } as const
+    const publication = await source.rpc('publicationStart', { resource, organizationId: ORGANIZATION_ID })
+    const settled = await source.waitForEvent('publication.changed', (event) => event.payload.id === publication.id && (event.payload.state === 'committed' || event.payload.state === 'failed'), 15_000)
+    ctx.check(`${engine}: publication committed`, settled.payload.state === 'committed', settled.payload.error)
     ctx.check(`${engine}: cloud push retains comments`, (await alice.rpc('loadWorkAnnotations', localWork.id))?.comments[0]?.comment === 'Keep the comment')
-    ctx.check(`${engine}: cloud push retains previous content`, (await alice.rpc('loadWorkPrevious', localWork.id))?.content === 'before')
-    await source.rpc('worksCloudRemove', localWork.id, transfer.fingerprint)
-    ctx.check(`${engine}: pushed work has one cloud home`, (await alice.rpc('loadWork', localWork.id))?.content === 'after' && await source.rpc('loadWork', localWork.id) === null)
-    const work = await alice.rpc('createWork', 'Shared cloud work', 'doc', '# Offline safe', '', undefined, 'claude-code', ctx.cwd)
-    const task = await alice.rpc('tasksCreate', { title: 'Shared cloud task', body: 'Cloud body' })
+    const history = await alice.rpc('loadWorkRevisions', localWork.id)
+    const firstBody = history[0] ? (await alice.rpc('loadWorkRevision', localWork.id, history[0].revisionId)).content : null
+    ctx.check(`${engine}: cloud push retains history`, firstBody === 'before' && history.length >= 2)
+    ctx.check(`${engine}: pushed work has one cloud home`, (await alice.records.loadWork(localWork.id))?.content === 'after' && await source.records.loadWork(localWork.id) === null)
+    const work = await alice.records.createWork('Shared cloud work', 'doc', '# Offline safe', '', undefined, 'claude-code', ctx.cwd)
+    const task = await alice.records.tasksCreate({ title: 'Shared cloud task', body: 'Cloud body' })
     for (const resource of [{ kind: 'work', id: work.id }, { kind: 'task', id: task.id }] as const) {
       const link = await alice.rpc('shareSetLink', { resource, role: 'viewer' })
       const guest = client('maya', link!.secret)
@@ -36,24 +46,24 @@ async function prove(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?
       const info = await guest.rpc('connectionsGetServerInfo')
       ctx.check(`${engine}: guest bound to requested resource`, info.share?.resource.id === resource.id)
       if (resource.kind === 'work') {
-        ctx.check(`${engine}: guest reads work`, (await guest.rpc('loadWork', work.id))?.content === '# Offline safe')
-        await expectRefused(ctx, 'viewer cannot edit work', guest.rpc('saveWork', work.id, { content: 'wrong' }))
-        await expectRefused(ctx, 'other organization cannot read work', carol.rpc('loadWork', work.id))
+        ctx.check(`${engine}: guest reads work`, (await guest.records.loadWork(work.id))?.content === '# Offline safe')
+        await expectRefused(ctx, 'viewer cannot edit work', guest.records.saveWork(work.id, { content: 'wrong' }, work), 'NOT_FOUND')
+        await expectRefused(ctx, 'other organization cannot read work', carol.api.request('getWork', { id: work.id }), 'NOT_FOUND')
         await alice.rpc('shareSetLink', { resource, role: 'editor' })
-        const viewedVersion = await alice.rpc('loadWorkUpdatedAt', work.id)
-        await guest.rpc('saveWork', work.id, { content: 'Guest edit' }, work.updatedAt)
-        const savedVersion = await alice.rpc('loadWorkUpdatedAt', work.id)
+        const viewedVersion = (await alice.records.loadWork(work.id))?.updatedAt
+        await guest.records.saveWork(work.id, { content: 'Guest edit' }, work)
+        const savedVersion = (await alice.records.loadWork(work.id))?.updatedAt
         ctx.check(`${engine}: reader detects another editor's save`, savedVersion !== viewedVersion)
         let refused = false
-        try { await alice.rpc('saveWork', work.id, { content: 'Stale draft' }, work.updatedAt) }
+        try { await alice.records.saveWork(work.id, { content: 'Stale draft' }, work) }
         catch { refused = true }
         ctx.check(`${engine}: stale copy cannot overwrite the saved change`, refused)
-        await expectRefused(ctx, 'other organization cannot check work version', carol.rpc('loadWorkUpdatedAt', work.id))
-        ctx.check(`${engine}: role upgrade applies to live guest`, (await alice.rpc('loadWork', work.id))?.content === 'Guest edit')
+        await expectRefused(ctx, 'other organization cannot check work version', carol.api.request('getWork', { id: work.id, ifNoneMatch: work.updatedAt }), 'NOT_FOUND')
+        ctx.check(`${engine}: role upgrade applies to live guest`, (await alice.records.loadWork(work.id))?.content === 'Guest edit')
       } else {
-        const details = await guest.rpc('tasksGet', task.id)
+        const details = await guest.records.tasksGet(task.id)
         ctx.check(`${engine}: guest reads task`, !!details)
-        await expectRefused(ctx, 'task guest cannot read unrelated work', guest.rpc('loadWork', work.id))
+        await expectRefused(ctx, 'task guest cannot read unrelated work', guest.api.request('getWork', { id: work.id }), 'NOT_FOUND')
       }
       await alice.rpc('shareSetLink', { resource, role: 'viewer', regenerate: true })
       const stale = client('maya', link!.secret)
@@ -65,6 +75,8 @@ async function prove(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?
     ctx.check(`${engine}: runner refuses guest admission`, !(await hostGuest.connect()).ok)
   } finally {
     for (const item of clients) item.close()
+    if (runner) await runner.stop()
+    ctx.issuer.setWorkspaceRoute(null)
     await service.stop()
   }
 }

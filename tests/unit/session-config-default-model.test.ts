@@ -20,9 +20,9 @@ function makeSettings(defaultModels: Record<string, string>, activeAgent = 'clau
   return {
     activeAgent,
     defaultModels,
-    defaultPermissionMode: 'auto' as 'ask' | 'auto' | 'plan',
+    defaultPermissionMode: 'full-access' as 'supervised' | 'accept-edits' | 'auto' | 'full-access' | 'plan',
     tabGroupMode: 'flat',
-    update(patch: { activeAgent?: string; defaultModels?: Record<string, string>; defaultPermissionMode?: 'ask' | 'auto' | 'plan' }) {
+    update(patch: { activeAgent?: string; defaultModels?: Record<string, string>; defaultPermissionMode?: 'supervised' | 'accept-edits' | 'auto' | 'full-access' | 'plan' }) {
       if (patch.activeAgent) this.activeAgent = patch.activeAgent
       if (patch.defaultModels) this.defaultModels = patch.defaultModels
       if (patch.defaultPermissionMode) this.defaultPermissionMode = patch.defaultPermissionMode
@@ -37,7 +37,7 @@ function makeDraft() {
     id: 'draft-1',
     run: {
       provider: 'claude-code',
-      permissionMode: 'auto',
+      permissionMode: 'full-access',
       workingDirectory: '/repo',
       modelConfig: {
         modelId: 'claude-opus-5',
@@ -192,7 +192,7 @@ describe('default model preference', () => {
     expect(controller.globalDefaults.modelConfig.fastMode).toBe(false)
   })
 
-  test('records the source and target models on a handoff divider', async () => {
+  test('a handoff writes no divider of its own and runs on the pinned model', async () => {
     const settings = makeSettings({ codex: 'gpt-5.4' })
     const session = {
       id: 'stable-session',
@@ -223,23 +223,13 @@ describe('default model preference', () => {
 
     await controller.switchActiveAgent('codex')
 
-    // WHY: a handoff boundary must name the model that ended and the model that
-    // will continue, not only the destination provider.
-    expect(session.messages.at(-1)).toMatchObject({
-      agentChangedTo: 'Codex',
-      agentChangedFromModel: 'Opus 5',
-      agentChangedToModel: 'Gpt 5.4',
-      agentChangedFromProvider: 'claude-code',
-      agentChangedToProvider: 'codex',
-    })
-
-    session.agentSessionId = 'codex-session'
-    controller.updateModelConfig({ modelId: 'gpt-5.5' })
-
-    // WHY: a restored or already-bound target has a provider thread, but its
-    // model picker still owns the active model. The divider must follow that
-    // choice instead of freezing the handoff default.
-    expect(session.messages.at(-1)?.agentChangedToModel).toBe('Gpt 5.5')
+    // WHY: the host records the switch as `agent_switched` activity, which draws
+    // the one divider every client and a reload read (plans/012 §5). A divider
+    // written here as well showed the switch twice.
+    expect(session.messages).toEqual([])
+    expect(session.run.provider).toBe('codex')
+    expect(session.run.modelConfig.modelId).toBe('gpt-5.4')
+    expect(session.handoffId).toBe('stable-session')
   })
 
   test('hands a resumed session a concrete model even when the default is Auto', async () => {
@@ -374,7 +364,7 @@ describe('settings written against a draft composer', () => {
 describe('default permission preference', () => {
   test('new composers follow saved changes without changing an open draft', async () => {
     const settings = makeSettings({})
-    settings.defaultPermissionMode = 'ask'
+    settings.defaultPermissionMode = 'supervised'
     const draft = makeDraft()
     const controller = await makeController(settings, null, undefined, draft)
     expect(controller.globalDefaults.permissionMode).toBe('ask')
@@ -392,13 +382,13 @@ describe('default permission preference', () => {
     controller.setPermissionMode('plan')
     expect(controller.globalDefaults.permissionMode).toBe('plan')
     expect(settings.defaultPermissionMode).toBe('plan')
-    settings.defaultPermissionMode = 'ask'
+    settings.defaultPermissionMode = 'supervised'
     expect(controller.globalDefaults.permissionMode).toBe('ask')
   })
 
   test('a session choice does not change the saved default', async () => {
     const settings = makeSettings({})
-    settings.defaultPermissionMode = 'ask'
+    settings.defaultPermissionMode = 'supervised'
     const session = { run: { permissionMode: 'plan' } } as Session
     const controller = await makeController(settings, session)
     expect(session.run.permissionMode).toBe('plan')

@@ -6,13 +6,20 @@ import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 
+/** Solus itself, as the doer of what it found or did on its own. */
+const SYSTEM_ATTRIBUTION = { kind: 'system' as const }
+/** The person every change in this file is made by. */
+const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
+/** An agent's session, as the doer of what it wrote. */
+const AGENT = { kind: 'agent' as const, sessionId: 'agent-session' }
+
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
-type TaskModule = typeof import('@solus/server/tasks/task')
-type TaskSessionsModule = typeof import('@solus/server/tasks/task-sessions')
-type TaskLinksModule = typeof import('@solus/server/tasks/task-links')
+type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskModule = typeof import('@solus/server/data/tasks/task')
+type TaskSessionsModule = typeof import('@solus/server/data/tasks/task-sessions')
+type TaskLinksModule = typeof import('@solus/server/data/tasks/task-links')
 type UlidModule = typeof import('@solus/contracts/ulid')
 
 let dataDir: string
@@ -23,17 +30,17 @@ let taskSessions: TaskSessionsModule
 let taskLinks: TaskLinksModule
 let ids: UlidModule
 let migrationsFolder: typeof import('@solus/server/db/migration-files').migrationsFolder
-let testHandlerCtx: import('@solus/server/server/server').HandlerCtx
+let testHandlerCtx: import('@solus/server/transport/server').HandlerCtx
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-store-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/tasks/task-store')
-  tasks = await import('@solus/server/tasks/task')
-  taskSessions = await import('@solus/server/tasks/task-sessions')
-  taskLinks = await import('@solus/server/tasks/task-links')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  tasks = await import('@solus/server/data/tasks/task')
+  taskSessions = await import('@solus/server/data/tasks/task-sessions')
+  taskLinks = await import('@solus/server/data/tasks/task-links')
   ids = await import('@solus/contracts/ulid')
   ;({ migrationsFolder } = await import('@solus/server/db/migration-files'))
   testHandlerCtx = (await import('./helpers/handler-ctx')).TEST_HANDLER_CTX
@@ -43,6 +50,12 @@ afterEach(async () => {
   await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
+
+/** A task with one session on it, as a session that joined the task has. */
+async function taskWithSession(sessionId: string, title: string) {
+  const task = await taskStore.createTask('local', { title, projectKey: '/workspace/solus' })
+  return taskSessions.prepareSessionTask('local', { taskId: task.id, sessionId, projectKey: '/workspace/solus' })
+}
 
 afterAll(() => {
   db.closeDb()
@@ -59,47 +72,28 @@ describe('native task migration', () => {
   })
 
   // The file is the store only on SQLite; on Postgres these tables are not in it.
-  test.skipIf(process.env.SOLUS_DB === 'postgres')('the ported tables come from the generated migration; a file that already has them opens as it is', async () => {
-    // WHY: the hand-written migrations no longer create task tables, and a
-    // developer's existing solus.db already holds them in their last hand-made
-    // shape. Both files must open: the generated migration is `IF NOT EXISTS`.
+  test.skipIf(process.env.SOLUS_DB === 'postgres')('a new file is made from the baselines; a file from before them is refused, not half-read', async () => {
+    // WHY: the schema was reset to one baseline per engine. A file an older
+    // build made has none of the steps between, so opening it must stop with
+    // a message that names the fix instead of running queries on a wrong shape.
     const fresh = db.getDb()
-    const ported = [
-      'asset_publications', 'task_comments', 'task_counters', 'task_events', 'task_external_links',
-      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
-    ]
     const tables = () => db.getDb().prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%task%' OR name = 'asset_publications' ORDER BY name",
     ).all().map((row) => (row as { name: string }).name)
-    expect(tables()).toEqual(ported)
+    expect(tables()).toEqual([
+      'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
+      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
+    ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length
     expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: generated })
     db.closeDb()
     for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 
     const legacy = new Database(join(dataDir, 'solus.db'))
-    legacy.exec(`
-      PRAGMA user_version = 1000;
-      CREATE TABLE tasks (
-        id TEXT PRIMARY KEY,
-        short_id INTEGER UNIQUE,
-        project_key TEXT,
-        parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'inbox',
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-      INSERT INTO tasks(id, short_id, title, created_at, updated_at) VALUES ('kept', 1, 'A task from before', 1, 1);
-    `)
+    legacy.exec('PRAGMA user_version = 50')
     legacy.close()
-
-    const reopened = db.getDb()
-    expect(tables()).toEqual(ported)
-    // The hand-made table gains the columns the ported schema declares, so the
-    // rows it already held are the host's own organization's.
-    expect(reopened.prepare('SELECT id, organization_id FROM tasks').all()).toEqual([{ id: 'kept', organization_id: 'local' }])
-    expect((await taskStore.listTasks('local')).tasks.map((task) => task.id)).toEqual(['kept'])
+    expect(() => db.getDb()).toThrow('predates the current schema')
+    for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
   })
 })
 
@@ -142,7 +136,7 @@ describe('native task CRUD', () => {
   })
 
   test('restores every scoped PR link for the sidebar after restart', async () => {
-    // WHY: agent link_task calls can identify a PR by number without a URL.
+    // WHY: agent link calls can identify a PR by number without a URL.
     // The durable edge, not the renderer PR list, must restore the chip.
     const task = await taskStore.createTask('local', {
       title: 'Keep linked PR visible',
@@ -153,17 +147,15 @@ describe('native task CRUD', () => {
       targetScope: '/workspace/solus',
       targetKey: '43',
       url: 'https://github.com/solus-sh/solus/pull/43',
-      createdBy: 'agent',
       originSessionId: 'session-43',
-    })
+    }, AGENT)
     await (await tasks.Task.byId('local', task.id)).link({
       kind: 'pr',
       targetScope: 'github.com/other/repo',
       targetKey: '43',
       title: '#43 other/repo',
       url: 'https://github.com/other/repo/pull/43',
-      createdBy: 'user',
-    })
+    }, BY)
 
     expect(await taskLinks.readTaskPrLinks(taskStore.database(), 'local')).toEqual({
       [task.id]: [
@@ -172,14 +164,14 @@ describe('native task CRUD', () => {
           title: '#43 other/repo',
           targetScope: 'github.com/other/repo',
           url: 'https://github.com/other/repo/pull/43',
-          createdBy: 'user',
+          createdBy: BY,
         },
         {
           number: 43,
           title: '#43',
           targetScope: 'github.com/solus-sh/solus',
           url: 'https://github.com/solus-sh/solus/pull/43',
-          createdBy: 'agent',
+          createdBy: AGENT,
           originSessionId: 'session-43',
         },
       ],
@@ -192,7 +184,7 @@ describe('native task CRUD', () => {
     // list; the task still lists, only its ticket is left out.
     const known = await taskStore.createTask('local', { title: 'Mirrored issue', projectKey: '/workspace/solus' })
     const unknown = await taskStore.createTask('local', { title: 'Foreign ticket', projectKey: '/workspace/solus' })
-    const { taskExternalLinks } = await import('@solus/server/tasks/schema')
+    const { taskExternalLinks } = await import('@solus/server/data/tasks/schema')
     for (const [taskId, provider, externalKey, externalId, url] of [
       [known.id, 'github', 'solus/solus', '7', 'https://github.com/solus/solus/issues/7'],
       [unknown.id, 'linear', 'workspace/FE', 'FE-2', 'https://linear.app/workspace/issue/FE-2'],
@@ -210,18 +202,20 @@ describe('native task CRUD', () => {
     expect(listed.find((task) => task.id === unknown.id)?.mirroredTicket).toBeUndefined()
   })
 
-  test('publishes a session-born task only after its provider session is linked', async () => {
-    // WHY: a pre-launch task without a session link appears beside the loose
-    // renderer session as a duplicate row until session_init links the two.
+  test('publishes a first-dispatch bind only after its provider session is linked', async () => {
+    // WHY: the bind happens before the session exists. Publishing it then
+    // makes clients read a task that says it is in progress with no session
+    // on it, until session_init links the two.
+    const created = await taskStore.createTask('local', { title: 'One coherent task row', projectKey: '/workspace/solus' })
     let changes = 0
     const unsubscribe = taskStore.onTasksChanged(() => changes++)
     try {
       const task = await taskSessions.prepareSessionTask('local', {
+        taskId: created.id,
         projectKey: '/workspace/solus',
-        prompt: 'Start one coherent task row',
       })
 
-      expect(task).not.toBeNull()
+      expect(task).toMatchObject({ id: created.id, status: 'in_progress' })
       expect(changes).toBe(0)
 
       await (await tasks.Task.byId('local', task!.id)).linkSession('provider-session', 'working')
@@ -235,53 +229,50 @@ describe('native task CRUD', () => {
     }
   })
 
-  test('mints a session-born task under the id its client already shows', async () => {
-    // WHY: the sidebar draws the new session's row before this call returns.
-    // Minting under a fresh id made the task arrive as a second row, which the
-    // list faded in over the first one just as it settled.
-    const clientId = ids.ulid()
-    const task = await taskSessions.prepareSessionTask('local', {
-      taskId: clientId,
-      projectKey: '/workspace/solus',
-      prompt: 'Keep one row',
-    })
-    expect(task?.id).toBe(clientId)
-
-    const parentId = task!.id
-    const subtaskId = ids.ulid()
-    const subtask = await taskSessions.prepareSessionTask('local', {
-      taskId: subtaskId,
-      parentTaskId: parentId,
-      projectKey: '/workspace/solus',
-      prompt: 'Fork it',
-    })
-    expect(subtask).toMatchObject({ id: subtaskId, parentId })
+  test('a task has at most one lead session', async () => {
+    // WHY: the lead owns the task page's conversation. A second lead would
+    // change that conversation under the person reading it, so it is refused
+    // rather than demoting the first (docs/plans/task-conversation.md).
+    const task = await taskStore.createTask('local', { title: 'Led', projectKey: '/workspace/solus' })
+    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
+    await expect((await tasks.Task.byId('local', task.id)).linkSession('another-session', 'lead'))
+      .rejects.toThrow('already has a lead session')
+    // Re-linking the same lead, and adding workers, are both fine.
+    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
+    await (await tasks.Task.byId('local', task.id)).linkSession('worker-session', 'working')
+    const links = (await taskSessions.taskSessions('local', task.id))[task.id]
+    expect(links.map((link) => [link.sessionId, link.role])).toEqual([
+      ['lead-session', 'lead'],
+      ['worker-session', 'working'],
+    ])
+    // A lead owns its session like a working attempt: the session answers
+    // for the task it leads.
+    expect((await taskSessions.tasksForSession('local', 'lead-session'))?.task.id).toBe(task.id)
   })
 
-  test('refuses a client-minted id that is malformed, taken, or beside a bound task', async () => {
-    // WHY: one id names one task. Two sessions arriving with one id is a client
-    // bug, so the second must fail loudly instead of joining the first task.
-    await expect(taskSessions.prepareSessionTask('local', { taskId: 'not-a-ulid', prompt: 'x' }))
-      .rejects.toThrow('not a ULID')
+  test('the first-dispatch bind refuses a lead for a task that has one', async () => {
+    // WHY: the refusal must reach the client that asked, before any session
+    // exists, so the composer can say so instead of a link failing later.
+    const task = await taskStore.createTask('local', { title: 'Led', projectKey: '/workspace/solus' })
+    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
+    await expect(taskSessions.prepareSessionTask('local', { taskId: task.id, role: 'lead' }))
+      .rejects.toThrow('already has a lead session')
 
-    const taken = ids.ulid()
-    await taskSessions.prepareSessionTask('local', { taskId: taken, prompt: 'first' })
-    await expect(taskSessions.prepareSessionTask('local', { taskId: taken, prompt: 'second' }))
-      .rejects.toThrow('already exists')
-
-    const existing = await taskStore.createTask('local', { title: 'Bound' })
-    await expect(taskSessions.prepareSessionTask('local', {
-      existingTaskId: existing.id,
-      taskId: ids.ulid(),
-    })).rejects.toThrow('cannot bind an existing task and name a new one')
+    const fresh = await taskStore.createTask('local', { title: 'Unled', projectKey: '/workspace/solus' })
+    await taskSessions.prepareSessionTask('local', { taskId: fresh.id, role: 'lead', sessionId: 'its-lead' })
+    expect((await taskSessions.taskSessions('local', fresh.id))[fresh.id]?.[0]).toMatchObject({
+      sessionId: 'its-lead',
+      role: 'lead',
+    })
   })
 
   test('files a worktree session under its base project', async () => {
     // WHY: conflict-resolution sessions execute in a managed PR worktree, but
     // the project-scoped sidebar must still include their task row.
+    const created = await taskStore.createTask('local', { title: 'Resolve the PR conflicts' })
     const task = await taskSessions.prepareSessionTask('local', {
+      taskId: created.id,
       projectKey: '/workspace/solus/.git/solus/worktrees/pr-47',
-      prompt: 'Resolve the PR conflicts',
     })
 
     expect(task).toMatchObject({
@@ -310,20 +301,19 @@ describe('native task CRUD', () => {
       const updated = await (await tasks.Task.byId('local', project.id)).update({
         status,
         projectKey: status === 'inbox' ? null : '/workspace/solus',
-      })
+      }, BY)
       expect(updated.status).toBe(status)
       if (status === 'done') expect(updated.doneAt).toEqual(expect.any(Number))
       else expect(updated.doneAt).toBeUndefined()
     }
 
-    const detailed = await (await tasks.Task.byId('local', inbox.id)).comment('Local finding', {
-      author: 'agent',
+    const detailed = await (await tasks.Task.byId('local', inbox.id)).comment('Local finding', { by: AGENT,
       originSessionId: 'session-comment',
     })
     expect(detailed.comments).toEqual([
       expect.objectContaining({
         taskId: inbox.id,
-        author: 'agent',
+        author: AGENT,
         source: 'local',
         originSessionId: 'session-comment',
         body: 'Local finding',
@@ -345,42 +335,53 @@ describe('native task CRUD', () => {
     expect(await inboxTask.delete()).toBe(false)
   })
 
-  test('cascades subtask deletion and rejects a third hierarchy level', async () => {
-    const parent = await taskStore.createTask('local', { title: 'Parent', projectKey: '/workspace/solus' })
-    const child = await taskStore.createTask('local', { title: 'Child', parentId: parent.id })
+  test('an upstream epic is a snapshot only a provider read writes', async () => {
+    // WHY: Solus never manages epics. The sync engine stores what the ticket
+    // reported; a local edit must neither clear it nor queue it upstream.
+    const { writeTaskEpic, externalLinkForTask } = await import('@solus/server/data/tasks/task-sync-store')
+    const task = await taskStore.createTask('local', { title: 'Mirrored', projectKey: '/workspace/solus' })
+    const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
+    const read = async () => (await tasks.Task.byId('local', task.id)).record().epic
 
-    await expect(taskStore.createTask('local', { title: 'Grandchild', parentId: child.id })).rejects.toThrow(
-      'Subtasks cannot contain nested subtasks.',
-    )
-    expect((await (await tasks.Task.byId('local', parent.id)).details()).subtasks.map((task) => task.id)).toEqual([child.id])
-    expect(await (await tasks.Task.byId('local', parent.id)).delete()).toBe(true)
-    expect((await taskStore.listTasks('local')).tasks).toEqual([])
+    expect(await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))).toBe(true)
+    expect(await read()).toEqual(epic)
+    expect(await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))).toBe(false)
+
+    await (await tasks.Task.byId('local', task.id)).update({ title: 'Renamed' }, BY)
+    expect(await read()).toEqual(epic)
+    expect(await externalLinkForTask(task.id)).toBeNull()
+
+    // A read that cannot tell leaves the snapshot; a read that saw no epic clears it.
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, undefined))
+    expect(await read()).toEqual(epic)
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, null))
+    expect(await read()).toBeUndefined()
   })
 })
 
-describe('session minting and durable links', () => {
+describe('session binding and durable links', () => {
   test('exposes typed task methods for every workspace link kind', async () => {
     // WHY: callers should express domain identity (`workId`, plan pair,
     // `automationId`) instead of constructing task_links storage keys.
     const task = await taskStore.createTask('local', { title: 'Collect task context' })
     const instance = await tasks.Task.byId('local', task.id)
 
-    await instance.linkWork('work-1', { title: 'Architecture notes' })
+    await instance.linkWork('work-1', BY, { title: 'Architecture notes' })
     await instance.link({
       kind: 'work',
       targetScope: '/ignored/path',
       targetKey: 'work-1',
       title: 'Architecture notes',
-    })
-    await instance.linkPlan('session-plan', 'tool-plan', { title: 'Implementation plan' })
-    await instance.linkPlan('session-plan', 'tool-plan', { title: 'Implementation plan' })
-    await instance.linkAutomation('automation-1', { title: 'Nightly verification' })
+    }, BY)
+    await instance.linkPlan('session-plan', 'tool-plan', BY, { title: 'Implementation plan' })
+    await instance.linkPlan('session-plan', 'tool-plan', BY, { title: 'Implementation plan' })
+    await instance.linkAutomation('automation-1', BY, { title: 'Nightly verification' })
     const details = await instance.link({
       kind: 'automation',
       targetScope: '/ignored/path',
       targetKey: 'automation-1',
       title: 'Nightly verification',
-    })
+    }, BY)
 
     expect(details.links.map((link) => ({
       kind: link.kind,
@@ -396,11 +397,7 @@ describe('session minting and durable links', () => {
   test('attaches a PR discovered for a task session exactly once', async () => {
     // WHY: the PR list powers the sidebar chip, but the durable task link is
     // what makes the same PR appear on the task page and survive a refresh.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-with-pr',
-      projectKey: '/workspace/solus',
-      prompt: 'Open the pull request',
-    })
+    const task = await taskWithSession('session-with-pr', 'Open the pull request')
 
     const pullRequest = {
       number: 321,
@@ -413,20 +410,18 @@ describe('session minting and durable links', () => {
     await taskInstance!.linkPullRequest({
       ...pullRequest,
       originSessionId: 'session-with-pr',
-      createdBy: 'agent',
-    })
+    }, AGENT)
     // Simulate a pre-canonical-URL snapshot. Rediscovery must repair the durable
     // edge itself, not only the task's compact capture.
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/tasks/schema')).taskLinks}
+      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskLinks}
       SET url = NULL, title = '#321', origin_session_id = NULL
       WHERE task_id = ${task!.id} AND kind = 'pr'
     `)
     await taskInstance!.linkPullRequest({
       ...pullRequest,
       originSessionId: 'session-with-pr',
-      createdBy: 'agent',
-    })
+    }, AGENT)
 
     const details = await (await tasks.Task.byId('local', task!.id)).details()
     expect(details.task.pr).toEqual({ number: 321, url: pullRequest.url })
@@ -437,11 +432,11 @@ describe('session minting and durable links', () => {
         targetKey: '321',
         title: '#321 Attach session PRs',
         url: pullRequest.url,
-        createdBy: 'agent',
+        createdBy: AGENT,
         originSessionId: 'session-with-pr',
       }),
     ])
-    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
+    expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
     expect((await taskSessions.taskSessions('local', task!.id))[task!.id][0].pr).toEqual({
       number: 321,
       url: pullRequest.url,
@@ -462,17 +457,16 @@ describe('session minting and durable links', () => {
       number: 321,
       targetScope: '/workspace/solus',
       url,
-      createdBy: 'system',
+      automatic: true,
       originSessionId: 'session-discovery',
-    })
+    }, SYSTEM_ATTRIBUTION)
     const details = await taskInstance.linkPullRequest({
       number: 321,
       targetScope: 'github.com/acme/solus',
       url,
       title: '#321 One durable identity',
-      createdBy: 'agent',
       originSessionId: 'session-explicit',
-    })
+    }, AGENT)
 
     expect(details.links.filter((link) => link.kind === 'pr')).toEqual([
       expect.objectContaining({
@@ -483,37 +477,7 @@ describe('session minting and durable links', () => {
         originSessionId: 'session-explicit',
       }),
     ])
-    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
-  })
-
-  test('replaces stale automatic PR identity for the same session', async () => {
-    // WHY: a checkout can move to another branch while its task stays open. The
-    // latest Git-status answer replaces that session's old system discovery;
-    // explicit user and agent links remain independent history.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-moving-pr',
-      projectKey: '/workspace/solus',
-      prompt: 'Move between pull requests',
-    })
-    const taskInstance = await tasks.Task.forSession('local', 'session-moving-pr')
-    await taskInstance!.linkPullRequest({
-      number: 320,
-      url: 'https://github.com/acme/solus/pull/320',
-      targetScope: '/workspace/solus',
-      originSessionId: 'session-moving-pr',
-      createdBy: 'system',
-    })
-    await taskInstance!.linkPullRequest({
-      number: 321,
-      url: 'https://github.com/acme/solus/pull/321',
-      targetScope: '/workspace/solus',
-      originSessionId: 'session-moving-pr',
-      createdBy: 'system',
-    })
-
-    expect((await (await tasks.Task.byId('local', task!.id)).details()).links
-      .filter((link) => link.kind === 'pr')
-      .map((link) => link.targetKey)).toEqual(['321'])
+    expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
   })
 
   test('keeps the session that established an automatic PR link', async () => {
@@ -521,11 +485,7 @@ describe('session minting and durable links', () => {
     // system write took the row over, every discovery pass would rewrite the
     // origin and title, and every rewrite broadcasts a task change that starts
     // the next pass. Explicit intent still wins.
-    await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-first-observer',
-      projectKey: '/workspace/solus',
-      prompt: 'Observe the pull request',
-    })
+    await taskWithSession('session-first-observer', 'Observe the pull request')
     const taskInstance = await tasks.Task.forSession('local', 'session-first-observer')
     const pullRequest = {
       number: 322,
@@ -536,14 +496,14 @@ describe('session minting and durable links', () => {
       ...pullRequest,
       title: '#322 Shared pull request',
       originSessionId: 'session-first-observer',
-      createdBy: 'system',
-    })
+      automatic: true,
+    }, SYSTEM_ATTRIBUTION)
     const second = await taskInstance!.linkPullRequest({
       ...pullRequest,
       title: '#322',
       originSessionId: 'session-second-observer',
-      createdBy: 'system',
-    })
+      automatic: true,
+    }, SYSTEM_ATTRIBUTION)
 
     expect(second.links.filter((link) => link.kind === 'pr')).toEqual([
       expect.objectContaining({
@@ -557,8 +517,7 @@ describe('session minting and durable links', () => {
       ...pullRequest,
       title: '#322 Renamed by the user',
       originSessionId: 'session-second-observer',
-      createdBy: 'user',
-    })
+    }, BY)
     expect(claimed.links.filter((link) => link.kind === 'pr')).toEqual([
       expect.objectContaining({
         targetKey: '322',
@@ -571,69 +530,26 @@ describe('session minting and durable links', () => {
   test('links session artifacts to the owning task exactly once', async () => {
     // WHY: artifacts created or edited by an agent must remain discoverable
     // from its task without repeated edits producing duplicate activity.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-with-artifacts',
-      projectKey: '/workspace/solus',
-      prompt: 'Create the task artifacts',
-    })
+    const task = await taskWithSession('session-with-artifacts', 'Create the task artifacts')
 
     const link = {
       kind: 'work' as const,
       targetKey: 'work-from-session',
       title: 'Session notes',
     }
-    await tasks.Task.linkArtifactForSession('local', 'session-with-artifacts', link)
-    await tasks.Task.linkArtifactForSession('local', 'session-with-artifacts', link)
+    await tasks.Task.linkSessionOutput('local', 'session-with-artifacts', link)
+    await tasks.Task.linkSessionOutput('local', 'session-with-artifacts', link)
 
     const details = await (await tasks.Task.byId('local', task!.id)).details()
     expect(details.links).toEqual([
       expect.objectContaining({
         kind: 'work',
         targetKey: 'work-from-session',
-        createdBy: 'agent',
+        createdBy: { kind: 'agent', sessionId: 'session-with-artifacts' },
         originSessionId: 'session-with-artifacts',
       }),
     ])
-    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
-  })
-
-  test('keeps independent sessions as top-level tasks even when they share a worktree', async () => {
-    // WHY: a worktree is execution context shared by many unrelated sessions.
-    // Inferring hierarchy from it makes every later session appear under the
-    // first task on `main`; only the tasks page may group task rows.
-    const root = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-root',
-      projectKey: '/workspace/solus',
-      prompt: '\n  Build the durable tasks foundation with an intentionally very long suffix that is clipped\nMore',
-    })
-    const child = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-child',
-      projectKey: '/workspace/solus',
-      prompt: 'Add focused tests',
-    })
-    const sibling = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-sibling',
-      projectKey: '/workspace/solus',
-      prompt: 'Verify migration',
-    })
-
-    expect(root).not.toBeNull()
-    expect(child).not.toBeNull()
-    expect(sibling).not.toBeNull()
-    expect(root!).toMatchObject({ status: 'in_progress', source: 'session' })
-    expect(root!.parentId).toBeUndefined()
-    expect(Array.from(root!.title)).toHaveLength(80)
-    expect(child!.parentId).toBeUndefined()
-    expect(sibling!.parentId).toBeUndefined()
-    expect((await taskSessions.taskSessions('local'))[root!.id]).toEqual([
-      expect.objectContaining({ sessionId: 'session-root', role: 'working' }),
-    ])
-    expect((await taskSessions.tasksForSession('local', 'session-child'))).toMatchObject({
-      task: { id: child!.id },
-      parent: null,
-      siblings: [],
-      attempts: [expect.objectContaining({ taskId: child!.id, sessionId: 'session-child' })],
-    })
+    expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
   })
 
   test('a second session bound to a task is a sibling attempt, not a child task', async () => {
@@ -646,64 +562,29 @@ describe('session minting and durable links', () => {
     })
 
     await taskSessions.prepareSessionTask('local', {
-      existingTaskId: root.id,
+      taskId: root.id,
       sessionId: 'session-first-attempt',
       projectKey: '/workspace/solus',
-      prompt: 'Try the first approach',
     })
     await taskSessions.prepareSessionTask('local', {
-      existingTaskId: root.id,
+      taskId: root.id,
       sessionId: 'session-second-attempt',
       projectKey: '/workspace/solus',
-      prompt: 'Try a different approach',
     })
 
     const tasks = (await taskStore.listTasks('local')).tasks
     expect(tasks).toHaveLength(1)
     expect(tasks[0].id).toBe(root.id)
-    expect(tasks[0].parentId).toBeUndefined()
     expect((await taskSessions.taskSessions('local', root.id))[root.id]).toEqual([
       expect.objectContaining({ taskId: root.id, sessionId: 'session-first-attempt' }),
       expect.objectContaining({ taskId: root.id, sessionId: 'session-second-attempt' }),
     ])
   })
 
-  test('can mint a session-born subtask beneath an explicit parent', async () => {
-    // WHY: agent-created worker sessions must carry task hierarchy at first
-    // dispatch so their initial system prompt already names the parent and
-    // sibling work instead of relying on a racy follow-up link.
-    const parent = await taskStore.createTask('local', {
-      title: 'Ship task-aware tools',
-      projectKey: '/workspace/solus',
-    })
-
-    const child = await taskSessions.prepareSessionTask('local', {
-      parentTaskId: parent.id,
-      sessionId: 'session-child-worker',
-      projectKey: '/workspace/solus',
-      prompt: 'Add focused coverage',
-    })
-
-    expect(child).toMatchObject({
-      parentId: parent.id,
-      title: 'Add focused coverage',
-      status: 'in_progress',
-      source: 'session',
-    })
-    expect(await taskSessions.tasksForSession('local', 'session-child-worker')).toMatchObject({
-      task: { id: child!.id, parentId: parent.id },
-      parent: { id: parent.id },
-    })
-  })
-
   test('task session links include indexed session chronology and display metadata', async () => {
     // WHY: closed attempts have no mounted renderer session, so the sidebar
     // needs their persisted display and model metadata on the durable task link.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-with-metadata',
-      projectKey: '/workspace/solus',
-      prompt: 'Raw session prompt',
-    })
+    const task = await taskWithSession('session-with-metadata', 'Raw session prompt')
     db.getDb().prepare(`
       INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp, model)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -763,33 +644,27 @@ describe('session minting and durable links', () => {
     // WHY: linking a session has always had no way out. Unlink must remove
     // exactly one attempt row, keep the activity feed able to say which
     // session left by name, and stay silent when there is nothing to remove.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-to-unlink',
-      projectKey: '/workspace/solus',
-      prompt: 'Attempt that gets detached',
-    })
+    const task = await taskWithSession('session-to-unlink', 'Attempt that gets detached')
     db.getDb().prepare(`
       INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
     `).run('session-to-unlink', 'claude-code', 'First message', 'Detached session', 1_725_000_000_000)
 
     const bag = await tasks.Task.byId('local', task!.id)
-    await bag.unlinkSession('session-to-unlink')
+    await bag.unlinkSession('session-to-unlink', BY)
 
     expect((await taskSessions.taskSessions('local', task!.id))[task!.id]).toBeUndefined()
-    const unlinked = (await bag.details()).events.filter((event) => event.kind === 'unlinked')
+    const unlinked = (await bag.details()).activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'unlinked')
     expect(unlinked).toEqual([
       expect.objectContaining({
-        targetKind: 'session',
-        targetKey: 'session-to-unlink',
-        targetTitle: 'Detached session',
-        actor: 'user',
+        target: { kind: 'session', key: 'session-to-unlink', title: 'Detached session' },
+        by: BY,
       }),
     ])
 
     // A second unlink is a no-op: no error, and no second history entry.
-    await bag.unlinkSession('session-to-unlink')
-    expect((await bag.details()).events.filter((event) => event.kind === 'unlinked')).toHaveLength(1)
+    await bag.unlinkSession('session-to-unlink', BY)
+    expect((await bag.details()).activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'unlinked')).toHaveLength(1)
   })
 
   test('the detail read carries no session links at all', async () => {
@@ -799,11 +674,7 @@ describe('session minting and durable links', () => {
     // whichever surface opened first, renaming every session in the sidebar
     // after its parent task and every row in the task panel after its id.
     // Not "kept in sync" — absent, so the disagreement cannot be expressed.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-detail',
-      projectKey: '/workspace/solus',
-      prompt: 'A task with one attempt',
-    })
+    const task = await taskWithSession('session-detail', 'A task with one attempt')
 
     const details = await (await tasks.Task.byId('local', task!.id)).details()
     expect(details).not.toHaveProperty('attempts')
@@ -816,11 +687,7 @@ describe('session minting and durable links', () => {
     ['codex', 'codex'],
     ['opencode', 'opencode'],
   ])('task attempts normalize stored %s metadata through the stable lineage id', async (storedProvider, provider) => {
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'stable-session',
-      projectKey: '/workspace/solus',
-      prompt: 'A task with a stable session id',
-    })
+    const task = await taskWithSession('stable-session', 'A task with a stable session id')
     db.getDb().prepare(`
       INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
@@ -839,151 +706,31 @@ describe('session minting and durable links', () => {
       }),
     ])
     // A stored Claude name must not block the snapshot for every task.
-    const { readTaskSidebarSnapshot } = await import('@solus/server/tasks/task-sidebar')
+    const { readTaskSidebarSnapshot } = await import('@solus/server/data/tasks/task-sidebar')
     expect((await readTaskSidebarSnapshot('local')).sessionsByTask[task!.id][0].provider).toBe(provider)
   })
 
   test('performs no write for any dispatch with an existing provider session', async () => {
-    // WHY: this structural gate keeps every pre-Phase-1 session outside the new
-    // task system forever; follow-up prompts must not repair or backfill it.
+    // WHY: the bind belongs to a session's first dispatch. A follow-up prompt
+    // that names a task must not move the task or link the session again.
+    const task = await taskStore.createTask('local', { title: 'Named by a follow-up', projectKey: '/workspace/solus' })
     for (let prompt = 0; prompt < 3; prompt++) {
       expect(await taskSessions.prepareSessionTask('local', {
-        existingAgentSessionId: 'provider-session-before-upgrade',
-        sessionId: 'legacy-solus-session',
+        existingAgentSessionId: 'provider-session-already-started',
+        taskId: task.id,
+        sessionId: 'started-solus-session',
         projectKey: '/workspace/solus',
-        prompt: `Follow-up ${prompt}`,
       })).toBeNull()
     }
-    expect((await taskStore.listTasks('local')).tasks).toEqual([])
-    expect(await taskSessions.tasksForSession('local', 'legacy-solus-session')).toBeNull()
-  })
-
-  test('generated session metadata names and describes its newly created task', async () => {
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-title',
-      projectKey: '/workspace/solus',
-      prompt: 'Raw first prompt',
-    })
-    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-      'session-title',
-      'Generated task title',
-      'A generated task description.',
-    )).toMatchObject({
-      id: task!.id,
-      title: 'Generated task title',
-      titleSource: 'generated',
-      body: 'A generated task description.',
-    })
-
-    await (await tasks.Task.byId('local', task!.id)).update({ title: 'Human title' })
-    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-      'session-title',
-      'Late generated title',
-      'Late generated description.',
-    )).toBeNull()
-    expect((await tasks.Task.byId('local', task!.id)).record()).toMatchObject({ title: 'Human title', titleSource: 'manual' })
-  })
-
-  test('generated metadata resolves a provider thread to its stable task session', async () => {
-    // WHY: a new task is linked before the provider issues its thread id. The
-    // later naming request carries that provider id, while the task link keeps
-    // the stable Solus id used by every sidebar and handoff.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'stable-session',
-      prompt: 'Raw first prompt',
-    })
-    db.getDb().prepare(`
-      INSERT INTO session_lineage_members(
-        session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
-      ) VALUES (?, 0, ?, ?, ?, ?, NULL, ?)
-    `).run('stable-session', 'codex', 'provider-session', '/workspace/solus', 1, 1)
-    let changes = 0
-    const unsubscribe = taskStore.onTasksChanged(() => changes++)
-    try {
-      expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-        'provider-session',
-        'Generated task title',
-        'A generated task description.',
-      )).toMatchObject({
-        id: task!.id,
-        title: 'Generated task title',
-        body: 'A generated task description.',
-      })
-      expect(changes).toBe(1)
-    } finally {
-      unsubscribe()
-    }
-  })
-
-  test('generated metadata preserves a description edited while generation is in flight', async () => {
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-description-race',
-      prompt: 'Raw first prompt',
-    })
-    await (await tasks.Task.byId('local', task!.id)).update({ body: 'Human-authored description' })
-
-    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-      'session-description-race',
-      'Generated task title',
-      'Generated description',
-    )).toMatchObject({
-      title: 'Generated task title',
-      titleSource: 'generated',
-      body: 'Human-authored description',
-    })
-    expect((await tasks.Task.byId('local', task!.id)).record()).toMatchObject({
-      title: 'Generated task title',
-      body: 'Human-authored description',
-    })
-  })
-
-  test('generated metadata preserves a title edited while generation is in flight', async () => {
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'session-title-race',
-      prompt: 'Raw first prompt',
-    })
-    await (await tasks.Task.byId('local', task!.id)).update({ title: 'Human-authored title' })
-
-    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-      'session-title-race',
-      'Generated task title',
-      'Generated description',
-    )).toMatchObject({
-      title: 'Human-authored title',
-      titleSource: 'manual',
-      body: 'Generated description',
-    })
-  })
-
-  test('automatic metadata from a new linked session does not rename its parent task', async () => {
-    // WHY: creating a subtask session can add another attempt link. Its generated
-    // name belongs to that session or its own child task, not the existing parent.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'origin-session',
-      prompt: 'Original task title',
-    })
-    await (await tasks.Task.byId('local', task!.id)).linkSession('linked-session', 'working')
-
-    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
-      'linked-session',
-      'Linked session title',
-      'Linked session description.',
-    )).toBeNull()
-    expect((await tasks.Task.byId('local', task!.id)).record()).toMatchObject({
-      title: 'Original task title',
-      titleSource: 'prompt',
-      body: '',
-    })
+    expect(await taskStore.loadTaskRecord('local', task.id)).toMatchObject({ status: 'todo' })
+    expect(await taskSessions.tasksForSession('local', 'started-solus-session')).toBeNull()
   })
 
   test('manual session rename does not rename a task shared by other sessions', async () => {
     // WHY: the sidebar can group several distinct attempts under one task. A
     // session rename belongs to one attempt and must not replace the shared
     // row's task title or make its sibling sessions appear to share a name.
-    const task = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'first-session',
-      prompt: 'Shared task title',
-    })
+    const task = await taskWithSession('first-session', 'Shared task title')
     await (await tasks.Task.byId('local', task!.id)).linkSession('second-session', 'working')
     db.getDb().prepare(`
       INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
@@ -993,16 +740,16 @@ describe('session minting and durable links', () => {
       'second-session', 'codex', 'Second prompt', 'Second session name', 2,
     )
 
-    const { SolusServer } = await import('@solus/server/server/server')
-    const { registerHistoryHandlers } = await import('@solus/server/server/handlers/history-handlers')
-    const { HostEventPublisher } = await import('@solus/server/events/host-event-publisher')
-    const { ClientEventRegistry } = await import('@solus/server/events/client-event-registry')
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerHistoryHandlers } = await import('@solus/server/transport/handlers/history-handlers')
+    const { HostEventPublisher } = await import('@solus/server/transport/events/host-event-publisher')
+    const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
     const server = new SolusServer()
     // SAFETY: this test invokes only setSessionTitle, whose handler does not
-    // read ControlPlane. The empty object prevents unrelated handler work.
-    const controlPlane = {} as never
+    // read SessionRuntime. The empty object prevents unrelated handler work.
+    const sessionRuntime = {} as never
     registerHistoryHandlers(server, {
-      controlPlane,
+      sessionRuntime,
       events: new HostEventPublisher(new ClientEventRegistry()),
       agentIdFromContext: () => 'codex',
     })
@@ -1019,9 +766,8 @@ describe('session minting and durable links', () => {
   test('explicit binding stamps provenance on the attempt', async () => {
     const task = await taskStore.createTask('local', { title: 'Existing task' })
     const bound = await taskSessions.prepareSessionTask('local', {
-      existingTaskId: task.id,
+      taskId: task.id,
       projectKey: '/workspace/solus',
-      prompt: 'Work on existing task',
     })
     expect(bound).toMatchObject({
       projectKey: '/workspace/solus',
@@ -1029,14 +775,14 @@ describe('session minting and durable links', () => {
     })
     const bag = await tasks.Task.byId('local', task.id)
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
-      VALUES (?, 'codex', 0, ?, 0, 0, ?)
+      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      VALUES (?, 'codex', 0, ?, 0, ?)
     `).run('bound-session', Date.now(), 'feature/bound')
     await bag.linkSession('bound-session', 'working', {
       originSessionId: 'provider-session',
     })
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/tasks/schema')).taskSessionLinks}
+      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks}
       SET linked_at = 1 WHERE task_id = ${task.id} AND session_id = ${'bound-session'}
     `)
     // An explicit idempotent retry does not create new history or move the row.
@@ -1063,12 +809,12 @@ describe('session minting and durable links', () => {
     const shared = await taskStore.createTask('local', { title: 'Shared clone attempt' })
     const isolated = await taskStore.createTask('local', { title: 'Worktree attempt' })
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
-      VALUES (?, 'claude', ?, ?, 0, 0, ?)
+      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('clone-session', 0, Date.now(), 'feature/shared')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
-      VALUES (?, 'claude', ?, ?, 0, 0, ?)
+      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('worktree-session', 1, Date.now(), 'feature/isolated')
     await (await tasks.Task.byId('local', shared.id)).linkSession('clone-session', 'working', {})
     await (await tasks.Task.byId('local', isolated.id)).linkSession('worktree-session', 'working', {})
@@ -1141,50 +887,6 @@ describe('session minting and durable links', () => {
 })
 
 describe('one owning task per session', () => {
-  test('a working link elsewhere moves the session and drops its empty placeholder', async () => {
-    // WHY: a session's first dispatch mints a placeholder before the agent can
-    // say which task the work belongs to. When it then links an existing task,
-    // both rows used to survive and the sidebar drew the same conversation
-    // under each. The store keeps one owner, so the untouched placeholder goes.
-    const placeholder = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'moving-session',
-      projectKey: '/workspace/solus',
-      prompt: 'Investigate duplicate rows',
-    })
-    const existing = await taskStore.createTask('local', { title: 'Duplicate session sidebar entries' })
-
-    await (await tasks.Task.byId('local', existing.id)).linkSession('moving-session', 'working')
-
-    const links = await taskSessions.taskSessions('local')
-    expect(links[existing.id]).toEqual([
-      expect.objectContaining({ sessionId: 'moving-session', role: 'working' }),
-    ])
-    expect(links[placeholder!.id]).toBeUndefined()
-    expect(await taskStore.loadTaskRecord('local', placeholder!.id)).toBeNull()
-    expect(await taskSessions.tasksForSession('local', 'moving-session')).toMatchObject({
-      task: { id: existing.id },
-    })
-  })
-
-  test('a placeholder the agent wrote on outlives the transfer as a task of its own', async () => {
-    // WHY: the agent addresses the placeholder by id during the turn. A comment
-    // it left there is work, not scaffolding — only an untouched placeholder is
-    // safe to drop. The session still moves; the task simply stays behind, empty
-    // of sessions.
-    const placeholder = await taskSessions.prepareSessionTask('local', {
-      sessionId: 'commented-session',
-      projectKey: '/workspace/solus',
-      prompt: 'Placeholder with notes',
-    })
-    await (await tasks.Task.byId('local', placeholder!.id)).comment('Findings so far', { author: 'agent' })
-    const existing = await taskStore.createTask('local', { title: 'Real task' })
-
-    await (await tasks.Task.byId('local', existing.id)).linkSession('commented-session', 'working')
-
-    expect(await taskStore.loadTaskRecord('local', placeholder!.id)).not.toBeNull()
-    expect((await taskSessions.taskSessions('local'))[placeholder!.id]).toBeUndefined()
-  })
-
   test('moving between two user tasks keeps both and records the departure', async () => {
     const first = await taskStore.createTask('local', { title: 'First home' })
     const second = await taskStore.createTask('local', { title: 'Second home' })
@@ -1197,7 +899,7 @@ describe('one owning task per session', () => {
     expect(links[second.id]).toHaveLength(1)
     expect(await taskStore.loadTaskRecord('local', first.id)).not.toBeNull()
     const firstDetails = await (await tasks.Task.byId('local', first.id)).details()
-    expect(firstDetails.events.map((event) => event.kind)).toContain('unlinked')
+    expect(firstDetails.activity.map((entry) => entry.kind === 'task_changed' && entry.change)).toContain('unlinked')
   })
 
   test('a referenced link neither moves the session nor outranks its owner', async () => {
@@ -1208,7 +910,7 @@ describe('one owning task per session', () => {
     const referrer = await taskStore.createTask('local', { title: 'Referrer' })
     await (await tasks.Task.byId('local', owner.id)).linkSession('shared-session', 'working')
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/tasks/schema')).taskSessionLinks} SET linked_at = 1 WHERE task_id = ${owner.id}
+      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks} SET linked_at = 1 WHERE task_id = ${owner.id}
     `)
 
     await (await tasks.Task.byId('local', referrer.id)).linkSession('shared-session', 'referenced')

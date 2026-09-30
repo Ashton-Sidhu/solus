@@ -4,7 +4,7 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 // The settings context is one table per tier: a host-config key is mirrored by
 // naming it in `MIRRORED_HOST_KEYS`, a device key by a row in `DEVICE_FIELDS`.
 // These tests pin what that buys — a key added to the contract reads, heals,
-// stores, and pushes with no further wiring — using `tasksEnabled`, the newest
+// stores, and pushes with no further wiring — using `showToolCalls`, the newest
 // mirrored key, and the device keys whose absence means something.
 
 mock.module('@solus/client-core/server-connections', () => ({
@@ -77,27 +77,27 @@ function stored(storage: ReturnType<typeof memoryStorage>): Record<string, unkno
 describe('a mirrored host key', () => {
   test('reads the contract default on a fresh install and is written straight back', async () => {
     const { settings, storage } = await load()
-    expect(settings.tasksEnabled).toBe(true)
-    expect(stored(storage).tasksEnabled).toBe(true)
+    expect(settings.showToolCalls).toBe(false)
+    expect(stored(storage).showToolCalls).toBe(false)
   })
 
   test('reads its default from a blob saved before the key existed', async () => {
     const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ themeMode: 'dark' }) }))
-    expect(settings.tasksEnabled).toBe(true)
+    expect(settings.showToolCalls).toBe(false)
     expect(settings.themeMode).toBe('dark')
   })
 
   test('heals a bad stored value to the contract default', async () => {
-    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ tasksEnabled: 'no' }) }))
-    expect(settings.tasksEnabled).toBe(true)
+    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ showToolCalls: 'no' }) }))
+    expect(settings.showToolCalls).toBe(false)
   })
 
   test('a change reads back, persists, and is part of the host mirror', async () => {
     const { settings, storage } = await load()
-    settings.update({ tasksEnabled: false })
-    expect(settings.tasksEnabled).toBe(false)
-    expect(stored(storage).tasksEnabled).toBe(false)
-    expect(settings.hostConfig.tasksEnabled).toBe(false)
+    settings.update({ showToolCalls: true })
+    expect(settings.showToolCalls).toBe(true)
+    expect(stored(storage).showToolCalls).toBe(true)
+    expect(settings.hostConfig.showToolCalls).toBe(true)
   })
 })
 

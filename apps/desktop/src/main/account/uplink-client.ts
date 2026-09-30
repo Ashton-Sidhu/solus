@@ -1,10 +1,11 @@
 import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
-  hostGrantResponseSchema,
+  hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
-  type HostGrantResponse,
+  type HostAccessTokenRequest,
+  type HostAccessTokenResponse,
   type ManagedHostLifecycle,
   type OrganizationDirectory,
   type UplinkDirectory,
@@ -39,14 +40,21 @@ export async function listDirectory(client: CloudRequester): Promise<UplinkDirec
     log.warn('uplink_directory_malformed', {})
     return null
   }
-  log.info('uplink_directory_read', { hosts: parsed.data.hosts.length })
-  return { directoryUrl: client.cloudOrigin, hosts: parsed.data.hosts }
+  const { hosts, workspaces } = parsed.data
+  log.info('uplink_directory_read', { hosts: hosts.length, workspaces: workspaces.length })
+  return { directoryUrl: client.cloudOrigin, hosts, workspaces }
 }
 
-export async function acquireHostGrant(client: CloudRequester, hostId: string): Promise<HostGrantResponse | null> {
-  const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}/grant`, { method: 'POST' })
+/** An access token for one host; the organization is the one the window works in, when the host is shared with several. */
+export async function acquireHostAccessToken(client: CloudRequester, hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null> {
+  const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
+  const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   if (!response?.ok) return null
-  const parsed = hostGrantResponseSchema.safeParse(await response.json().catch(() => null))
+  const parsed = hostAccessTokenResponseSchema.safeParse(await response.json().catch(() => null))
   return parsed.success ? parsed.data : null
 }
 

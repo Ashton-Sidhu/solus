@@ -2,12 +2,10 @@
  * What the "All projects" scope must say when a project fails to load.
  *
  * The inbox keeps every project's last-safe rows, so a failure never blanks
- * the list — which also means a failure is invisible unless it is stated. An
- * unannounced miss reads as "that project has no pull requests", so the rule
- * is: any failure is always shown, as a banner over the rows that did load, or
- * as the page's own empty surface when nothing loaded at all. A GitHub
- * authorization failure outranks a generic one; it is the cause a person can
- * act on.
+ * the list — which also means a failure is invisible unless it is stated. A
+ * partial failure gets a toast; when nothing loaded, the error takes the page.
+ * A GitHub authorization failure outranks a generic one; it is the cause a
+ * person can act on.
  *
  * A project with no git remote is not one of these. It has no pull requests to
  * fail at, so announcing it would be noise on every refresh.
@@ -22,15 +20,15 @@ export interface InboxProjectFailure {
 
 export type PrInboxFailure =
   | { kind: 'none'; placement: 'none' }
-  | { kind: 'github-auth'; placement: 'page' | 'banner'; serverId: string }
-  | { kind: 'generic'; placement: 'page' | 'banner'; summary: string; detail: string }
+  | { kind: 'github-auth'; placement: 'page' | 'toast'; serverId: string }
+  | { kind: 'generic'; placement: 'page' | 'toast'; summary: string; detail: string }
 
 export function prInboxFailure(projects: InboxProjectFailure[], hasItems: boolean): PrInboxFailure {
   const failed = projects.filter(
     (project) => project.error !== null && project.error.kind !== 'no-repository',
   )
   if (failed.length === 0) return { kind: 'none', placement: 'none' }
-  const placement = hasItems ? 'banner' : 'page'
+  const placement = hasItems ? 'toast' : 'page'
   const unauthorized = failed.find((project) => project.error?.kind === 'github-auth')
   if (unauthorized) return { kind: 'github-auth', placement, serverId: unauthorized.serverId }
   return {

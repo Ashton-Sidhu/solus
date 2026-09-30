@@ -3,15 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('@solus/server/observability/span-table')
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
-type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
-type RegistriesModule = typeof import('@solus/server/observability/registries')
-type InsightsToolsModule = typeof import('@solus/server/observability/insights-tools')
+type SpanTableModule = typeof import('@solus/server/data/insights/span-table')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type SqlGuardModule = typeof import('@solus/server/data/insights/sql-guard')
+type RegistriesModule = typeof import('@solus/server/data/insights/registries')
+type InsightsToolsModule = typeof import('@solus/server/execution/agents/tools/insights-tools')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -34,11 +34,11 @@ const agentToolContext: AgentToolContext = {
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-guard-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('@solus/server/observability/span-table')
-  metricsDb = await import('@solus/server/observability/metrics-db')
-  sqlGuard = await import('@solus/server/observability/sql-guard')
-  registries = await import('@solus/server/observability/registries')
-  insightsTools = await import('@solus/server/observability/insights-tools')
+  spanTable = await import('@solus/server/data/insights/span-table')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  sqlGuard = await import('@solus/server/data/insights/sql-guard')
+  registries = await import('@solus/server/data/insights/registries')
+  insightsTools = await import('@solus/server/execution/agents/tools/insights-tools')
   metricsDb.closeMetricsDb()
 
   for (let index = 0; index < 10; index++) {

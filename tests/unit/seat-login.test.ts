@@ -14,7 +14,7 @@ const countedChildProcess = () => ({
 mock.module('child_process', countedChildProcess)
 mock.module('node:child_process', countedChildProcess)
 
-const { providerLoginConnected } = await import('@solus/server/seats/seat-login')
+const { providerLoginConnected } = await import('@solus/server/execution/seats/seat-login')
 
 test('the host login probe never spawns synchronously', async () => {
   // WHY: `claude auth status` took ~200 ms of main thread on every usage read

@@ -25,6 +25,7 @@
   import BrowserCloseConfirm from "./BrowserCloseConfirm.svelte";
   import BrowserCommentPopup from "./BrowserCommentPopup.svelte";
   import BrowserCaptureButton from "./BrowserCaptureButton.svelte";
+  import BrowserRecordControl from "./BrowserRecordControl.svelte";
   import BrowserProfileChip from "./BrowserProfileChip.svelte";
   import { openRequestFor, projectRootOf } from "./lib/profiles";
   import {
@@ -315,6 +316,9 @@
    * the capture menu opens rather than cached for the life of the pane.
    */
   let evidenceOptions = $state<BrowserEvidenceOptions | null>(null);
+  const pageWorktree = $derived(
+    entry?.page.target.kind === "url" ? entry.page.target.worktreePath : undefined,
+  );
   let capturing = $state(false);
   /** Bumped once per completed capture, so the stage can flash the shutter. A
    *  count rather than a flag: two captures in a row must play twice. */
@@ -736,7 +740,9 @@
             >
               {group.label}
             </span>
-            {#each group.entries as candidate (candidate.page.browserPageId)}
+            <!-- Keyed by host and page: one host can be reachable under two
+                 server ids, and a duplicate key stops the pane updating. -->
+            {#each group.entries as candidate (browserStore.keyOf(candidate.serverId, candidate.page.browserPageId))}
               {@const key = browserStore.keyOf(
                 candidate.serverId,
                 candidate.page.browserPageId,
@@ -857,12 +863,19 @@
         />
       {/snippet}
       {#snippet capture()}
+        <BrowserRecordControl
+          {entry}
+          {paneId}
+          {surfaceVisible}
+          options={evidenceOptions}
+          tasks={session.tasksStore.tasks}
+          cwd={pageWorktree}
+          onOpenDestinations={loadEvidenceOptions}
+        />
         <BrowserCaptureButton
           options={evidenceOptions}
           tasks={session.tasksStore.tasks}
-          cwd={entry.page.target.kind === "url"
-            ? entry.page.target.worktreePath
-            : undefined}
+          cwd={pageWorktree}
           busy={capturing}
           onOpen={loadEvidenceOptions}
           onCapture={captureEvidence}

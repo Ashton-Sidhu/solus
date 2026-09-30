@@ -250,27 +250,3 @@ export function autoGrowGroups(arr: Node[], groupIds: Set<string>): Node[] {
   }
   return next;
 }
-
-export function detachChildrenOf(source: Node[], groupIds: Set<string>): Node[] {
-  const byId = new Map(source.map((n) => [n.id, n]));
-  return source.map((n) => {
-    if (!n.parentId || !groupIds.has(n.parentId)) return n;
-    let x = n.position.x;
-    let y = n.position.y;
-    let ancestor: Node | undefined = byId.get(n.parentId);
-    while (ancestor && groupIds.has(ancestor.id)) {
-      x += ancestor.position.x;
-      y += ancestor.position.y;
-      ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
-    }
-    const newParentId = ancestor?.id;
-    const { parentId: _p, ...rest } = n;
-    const flattened: Node = {
-      ...rest,
-      position: { x, y },
-      data: { ...n.data, parentId: newParentId },
-    };
-    if (newParentId) flattened.parentId = newParentId;
-    return flattened;
-  });
-}

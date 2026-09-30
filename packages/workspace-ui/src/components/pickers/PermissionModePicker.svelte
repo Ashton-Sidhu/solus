@@ -1,23 +1,11 @@
 <script lang="ts">
-  import {
-    ChevronDown as CaretDownIcon,
-    ShieldCheck as ShieldCheckIcon,
-    ShieldEllipsis as ShieldPlanIcon,
-    ShieldQuestionMark as ShieldQuestionIcon,
-  } from "@lucide/svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
-  import type { RunConfig } from '@solus/contracts/types'
+  import { PERMISSION_MODES, type PermissionMode, type RunConfig } from '@solus/contracts/types'
+  import { PERMISSION_MODE_DISPLAY } from '../../lib/permission-modes'
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
-
-  type PermissionMode = 'ask' | 'auto' | 'plan'
-
-  interface PermissionOption {
-    id: PermissionMode
-    label: string
-    icon: typeof ShieldCheckIcon
-  }
 
   const session = getWorkspaceContext()
   const agent = getAgentContext()
@@ -41,9 +29,7 @@
 
   const ctx = $derived(onRun ? statusBar.ctxForRun(run) : statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
-  const isPlan = $derived(permissionMode === 'plan')
-  const isAuto = $derived(permissionMode === 'auto')
-  const modeLabel = $derived(isPlan ? 'Plan' : isAuto ? 'Auto' : 'Ask')
+  const display = $derived(PERMISSION_MODE_DISPLAY[permissionMode])
   const activeAgent = $derived(ctx.activeAgent)
   const capabilities = $derived(
     (agent.metadata[activeAgent] ?? agent.activeMetadata)?.capabilities,
@@ -55,11 +41,7 @@
     if (activeAgent === 'claude-code' && permissionMode === 'plan') return 'Claude plan mode'
     return 'Permission mode'
   })
-  const permissionOptions = $derived(([
-    { id: 'ask', label: 'Ask', icon: ShieldQuestionIcon },
-    { id: 'auto', label: 'Auto', icon: ShieldCheckIcon },
-    { id: 'plan', label: 'Plan', icon: ShieldPlanIcon },
-  ] satisfies PermissionOption[]).filter((opt) => opt.id !== 'plan' || supportsPlan))
+  const permissionOptions = $derived(PERMISSION_MODES.filter((mode) => mode !== 'plan' || supportsPlan))
 
   function handleToggle() {
     if (!supportsPermissions) return
@@ -107,14 +89,14 @@
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
         <span class="inline-flex size-[1em] shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
-          {#if isPlan}<ShieldPlanIcon class="block size-full" />{:else if isAuto}<ShieldCheckIcon class="block size-full" />{:else}<ShieldQuestionIcon class="block size-full" />{/if}
+          <display.icon class="block size-full" />
         </span>
         <!-- Composer ladder, rung 4: icon-only below 28rem. The shield glyph
              already names the mode, so the word is the cheapest thing on the row
              to spend. Declared here rather than passed down as a prop, so the
              rung is one CSS fact instead of a width measurement each of the
              three composers would have to repeat. -->
-        <span class="font-medium @max-[28rem]/composer:hidden">{modeLabel}</span>
+        <span class="font-medium whitespace-nowrap @max-[28rem]/composer:hidden">{display.label}</span>
         <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}
@@ -127,17 +109,20 @@
     side="bottom"
     align="start"
     sideOffset={6}
-    class="w-[176px] text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
+    class="w-[min(18rem,calc(100vw-2rem))] text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
   >
     <DropdownMenu.RadioGroup value={permissionMode}>
-      {#each permissionOptions as opt (opt.id)}
-        {@const Icon = opt.icon}
-        {@const isChecked = permissionMode === opt.id}
-        <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id)}>
-          <span class="flex size-6 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
-            <Icon size={15} class="h-[15px] w-[17px]" />
+      {#each permissionOptions as mode (mode)}
+        {@const option = PERMISSION_MODE_DISPLAY[mode]}
+        {@const isChecked = permissionMode === mode}
+        <DropdownMenu.RadioItem value={mode} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
+          <span class="flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover) text-(--solus-text-secondary)'}">
+            <option.icon class="size-3.5" />
           </span>
-          <span>{opt.label}</span>
+          <span class="flex min-w-0 flex-col gap-0.5">
+            <span class="leading-tight {isChecked ? 'text-(--solus-text-primary)' : ''}">{option.label}</span>
+            <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{option.description}</span>
+          </span>
         </DropdownMenu.RadioItem>
       {/each}
     </DropdownMenu.RadioGroup>

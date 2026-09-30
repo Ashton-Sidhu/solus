@@ -4,20 +4,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
-import type { Principal } from '@solus/server/server/principal'
+import type { Principal } from '@solus/server/admission/principal'
+import type { Attribution } from '@solus/contracts/user'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { getDatabase } = await import('@solus/server/db/database')
 const { ShareManager } = await import('@solus/server/sharing/share-manager')
 const { SharedPromptRelay } = await import('@solus/server/sharing/shared-prompt')
-const { upsertSessionRecord } = await import('@solus/server/sessions/session-records')
-const { ticketForGrant } = await import('@solus/server/server/http')
+const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
+const { ticketForGrant } = await import('@solus/server/transport/http')
 
 let dataDir: string
 const oldDataDir = process.env.SOLUS_DATA_DIR
 beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), 'solus-p4-')); process.env.SOLUS_DATA_DIR = dataDir })
 afterEach(async () => { await resetTestDatabase(); rmSync(dataDir, { recursive: true, force: true }); if (oldDataDir === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = oldDataDir })
 const alice: Extract<Principal, { kind: 'org-member' }> = { kind: 'org-member', hostKind: 'cloud', organizationId: 'org1', organizationRole: 'owner', userId: 'alice', teamIds: [], displayName: 'Alice', deviceId: 'alice', deviceLabel: 'Cloud', expiresAt: Date.now() + 60_000 }
-const runner: Extract<Principal, { kind: 'runner' }> = { kind: 'runner', organizationId: 'org1', hostId: 'runner1', deviceId: 'runner1', deviceLabel: 'Runner', expiresAt: Date.now() + 60_000 }
+const runner: Extract<Principal, { kind: 'runner' }> = { kind: 'runner', organizationId: 'org1', ownerUserId: 'alice', hostId: 'runner1', deviceId: 'runner1', deviceLabel: 'Runner', expiresAt: Date.now() + 60_000 }
 const resource = { kind: 'session', id: 'session1' } as const
 async function fixture() {
   const shares = new ShareManager({ db: getDatabase() })
@@ -78,8 +79,14 @@ test('a viewer cannot submit and a host refuses guest grants before looking up t
 })
 
 
+/** Read the work, then write naming the content version that read saw. */
+async function edit(work: typeof import('@solus/server/data/works/work').Work, scope: string, workId: string, write: { content: string; author: Attribution; reason: 'edit' | 'agent' }) {
+  const current = await work.byId(scope, workId)
+  return current.updateContent({ ...write, expectedContentVersion: current.contentVersion })
+}
+
 test('a caller-chosen work id cannot replace an existing work in any organization', async () => {
-  const { createWork, loadWork } = await import('@solus/server/folio/works')
+  const { createWork, loadWork } = await import('@solus/server/data/works/works')
   await createWork('org1', 'Original', 'doc', 'kept', '', undefined, 'claude-code', '~', 'stable-id')
   await expect(createWork('org2', 'Other', 'doc', 'wrong', '', undefined, 'claude-code', '~', 'stable-id')).rejects.toThrow()
   await expect(createWork('org1', 'Retry', 'doc', 'wrong', '', undefined, 'claude-code', '~', 'stable-id')).rejects.toThrow()
@@ -87,38 +94,174 @@ test('a caller-chosen work id cannot replace an existing work in any organizatio
   expect(await loadWork('org2', 'stable-id')).toBeNull()
 })
 
-test.skipIf(process.env.SOLUS_DB === 'postgres')('a cloud push preserves comments and the previous version, and keeps edits made during the push', async () => {
-  const { createWork, agentSaveWork, saveWork, loadWork, exportWorkForCloud, importWorkFromHost, removePushedWork } = await import('@solus/server/folio/works')
-  const { applyWorkComment, loadWorkAnnotations } = await import('@solus/server/folio/work-annotations')
-  await createWork('local', 'A document', 'doc', 'first', '', undefined, 'claude-code', '~', 'push-work')
-  await agentSaveWork('local', 'push-work', { content: 'second' })
-  await applyWorkComment('local', 'push-work', { kind: 'add', comment: { id: 'comment1', selectedText: 'second', comment: 'Keep this' } }, { person: null, canModerate: true, now: 100 })
-  const transfer = await exportWorkForCloud('local', 'push-work')
-  expect(transfer.previous?.content).toBe('first')
-  // Another database represents the workspace service, just as the Lab does.
+const ALICE: Attribution = { kind: 'user', user: { id: { kind: 'account', accountId: 'alice' }, displayName: 'Alice' } }
+const BOB: Attribution = { kind: 'user', user: { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' } }
+const AGENT: Attribution = { kind: 'agent', sessionId: 'session-7' }
+
+/** Another database represents the workspace service, just as the Lab does; the source database is kept for after. */
+async function atDestination<T>(run: () => Promise<T>): Promise<T> {
   await resetTestDatabase()
   const sourceDir = process.env.SOLUS_DATA_DIR!
   const destinationDir = mkdtempSync(join(tmpdir(), 'solus-p4-destination-'))
   process.env.SOLUS_DATA_DIR = destinationDir
   try {
-    await importWorkFromHost('org1', transfer)
-    expect((await loadWorkAnnotations('org1', 'push-work'))?.comments[0]?.comment).toBe('Keep this')
-    expect((await exportWorkForCloud('org1', 'push-work')).fingerprint).toBe(transfer.fingerprint)
-    await importWorkFromHost('org1', transfer)
+    return await run()
   } finally { await resetTestDatabase(); process.env.SOLUS_DATA_DIR = sourceDir; rmSync(destinationDir, { recursive: true, force: true }) }
-  await saveWork('local', 'push-work', { content: 'new edit' })
-  await expect(removePushedWork('local', 'push-work', transfer.fingerprint)).rejects.toThrow('local copy was kept')
-  expect((await loadWork('local', 'push-work'))?.content).toBe('new edit')
+}
+
+/** A work with a baseline, an agent write, a person's edit, and a restore of the baseline, plus one comment. */
+async function workWithHistory(id: string) {
+  const { createWork } = await import('@solus/server/data/works/works')
+  const { Work } = await import('@solus/server/data/works/work')
+  const { applyWorkComment } = await import('@solus/server/data/works/work-annotations')
+  await createWork('local', 'A document', 'doc', 'first', '', undefined, 'claude-code', '~', id, ALICE)
+  await edit(Work, 'local', id, { content: 'second', author: AGENT, reason: 'agent' })
+  await edit(Work, 'local', id, { content: 'third', author: BOB, reason: 'edit' })
+  const current = await Work.byId('local', id)
+  await current.restoreRevision({ revisionId: 1, author: ALICE, expectedContentVersion: current.contentVersion })
+  await applyWorkComment('local', id, { kind: 'add', comment: { id: 'comment1', selectedText: 'first', comment: 'Keep this' } }, { by: { kind: 'system' }, canModerate: true, now: 100 })
+  return Work.byId('local', id)
+}
+
+test.skipIf(process.env.SOLUS_DB === 'postgres')('a cloud push carries every revision with its identity and author, and the previous version still works', async () => {
+  const { exportWorkForCloud, importWorkFromHost } = await import('@solus/server/data/works/works')
+  const { Work } = await import('@solus/server/data/works/work')
+  const { loadWorkAnnotations } = await import('@solus/server/data/works/work-annotations')
+  const source = await workWithHistory('history-work')
+  const sourceHistory = await source.revisions()
+  const sourcePrevious = await source.previous()
+  const transfer = await exportWorkForCloud('local', 'history-work')
+  // The person's edit left no row until the restore displaced it; the restore is its own row.
+  expect(transfer.revisions.map(({ revisionId, reason, sourceContentVersion, author, content }) => ({ revisionId, reason, sourceContentVersion, author, content }))).toEqual([
+    { revisionId: 1, reason: 'baseline', sourceContentVersion: 1, author: ALICE, content: 'first' },
+    { revisionId: 2, reason: 'agent', sourceContentVersion: 2, author: AGENT, content: 'second' },
+    { revisionId: 3, reason: 'checkpoint', sourceContentVersion: 3, author: BOB, content: 'third' },
+    { revisionId: 4, reason: 'restore', sourceContentVersion: 4, author: ALICE, content: 'first' },
+  ])
+  expect(transfer.previousRevisionId).toBe(3)
+  expect(transfer.work).toMatchObject({ organizationId: 'local', content: 'first', contentVersion: 4, contentAuthor: ALICE })
+
+  await atDestination(async () => {
+    await importWorkFromHost('org1', transfer)
+    const imported = await Work.byId('org1', 'history-work')
+    expect(imported.organizationId).toBe('org1')
+    expect(imported).toMatchObject({ content: 'first', contentVersion: 4, contentHash: source.contentHash, contentAuthor: ALICE })
+    expect(await imported.revisions()).toEqual(sourceHistory)
+    expect(await imported.previous()).toEqual(sourcePrevious)
+    expect((await loadWorkAnnotations('org1', 'history-work'))?.comments[0]?.comment).toBe('Keep this')
+
+    // A retry of the same transfer answers the stored work and writes nothing.
+    expect((await exportWorkForCloud('org1', 'history-work')).fingerprint).toBe(transfer.fingerprint)
+    await importWorkFromHost('org1', transfer)
+    expect(await imported.revisions()).toEqual(sourceHistory)
+
+    // Revert after import reaches the body the restore displaced, and history continues past the source's ids.
+    const carol: Attribution = { kind: 'user', user: { id: { kind: 'account', accountId: 'carol' }, displayName: 'Carol' } }
+    await imported.restoreRevision({ revisionId: imported.previousRevisionId!, author: carol, expectedContentVersion: 4 })
+    expect(imported).toMatchObject({ content: 'third', contentVersion: 5, contentAuthor: carol })
+    expect((await imported.revisions()).at(-1)).toMatchObject({ revisionId: 5, reason: 'restore', sourceContentVersion: 5, author: carol })
+    expect((await imported.previous())?.content).toBe('first')
+    await expect(importWorkFromHost('org1', transfer)).rejects.toThrow('different version')
+  })
 })
 
+test.skipIf(process.env.SOLUS_DB === 'postgres')('the destination refuses a history that does not belong to the work, and writes nothing', async () => {
+  const { exportWorkForCloud, importWorkFromHost, loadWork, workTransferFingerprint } = await import('@solus/server/data/works/works')
+  const { runnerWorkRequestSchema } = await import('@solus/server/sync/runner-protocol')
+  const { documentContentHash } = await import('@solus/server/docs/content-hash')
+  await workWithHistory('checked-work')
+  const transfer = await exportWorkForCloud('local', 'checked-work')
+  type Transfer = typeof transfer
+  /** A sender can always make the outer fingerprint agree with what it sends. */
+  const resealed = (changed: Omit<Transfer, 'fingerprint'>): Transfer => ({ ...changed, fingerprint: workTransferFingerprint(changed) })
+  const [first, second] = transfer.revisions
+  const cases: Array<[Transfer, string]> = [
+    [{ ...transfer, work: { ...transfer.work, content: 'changed' } }, 'incomplete'],
+    [resealed({ ...transfer, previousRevisionId: 99 }), 'previous version names a revision'],
+    [resealed({ ...transfer, revisions: [first!, { ...second!, workId: 'other-work' }] }), 'belongs to another work'],
+    [resealed({ ...transfer, revisions: [first!, first!] }), 'repeated or out-of-order'],
+    [resealed({ ...transfer, revisions: [second!, first!] }), 'repeated or out-of-order'],
+    [resealed({ ...transfer, revisions: [first!, { ...second!, content: 'tampered' }] }), 'Revision 2 does not match its content hash'],
+    [resealed({ ...transfer, revisions: [first!, { ...second!, sourceContentVersion: 99 }] }), 'content version the work never had'],
+    [resealed({ ...transfer, work: { ...transfer.work, content: 'changed' } }), 'does not match its content hash'],
+    [resealed({ ...transfer, work: { ...transfer.work, content: 'changed', contentHash: documentContentHash('changed'), contentVersion: 0 } }), 'no valid content version'],
+  ]
+  await atDestination(async () => {
+    for (const [tampered, error] of cases) await expect(importWorkFromHost('org1', tampered)).rejects.toThrow(error)
+    expect(await loadWork('org1', 'checked-work')).toBeNull()
+    await importWorkFromHost('org1', transfer)
+    expect((await loadWork('org1', 'checked-work'))?.content).toBe('first')
+  })
+  // The service's door refuses a transfer that carries no history at all, like one from before this shape.
+  const { revisions: _revisions, previousRevisionId: _previousRevisionId, ...withoutHistory } = transfer
+  expect(runnerWorkRequestSchema.safeParse({ hostId: 'runner1', actorUserId: 'alice', transfer: { ...withoutHistory, previous: null } }).success).toBe(false)
+  expect(runnerWorkRequestSchema.safeParse({ hostId: 'runner1', actorUserId: 'alice', transfer }).success).toBe(true)
+})
+
+test.skipIf(process.env.SOLUS_DB === 'postgres')('a source change during the push, even history alone, keeps the local copy', async () => {
+  const { exportWorkForCloud, loadWork, removePushedWork } = await import('@solus/server/data/works/works')
+  const { Work } = await import('@solus/server/data/works/work')
+  const { applyWorkComment } = await import('@solus/server/data/works/work-annotations')
+  const work = await workWithHistory('push-work')
+
+  const beforeCheckpoint = await exportWorkForCloud('local', 'push-work')
+  await work.checkpoint({ reason: 'review', expectedContentVersion: work.contentVersion })
+  await expect(removePushedWork('local', 'push-work', beforeCheckpoint.fingerprint)).rejects.toThrow('local copy was kept')
+
+  const beforeComment = await exportWorkForCloud('local', 'push-work')
+  await applyWorkComment('local', 'push-work', { kind: 'add', comment: { id: 'comment2', selectedText: 'first', comment: 'Another' } }, { by: { kind: 'system' }, canModerate: true, now: 200 })
+  await expect(removePushedWork('local', 'push-work', beforeComment.fingerprint)).rejects.toThrow('local copy was kept')
+
+  const beforeEdit = await exportWorkForCloud('local', 'push-work')
+  await edit(Work, 'local', 'push-work', { content: 'new edit', author: BOB, reason: 'edit' })
+  await expect(removePushedWork('local', 'push-work', beforeEdit.fingerprint)).rejects.toThrow('local copy was kept')
+  expect((await loadWork('local', 'push-work'))?.content).toBe('new edit')
+
+  // An unchanged work is removed once the service holds it.
+  await removePushedWork('local', 'push-work', (await exportWorkForCloud('local', 'push-work')).fingerprint)
+  expect(await loadWork('local', 'push-work')).toBeNull()
+})
+
+test('a work from before versions transfers with its unknown authors and null source versions kept', async () => {
+  const { exportWorkForCloud, importWorkFromHost } = await import('@solus/server/data/works/works')
+  const { Work } = await import('@solus/server/data/works/work')
+  const { documentContentHash } = await import('@solus/server/docs/content-hash')
+  const { sql } = await import('drizzle-orm')
+  const db = getDatabase()
+  // The rows as the work-legacy-removal migration leaves them: hashes, one unattributed
+  // baseline, legacy revisions with no source version, and the old newest revision as previous.
+  await db.run(sql`
+    INSERT INTO works (id, title, preview, type, session_id, agent_provider, cwd, pinned, content, created_at, updated_at, meta, organization_id, content_hash, previous_revision_id)
+    VALUES ('legacy-work', 'Legacy', '', 'doc', NULL, 'claude-code', '~', NULL, 'current', 1000, 2000, '{}', 'local', ${documentContentHash('current')}, 2)
+  `)
+  for (const [index, body] of ['older', 'newest'].entries()) {
+    await db.run(sql`INSERT INTO work_revisions (work_id, rev, content, updated_at, organization_id, content_hash) VALUES ('legacy-work', ${index + 1}, ${body}, ${1500 + index}, 'local', ${documentContentHash(body)})`)
+  }
+  await db.run(sql`INSERT INTO work_revisions (work_id, rev, content, updated_at, organization_id, source_content_version, reason, content_hash) VALUES ('legacy-work', 3, 'current', 2000, 'local', 1, 'baseline', ${documentContentHash('current')})`)
+  const transfer = await exportWorkForCloud('local', 'legacy-work')
+  expect(transfer.revisions.map(({ revisionId, reason, sourceContentVersion, author, content, contentHash }) => ({ revisionId, reason, sourceContentVersion, author, content, contentHash }))).toEqual([
+    { revisionId: 1, reason: 'checkpoint', sourceContentVersion: null, author: null, content: 'older', contentHash: documentContentHash('older') },
+    { revisionId: 2, reason: 'checkpoint', sourceContentVersion: null, author: null, content: 'newest', contentHash: documentContentHash('newest') },
+    { revisionId: 3, reason: 'baseline', sourceContentVersion: 1, author: null, content: 'current', contentHash: documentContentHash('current') },
+  ])
+  expect(transfer.previousRevisionId).toBe(2)
+  await atDestination(async () => {
+    await importWorkFromHost('org1', transfer)
+    const imported = await Work.byId('org1', 'legacy-work')
+    expect(imported.contentAuthor).toBeNull()
+    expect((await imported.previous())?.content).toBe('newest')
+    expect((await imported.revisions()).map(({ revisionId, sourceContentVersion }) => ({ revisionId, sourceContentVersion })))
+      .toEqual([{ revisionId: 1, sourceContentVersion: null }, { revisionId: 2, sourceContentVersion: null }, { revisionId: 3, sourceContentVersion: 1 }])
+  })
+})
 
 test('an authenticated link visitor uses the verified account identity, never a typed name as a seat id', async () => {
   const { shares, link } = await fixture()
   const now = Math.floor(Date.now() / 1000)
-  const outcome = await ticketForGrant({ iss: 'https://cloud.test', aud: 'solus-workspace', sub: 'user:bob', deviceId: 'account-session', access: 'guest', hostKind: 'cloud', displayName: 'Bob', jti: 'j', iat: now, exp: now + 60 }, { shareSecret: link.secret }, (secret) => shares.resolveLinkSecret(secret), { workspace: true })
+  const outcome = await ticketForGrant({ iss: 'https://cloud.test', aud: 'urn:solus:api', sub: 'bob', deviceId: 'account-session', access: 'guest', hostKind: 'cloud', displayName: 'Bob', jti: 'j', iat: now, exp: now + 60 }, { shareSecret: link.secret }, (secret) => shares.resolveLinkSecret(secret), { workspace: true })
   if (!outcome.ok) throw new Error('Expected a resource ticket')
-  const { consumeWsTicket } = await import('@solus/server/server/auth')
-  const { principalFor } = await import('@solus/server/server/principal')
+  const { consumeWsTicket } = await import('@solus/server/admission/auth')
+  const { principalFor } = await import('@solus/server/admission/principal')
   const ticket = consumeWsTicket(outcome.ticket)!
   const principal = principalFor({ kind: 'ticket', ticket })
   expect(principal.kind === 'guest' && principal.accountUserId).toBe('bob')

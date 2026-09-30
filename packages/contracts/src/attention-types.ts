@@ -13,7 +13,4 @@ export interface AttentionEntry {
   summary: string
   /** Best-effort project/repo the session belongs to (for grouping/notifications). */
   projectKey?: string
-  /** Reserved: which device resolved this entry. Unused today; kept for the
-   *  forthcoming inbox/notification workstream (F2). */
-  resolvedBy?: string
 }

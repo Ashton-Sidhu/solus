@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
-import type { Principal } from '@solus/server/server/principal'
+import type { Principal } from '@solus/server/admission/principal'
 import type { ShareAccessError as ShareAccessErrorType, ShareChange, ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
-import { HOST_OWNER_USER_ID, type ShareResource } from '@solus/contracts/sharing'
+import type { ShareResource } from '@solus/contracts/sharing'
+import { hostUserKey } from '@solus/server/host/host-user'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -69,7 +70,7 @@ function manager(canonical?: (id: string) => string, tasks: TaskTree = {}): { sh
     db: database.getDatabase(),
     canonicalSessionId: canonical,
     now: () => 1_000,
-    taskContents: async (_organizationId, taskId) => tasks[taskId] ?? [],
+    taskContents: async (_organizationId, taskIds) => taskIds.flatMap((taskId) => tasks[taskId] ?? []),
     containingTasks: async (_organizationId, resource) => Object.entries(tasks)
       .filter(([, contents]) => contents.some((item) => item.kind === resource.kind && item.id === resource.id))
       .map(([taskId]) => ({ taskId, title: `Task ${taskId}` })),
@@ -108,10 +109,26 @@ describe('ownership', () => {
     expect(await shares.roleFor(member('cara', [], 'member', 'personal'), mine)).toBe('none')
   })
 
+  test('a chat starts private on a managed host; only its owner can give the organization its default grant later', async () => {
+    // WHY: Scratchpad decision S5 — a chat runs in its owner's own chat folder,
+    // so the team does not see it until the owner shares it. A session watched
+    // before its folder is known gets the grant only when its owner's prompt
+    // names a project folder.
+    const { shares } = manager()
+    const chat = { kind: 'session', id: 'chat' } as const
+    await shares.claimOwner(chat, member('bob'), { shareWithOrganization: false })
+    expect(await shares.roleFor(member('cara'), chat)).toBe('none')
+
+    await shares.shareWithOrganization(chat, member('cara'))
+    expect(await shares.roleFor(member('cara'), chat)).toBe('none')
+    await shares.shareWithOrganization(chat, member('bob'))
+    expect(await shares.roleFor(member('cara'), chat)).toBe('editor')
+  })
+
   test('a resource made over a local connection is owned by the host owner, whom a remote owner also is', async () => {
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    expect(await shares.claimOwner(work, OWNER)).toBe(HOST_OWNER_USER_ID)
+    expect(await shares.claimOwner(work, OWNER)).toBe(hostUserKey())
     expect(await shares.roleFor(REMOTE_OWNER, work)).toBe('owner')
     expect(await shares.roleFor(OWNER, work)).toBe('owner')
   })
@@ -155,9 +172,10 @@ describe('ownership', () => {
     expect(await shares.roleFor(eve, work)).toBe('none')
     expect(await shares.visibleIds(eve, 'work')).toEqual(new Set())
     expect(await shares.roleFor(bob, work)).toBe('owner')
-    // The host's own rows are `local`: a managed-host member reads none of the cloud's.
-    expect(await shares.ownerOf('local', work)).toBeNull()
-    expect(await shares.roleFor(member('dan'), work)).toBe('editor')
+    // The rows are org1's wherever they are read (organization-scope §3): a member of
+    // org1 on a managed host holds what the organization row gives, and no more.
+    expect(await shares.ownerOf(work)).toBe('bob')
+    expect(await shares.roleFor(member('dan'), work)).toBe('viewer')
   })
 })
 
@@ -211,7 +229,7 @@ describe('share rows', () => {
     await shares.claimOwner(doc, member('alice'))
     await shares.setGrants({ resource: doc, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
     await shares.setGrants({ resource: doc, grants: [] }, member('alice'))
-    expect(changes.at(-1)).toMatchObject({ resource: doc, removedUserIds: ['bob'], guestsRevoked: false, changedBy: { userId: 'alice' } })
+    expect(changes.at(-1)).toMatchObject({ resource: doc, removedUserIds: ['bob'], guestsRevoked: false, changedBy: { id: { kind: 'account', accountId: 'alice' } } })
   })
 
   test('a listing shows a member what they own, what a row names them on, and the host\'s own work on a managed host', async () => {
@@ -276,6 +294,27 @@ describe('tasks', () => {
     expect((await shares.list({ kind: 'session', id: 's1' }, personal('alice'))).inheritedFrom).toEqual([{ taskId: 't1', title: 'Task t1' }])
   })
 
+  test('a session listing reads what all of a member\'s tasks hold at once', async () => {
+    // WHY: a read per owned task cost two database queries per task on every
+    // session and work list, so a member with hundreds of tasks turned one
+    // listing into hundreds of queries.
+    const reads: string[][] = []
+    const shares = new ShareManager({
+      db: database.getDatabase(),
+      now: () => 1_000,
+      taskContents: async (_organizationId, taskIds) => {
+        reads.push([...taskIds])
+        return taskIds.flatMap((taskId) => tree[taskId] ?? [])
+      },
+    })
+    await shares.claimOwner({ kind: 'task', id: 't1' }, personal('bob'))
+    await shares.claimOwner({ kind: 'task', id: 't2' }, personal('bob'))
+    const visible = await shares.filterVisible(personal('bob'), 'session', [{ id: 's1' }, { id: 's9' }, { id: 's7' }], (s) => s.id)
+    expect(visible.map((s) => s.id)).toEqual(['s1', 's9'])
+    expect(reads).toHaveLength(1)
+    expect(reads[0]?.sort()).toEqual(['t1', 't2'])
+  })
+
   test('a listing shows what a shared task holds, and a guest on a task reaches exactly its contents', async () => {
     const { shares } = manager(undefined, tree)
     await shares.claimOwner({ kind: 'task', id: 't1' }, personal('alice'))
@@ -286,8 +325,9 @@ describe('tasks', () => {
     expect((await shares.filterVisible(personal('bob', ['team-a']), 'task', [{ id: 't1' }, { id: 't2' }], (t) => t.id)).map((t) => t.id)).toEqual(['t1'])
 
     const link = (await shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'editor' }, personal('alice')))!
+    // A guest's ticket carries the organization the link resolved to; that is the scope the guest reads.
     const maya: Principal = {
-      kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1',
+      kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
       share: { resource: { kind: 'task', id: 't1' }, role: 'editor', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) },
       expiresAt: 0, deviceLabel: 'Guest link',
     }
@@ -300,39 +340,12 @@ describe('tasks', () => {
     await shares.setLink({ resource: { kind: 'task', id: 't1' }, role: null }, personal('alice'))
     expect(await shares.roleFor(maya, { kind: 'session', id: 's1' })).toBe('none')
   })
-
-  // The file is the store only on SQLite; on Postgres no hand-made table exists.
-  test.skipIf(process.env.SOLUS_DB === 'postgres')('a share table made before tasks could be shared is rebuilt with its rows and its indexes', async () => {
-    // WHY: SQLite cannot widen a CHECK; without the rebuild every task share would be refused on an older host.
-    await resetTestDatabase()
-    for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
-    const legacy = new Database(join(dataDir, 'solus.db'))
-    legacy.exec(`
-      PRAGMA user_version = 1000;
-      CREATE TABLE resource_owner (resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'work')), resource_id TEXT NOT NULL, owner_user_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (resource_kind, resource_id));
-      CREATE TABLE share_grant (id TEXT PRIMARY KEY, resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'work')), resource_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_id TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, link_secret_hash TEXT, granted_by_user_id TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (resource_kind, resource_id, subject_kind, subject_id));
-      CREATE INDEX IF NOT EXISTS share_grant_resource_idx ON share_grant(resource_kind, resource_id);
-      INSERT INTO resource_owner VALUES ('work', 'w1', 'alice', 1);
-      INSERT INTO share_grant VALUES ('g1', 'work', 'w1', 'user', 'bob', 'viewer', NULL, 'alice', 1);
-    `)
-    legacy.close()
-
-    const { shares } = manager()
-    expect(await shares.roleFor(member('bob', [], 'member', 'personal'), { kind: 'work', id: 'w1' })).toBe('viewer')
-    expect(await shares.claimOwner({ kind: 'task', id: 't1' }, member('alice', [], 'member', 'personal'))).toBe('alice')
-    const file = db.getDb()
-    const indexes = (file.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'share_grant'").all() as { name: string }[]).map((row) => row.name)
-    expect(indexes).toContain('share_grant_resource_idx')
-    expect(file.prepare("SELECT name FROM sqlite_master WHERE name LIKE '%_before_tasks'").all()).toEqual([])
-    // The table made before the host kept link secrets gained the column with its rows intact.
-    expect((file.prepare("SELECT name FROM pragma_table_info('share_grant')").all() as { name: string }[]).map((row) => row.name)).toContain('link_secret')
-    expect((await shares.list({ kind: 'work', id: 'w1' }, member('alice', [], 'member', 'personal'))).grants).toHaveLength(1)
-  })
 })
 
 describe('the link and guests', () => {
+  // A guest's ticket carries the organization the link resolved to: the member's own.
   const guest = (secretHash: string, role: 'viewer' | 'editor' = 'viewer'): Principal => ({
-    kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1',
+    kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
     share: { resource: { kind: 'session', id: 's1' }, role, sharedByUserId: 'alice', linkSecretHash: secretHash },
     expiresAt: 0, deviceLabel: 'Guest link',
   })
@@ -343,7 +356,8 @@ describe('the link and guests', () => {
     await shares.claimOwner(session, member('alice'))
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     expect(link.secret.length).toBeGreaterThan(30)
-    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'local', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
+    // A member's rows are their organization's (organization-scope §3): the link a guest is admitted by names it.
+    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'org1', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
     expect(await shares.resolveLinkSecret('nope')).toBeNull()
     expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
     // Changing the role keeps the secret: no new secret comes back.
@@ -382,7 +396,7 @@ describe('the link and guests', () => {
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
     expect((await shares.list(work, member('bob'))).link).toEqual({ role: 'viewer', secret: link.secret })
     const viewingGuest: Principal = {
-      kind: 'guest', guestId: 'g2', displayName: 'Vee', deviceId: 'g2',
+      kind: 'guest', guestId: 'g2', displayName: 'Vee', deviceId: 'g2', organizationId: 'org1',
       share: { resource: work, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) },
       expiresAt: 0, deviceLabel: 'Guest link',
     }

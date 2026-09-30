@@ -15,6 +15,7 @@ export type TokenVariant =
   | 'automation'
   | 'file'
   | 'slash'
+  | 'person'
 
 export function tokenClassName(variant: TokenVariant, mono = false): string {
   return `solus-token solus-token--${variant}${mono ? ' solus-token--mono' : ''}`
@@ -90,4 +91,9 @@ export const TOKEN_ICONS = {
   automation: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'M13 2 4 14h7l-1 8 9-12h-7z' }],
   ],
-} satisfies Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation', IconArray>
+  // at-sign
+  person: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['circle', { cx: '12', cy: '12', r: '4' }],
+    ['path', { d: 'M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8' }],
+  ],
+} satisfies Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation' | 'person', IconArray>

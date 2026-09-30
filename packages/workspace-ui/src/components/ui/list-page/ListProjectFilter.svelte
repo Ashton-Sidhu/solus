@@ -78,12 +78,12 @@
     side={narrowViewport.current ? "bottom" : "right"}
     align={narrowViewport.current ? "end" : "start"}
     collisionPadding={8}
-    class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-2 pointer-fine:[.is-laptop-display_&]:w-60"
+    class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-2"
   >
     <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Project</div>
     {#if showFind}
       <div
-        class="mb-1.5 flex h-9 items-center gap-2 rounded-lg bg-card px-2.5 shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_70%,transparent)] pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2"
+        class="mb-1.5 flex h-9 items-center gap-2 rounded-lg bg-card px-2.5 shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_70%,transparent)]"
       >
         <SearchIcon size={16} class="shrink-0 text-muted-foreground" />
         <!-- The group is long enough that it opens to be searched, so focus

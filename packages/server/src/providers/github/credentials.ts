@@ -44,9 +44,9 @@ export function delegatedGithubToken(deviceId: string): string | null {
  * the database, which a plain provider read has no business loading.
  */
 async function delegatedCheckoutToken(cwd: string): Promise<string | null> {
-  const { dispatchCheckoutDeviceId } = await import('../../project-config/dispatch-checkouts')
-  const deviceId = dispatchCheckoutDeviceId(cwd)
-  return deviceId ? delegatedGithubToken(deviceId) : null
+  const { dispatchCheckoutOwnerKeyOf } = await import('../../project-config/dispatch-checkouts')
+  const ownerKey = dispatchCheckoutOwnerKeyOf(cwd)
+  return ownerKey ? delegatedGithubToken(ownerKey) : null
 }
 
 /** `--hostname` names the account, so `gh` needs no checkout to run in — but

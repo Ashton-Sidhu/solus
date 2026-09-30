@@ -3,6 +3,7 @@ import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { IpcContext } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { listingFrom, readFirstPage } from './__fixtures__/pr-listing'
 
 const serverConnectionsMock = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({
@@ -42,11 +43,11 @@ function installWindow(): void {
     configurable: true,
     writable: true,
     value: {
-      solus: {
+      solus: listingFrom({
         prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
         prChecks: async () => { throw new Error('not relevant') },
         prGuideMetadata: async () => { throw new Error('not relevant') },
-      },
+      }),
     },
   })
 }
@@ -98,7 +99,7 @@ describe('PR list cache', () => {
         solus: {
           prGetDetail: async () => {
             detailCalls++
-            return { number: 33, title: 'bounded' }
+            return pullRequestFixture(33, { title: 'bounded' })
           },
         },
       },
@@ -126,7 +127,7 @@ describe('PR list cache', () => {
       configurable: true,
       writable: true,
       value: {
-        solus: {
+        solus: listingFrom({
           prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
           prUpdate: async () => ({
             ...listItem(),
@@ -136,12 +137,12 @@ describe('PR list cache', () => {
           }),
           prChecks: async () => { throw new Error('not relevant') },
           prGuideMetadata: async () => { throw new Error('not relevant') },
-        },
+        }),
       },
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
 
     await store.get(api(), serverId, ctx).get(33).update({
       title: 'Edited title',
@@ -165,10 +166,10 @@ describe('PR list cache', () => {
     let hostACalls = 0
     let hostBCalls = 0
     serverConnectionsMock.registerPrimary('host-a', {
-      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
+      prGetDetail: async () => pullRequestFixture(33, { title: `Host A ${++hostACalls}` }),
     })
     serverConnectionsMock.registerHost('host-b', {
-      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
+      prGetDetail: async () => pullRequestFixture(33, { title: `Host B ${++hostBCalls}` }),
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
@@ -185,150 +186,9 @@ describe('PR list cache', () => {
     expect([hostACalls, hostBCalls]).toEqual([1, 1])
   })
 
-  test('invalidates only the cache owned by the emitting host', async () => {
-    // WHY: a checkout change on host A must not evict the same path and PR
-    // cached for host B.
-    installStateRune()
-    let hostACalls = 0
-    let hostBCalls = 0
-    serverConnectionsMock.registerPrimary('host-a', {
-      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
-    })
-    serverConnectionsMock.registerHost('host-b', {
-      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
-    })
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: {
-        setInterval: () => 1,
-        clearInterval: () => {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      },
-    })
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      writable: true,
-      value: { visibilityState: 'hidden' },
-    })
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    const hostAApi = serverConnectionsMock.apiFor('host-a')
-    const hostBApi = serverConnectionsMock.apiFor('host-b')
-    await store.get(hostAApi, 'host-a', ctx).get(33).loadDetail()
-    await store.get(hostBApi, 'host-b', ctx).get(33).loadDetail()
-    const { PrNeedsReviewStore } = await import('@solus/workspace-ui/contexts/prs/pr-needs-review.store.svelte')
-    // The invalidation listener lives with needs-review, which is what reacts to
-    // a project's pull requests changing.
-    const needsReview = new PrNeedsReviewStore(store)
-    const unsubscribe = needsReview.subscribe(() => ({ api: hostAApi, serverId: 'host-a', ctx }))
-
-    serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
-    await store.get(hostAApi, 'host-a', ctx).get(33).loadDetail()
-    await store.get(hostBApi, 'host-b', ctx).get(33).loadDetail()
-    unsubscribe()
-
-    expect([hostACalls, hostBCalls]).toEqual([2, 1])
-  })
 })
 
 describe('PR mutation results', () => {
-  test('the store refreshes only observed interests on the invalidated or reconnected host', async () => {
-    installStateRune()
-    const reads: string[] = []
-    for (const host of ['host-a', 'host-b']) {
-      serverConnectionsMock.registerHost(host, {
-        prList: async () => {
-          reads.push(host)
-          return { items: [listItem()], page: 1, hasMore: false }
-        },
-      })
-    }
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore(() => Promise.resolve(), () => () => {})
-    let settledA = Promise.withResolvers<void>()
-    const settledB = Promise.withResolvers<void>()
-    const projectA = store.get(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx)
-    const projectB = store.get(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx)
-    const releaseA = store.watch(projectA, { numbers: [33] }, () => settledA.resolve())
-    const releaseB = store.watch(projectB, { numbers: [33] }, settledB.resolve)
-    try {
-      await Promise.all([settledA.promise, settledB.promise])
-      expect(reads.toSorted()).toEqual(['host-a', 'host-b'])
-      settledA = Promise.withResolvers<void>()
-      serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
-      await settledA.promise
-      expect(reads.filter((host) => host === 'host-a')).toHaveLength(2)
-      expect(reads.filter((host) => host === 'host-b')).toHaveLength(1)
-      settledA = Promise.withResolvers<void>()
-      serverConnectionsMock.emitStatus('host-a', 'connected')
-      await settledA.promise
-      expect(reads.filter((host) => host === 'host-a')).toHaveLength(3)
-      releaseB()
-      settledA = Promise.withResolvers<void>()
-      serverConnectionsMock.emit('host-b', 'prs.invalidated', { projectRoot: '/repo' })
-      serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
-      await settledA.promise
-      expect(reads.filter((host) => host === 'host-b')).toHaveLength(1)
-    } finally {
-      releaseA()
-      releaseB()
-    }
-  })
-
-  test('applies lifecycle events to the visible row and cached list page', async () => {
-    // WHY: another connected client can change a PR while this list stays
-    // mounted. Applying the delta must not wait for a provider reload, and a
-    // later cache hit must not restore the old draft value.
-    installStateRune()
-    installWindow()
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
-    const unsubscribe = store.subscribeLifecycleChanges()
-    const detail = {
-      ...listItem(),
-      draft: true,
-      body: '',
-      baseRef: 'main',
-      headRef: 'feature',
-      baseSha: 'base-33',
-      changedFiles: 1,
-      mergeable: true,
-      mergeStateStatus: 'clean',
-      headRepo: { owner: 'acme', repo: 'app', isFork: false },
-      capabilities: {
-        diff: true,
-        diffFileContents: true,
-        inlineComments: true,
-        threadReplies: true,
-        threadResolution: true,
-        reviewVerdicts: ['comment', 'approve', 'request-changes'],
-        actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
-        mergeMethods: ['squash'],
-        reviewerRequests: true,
-        reviewerCandidates: true,
-        labelManagement: true,
-      },
-      viewerPermissions: {
-        actions: ['ready'],
-        reviewVerdicts: ['comment'],
-        comment: true,
-        resolveThreads: true,
-        requestReviewers: false,
-        manageLabels: false,
-      },
-    } satisfies PullRequest
-
-    serverConnectionsMock.emit(serverId, 'pr.lifecycleChanged', { projectRoot: '/repo', detail })
-    expect(store.get(api(), serverId, ctx).prFor(33)?.draft).toBe(true)
-
-    await store.get(api(), serverId, ctx).list()
-    expect(store.get(api(), serverId, ctx).prFor(33)?.draft).toBe(true)
-    unsubscribe()
-  })
-
   test('patches the visible row and detail cache without reloading the PR surface', async () => {
     // WHY: an in-UI lifecycle action already returns canonical provider state.
     // Reloading commits, comments, files, and threads adds latency and visual churn.
@@ -377,7 +237,7 @@ describe('PR mutation results', () => {
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
 
     await store.get(api(), serverId, ctx).get(33).updateLifecycle('close', 'head-33')
 
@@ -386,9 +246,6 @@ describe('PR mutation results', () => {
     // must not reach the host — `prGetDetail` throws if anything does.
     expect((await store.get(api(), serverId, ctx).get(33).loadDetail()).state).toBe('closed')
     expect(detailLoads).toBe(0)
-
-    await store.get(api(), serverId, ctx).list()
-    expect(store.get(api(), serverId, ctx).prFor(33)?.state).toBe('closed')
 
     const mergedDetail = { ...detail, state: 'merged' as const }
     store.at(serverId, ctx.session.projectPath)?.applyPullRequest(mergedDetail)
@@ -410,7 +267,7 @@ describe('PR mutation results', () => {
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    await store.get(api(), serverId, ctx).list()
+    await readFirstPage(store, store.get(api(), serverId, ctx))
     const pullRequest = store.get(api(), serverId, ctx).get(33)
 
     const arming = pullRequest.enableAutoMerge('squash')
@@ -427,50 +284,5 @@ describe('PR mutation results', () => {
     await expect(closing).rejects.toThrow('Not allowed')
     expect(pullRequest.state).toBe('open')
     expect(pullRequest.title).toBe('Keep host selection stable')
-  })
-})
-
-describe('needs-review refresh cadence', () => {
-  test('the count follows the poll, not the window; a return to the window asks nothing', async () => {
-    installStateRune()
-    let reads = 0
-    serverConnectionsMock.registerPrimary('local', {
-      prNeedsReview: async () => { reads += 1; return [] },
-    })
-    const listeners: string[] = []
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: {
-        setInterval: () => 1,
-        clearInterval: () => {},
-        addEventListener: (type: string) => { listeners.push(type) },
-        removeEventListener: () => {},
-      },
-    })
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      writable: true,
-      value: { visibilityState: 'visible' },
-    })
-
-    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const { PrNeedsReviewStore } = await import('@solus/workspace-ui/contexts/prs/pr-needs-review.store.svelte')
-    const needsReview = new PrNeedsReviewStore(new PrsStore())
-    const unsubscribe = needsReview.subscribe(() => ({ api: api(), serverId, ctx }))
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(reads).toBe(1)
-
-    // Whether this window is looked at bears no relation to whether someone
-    // else asked for a review, so the store must not listen for it at all.
-    expect(listeners).not.toContain('focus')
-
-    // Editing a pull request here does change what is being asked of us.
-    serverConnectionsMock.emit(serverId, 'prs.invalidated', { projectRoot: '/repo' })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(reads).toBe(2)
-    unsubscribe()
   })
 })

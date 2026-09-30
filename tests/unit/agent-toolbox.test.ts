@@ -4,10 +4,10 @@ import { SOLUS_AGENT_TOOL_NAMES } from '@solus/contracts/agent-tools'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let solusToolbox: typeof import('@solus/server/agents/tools/solus-toolbox')['solusToolbox']
+let solusToolbox: typeof import('@solus/server/execution/agents/tools/solus-toolbox')['solusToolbox']
 
 beforeAll(async () => {
-  ;({ solusToolbox } = await import('@solus/server/agents/tools/solus-toolbox'))
+  ;({ solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox'))
 })
 
 describe('Solus toolbox', () => {
@@ -43,7 +43,7 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.insights.query.requiresApproval).toBe(false)
     expect(solusToolbox.intelligence.askJev.requiresApproval).toBe(false)
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
-    expect(solusToolbox.sessions.prompt.requiresApproval).toBe(false)
+    expect(solusToolbox.sessions.send.requiresApproval).toBe(false)
     expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)
     // Reading config is free; changing it is a thing the user must see happen.
     expect(solusToolbox.config.read.requiresApproval).toBe(false)

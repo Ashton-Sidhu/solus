@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import { pauseWhenOffscreen } from "./lib/visible-animation";
 
   /**
    * §16 — the one row every surface that reports a run shares. The live row and
@@ -19,6 +20,9 @@
     /** The target is a sentence rather than a path or a command, so it takes the
      *  sans face the label uses instead of the mono one. */
     proseTarget?: boolean;
+    /** The target is the agent's own words — its latest thought — so it takes
+     *  the foreground colour instead of the muted caption tone. */
+    foregroundTarget?: boolean;
     /** Right end, outside the disclosure so it can hold a button of its own. */
     actions?: Snippet;
     /** 10.5px mono rail; the run time goes last. */
@@ -43,6 +47,7 @@
     label,
     target,
     proseTarget = false,
+    foregroundTarget = false,
     actions,
     rail,
     detail,
@@ -55,7 +60,7 @@
   }: Props = $props();
 </script>
 
-<div class="activity-block">
+<div class="activity-block" {@attach pauseWhenOffscreen}>
   <div
     class="activity-row"
     class:is-static={!onToggle}
@@ -85,7 +90,7 @@
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>
       {#if target}
-        <span class="activity-target truncate" class:is-prose={proseTarget} class:font-mono={!proseTarget}
+        <span class="activity-target truncate" class:is-prose={proseTarget} class:is-foreground={foregroundTarget} class:font-mono={!proseTarget}
           >{@render target()}</span
         >
       {/if}
@@ -240,6 +245,11 @@
     translate: none;
   }
 
+  .activity-target.is-foreground {
+    color: var(--solus-text-primary);
+    opacity: 1;
+  }
+
   .activity-rail {
     display: inline-flex;
     align-items: center;
@@ -284,6 +294,7 @@
     background-clip: text;
     color: transparent;
     animation: activity-shim 2.4s linear infinite;
+    animation-play-state: var(--visible-animation-state, running);
   }
 
   :global(.activity-spinner) {
@@ -293,6 +304,7 @@
     border: 0.09375rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
     border-top-color: var(--muted-foreground);
     animation: activity-spin 0.8s linear infinite;
+    animation-play-state: var(--visible-animation-state, running);
   }
 
   /* A request in flight with nothing back yet is waiting, not working — dots,
@@ -308,6 +320,7 @@
     border-radius: 9999px;
     background: color-mix(in oklch, var(--foreground) 45%, transparent);
     animation: activity-breathe 1.6s ease-in-out infinite;
+    animation-play-state: var(--visible-animation-state, running);
   }
   :global(.activity-dots > span:nth-child(2)) {
     animation-delay: 0.22s;

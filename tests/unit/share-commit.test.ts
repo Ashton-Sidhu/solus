@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Principal } from '@solus/server/server/principal'
+import type { Principal } from '@solus/server/admission/principal'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-notify-test-'))
 process.env.SOLUS_DATA_DIR = dataDir

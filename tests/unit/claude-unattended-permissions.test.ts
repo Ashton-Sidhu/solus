@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PermissionManager } from '@solus/server/agents/claude/claude-permissions'
+import { PermissionManager } from '@solus/server/execution/agents/claude/claude-permissions'
 
 describe('Claude unattended permissions', () => {
   test.each(['AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode'])(
@@ -8,7 +8,7 @@ describe('Claude unattended permissions', () => {
       const manager = new PermissionManager()
       const events: unknown[] = []
       manager.onPermissionEvent = (_sessionId, event) => events.push(event)
-      const canUseTool = manager.createCanUseTool({ current: null }, 'plan', true)
+      const canUseTool = manager.createCanUseTool({ current: null }, true)
 
       const result = await canUseTool(toolName, {})
 

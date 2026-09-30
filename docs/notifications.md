@@ -36,7 +36,7 @@ list is the same switch.
 |---|---|
 | Needs approval | `permission_request` event; `needs_approval` attention entry |
 | Question | `question_request` event; `question` attention entry |
-| Turn finished | `turn_settled` event; `finished` attention entry |
+| Turn finished | `turn_settled` event; `finished` attention entry. A turn that ends with background work still running (`background` status) does not count; it notifies when the agent's real end arrives |
 | Session failed | `failed` attention entry |
 | Plan ready | `plan` event |
 | Work created | `work_created` and `artifact_created` events |
@@ -48,11 +48,17 @@ The sound covers every event. Toasts and system alerts are driven by attention
 entries, so they cover approvals, questions, failures, and finished turns; the
 page says so in the Delivery section.
 
+A session toast shows the same status glyph and color as the session's sidebar
+row (`attentionStateForKind` into `SessionStatusGlyph`): the needs-input glyph
+for an approval or a question, the error glyph for a failure, and the finished
+check for a finished turn. System alerts keep the platform's own icon.
+
 ## App notices
 
 | Event | Sources |
 |---|---|
 | Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR and session guides); the PR row in the project panel when the guide finishes after the row is gone |
+| Review lens ready | `reviewLensStore.onReady` in `app-core.ts`, for a lens run this client saw start or run. A PR lens toast has **Open lens** |
 | Software updates | Desktop: the download and restart prompts (`desktop-updates.svelte.ts`). Any client: "Solus / Claude Code / Codex X is available on host" (`host-update-notices.svelte.ts`) |
 | Host found nearby | LAN discovery in `servers.store` |
 | Teammates | "X joined" and "X left" in `presence.store` |

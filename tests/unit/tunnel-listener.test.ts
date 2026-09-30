@@ -9,9 +9,9 @@ import { Database } from 'bun:sqlite'
 // though these tests never open it. Same seam health-auth-advertisement.test.ts uses.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { buildHttpServer } = await import('@solus/server/server/http')
+const { buildHttpServer } = await import('@solus/server/transport/http')
 type HttpServerOptions = NonNullable<Parameters<typeof buildHttpServer>[0]>
-const auth = await import('@solus/server/server/auth')
+const auth = await import('@solus/server/admission/auth')
 
 // docs/plans/personal-uplink.md H3, the proxied-listener rule: `cloudflared` forwards
 // the tunnel to loopback, and loopback is otherwise trusted. A request that arrived
@@ -72,11 +72,11 @@ describe('the tunnel listener', () => {
     }
   })
 
-  test('/auth/ws-ticket accepts a verified grant and mints a grant ticket', async () => {
+  test('/auth/ws-ticket accepts a verified access token and mints a grant ticket', async () => {
     const { server, baseUrl } = await listen({
       requireAuth: () => true,
       isTunnelRequest: () => true,
-      verifyHostGrant: async (grant) => grant === 'good-grant'
+      verifyAccessToken: async (token) => token === 'good-grant'
         ? { ok: true, claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', deviceId: 'session_1', jti: 'jti_1', iat: 1, exp: Math.floor(Date.now() / 1000) + 600 } }
         : { ok: false, reason: 'bad-signature' },
     })
@@ -103,7 +103,7 @@ describe('the tunnel listener', () => {
     const { server, baseUrl } = await listen({
       requireAuth: () => true,
       isTunnelRequest: () => true,
-      verifyHostGrant: async () => ({
+      verifyAccessToken: async () => ({
         ok: true,
         claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', deviceId: 'session_revoked', jti: 'jti_2', iat: 1, exp: Math.floor(Date.now() / 1000) + 600 },
       }),

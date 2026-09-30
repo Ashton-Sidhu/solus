@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The last stage of cloud onboarding (docs/plans/cloud-onboarding.md §3.4).
+   * The repository choice under "Open existing code" in cloud onboarding.
    * A project is a repository: choosing one adds it to Solus Cloud, where every
    * member of the organization sees its tasks and pull requests. Start opens a
    * new session in it; the run-on rule picks the machine, and the cloud host
@@ -40,7 +40,7 @@
 
 <div class="flex min-h-full flex-col items-center justify-center px-6 py-10 sm:px-10 sm:py-12">
   <h1 class="onboarding-title m-0 shrink-0 text-center text-2xl font-medium leading-[1.12]">
-    Choose a project
+    Choose a repository
   </h1>
   <p
     class="onboarding-title mt-3 max-w-[40ch] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
@@ -103,7 +103,7 @@
             <RepositoryIcon size={16} class="shrink-0 text-muted-foreground" />
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span class="truncate text-sm font-medium">{row.name}</span>
-              <span class="truncate text-xs text-muted-foreground">{row.detail}</span>
+              <span class="truncate text-xs text-muted-foreground" title={row.detail}>{row.detail}</span>
             </span>
             {#if isAdding}
               <LoaderIcon size={14} class="shrink-0 animate-spin text-muted-foreground" aria-label="Adding" />
@@ -122,6 +122,6 @@
     oncontinue={onstart}
     onback={() => store.back()}
     {onskip}
-    skipLabel="Start without a project"
+    skipLabel="Just chat"
   />
 </div>

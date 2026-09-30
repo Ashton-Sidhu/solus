@@ -96,27 +96,27 @@ Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones 
 Run Solus on Linux x64/arm64 or an Apple Silicon Mac. The server includes Node,
 the CLI, and the web client. Homebrew and a separate Node installation are not required.
 
-Download `install.sh` from a [server release](https://github.com/Ashton-Sidhu/solus/releases)
-that includes the installer, then run:
+Install, start, and pair in one command:
 
 ```sh
-sh install.sh
-export PATH="$HOME/.local/bin:$PATH"
-solus setup
-solus pair
+curl -fsSL https://github.com/Ashton-Sidhu/solus/releases/latest/download/install.sh | sh -s -- --setup
 ```
 
-`solus setup` installs and starts a user service. On Linux it uses systemd and
-checks lingering so the server can run after logout and at boot. If permission
-is needed, it prints the command to enable lingering. On macOS it uses a
-LaunchAgent: keep the Mac logged in and awake for remote access.
+The command installs Solus, starts it as a user service, and prints a temporary
+pairing link, code, and QR for desktop, web, or mobile. On Linux the service
+uses systemd and checks lingering so the server can run after logout and at
+boot. If permission is needed, it prints the command to enable lingering. On
+macOS it uses a LaunchAgent: keep the Mac logged in and awake for remote access.
 
-`solus pair` prints a temporary link, code, and QR for desktop, web, or mobile.
-Use `solus connect` instead to link the running host to Solus Cloud.
+To link the host to Solus Cloud instead, copy the command from cloud onboarding
+("Where do your agents run?" → link a computer). It passes `--link CODE`, which
+starts the service and links the host with that one-time code. The same command
+works when Solus is already installed. Add `$HOME/.local/bin` to your `PATH` to
+run `solus` afterwards.
 
 | Command | Purpose |
 |---|---|
-| `solus setup` | Install/start the background service and check health |
+| `solus setup` | Install/start the background service, check health, then connect it: in a terminal, choose direct pairing, a personal account link, or an organization attachment, and optionally sign in a provider; without a terminal, print pairing details. `--link CODE` links (or attaches) with a code from Solus and asks nothing |
 | `solus start` | Run in the foreground (`--host`, `--port`, `--data-dir`) |
 | `solus status` | Show installed/running versions, service state, and provider versions |
 | `solus service start`, `stop`, `restart` | Control the background service |
@@ -124,7 +124,7 @@ Use `solus connect` instead to link the running host to Solus Cloud.
 | `solus service uninstall` | Remove background startup; keep user data |
 | `solus logs` | Follow the server log (`--lines N`) |
 | `solus pair` | Create another temporary client pairing link |
-| `solus connect`, `connect status`, `connect unlink` | Manage the Solus Cloud link |
+| `solus connect`, `connect status`, `connect remove ORG`, `connect unlink` | The linking steps of `solus setup` for a running server (`--code CODE` uses a link code); show kind, attachment, Solus API, and delivery; take one organization back; unlink, which makes an attached server personal again |
 | `solus update` | Check and update the running host through its shared update service |
 
 Versions live under `~/.local/share/solus/versions`; `current` selects the active
@@ -175,6 +175,12 @@ bun install
 bun run dev      # development
 ```
 
+For a fresh test profile, run `SOLUS_SKIP_ONBOARDING=1 bun run dev` to open the
+desktop workspace without first-run onboarding. In a browser, add
+`?skip-onboarding` to the client URL. `scripts/agent/open-app.ts` adds this flag
+by default; pass `{ skipOnboarding: false }` to test onboarding. The flag only
+affects that launch and does not mark onboarding complete.
+
 ```bash
 bun run build    # verify the app + web client compile
 bun run dist     # produces a Solus.app bundle in dist/
@@ -185,10 +191,10 @@ bun run dist     # produces a Solus.app bundle in dist/
 ## How it works
 
 ```
-renderer  →  window.solus.<method>()      (src/preload — wraps as an RPC envelope)
-          →  SolusServer.handle()         (src/main/server)
-          →  handler in server/handlers/  (one file per domain)
-          →  ControlPlane / managers      (src/main/control-plane.ts)
+renderer  →  window.solus.<method>()      (apps/desktop/src/preload — wraps as an RPC envelope)
+          →  SolusServer.handle()         (packages/server/src/transport/server.ts)
+          →  handler in transport/handlers/  (one file per domain)
+          →  SessionRuntime / managers    (packages/server/src/execution/session-runtime.ts)
 events    ←  broadcast back over RPC topics
 ```
 

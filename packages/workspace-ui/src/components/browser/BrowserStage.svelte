@@ -7,6 +7,7 @@
   } from "@solus/contracts/browser-types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { Button } from "../ui/button";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import StreamedSurface from "./StreamedSurface.svelte";
   import { addressParts } from "./lib/address";
   import {
@@ -406,9 +407,10 @@
           </div>
           {#if branchLabel}
             <span
-              class="w-full truncate rounded-lg bg-[var(--wash-2)] px-3 py-2 text-(--solus-text-secondary) shadow-[shadow:inset_0_0_0_0.5px_var(--hairline-strong)]"
+              class="flex w-full min-w-0 gap-1 overflow-hidden whitespace-nowrap rounded-lg bg-[var(--wash-2)] px-3 py-2 text-(--solus-text-secondary) shadow-[shadow:inset_0_0_0_0.5px_var(--hairline-strong)]"
             >
-              Served from {branchLabel}
+              <span class="shrink-0">Served from</span>
+              <MiddleTruncate value={branchLabel} />
             </span>
           {/if}
           <div class="flex items-center gap-2">

@@ -40,6 +40,7 @@ async function main(): Promise<void> {
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
     writeLaunchers(staging)
+    if (target.platform === 'linux') copyManagedBoot(staging)
     writeNativeNote(staging)
     mkdirSync(join(staging, 'docs'), { recursive: true })
     cpSync(join(repoRoot, 'docs', 'linux-browser.md'), join(staging, 'docs', 'linux-browser.md'))
@@ -124,7 +125,7 @@ async function installNodeRuntime(target: Target, staging: string): Promise<void
   chmodSync(join(binDir, 'node'), 0o755)
 }
 
-async function buildServerBundle(staging: string): Promise<void> {
+export async function buildServerBundle(staging: string): Promise<void> {
   const outdir = join(staging, 'libexec', 'server')
   mkdirSync(outdir, { recursive: true })
   await run(esbuildBin(), [
@@ -240,6 +241,15 @@ esac
 `)
 }
 
+/** A managed host's boot on its Sprite (packaging/managed-host/sprite-boot.sh), run from the release it ships in. */
+function copyManagedBoot(staging: string): void {
+  const managedDir = join(staging, 'libexec', 'managed')
+  mkdirSync(managedDir, { recursive: true })
+  const boot = join(managedDir, 'sprite-boot.sh')
+  cpSync(join(repoRoot, 'packaging', 'managed-host', 'sprite-boot.sh'), boot)
+  chmodSync(boot, 0o755)
+}
+
 function writeNativeNote(staging: string): void {
   const nativeDir = join(staging, 'libexec', 'native')
   mkdirSync(nativeDir, { recursive: true })
@@ -306,7 +316,10 @@ function esbuildBin(): string {
   return bin
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err))
-  process.exit(1)
-})
+// scripts/push-dev.ts imports the bundle step without packaging a release.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  })
+}

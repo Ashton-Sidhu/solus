@@ -40,5 +40,7 @@ export function guestSessionRows(
 /** The one line that says what the guest may do here. */
 export function guestAccessLine(kind: ShareResource['kind'], role: ShareRole): string {
   const thing = kind === 'work' ? 'this document' : kind === 'task' ? 'this task and its sessions' : 'this session'
-  return role === 'editor' ? `You can read and edit ${thing}.` : `You can read ${thing}.`
+  if (role === 'editor') return `You can read and edit ${thing}.`
+  if (role === 'commenter' && kind === 'work') return `You can read, comment on, and review ${thing}.`
+  return `You can read ${thing}.`
 }

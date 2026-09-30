@@ -1,6 +1,6 @@
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
-import { checkSeatOfRun, recordedRuns } from '../src/oracle'
+import { checkSeatOfRun, recordedRuns, seatOfRun } from '../src/oracle'
 import { PERSONAS } from '../src/personas'
 import type { LabClient } from '../src/client'
 
@@ -17,7 +17,7 @@ const caraUserId = PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : 
 
 /** The renderer's prompt context for a conversation in the Lab's working directory; a provider thread id resumes it. */
 function promptContext(ctx: ScenarioContext, sessionId: string, agentSessionId: string | null = null): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'auto', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   const context = { session, settings, statusBar }
@@ -33,7 +33,7 @@ async function prompt(client: LabClient, ctx: ScenarioContext, sessionId: string
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const headlessSession = (client: LabClient, ctx: ScenarioContext, text: string) =>
-  client.rpc('createHeadlessSession', { prompt: text, provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd, skipTaskCreation: true })
+  client.rpc('createHeadlessSession', { prompt: text, provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd })
 
 async function noSeatStep(ctx: ScenarioContext, dan: LabClient, runsBefore: number): Promise<void> {
   ctx.step('dan has no seat: his prompt is refused before anything runs')
@@ -50,7 +50,7 @@ async function connectStep(ctx: ScenarioContext, dan: LabClient, bob: LabClient)
   const connected = await expectOk(ctx, 'dan pastes a Claude token', dan.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-dan' }))
   ctx.check('the seat is connected by token and cannot show usage', connected?.state === 'connected' && connected.method === 'token' && connected.usageCapable === false, JSON.stringify(connected))
   const notice = await expectOk(ctx, 'dan receives host.seatChanged', dan.waitForEvent('host.seatChanged', (event) => event.payload.provider === 'claude-code' && event.payload.state === 'connected'))
-  ctx.check('the notice names dan', notice?.payload.userId === danUserId)
+  ctx.check('the notice names dan\'s seat', notice?.payload.seat.kind === 'user' && notice.payload.seat.userId.kind === 'account' && notice.payload.seat.userId.accountId === danUserId, JSON.stringify(notice?.payload.seat))
   await settle(200)
   ctx.check('bob hears nothing about dan\'s seat', bob.received('host.seatChanged').length === 0)
   const bobSeats = await expectOk(ctx, 'bob lists his own seats', bob.rpc('seatList'))
@@ -75,14 +75,13 @@ async function hostLoginStep(ctx: ScenarioContext, alice: LabClient): Promise<vo
   ctx.check('the owner\'s seats are the host login', ownerSeats?.every((seat) => seat.hostLogin === true) === true, JSON.stringify(ownerSeats))
   await expectOk(ctx, 'alice prompts on it', prompt(alice, ctx, 'alice-owner', 'alice as the owner'))
   await settle(300)
-  const ownerRun = checkSeatOfRun(ctx, 'alice as the owner', 'host-owner')
-  ctx.check('the run is the host login, not a member seat', ownerRun?.seat?.isHostLogin === true && !ownerRun.seat.home.includes('-seats/'), ownerRun?.seat?.home)
-  try {
-    await alice.rpc('seatRemove', { userId: 'host-owner' })
-    ctx.check('the host login cannot be removed as a seat', false, 'the call succeeded')
-  } catch (error) {
-    ctx.check('the host login cannot be removed as a seat', error instanceof Error && /host login/.test(error.message), error instanceof Error ? error.message : String(error))
-  }
+  const ownerRun = checkSeatOfRun(ctx, 'alice as the owner', 'host-login')
+  ctx.check('the run is the host login, not a member seat', !!ownerRun?.seat && !ownerRun.seat.home.includes('-seats/'), ownerRun?.seat?.home)
+  // The host login is not a user's seat: removing by the old owner id removes nothing.
+  const removed = await expectOk(ctx, 'removing the old owner id as a seat removes nothing', alice.rpc('seatRemove', { userId: 'host-owner' }))
+  ctx.check('the host login cannot be removed as a seat', removed?.removed === 0, JSON.stringify(removed))
+  const after = await expectOk(ctx, 'alice still lists the host login', alice.rpc('seatList'))
+  ctx.check('the host login is still there', after?.every((seat) => seat.hostLogin === true) === true, JSON.stringify(after))
 }
 
 async function twoMembersStep(ctx: ScenarioContext, dan: LabClient, cara: LabClient): Promise<void> {
@@ -108,7 +107,7 @@ async function removalStep(ctx: ScenarioContext, alice: LabClient, dan: LabClien
   ctx.check('one seat was removed', removed?.removed === 1, JSON.stringify(removed))
   await expectRefused(ctx, 'dan is back to no seat', prompt(dan, ctx, 'dan-removed', 'dan after removal'), 'SEAT_REQUIRED')
   const runs = recordedRuns(ctx).slice(runsBefore)
-  ctx.check('every run reached the provider on a seat', runs.every((run) => run.seat !== null), JSON.stringify(runs.map((run) => [run.prompt, run.seat?.userId ?? null])))
+  ctx.check('every run reached the provider on a seat', runs.every((run) => run.seat !== null), JSON.stringify(runs.map((run) => [run.prompt, seatOfRun(run)])))
 }
 
 export default scenario('seats: every turn runs on its author\'s own login', async (ctx) => {

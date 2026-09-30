@@ -33,8 +33,11 @@ export function lastActivityAt(session: Session): number {
   return session.messages.at(-1)?.timestamp ?? 0
 }
 
-/** A session with no dated message yet is the newest thing there is. */
+/** A session with no dated message yet is the newest thing there is. A
+ *  restored session answers from its saved start: its transcript may not be
+ *  loaded, or may be only a recent window of it. */
 export function firstActivityAt(session: Session): number {
+  if (session.startedAt) return session.startedAt
   const messages = session.messages
   for (let i = 0; ; i++) {
     const message = messages[i]

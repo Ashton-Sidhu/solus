@@ -12,7 +12,6 @@ function task(id: string, status: Task['status'], providerId: Task['providerId']
   return {
     id,
     providerId,
-    kind: 'task',
     title: id,
     body: '',
     status,

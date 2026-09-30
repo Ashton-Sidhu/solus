@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import { preferredRouteUrl } from '@solus/client-core/server-connection'
 import { loadServers, onServerSaved, onServerRemoving, type SavedServer } from '@solus/client-core/server-registry'
 import { probeServingOrigin, type OfferedHost } from '../../lib/add-host'
 import { probeServer } from '../../lib/connect'
@@ -13,8 +14,11 @@ export class HostlessHostsStore {
     const generation = ++this.generation
     const refreshServer = async (server: SavedServer) => {
       this.reachable.delete(server.id)
-      const health = await probeServer(server.url)
-      if (generation === this.generation && this.servers.some((saved) => saved.id === server.id && saved.url === server.url)) {
+      // A directory host saves no address: it is probed on the route it would be dialed on.
+      const url = preferredRouteUrl(server)
+      if (!url) return
+      const health = await probeServer(url)
+      if (generation === this.generation && this.servers.some((saved) => saved.id === server.id && preferredRouteUrl(saved) === url)) {
         this.reachable.set(server.id, health.ok)
       }
     }

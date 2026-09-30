@@ -3,6 +3,7 @@
   import { uuid } from "@solus/contracts/uuid";
   import { FileTree } from "@pierre/trees";
   import DiffActionBar from "./DiffActionBar.svelte";
+  import { diffViewPreferences } from "../../lib/diff-view-preferences.svelte";
   import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
   import ReviewPanelHeader from "./ReviewPanelHeader.svelte";
   import {
@@ -120,6 +121,7 @@
     viewTabs,
     mapView,
     guideView,
+    lensView,
     initialSkeletonVisible = false,
     onToggleMaximize = null,
     maximized = false,
@@ -192,6 +194,8 @@
      *  same change without a second parse of the same patch. */
     mapView?: Snippet<[FileDiffMetadata[]]>;
     guideView?: Snippet<[FileDiffMetadata[]]>;
+    /** The lens, which reads its change on the host rather than this patch. */
+    lensView?: Snippet;
     /** Keep an already-visible route skeleton continuous while this panel
      *  takes ownership of loading. Direct mounts still use the delayed state
      *  below so a cached diff does not flash a placeholder. */
@@ -309,7 +313,7 @@
     initialScope.kind === "turn"
       ? `turn:${initialScope.index}`
       : initialScope.kind === "pr"
-        ? `pr:${initialScope.baseSha}:${initialScope.ownDeltaBaseSha ?? "target"}`
+        ? `pr:${initialScope.baseSha}`
         : initialScope.kind,
   );
 
@@ -329,18 +333,16 @@
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
-  const savedDiffStyle = localStorage.getItem("solus-diff-style");
-  let diffStyleState = $state<"unified" | "split">(
-    savedDiffStyle === "split" ? "split" : "unified",
-  );
   // Each view is mounted on first visit and then hidden with display:none, so
   // the stream's scroll position, collapse state, and loaded file contents —
   // and the map's drill state — all survive switching tabs.
   let hasMountedMap = $state(untrack(() => view === "map"));
   let hasMountedGuide = $state(untrack(() => view === "guide"));
+  let hasMountedLens = $state(untrack(() => view === "lens"));
   $effect(() => {
     if (view === "map") hasMountedMap = true;
     else if (view === "guide") hasMountedGuide = true;
+    else if (view === "lens") hasMountedLens = true;
   });
 
   /** Every file- or line-targeted navigation lands in the diff view. */
@@ -358,11 +360,6 @@
     streamRef?.scrollToFile(fullPath);
     syncTreeTo(fullPath);
   }
-  // Token (word-level) highlighting inside changed lines. Defaults on; only an
-  // explicit "off" stored value disables it.
-  let tokenHighlightState = $state<boolean>(
-    localStorage.getItem("solus-diff-token-highlight") !== "off",
-  );
   // A pane too narrow for two columns closes the tree; widening never reopens
   // it, because the user chooses when the tree is worth its width.
   const TREE_AUTO_CLOSE_WIDTH = 640;
@@ -511,9 +508,9 @@
   // narrow. The user's stored preference is untouched and resumes when widened.
   const SPLIT_MIN_WIDTH = 640;
   const effectiveDiffStyle = $derived<"unified" | "split">(
-    diffStyleState === "split" && panelWidth > 0 && panelWidth < SPLIT_MIN_WIDTH
+    diffViewPreferences.diffStyle === "split" && panelWidth > 0 && panelWidth < SPLIT_MIN_WIDTH
       ? "unified"
-      : diffStyleState,
+      : diffViewPreferences.diffStyle,
   );
 
   const branchContext = $derived(
@@ -572,19 +569,6 @@
       await tick();
       streamRef?.scrollToFile(first);
     }
-  }
-
-  function setDiffStyle(style: "unified" | "split") {
-    diffStyleState = style;
-    localStorage.setItem("solus-diff-style", style);
-  }
-
-  function toggleTokenHighlight() {
-    tokenHighlightState = !tokenHighlightState;
-    localStorage.setItem(
-      "solus-diff-token-highlight",
-      tokenHighlightState ? "on" : "off",
-    );
   }
 
   let allCollapsed = $state(false);
@@ -947,9 +931,9 @@
   useKeybinding("diff-panel.next-turn", () => cycleTurn(1));
   useKeybinding("diff-panel.prev-turn", () => cycleTurn(-1));
   useKeybinding("diff-panel.toggle-view", () =>
-    setDiffStyle(diffStyleState === "unified" ? "split" : "unified"),
+    diffViewPreferences.setDiffStyle(diffViewPreferences.diffStyle === "unified" ? "split" : "unified"),
   );
-  useKeybinding("diff-panel.toggle-token-hl", () => toggleTokenHighlight());
+  useKeybinding("diff-panel.toggle-token-hl", () => diffViewPreferences.toggleTokenHighlight());
   useKeybinding("diff-panel.toggle-tree", () => toggleTreeCollapsed());
   useKeybinding("diff-panel.refresh", () => void handleManualRefresh());
   useKeybinding("diff-panel.submit", () => submitFromShortcut());
@@ -1158,9 +1142,9 @@
       turns={patchOverride === null ? turns : []}
       {selectedTurnIndex}
       diffStyle={effectiveDiffStyle}
-      onSetStyle={setDiffStyle}
-      tokenHighlight={tokenHighlightState}
-      onToggleTokenHighlight={toggleTokenHighlight}
+      onSetStyle={(style) => diffViewPreferences.setDiffStyle(style)}
+      tokenHighlight={diffViewPreferences.tokenHighlight}
+      onToggleTokenHighlight={() => diffViewPreferences.toggleTokenHighlight()}
       {allCollapsed}
       onToggleCollapseAll={toggleCollapseAll}
       {treeCollapsed}
@@ -1185,9 +1169,9 @@
     fallbackBranch={sess?.run.gitContext?.branch ?? null}
     {headerStats}
     diffStyle={effectiveDiffStyle}
-    onSetStyle={setDiffStyle}
-    tokenHighlight={tokenHighlightState}
-    onToggleTokenHighlight={toggleTokenHighlight}
+    onSetStyle={(style) => diffViewPreferences.setDiffStyle(style)}
+    tokenHighlight={diffViewPreferences.tokenHighlight}
+    onToggleTokenHighlight={() => diffViewPreferences.toggleTokenHighlight()}
     {allCollapsed}
     onToggleCollapseAll={toggleCollapseAll}
     filesCount={treeFiles.length}
@@ -1225,10 +1209,18 @@
       {@render guideView?.(treeFiles)}
     </div>
   {/if}
+  {#if hasMountedLens}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={view !== "lens"}
+    >
+      {@render lensView?.()}
+    </div>
+  {/if}
 
   <div
     class="flex min-h-0 flex-1 flex-col"
-    class:panel-view-hidden={view === "guide"}
+    class:panel-view-hidden={view === "guide" || view === "lens"}
   >
   {#if showLoading}
     <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} {stacked} />
@@ -1304,8 +1296,9 @@
           isBinaryFile={(path) => diffState.isBinaryFile(path)}
           isDark={theme.isDark}
           diffStyle={effectiveDiffStyle}
-          tokenHighlight={tokenHighlightState}
+          tokenHighlight={diffViewPreferences.tokenHighlight}
           comments={diffComments}
+          commentsSendWith={hasExternalCommentStore ? "review" : "message"}
           {commentingDisabled}
           {reviewThreads}
           {onThreadReply}
@@ -1352,8 +1345,9 @@
     <!-- One footer for every view: a comment written on a guide's diff card and
          one written in the stream are the same comment, and this is what sends
          them. Feedback targets lines you are reading, and the map has none, so
-         the bar hides there — display:none keeps the typed draft alive. -->
-    <div class="contents" class:panel-view-hidden={view === "map"}>
+         the bar hides there — display:none keeps the typed draft alive. The
+         lens has its own edit bar, so the footer hides there too. -->
+    <div class="contents" class:panel-view-hidden={view === "map" || view === "lens"}>
       <DiffActionBar
         {tabId}
         pendingInlineDraft={pendingFormHasContent}

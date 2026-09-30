@@ -58,9 +58,8 @@ export type DiffScope =
   | { kind: 'turn'; index: number }
   | { kind: 'working-tree' }
   // PR review: merge-base(base, head)…live worktree. `baseSha` is the target
-  // merge-base captured at checkout. An own-delta scope supplies the live
-  // parent's head; main resolves its merge-base with the checked-out child.
-  | { kind: 'pr'; baseSha: string; ownDeltaBaseSha?: string; parentPr?: number }
+  // merge-base captured at checkout.
+  | { kind: 'pr'; baseSha: string }
 
 export type DiffRequest = {
   scope: DiffScope
@@ -126,6 +125,11 @@ export interface TurnSnapshot {
   timestamp: number
   partial: boolean
   userMessagePreview: string
+  /** The Insights trace of the turn this snapshot closes. The snapshot index
+   *  counts snapshots, not turns — a turn that skips its snapshot does not
+   *  advance it — so this is the only exact join to a turn. Absent on
+   *  snapshots written before it was recorded. */
+  traceId?: string
   filesChanged: number
   additions: number
   deletions: number
@@ -157,7 +161,17 @@ export interface GitActionRequest {
    *  change (legacy `git add -A` behavior); an empty array is invalid. Only
    *  valid alongside a commit action. */
   filePaths?: string[]
+  /** The person saw that another session runs in this working tree and chose to
+   *  continue. Without it the host refuses with `WORKING_TREE_BUSY_CODE`. */
+  allowBusyWorkingTree?: boolean
 }
+
+/**
+ * The code of a host refusal: another session runs a turn in this working tree
+ * (plan 004 item 7). It is a question, not a lock. The client asks the person,
+ * and sends again with `allowBusyWorkingTree` when they continue.
+ */
+export const WORKING_TREE_BUSY_CODE = 'WORKING_TREE_BUSY'
 
 export type GitBranchStep =
   | { status: 'created'; name: string }

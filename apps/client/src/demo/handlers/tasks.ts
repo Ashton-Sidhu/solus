@@ -1,7 +1,7 @@
 import { arg, optionalArg } from './args'
-import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { type DemoServer } from '../fixtures/types'
-import type { DemoStore } from '../store'
+import { DEMO_USER, type DemoStore } from '../store'
 
 function taskDetails(store: DemoStore, id: string): TaskDetails {
   const task = store.getTask(id)
@@ -11,17 +11,16 @@ function taskDetails(store: DemoStore, id: string): TaskDetails {
   const rawComments = raw?.comments ?? []
   return {
     task,
-    subtasks: store.listTasks().tasks.filter((candidate) => candidate.parentId === id),
     comments: rawComments.map((comment, index) => ({
       id: comment.id ?? `${id}-comment-${index}`,
       taskId: id,
-      author: comment.author?.login ?? null,
+      author: { kind: 'user', user: comment.author?.login ? { id: { kind: 'account', accountId: comment.author.login }, displayName: comment.author.login } : DEMO_USER },
       source: 'local',
       body: comment.body,
       createdAt: Date.parse(comment.createdAt),
     })),
     links: store.taskLinksFor(id),
-    events: [],
+    activity: [],
   }
 }
 
@@ -58,21 +57,9 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     backend.broadcast('tasks.invalidated', {})
     return store.getTask(id)
   })
-  backend.register('tasksList', (args) => {
-    const filter = optionalArg<TaskListFilter>(args, 0)
-    const list = store.listTasks()
-    return {
-      tasks: list.tasks.filter((task) => {
-        if (filter?.projectKey !== undefined && task.projectKey !== filter.projectKey) return false
-        if (filter?.parentId !== undefined && task.parentId !== filter.parentId) return false
-        if (filter?.status) {
-          const statuses = Array.isArray(filter.status) ? filter.status : [filter.status]
-          if (!statuses.includes(task.status)) return false
-        }
-        return true
-      }),
-    }
-  })
+  // The demo's comments are an upstream provider's, which a host does not
+  // store or search (docs/plans/unified-search.md, Known differences).
+  backend.register('tasksSearchComments', () => [])
   backend.register('tasksSidebarSnapshot', () => ({
     tasks: store.listTasks().tasks,
     sessionsByTask: store.taskSessions(),
@@ -187,21 +174,6 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     const sessions = store.taskSessions()
     const taskId = Object.entries(sessions).find(([, links]) => links.some((link) => link.sessionId === sessionId))?.[0]
     if (!taskId) return null
-    const task = store.getTask(taskId)
-    const parent = task.parentId ? store.getTask(task.parentId) : null
-    const rootId = parent?.id ?? task.id
-    const subtasks = store.listTasks().tasks.filter((candidate) => candidate.parentId === rootId)
-    const siblings = task.parentId
-      ? subtasks.filter((candidate) => candidate.id !== task.id)
-      : []
-    const attempts = [rootId, ...subtasks.map((candidate) => candidate.id)]
-      .flatMap((candidateTaskId) => sessions[candidateTaskId] ?? [])
-    return {
-      task,
-      parent,
-      subtasks,
-      siblings,
-      attempts,
-    }
+    return { task: store.getTask(taskId), attempts: sessions[taskId] ?? [] }
   })
 }

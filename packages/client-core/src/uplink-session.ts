@@ -1,15 +1,15 @@
 import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
-  hostGrantResponseSchema,
+  hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
   type ManagedHostLifecycle,
   type DirectoryHost,
-  type HostGrantResponse,
+  type HostAccessTokenRequest,
+  type HostAccessTokenResponse,
   type OrganizationDirectory,
   type UplinkDirectory,
-  type HostRoute,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
 import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
@@ -28,7 +28,9 @@ import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './s
 export interface UplinkAccountSource {
   /** Null when signed out or the website could not be reached. */
   listDirectory(): Promise<UplinkDirectory | null>
-  acquireHostGrant(hostId: string): Promise<HostGrantResponse | null>
+  /** A grant for one host. A member of several organizations the host is shared
+   *  with names the one their window works in; the owner may name nothing. */
+  acquireHostAccessToken(hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null>
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
@@ -60,12 +62,17 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
       const response = await call('/v1/hosts')
       if (!response?.ok) return null
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
-      return parsed.success ? { directoryUrl: origin, hosts: parsed.data.hosts } : null
+      return parsed.success ? { directoryUrl: origin, ...parsed.data } : null
     },
-    async acquireHostGrant(hostId) {
-      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/grant`, { method: 'POST' })
+    async acquireHostAccessToken(hostId, organizationId) {
+      const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
       if (!response?.ok) return null
-      const parsed = hostGrantResponseSchema.safeParse(await response.json().catch(() => null))
+      const parsed = hostAccessTokenResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
     },
     async issueEnrollmentTicket() {
@@ -113,7 +120,7 @@ export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch =
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
       return {
         kind: 'signed-in',
-        directory: parsed.success ? { directoryUrl: origin, hosts: parsed.data.hosts } : null,
+        directory: parsed.success ? { directoryUrl: origin, ...parsed.data } : null,
       }
     }
     if (response.status === 401) return { kind: 'signed-out', directory: null }
@@ -125,13 +132,12 @@ export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch =
 
 /** What the registry keeps of a directory row beyond its routes. */
 function uplinkOf(host: DirectoryHost, directoryUrl: string): SavedServerUplink {
-  const uplink: SavedServerUplink = { hostId: host.hostId, directoryUrl }
-  if (host.organizationId) uplink.organizationId = host.organizationId
+  const uplink: SavedServerUplink = { hostId: host.hostId, directoryUrl, kind: host.kind, category: host.category }
+  const organizationIds = host.organizationIds
+  if (organizationIds.length > 0) uplink.organizationIds = [...organizationIds]
   if (host.ownerName) uplink.ownerName = host.ownerName
   if (host.ownerUserId) uplink.ownerUserId = host.ownerUserId
-  if (host.kind) uplink.kind = host.kind
   if (host.managedState) uplink.managedState = host.managedState
-  if (host.isActiveWorkspace) uplink.isActiveWorkspace = true
   return uplink
 }
 
@@ -139,38 +145,30 @@ function uplinkOf(host: DirectoryHost, directoryUrl: string): SavedServerUplink 
  * The organization whose people the share dialog may add. The host's own answer
  * wins; the directory row fills in for the owner, whom the host admits as
  * `local-owner` and so never tells which organization the host is shared with.
+ * A host shared with several organizations belongs, for this window, to the one
+ * the window works in; with no such selection its first share stands.
  */
-export function organizationIdFor(hostAnswer: string | null | undefined, saved: SavedServerUplink | undefined): string | null {
-  return hostAnswer ?? saved?.organizationId ?? null
+export function organizationIdFor(
+  hostAnswer: string | null | undefined,
+  saved: SavedServerUplink | undefined,
+  activeOrganizationId: string | null = null,
+): string | null {
+  if (hostAnswer) return hostAnswer
+  const shared = saved?.organizationIds ?? []
+  if (activeOrganizationId && shared.includes(activeOrganizationId)) return activeOrganizationId
+  return shared[0] ?? null
 }
 
-/** The tunnel routes of a directory row: all a cloud row may ever carry. */
-function tunnelRoutes(host: DirectoryHost): HostRoute[] {
-  return host.routes.filter((route) => route.kind === 'tunnel')
-}
-
-/** The registry entry a directory row becomes when this client has never paired with the host. */
+/**
+ * The registry entry a directory row becomes when this client has never paired with the
+ * host. It saves no `url`: the directory owns the host's address, so its routes are the
+ * only ones, replaced on every read. A host being set up has none yet.
+ */
 export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: string, now: number): SavedServer {
-  const tunnel = host.routes.find((route) => route.kind === 'tunnel') ?? host.routes[0]
-  // A cloud row (docs/plans/cloud-service-model.md) is the organization's
-  // workspace service: its id is the directory's `workspace:<organizationId>`,
-  // its label the organization's name, and the tunnel its only way in.
-  if (host.kind === 'cloud') {
-    return {
-      id: host.hostId,
-      label: host.label,
-      url: tunnel?.url ?? '',
-      sessionToken: '',
-      installationId: host.installationId,
-      lastConnected: now,
-      routes: tunnelRoutes(host),
-      uplink: uplinkOf(host, directoryUrl),
-    }
-  }
   return {
     id: host.installationId,
     label: host.label,
-    url: tunnel?.url ?? '',
+    url: '',
     sessionToken: '',
     installationId: host.installationId,
     os: host.os,
@@ -186,10 +184,8 @@ export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: stri
  * tunnel route; a host only listed is saved with the tunnel route alone; a saved
  * host the directory stopped listing loses its tunnel route and, if it was never
  * paired, disappears. Hosts from another directory origin are left untouched.
- *
- * A cloud row follows the directory alone: it is created and updated from the
- * row (name, organization, tunnel) and never keeps a pairing or a LAN route, and
- * it disappears the moment the directory stops listing it.
+ * The directory's workspace services are not hosts and never pass through here
+ * (`saveDirectoryWorkspaces`).
  */
 export function mergeDirectoryIntoSaved(
   saved: SavedServer[],
@@ -201,16 +197,15 @@ export function mergeDirectoryIntoSaved(
   const merged: SavedServer[] = []
   for (const server of saved) {
     const listed = byInstallation.get(server.installationId)
-    if (listed?.kind === 'cloud') {
-      byInstallation.delete(server.installationId)
-      merged.push({ ...savedServerFromDirectory(listed, directoryUrl, now), lastConnected: server.lastConnected })
-      continue
-    }
     if (listed) {
       byInstallation.delete(server.installationId)
-      const direct = savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
+      // A host never paired keeps no address of its own: a kept one outlived the route it
+      // came from and, read back as a direct route, was dialed before the directory's.
+      const isDirectoryOnly = !server.sessionToken
+      const direct = isDirectoryOnly ? [] : savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
       merged.push({
         ...server,
+        url: isDirectoryOnly ? '' : server.url,
         // A managed host's name is the one members give it on the account site, so a
         // rename there reaches every client. A name typed here still wins (`hasUserLabel`).
         label: listed.kind === 'managed' ? listed.label : server.label,
@@ -224,8 +219,6 @@ export function mergeDirectoryIntoSaved(
       merged.push(server)
       continue
     }
-    // A cloud row has no life outside the directory.
-    if (server.uplink.kind === 'cloud') continue
     // Unlinked (or deleted) on the cloud side: only the tunnel goes away.
     if (!server.sessionToken) continue
     const { uplink: _dropped, ...rest } = server

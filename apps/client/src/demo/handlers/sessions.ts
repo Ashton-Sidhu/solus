@@ -1,8 +1,23 @@
 import { arg, optionalArg } from './args'
 import type { SessionMessageWindowRequest } from '@solus/contracts/session-history'
-import type { PinnedSession } from '@solus/contracts/types'
+import type { PinnedSession, SessionMeta, SessionRecord, SessionRecordSearchQuery } from '@solus/contracts/types'
 import type { DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
+
+/** A fixture session as the record a host keeps for it. */
+function demoSessionRecord(meta: SessionMeta): SessionRecord {
+  const lastActivityAt = Date.parse(meta.lastTimestamp)
+  return {
+    sessionId: meta.sessionId, organizationId: 'local', publication: 'local', ownerUserId: null,
+    provider: meta.provider, projectPath: meta.projectPath, projectRemote: null, runnerHostId: null,
+    title: meta.firstMessage ?? meta.slug, customTitle: meta.customTitle ?? null,
+    status: 'idle', model: meta.model ?? null, reasoningEffort: meta.reasoningEffort ?? null,
+    parentSessionId: meta.delegation?.parentSessionId ?? null, rootSessionId: meta.delegation?.rootSessionId ?? null,
+    createdAt: lastActivityAt, lastActivityAt, size: meta.size,
+    cwd: meta.cwd || null, slug: meta.slug, isWorktree: meta.isWorktree ?? false,
+    branch: meta.branch ?? null, projectRoot: meta.projectRoot ?? null, delegation: null,
+  }
+}
 
 const loadedSessions = new Set<string>()
 const loadWaiters = new Map<string, Set<() => void>>()
@@ -28,10 +43,18 @@ function markSessionLoaded(sessionId: string): void {
 }
 
 export function registerSessionsHandlers(backend: DemoServer, store: DemoStore): void {
-  backend.register('listSessions', () => store.listSessions())
-  backend.register('searchSessions', (args) => {
-    const request = arg<{ query: string; projectPath?: string; limit?: number }>(args, 0)
-    return store.searchSessions(request)
+  // The demo host has read every session: it is never still indexing.
+  backend.register('sessionRecordList', () => ({ records: store.listSessions().map(demoSessionRecord), indexing: false }))
+  backend.register('sessionRecordSearch', (args) => {
+    const query = arg<SessionRecordSearchQuery>(args, 0)
+    const results = store.searchSessions({ query: query.query })
+    const offset = query.offset ?? 0
+    return {
+      results: results.slice(offset, offset + (query.limit ?? results.length))
+        .map(({ session, ...hit }) => ({ ...hit, record: demoSessionRecord(session), additionalMatches: [] })),
+      total: results.length,
+      indexing: false,
+    }
   })
   backend.register('loadSession', (args) => {
     const sessionId = arg<string>(args, 0)

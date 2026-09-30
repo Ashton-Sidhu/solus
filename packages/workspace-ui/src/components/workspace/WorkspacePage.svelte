@@ -10,24 +10,27 @@
     Search as MagnifyingGlassIcon,
     Plus as PlusIcon,
     Pin as PushPinIcon,
+    UserCheck as UserCheckIcon,
     PanelLeft as SidebarSimpleIcon,
     Upload as UploadSimpleIcon,
     Link2 as LinkIcon,
   } from "@lucide/svelte";
-  import type { PlanDescriptor, Work } from "@solus/contracts/types";
+  import type { PlanDescriptor } from "@solus/contracts/types";
+  import type { WorkListing } from "../../contexts/works/works.store.svelte";
   import {
     getClientShellContext,
     getSurfaceContext,
     getPlanStore,
     runtime,
+    presenceStore,
     projectsStore,
     serversStore,
+    sharesStore,
     type ProjectRef,
   } from "../../contexts";
   import type { ProjectPageScope } from "../../contexts/projects/project-catalog";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import { projectDirLabel } from "../../lib/paths";
   import { liveSessionTitle } from "../../lib/sessionUtils";
   import { SessionUnavailableError } from "../../contexts/workspace/session-errors";
   import {
@@ -52,6 +55,7 @@
   import WorkspacePeek from "./WorkspacePeek.svelte";
   import ImportDocDialog from "../work/ImportDocDialog.svelte";
   import { docProviderLabel } from "../work/lib/work-publish";
+  import { copyWorkReviewLink, openWorkReview } from "../work/lib/work-review-commands";
   import type { DocProviderId, DocProviderStatus } from "@solus/contracts/docs";
   import WorkspaceSearchField from "./WorkspaceSearchField.svelte";
   import { PeekHover } from "./lib/peek-hover.svelte";
@@ -100,8 +104,9 @@
       ? planStore.cachedDescriptors
       : [],
   );
-  const worksList: Work[] = $derived(
-    Object.values(session.worksStore.works).filter(
+  // Local works and the selected organization's (organization-scope §2).
+  const worksList: WorkListing[] = $derived(
+    session.worksStore.visibleWorks.filter(
       (w) => session.worksStore.pendingWorkDelete?.id !== w.id,
     ),
   );
@@ -146,7 +151,10 @@
     projectsForWorkspaceScope(catalogProjects, scopedProject),
   );
   const allItems: WorkspaceItem[] = $derived(
-    buildWorkspaceItems(descriptors, worksList, workspaceProjects),
+    buildWorkspaceItems(descriptors, worksList, workspaceProjects, {
+      stateOf: (workId) => session.worksStore.reviews.states.get(workId),
+      awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
+    }),
   );
   // Plans are the slow half of the ledger (each split plan is read off disk), so
   // works can land long before them. Track each source: an empty ledger gets the
@@ -244,12 +252,23 @@
     localStorage.setItem(PINNED_COLLAPSED_KEY, String(pinnedCollapsed));
   }
 
-  function clearFilters() {
+  function clearFacets() {
     filter.type = "all";
     filter.status = "any";
     filter.pinnedOnly = false;
+    filter.awaitingMyReview = false;
     filter.time = "all";
+  }
+
+  function clearFilters() {
+    clearFacets();
     filter.text = "";
+  }
+
+  /** Clears what the Filters badge counts: the facets and the project scope. */
+  function clearMenuFilters() {
+    clearFacets();
+    if (activeProjectOptionKey) selectProject(null);
   }
 
   function resetLedgerSelection() {
@@ -265,12 +284,6 @@
     untrack(() => {
       scopeKeyAtOpen = sharedScopeKey;
       hasChosenScope = false;
-      if (projectScope && workspace) {
-        projectsStore.record(
-          projectScope,
-          projectDirLabel(projectScope.projectRoot, session.staticInfo?.workspacePath),
-        );
-      }
       refreshRecentProjects();
       clearFilters();
       resetLedgerSelection();
@@ -381,6 +394,9 @@
     applyFilter(items, { ...filter, pinnedOnly: false }).filter((i) => i.pinned)
       .length,
   );
+  const awaitingMyReviewCount = $derived(
+    applyFilter(items, { ...filter, awaitingMyReview: false }).filter((i) => i.awaitingMyReview).length,
+  );
   const needsReviewCount = $derived(
     applyFilter(items, { ...filter, status: "any", type: "all" }).filter(
       (i) => i.status === "pending",
@@ -439,6 +455,7 @@
     void filter.type;
     void filter.status;
     void filter.pinnedOnly;
+    void filter.awaitingMyReview;
     void filter.time;
     void filter.text;
     void sort;
@@ -692,19 +709,21 @@
     void planStore.toggleBookmarkDescriptor(d);
   }
 
-  /** Works only: one way to the organization's workspace service (R6). */
-  const cloudHost = $derived(serversStore.connectedCloudServer);
-  function canMoveToCloud(item: WorkspaceItem): boolean {
-    return item.source.kind === "work" && !!cloudHost && !serversStore.isCloudHost(session.worksStore.hostFor(item.id));
+  /** Works only: the Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
+  function canShare(item: WorkspaceItem): boolean {
+    const serverId = session.worksStore.hostFor(item.id);
+    return item.source.kind === "work" && !!serverId
+      && (sharesStore.canShareFrom(serverId) || sharesStore.canPublishWork(serverId));
   }
-  async function moveItemToCloud(item: WorkspaceItem) {
-    if (item.source.kind !== "work" || !cloudHost) return;
-    try {
-      await session.worksStore.moveToCloud(item.id, cloudHost.id);
-      toasts.success(`Moved to Solus Cloud · ${cloudHost.label}`);
-    } catch (error) {
-      toasts.error("Couldn't move this work to Solus Cloud", { description: error instanceof Error ? error.message : String(error) });
-    }
+  function shareItem(item: WorkspaceItem) {
+    const serverId = session.worksStore.hostFor(item.id);
+    if (item.source.kind === "work" && serverId) void sharesStore.open({ serverId, resource: { kind: "work", id: item.id }, title: item.title });
+  }
+
+  /** Works only: who has the work open now, from its host's room. */
+  function workPresence(workId: string) {
+    const serverId = session.worksStore.hostFor(workId);
+    return serverId ? presenceStore.peopleFocusedOn(serverId, { kind: "work", workId }) : [];
   }
 
   /** Works only — a plan is a session artifact and has no delete. */
@@ -776,7 +795,7 @@
 
 {#snippet filterControls()}
   <ListSortMenu bind:value={sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
-  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly) + Number(!!activeProjectOptionKey)}>
+  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly) + Number(filter.awaitingMyReview) + Number(!!activeProjectOptionKey)} onClear={clearMenuFilters}>
     <ListProjectFilter
       projects={projectOptions}
       activeKey={activeProjectOptionKey ?? ""}
@@ -804,6 +823,12 @@
       <span class="flex-1">Needs review</span>
       <span class="mr-1 tabular-nums text-muted-foreground">{needsReviewCount}</span>
     </DropdownMenu.CheckboxItem>
+    <!-- Works a teammate asked the reader to review; plans' "Needs review" above is their own approval queue. -->
+    <DropdownMenu.CheckboxItem checked={filter.awaitingMyReview} closeOnSelect={false} onCheckedChange={(checked) => (filter.awaitingMyReview = checked)} data-testid="filter-needs-my-review">
+      <UserCheckIcon size={14} class="shrink-0 text-muted-foreground" />
+      <span class="flex-1">Needs my review</span>
+      <span class="mr-1 tabular-nums text-muted-foreground">{awaitingMyReviewCount}</span>
+    </DropdownMenu.CheckboxItem>
   </ListFilterMenu>
 {/snippet}
 
@@ -824,6 +849,7 @@
     onPeek={(row) => peek.enter(item, row)}
     onPeekLeave={() => peek.leave()}
     onContextMenu={(event) => openItemContextMenu(event, item)}
+    present={item.source.kind === "work" ? workPresence(item.id) : []}
   />
 {/snippet}
 
@@ -1043,7 +1069,7 @@
                window. It keeps one fixed top measure when the session sidebar
                opens or closes. ── -->
           <div
-            class="workspace-titlebar mx-auto flex w-full max-w-[72rem] shrink-0 items-center px-8 pt-[42px] pb-[13px] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5"
+            class="workspace-titlebar mx-auto flex w-full max-w-[72rem] shrink-0 items-center px-8 pt-[42px] pb-[13px] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
             <PageCrumbLine
               page="folio"
@@ -1056,7 +1082,7 @@
 
           <!-- ── Row 2: search · sort · filters · New ── -->
           <div
-            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pb-3"
+            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
           <WorkspaceSearchField
             {filter}
@@ -1072,7 +1098,7 @@
             aria-hidden="true"
           ></span>
           {@render newMenu(
-            "flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:px-2.5",
+            "flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]",
             16,
           )}
           </div>
@@ -1248,9 +1274,11 @@
         onOpenSessionSplit={workspace && menuItem.sessionId
           ? () => void openSessionInSplit(menuItem)
           : undefined}
-        onMoveToCloud={canMoveToCloud(menuItem)
-          ? () => void moveItemToCloud(menuItem)
+        onShare={canShare(menuItem)
+          ? () => shareItem(menuItem)
           : undefined}
+        onRequestReview={menuItem.source.kind === "work" ? () => openWorkReview(session, menuItem.id) : undefined}
+        onCopyReviewLink={menuItem.source.kind === "work" ? () => void copyWorkReviewLink(session.worksStore.hostFor(menuItem.id), menuItem.id, menuItem.title) : undefined}
         onDelete={menuItem.source.kind === "work"
           ? () => deleteItem(menuItem)
           : undefined}

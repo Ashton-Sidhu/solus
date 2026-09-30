@@ -9,7 +9,7 @@ import {
   removeTreePath,
   renameTreePath,
 } from '@solus/workspace-ui/components/files/lib/file-tree-mutations'
-import { directoriesHoldingFiles } from '@solus/server/server/handlers/lib/project-listing'
+import { directoriesHoldingFiles } from '@solus/server/files/project-listing'
 
 describe('where a new entry goes', () => {
   test('a folder takes the new entry inside itself', () => {

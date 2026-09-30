@@ -14,49 +14,49 @@ if (!method) throw new Error('Missing openWorkModal command')
 const transpiler = new Bun.Transpiler({ loader: 'ts' })
 const command = new Function('track', `${transpiler.transformSync(`class Workspace { ${method} }`)}; return Workspace.prototype.openWorkModal`)(() => {})
 
-test('a known work opens beside the conversation before its content read completes', async () => {
-  let finish!: (value: null) => void
-  const pending = new Promise<null>((resolve) => { finish = resolve })
+/** A store that records every body read. Opening must leave the read to the
+ *  pane's open-work lease, which subscribes first. */
+function storeThatCountsReads(reads: string[], works = {}) {
+  return {
+    works,
+    ensureContent: (workId: string) => { reads.push(workId); return new Promise(() => {}) },
+    loadWork: (workId: string) => { reads.push(workId); return new Promise(() => {}) },
+  }
+}
+
+test('a known work opens beside the conversation without reading its body', async () => {
+  // WHY: the pane's lease subscribes to works.changed and then reads. A second
+  // read started here would load the body twice on every open.
   const calls: string[] = []
+  const reads: string[] = []
   const workspace = {
     activeTabId: 'tab',
     sessionFor: () => ({ run: { workingDirectory: '/project' } }),
-    worksStore: {
-      ensureContent(workId: string, source: string) {
-        expect([workId, source]).toEqual(['work', 'open-work-modal'])
-        calls.push('read')
-        return pending
-      },
-    },
+    worksStore: storeThatCountsReads(reads),
     router: { close: () => calls.push('close gallery') },
     openWork: (workId: string, target: string) => calls.push(`${workId}:${target}`),
   }
-  const opening = command.call(workspace, 'work', undefined, { secondary: true })
-  expect(calls).toEqual(['read', 'close gallery', 'work:aside'])
-  // A failed read is handled by the mounted pane, where retry is available.
-  finish(null)
-  await opening
+  await command.call(workspace, 'work', undefined, { secondary: true })
+  expect(calls).toEqual(['close gallery', 'work:aside'])
+  expect(reads).toEqual([])
 })
 
-test('a historical title resolves its id before opening, without waiting for the body', async () => {
+test('a historical title resolves its id from the listing, then opens without reading the body', async () => {
   let finishManifest!: () => void
   const manifest = new Promise<void>((resolve) => { finishManifest = resolve })
   const opened: string[] = []
+  const reads: string[] = []
   const workspace = {
     activeTabId: 'tab',
     sessionFor: () => ({ run: { workingDirectory: '/project' } }),
-    worksStore: {
-      works: { work: { title: 'Design' } },
-      loadAll: () => manifest,
-      ensureContent: () => new Promise(() => {}),
-    },
+    worksStore: { ...storeThatCountsReads(reads, { work: { title: 'Design' } }), loadAll: () => manifest },
     router: { close: () => {} },
     openWork: (workId: string) => opened.push(workId),
   }
   const opening = command.call(workspace, '', 'Design')
   expect(opened).toEqual([])
   finishManifest()
-  await Promise.resolve()
-  expect(opened).toEqual(['work'])
   await opening
+  expect(opened).toEqual(['work'])
+  expect(reads).toEqual([])
 })

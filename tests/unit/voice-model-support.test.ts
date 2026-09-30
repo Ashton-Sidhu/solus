@@ -15,7 +15,8 @@ let capabilities: HostCapabilities = {}
 
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
-    defaultServerId: () => 'host',
+    // The voice model is a machine's: its status follows the default machine.
+    defaultMachineId: () => 'host',
     capabilitiesFor: async () => capabilities,
   },
 }))

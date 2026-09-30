@@ -4,6 +4,8 @@
   import type { ResponseStreamingMode } from "@solus/contracts/host-config";
   import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/host-config";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
+  import { PERMISSION_MODES } from "@solus/contracts/types";
+  import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
   import type { HostApi } from "@solus/client-core/host-api";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -53,11 +55,7 @@
 
   let { searchQuery = "", serverId, api, hostLabel }: Props = $props();
 
-  const permissionModes = [
-    { value: "ask", label: "Ask" },
-    { value: "auto", label: "Auto" },
-    { value: "plan", label: "Plan" },
-  ] satisfies Array<{ value: "ask" | "auto" | "plan"; label: string }>;
+  const permissionModes = PERMISSION_MODES.map((value) => ({ value, label: PERMISSION_MODE_DISPLAY[value].label }));
   const responseStreamingModes = [
     { value: "buffered", label: "Buffered" },
     { value: "paragraph", label: "Streaming" },
@@ -145,9 +143,13 @@
 
   let projectsBasePickerOpen = $state(false);
 
-  // Per-host, not per-client: the folder picker on this server starts here.
+  // Per-host, not per-client: the folder this host really uses — the setting,
+  // the managed host's volume, or ~/projects.
   const projectsBaseDirectory = $derived(
     connectionsStore.capabilities?.projectsBaseDirectory ?? "",
+  );
+  const projectsBaseDirectoryIsSet = $derived(
+    connectionsStore.capabilities?.projectsBaseDirectoryIsSet === true,
   );
 
   async function commitProjectsBaseDirectory(next: string) {
@@ -276,7 +278,7 @@
     },
     {
       id: "default-permission",
-      keywords: ["default", "permission", "ask", "auto", "plan", "mode"],
+      keywords: ["default", "permission", "supervised", "ask", "edits", "auto", "full", "access", "plan", "mode"],
     },
     {
       id: "response-streaming",
@@ -298,10 +300,6 @@
         "autonomous",
         "moderate",
       ],
-    },
-    {
-      id: "use-tasks",
-      keywords: ["task", "tasks", "board", "file", "new", "session", "none"],
     },
     {
       id: "sidebar-motion",
@@ -359,6 +357,10 @@
       keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
     },
     {
+      id: "show-tool-calls",
+      keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
+    },
+    {
       id: "collapse-composer",
       keywords: [
         "collapse",
@@ -403,13 +405,13 @@
 
 <SettingsSection
   label="New sessions"
-  visible={["agent-model", "default-permission", "use-tasks"].some(isVisible)}
+  visible={["agent-model", "default-permission"].some(isVisible)}
 >
   <SettingsRow
     label="Default agent and model"
     description={autoNeedsKey
-      ? "Auto needs a TypeSafe key in Tools. Until you add one, new sessions use the General use model."
-      : "The agent and model used for new sessions. Auto picks one from the first prompt."}
+      ? "Auto needs a TypeSafe key in Tools. Until then, it uses General use."
+      : "Agent and model for new sessions. Auto picks from the first prompt."}
     visible={isVisible("agent-model")}
   >
     {#snippet control()}
@@ -421,7 +423,7 @@
         menuSide="bottom"
         ariaLabel="Default agent and model"
         returnFocusOnClose
-        class="min-w-48"
+        class="w-full @min-[30rem]/pane:w-56"
         onSelectionChange={selectDefaultAgentModel}
       />
     {/snippet}
@@ -429,7 +431,7 @@
 
   <SettingsRow
     label="Default permission mode"
-    description="The mode for new sessions. Existing sessions and choices in open drafts stay the same."
+    description="Mode for new sessions. Existing sessions keep theirs."
     visible={isVisible("default-permission")}
   >
     {#snippet control()}
@@ -438,21 +440,6 @@
         value={theme.defaultPermissionMode}
         onSelect={(value) => theme.update({ defaultPermissionMode: value })}
         ariaLabel="Default permission mode"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Use tasks"
-    description="File each new session under a task. When off, new sessions start with no task and the task picker is hidden from the composer."
-    visible={isVisible("use-tasks")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.tasksEnabled}
-        onCheckedChange={(next) => theme.update({ tasksEnabled: next })}
-        size="default"
-        aria-label="Toggle filing new sessions under tasks"
       />
     {/snippet}
   </SettingsRow>
@@ -466,12 +453,12 @@
 >
   <SettingsRow
     label="Completed task history"
-    description="Keep completed tasks in the session sidebar for this many days."
+    description="Days to keep completed tasks in the sidebar."
     visible={isVisible("completed-retention")}
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
       >
         <button
           type="button"
@@ -480,7 +467,7 @@
               theme.sidebarCompletedRetentionDays - 1,
             )}
           aria-label="Decrease completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >&minus;</button
         >
         <Input
@@ -508,7 +495,7 @@
               theme.sidebarCompletedRetentionDays + 1,
             )}
           aria-label="Increase completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >+</button
         >
       </div>
@@ -523,6 +510,7 @@
   visible={[
     "response-streaming",
     "turn-diff-summary",
+    "show-tool-calls",
     "collapse-composer",
     "auto-rename",
     "ratelimit",
@@ -532,19 +520,19 @@
 >
   <SettingsRow
     label="Sidebar animation"
-    description="How long a task takes to slide or fade into place when the sidebar list changes. 0 turns the animation off."
+    description="Sidebar task animation length. 0 turns it off."
     visible={isVisible("sidebar-motion")}
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
       >
         <button
           type="button"
           onclick={() =>
             commitSidebarMotionMs(theme.sidebarMotionMs - SIDEBAR_MOTION_STEP_MS)}
           aria-label="Shorten sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >&minus;</button
         >
         <Input
@@ -570,7 +558,7 @@
           onclick={() =>
             commitSidebarMotionMs(theme.sidebarMotionMs + SIDEBAR_MOTION_STEP_MS)}
           aria-label="Lengthen sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >+</button
         >
       </div>
@@ -579,7 +567,7 @@
 
   <SettingsRow
     label="Response streaming"
-    description="Show finished paragraphs and code blocks as they arrive, or wait for the current response segment."
+    description="Show paragraphs and code blocks as they finish, or wait for each segment."
     visible={isVisible("response-streaming")}
   >
     {#snippet control()}
@@ -594,7 +582,7 @@
 
   <SettingsRow
     label="Show changed files after turns"
-    description="Render a compact diff summary at the end of completed turns."
+    description="Show a diff summary after each turn."
     visible={isVisible("turn-diff-summary")}
   >
     {#snippet control()}
@@ -609,8 +597,23 @@
   </SettingsRow>
 
   <SettingsRow
+    label="Show tool calls"
+    description="Off shows only the agent's messages, questions, and cards."
+    visible={isVisible("show-tool-calls")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.showToolCalls}
+        onCheckedChange={(next) => theme.update({ showToolCalls: next })}
+        size="default"
+        aria-label="Toggle tool calls in the transcript"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
     label="Collapse the input bar when idle"
-    description="Tuck the toolbar away until the input bar has focus. Attachments and the work chip stay visible."
+    description="Hide the toolbar until the input bar has focus."
     visible={isVisible("collapse-composer")}
   >
     {#snippet control()}
@@ -643,7 +646,7 @@
 
   <SettingsRow
     label="Task lifecycle control"
-    description="None blocks status changes. Moderate reserves Done for you. Autonomous gives agents full control."
+    description="None: no changes. Moderate: Done is yours. Autonomous: full control."
     visible={isVisible("task-lifecycle")}
   >
     {#snippet control()}
@@ -701,7 +704,7 @@
 <SettingsSection label="Projects" visible={isVisible("projects-base")}>
   <SettingsRow
     label="Projects folder"
-    description="Where “Open project” looks, and where clones land. Leave empty to use your home folder."
+    description="Where new projects are created and clones land."
     visible={isVisible("projects-base")}
   >
     {#snippet control()}
@@ -712,9 +715,9 @@
           variant="ghost"
           size="icon-sm"
           class="text-(--solus-text-tertiary) disabled:opacity-0"
-          disabled={!projectsBaseDirectory}
-          aria-label="Reset projects start folder"
-          title="Reset to home folder"
+          disabled={!projectsBaseDirectoryIsSet}
+          aria-label="Reset projects folder"
+          title="Reset to the default folder"
           onclick={() => commitProjectsBaseDirectory("")}
         >
           <ArrowCounterClockwiseIcon size={14} />
@@ -722,8 +725,8 @@
         <Button
           variant="outline"
           size="sm"
-          aria-label="Projects start in"
-          class="w-56 justify-between text-xs font-normal shadow-xs {projectsBaseDirectory
+          aria-label="Projects folder"
+          class="w-56 justify-between text-xs font-normal shadow-xs {projectsBaseDirectoryIsSet
             ? ''
             : 'text-muted-foreground'}"
           onclick={() => (projectsBasePickerOpen = true)}
@@ -736,7 +739,7 @@
           <span class="flex-1 truncate text-left"
             >{projectsBaseDirectory
               ? abbreviateHome(projectsBaseDirectory)
-              : "~/"}</span
+              : "~/projects"}</span
           >
           <CaretRightIcon size={11} style="opacity:0.6" />
         </Button>
@@ -751,7 +754,7 @@
 >
   <SettingsRow
     label="Text-generation model"
-    description="The {hostLabel} host uses this model for session names and short background writing."
+    description="Session names and short background writing on {hostLabel}."
     visible={isVisible("text-generation-model")}
   >
     {#snippet control()}
@@ -763,7 +766,7 @@
           menuSide="bottom"
           ariaLabel="Text-generation model"
           returnFocusOnClose
-          class="min-w-40"
+          class="w-full @min-[30rem]/pane:w-56"
           onSelectionChange={(selection) =>
             void selectTextGenerationModel(selection)}
         />
@@ -772,7 +775,7 @@
           variant="outline"
           size="sm"
           disabled
-          class="min-w-40 text-xs shadow-xs"
+          class="w-full @min-[30rem]/pane:w-56 text-xs shadow-xs"
         >
           <Skeleton class="h-3 w-24" aria-label="Loading settings" />
         </Button>
@@ -816,7 +819,7 @@
 
 {#if !anyVisible}
   <div
-    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6"
+    class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary)"
   >
     No settings match your search
   </div>

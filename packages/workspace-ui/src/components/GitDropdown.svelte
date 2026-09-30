@@ -10,6 +10,7 @@
   import * as Popover from "./ui/popover";
   import * as Command from "./ui/command";
   import { MenuFooter, MenuSearch } from "./ui/menu";
+  import { MiddleTruncate } from "./ui/middle-truncate";
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeDisplayName } from "../lib/git-context";
   import {
@@ -41,6 +42,16 @@
     onSelectBranch: (branch: string) => void;
     onSelectWorktree: (worktree: WorktreeEntry) => void;
     onSelectNewWorktree?: (baseBranch?: string) => void;
+    /** A pending dispatch works in the target host's checkout, not a worktree. */
+    onSelectDispatchCheckout?: () => void;
+    /** Whether the next session branches its own worktree. Set with
+     *  `onSelectStartIn` where this menu also chooses the checkout type
+     *  for a session that has not started. */
+    startsNewWorktree?: boolean;
+    /** Why a new worktree is not possible here, or null when it is. */
+    worktreeBlockedNote?: string | null;
+    /** Start in the current checkout (`false`) or in a new worktree (`true`). */
+    onSelectStartIn?: (worktree: boolean) => void;
     /** Return focus to the surface that owns this menu once it closes. */
     onDismiss?: () => void;
   }
@@ -56,6 +67,10 @@
     onSelectBranch,
     onSelectWorktree,
     onSelectNewWorktree,
+    onSelectDispatchCheckout,
+    startsNewWorktree = false,
+    worktreeBlockedNote = null,
+    onSelectStartIn,
     onDismiss,
   }: Props = $props();
 
@@ -80,6 +95,14 @@
     run?.pendingHostDispatch?.intent === "dispatch"
       ? run.pendingHostDispatch
       : null,
+  );
+  // A dispatch works in the target host's checkout, a new worktree there, or an
+  // existing one (`pendingDispatch.worktree`); an origin branch is a new worktree too.
+  const dispatchInCheckout = $derived(
+    !!pendingDispatch && !run?.worktree && !pendingDispatch.worktree,
+  );
+  const dispatchNewWorktree = $derived(
+    !!pendingDispatch && !!run?.worktree && !pendingDispatch.baseBranch,
   );
   const worktrees = $derived(
     pendingDispatch
@@ -142,6 +165,16 @@
     onSelectNewWorktree?.();
   }
 
+  function selectDispatchCheckout() {
+    open = false;
+    onSelectDispatchCheckout?.();
+  }
+
+  function selectStartIn(worktree: boolean) {
+    open = false;
+    onSelectStartIn?.(worktree);
+  }
+
   function selectDispatchBranch(branch: string) {
     open = false;
     onSelectNewWorktree?.(branch);
@@ -161,13 +194,51 @@
     class="menu-item-stagger"
   >
     <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-    <span class="min-w-0 flex-1 truncate" title={isWorktree ? worktreeDisplayName(branch) : branch}>
-      {isWorktree ? worktreeDisplayName(branch) : branch}
-    </span>
+    <MiddleTruncate value={isWorktree ? worktreeDisplayName(branch) : branch} class="flex-1" />
     {#if branch === selectedBranch}
       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
     {/if}
   </Command.Item>
+{/snippet}
+
+<!-- The checkout type of a session that has not started: its current checkout,
+     or its own worktree cut from the base branch. A dispatch chooses the same
+     two in its worktree list, against its target host's checkout. -->
+{#snippet startIn()}
+  {#if onSelectStartIn && !pendingDispatch}
+    <Command.Group heading="Start in">
+      <Command.Item
+        value="Start in this checkout"
+        onSelect={() => selectStartIn(false)}
+        data-menu-current={!startsNewWorktree ? "" : undefined}
+        class="menu-item-stagger"
+      >
+        <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+        <span class="min-w-0 flex-1 truncate">This checkout</span>
+        {#if !startsNewWorktree}
+          <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+        {/if}
+      </Command.Item>
+      <Command.Item
+        value="Start in a new worktree"
+        disabled={!!worktreeBlockedNote}
+        onSelect={() => selectStartIn(true)}
+        data-menu-current={startsNewWorktree ? "" : undefined}
+        class="menu-item-stagger"
+      >
+        <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+        <span class="min-w-0 flex-1 truncate">New worktree</span>
+        {#if startsNewWorktree}
+          <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+        {/if}
+      </Command.Item>
+      {#if worktreeBlockedNote}
+        <p class="text-pretty px-2.5 pb-1 text-xs leading-snug text-(--solus-text-tertiary)">
+          {worktreeBlockedNote}
+        </p>
+      {/if}
+    </Command.Group>
+  {/if}
 {/snippet}
 
 {#if displayBranch}
@@ -196,17 +267,32 @@
           <MenuSearch bind:value={query} placeholder="Search worktrees" />
           <Command.List class="max-h-[224px] p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
+            {@render startIn()}
             <Command.Group heading="Worktrees">
+              {#if pendingDispatch && onSelectDispatchCheckout}
+                <Command.Item
+                  value="Checkout"
+                  onSelect={selectDispatchCheckout}
+                  data-menu-current={dispatchInCheckout ? "" : undefined}
+                  class="menu-item-stagger"
+                >
+                  <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                  <span class="min-w-0 flex-1 truncate">Checkout</span>
+                  {#if dispatchInCheckout}
+                    <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+                  {/if}
+                </Command.Item>
+              {/if}
               {#if pendingDispatch}
                 <Command.Item
                   value="New worktree"
                   onSelect={selectNewWorktree}
-                  data-menu-current={!pendingDispatch.worktree && !pendingDispatch.baseBranch ? "" : undefined}
+                  data-menu-current={dispatchNewWorktree ? "" : undefined}
                   class="menu-item-stagger"
                 >
                   <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
                   <span class="min-w-0 flex-1 truncate">New worktree</span>
-                  {#if !pendingDispatch.worktree && !pendingDispatch.baseBranch}
+                  {#if dispatchNewWorktree}
                     <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                   {/if}
                 </Command.Item>
@@ -219,9 +305,7 @@
                   class="menu-item-stagger"
                 >
                   <TreeStructureIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-                  <span class="min-w-0 flex-1 truncate" title={worktreeDisplayName(worktree.branch)}>
-                    {worktreeDisplayName(worktree.branch)}
-                  </span>
+                  <MiddleTruncate value={worktreeDisplayName(worktree.branch)} class="flex-1" />
                   {#if pendingDispatch?.worktree?.path === worktree.path}
                     <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                   {/if}
@@ -260,7 +344,7 @@
                     class="menu-item-stagger"
                   >
                     <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-                    <span class="min-w-0 flex-1 truncate">{branch}</span>
+                    <MiddleTruncate value={branch} class="flex-1" />
                     {#if pendingDispatch.baseBranch === branch}
                       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                     {/if}
@@ -285,6 +369,8 @@
           <MenuSearch bind:value={query} placeholder="Search branches" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No branches found</Command.Empty>
+
+            {@render startIn()}
 
             <!--
               Where you already are leads the list: selecting it starts from the

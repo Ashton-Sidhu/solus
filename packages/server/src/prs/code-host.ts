@@ -1,12 +1,10 @@
 // The code host a project path reads its pull requests through.
 //
-// Two callers need this without an `IpcContext` to resolve it from: the
-// reconciler, which polls on nobody's behalf, and task completion, which asks
-// what became of a task's other pull requests. Both go through `PrIndex`, so
-// they share an answer with whoever asks next and inherit the `gh` CLI
-// fallback.
+// PR sync and session orchestration need this without an `IpcContext` to
+// resolve it from. Both go through `PrIndex`, so they share an answer with
+// whoever asks next and inherit the `gh` CLI fallback.
 
-import type { RepoRef } from '@solus/contracts/providers'
+import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import { resolveRepoRef } from '../git/git-helpers'
 import { providerForRepo } from '../providers/registry'
 import type { Provider } from '../providers/types'
@@ -34,20 +32,8 @@ export async function codeHostFor(projectScope: string): Promise<CodeHost | null
   return provider ? { repo, provider } : null
 }
 
-/**
- * Whether the host reports this pull request merged.
- *
- * False when it cannot be read at all, because the question is asked to decide
- * whether work is finished — and an unreadable pull request is not evidence
- * that it is.
- */
-export async function pullRequestIsMerged(projectScope: string, number: number): Promise<boolean> {
-  const host = await codeHostFor(projectScope)
-  if (!host) return false
-  try {
-    const detail = await prIndex.pullRequest(host.repo, host.provider, number).read()
-    return detail.state === 'merged'
-  } catch {
-    return false
-  }
+/** The pull request opened from this branch, if the code host has one. */
+export async function pullRequestForBranch(host: CodeHost, branch: string): Promise<PullRequest | undefined> {
+  const page = await prIndex.list(host.repo, host.provider, '', { state: 'all', head: branch }, 1)
+  return page.items.find((candidate) => candidate.headRef === branch)
 }

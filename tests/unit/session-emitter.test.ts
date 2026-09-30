@@ -7,8 +7,8 @@ import { hostOperatingSystem } from '@solus/server/platform/host-operating-syste
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SessionEmitterModule = typeof import('@solus/server/observability/session-emitter')
-type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
+type SessionEmitterModule = typeof import('@solus/server/execution/observability/session-emitter')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -18,8 +18,8 @@ let metricsDb: MetricsDbModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-emitter-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  emitterModule = await import('@solus/server/observability/session-emitter')
-  metricsDb = await import('@solus/server/observability/metrics-db')
+  emitterModule = await import('@solus/server/execution/observability/session-emitter')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
 })
 
 afterEach(() => {
@@ -82,6 +82,7 @@ interface SpanAttrs {
   response?: string
   responseChars?: number
   responseTruncated?: boolean
+  thought?: string
 }
 
 function rows(): SpanRow[] {
@@ -93,6 +94,39 @@ function attrs(row: SpanRow): SpanAttrs {
 }
 
 describe.serial('session emitter', () => {
+  // WHY: the open row is what Insights lists while the turn runs. Written bare,
+  // a running turn showed no prompt, no session, and no backend logo until it
+  // ended, which made the live row useless.
+  test('writes a running turn with its prompt, session, and backend already known', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({
+      sessionId: 'live-1', prompt: 'what parts of the refactor can we ship?', promptSource: 'typed',
+      startedAt: 500, provider: 'codex', projectRoot: '/repo',
+    })
+
+    const [turn] = rows()
+    expect(turn).toMatchObject({ kind: 'turn', session_id: 'live-1', provider: 'codex', origin: 'typed', ended_at: null, status: 'unknown' })
+    // The executed model is not known until setup completes; it is not guessed.
+    expect(turn.model).toBeNull()
+    expect(attrs(turn)).toMatchObject({ prompt: 'what parts of the refactor can we ship?', promptSource: 'typed' })
+  })
+
+  // WHY: the model and the task are known once setup completes, long before
+  // the turn ends. The running row must show them then, not "—".
+  test('writes the model and task to the running turn when setup completes', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'live-2', prompt: 'fix it', promptSource: 'typed', startedAt: 600 })
+    emitter.completeSetup('live-2', {
+      provider: 'claude-code', model: 'claude-opus-5-5', projectRoot: '/repo', origin: 'typed',
+      taskId: 'task-2', taskTitle: 'Check duplicate tasks', isResume: false,
+    }, 610)
+
+    const turn = rows().find((row) => row.kind === 'turn')
+    expect(turn).toMatchObject({ model: 'claude-opus-5-5', provider: 'claude-code', ended_at: null, status: 'unknown' })
+    expect(attrs(turn!)).toMatchObject({ taskId: 'task-2' })
+    expect(JSON.parse(turn!.attrs)).toMatchObject({ taskTitle: 'Check duplicate tasks' })
+  })
+
   test('records a Claude turn with natural-duration child spans', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'claude-1', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })
@@ -264,6 +298,29 @@ describe.serial('session emitter', () => {
       timeToFirstActivityMs: 10,
       timeToFirstTextMs: 40,
     })
+  })
+
+  test('records each thought whole on its thinking span, and nothing for redacted reasoning', () => {
+    // WHY: the trace is the record of what the agent reasoned, and it is
+    // exported with the span. A long thought must not be cut, and a thought
+    // with no text (redacted or encrypted) must not store an empty value.
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'thoughts', prompt: 'explain', promptSource: 'typed', startedAt: 1_100 })
+    emitter.completeSetup('thoughts', {
+      provider: 'claude-code', model: 'claude', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 1_105)
+    const longThought = `**Reading the stylesheet**\n\n${'The rule is unlayered. '.repeat(2_000)}`
+
+    emitter.onEvent('thoughts', { type: 'thinking', state: 'start' }, 1_110)
+    emitter.onEvent('thoughts', { type: 'thinking', state: 'stop', text: `${longThought}\n` }, 1_130)
+    emitter.onEvent('thoughts', { type: 'thinking', state: 'start' }, 1_140)
+    emitter.onEvent('thoughts', { type: 'thinking', state: 'stop' }, 1_150)
+    emitter.onEvent('thoughts', { type: 'text_chunk', text: 'Done' }, 1_160)
+    emitter.recordTerminal('thoughts', 'ok', 1_170)
+    emitter.finishTurn('thoughts', 'completed', 1_170)
+
+    const thinking = rows().filter((span) => span.kind === 'thinking').map(attrs)
+    expect(thinking.map((span) => span.thought)).toEqual([longThought.trim(), undefined])
   })
 
   test('tool-first turns do not report final visible text as first activity', () => {

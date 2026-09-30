@@ -1,21 +1,11 @@
 <script lang="ts">
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
-  import {
-    getClientShellContext,
-    getSurfaceContext,
-    hostCapabilitiesStore,
-    serversStore,
-  } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { serverConnections } from "@solus/client-core/server-connections";
-  import { hostPolicy } from "@solus/client-core/host-policy";
-  import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
-  import {
-    assetUrlCache,
-    localArtifactProtocolUrl,
-  } from "./lib/asset-url";
+  import { isRasterImage, mediaTypeFor } from "@solus/contracts/media-types";
+  import { HostMediaUrl, type HostMediaRequest } from "../../lib/host-media-url.svelte";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { downloadPayload } from "../work/lib/work-export";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
@@ -65,89 +55,31 @@
     reloadKey = 0,
   }: Props = $props();
 
-  const shell = getClientShellContext();
   const session = getSurfaceContext();
 
-  const RASTER_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
+  const imagePath = $derived(artifact.kind === "image" ? artifact.path : undefined);
+  const isRaster = $derived(!!imagePath && isRasterImage(imagePath));
+  const isSvg = $derived(!!imagePath && mediaTypeFor(imagePath)?.mime === "image/svg+xml");
 
-  const ext = $derived(
-    (artifact.path?.split(".").pop() ?? "").toLowerCase(),
-  );
-  const isRaster = $derived(
-    artifact.kind === "image" && RASTER_EXTS.includes(ext),
-  );
-  const isSvg = $derived(artifact.kind === "image" && ext === "svg");
-
-  let artifactUrl = $state("");
-  let artifactError = $state<string | null>(null);
-  let artifactRetryAvailable = $state(false);
-  let retryAttempt = $state(0);
-  $effect(() => {
-    // A retry deliberately invalidates both local protocol and signed-URL
-    // resolution without changing the artifact's durable identity.
-    void retryAttempt;
-    const path = artifact.kind === "image" ? artifact.path : undefined;
-    // An image on a tab's machine is read through that tab; a client with no
-    // tabs (the cloud console) shows the HTML render alone.
+  // An image on a tab's machine is read through that tab; a client with no
+  // tabs (the cloud console) shows the HTML render alone.
+  const imageRequest = $derived.by((): HostMediaRequest | null => {
     const workspace = session.workspace;
     const run = tabId && workspace ? workspace.runFor(tabId) : undefined;
-    if (!path || !tabId || !run || !workspace) {
-      artifactUrl = "";
-      artifactError = null;
-      artifactRetryAvailable = artifact.kind === "html";
-      return;
-    }
-    if (shell.supportsLocalAttachments && hostPolicy.isClientMachine(run.serverId)) {
-      artifactUrl = localArtifactProtocolUrl(path);
-      artifactError = null;
-      artifactRetryAvailable = true;
-      return;
-    }
-
-    const capabilities = hostCapabilitiesStore.for(run.serverId);
-    if (capabilities === undefined) {
-      artifactUrl = "";
-      artifactError = null;
-      artifactRetryAvailable = false;
-      void hostCapabilitiesStore.load(run.serverId);
-      return;
-    }
-    if (capabilities.assetUrls !== true) {
-      const hostLabel =
-        serversStore.hostFor(run.serverId)?.label ??
-        serverConnections.connectionFor(run.serverId)?.target.label ??
-        "this host";
-      artifactUrl = "";
-      artifactError = unsupportedOnHost("Artifact images", hostLabel);
-      artifactRetryAvailable = false;
-      return;
-    }
-
-    let cancelled = false;
-    artifactUrl = "";
-    artifactError = null;
-    artifactRetryAvailable = true;
-    void assetUrlCache
-      .resolve({
-        serverId: run.serverId,
-        path,
-        origin: serverConnections.httpOriginFor(run.serverId),
-        api: workspace.apiFor(tabId),
-        ctx: workspace.ctxFor(tabId),
-      })
-      .then((url) => {
-        if (!cancelled) artifactUrl = url;
-      })
-      .catch(() => {
-        if (!cancelled) artifactError = "This artifact image is unavailable.";
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (!imagePath || !tabId || !run || !workspace) return null;
+    return { serverId: run.serverId, path: imagePath, ctx: workspace.ctxFor(tabId) };
   });
+  const image = new HostMediaUrl(() => imageRequest);
+  const artifactUrl = $derived(image.url ?? "");
+
+  let renderError = $state<string | null>(null);
+  const artifactError = $derived(
+    image.hasFailed ? "This artifact image is unavailable." : renderError,
+  );
+  let retryAttempt = $state(0);
 
   // SVG renders through the frame (scripts contained, no host inlining): fetch
-  // the file via the protocol, then feed its text into the sandbox.
+  // the file, then feed its text into the sandbox.
   let svgText = $state<string | null>(null);
   $effect(() => {
     if (!isSvg || !artifactUrl) return;
@@ -159,7 +91,7 @@
         if (!cancelled) svgText = t;
       })
       .catch(() => {
-        if (!cancelled) artifactError = "This artifact image is unavailable.";
+        if (!cancelled) renderError = "This artifact image is unavailable.";
       });
     return () => {
       cancelled = true;
@@ -174,13 +106,15 @@
     return undefined;
   });
 
-  let copiedImage = $state(false);
-
+  // An image retries with a freshly signed URL; an HTML render re-creates its frame.
   function retryArtifact() {
-    artifactError = null;
+    renderError = null;
     svgText = null;
     retryAttempt += 1;
+    if (imageRequest) void image.retry().catch(() => {});
   }
+
+  let copiedImage = $state(false);
 
   function downloadHtml() {
     if (artifact.kind !== "html") return;
@@ -221,7 +155,7 @@
       >
         <span>{artifactError}</span>
         <div class="flex flex-wrap justify-center gap-2">
-          {#if artifactRetryAvailable}
+          {#if artifact.kind === "html" || imageRequest}
             <button
               type="button"
               class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
@@ -241,7 +175,7 @@
           {/if}
         </div>
       </div>
-    {:else if isRaster && artifact.path}
+    {:else if isRaster && artifactUrl}
       <!-- The one render that is not HTML. It reuses the frame's chrome
            (expand, overlay, action cluster) rather than growing a second one. -->
       <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey}>
@@ -250,7 +184,7 @@
           src={artifactUrl}
           alt="Rendered artifact"
           data-testid="artifact-image"
-          onerror={() => (artifactError = "This artifact image is unavailable.")}
+          onerror={() => (renderError = "This artifact image is unavailable.")}
         />
         {#snippet actions()}
           {#if artifactUrl}
@@ -294,7 +228,7 @@
         reloadKey={retryAttempt + reloadKey}
         lazy={!fillAvailable}
         expandable={!fillAvailable && !workRef}
-        onError={() => (artifactError = "This artifact could not be rendered.")}
+        onError={() => (renderError = "This artifact could not be rendered.")}
       />
     {:else}
       <ContentSkeleton label="Loading artifact" preview />

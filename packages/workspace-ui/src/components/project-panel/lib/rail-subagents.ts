@@ -40,7 +40,7 @@ export function railSubagentList(
         b.startedAt - a.startedAt,
     )
     .map(({ row }) => row)
-  const summary = subagentGroupSummary(messages, rows, now, '')
+  const summary = subagentGroupSummary(messages, rows, now)
   return {
     rows: ordered,
     running: summary.running,

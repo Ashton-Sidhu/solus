@@ -11,14 +11,12 @@
    * the panel has room.
    *
    * The card answers one question — where am I in this session, and what were
-   * the neighbours — so the turns are a plain ordered list. The turn being read
-   * is the only one at full reading strength; its neighbours stay muted. There
-   * is no wash, no heavier weight, no dot and no rail: the header already says
-   * "Turn 5 of 8", so the list needs the quietest mark that still reads, and a
-   * wash on a row that is also hoverable and selectable says the wrong thing.
-   * There are no status marks either: a column of dots asks the reader to learn
-   * a colour key to read a list they can already read, and a turn that ended
-   * badly says so in the ink of its duration and in words on hover.
+   * the neighbours — so the turns are a plain ordered list. The header reads
+   * like its sibling card: a small caps label with the session's totals, then
+   * the task it ran under. The turn being read carries a quiet selected wash,
+   * the same mark a selected row has everywhere else in the workspace. There
+   * are no status marks: a turn that ended badly says so in the ink of its
+   * duration and in words on hover.
    *
    * The turn's own tool calls are not merged into this card: they measure one
    * turn, so they stay in a distinct card beside this session-level context.
@@ -65,32 +63,33 @@
   class="overflow-hidden rounded-xl bg-card text-insights-chrome shadow-[shadow:var(--insights-card-shadow)]"
   aria-label="Session"
 >
-  <header
-    class="flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 py-2 pr-3 pl-5 text-insights-summary shadow-[inset_0_-0.5px_0_var(--hairline)]"
-  >
-    <!-- This is the task affordance the full turn page exposes. It remains a
-         button while the durable session binding loads; the click resolves
-         that binding before it navigates. -->
-    <button
-      type="button"
-      class="min-w-48 flex-1 cursor-pointer border-0 bg-transparent p-0 text-left text-insights-summary-heading leading-5 font-medium text-pretty underline decoration-muted-foreground/35 underline-offset-4 transition-colors hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
-      title="Open task in the trailing pane"
-      onclick={onOpenTask}
-    >{taskTitle ?? sessionName ?? shortId(session.sessionId)}</button
-    >
-    <span class="shrink-0 font-mono text-muted-foreground opacity-50" title={session.sessionId}
-      >{shortId(session.sessionId)}</span
-    >
-    <CopyButton text={session.sessionId} title="Copy the session id" iconOnly />
-    <span class="shrink-0 tabular-nums">
-      Turn {view.position || "—"}
-      <span class="text-muted-foreground">of {view.turnCount}</span>
-    </span>
-    <span class="shrink-0 text-muted-foreground" aria-hidden="true">·</span>
-    <span class="shrink-0 truncate text-muted-foreground tabular-nums"
+  <header class="flex flex-col gap-0.5 pt-2 pr-3 pb-1.5 pl-4">
+    <div class="flex h-7 min-w-0 items-baseline gap-2">
+      <h2 class="m-0 shrink-0 text-insights-summary font-medium">Session</h2>
+      <span class="shrink-0 tabular-nums text-muted-foreground"
+        >Turn {view.position || "—"} of {view.turnCount}</span
+      >
+    </div>
+    <!-- The name has the line to itself, and the totals sit under it: in a
+         rail this narrow, three figures beside the label cut the figures and
+         the id beside the name cut the name. The id stays on the copy control. -->
+    <div class="flex min-w-0 items-center gap-1.5">
+      <!-- This is the task affordance the full turn page exposes. It remains a
+           button while the durable session binding loads; the click resolves
+           that binding before it navigates. -->
+      <button
+        type="button"
+        class="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-insights-summary decoration-muted-foreground/50 underline-offset-4 transition-colors hover:underline focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
+        title="Open task in the trailing pane"
+        onclick={onOpenTask}
+      >{taskTitle ?? sessionName ?? shortId(session.sessionId)}</button
+      >
+      <CopyButton text={session.sessionId} title="Copy the session id {shortId(session.sessionId)}" iconOnly />
+    </div>
+    <span class="truncate tabular-nums text-muted-foreground" title="Session duration, cost, and tokens"
       >{formatDuration(session.totalDurationMs)} · {formatCost(session.totalCostUsd)} · {formatTokens(
         totalTokens,
-      )}</span
+      )} tokens</span
     >
   </header>
 
@@ -105,7 +104,7 @@
        height it needs, and the rest scrolls under the standard bounded-list
        thumb. -->
   <div
-    class="scrollbar-on-hover flex max-h-[6.25rem] min-w-0 flex-col overflow-y-auto overscroll-contain px-2 py-2 text-insights-summary [@media(min-height:1000px)]:max-h-[9.75rem]"
+    class="scrollbar-on-hover flex max-h-[6.25rem] min-w-0 flex-col gap-px overflow-y-auto overscroll-contain px-2 pb-2 text-insights-summary [@media(min-height:1000px)]:max-h-[9.75rem]"
     bind:this={list}
   >
     {#each view.rows as row (row.traceId)}
@@ -116,27 +115,30 @@
               {...props}
               type="button"
               data-trace={row.traceId}
-              class="flex h-7 w-full shrink-0 cursor-pointer items-center gap-3 rounded-md px-2 text-left transition-colors select-none hover:bg-[var(--wash-2)] focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
+              class="flex h-7 w-full shrink-0 cursor-pointer items-center gap-3 overflow-hidden rounded-md px-2 text-left transition-colors select-none focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] {row.isCurrent
+                ? 'bg-[var(--wash-3)]'
+                : 'hover:bg-[var(--wash-2)]'}"
               aria-current={row.isCurrent ? "true" : undefined}
               onclick={() => onOpenTurn(row.traceId)}
             >
               <span
-                class="w-6 shrink-0 text-right tabular-nums {row.isCurrent
-                  ? 'text-muted-foreground'
-                  : 'text-muted-foreground opacity-60'}">{row.turnNumber}</span
+                class="w-5 shrink-0 text-right text-insights-chrome text-muted-foreground tabular-nums">{row.turnNumber}</span
               >
               <span
                 class="min-w-0 flex-1 truncate {row.isCurrent
                   ? 'text-foreground'
                   : 'text-muted-foreground'}">{row.title}</span
               >
-              <span class="shrink-0 text-muted-foreground tabular-nums opacity-70"
+              <span
+                class="w-12 shrink-0 text-right text-insights-chrome text-muted-foreground tabular-nums"
                 >{row.tokens == null ? "" : formatTokens(row.tokens)}</span
               >
               <span
-                class="w-12 shrink-0 text-right tabular-nums {row.failed
+                class="w-12 shrink-0 text-right text-insights-chrome tabular-nums {row.failed
                   ? 'text-(--failure)'
-                  : 'text-muted-foreground'}">{formatDuration(row.durationMs)}</span
+                  : row.isCurrent
+                    ? 'text-foreground'
+                    : 'text-muted-foreground'}">{formatDuration(row.durationMs)}</span
               >
             </button>
           {/snippet}

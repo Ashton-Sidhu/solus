@@ -14,6 +14,7 @@
  *
  * Pure and non-reactive.
  */
+import { modelLabelFor, type AgentId } from '@solus/contracts/types'
 
 /** The logo drawn beside a backend's name. Null where Solus has no mark to
  *  draw, which is not the same as a backend with no logo. */
@@ -25,6 +26,25 @@ export function providerMark(provider: string | null | undefined): ProviderMarkI
   if (provider === 'claude' || provider === 'claude-code') return 'claude'
   if (provider === 'codex') return 'codex'
   return null
+}
+
+/** The model's own name from the model profiles — `Opus 5.5`, not
+ *  `claude-opus-5-5[1m]` — so a turn names its model the way the picker that
+ *  chose it did. A turn recorded before the provider field existed is still
+ *  matched by its id. An id no profile knows is shown as recorded. */
+export function modelName(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+): string | null {
+  if (!model) return null
+  const mark = providerMark(provider)
+  const agents: AgentId[] =
+    mark === 'claude' ? ['claude-code'] : mark === 'codex' ? ['codex'] : ['claude-code', 'codex']
+  for (const agent of agents) {
+    const label = modelLabelFor(agent, model)
+    if (label && label !== model) return label
+  }
+  return model
 }
 
 /** The product's own name, or null when the recorded value names no backend

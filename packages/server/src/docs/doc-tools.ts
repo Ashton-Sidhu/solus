@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import type { DocPatch, DocSummary } from '@solus/contracts/docs'
-import type { AgentTool, AgentToolContext } from '../agents/tools/agent-tool'
+import type { AgentTool, AgentToolContext } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
-import { importDocFromUrl, publishWork, pullWorkUpstream } from '../folio/work-sync'
-import { loadWork } from '../folio/works'
-import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import { importDocFromUrl, publishWork, pullWorkUpstream } from '../data/works/work-sync'
+import { loadWork } from '../data/works/works'
+import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
+import { randomUUID } from 'node:crypto'
+import { workspaceToolContext } from '../data/workspace/tool-context'
 import { docProviderAdapter, docProviderIds, docProviderStatuses, resolveDocUrl } from './registry'
 import type { DocProviderAdapter } from './types'
 
@@ -197,7 +199,14 @@ export const importExternalDocAgentTool = docTool(
   false,
   async (args, context) => {
     if (!args.url) throw new Error('import_external_doc requires a url.')
-    const imported = await importDocFromUrl(LOCAL_ORGANIZATION_ID, args.url, {
+    // An imported work is the session's own record: it lands where the session's records live.
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    if (remote) {
+      // An organization session's work lives in its Solus API, which reads the link with the run's person's own connection.
+      const work = await operations.importWork(home, { url: args.url, projectKey: context.cwd, originSessionId: home.actingAgent?.sessionId }, randomUUID())
+      return `Imported "${work.title}" as work ${work.id} in the organization's Solus API, linked to ${args.url}.`
+    }
+    const imported = await importDocFromUrl(home.actingAgent?.organizationId ?? LOCAL_ORGANIZATION_ID, args.url, {
       cwd: context.cwd,
       sessionId: context.sessionId(),
       agentProvider: context.provider,
@@ -221,7 +230,16 @@ export const publishWorkAgentTool = docTool(
   true,
   async (args, context) => {
     if (!args.work_id) throw new Error('publish_work requires a work_id.')
-    const work = await loadWork(LOCAL_ORGANIZATION_ID, args.work_id)
+    // An organization session's works live in its Solus API, which publishes with the run's person's own connection.
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    if (remote) {
+      const published = await operations.publishWork(home, args.work_id, { provider: args.provider, scope: args.scope, overwrite: args.overwrite })
+      if (published.outcome === 'conflict') {
+        return `"${published.title}" was not published: the upstream document changed since Solus last saw it (${published.url}). Ask the user whether to pull_work_upstream first, or to publish over it with overwrite.`
+      }
+      return `Published "${published.title}" to ${published.url}.${published.lossyParts.length ? ` The published page could not carry: ${published.lossyParts.join(', ')}.` : ''}`
+    }
+    const work = await loadWork(ANY_ORGANIZATION, args.work_id)
     if (!work) throw new Error(`No work found with id "${args.work_id}".`)
 
     const options: Parameters<typeof publishWork>[2] = {}
@@ -234,7 +252,7 @@ export const publishWorkAgentTool = docTool(
       options.destination = { provider: adapter.id, scope: args.scope, label: args.scope }
     }
 
-    const result = await publishWork(LOCAL_ORGANIZATION_ID, args.work_id, options)
+    const result = await publishWork(ANY_ORGANIZATION, args.work_id, options)
     if (result.ok) {
       const lossy = result.lossyParts?.length
         ? ` The published page could not carry: ${result.lossyParts.join(', ')}.`
@@ -257,7 +275,12 @@ export const pullWorkUpstreamAgentTool = docTool(
   false,
   async (args, context) => {
     if (!args.work_id) throw new Error('pull_work_upstream requires a work_id.')
-    const result = await pullWorkUpstream(LOCAL_ORGANIZATION_ID, args.work_id)
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    if (remote) {
+      const pulled = await operations.pullWorkUpstream(home, args.work_id)
+      return `Refreshed "${pulled.title}" from ${pulled.url}.${pulled.lossyParts.length ? ` Parts of the page could not be converted to markdown: ${pulled.lossyParts.join(', ')}.` : ''}`
+    }
+    const result = await pullWorkUpstream(ANY_ORGANIZATION, args.work_id)
     if (!result.ok) throw new Error(result.error)
     const lossy = result.lossyParts?.length
       ? ` Parts of the page could not be converted to markdown: ${result.lossyParts.join(', ')}.`

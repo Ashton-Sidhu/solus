@@ -1,6 +1,6 @@
 <script lang="ts">
   // The Solus corona — the repo favicon (favicon.svg) redrawn inline. Stands in
-  // for "My Workspace" wherever a project icon would go.
+  // for "Scratchpad" wherever a project icon would go.
   let { class: className = "" }: { class?: string } = $props();
 </script>
 

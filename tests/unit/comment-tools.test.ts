@@ -8,15 +8,16 @@ import type { PlanAnnotations, SessionMeta } from '@solus/contracts/types'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type CommentToolsModule = typeof import('@solus/server/annotations/comment-tools')
-type SessionToolsModule = typeof import('@solus/server/sessions/session-tools')
+type SessionToolsModule = typeof import('@solus/server/execution/agents/tools/session-tools')
 type PlanAnnotationsModule = typeof import('@solus/server/plans/annotations')
-type WorkAnnotationsModule = typeof import('@solus/server/folio/work-annotations')
-type WorksModule = typeof import('@solus/server/folio/works')
+type WorkAnnotationsModule = typeof import('@solus/server/data/works/work-annotations')
+type WorksModule = typeof import('@solus/server/data/works/works')
 let commentTools: CommentToolsModule
 let sessionTools: SessionToolsModule
 let planAnnotations: PlanAnnotationsModule
 let workAnnotations: WorkAnnotationsModule
 let works: WorksModule
+let workModule: typeof import('@solus/server/data/works/work')
 let closeDb: () => void
 
 const CWD = '/Users/test/proj'
@@ -46,10 +47,11 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-comments-'))
   process.env.SOLUS_DATA_DIR = dataDir
   commentTools = await import('@solus/server/annotations/comment-tools')
-  sessionTools = await import('@solus/server/sessions/session-tools')
+  sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
   planAnnotations = await import('@solus/server/plans/annotations')
-  workAnnotations = await import('@solus/server/folio/work-annotations')
-  works = await import('@solus/server/folio/works')
+  workAnnotations = await import('@solus/server/data/works/work-annotations')
+  works = await import('@solus/server/data/works/works')
+  workModule = await import('@solus/server/data/works/work')
   ;({ closeDb } = await import('@solus/server/db'))
 })
 afterAll(() => {
@@ -62,7 +64,6 @@ let controller: SessionController
 
 function installController(): void {
   controller = {
-    listSessions: async () => [],
     getSessionInfo: async (sessionId) => (sessionId === PEER.sessionId ? PEER : { ...PEER, sessionId, slug: 'caller' }),
     loadSessionTail: async () => [],
     liveStatus: () => null,
@@ -164,15 +165,14 @@ describe('anchoring', () => {
 })
 
 describe('authorship', () => {
-  test('authorAgent survives save/load, so the rail can say which agent wrote it', async () => {
+  test('the agent author survives save/load, so the rail can say which agent wrote it', async () => {
     await run('comment_document', {
       target_id: PLAN_ID,
       comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
     })
     const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     expect(saved!.comments[0]).toMatchObject({
-      author: 'solus',
-      authorAgent: { sessionId: 'caller-1', title: 'caller', provider: 'codex' },
+      author: { kind: 'agent', sessionId: 'caller-1', title: 'caller', provider: 'codex' },
     })
   })
 
@@ -189,7 +189,7 @@ describe('authorship', () => {
       comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
     })
     const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
-    expect(saved!.comments[0].authorAgent).toEqual({ sessionId: 'caller-1', provider: 'codex' })
+    expect(saved!.comments[0].author).toEqual({ kind: 'agent', sessionId: 'caller-1', provider: 'codex' })
   })
 })
 
@@ -200,12 +200,12 @@ describe('replies and resolution round-trip through both stores', () => {
 
     expect((await run('reply_comment', { target_id: PLAN_ID, comment_id: commentId, text: 'writers take the write lock' })).ok).toBe(true)
     const replied = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
-    expect(replied!.comments[0].replies).toMatchObject([{ author: 'solus', text: 'writers take the write lock' }])
+    expect(replied!.comments[0].replies).toMatchObject([{ author: { kind: 'agent', sessionId: 'caller-1' }, text: 'writers take the write lock' }])
 
     expect((await run('resolve_comment', { target_id: PLAN_ID, comment_id: commentId })).ok).toBe(true)
     const resolvedThread = (await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments[0]
     expect(typeof resolvedThread.resolvedAt).toBe('number')
-    expect(resolvedThread.resolvedBy).toBe('solus')
+    expect(resolvedThread.resolvedBy).toMatchObject({ kind: 'agent', sessionId: 'caller-1' })
   })
 
   test('a work thread takes a reply and then resolves', async () => {
@@ -244,7 +244,7 @@ describe('replies and resolution round-trip through both stores', () => {
     // answer belongs on a local thread linked to the provider thread, so the
     // rail can publish it as a reply — and nothing may be sent from here.
     const work = await works.createWork('local', 'Spec', 'doc', 'The launch date is Friday.', '', 'peer-1', 'claude-code', CWD)
-    await works.setWorkMirroredDoc('local', work.id, { provider: 'gdrive', externalId: 'doc-1', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/doc-1/edit', syncState: 'ok' })
+    await (await workModule.Work.byId('local', work.id)).setMirroredDoc({ provider: 'gdrive', externalId: 'doc-1', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/doc-1/edit', syncState: 'ok' })
     await workAnnotations.saveExternalComments('local', work.id, {
       provider: 'gdrive', externalKey: 'root', documentId: 'doc-1', operations: [],
       threads: [{ id: 'AAAA', text: 'Is Friday right?', quote: 'launch date is Friday', author: { name: 'Reviewer', isMe: false }, createdAt: '', modifiedAt: '', resolved: false, deleted: false, replies: [] }],
@@ -255,14 +255,14 @@ describe('replies and resolution round-trip through both stores', () => {
     expect(first.text).toContain('private')
     let threads = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments
     expect(threads).toHaveLength(1)
-    expect(threads[0]).toMatchObject({ externalThreadId: 'AAAA', selectedText: 'launch date is Friday', comment: 'Yes, confirmed.', author: 'solus' })
+    expect(threads[0]).toMatchObject({ externalThreadId: 'AAAA', selectedText: 'launch date is Friday', comment: 'Yes, confirmed.', author: { kind: 'agent', sessionId: 'caller-1' } })
     expect(typeof threads[0].textOffset).toBe('number')
 
     // A second answer joins the same linked thread rather than opening another.
     expect((await run('reply_comment', { target_id: work.id, comment_id: 'AAAA', text: 'And Monday is the backup.' })).ok).toBe(true)
     threads = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments
     expect(threads).toHaveLength(1)
-    expect(threads[0].replies).toMatchObject([{ author: 'solus', text: 'And Monday is the backup.' }])
+    expect(threads[0].replies).toMatchObject([{ author: { kind: 'agent', sessionId: 'caller-1' }, text: 'And Monday is the backup.' }])
     // The provider snapshot is untouched: publishing is the user's call.
     expect((await workAnnotations.loadWorkAnnotations('local', work.id))!.externalComments?.operations).toEqual([])
   })

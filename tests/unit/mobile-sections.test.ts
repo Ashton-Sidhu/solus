@@ -6,7 +6,7 @@ import {
   type MobileSectionSignals,
 } from '../../apps/client/src/shell/mobile/lib/mobile-sections'
 
-const QUIET: MobileSectionSignals = { runningTasks: 0, prsNeedingReview: 0 }
+const QUIET: MobileSectionSignals = { runningTasks: 0, prsNeedingReview: 0, worksNeedingReview: 0 }
 
 describe('the drawer marks the section you are standing in', () => {
   it('resolves a detail route to the list it belongs to', () => {
@@ -32,13 +32,21 @@ describe('a section row only carries a number worth acting on', () => {
   })
 
   it('separates motion from attention, so the two never read alike', () => {
-    const busy: MobileSectionSignals = { runningTasks: 1, prsNeedingReview: 3 }
+    const busy: MobileSectionSignals = { runningTasks: 1, prsNeedingReview: 3, worksNeedingReview: 0 }
     expect(mobileSectionSignal('tasks', busy)).toEqual({ count: 1, tone: 'running' })
     expect(mobileSectionSignal('prs', busy)).toEqual({ count: 3, tone: 'primary' })
   })
 
-  it('gives Workspace, History and Settings no signal to carry', () => {
-    const busy: MobileSectionSignals = { runningTasks: 1, prsNeedingReview: 3 }
+  it('carries the works waiting on this reader on Workspace', () => {
+    // A review request is a thing to act on, like a pull request to review.
+    const asked: MobileSectionSignals = { runningTasks: 0, prsNeedingReview: 0, worksNeedingReview: 2 }
+    expect(mobileSectionSignal('workspace', asked)).toEqual({ count: 2, tone: 'primary' })
+    expect(hasUnseenSection(asked, 'workspace')).toBe(false)
+    expect(hasUnseenSection(asked, 'tasks')).toBe(true)
+  })
+
+  it('gives Workspace with no review waiting, History and Settings no signal to carry', () => {
+    const busy: MobileSectionSignals = { runningTasks: 1, prsNeedingReview: 3, worksNeedingReview: 0 }
     expect(mobileSectionSignal('workspace', busy)).toBeNull()
     expect(mobileSectionSignal('history', busy)).toBeNull()
     expect(mobileSectionSignal('settings', busy)).toBeNull()
@@ -50,17 +58,17 @@ describe('the dot on the drawer control means "somewhere you are not looking"', 
     // The three rows waiting for you are visible in the list you are reading.
     // A dot on the control that opens that same list is noise, and a dot that
     // is always lit stops meaning anything.
-    expect(hasUnseenSection({ runningTasks: 0, prsNeedingReview: 3 }, 'prs')).toBe(false)
-    expect(hasUnseenSection({ runningTasks: 2, prsNeedingReview: 0 }, 'tasks')).toBe(false)
+    expect(hasUnseenSection({ runningTasks: 0, prsNeedingReview: 3, worksNeedingReview: 0 }, 'prs')).toBe(false)
+    expect(hasUnseenSection({ runningTasks: 2, prsNeedingReview: 0, worksNeedingReview: 0 }, 'tasks')).toBe(false)
   })
 
   it('lights when a signal is in some other section', () => {
-    expect(hasUnseenSection({ runningTasks: 0, prsNeedingReview: 3 }, 'workspace')).toBe(true)
-    expect(hasUnseenSection({ runningTasks: 2, prsNeedingReview: 0 }, 'prs')).toBe(true)
+    expect(hasUnseenSection({ runningTasks: 0, prsNeedingReview: 3, worksNeedingReview: 0 }, 'workspace')).toBe(true)
+    expect(hasUnseenSection({ runningTasks: 2, prsNeedingReview: 0, worksNeedingReview: 0 }, 'prs')).toBe(true)
   })
 
   it('lights for the second signal even while you stand in the first', () => {
-    expect(hasUnseenSection({ runningTasks: 1, prsNeedingReview: 3 }, 'tasks')).toBe(true)
+    expect(hasUnseenSection({ runningTasks: 1, prsNeedingReview: 3, worksNeedingReview: 0 }, 'tasks')).toBe(true)
   })
 
   it('stays dark when nothing is happening anywhere', () => {

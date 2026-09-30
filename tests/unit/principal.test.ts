@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { INTERNAL_HANDLER_CTX, SolusServer, type HandlerCtx } from '@solus/server/server/server'
-import { principalFor, type Principal } from '@solus/server/server/principal'
-import { LOCAL_ONLY_RPC_METHODS, RpcAccessError } from '@solus/server/server/access-policy'
-import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, verifyWsTicket } from '@solus/server/server/auth'
+import { INTERNAL_HANDLER_CTX, SolusServer, type HandlerCtx } from '@solus/server/transport/server'
+import { principalFor, type Principal } from '@solus/server/admission/principal'
+import { LOCAL_ONLY_RPC_METHODS, RpcAccessError } from '@solus/server/admission/access-policy'
+import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, verifyWsTicket } from '@solus/server/admission/auth'
 
 // docs/plans/personal-uplink.md P1/P2: every call names who is calling, and the
 // handful of methods that change how the host is reached take a local owner only.

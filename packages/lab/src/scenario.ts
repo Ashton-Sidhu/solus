@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { HostKind } from '@solus/contracts/uplink'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { LabClient, LabRpcError, type TimelineEntry } from './client'
 import type { LabHost } from './host'
 import type { LabIssuer } from './issuer'
@@ -37,13 +38,13 @@ export function scenario(name: string, run: ScenarioDefinition['run'], options: 
   return { name, run, only: options.only }
 }
 
-/** Awaits a call that must be refused with the given code. */
+/** Awaits a call that must be refused with the given code. The record API answers a resource it will not show with NOT_FOUND. */
 export async function expectRefused(ctx: ScenarioContext, name: string, call: Promise<unknown>, code = 'FORBIDDEN'): Promise<void> {
   try {
     await call
     ctx.check(name, false, 'the call succeeded')
   } catch (error) {
-    const actual = error instanceof LabRpcError ? error.code : error instanceof Error ? error.message : String(error)
+    const actual = error instanceof LabRpcError || error instanceof WorkspaceRequestError ? error.code : error instanceof Error ? error.message : String(error)
     ctx.check(name, actual === code, actual === code ? undefined : `refused with ${actual}: ${error instanceof Error ? error.message : ''}`)
   }
 }
@@ -92,6 +93,7 @@ export async function runScenario(definition: ScenarioDefinition, deps: { host: 
       hostOwnerUserId: deps.hostKind === 'personal' ? ownerUserId : undefined,
       shareSecret: options.shareSecret,
       credentialFree: route === 'local',
+      localOwnerToken: () => deps.host.localOwnerToken(),
       grantTtlSeconds: options.grantTtlSeconds,
       onTimeline: timeline,
     })

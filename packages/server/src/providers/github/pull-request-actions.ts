@@ -254,17 +254,27 @@ interface GithubLifecycleResult {
 export async function listGithubReviewerCandidates(
   client: GitHubClient,
   repo: RepoRef,
+  number: number,
   author: string,
 ): Promise<PrReviewerCandidate[]> {
-  const collaborators = await client.rest.paginate(client.rest.repos.listCollaborators, {
-    owner: repo.owner,
-    repo: repo.repo,
-    affiliation: 'all',
-    per_page: 100,
-  })
-  return collaborators
+  const [collaborators, { data: requested }] = await Promise.all([
+    client.rest.paginate(client.rest.repos.listCollaborators, {
+      owner: repo.owner,
+      repo: repo.repo,
+      affiliation: 'all',
+      per_page: 100,
+    }),
+    client.rest.pulls.listRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number }),
+  ])
+  const users: PrReviewerCandidate[] = collaborators
     .filter((user) => user.login.toLowerCase() !== author.toLowerCase())
-    .map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
+    .map((user) => ({ kind: 'user', login: user.login, avatarUrl: user.avatar_url }))
+  const teams: PrReviewerCandidate[] = requested.teams.map((team) => ({
+    kind: 'team',
+    slug: team.slug,
+    name: team.name ?? team.slug,
+  }))
+  return [...users, ...teams]
 }
 
 /** What an auto-merge mutation leaves on the pull request. */

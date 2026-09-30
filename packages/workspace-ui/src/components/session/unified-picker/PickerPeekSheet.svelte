@@ -24,7 +24,7 @@
     target:
       | { kind: "task"; task: Task }
       | { kind: "session"; session: SidebarSessionChild; task: Task }
-      | { kind: "conversation"; meta: SessionMeta; hit: ConversationHit };
+      | { kind: "conversation"; meta: SessionMeta; hit?: ConversationHit };
     /** The task's sessions, for the roll inside a task peek. */
     sessions: SidebarSessionChild[];
     sessionPreview: PreviewExtraction | null;
@@ -78,7 +78,7 @@
   const timeAgo = $derived.by(() => {
     if (target.kind === "task") return relativeTime(target.task.updatedAt);
     if (target.kind === "session") return relativeTime(target.session.lastActivityAt || target.task.updatedAt);
-    return relativeTime(target.hit.ts);
+    return relativeTime(target.hit?.ts ?? Date.parse(target.meta.lastTimestamp));
   });
 </script>
 

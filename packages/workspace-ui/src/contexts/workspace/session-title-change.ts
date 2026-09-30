@@ -10,7 +10,8 @@ export interface ChangedSessionTitle {
  *
  * One write, not a fan-out: the name is the session's, so every tab watching it
  * shows the new one. Returns the sessions that changed so the caller can mark
- * their naming round trip finished.
+ * their naming round trip finished. Who renamed it arrives as a `renamed`
+ * activity in the conversation (plans/012 §5).
  */
 export function applySessionTitleChange(
   sessions: Record<string, Session>,

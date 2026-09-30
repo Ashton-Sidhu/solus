@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { Aperture } from '@lucide/svelte'
 import type { PullRequest } from '@solus/contracts/providers'
+import type { ReviewLensJob } from '@solus/contracts/review'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import {
   OPEN_PR_STATUS_KEYS,
@@ -101,7 +103,38 @@ describe('PR row slots', () => {
       { ...context, guideStatus: () => 'generating' },
       NOW,
     )
-    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'Generating review guide', iconOnly: true, spinning: true }))
+    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'Generating review guide', iconOnly: true, pulsing: true, statusIcon: undefined }))
+  })
+
+  test('a generating lens pulses the lens glyph instead of adding a spinner', () => {
+    // WHY: the lens must read as the same mark the review pane uses, and a
+    // second running glyph beside it is noise the pulse already carries.
+    const row = prRow(
+      pullRequest,
+      { ...context, lensJob: () => ({ status: 'generating' }) as ReviewLensJob },
+      NOW,
+    )
+    expect(row.chips).toContainEqual(
+      expect.objectContaining({ label: 'Generating review lens', icon: Aperture, pulsing: true, statusIcon: undefined }),
+    )
+  })
+
+  test('a saved lens shows the lens glyph even when this client never saw its job', () => {
+    // WHY: a job lives only while this client watches it run. A lens made
+    // before Solus opened, on another client, or already opened has no job
+    // here, and the row must still say the lens exists.
+    const saved = { ...context, lensJob: () => null, hasLens: () => true }
+    expect(prRow(pullRequest, saved, NOW).chips).toContainEqual(
+      expect.objectContaining({ label: 'Review lens available', icon: Aperture, tint: 'success' }),
+    )
+    // A running job still wins, so the row does not claim a finished lens.
+    const running = { ...saved, lensJob: () => ({ status: 'generating' }) as ReviewLensJob }
+    expect(prRow(pullRequest, running, NOW).chips).not.toContainEqual(
+      expect.objectContaining({ label: 'Review lens available' }),
+    )
+    expect(prRow(pullRequest, { ...context, hasLens: () => false }, NOW).chips).not.toContainEqual(
+      expect.objectContaining({ icon: Aperture }),
+    )
   })
 
   test('every row leads with its lifecycle, because sorted rows have no group to say it', () => {

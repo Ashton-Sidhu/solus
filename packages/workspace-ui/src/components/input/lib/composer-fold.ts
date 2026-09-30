@@ -53,6 +53,8 @@ export function composerSurfaceOf(node: Element): HTMLElement | null {
 export interface FoldGeometry {
   /** The card's height. */
   height: number
+  /** The card's width. A fold never changes it; a pane opening beside it does. */
+  width?: number
   /** Where the prompt line stands in the viewport, when the well is on screen. */
   promptTop: number | null
   actionsTop?: number | null
@@ -71,8 +73,10 @@ export function measureFold(surface: HTMLElement): FoldGeometry {
   const actions = surface.querySelector<HTMLElement>(`[${COMPOSER_ACTIONS_ATTRIBUTE}]`)
   const toolbar = surface.querySelector<HTMLElement>(`[${COMPOSER_TOOLBAR_ATTRIBUTE}]`)
   const toolbarRect = toolbar?.getBoundingClientRect()
+  const rect = surface.getBoundingClientRect()
   return {
-    height: surface.getBoundingClientRect().height,
+    height: rect.height,
+    width: rect.width,
     promptTop: line ? line.getBoundingClientRect().top : null,
     actionsTop: actions?.getBoundingClientRect().top ?? null,
     toolbar: toolbar && toolbarRect && toolbarRect.height > 0
@@ -91,13 +95,25 @@ export interface FoldTweenBounds {
  * do when the card has no previous height (first paint, or a hidden tab whose
  * boxes are all zero), when the fold did not change the height, or when the
  * user asked for reduced motion — the fold is a cut then.
+ *
+ * A card whose width changed too is a cut. The previous height belongs to
+ * another layout — the column narrowed as a task opened beside it — so a tween
+ * from it grows the card to a height no fold produced. It holds that height
+ * while opening the pane keeps the main thread busy, and then snaps.
  */
 export function foldTweenBounds(args: {
   previousHeight: number | null
   nextHeight: number
+  previousWidth?: number
+  nextWidth?: number
   reducedMotion: boolean
 }): FoldTweenBounds | null {
   if (args.reducedMotion || args.previousHeight === null) return null
+  if (
+    args.previousWidth !== undefined &&
+    args.nextWidth !== undefined &&
+    Math.abs(args.previousWidth - args.nextWidth) >= 0.5
+  ) return null
   if (Math.abs(args.previousHeight - args.nextHeight) < 0.5) return null
   return { from: args.previousHeight, to: args.nextHeight }
 }
@@ -139,6 +155,8 @@ export function tweenComposerFold(
   const bounds = foldTweenBounds({
     previousHeight: previous?.height ?? null,
     nextHeight: next.height,
+    previousWidth: previous?.width,
+    nextWidth: next.width,
     reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
   })
   if (!bounds) return null

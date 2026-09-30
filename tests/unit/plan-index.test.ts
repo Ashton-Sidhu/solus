@@ -56,9 +56,9 @@ describe('persistent plan index', () => {
   test('groups revisions without reading provider transcripts again', async () => {
     // WHY: Workspace must be a database query after the one-time backfill. A
     // provider-complete index is the durable boundary that makes that possible.
-    await planIndex.replaceIndexedPlansForProvider('local', 'codex', [plan('plan-1', 10), plan('plan-2', 20)])
+    await planIndex.replaceIndexedPlansForProvider('codex', [plan('plan-1', 10), plan('plan-2', 20)])
 
-    expect(await planIndex.isPlanIndexComplete('local', 'codex')).toBe(true)
+    expect(await planIndex.isPlanIndexComplete('codex')).toBe(true)
     const descriptors = await planIndex.listIndexedPlans('local', 'codex', undefined, true)
     expect(descriptors).toHaveLength(1)
     expect(descriptors[0].planToolUseId).toBe('plan-2')
@@ -72,7 +72,7 @@ describe('persistent plan index', () => {
   test('reads review annotations without rebuilding the provider index', async () => {
     // WHY: comments and review status have their own authority. Updating them
     // must change Workspace immediately without making the provider scan history.
-    await planIndex.replaceIndexedPlansForProvider('local', 'codex', [plan('plan-1', 10)])
+    await planIndex.replaceIndexedPlansForProvider('codex', [plan('plan-1', 10)])
     const annotations: PlanAnnotations = {
       version: 1,
       sessionId: 'session-1',
@@ -97,11 +97,11 @@ describe('persistent plan index', () => {
 
   test('replaces only the changed session during incremental indexing', async () => {
     // WHY: one completed turn must not rescan or erase unrelated sessions.
-    await planIndex.replaceIndexedPlansForProvider('local', 'codex', [
+    await planIndex.replaceIndexedPlansForProvider('codex', [
       plan('old', 10),
       { ...plan('other', 15), sessionId: 'session-2' },
     ])
-    await planIndex.replaceIndexedPlansForSession('local', 'codex', 'session-1', [plan('new', 30)])
+    await planIndex.replaceIndexedPlansForSession('codex', 'session-1', [plan('new', 30)])
 
     const descriptors = await planIndex.listIndexedPlans('local', 'codex', undefined, true)
     expect(descriptors.map((descriptor) => descriptor.planToolUseId).sort()).toEqual(['new', 'other'])
@@ -111,21 +111,21 @@ describe('persistent plan index', () => {
     // WHY: Claude can remove the source transcript after 30 days. Workspace is
     // the durable owner of the saved plan, so expiry changes resume capability
     // instead of deleting the artifact.
-    await planIndex.replaceIndexedPlansForProvider('local', 'claude-code', [
+    await planIndex.replaceIndexedPlansForProvider('claude-code', [
       { ...plan('saved', 10), provider: 'claude-code' },
     ])
 
-    await planIndex.markIndexedPlanSessionUnavailable('local', 'claude-code', 'session-1')
+    await planIndex.markIndexedPlanSessionUnavailable('claude-code', 'session-1')
 
     const descriptor = (await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0]
     expect(descriptor.planToolUseId).toBe('saved')
     expect(descriptor.sessionAvailable).toBe(false)
     expect(await planIndex.loadIndexedPlanContent('local', 'claude-code', 'session-1', 'saved')).toContain('Do the work')
 
-    await planIndex.replaceIndexedPlansForProvider('local', 'claude-code', [])
+    await planIndex.replaceIndexedPlansForProvider('claude-code', [])
     expect((await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0].planToolUseId).toBe('saved')
 
-    await planIndex.replaceIndexedPlansForSession('local', 'claude-code', 'session-1', [
+    await planIndex.replaceIndexedPlansForSession('claude-code', 'session-1', [
       { ...plan('saved', 10), provider: 'claude-code' },
     ])
     expect((await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0].sessionAvailable).toBe(true)

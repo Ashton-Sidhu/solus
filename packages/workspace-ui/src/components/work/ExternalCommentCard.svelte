@@ -6,6 +6,7 @@
   import { getSurfaceContext } from '../../contexts'
   import { ensureIconCollections } from '../diagram/iconify'
   import { CommentComposer } from '../ui/comment-composer'
+  import { clearMentionScope } from '../mentions/lib/mention-scope.svelte'
   import { externalCommentDate, externalCommentBody, externalCommentQuote } from './lib/external-comments-view'
   import { docProviderLogo, docProviderLabel } from './lib/work-publish'
 
@@ -23,6 +24,8 @@
     onAskPrivately: (thread: DocCommentThread) => void
   } = $props()
   const store = getSurfaceContext().worksStore.externalComments
+  // A reply goes to the external document, which knows no Solus member.
+  clearMentionScope()
   const workspace = getSurfaceContext()
   const provider = $derived(workspace.worksStore.get(workId)?.mirroredDoc?.provider ?? 'gdrive')
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))

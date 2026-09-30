@@ -18,7 +18,7 @@
 
 import { z } from 'zod'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema, type ModelRouting } from './model-routing'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, withoutRetiredSolusTools, type SolusToolPreferences } from './agent-tools'
 import type {
   AgentId,
   AgentTaskLifecyclePolicy,
@@ -26,12 +26,14 @@ import type {
   AppFontFamily,
   EditorId,
   OtelSettings,
+  PermissionMode,
   ReasoningEffort,
   SourceControlWritingPreferences,
   TerminalAppId,
   TextGenerationModelSelection,
 } from './types'
-import { DEFAULT_SOURCE_CONTROL_WRITING, EDITOR_IDS, TERMINAL_APP_IDS } from './types'
+import { DEFAULT_SOURCE_CONTROL_WRITING, EDITOR_IDS, PERMISSION_MODES, TERMINAL_APP_IDS } from './types'
+import type { SavedLens } from './review'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   mergeNotificationPreferences,
@@ -68,9 +70,12 @@ export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
  *  0 turns the motion off (docs/plans/sidebar-motion.md). */
 export const DEFAULT_SIDEBAR_MOTION_MS = 150
 export const MAX_SIDEBAR_MOTION_MS = 600
+/** The faintest reply text the Appearance slider allows, in percent. Below
+ *  this, body text fails contrast on either theme. */
+export const MIN_ASSISTANT_TEXT_OPACITY = 50
 export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
-export const DEFAULT_REVIEW_MODEL = 'gpt-6-sol'
-export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'medium'
+export const DEFAULT_REVIEW_MODEL = 'gpt-6-luna'
+export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
 export interface HostConfig {
   solusTools: SolusToolPreferences
@@ -81,7 +86,7 @@ export interface HostConfig {
   defaultEditor: EditorId | null
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
-  defaultPermissionMode: 'ask' | 'auto' | 'plan'
+  defaultPermissionMode: PermissionMode
   /** Which events notify, and through which channels. */
   notifications: NotificationPreferences
   /** Per-agent model for new sessions; a missing entry means that agent's built-in default. */
@@ -92,6 +97,8 @@ export interface HostConfig {
   reviewReasoning: ReasoningEffort
   /** User instructions applied only when a review guide is authored. */
   reviewGuideInstructions: string
+  /** Named lens prompts the user can run on any review target. */
+  savedLenses: SavedLens[]
   generatePrGuidesOnOpen: boolean
   /**
    * Keyed by project path. Host config rather than device config because the
@@ -102,9 +109,9 @@ export interface HostConfig {
   responseStreamingMode: ResponseStreamingMode
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
-  /** File new sessions under a task. Off: a session starts with no task and
-   *  the composer hides its task picker. */
-  tasksEnabled: boolean
+  /** The transcript shows the tool calls between the agent's messages. Off:
+   *  only prose, questions, and cards remain. */
+  showToolCalls: boolean
   showDiffSummaryAfterTurn: boolean
   /** The composer tucks its toolbar row away while the keyboard is elsewhere. */
   collapseComposerWhenIdle: boolean
@@ -123,6 +130,8 @@ export interface HostConfig {
   /** Grayscale `antialiased` text; false keeps the heavier platform default.
    *  Only macOS engines honor the property, so elsewhere it is inert. */
   fontSmoothing: boolean
+  /** Opacity of the agent's reply text, in percent. Headings keep full ink. */
+  assistantTextOpacity: number
   /** App-wide user instructions added through each provider's instruction extension point. */
   extraInstructions: string
   /** Extra instructions keyed by resolved model id, appended when that model runs. */
@@ -245,7 +254,7 @@ function normalizeSourceControlWriting(
  *
  * `default` is what a host answers with before any client has seeded it.
  * Deliberately platform-neutral: the host cannot know whether the client
- * asking is a Mac (`sf-pro-text`) or a phone (11px), so the first client to
+ * asking is a desktop or a phone (smaller type), so the first client to
  * connect seeds those from its own environment rather than adopting a wrong
  * guess. See `HostConfigSnapshot.seeded`.
  *
@@ -253,7 +262,8 @@ function normalizeSourceControlWriting(
  * Four are deliberately closed:
  *
  * - `analyticsEnabled` is a consent decision. An agent must never move it.
- * - `extraInstructions`, `modelInstructions`, and `reviewGuideInstructions`
+ * - `extraInstructions`, `modelInstructions`, `reviewGuideInstructions`, and
+ *   `savedLenses`
  *   alter future agent runs on this host. An agent reads issues, pages, and
  *   diffs written by other people; text in any of them could ask it to append
  *   a persistent instruction, and the change would outlive the conversation
@@ -285,7 +295,7 @@ function field<const Value, Patch>(
 }
 
 export const HOST_CONFIG_FIELDS = {
-  solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()), {}, false),
+  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())), {}, false),
   themeMode: field(z.enum(['system', 'light', 'dark']).catch('system'), 'system', true),
   voiceModeEnabled: field(z.boolean().catch(false), false, true),
   autoSendVoiceTranscripts: field(z.boolean().catch(false), false, true),
@@ -293,7 +303,7 @@ export const HOST_CONFIG_FIELDS = {
   defaultEditor: field(z.enum(EDITOR_IDS).nullable().catch(null), 'vim', true),
   fallbackTerminal: field(z.enum(TERMINAL_APP_IDS).nullable().catch(null), 'default-terminal', true),
   activeAgent: field(z.enum(AGENT_IDS).catch('claude-code'), 'claude-code', true),
-  defaultPermissionMode: field(z.enum(['ask', 'auto', 'plan']).catch('auto'), 'auto', false),
+  defaultPermissionMode: field(z.enum(PERMISSION_MODES).catch('full-access'), 'full-access', false),
   notifications: field(notificationPreferencesPatchSchema.catch({}), DEFAULT_NOTIFICATION_PREFERENCES, true),
   modelRouting: field(modelRoutingSchema.catch(DEFAULT_MODEL_ROUTING), DEFAULT_MODEL_ROUTING, true),
   defaultModels: field(z.record(z.string(), z.string()).catch({}), {}, true),
@@ -301,15 +311,20 @@ export const HOST_CONFIG_FIELDS = {
   reviewModel: field(z.string().catch(DEFAULT_REVIEW_MODEL), DEFAULT_REVIEW_MODEL, true),
   reviewReasoning: field(z.enum(REASONING_EFFORTS).catch(DEFAULT_REVIEW_REASONING), DEFAULT_REVIEW_REASONING, true),
   reviewGuideInstructions: field(z.string().max(20_000).catch(''), '', false),
+  savedLenses: field(z.array(z.object({
+    id: z.string().min(1).max(200),
+    name: z.string().max(200),
+    prompt: z.string().max(20_000),
+  })).max(100).catch([]), [], false),
   generatePrGuidesOnOpen: field(z.boolean().catch(false), false, true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}, false),
   responseStreamingMode: field(z.enum(['buffered', 'paragraph']).catch('paragraph'), 'paragraph', true),
   rateLimitBehavior: field(z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'), 'ask', true),
   autoRenameSessions: field(z.boolean().catch(true), true, true),
-  tasksEnabled: field(z.boolean().catch(true), true, true),
+  showToolCalls: field(z.boolean().catch(false), false, true),
   showDiffSummaryAfterTurn: field(z.boolean().catch(true), true, true),
   collapseComposerWhenIdle: field(z.boolean().catch(true), true, true),
-  fontFamily: field(fontFamilyPreferenceSchema.catch('inter'), 'inter', true),
+  fontFamily: field(fontFamilyPreferenceSchema.catch('system'), 'system', true),
   fontSize: field(z.number().min(8).max(32).catch(16), 16, true),
   codeFontFamily: field(fontFamilyPreferenceSchema.catch('jetbrains-mono'), 'jetbrains-mono', true),
   codeFontSize: field(z.number().min(8).max(32).catch(12), 12, true),
@@ -318,6 +333,11 @@ export const HOST_CONFIG_FIELDS = {
   promptFontFamily: field(fontFamilyPreferenceSchema.catch('interface'), 'interface', true),
   promptFontSize: field(z.number().min(8).max(32).catch(13), 13, true),
   fontSmoothing: field(z.boolean().catch(true), true, true),
+  assistantTextOpacity: field(
+    z.number().int().min(MIN_ASSISTANT_TEXT_OPACITY).max(100).catch(100),
+    100,
+    true,
+  ),
   // Bounded because it is added to each agent run: an accidental paste of a
   // whole file would silently eat the context window.
   extraInstructions: field(z.string().max(20_000).catch(''), '', false),

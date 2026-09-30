@@ -7,6 +7,7 @@ import { withCheckout, withHost, withProjectHost } from '@solus/workspace-ui/con
 import { projectsStore, serversStore } from '@solus/workspace-ui/contexts'
 import type { ProjectRef } from '@solus/workspace-ui/contexts/projects/project-catalog'
 import { openProjectStore } from '@solus/workspace-ui/components/servers/open-project.store.svelte'
+import type { ProjectSource } from '@solus/workspace-ui/components/servers/lib/open-project-flow'
 import { hostOnboardingStore } from '@solus/workspace-ui/components/servers/host-onboarding.store.svelte'
 import { hostSetupStore } from '@solus/workspace-ui/components/servers/host-setup.store.svelte'
 import { moveTabToHost, isRunOnHostLocked } from '@solus/workspace-ui/components/servers/run-on'
@@ -30,20 +31,14 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
   const directoryPickerTitle = $derived.by(() => {
-    if (directoryPickerForOpenProject) {
-      return openProjectStore.source === "local"
-        ? "Open a folder"
-        : "Choose where to clone";
-    }
+    if (directoryPickerForOpenProject) return openProjectStore.browseTitle;
     if (directoryPickerForAddProject) return "Add a project";
     return directoryPickerCreatesTab
       ? "Open project in a new tab"
       : "Change project folder";
   });
   const directoryPickerAction = $derived.by(() => {
-    if (directoryPickerForOpenProject) {
-      return openProjectStore.source === "local" ? "Open" : "Clone here";
-    }
+    if (directoryPickerForOpenProject) return openProjectStore.browseAction;
     if (directoryPickerForAddProject) return "Add project";
     return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
   });
@@ -52,14 +47,14 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       (directoryPickerTargetTabId
         ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
-      serverConnections.defaultServerId() ??
+      serverConnections.defaultMachineId() ??
       LOCAL_SERVER_ID,
   );
   const directoryPickerApi = $derived.by(() => {
     if (directoryPickerOpen) {
       return serverConnections.apiFor(directoryPickerServerId);
     }
-    const bootServerId = serverConnections.defaultServerId();
+    const bootServerId = serverConnections.defaultMachineId();
     return bootServerId ? serverConnections.apiFor(bootServerId) : undefined;
   });
   const directoryPickerHostLabel = $derived.by(() => {
@@ -112,8 +107,8 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     };
     const openProjectHandler = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
-      const detail: { tabId?: string } | undefined = event.detail;
-      startOpenProject({ sourceId: detail?.tabId });
+      const detail: { tabId?: string; source?: ProjectSource; serverId?: string } | undefined = event.detail;
+      startOpenProject({ sourceId: detail?.tabId, source: detail?.source, serverId: detail?.serverId });
     };
     // The nearby-host discovery toast fires from a store, which has no way to
     // reach the settings pane on its own.
@@ -145,7 +140,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       directoryPickerForAddProject = false;
       directoryPickerServerIdOverride = undefined;
       directoryPickerDraftId = undefined;
-      const project = await projectsStore.addProject(
+      const project = projectsStore.addProject(
         addServerId,
         serverConnections.apiFor(addServerId),
         dir,
@@ -155,7 +150,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       if (project) onProjectAdded?.(project);
       return;
     }
-    projectsStore.recordProject(directoryPickerServerId, dir);
+    projectsStore.addProject(directoryPickerServerId, serverConnections.apiFor(directoryPickerServerId), dir);
     const draftId = directoryPickerDraftId;
     directoryPickerDraftId = undefined;
     if (draftId) {
@@ -171,7 +166,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
           draftHostOverride && draft.run.serverId !== draftHostOverride
             ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
             : withCheckout(draft.run, dir, null);
-        if (draftIntent === "open-project") draft.task = { kind: "new" };
+        if (draftIntent === "open-project") draft.task = { kind: "none" };
         void session.environment.refresh(draft.run.serverId, dir);
       }
       requestInputFocus();
@@ -242,7 +237,6 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       isLocalHost: serverId === serverConnections.localServerId(),
       path,
       intent: options.intent ?? "open-project",
-      isolate: serversStore.isolatesSessions(serverId),
     });
   }
 
@@ -253,8 +247,8 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     intent: "dispatch" | "open-project",
   ): RunConfig {
     return intent === "dispatch"
-      ? withHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) })
-      : withProjectHost(run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
+      ? withHost(run, serverId, { path })
+      : withProjectHost(run, serverId, { path });
   }
 
   function openProjectHosts() {
@@ -264,16 +258,18 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     );
   }
 
-  function startOpenProject(options: { sourceId?: string } = {}) {
+  function startOpenProject(options: { sourceId?: string; source?: ProjectSource; serverId?: string } = {}) {
     const hosts = openProjectHosts();
     const targetServerId =
-      session.projectPageScope.kind === "project"
+      options.serverId ??
+      (session.projectPageScope.kind === "project"
         ? session.projectPageScope.checkout?.serverId
         : options.sourceId
           ? session.runFor(options.sourceId)?.serverId
-          : undefined;
+          : undefined);
     openProjectStore.open(hosts, {
       tabId: options.sourceId,
+      source: options.source,
       host: hosts.find((host) => host.id === targetServerId),
       onProjectOpened: session.hasProjectPageOpen
         ? (project) => {
@@ -283,7 +279,8 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     });
   }
 
-  async function openProjectAtPath(path: string, cloned: boolean) {
+  async function openProjectAtPath(path: string, source: ProjectSource | null) {
+    const cloned = source === "clone" || source === "github";
     const serverId = openProjectStore.serverId;
     const hostLabel = openProjectStore.hostLabel;
     const hostIsLocal = openProjectStore.hostIsLocal;
@@ -293,7 +290,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     openProjectStore.close();
     if (!serverId) return;
 
-    const project = projectsStore.recordProject(serverId, path);
+    const project = projectsStore.addProject(serverId, serverConnections.apiFor(serverId), path);
 
     // The flow may have been started from a draft (RunOnPicker passes its
     // requester id through `tabId`); re-aim that draft instead of opening a
@@ -315,9 +312,9 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       requesterDraft.run = withProjectHost(
         withCheckout(requesterDraft.run, path, null),
         serverId,
-        { path, isolate: serversStore.isolatesSessions(serverId) },
+        { path },
       );
-      requesterDraft.task = { kind: "new" };
+      requesterDraft.task = { kind: "none" };
       void session.environment.refresh(serverId, path);
       requestInputFocus();
     } else if (reusableTabId) {
@@ -325,7 +322,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       requestInputFocus({ tabId: reusableTabId });
     } else {
       const draft = session.drafts.openSessionDraft({ freshTask: true }, path);
-      draft.run = withProjectHost(draft.run, serverId, { path, isolate: serversStore.isolatesSessions(serverId) });
+      draft.run = withProjectHost(draft.run, serverId, { path });
       requestInputFocus();
     }
 
@@ -344,12 +341,11 @@ export function createWebProjectPicker(session: WorkspaceContext) {
       return;
     }
 
-    if (!cloned && hostIsLocal) return;
+    if (source === "local" && hostIsLocal) return;
     const name = path.split(/[\\/]/).pop();
+    const verb = cloned ? "Cloned" : source === "new" ? "Created" : "Opened";
     toasts.success(
-      cloned
-        ? `Cloned ${name} on ${hostLabel || "host"}`
-        : `Opened ${name} on ${hostLabel || "host"}`,
+      `${verb} ${name} on ${hostLabel || "host"}`,
       {
         actions: [
           {
@@ -379,15 +375,20 @@ export function createWebProjectPicker(session: WorkspaceContext) {
     directoryPickerIntent = "open-project";
     openProjectStore.back();
     if (openProjectStore.source === "local") {
-      await openProjectAtPath(dir, false);
+      await openProjectAtPath(dir, "local");
+      return;
+    }
+    // A new project only takes the folder as its location; "Create" still commits.
+    if (openProjectStore.source === "new") {
+      openProjectStore.newProjectParent = dir;
       return;
     }
     const clonedPath = await openProjectStore.cloneInto(dir);
-    if (clonedPath) await openProjectAtPath(clonedPath, true);
+    if (clonedPath) await openProjectAtPath(clonedPath, openProjectStore.source);
   }
 
   const identityServerId = $derived(
-    openProjectStore.isOpen ? serverConnections.defaultServerId() : null,
+    openProjectStore.isOpen ? serverConnections.defaultMachineId() : null,
   );
   const localGitIdentity = $derived(
     identityServerId ? hostSetupStore.readinessByHost[identityServerId]?.git.identity ?? null : null,

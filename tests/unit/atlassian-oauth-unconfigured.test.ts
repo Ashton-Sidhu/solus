@@ -25,13 +25,13 @@ mock.module('@solus/server/atlassian/client-id', () => ({ ATLASSIAN_CLIENT_ID: '
 mock.module('@solus/server/atlassian/client-secret', () => ({ ATLASSIAN_CLIENT_SECRET: '' }))
 
 let oauth: typeof import('@solus/server/atlassian/oauth')
-let registerAtlassianHandlers: typeof import('@solus/server/server/handlers/atlassian-handlers')['registerAtlassianHandlers']
-let SolusServer: typeof import('@solus/server/server/server')['SolusServer']
+let registerAtlassianHandlers: typeof import('@solus/server/transport/handlers/atlassian-handlers')['registerAtlassianHandlers']
+let SolusServer: typeof import('@solus/server/transport/server')['SolusServer']
 
 beforeAll(async () => {
   oauth = await import('@solus/server/atlassian/oauth')
-  ;({ SolusServer } = await import('@solus/server/server/server'))
-  ;({ registerAtlassianHandlers } = await import('@solus/server/server/handlers/atlassian-handlers'))
+  ;({ SolusServer } = await import('@solus/server/transport/server'))
+  ;({ registerAtlassianHandlers } = await import('@solus/server/transport/handlers/atlassian-handlers'))
 })
 
 describe('Atlassian OAuth on a build with no client credentials', () => {

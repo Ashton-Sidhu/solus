@@ -39,19 +39,21 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
 }
 
 /**
- * Bridges ControlPlane IPC events into the session context. Call from App.svelte's top-level script,
+ * Bridges SessionRuntime IPC events into the session context. Call from App.svelte's top-level script,
  * not inside $effect — the unsubscribes are tied to the component's lifetime.
  *
  * The host delivers buffered response segments or paced paragraphs, according
  * to its response-streaming setting. The client applies each delivery once.
  */
 export function setupAgentEvents(session: WorkspaceContext): void {
+  const unsubscribeCheckouts = session.environment.checkouts.subscribe()
   const unsubscribeEvents = bindAgentEventSubscriptions(session)
   const resetUnsubscribes = new Map<string, () => void>()
 
   const bindReset = (connection: ManagedConnection) => {
     resetUnsubscribes.get(connection.serverId)?.()
     const unsubReset = connection.transport.onReset(() => {
+      void session.environment.checkouts.refresh(connection.serverId).catch(() => {})
       void resyncRuntime(session, connection.serverId)
     })
     resetUnsubscribes.set(connection.serverId, unsubReset)
@@ -64,6 +66,7 @@ export function setupAgentEvents(session: WorkspaceContext): void {
   const unsubConnectionCreated = serverConnections.onConnectionCreated(bindReset)
 
   onDestroy(() => {
+    unsubscribeCheckouts()
     unsubscribeEvents()
     unsubConnectionCreated()
     for (const unsubscribe of resetUnsubscribes.values()) unsubscribe()

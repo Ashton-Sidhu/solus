@@ -47,6 +47,8 @@ The page keeps the sort and the filters that you chose on this device, and resto
 
 After a reload, the page shows the last list that it read without a search for that scope. The live read then replaces those rows. The remembered list holds at most 99 rows, is used only for the same State filter, and is ignored after seven days.
 
+While the page is open, the host keeps each listed project fresh (docs/plans/pr-sync.md). A change on the code host reaches the rows in about a minute, with no read by the page: an edited title, a new state, or a new pull request, which joins the unsearched list at the top. The page does not poll. When you close it, the host stops reading those projects unless something else wants them. The refresh button asks the host to read the projects at once.
+
 When you change a filter, the rows on screen stay and are narrowed to the new filter until the host answers. The page shows the loading skeleton only when no row matches yet, or when you change the project.
 
 ## Folding header
@@ -58,19 +60,42 @@ The page is the same on desktop, web, and mobile.
 ## Opening a pull request
 
 Clicking a row opens the pull request in a panel beside the list. The list
-narrows; it is not covered, so the queue stays readable and J / K walk it.
+narrows; it is not covered, so the queue stays readable. The ↑ / ↓ keys move
+through the list, and the `#number` switcher in the panel walks the same order.
 
-- The panel opens at 60% of the page. Drag its left edge (or focus the edge and
+- The panel opens at half the page. Drag its left edge (or focus the edge and
   press ← / →, Shift for bigger steps) to resize it. The width is remembered on
   this device.
 - The panel keeps at least 360px, and so does the list. The panel never takes
   more than 70% of the page.
 - When the page cannot hold both 360px floors (a phone, or a narrow pane), the
-  panel covers the list instead. E does the same on purpose; Esc steps back.
+  panel covers the list instead. The expand control in the panel does the same
+  on purpose; Esc steps back.
 - The list's title row and the panel's top row are the same chrome row, so
   they sit level across the split. The list header still folds on scroll.
 - Rows keep their full layout beside the panel. As a row narrows it drops the
   labels first, then the author's name, then the age.
+
+## Row actions
+
+A row can merge, close, reopen, or mark a draft ready for review without
+opening the pull request. A row shows only the actions that its state and your
+permissions allow: an open pull request offers **Merge** and **Close**, a draft
+offers **Ready** and **Close**, a closed one offers **Reopen**, and a merged one
+offers nothing.
+
+- **Shift** — while you hold Shift on the page, every row shows its actions as
+  compact buttons. Shift in a text field does not show them. They go away when
+  you release Shift or the window loses focus.
+- **Keyboard** — on the highlighted row, press Shift+M (merge), Shift+C
+  (close), Shift+O (reopen), or Shift+R (ready). The row buttons are not in the
+  Tab order, because they exist only while Shift is held.
+- **Context menu** — right-click a row, or press and hold it on a touch
+  screen. The menu has the same actions, so a phone gets them without Shift.
+
+Merge always asks for confirmation first, and merges with the repository's
+default method. Every action changes the row at once. If the host refuses, the
+row goes back to its earlier state and an error message tells you why.
 
 ## Row colours
 

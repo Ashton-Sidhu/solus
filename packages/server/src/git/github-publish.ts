@@ -9,7 +9,7 @@ import type {
 } from '@solus/contracts/types'
 import type { GitHubClient } from '../providers/github/octokit'
 import { githubApiErrorMessage } from '../providers/github/provider'
-import { applyCloneProtocol } from '../server/handlers/setup-commands'
+import { applyCloneProtocol } from '../transport/handlers/setup-commands'
 import { runAsync } from './exec'
 import { createGitAskpassHelper, gitAuthEnv } from './git-auth-env'
 import { parseRemoteUrl } from './git-helpers'

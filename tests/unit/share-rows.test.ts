@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { OrganizationDirectory } from '@solus/contracts/uplink'
+import { userKey } from '@solus/contracts/user'
+import { organizationPeople } from '@solus/workspace-ui/components/users/lib/organization-people'
 import type { ShareList } from '@solus/contracts/sharing'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import {
@@ -21,7 +22,7 @@ import {
 // it — and the link. A scope stands for rows; rows stand for a scope; the two never
 // disagree. §4.2: the guest secret rides the fragment.
 
-const directory: OrganizationDirectory = {
+const directory = organizationPeople({
   organizationId: 'org1',
   name: 'Acme',
   members: [
@@ -29,7 +30,7 @@ const directory: OrganizationDirectory = {
     { userId: 'bob', name: 'Bob', email: 'bob@acme.test', role: 'member' },
   ],
   teams: [{ teamId: 'team-a', name: 'Team A', memberUserIds: ['bob'] }],
-}
+})
 
 const base: ShareList = {
   resource: { kind: 'work', id: 'w1' },
@@ -92,7 +93,8 @@ describe('scope', () => {
   test('"Only …" names the reader when they own it, else the owner', () => {
     expect(ownerLabel(base, directory)).toBe('you')
     expect(ownerLabel({ ...base, callerRole: 'editor' }, directory)).toBe('Alice')
-    expect(ownerLabel({ ...base, ownerUserId: 'host-owner', callerRole: 'editor' }, null)).toBe('the host owner')
+    // A host's owner outside the directory is "the owner"; the host no longer has a nameless "host owner" (plans/012 §1).
+    expect(ownerLabel({ ...base, ownerUserId: 'local:mac-1', callerRole: 'editor' }, null)).toBe('the owner')
     expect(ownerLabel({ ...base, ownerUserId: 'gone', callerRole: 'viewer' }, directory)).toBe('the owner')
   })
 
@@ -111,18 +113,27 @@ describe('people named on the list', () => {
   const orgRow = { subject: { kind: 'organization', id: 'org1' }, role: 'editor', grantedByUserId: 'alice', createdAt: 2 } as const
 
   test('the owner leads the rows, then each person with a row, named from the directory', () => {
-    const rows = personRows({ ...base, grants: [bobRow] }, directory, 'alice')
-    expect(rows.map((row) => [row.userId, row.name, row.role, row.isSelf])).toEqual([
+    const alice = { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice' }
+    const rows = personRows({ ...base, grants: [bobRow] }, directory, alice)
+    expect(rows.map((row) => [row.userId, row.user.displayName, row.role, row.isSelf])).toEqual([
       ['alice', 'Alice', 'owner', true],
       ['bob', 'Bob', 'viewer', false],
     ])
-    expect(personRows({ ...base, ownerUserId: 'host-owner', callerRole: 'viewer', grants: [{ ...bobRow, subject: { kind: 'user', id: 'gone' } }] }, directory, 'bob').map((row) => row.name)).toEqual(['Host owner', 'Former member'])
+    const bob = { id: { kind: 'account' as const, accountId: 'bob' }, displayName: 'Bob' }
+    expect(personRows({ ...base, ownerUserId: 'gone-owner', callerRole: 'viewer', grants: [{ ...bobRow, subject: { kind: 'user', id: 'gone' } }] }, directory, bob).map((row) => row.user.displayName)).toEqual(['Former member', 'Former member'])
+  })
+
+  test('the owner of a host with no account reads as themselves, by the name their host gave them', () => {
+    // WHY (plans/012 §1): the owner's row is theirs; "Host owner" was a label, not a name.
+    const owner = { id: { kind: 'local' as const, localId: 'mac-1' }, displayName: 'Ashton' }
+    const rows = personRows({ ...base, ownerUserId: 'local:mac-1', callerRole: 'owner' }, null, owner)
+    expect(rows.map((row) => [row.userId, row.user.displayName, row.isSelf])).toEqual([['local:mac-1', 'Ashton', true]])
   })
 
   test('candidates are the directory minus the owner and the people already named, narrowed by the search', () => {
-    expect(personCandidates(base, directory, '').map((c) => c.userId)).toEqual(['bob'])
-    expect(personCandidates({ ...base, grants: [bobRow] }, directory, '').map((c) => c.userId)).toEqual([])
-    expect(personCandidates(base, directory, 'acme').map((c) => c.userId)).toEqual(['bob'])
+    expect(personCandidates(base, directory, '').map((c) => userKey(c.id))).toEqual(['bob'])
+    expect(personCandidates({ ...base, grants: [bobRow] }, directory, '').map((c) => userKey(c.id))).toEqual([])
+    expect(personCandidates(base, directory, 'acme').map((c) => userKey(c.id))).toEqual(['bob'])
     expect(personCandidates(base, directory, 'zzz')).toEqual([])
     expect(personCandidates(base, null, '')).toEqual([])
   })
@@ -170,14 +181,14 @@ describe('the guest link', () => {
     expect(guestLinkContext(undefined, undefined)).toEqual({ kind: 'checking' })
   })
 
-  test('a saved directory row keeps the context linked whatever host kind it carries', () => {
+  test('a saved directory entry keeps the context linked whatever host kind it carries', () => {
     // WHY: the registry's uplink record is the saved row, and it names the host kind
     // under `kind`. The workspace service has no link record of its own, so its
-    // answer is always "unlinked" and the cloud row is what proves it can share; a
-    // spread of that row once turned the context's kind into `cloud`, and every
-    // Share control on the organization's pages hid behind `canShareFrom`.
-    const cloudRow: SavedServerUplink = { hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh', organizationId: 'org-1', kind: 'cloud' }
-    expect(guestLinkContext({ linked: false }, cloudRow)).toEqual({ kind: 'linked', hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh' })
+    // answer is always "unlinked" and its directory entry is what proves it can
+    // share; a spread of a row once turned the context's kind into the host kind,
+    // and every Share control on the organization's pages hid behind `canShareFrom`.
+    const workspaceEntry: SavedServerUplink = { hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh', organizationIds: ['org-1'] }
+    expect(guestLinkContext({ linked: false }, workspaceEntry)).toEqual({ kind: 'linked', hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh' })
     const personalRow: SavedServerUplink = { hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh', kind: 'personal' }
     expect(guestLinkContext(undefined, personalRow).kind).toBe('linked')
   })

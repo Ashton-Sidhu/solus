@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from '@solus/contracts/model-routing'
 import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@solus/contracts/host-config'
 import { FIVE_HOUR_WINDOW_MINS, MODEL_PROFILES, WEEKLY_WINDOW_MINS, type AgentMetadata } from '@solus/contracts/types'
-import { routeModelPrompt, selectModelRoute } from '@solus/server/agents/model-routing'
+import { routeModelPrompt, selectModelRoute } from '@solus/server/execution/agents/model-routing'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
 
 const agents: AgentMetadata[] = (['claude-code', 'codex'] as const).map(id => ({

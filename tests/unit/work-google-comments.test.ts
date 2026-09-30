@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
+import type { Attribution } from '@solus/contracts/user'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,29 +21,38 @@ mock.module('@solus/server/google/comments', () => ({
   postGoogleReply: async () => { postCount++ },
 }))
 let dataDir: string
-let works: typeof import('@solus/server/folio/works')
-let annotations: typeof import('@solus/server/folio/work-annotations')
-let service: typeof import('@solus/server/folio/work-comments')
+let works: typeof import('@solus/server/data/works/works')
+let workModule: typeof import('@solus/server/data/works/work')
+const EDITOR = { kind: 'user', user: { id: { kind: 'local', localId: 'owner' }, displayName: 'Owner' } } satisfies Attribution
+
+/** Read the work, then write naming the content version that read saw. */
+async function edit(scope: string, workId: string, write: { content: string; title?: string; author: Attribution; reason: 'edit' | 'agent' }) {
+  const work = await workModule.Work.byId(scope, workId)
+  return work.updateContent({ ...write, expectedContentVersion: work.contentVersion })
+}
+let annotations: typeof import('@solus/server/data/works/work-annotations')
+let service: typeof import('@solus/server/data/works/work-comments')
 let closeDb: () => void
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-google-comments-unit-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  works = await import('@solus/server/folio/works')
-  annotations = await import('@solus/server/folio/work-annotations')
-  service = await import('@solus/server/folio/work-comments')
+  works = await import('@solus/server/data/works/works')
+  workModule = await import('@solus/server/data/works/work')
+  annotations = await import('@solus/server/data/works/work-annotations')
+  service = await import('@solus/server/data/works/work-comments')
   ;({ closeDb } = await import('@solus/server/db'))
 })
 afterAll(() => { closeDb(); rmSync(dataDir, { recursive: true, force: true }) })
 async function work() {
   const work = await works.createWork('local', 'Test', 'doc', 'hello', '', undefined, 'codex', dataDir)
-  await works.setWorkMirroredDoc('local', work.id, { provider: 'gdrive', externalId: 'test-doc', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/test-doc/edit', syncState: 'ok' })
+  await (await workModule.Work.byId('local', work.id)).setMirroredDoc({ provider: 'gdrive', externalId: 'test-doc', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/test-doc/edit', syncState: 'ok' })
   return work.id
 }
 
 test('refresh preserves private edits made during Google request; private saves cannot replace shared state', async () => {
   const workId = await work()
   onList = async () => { await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'For agent only' }] }) }
-  await service.refreshWorkGoogleComments('local', workId)
+  await service.refreshWorkExternalComments('local', workId)
   onList = undefined
   const saved = await annotations.loadWorkAnnotations('local', workId)
   expect(saved?.comments[0].comment).toBe('For agent only')
@@ -57,18 +67,18 @@ test('duplicate request never reposts, including uncertain outcomes and concurre
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Only this message' }
   const before = postCount
   rejectPost = true
-  const [first, second] = await Promise.all([service.sendWorkGoogleComment('local', workId, command), service.sendWorkGoogleComment('local', workId, command)])
+  const [first, second] = await Promise.all([service.sendWorkExternalComment('local', workId, command), service.sendWorkExternalComment('local', workId, command)])
   rejectPost = false
   expect(postCount - before).toBe(1)
   expect(first.operations[0].status).toBe('uncertain')
   expect(second.operations[0].status).toBe('uncertain')
-  expect((await service.readWorkGoogleComments('local', workId)).operations[0].command).toEqual(command)
+  expect((await service.readWorkExternalComments('local', workId)).operations[0].command).toEqual(command)
 })
 
 test('unlink during refresh prevents stale snapshot from being installed', async () => {
   const workId = await work()
-  onList = async () => { await works.setWorkMirroredDoc('local', workId, null) }
-  await expect(service.refreshWorkGoogleComments('local', workId)).rejects.toThrow('link changed')
+  onList = async () => { await (await workModule.Work.byId('local', workId)).setMirroredDoc(null) }
+  await expect(service.refreshWorkExternalComments('local', workId)).rejects.toThrow('link changed')
   onList = undefined
   expect((await annotations.loadWorkAnnotations('local', workId))?.externalComments).toBeUndefined()
 })
@@ -78,11 +88,11 @@ test('only the explicit draft is posted; private history stays local', async () 
   const workId = await work()
   await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'SECRET PRIVATE INSTRUCTION', replies: [{ id: 'reply', author: 'solus', text: 'PRIVATE AGENT ANALYSIS', createdAt: 1 }] }] })
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Public response', quote: 'hello', sourceMessageId: 'private' }
-  await service.sendWorkGoogleComment('local', workId, command)
-  expect((await service.readWorkGoogleComments('local', workId)).operations[0].command).toEqual(command)
+  await service.sendWorkExternalComment('local', workId, command)
+  expect((await service.readWorkExternalComments('local', workId)).operations[0].command).toEqual(command)
   expect(sentBodies.at(-1)).toBe('Public response')
   expect((await annotations.loadWorkAnnotations('local', workId))?.comments[0].replies?.[0].text).toBe('PRIVATE AGENT ANALYSIS')
-  await expect(service.sendWorkGoogleComment('local', workId, { ...command, text: 'Changed draft' })).rejects.toThrow('another message')
+  await expect(service.sendWorkExternalComment('local', workId, { ...command, text: 'Changed draft' })).rejects.toThrow('another message')
 })
 
 test('a send acknowledged before failed read-back is never repeated', async () => {
@@ -90,11 +100,11 @@ test('a send acknowledged before failed read-back is never repeated', async () =
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'One post' }
   const before = postCount
   rejectList = true
-  const result = await service.sendWorkGoogleComment('local', workId, command)
+  const result = await service.sendWorkExternalComment('local', workId, command)
   rejectList = false
   expect(result.operations[0].status).toBe('sent')
   expect(result.error).toBe('refresh failed')
-  await service.sendWorkGoogleComment('local', workId, command)
+  await service.sendWorkExternalComment('local', workId, command)
   expect(postCount - before).toBe(1)
 })
 
@@ -103,7 +113,7 @@ test('a recorded in-flight operation survives restart without automatic resend',
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Possibly sent before crash' }
   await annotations.saveExternalComments('local', workId, { provider: 'gdrive', externalKey: 'root', documentId: 'test-doc', threads: [], operations: [{ requestId: command.requestId, command, status: 'sending' }] })
   const before = postCount
-  await service.sendWorkGoogleComment('local', workId, command)
+  await service.sendWorkExternalComment('local', workId, command)
   expect(postCount).toBe(before)
 })
 
@@ -119,7 +129,7 @@ test('sync uses the registered provider capability and keeps delivery IDs at the
   }
   try {
     const workId = await work()
-    const result = await service.sendWorkGoogleComment('local', workId, { kind: 'share', requestId: randomUUID(), text: 'Selected message', quote: 'hello' })
+    const result = await service.sendWorkExternalComment('local', workId, { kind: 'share', requestId: randomUUID(), text: 'Selected message', quote: 'hello' })
     expect(mutations).toEqual([{ action: 'create', text: 'Selected message', quote: 'hello' }])
     expect(result.operations[0].result).toEqual({ threadId: 'created-thread' })
     expect((await annotations.loadWorkAnnotations('local', workId))?.externalComments?.operations[0].result).toEqual({ threadId: 'created-thread' })
@@ -141,7 +151,7 @@ test('Google document read-only policy permits publishing comments and replying'
   }
   try {
     const workId = await work()
-    await expect(works.saveWork('local', workId, { content: 'Blocked body edit' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(edit('local', workId, { content: 'Blocked body edit', author: EDITOR, reason: 'edit' })).rejects.toThrow(workModule.GOOGLE_WORK_READ_ONLY)
     const shared = await service.sendWorkExternalComment('local', workId, { kind: 'share', requestId: randomUUID(), text: 'Public comment', quote: 'hello' })
     expect(shared.operations.at(-1)?.status).toBe('sent')
     const replied = await service.sendWorkExternalComment('local', workId, { kind: 'reply', requestId: randomUUID(), threadId: 'review', text: 'Confirmed' })
@@ -167,9 +177,9 @@ test('definite provider rejection can retry the same receipt without duplicating
   try {
     const workId = await work()
     const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Retry after access restored' }
-    expect((await service.sendWorkGoogleComment('local', workId, command)).operations[0].status).toBe('failed')
-    expect((await service.sendWorkGoogleComment('local', workId, command)).operations[0].status).toBe('sent')
-    await service.sendWorkGoogleComment('local', workId, command)
+    expect((await service.sendWorkExternalComment('local', workId, command)).operations[0].status).toBe('failed')
+    expect((await service.sendWorkExternalComment('local', workId, command)).operations[0].status).toBe('sent')
+    await service.sendWorkExternalComment('local', workId, command)
     expect(attempts).toBe(2)
   } finally { comments.mutate = originalMutate }
 })
@@ -185,7 +195,7 @@ test('Confluence snapshots and sends use the linked site and preserve private co
   adapter.mutate = async (_ref, mutation) => { sent.push(mutation); return { threadId: 'footer:new' } }
   try {
     const workId = await work()
-    await works.setWorkMirroredDoc('local', workId, { provider: 'confluence', externalId: '123', externalKey: 'site/SPACE', scope: 'SPACE', url: 'https://example.atlassian.net/wiki/pages/123', syncState: 'ok' })
+    await (await workModule.Work.byId('local', workId)).setMirroredDoc({ provider: 'confluence', externalId: '123', externalKey: 'site/SPACE', scope: 'SPACE', url: 'https://example.atlassian.net/wiki/pages/123', syncState: 'ok' })
     await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'Private instructions' }] })
     const snapshot = await service.refreshWorkExternalComments('local', workId)
     expect(snapshot).toMatchObject({ provider: 'confluence', externalKey: 'site/SPACE', documentId: '123', threads: [thread] })
@@ -196,7 +206,7 @@ test('Confluence snapshots and sends use the linked site and preserve private co
     expect(sent).toEqual([{ action: 'create', text: 'One public message', quote: undefined }])
     await expect(service.sendWorkExternalComment('local', workId, { kind: 'resolve', requestId: randomUUID(), threadId: thread.id })).rejects.toThrow('unavailable')
     expect(sent).toHaveLength(1)
-    await works.setWorkMirroredDoc('local', workId, { provider: 'confluence', externalId: '123', externalKey: 'other/SPACE', scope: 'SPACE', url: 'https://other.atlassian.net/wiki/pages/123', syncState: 'ok' })
+    await (await workModule.Work.byId('local', workId)).setMirroredDoc({ provider: 'confluence', externalId: '123', externalKey: 'other/SPACE', scope: 'SPACE', url: 'https://other.atlassian.net/wiki/pages/123', syncState: 'ok' })
     expect((await service.readWorkExternalComments('local', workId)).threads).toEqual([])
     await expect(service.sendWorkExternalComment('local', workId, { ...command, requestId: randomUUID() })).rejects.toThrow('link changed')
   } finally { adapter.list = originalList; adapter.mutate = originalMutate }
@@ -206,7 +216,7 @@ test('legacy Google receipts migrate without posting again', async () => {
   const workId = await work()
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Already posted' }
   const { getDatabase } = await import('@solus/server/db/database')
-  const { workAnnotations } = await import('@solus/server/folio/schema')
+  const { workAnnotations } = await import('@solus/server/data/works/schema')
   const { sql } = await import('drizzle-orm')
   const legacy = JSON.stringify({ version: 1, workId, comments: [], updatedAt: 0, googleComments: { documentId: 'test-doc', threads: [], operations: [{ requestId: command.requestId, command, status: 'sent' }] } })
   await getDatabase().run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at) VALUES (${workId}, ${legacy}, 0)`)

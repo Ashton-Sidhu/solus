@@ -33,7 +33,14 @@ export function registerWorksHandlers(backend: DemoServer, store: DemoStore): vo
   backend.register('loadWorkAnnotations', (args) => store.loadWorkAnnotations(arg<string>(args, 0)))
   backend.register('applyWorkComment', (args) => store.applyWorkComment(arg<string>(args, 0), arg<WorkCommentCommand>(args, 1)))
   backend.register('markWorkCommentRead', (args) => store.applyWorkComment(arg<string>(args, 0), { kind: 'read', commentId: arg<string>(args, 1) }))
-  backend.register('loadWorkPrevious', (args) => store.loadWorkPrevious(arg<string>(args, 0)))
+  backend.register('loadWorkRevisions', (args) => store.loadWorkRevisions(arg<string>(args, 0)))
+  backend.register('loadWorkRevision', (args) => store.loadWorkRevision(arg<string>(args, 0), arg<number>(args, 1)))
+  // The demo has one reader and no organization to ask, so nothing is ever in review.
+  backend.register('workReviewGet', (args) => ({ workId: arg<string>(args, 0), state: 'draft', reviewers: [] }))
+  backend.register('workReviewInbox', () => [])
+  backend.register('workReviewStates', () => [])
+  // The demo is its own host with one reader: works save whole, as before live editing.
+  backend.register('workLiveOpen', () => ({ mode: 'unsupported' }))
   // There is no host filesystem behind the demo to write a copy to.
   backend.register('worksExport', () => {
     throw new Error('Exporting works is not available in the demo.')

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { SolusServer, type HandlerCtx } from '@solus/server/server/server'
-import type { Principal } from '@solus/server/server/principal'
+import { SolusServer, type HandlerCtx } from '@solus/server/transport/server'
+import type { Principal } from '@solus/server/admission/principal'
 import { currentCredentialUserId, withCredentialScope } from '@solus/server/vault/credential-scope'
 
 // docs/plans/cloud-service-model.md §22: whose GitHub, Google, or Atlassian

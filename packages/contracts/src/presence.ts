@@ -1,29 +1,26 @@
 /**
  * Presence — who is on a host and in a session right now
  * (docs/plans/multiplayer-presence.md). Memory-only on the host, never in SQLite.
- * The host, never the client, names a participant: display name, avatar, and
- * color come from the admitted principal, so a client cannot claim to be
- * someone else in another person's avatar stack.
+ * The host, never the client, names a participant: the user comes from the
+ * admitted principal, so a client cannot claim to be someone else in another
+ * person's avatar stack.
  */
 
 import { z } from 'zod'
 import type { AgentId, SessionStatus } from './types'
+import type { User } from './user'
 
-/** The fixed palette size; the host assigns each user a stable index into it. */
+/** The fixed palette size; `userColorIndex` gives each user a stable index into it. */
 export const PRESENCE_COLOR_COUNT = 8
 
 export type PresenceAccess = 'owner' | 'member' | 'guest'
 
 /** One connected client, as every other client sees it. */
 export interface PresenceParticipant {
+  /** The person, as the host named them from the admitted principal (plans/012 §1). Each client computes the color with `userColorIndex`. */
+  user: User
   /** The transport's id for the client: two panes on one renderer are one participant. */
   clientId: string
-  /** `host-owner` for the personal host's owner, a user id for a member, `guest:<id>` for a guest. */
-  userId: string
-  displayName: string
-  avatarUrl?: string
-  /** 0 … PRESENCE_COLOR_COUNT − 1; the same user gets the same index on every host. */
-  colorIndex: number
   deviceLabel: string
   access: PresenceAccess
   joinedAt: number
@@ -32,6 +29,7 @@ export interface PresenceParticipant {
 /** What a client is looking at, reported by the client and relayed as a hint. */
 export const presenceFocusSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+  z.object({ kind: z.literal('work'), workId: z.string().min(1) }),
   z.object({ kind: z.literal('none') }),
 ])
 export type PresenceFocus = z.infer<typeof presenceFocusSchema>
@@ -57,8 +55,10 @@ export interface SessionActivity {
 
 export interface HostParticipant extends PresenceParticipant {
   focus: PresenceFocus
-  /** The client has a non-empty draft in the session it has focused. */
+  /** The client is typing in the session it has focused; the host clears it a few seconds after the last keystroke. */
   isComposing: boolean
+  /** The client is editing the work it has focused, by the same rule as typing. */
+  isEditing: boolean
   /** The focused session, as the host knows it; absent when the focus is not a session. */
   activity?: SessionActivity
 }
@@ -75,15 +75,13 @@ export interface PresenceSnapshotResult {
 }
 
 export interface SessionParticipant extends PresenceParticipant {
-  /** The client has a non-empty draft for this session. */
+  /** The client is typing in this session; the host clears it a few seconds after the last keystroke. */
   isComposing: boolean
 }
 
 /** The turn in flight and whose prompt it answers; runs under that author's seat. */
 export interface SessionActiveTurn {
-  authorUserId: string
-  authorDisplayName: string
-  colorIndex: number
+  author: User
   provider: AgentId
 }
 
@@ -115,10 +113,10 @@ export const presenceSetComposingRequestSchema = z.object({
 })
 export type PresenceSetComposingRequest = z.infer<typeof presenceSetComposingRequestSchema>
 
-/** Who wrote a prompt, stamped by the host on the transcript echo so every client can label the bubble. */
-export interface TurnAuthor {
-  userId: string
-  displayName: string
-  avatarUrl?: string
-  colorIndex: number
-}
+/** `presenceSetEditing`: the person edits a work, reported by the typing rule
+ *  (first keystroke after a pause, then at most every `TYPING_REPEAT_MS`). */
+export const presenceSetEditingRequestSchema = z.object({
+  workId: z.string().min(1),
+  isEditing: z.boolean(),
+})
+export type PresenceSetEditingRequest = z.infer<typeof presenceSetEditingRequestSchema>

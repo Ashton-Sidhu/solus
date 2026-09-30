@@ -1,24 +1,22 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { BrowserSnapshotRef } from "@solus/contracts/browser-types";
-  import {
-    Camera as CameraIcon,
-    TriangleAlert as TriangleAlertIcon,
-  } from "@lucide/svelte";
+  import { Camera as CameraIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { relativeTime } from "../../lib/relative-time";
   import MarkdownImage from "../conversation/MarkdownImage.svelte";
+  import TranscriptCard from "../conversation/TranscriptCard.svelte";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import BrowserSnapshotLightbox from "./BrowserSnapshotLightbox.svelte";
   import {
-    galleryAddress,
     galleryAspect,
     galleryErrorLabel,
     galleryHeading,
     galleryLayout,
     gallerySharedPageId,
-    gallerySubject,
+    galleryTarget,
     galleryTiles,
   } from "./lib/snapshot-gallery";
 
@@ -26,8 +24,8 @@
    * One capture pass, shown as one plate.
    *
    * Two or more frames from the same pass stop being two or more cards: they
-   * become one sheet with a single header and a single footer, so a pass reads
-   * as one act of looking regardless of how many frames it took.
+   * become one card with a single line (docs/transcript-cards.md), so a pass
+   * reads as one act of looking regardless of how many frames it took.
    *
    * A frame is never blown up past its own size to fill a cell. Landscape
    * captures sit in equal cells cropped to the top of the page, where the crop
@@ -50,8 +48,7 @@
   const layout = $derived(galleryLayout(snapshots.length, plateAspect));
   const tiles = $derived(galleryTiles(snapshots));
   const heading = $derived(galleryHeading(snapshots));
-  const subject = $derived(gallerySubject(snapshots));
-  const address = $derived(galleryAddress(snapshots));
+  const target = $derived(galleryTarget(snapshots));
   const errorLabel = $derived(galleryErrorLabel(snapshots));
   const capturedAt = $derived(
     snapshots.reduce((latest, snapshot) => Math.max(latest, snapshot.capturedAt), 0),
@@ -65,9 +62,8 @@
   let rovingIndex = $state(0);
   let plateEl: HTMLDivElement | null = $state(null);
 
-  /** Annotate and Open in pane name one page; a multi-page pass has none to
-   *  name, and there the tiles and the reel carry the per-frame way back. The
-   *  footer is absent rather than empty when it has nothing to offer. */
+  /** Annotate and Open name one page; a multi-page pass has none to name, and
+   *  there the tiles and the reel carry the per-frame way back. */
   const sharedPageId = $derived(gallerySharedPageId(snapshots));
   const sharedPageKey = $derived(
     serverId && sharedPageId ? browserStore.keyOf(serverId, sharedPageId) : null,
@@ -150,57 +146,42 @@
   }
 </script>
 
-<div class="py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
-  <div
-    class="text-transcript-meta group mx-auto w-[88%] overflow-hidden rounded-xl bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_0.0625rem_0.125rem_-0.0625rem_rgba(0,0,0,0.05)]"
-    data-testid="browser-snapshot-gallery"
-  >
-    <div class="flex items-center gap-2 px-3 py-2.5">
-      <span
-        class="flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_16%,transparent)] text-[var(--primary)]"
-        aria-hidden="true"
-      >
-        <CameraIcon size={10} strokeWidth={1.9} />
-      </span>
-      <span class="shrink-0 font-medium text-(--solus-text-primary)">
-        {heading}
-      </span>
-      <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">
-        {subject}
-      </span>
-
-      {#if errorLabel}
-        <!-- The pass's total, not a badge per tile: at this size a per-frame
-             count is unreadable, and a badge that is always there teaches
-             people to stop reading it. The reel attributes it to a frame. -->
-        <span
-          class="text-review-meta flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklch,var(--destructive)_8%,transparent)] px-1.5 py-0.5 text-[color:color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]"
-        >
-          <TriangleAlertIcon size={10} aria-hidden="true" />
-          {errorLabel}
-        </span>
-      {/if}
-
-      {#if !sharedPageId}
-        <!-- With no single page to act on there is no footer, so the extent of
-             the pass is stated here rather than on a bar of its own. -->
-        <span class="shrink-0 text-(--solus-text-tertiary)">{address}</span>
-      {/if}
-
-      <span class="shrink-0 text-(--solus-text-tertiary) opacity-70">
-        {relativeTime(capturedAt)}
-      </span>
-    </div>
-
-    <!-- Grid: the seam is the plate's own ground showing through a 1px gap, so
-         the grid is drawn once. Rail: the frames are separate objects on a light
-         table, so they are spaced and softened rather than butted together. -->
+<TranscriptCard
+  title={heading}
+  {target}
+  actionLabel={sharedPageId ? (openingPage ? "Opening…" : "Open") : undefined}
+  ariaLabel={`Open captured page: ${heading}`}
+  onOpen={sharedPageId ? () => openPage(sharedPageId) : undefined}
+  bodyLayout="media"
+  data-testid="browser-snapshot-gallery"
+  {skipMotion}
+>
+  {#snippet glyph()}<CameraIcon />{/snippet}
+  {#snippet rail()}
+    <!-- The pass's total, not a count per tile: at this size a per-frame count
+         is unreadable. The reel attributes it to a frame. -->
+    {#if errorLabel}
+      <span class="text-destructive">{errorLabel}</span>
+    {/if}
+    <span>{relativeTime(capturedAt)}</span>
+  {/snippet}
+  {#snippet actions()}
+    {#if sharedPageId && sharedPageIsOpen}
+      <TranscriptCardAction kind="ghost" onclick={() => annotatePage(sharedPageId)}>
+        Annotate
+      </TranscriptCardAction>
+    {/if}
+  {/snippet}
+  {#snippet body()}
+    <!-- No ground of its own: each frame sits on the card surface. On the grid a
+         1px divider shows through the gap between cells; on the rail the frames
+         are spaced and ringed instead. -->
     <div
       bind:this={plateEl}
-      class="browser-snapshot-plate border-t border-[var(--hairline)] focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[color:var(--ring)] {layout.mode ===
+      class="browser-snapshot-plate focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[color:var(--ring)] {layout.mode ===
       'rail'
-        ? 'flex items-center justify-center gap-2 bg-[var(--wash-1)] p-3'
-        : 'grid gap-px bg-[var(--hairline-strong)]'}"
+        ? 'flex items-center justify-center gap-2 p-3'
+        : 'grid gap-px bg-(--solus-tx-divider)'}"
       data-mode={layout.mode}
       data-columns={layout.columns}
       style:--plate-columns={layout.columns}
@@ -218,7 +199,7 @@
           data-snapshot-tile
           tabindex={index === rovingIndex ? 0 : -1}
           style:--tile-aspect={plateAspect}
-          class="browser-snapshot-tile relative block overflow-hidden bg-[var(--wash-1)] text-left transition-[filter] duration-[90ms] hover:brightness-[1.03] focus-visible:outline-none {layout.mode ===
+          class="browser-snapshot-tile relative block overflow-hidden bg-(--solus-tx-card-bg) text-left transition-[filter] duration-[90ms] hover:brightness-[1.03] focus-visible:outline-none {layout.mode ===
           'rail'
             ? 'rounded-lg shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)]'
             : ''}"
@@ -228,10 +209,11 @@
           onkeydown={onTileKeydown}
         >
           <div
-            class="flex h-full w-full items-start justify-center [&_img]:w-full {layout.mode ===
-            'rail'
-              ? '[&_img]:h-full [&_img]:object-cover [&_img]:object-top'
-              : ''}"
+            class="flex h-full w-full items-start justify-center {layout.mode === 'rail'
+              ? '[&_img]:h-full [&_img]:w-full [&_img]:object-cover [&_img]:object-top'
+              : tile.portrait
+                ? '[&_img]:h-full [&_img]:w-auto'
+                : '[&_img]:w-full'}"
           >
             <MarkdownImage
               href={`asset://${tile.snapshot.assetId}`}
@@ -239,20 +221,16 @@
             />
           </div>
 
-          <!-- One quiet line. The header already carries the viewport and the
-               colour scheme for the whole plate, so the tile only has to say
-               which frame this is — and a caption that shouts drowns the
-               picture it is a caption for. -->
+          <!-- One quiet pill, not a scrim: the tile only says which frame this
+               is, on the card's own surface, so the picture is never darkened
+               to make room for its caption. -->
           <span
-            class="text-review-meta pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-[linear-gradient(180deg,transparent,color-mix(in_oklch,var(--foreground)_58%,transparent))] px-2 py-1 text-[color:var(--background)]"
+            class="text-review-meta pointer-events-none absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-0.75rem)] items-center gap-1.5 rounded-full bg-(--solus-tx-card-bg) px-2 py-0.5 text-(--muted-foreground) tabular-nums shadow-[shadow:var(--solus-tx-quiet-ring)]"
           >
             {#if tile.label && layout.mode === "grid"}
-              <span class="min-w-0 truncate">{tile.label}</span>
-              <span class="flex-1"></span>
+              <span class="min-w-0 truncate text-(--solus-text-secondary)">{tile.label}</span>
             {/if}
-            <span class="min-w-0 shrink truncate font-mono opacity-80">
-              {tile.detail}
-            </span>
+            <span class="min-w-0 shrink truncate">{tile.detail}</span>
           </span>
 
           {#if tile.overflow > 0}
@@ -267,35 +245,8 @@
         </button>
       {/each}
     </div>
-
-    {#if sharedPageId}
-      <div
-        class="flex items-center gap-1.5 border-t border-[var(--hairline)] py-2 pr-2 pl-3"
-      >
-        <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">
-          {address}
-        </span>
-        {#if sharedPageIsOpen}
-          <button
-            type="button"
-            class="shrink-0 rounded-md px-2 py-1 font-medium text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary)"
-            onclick={() => annotatePage(sharedPageId)}
-          >
-            Annotate
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="shrink-0 rounded-md bg-[var(--wash-2)] px-2.5 py-1 font-medium text-(--solus-text-primary) shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors hover:bg-[var(--wash-3)]"
-          disabled={openingPage}
-          onclick={() => openPage(sharedPageId)}
-        >
-          {openingPage ? "Opening…" : "Open in pane"}
-        </button>
-      </div>
-    {/if}
-  </div>
-</div>
+  {/snippet}
+</TranscriptCard>
 
 {#if openIndex !== null}
   <BrowserSnapshotLightbox
@@ -318,6 +269,12 @@
 
   .browser-snapshot-tile {
     height: var(--plate-tile-height);
+  }
+
+  /* The plate sets its own height from its row count (galleryLayout). The
+     shell's 150px media cap would crop the second row, so the plate lifts it. */
+  :global(.tx-card__body.is-media:has(> .browser-snapshot-plate)) {
+    max-height: none;
   }
 
   /* On the rail the frame's own proportion sets its width, so a phone capture

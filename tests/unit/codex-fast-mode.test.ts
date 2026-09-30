@@ -3,10 +3,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
+let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
 
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
+  ;({ CodexBackend } = await import('@solus/server/execution/agents/codex/codex-backend'))
 })
 
 describe('Codex backend configuration', () => {
@@ -40,7 +40,7 @@ describe('Codex backend configuration', () => {
       model: 'gpt-5.6-sol',
       reasoningEffort: 'medium',
       fastMode: true,
-      permissionMode: 'auto',
+      permissionMode: 'full-access',
       persistence: 'ephemeral',
       service: 'sessions',
     })
@@ -145,7 +145,7 @@ describe('Codex backend configuration', () => {
       tools: [],
       model: 'gpt-5.6-sol',
       reasoningEffort: 'medium',
-      permissionMode: 'auto',
+      permissionMode: 'full-access',
       persistence: 'ephemeral',
       service: 'sessions',
       systemPrompt: '   ',

@@ -36,15 +36,12 @@ Use normal flow — no fixed positioning or nested scrolling. Outer body transpa
 
 ## Preview rendering
 
-Render syntax-highlighted output with `<span>` tags whose colours come from the Solus data palette (keywords, tables, strings each map to one palette slot, used consistently):
+Start with plain text output. If highlighting helps, tokenize the text and create spans with `textContent`; never run HTML replacements over raw user input. Use the Solus data palette consistently for token categories.
 
 ```js
 function renderPreview() {
-  const el = document.getElementById('preview');
-  el.innerHTML = sql
-    .replace(/\b(SELECT|FROM|WHERE|JOIN|ON|GROUP BY|ORDER BY|LIMIT)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b(users|orders|products)\b/g, '<span class="tbl">$1</span>')
-    .replace(/'[^']*'/g, '<span class="str">$&</span>');
+  const preview = document.getElementById('preview');
+  preview.textContent = sql;
 }
 ```
 
@@ -81,4 +78,4 @@ Include the schema context (table names, column types) so the prompt is self-con
 
 ## Finish
 
-Explain what you built in chat, then call `render_artifact` with the finished HTML as the last step.
+Implement the template in React and compile with `npm run bundle` as described in `SKILL.md`. Render the compiled HTML as a new work with `render_artifact`, or read and update the existing work. Use a compiled fence only for an explicitly unsaved or one-time inline result. Explain the result briefly; do not emit duplicate copies.

@@ -98,28 +98,30 @@ export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boole
 }
 
 /**
- * Whether a task row opens onto anything. Several sessions obviously do; so does
- * a single one that belongs to a *subtask*, because the row above it is named
- * after the root task and would otherwise be the only trace of the child's
- * existence. A lone session of the task itself discloses nothing — the row is
- * already that session.
+ * The one session a task row lists under itself: the session on screen, when
+ * it is one of the task's sessions and not its lead. The row stands for the
+ * lead, and the task's other sessions are on its page, so the list names only
+ * the one being read.
  */
-export function hasDisclosure(sessions: readonly { isSubtask?: boolean }[]): boolean {
-  return sessions.length > 1 || sessions.some((session) => session.isSubtask)
+export function disclosedSession<T extends { tabId?: string; isLead?: boolean }>(
+  sessions: readonly T[],
+  onScreenTabId: string | null,
+): T | null {
+  if (!onScreenTabId) return null
+  const session = sessions.find((candidate) => candidate.tabId === onScreenTabId)
+  return session && !session.isLead ? session : null
 }
 
 /**
- * The branch or worktree a task row can state as its own. A durable task row
- * carries no branch, so the answer belongs to its lone session — whose row is
- * never on screen, because a task with one plain session discloses nothing. A
- * task that discloses leaves the question to its children, which can each
- * answer it differently.
+ * The branch or worktree a row can state as its own. A durable row carries no
+ * branch, so the answer belongs to its lone session. A row with several
+ * sessions leaves the question to each of them, which can answer differently.
  */
 export function taskRowBranchName(
   taskBranchName: string | null,
-  sessions: readonly { branchName: string | null; isSubtask?: boolean }[],
+  sessions: readonly { branchName: string | null }[],
 ): string | null {
-  if (hasDisclosure(sessions)) return null
+  if (sessions.length > 1) return null
   return sessions.length === 1 ? (sessions[0].branchName ?? taskBranchName) : taskBranchName
 }
 
@@ -304,18 +306,17 @@ export function shouldRecedeRow(
 }
 
 export interface SidebarTask {
-  /** Stable renderer identity for this task or loose session row. */
+  /** Stable renderer identity for this row: a task's id, the tab of a session
+   *  that has a row of its own, or `session:<id>` for a shelved session with
+   *  no conversation open here. */
   id: string
-  /**
-   * The key the list renders and animates this row under. A durable row's is
-   * its task id. A loose row whose session will mint a task uses that planned
-   * id, so when the task arrives and the row becomes durable it keeps its key:
-   * the list updates the row in place instead of replacing it. A taskless
-   * session's row uses its own id for its whole life.
-   */
-  listKey: string
-  /** Durable task id when this row is backed by the task store. Loose session
-   *  rows deliberately leave it unset until the first dispatch mints a task. */
+  /** The session a shelved row stands for when no conversation of it is open
+   *  on this client. Its host settled or snoozed it; selecting the row opens
+   *  it. Absent on every other row. */
+  sessionId?: string
+  /** Durable task id when this row is backed by the task store. A session's
+   *  own row leaves it unset: the session has no task, or its task has no row
+   *  here (`linkedTask`). */
   taskId?: string
   /** Navigation key. Durable task rows use their task id. */
   key: string
@@ -356,6 +357,15 @@ export interface SidebarTask {
   /** The last snooze expired after this task was last visited. */
   woke: boolean
   tabIds: string[]
+  /** The task this session is linked to, when that task has no row in the
+   *  Tasks section of this client. The session then keeps its own row and
+   *  names the task on a chip. Absent on a task's own row. */
+  linkedTask?: SidebarLinkedTask
+}
+
+export interface SidebarLinkedTask {
+  taskId: string
+  title: string
 }
 
 /** Search the task column without changing its learned order. Project names
@@ -371,19 +381,6 @@ export function filterSidebarTasks(
   return tasks.filter((task) =>
     `${task.title} ${task.projectLabel}`.toLocaleLowerCase().includes(needle),
   )
-}
-
-/** A submitted prompt wakes the row that owns its mounted session. Check the
- * wake time rather than the derived shelf: a question can temporarily lift a
- * snoozed row into Active while its snooze is still in force. */
-export function snoozedRowKeyForTab(
-  tasks: SidebarTask[],
-  tabId: string,
-  now = Date.now(),
-): string | null {
-  return tasks.find(
-    (task) => task.snoozedUntil > now && task.tabIds.includes(tabId),
-  )?.key ?? null
 }
 
 /** A snooze defers progress, not a request. A run that stopped to ask
@@ -435,16 +432,36 @@ export function resolveTaskSidebarLifecycle(input: {
   }
 }
 
-/** A task appears only after this client opens it. Child tasks render under
- * their root, and a local dismissal keeps a root closed until a session reopens
- * it. Task status does not add a row by itself. */
+/**
+ * Which shelf a session's row sits on, from the state its host holds
+ * (docs/plans/session-pull-requests.md): a settled session is on Completed, a
+ * snoozed one on Snoozed, and a session with no state is active. A task's row
+ * takes its shelf from the task: a finished task is on Completed, and a task
+ * is never snoozed.
+ */
+export function sessionRowLifecycle(
+  state: { settledAt: number | null; snoozedUntil: number | null } | null,
+  attention: AttentionState,
+  now: number,
+): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
+  return resolveTaskSidebarLifecycle({
+    status: state?.settledAt ? 'done' : 'in_progress',
+    doneAt: state?.settledAt ?? undefined,
+    snoozedUntil: state?.snoozedUntil ?? undefined,
+    attention,
+    now,
+  })
+}
+
+/** A task appears only after this client opens it, and a local dismissal
+ * keeps it closed until a session reopens it. Task status does not add a row
+ * by itself. */
 export function shouldShowDurableSidebarTask(
-  task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
   isOpenOnClient: boolean,
 ): boolean {
-  return !task.parentId && (hasOpenSession || (!isDismissed && isOpenOnClient))
+  return hasOpenSession || (!isDismissed && isOpenOnClient)
 }
 
 /** A session whose task is done is finished work, whatever its tab is doing.
@@ -470,10 +487,10 @@ export function isCompletedTaskSession(
  * how long it stays. Both explicit workflow endings count.
  */
 export function shouldShelveCompletedTask(
-  task: Pick<Task, 'parentId' | 'status'>,
+  task: Pick<Task, 'status'>,
   isAlreadyInColumn: boolean,
 ): boolean {
-  if (task.parentId || isAlreadyInColumn) return false
+  if (isAlreadyInColumn) return false
   return task.status === 'done' || task.status === 'dropped'
 }
 
@@ -482,7 +499,7 @@ export interface TaskBySessionLookup {
   taskForSession(sessionId: string | null | undefined): Task | null
 }
 
-/** Same rule one level down: a dismissed child returns with a reopened tab. */
+/** Same rule one level down: a dismissed session returns with a reopened tab. */
 export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean): boolean {
   return !isDismissed || hasOpenTab
 }
@@ -504,7 +521,6 @@ export function reconcileSidebarTasks(
     if (
       previous &&
       previous.taskId === next.taskId &&
-      previous.listKey === next.listKey &&
       previous.key === next.key &&
       previous.title === next.title &&
       previous.projectKey === next.projectKey &&
@@ -523,6 +539,8 @@ export function reconcileSidebarTasks(
       previous.snoozeNote === next.snoozeNote &&
       previous.lastReadAt === next.lastReadAt &&
       previous.woke === next.woke &&
+      previous.linkedTask?.taskId === next.linkedTask?.taskId &&
+      previous.linkedTask?.title === next.linkedTask?.title &&
       previous.tabIds.length === next.tabIds.length &&
       previous.tabIds.every((tabId, index) => tabId === next.tabIds[index])
     ) {

@@ -11,13 +11,13 @@ import type { ESTree } from '@oxlint/plugins'
 // reference that only the origin host could resolve.
 //
 // So: inside the task layer, a ticket write goes through a TaskSyncAdapter.
-const taskLayerRoot = 'packages/server/src/tasks/'
+const taskLayerRoot = 'packages/server/src/data/tasks/'
 
 // The adapter is the boundary and may talk to GitHub however it needs to. The
 // provider is what the adapter talks through.
 const boundaryModules = [
-  'packages/server/src/tasks/adapters/',
-  'packages/server/src/tasks/providers/',
+  'packages/server/src/data/tasks/adapters/',
+  'packages/server/src/data/tasks/providers/',
 ]
 
 /** Writes that put something on a ticket. Reads are free: they cannot diverge. */

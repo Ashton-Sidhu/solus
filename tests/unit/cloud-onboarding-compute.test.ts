@@ -1,9 +1,20 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  cloudHostDetail,
   computeChoices,
   createHostFailureMessage,
   defaultComputeHost,
+  defaultRunsOn,
+  defaultSize,
+  elapsedLabel,
+  hostSetupStep,
+  newCloudHostLabel,
+  newCloudHostRequest,
   machineDetail,
+  reachability,
+  runsOnOptions,
+  serverIdOf,
+  sizeSummary,
   type ComputeHost,
 } from '@solus/workspace-ui/components/onboarding/lib/cloud-compute'
 import { managedHostNeedsStart } from '@solus/client-core/server-registry'
@@ -17,11 +28,11 @@ const ORGANIZATION = { organizationId: 'org_acme', name: 'Acme' }
 
 const cloudHost: ComputeHost = {
   id: 'cloud', label: 'Cloud · Acme', status: 'offline',
-  uplink: { hostId: 'h_cloud', directoryUrl: 'https://app', kind: 'managed', organizationId: 'org_acme', managedState: 'stopped' },
+  uplink: { hostId: 'h_cloud', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_acme'], managedState: 'stopped' },
 }
 const otherOrganizationHost: ComputeHost = {
   id: 'cloud-2', label: 'Cloud · Other', status: 'online',
-  uplink: { hostId: 'h_other', directoryUrl: 'https://app', kind: 'managed', organizationId: 'org_other' },
+  uplink: { hostId: 'h_other', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_other'] },
 }
 const adaLaptop: ComputeHost = {
   id: 'laptop', label: 'Ada’s Mac', status: 'online',
@@ -29,7 +40,7 @@ const adaLaptop: ComputeHost = {
 }
 const bobServer: ComputeHost = {
   id: 'bob', label: 'Bob’s server', status: 'online',
-  uplink: { hostId: 'h_bob', directoryUrl: 'https://app', ownerUserId: 'bob', ownerName: 'Bob', organizationId: 'org_acme' },
+  uplink: { hostId: 'h_bob', directoryUrl: 'https://app', ownerUserId: 'bob', ownerName: 'Bob', organizationIds: ['org_other', 'org_acme'] },
 }
 
 describe('cloud onboarding: where agents run', () => {
@@ -37,6 +48,25 @@ describe('cloud onboarding: where agents run', () => {
     const choices = computeChoices([adaLaptop, cloudHost, bobServer], ACCOUNT)
     expect(choices.cloudHost?.id).toBe('cloud')
     expect(defaultComputeHost(choices)?.id).toBe('cloud')
+  })
+
+  test('a cloud host Solus Cloud calls ready but this client cannot reach gives way to a machine that answers', () => {
+    const unreachable = { ...cloudHost, uplink: { ...cloudHost.uplink!, managedState: 'ready' as const } }
+    expect(defaultComputeHost(computeChoices([unreachable, adaLaptop], ACCOUNT))?.id).toBe('laptop')
+    expect(defaultComputeHost(computeChoices([unreachable, bobServer], ACCOUNT))?.id).toBe('bob')
+    // Nothing else answers: the cloud host stays chosen, and Continue tries it again.
+    expect(defaultComputeHost(computeChoices([unreachable], ACCOUNT))?.id).toBe('cloud')
+  })
+
+  test('a row says whether this client reaches the machine, not only whether it runs', () => {
+    const ready = { ...cloudHost, uplink: { ...cloudHost.uplink!, managedState: 'ready' as const } }
+    expect(reachability({ ...ready, status: 'online' })).toBe('Ready')
+    // WHY: a host not reached yet is being dialed; "Offline" there read as a dead machine.
+    expect(reachability({ ...ready, status: 'connecting' })).toBe('Connecting…')
+    expect(reachability({ ...ready, status: 'saved' })).toBe('Connecting…')
+    expect(reachability({ ...ready, status: 'offline' })).toBe('Can’t reach it')
+    expect(reachability(cloudHost)).toBe('Stopped')
+    expect(cloudHostDetail({ ...ready, status: 'connecting' }, 'Acme')).toBe('Connecting… · Everyone in Acme can use it')
   })
 
   test('another organization’s cloud host is not this organization’s', () => {
@@ -63,7 +93,8 @@ describe('cloud onboarding: where agents run', () => {
 
   test('a linked machine says who can see it', () => {
     expect(machineDetail(adaLaptop, ORGANIZATION, true)).toBe('Ready · Only you can see it')
-    const shared = { ...adaLaptop, uplink: { ...adaLaptop.uplink!, organizationId: 'org_acme' } }
+    // WHY (R15): a machine shared with several organizations is shared with this one when its list names it.
+    const shared = { ...adaLaptop, uplink: { ...adaLaptop.uplink!, organizationIds: ['org_other', 'org_acme'] } }
     expect(machineDetail(shared, ORGANIZATION, true)).toBe('Ready · Shared with Acme')
     expect(machineDetail(bobServer, ORGANIZATION, false)).toBe('Ready · Shared by Bob')
   })
@@ -93,5 +124,133 @@ describe('a create Solus Cloud refused', () => {
 
   test('says "no answer" apart from a refusal, since no answer does not prove no host was made', () => {
     expect(createHostFailureMessage(null, null)).toBe('Solus Cloud did not answer. Check your connection and try again.')
+  })
+})
+
+describe('cloud onboarding: the "Runs on" picker', () => {
+  const catalog = {
+    sizes: [{ id: 'standard', label: 'Standard', detail: '8 vCPUs; memory grows as the work needs it.' }],
+    defaultSize: 'standard',
+    supportsPackages: true,
+    supportsSetupScript: true,
+  }
+  const mayCreate = { name: 'Acme', mayCreateManagedHost: true }
+  const mayNot = { name: 'Acme', mayCreateManagedHost: false }
+
+  test('an invitee starts on the organization’s cloud host, shown as "Cloud · <its name>", and can still pick a computer', () => {
+    const choices = computeChoices([adaLaptop, { ...cloudHost, label: 'Acme' }, bobServer], ACCOUNT)
+    expect(defaultRunsOn(choices, mayNot, catalog)).toBe('host:cloud')
+    expect(runsOnOptions(choices, mayNot, catalog)).toEqual([
+      { value: 'host:cloud', label: 'Cloud · Acme', group: 'Solus Cloud' },
+      { value: 'host:laptop', label: 'Ada’s Mac', group: 'Your computers' },
+      { value: 'host:bob', label: 'Bob’s server', group: 'Shared with Acme' },
+      { value: 'link', label: 'Link a computer', group: 'Your computers' },
+    ])
+  })
+
+  test('a new organization with no machine starts on a new cloud host of the default size', () => {
+    const choices = computeChoices([], ACCOUNT)
+    expect(defaultRunsOn(choices, mayCreate, catalog)).toBe('new-cloud')
+    // WHY: the new host is named for the organization, so the picker already shows the name it will have.
+    expect(runsOnOptions(choices, mayCreate, catalog)[0]).toEqual({ value: 'new-cloud', label: 'Cloud · Acme (new)', group: 'Solus Cloud' })
+    expect(newCloudHostLabel(null)).toBe('Cloud host')
+    expect(defaultSize(catalog)?.id).toBe('standard')
+    expect(sizeSummary(catalog.sizes[0])).toBe('8 vCPUs; memory grows as the work needs it.')
+    expect(sizeSummary({ id: 'l', label: 'Large', detail: '', cpus: 8, memoryGb: 32 })).toBe('8 CPU · 32 GB')
+  })
+
+  test('with no cloud host to use or make, linking a computer is the choice, never an empty picker', () => {
+    const choices = computeChoices([], ACCOUNT)
+    // WHY: an older Solus Cloud sends no catalog, and one that cannot make hosts sends no sizes.
+    for (const [organization, offered] of [[mayNot, catalog], [mayCreate, undefined], [mayCreate, { sizes: [], defaultSize: null, supportsPackages: false, supportsSetupScript: false }]] as const) {
+      expect(defaultRunsOn(choices, organization, offered)).toBe('link')
+      expect(runsOnOptions(choices, organization, offered).map((option) => option.value)).toEqual(['link'])
+    }
+    expect(serverIdOf('host:laptop')).toBe('laptop')
+    expect(serverIdOf('new-cloud')).toBeNull()
+  })
+
+  test('the organization’s host policy removes what its owners turned off', () => {
+    const choices = computeChoices([adaLaptop, { ...cloudHost, label: 'Acme' }, bobServer], ACCOUNT)
+    // WHY: an invitee must not be offered a computer the organization will refuse to share.
+    const cloudOnly = { ...mayNot, policy: { allowsCloudHosts: true, allowsPersonalHosts: false } }
+    expect(runsOnOptions(choices, cloudOnly, catalog).map((option) => option.value)).toEqual(['host:cloud'])
+    const ownOnly = { ...mayNot, policy: { allowsCloudHosts: false, allowsPersonalHosts: true } }
+    expect(runsOnOptions(choices, ownOnly, catalog).map((option) => option.value)).toEqual([
+      'host:laptop',
+      'host:bob',
+      'link',
+    ])
+    expect(defaultRunsOn(choices, ownOnly, catalog)).toBe('host:laptop')
+    // Cloud only, and no cloud host yet that this member may make: nothing to pick.
+    expect(defaultRunsOn(computeChoices([], ACCOUNT), cloudOnly, catalog)).toBeNull()
+  })
+})
+
+describe('hostSetupStep', () => {
+  const withState = (managedState: NonNullable<ComputeHost['uplink']>['managedState']): ComputeHost => ({
+    ...cloudHost,
+    uplink: { ...cloudHost.uplink!, managedState },
+  })
+
+  test('a host still provisioning says it is being set up, not that Solus is connecting', () => {
+    // The wait after Create can last minutes; "Connecting" for all of it reads as a hang.
+    expect(hostSetupStep(false, withState('provisioning'))).toEqual({ index: 1, label: 'Setting up the cloud host…' })
+  })
+
+  test('the step follows the lifecycle forward to Connect', () => {
+    expect(hostSetupStep(true, null).index).toBe(0)
+    expect(hostSetupStep(false, withState('stopped')).index).toBe(2)
+    expect(hostSetupStep(false, withState('starting')).index).toBe(2)
+    expect(hostSetupStep(false, withState('ready')).index).toBe(3)
+  })
+
+  test('a machine of the person’s own is named while Solus connects to it', () => {
+    expect(hostSetupStep(false, adaLaptop)).toEqual({ index: 3, label: 'Connecting to Ada’s Mac…' })
+  })
+
+  test('creating wins over the state of a host chosen before', () => {
+    expect(hostSetupStep(true, withState('ready')).index).toBe(0)
+  })
+
+  test('elapsed time reads as minutes and seconds', () => {
+    expect(elapsedLabel(0)).toBe('0:00')
+    expect(elapsedLabel(65_400)).toBe('1:05')
+  })
+})
+
+describe('the create request for a new cloud host', () => {
+  // WHY: onboarding could not name the cloud host or give it packages; the host came up
+  // as "Acme" with nothing on it, and the person had to find its page to fix that.
+  const size = { id: 'standard', label: 'Standard', detail: '', cpus: 4, memoryGb: 16 }
+  const catalog = { sizes: [size], defaultSize: 'standard', supportsPackages: true, supportsSetupScript: true }
+  const form = { name: '', size, packages: '', setupScript: '' }
+
+  test('an empty form is the organization-named default host', () => {
+    expect(newCloudHostRequest(form, ORGANIZATION, catalog)).toEqual({ ok: true, label: 'Acme', spec: { size: 'standard' } })
+  })
+
+  test('the name, packages, and setup script the person gave are asked for', () => {
+    const request = newCloudHostRequest(
+      { name: '  Build box ', size, packages: 'ripgrep, postgresql-client\nripgrep', setupScript: '  npm i -g pnpm\n' },
+      ORGANIZATION,
+      catalog,
+    )
+    expect(request).toEqual({
+      ok: true,
+      label: 'Build box',
+      spec: { size: 'standard', packages: ['ripgrep', 'postgresql-client'], setupScript: 'npm i -g pnpm' },
+    })
+  })
+
+  test('a package name Solus Cloud would refuse stops the request and says which', () => {
+    const request = newCloudHostRequest({ ...form, packages: 'ripgrep rm;-rf Node' }, ORGANIZATION, catalog)
+    expect(request).toEqual({ ok: false, error: 'Not an apt package name: rm;-rf, Node' })
+  })
+
+  test('a field the catalog does not offer is never sent', () => {
+    const plain = { ...catalog, supportsPackages: false, supportsSetupScript: false }
+    const request = newCloudHostRequest({ ...form, packages: 'ripgrep', setupScript: 'echo hi' }, ORGANIZATION, plain)
+    expect(request).toEqual({ ok: true, label: 'Acme', spec: { size: 'standard' } })
   })
 })

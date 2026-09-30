@@ -1,4 +1,4 @@
-import { requestSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import { materializeSessionTranscript } from '../workspace/session-transcript'
@@ -15,15 +15,15 @@ export async function loadSessionRecordTranscript(workspace: SurfaceContext, ser
     sessionId: meta.sessionId,
     projectPath: meta.projectPath,
     provider: meta.provider,
-    limit: RESTORED_TRANSCRIPT_LIMIT,
-  }, ctx)
+    turnLimit: INITIAL_HISTORY_TURNS,
+  })
   return materializeSessionTranscript(workspace, {
     sessionId: meta.sessionId,
     loadPath: meta.projectPath,
     displayCwd: meta.cwd,
     provider: meta.provider,
     ctx,
-    limit: RESTORED_TRANSCRIPT_LIMIT,
+    turnLimit: INITIAL_HISTORY_TURNS,
     serverId,
   }, page).messages
 }

@@ -193,17 +193,14 @@ interface BoardColumn {
  * Bucket tasks into the kanban columns by status. `tasks` arrives already
  * searched, filtered and ordered by the page, so the board is the *same* set as
  * the list re-plotted — a card can never appear in one layout and not the other.
- * Epics are containers, not board cards, so they're dropped; their children
- * stand on their own.
  */
 export function buildBoard(tasks: Task[]): BoardColumn[] {
-  const leaves = tasks.filter((t) => t.kind !== 'epic')
   return BOARD_COLUMNS.map((col) => ({
     ...col,
     // Every status lands somewhere, or a task would silently vanish when the
     // board is chosen: inbox is a not-yet-triaged todo, dropped is closed work.
     // Same folding the list's sections do.
-    tasks: leaves.filter((task) =>
+    tasks: tasks.filter((task) =>
       col.status === 'todo'
         ? task.status === 'todo' || task.status === 'inbox'
         : col.status === 'done'

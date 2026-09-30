@@ -1,3 +1,4 @@
+import type { Activity, ActivityKind } from '@solus/contracts/activity'
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '@solus/contracts/types'
 import {
@@ -8,10 +9,15 @@ import {
   needsLiveRow,
   runIsLive,
   shouldAnimateTurnEntry,
-  stabilizeTurns,
+  visibleTurnBody,
 } from '@solus/workspace-ui/components/conversation/lib/turns'
 
 let clock = 1_000
+
+/** A thread-dividing activity as the host sends it (plans/012 §5). */
+function divider(kind: ActivityKind): Activity {
+  return { ...kind, id: `a-${kind.kind}`, subject: { kind: 'session', id: 's' }, at: 1, by: { kind: 'system' } }
+}
 
 function msg(partial: Partial<Message> & Pick<Message, 'role'>): Message {
   clock += 1_000
@@ -98,18 +104,35 @@ describe('turn collapse', () => {
     const turns = turnsFor([
       msg({ role: 'user', content: 'fix the bug' }),
       msg({ role: 'assistant', content: 'Fixed.' }),
-      msg({
-        role: 'system',
-        content: 'Switched to Claude Code',
-        agentChangedTo: 'Claude Code',
-      }),
+      msg({ role: 'system', content: '', activity: divider({ kind: 'agent_switched', provider: 'claude-code' }) }),
     ])
 
     expect(turns).toHaveLength(2)
     expect(turns[1].lead?.kind).toBe('system')
     expect(
-      turns[1].lead?.kind === 'system' && turns[1].lead.message.agentChangedTo,
-    ).toBe('Claude Code')
+      turns[1].lead?.kind === 'system' && turns[1].lead.message.activity?.kind,
+    ).toBe('agent_switched')
+  })
+
+  test('keeps task cards outside turn activity, including between work and the answer', () => {
+    const task = msg({
+      role: 'assistant',
+      taskRef: { taskId: 'task-1', title: 'Track the fix', url: null },
+    })
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'Create a task' }),
+      tool('create_task', '{"title":"Track the fix"}'),
+      task,
+      msg({ role: 'assistant', content: 'Task created.' }),
+    ])
+
+    // The card gets its own row and cannot be hidden by either activity fold.
+    expect(turns.map((turn) => turn.lead?.kind ?? null)).toEqual(['user', 'task', null])
+    expect(turns[0].body.map((item) => item.kind)).toEqual(['tool-group'])
+    expect(turns[1].body).toHaveLength(0)
+    expect(turns[1].tail).toHaveLength(0)
+    expect(turns[2].tail.map((item) => item.kind)).toEqual(['assistant'])
+    expect(turns.flatMap((turn) => [...turn.body, ...turn.tail])).not.toContainEqual({ kind: 'task', message: task })
   })
 
   test('the live row only appears when nothing else is reporting the run', () => {
@@ -134,6 +157,24 @@ describe('turn collapse', () => {
     ).toBe(true)
   })
 
+  test('with tool calls hidden, the prose and cards stay and the live row reports the run', () => {
+    const prompt = msg({ role: 'user', content: 'fix the build' })
+    const narration = msg({ role: 'assistant', content: 'Looking at the config first.' })
+    const runningTool = tool('Bash', '{"command":"bun test"}', false)
+    const question = { ...tool('AskUserQuestion', '{}'), questionAnswer: { answers: {} } } as Message
+    const [turn] = turnsFor([prompt, narration, runningTool, question, tool('Read', '{}')], true)
+
+    // WHY: a reader who hides tool calls still reads every sentence the agent
+    // writes and every card that asks them something.
+    expect(visibleTurnBody(turn, false).map((item) => item.kind)).toEqual(['assistant', 'question'])
+    expect(visibleTurnBody(turn, true)).toBe(turn.body)
+
+    // No tool group is on screen to carry the spinner, so the live row must,
+    // even while a hidden call is still running.
+    expect(needsLiveRow(turn, true)).toBe(false)
+    expect(needsLiveRow(turn, false)).toBe(true)
+  })
+
   test('a running sub-agent keeps the live row once prose follows its card', () => {
     const prompt = msg({ role: 'user', content: 'study both codebases' })
     const agent = { ...tool('Agent', '{"description":"Study Solus diff panel"}', false), subMessages: [] }
@@ -148,6 +189,22 @@ describe('turn collapse', () => {
     expect(needsLiveRow(turnsFor([prompt, agent, narration], true)[0])).toBe(true)
   })
 
+  test('a backgrounded sub-agent card stays on screen until the agent reports', () => {
+    const prompt = msg({ role: 'user', content: 'build the video player' })
+    const running = { ...tool('Agent', '{"description":"Client video UI"}', false), subMessages: [] }
+    const narration = msg({ role: 'assistant', content: 'The subagents are still running.' })
+
+    // WHY: the turn ends while the agent works in the background. Its card is
+    // what the session waits on, so folding it hides the only live progress.
+    const [waiting] = turnsFor([prompt, running, narration])
+    expect(waiting.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['subagent-group'])
+
+    // Once the agent reports, the card is a step like any other and folds away.
+    const done = { ...running, toolStatus: 'completed' as const, toolCompletedAt: running.timestamp + 500 }
+    const [settled] = turnsFor([prompt, done, narration])
+    expect(settled.visibleWhenCollapsed).toHaveLength(0)
+  })
+
   test('a turn that only answered has no row to collapse into', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'what does tw.ts do?' }),
@@ -157,6 +214,49 @@ describe('turn collapse', () => {
     expect(turn.tools).toHaveLength(0)
     expect(turn.body).toHaveLength(0)
     expect(turn.tail).toHaveLength(1)
+  })
+
+  test('everything between two prose blocks is one activity row', () => {
+    // WHY: the reader scans a turn as prose and the work between it. A thought
+    // after the last tool call, or a thought-only message between two calls,
+    // is part of that work — splitting it into its own row reads as a second,
+    // separate step.
+    const between = msg({ role: 'assistant', content: '', thoughts: ['Checking the return type'] })
+    const answer = msg({ role: 'assistant', content: 'It failed to deliver.', thoughts: ['Checking withTx'] })
+    const first = tool('Bash', '{"command":"bun test"}')
+    const second = tool('Read', '{"file_path":"tx.ts"}')
+    const items = groupMessages([msg({ role: 'user', content: 'why?' }), first, between, second, answer])
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'assistant'])
+    const group = items[1]
+    expect(group.kind === 'tool-group' && group.messages).toEqual([first, second])
+    expect(group.kind === 'tool-group' && group.steps).toEqual([first, between, second, answer])
+  })
+
+  test('a card still closes the activity row', () => {
+    // WHY: cards are outcomes the reader acts on, not steps. Folding a question
+    // into the row would hide the decision the reader made.
+    const items = groupMessages([
+      tool('Read', '{"file_path":"a.ts"}'),
+      msg({ role: 'assistant', content: '', thoughts: ['Need to ask'] }),
+      tool('AskUserQuestion', '{}'),
+      tool('Read', '{"file_path":"b.ts"}'),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['tool-group', 'question', 'tool-group'])
+  })
+
+  test('the thought before an answer folds with the work, leaving the answer', () => {
+    // WHY: reasoning is context for the answer, not the answer. Like the tool
+    // calls, it folds behind the turn's row once the turn ends, and opening
+    // the row shows it in the order it happened.
+    const answer = msg({ role: 'assistant', content: 'It registers the merge config.', thoughts: ['Reading tw.ts'] })
+    const [turn] = turnsFor([msg({ role: 'user', content: 'what does tw.ts do?' }), answer])
+
+    expect(turn.body.map((item) => item.kind)).toEqual(['thought'])
+    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
+    expect(hasVisibleTurnBody(turn)).toBe(true)
+    expect(itemKey(turn.body[0])).not.toBe(itemKey(turn.tail[0]))
   })
 
   test('an empty provider placeholder does not create a disclosure target', () => {
@@ -282,7 +382,7 @@ describe('turn collapse', () => {
     // every other finished turn has — a summary row over the work it discloses,
     // with the ending stated after. Collapsing the two loses the transcript.
     expect(turn.end?.kind).toBe('stopped')
-    expect(turn.end?.cause).toBe('by you')
+    expect(turn.end?.cause).toBe('')
     expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
     expect(hasVisibleTurnBody(turn)).toBe(true)
@@ -306,7 +406,7 @@ describe('turn collapse', () => {
     const turns = turnsFor([
       msg({ role: 'user', content: 'plan the exchange protocol' }),
       tool('Grep', '{"pattern":"agentExchange"}'),
-      msg({ role: 'system', newSessionForPlanId: 'agent-session-1__plan-tool-1' }),
+      msg({ role: 'system', activity: divider({ kind: 'plan_decided', planId: 'agent-session-1__plan-tool-1', decision: 'accepted', newSessionId: 's' }) }),
       msg({ role: 'user', content: 'Implement this plan: …' }),
     ])
 
@@ -315,19 +415,19 @@ describe('turn collapse', () => {
     // no turn fold may hide it — otherwise a deliberate reset is indistinguishable
     // from the conversation losing its memory.
     expect(turns).toHaveLength(3)
-    expect(turns[1].lead?.kind === 'system' && turns[1].lead.message.newSessionForPlanId)
-      .toBe('agent-session-1__plan-tool-1')
+    expect(turns[1].lead?.kind === 'system' && turns[1].lead.message.activity)
+      .toMatchObject({ kind: 'plan_decided', planId: 'agent-session-1__plan-tool-1' })
   })
 
   test('a turn\'s agent-conversation cards stack at the first dispatch despite interleaved tool rows', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'brief all three' }),
-      tool('mcp__solus__prompt_session', '{"session_id":"a"}'),
+      tool('mcp__solus__send_session', '{"session_id":"a"}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
       }),
-      tool('mcp__solus__prompt_session', '{"session_id":"b"}'),
+      tool('mcp__solus__send_session', '{"session_id":"b"}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
@@ -335,7 +435,7 @@ describe('turn collapse', () => {
       msg({ role: 'assistant', content: 'Briefed both.' }),
     ])
 
-    // WHY: several agents dispatched by one decision are one roster, not two
+    // WHY: several agents dispatched by one decision are one stack, not two
     // cards separated by their own plumbing rows — the stack anchors where the
     // first dispatch happened and later dispatches join it in place.
     const agentConversationGroups = turn.body.filter((item) => item.kind === 'agent-conversation-group')
@@ -345,6 +445,41 @@ describe('turn collapse', () => {
         ? agentConversationGroups[0].messages.map((m) => m.agentConversationRef?.agentSessionId)
         : [],
     ).toEqual(['a', 'b'])
+  })
+
+  test('prose and other cards between dispatches do not split the agent-conversation stack', () => {
+    // WHY: the agent reports on each session as it dispatches the next one. If
+    // that commentary closed the stack, one turn's briefings would scatter into
+    // separate cards down the conversation. Only a new prompt starts a new stack.
+    const items = groupMessages([
+      msg({ role: 'user', content: 'brief both' }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+      msg({ role: 'assistant', content: 'A is on it. Now B.' }),
+      msg({ role: 'assistant', workRef: { workId: 'w1', title: 'Brief', workType: 'doc' } }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+      msg({ role: 'user', content: 'and C' }),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'c', provider: 'codex', title: 'C', cwd: '/r', origin: 'prompted', exchanges: [] },
+      }),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual([
+      'user',
+      'agent-conversation-group',
+      'assistant',
+      'document',
+      'user',
+      'agent-conversation-group',
+    ])
+    const stacks = items.filter((item) => item.kind === 'agent-conversation-group')
+    expect(stacks.map((item) => (item.kind === 'agent-conversation-group' ? item.messages.length : 0))).toEqual([2, 1])
   })
 
   test('a turn that never answered is work all the way down', () => {
@@ -418,7 +553,7 @@ describe('a run that ended early', () => {
       msg({ role: 'system', content: '[Request interrupted by user]' }),
     ])
 
-    expect(turn.end).toMatchObject({ kind: 'stopped', cause: 'by you' })
+    expect(turn.end).toMatchObject({ kind: 'stopped', cause: '' })
     // WHY: the interrupt notice is consumed into the turn end so the renderer
     // can show one divider with Retry instead of a second, inert system row.
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
@@ -572,38 +707,6 @@ describe('shouldAnimateTurnEntry — history paints as one transcript', () => {
   })
 })
 
-describe('stabilizeTurns — settled turns keep their identity across event rebuilds', () => {
-  test('an unchanged turn returns the previous object; the changed live turn stays fresh', () => {
-    // WHY: each row component keys its derived work on the `turn` prop's
-    // identity, so a new event in the live turn must not invalidate settled rows.
-    const settled = [
-      msg({ role: 'user', content: 'first prompt' }),
-      msg({ role: 'assistant', content: 'first answer' }),
-    ]
-    const livePrompt = msg({ role: 'user', content: 'second prompt' })
-    const grouped = groupMessages([...settled, livePrompt])
-
-    const frameOne = buildTurns(grouped, { running: true })
-    const frameTwo = stabilizeTurns(buildTurns([
-      ...grouped,
-      { kind: 'assistant' as const, message: msg({ role: 'assistant', content: 'Complete run.' }) },
-    ], { running: true }), frameOne)
-
-    expect(frameTwo[0]).toBe(frameOne[0])
-    expect(frameTwo[1]).not.toBe(frameOne[1])
-    expect(frameTwo[1].body.at(-1)).toMatchObject({ kind: 'assistant' })
-  })
-
-  test('a turn whose end changed is not reused', () => {
-    const prompt = msg({ role: 'user', content: 'do the thing' })
-    const grouped = groupMessages([prompt])
-    const running = buildTurns(grouped, { running: true })
-    const stopped = stabilizeTurns(buildTurns(grouped, { running: false }), running)
-    expect(stopped[0]).not.toBe(running[0])
-    expect(stopped[0].live).toBe(false)
-  })
-})
-
 describe('document stack', () => {
   function work(id: string, title: string): Message {
     return msg({ role: 'assistant', workRef: { workId: id, title, workType: 'doc' } })
@@ -660,18 +763,22 @@ describe('document stack', () => {
     ])
   })
 
-  test('prose between two writes starts a second stack', () => {
-    // WHY: a sentence means the agent moved on; the next file is a new act of
-    // writing and gets its own card rather than growing the previous one.
+  test('prose between two writes keeps one stack, and a new prompt starts another', () => {
+    // WHY: like the sub-agent card, a turn's documents are one card. The agent's
+    // sentence between two writes renders below the stack instead of cutting the
+    // turn's documents into separate cards. A new prompt is a new request.
     const items = groupMessages([
       msg({ role: 'user', content: 'write them' }),
       work('w1', 'First'),
       msg({ role: 'assistant', content: 'Now the second one.' }),
       work('w2', 'Second'),
+      msg({ role: 'user', content: 'one more' }),
+      work('w3', 'Third'),
     ])
 
+    expect(items.map((item) => item.kind)).toEqual(['user', 'document', 'assistant', 'user', 'document'])
     const documents = items.filter((item) => item.kind === 'document')
-    expect(documents.map((item) => (item.kind === 'document' ? item.messages.length : 0))).toEqual([1, 1])
+    expect(documents.map((item) => (item.kind === 'document' ? item.messages.length : 0))).toEqual([2, 1])
   })
 
   test('a stack stays visible when its turn folds, and each stack keys apart', () => {
@@ -684,5 +791,80 @@ describe('document stack', () => {
 
     expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['document'])
     expect(itemKey(turn.visibleWhenCollapsed[0])).toBe(`ds-${turn.body[0].kind === 'document' ? turn.body[0].messages[0].id : ''}`)
+  })
+})
+
+describe('subagent card', () => {
+  function launch(description: string): Message {
+    return {
+      ...msg({ role: 'tool', toolName: 'Agent', toolInput: JSON.stringify({ description }) }),
+      toolStatus: 'completed',
+      subMessages: [],
+      subagentType: 'claude',
+    }
+  }
+
+  test('launches separated by a tool call and by prose are one card at the first launch', () => {
+    // WHY: one turn's delegation is one decision. A Read or a sentence between
+    // two launches used to cut the card in two, so the reader saw two fan-outs
+    // for a single batch of agents. The steps between still render in order.
+    const first = launch('audit the tokens')
+    const second = launch('audit the call sites')
+    const third = launch('audit the tests')
+    const items = groupMessages([
+      msg({ role: 'user', content: 'audit the drift' }),
+      first,
+      tool('Read', '{"file_path":"index.css"}'),
+      second,
+      msg({ role: 'assistant', content: 'One more agent for the tests.' }),
+      third,
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'subagent-group', 'tool-group', 'assistant'])
+    const card = items[1]
+    expect(card.kind === 'subagent-group' && card.messages).toEqual([first, second, third])
+    // The card keeps the first launch's key, so its disclosure state survives
+    // later launches joining it.
+    expect(itemKey(card)).toBe(`sg-${first.id}`)
+  })
+
+  test('launches in different turns are separate cards', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'audit the tokens' }),
+      launch('audit the tokens'),
+      msg({ role: 'assistant', content: 'Done.' }),
+      msg({ role: 'user', content: 'now the tests' }),
+      launch('audit the tests'),
+      msg({ role: 'assistant', content: 'Done.' }),
+    ])
+
+    expect(turns).toHaveLength(2)
+    for (const turn of turns) {
+      const cards = turn.body.filter((item) => item.kind === 'subagent-group')
+      expect(cards).toHaveLength(1)
+      expect(cards[0].kind === 'subagent-group' && cards[0].messages).toHaveLength(1)
+    }
+  })
+})
+
+// plans/004-shared-host-collaboration.md D2: anyone may stop a shared turn, so the
+// provider's "by user" names nobody. The divider names the person only from the
+// turn's `stopped` activity (plans/012 §5), live and after a reload alike.
+describe('who stopped a turn', () => {
+  test('a stop with its activity carries that person; a stop with none carries nobody', () => {
+    const bob = { id: { kind: 'account' as const, accountId: 'bob' }, displayName: 'Bob' }
+    const notice = msg({ role: 'system', content: '[Request interrupted by user]' })
+    const [named] = turnsFor([
+      msg({ role: 'user', content: 'rewrite the call sites' }),
+      notice,
+      msg({ role: 'system', activity: { kind: 'stopped', id: 'a1', subject: { kind: 'session', id: 's' }, at: notice.timestamp, by: { kind: 'user', user: bob } } }),
+    ])
+    expect(named.end).toMatchObject({ kind: 'stopped', cause: '', by: bob })
+
+    const [unnamed] = turnsFor([
+      msg({ role: 'user', content: 'rewrite the call sites' }),
+      msg({ role: 'system', content: '[Request interrupted by user]' }),
+    ])
+    expect(unnamed.end?.by).toBeUndefined()
   })
 })

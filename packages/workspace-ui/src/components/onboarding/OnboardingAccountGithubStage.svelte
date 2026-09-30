@@ -4,16 +4,15 @@
    * In the cloud, GitHub is connected to the account, not to one machine: the
    * cloud host clones with it and the workspace service reads pull requests
    * with it. The connection is made on the account's Connections page in a new
-   * tab, and this stage reads the answer again when the person comes back.
+   * tab, and this stage reads the account again when the person comes back.
    *
-   * Skip ends the flow in the person's workspace: without GitHub there is no
-   * repository list to choose a project from.
+   * Skip moves to the shared start choice. A new project, a host folder, and
+   * a chat do not need GitHub.
    */
   import Icon from "@iconify/svelte";
   import { cloudAccount } from "@solus/client-core/cloud-account";
   import { localApi } from "@solus/client-core/local-api";
   import { onMount } from "svelte";
-  import { connectionsStore, getWorkspaceContext } from "../../contexts";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
@@ -25,20 +24,14 @@
 
   let { onskip }: Props = $props();
 
-  const session = getWorkspaceContext();
-  const status = $derived(connectionsStore.providerStatusFor(cloud.workspaceServerId));
-  const connected = $derived(!!status?.connected);
+  const github = $derived(cloud.account?.github ?? null);
+  const connected = $derived(github !== null);
   let waiting = $state(false);
 
-  function refresh() {
-    const serverId = cloud.workspaceServerId;
-    if (serverId) void connectionsStore.refreshProviderStatus(serverId, session.ctx);
-  }
-
   onMount(() => {
-    refresh();
+    void cloud.refreshGithub();
     // The connection is made in another tab; coming back is the signal to ask again.
-    const onFocus = () => refresh();
+    const onFocus = () => void cloud.refreshGithub();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   });
@@ -67,12 +60,12 @@
     <OnboardingRow
       name="GitHub"
       detail={connected
-        ? status?.login
-          ? `Connected as @${status.login}`
+        ? github?.login
+          ? `Connected as @${github.login}`
           : "Connected"
         : waiting
-          ? "Finish in the new tab, then come back here"
-          : "Opens your account's Connections page in a new tab"}
+          ? "Finish in the new tab"
+          : "Opens Connections in a new tab"}
       tint="var(--chart-5)"
       state={connected ? "done" : "available"}
       actionLabel={waiting ? "Open again" : "Connect"}

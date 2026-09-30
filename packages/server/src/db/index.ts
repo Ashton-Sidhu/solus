@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { solusDir } from '../platform/paths'
 import { resolveEngine } from './engine'
 import { runMigrations } from './migrations'
@@ -14,6 +14,28 @@ import { runSqliteSchemaMigrations } from './sqlite-migrations'
  */
 let db: DatabaseSync | null = null
 let transactionOpen = false
+
+const STATEMENT_CACHE_SIZE = 500
+
+/**
+ * Compile each distinct statement once. Every store calls `getDb().prepare(sql)`
+ * at the point of use, and SQLite would otherwise parse and plan the same text
+ * on every call. A statement holds no state between runs here: nothing iterates
+ * one lazily or changes its options, so one compiled statement serves every
+ * caller. The oldest entry leaves first once the cache is full.
+ */
+export function cacheStatements(openedDb: DatabaseSync): void {
+  const prepare = openedDb.prepare.bind(openedDb)
+  const statements = new Map<string, StatementSync>()
+  openedDb.prepare = (sql: string): StatementSync => {
+    const cached = statements.get(sql)
+    if (cached) return cached
+    const statement = prepare(sql)
+    if (statements.size >= STATEMENT_CACHE_SIZE) statements.delete(statements.keys().next().value!)
+    statements.set(sql, statement)
+    return statement
+  }
+}
 
 export function getDb(): DatabaseSync {
   if (db) return db
@@ -30,6 +52,7 @@ export function getDb(): DatabaseSync {
     runMigrations(openedDb)
     // The generated tables live in this file only when it is the engine.
     if (resolveEngine().kind === 'sqlite') runSqliteSchemaMigrations(openedDb)
+    cacheStatements(openedDb)
   } catch (error) {
     openedDb.close()
     throw error

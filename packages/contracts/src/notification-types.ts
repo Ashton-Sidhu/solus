@@ -30,10 +30,12 @@ export type SessionNotificationEvent = (typeof SESSION_NOTIFICATION_EVENTS)[numb
  *  session. Always an in-app toast; the event switch is the only gate. */
 export const APP_NOTICE_EVENTS = [
   'review_guide_ready',
+  'review_lens_ready',
   'update_available',
   'host_discovered',
   'teammate_presence',
   'share_revoked',
+  'work_review',
 ] as const
 export type AppNoticeEvent = (typeof APP_NOTICE_EVENTS)[number]
 
@@ -60,10 +62,12 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     automation_saved: true,
     agent_conversation: true,
     review_guide_ready: true,
+    review_lens_ready: true,
     update_available: true,
     host_discovered: true,
     teammate_presence: true,
     share_revoked: true,
+    work_review: true,
   },
 }
 
@@ -85,10 +89,12 @@ export const notificationPreferencesPatchSchema = z.object({
     automation_saved: z.boolean().optional(),
     agent_conversation: z.boolean().optional(),
     review_guide_ready: z.boolean().optional(),
+    review_lens_ready: z.boolean().optional(),
     update_available: z.boolean().optional(),
     host_discovered: z.boolean().optional(),
     teammate_presence: z.boolean().optional(),
     share_revoked: z.boolean().optional(),
+    work_review: z.boolean().optional(),
   }).strict().optional(),
 }).strict()
 

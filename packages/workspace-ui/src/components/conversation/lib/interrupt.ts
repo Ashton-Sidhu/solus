@@ -55,6 +55,12 @@ export function permissionKicker(permission: PermissionRequest): InterruptKicker
   return { label: 'Permission', title, chip: 'Not in allowlist', tone: 'warning' }
 }
 
+/** The kicker's title on someone else's turn: "Alice's turn asks to run a shell command". */
+export function othersTurnTitle(title: string, othersTurn: string | null): string {
+  if (!othersTurn) return title
+  return `${othersTurn} asks to ${title.charAt(0).toLowerCase()}${title.slice(1)}`
+}
+
 /** The command, verbatim and never truncated. Where it runs is provenance, so it
  *  belongs on the header's meta line rather than in the payload bar. */
 export function permissionArgv(

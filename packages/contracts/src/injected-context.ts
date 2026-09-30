@@ -6,6 +6,18 @@ const INJECTED_CONTEXT_REGEX = /\[Referenced Plan:|\[Referenced Work:|\[Working 
 const PREPENDED_TASK_PACKET =
   /^\[Working On Task [\s\S]*?\nCall read_task with task_id "[^"]*" to refresh this packet[^\n]*\n+/
 
+/** The `[Attached file: <path>]` block the composer puts before the typed text. */
+const LEADING_ATTACHED_FILES = /^(?:\[Attached file: [^\n]+\]\n)+\n/
+
+/**
+ * The typed text without the composer's attached-file lines, for a title or a
+ * preview. The transcript keeps the lines: a reloaded bubble rebuilds its file
+ * chips from them.
+ */
+export function stripAttachedFileLines(text: string): string {
+  return text.replace(LEADING_ATTACHED_FILES, '')
+}
+
 export function stripInjectedContext(text: string): string {
   const typed = text.replace(PREPENDED_TASK_PACKET, '')
   const injectedContextIndex = typed.search(INJECTED_CONTEXT_REGEX)

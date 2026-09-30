@@ -24,6 +24,8 @@ function item(over: Partial<WorkspaceItem> = {}): WorkspaceItem {
     projectKey: '/repo',
     projectLabel: 'repo',
     status: null,
+    reviewState: null,
+    awaitingMyReview: false,
     source: { kind: 'work', work: {} as never },
     ...over,
   }

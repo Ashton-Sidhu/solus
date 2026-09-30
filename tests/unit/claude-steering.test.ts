@@ -28,13 +28,13 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   },
 }))
 
-let ClaudeBackend: typeof import('@solus/server/agents/claude/claude-backend')['ClaudeBackend']
-let ClaudeAgent: typeof import('@solus/server/agents/claude/claude-agent')['ClaudeAgent']
-let TurnInputChannel: typeof import('@solus/server/agents/claude/claude-turn-input')['TurnInputChannel']
+let ClaudeBackend: typeof import('@solus/server/execution/agents/claude/claude-backend')['ClaudeBackend']
+let ClaudeAgent: typeof import('@solus/server/execution/agents/claude/claude-agent')['ClaudeAgent']
+let TurnInputChannel: typeof import('@solus/server/execution/agents/claude/claude-turn-input')['TurnInputChannel']
 beforeAll(async () => {
-  ;({ ClaudeBackend } = await import('@solus/server/agents/claude/claude-backend'))
-  ;({ ClaudeAgent } = await import('@solus/server/agents/claude/claude-agent'))
-  ;({ TurnInputChannel } = await import('@solus/server/agents/claude/claude-turn-input'))
+  ;({ ClaudeBackend } = await import('@solus/server/execution/agents/claude/claude-backend'))
+  ;({ ClaudeAgent } = await import('@solus/server/execution/agents/claude/claude-agent'))
+  ;({ TurnInputChannel } = await import('@solus/server/execution/agents/claude/claude-turn-input'))
 })
 
 const opening = (text: string): SDKUserMessage =>
@@ -53,7 +53,7 @@ describe('ClaudeBackend steering', () => {
     backend.on('error', () => {})
     const handle = backend.startRun({
       provider: 'claude-code', prompt: 'fork', cwd: '/tmp', tools: [],
-      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
       conversation: { kind: 'fork', sourceThreadId: 'source-thread' },
     })
     expect(handle.agentSessionId).toBeNull()
@@ -144,6 +144,14 @@ describe('ClaudeAgent turn input lifetime', () => {
       'CronList',
       'Skill(schedule)',
     ]))
+  })
+
+  test('requests TodoWrite so Claude 5 models can drive the progress tracker', async () => {
+    scriptedMessages = [{ type: 'result', subtype: 'success', result: 'done' }]
+    const { events } = new ClaudeAgent().run({ prompt: 'Plan the work', cwd: '/tmp', allowedTools: ['Read'] })
+    for await (const _event of events) { /* drain the mocked run */ }
+
+    expect(capturedOptions?.allowedTools).toEqual(['TodoWrite', 'Read'])
   })
 
   test('holds the stream open past the result while a background task is in flight', async () => {

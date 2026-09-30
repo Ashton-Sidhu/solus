@@ -15,11 +15,16 @@ import type {
   TicketPatch,
 } from '@solus/contracts/task-types'
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
-import type { TaskSyncAdapter } from '@solus/server/tasks/adapters/types'
-import type { MergedPullRequestCompletion } from '@solus/server/tasks/sync-engine'
+import type { TaskSyncAdapter } from '@solus/server/data/tasks/adapters/types'
+import type { MergedPullRequestCompletion } from '@solus/server/data/tasks/sync-engine'
+
+/** Solus itself, as the doer of what it found or did on its own. */
+const SYSTEM_ATTRIBUTION = { kind: 'system' as const }
+/** The person every change in this file is made by. */
+const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-mock.module('@solus/server/tasks/adapters/registry', () => ({
+mock.module('@solus/server/data/tasks/adapters/registry', () => ({
   taskSyncAdapter: () => adapter,
   resolveTaskPublishTarget: async () => null,
   blockedAssetReferences: () => [],
@@ -155,10 +160,10 @@ function ticket(overrides: Partial<NormalizedTicket> = {}): NormalizedTicket {
 }
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
-type TaskModule = typeof import('@solus/server/tasks/task')
-type SyncStoreModule = typeof import('@solus/server/tasks/task-sync-store')
-type SyncEngineModule = typeof import('@solus/server/tasks/sync-engine')
+type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskModule = typeof import('@solus/server/data/tasks/task')
+type SyncStoreModule = typeof import('@solus/server/data/tasks/task-sync-store')
+type SyncEngineModule = typeof import('@solus/server/data/tasks/sync-engine')
 
 let dataDir: string
 let db: DbModule
@@ -173,10 +178,10 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-sync-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/tasks/task-store')
-  tasks = await import('@solus/server/tasks/task')
-  syncStore = await import('@solus/server/tasks/task-sync-store')
-  syncEngine = await import('@solus/server/tasks/sync-engine')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  tasks = await import('@solus/server/data/tasks/task')
+  syncStore = await import('@solus/server/data/tasks/task-sync-store')
+  syncEngine = await import('@solus/server/data/tasks/sync-engine')
 })
 
 beforeEach(() => {
@@ -253,7 +258,7 @@ describe('task sync engine', () => {
     // Sending it would fail the whole patch, and holding it dirty would show a
     // pending change on the task page that has nowhere to land.
     const task = await linkedTask()
-    await task.update({ priority: 'urgent' })
+    await task.update({ priority: 'urgent' }, BY)
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['priority'])
 
     await engine().syncTask('local', task.id)
@@ -269,8 +274,8 @@ describe('task sync engine', () => {
     // WHY: SQLite is the durable queue. Rapid inline edits must not become one
     // remote request per keystroke or leave a stale dirty flag after success.
     const task = await linkedTask()
-    await task.update({ title: 'Local title' })
-    await task.update({ body: 'Local body' })
+    await task.update({ title: 'Local title' }, BY)
+    await task.update({ body: 'Local body' }, BY)
 
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['title', 'body'])
 
@@ -288,7 +293,7 @@ describe('task sync engine', () => {
     // WHY: assignment is collaborative provider state. A local-first task that
     // mirrors GitHub must not show an owner that never reaches the issue.
     const task = await linkedTask()
-    await task.update({ assignee: 'octocat' })
+    await task.update({ assignee: 'octocat' }, BY)
 
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['assignee'])
 
@@ -305,7 +310,7 @@ describe('task sync engine', () => {
     // WHY: the external-favored rule must be atomic and visible. A local dirty
     // marker must not overwrite a ticket that changed after the last snapshot.
     const task = await linkedTask()
-    await task.update({ title: 'Unsynced local title' })
+    await task.update({ title: 'Unsynced local title' }, BY)
     adapter.remote = ticket({ title: 'New remote title', externalUpdatedAt: 'remote-new' })
 
     await engine().syncTask('local', task.id)
@@ -319,7 +324,7 @@ describe('task sync engine', () => {
     // WHY: advancing the link timestamp without copying priority makes the
     // stale local value look synchronized until Jira changes again.
     const task = await linkedTask()
-    await task.update({ priority: 'urgent' }, { actor: 'system' }, { markSyncDirty: false })
+    await task.update({ priority: 'urgent' }, SYSTEM_ATTRIBUTION, { markSyncDirty: false })
     adapter.remote = ticket({ priorityHint: 'low', externalUpdatedAt: 'remote-new' })
 
     await engine().syncTask('local', task.id)
@@ -331,8 +336,8 @@ describe('task sync engine', () => {
     // WHY: a provider request can take seconds. A second inline edit during
     // that request must remain durable and schedule the next coalesced push.
     const task = await linkedTask()
-    await task.update({ title: 'First edit' })
-    adapter.beforePushReturn = () => task.update({ body: 'Second edit' })
+    await task.update({ title: 'First edit' }, BY)
+    adapter.beforePushReturn = () => task.update({ body: 'Second edit' }, BY)
 
     await engine().syncTask('local', task.id)
 
@@ -347,7 +352,7 @@ describe('task sync engine', () => {
     // WHY: GitHub only has an in-progress equivalence class. Pulling that class
     // must not erase Solus's more precise review state.
     const task = await linkedTask()
-    await task.update({ status: 'in_review' })
+    await task.update({ status: 'in_review' }, BY)
     adapter.remote = ticket({ status: 'in_progress', externalUpdatedAt: 'remote-new' })
 
     await engine().syncTask('local', task.id)
@@ -365,14 +370,14 @@ describe('task sync engine', () => {
     })
     await engine().syncTask('local', task.id)
     await engine().syncTask('local', task.id)
-    await task.comment('Private note')
+    await task.comment('Private note', { by: BY })
     await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual([])
     expect((await task.details()).comments.filter((comment) => comment.externalId === 'remote-comment'))
       .toHaveLength(1)
 
-    await task.comment('Publish this note', { pushToExternal: true })
+    await task.comment('Publish this note', { by: BY, pushToExternal: true })
     await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual(['Publish this note'])
@@ -400,7 +405,7 @@ describe('task sync engine', () => {
     // WHY: Publish is the whole point of holding a comment back — and pressing
     // it on an already-posted comment must not put a second copy on the ticket.
     const task = await linkedTask()
-    await task.comment('Held back')
+    await task.comment('Held back', { by: BY })
     await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual([])
 
@@ -422,12 +427,25 @@ describe('task sync engine', () => {
     const assetId = `${'a'.repeat(64)}.png`
     adapter.publishAsset = (body) => body.replace(`asset://${assetId}`, 'https://github.test/asset')
     const task = await linkedTask()
-    await task.comment(`Look: ![shot](asset://${assetId})`, { pushToExternal: true })
+    await task.comment(`Look: ![shot](asset://${assetId})`, { by: BY, pushToExternal: true })
     await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual(['Look: ![shot](https://github.test/asset)'])
     const stored = (await task.details()).comments.at(-1)!
     expect(stored.body).toBe(`Look: ![shot](asset://${assetId})`)
+  })
+
+  test('posts a mention as the name and keeps the user id in the stored comment', async () => {
+    // WHY: the provider knows no Solus member, so a person link would post a
+    // user id to the ticket. The stored comment keeps the token: it is what
+    // readers and the notifications hub read (plan 004 item 13).
+    const mention = '[@Ann Lee](person://ref?userId=u_ann)'
+    const task = await linkedTask()
+    await task.comment(`${mention} can you check?`, { by: BY, pushToExternal: true })
+    await engine().syncTask('local', task.id)
+
+    expect(adapter.posted).toEqual(['@Ann Lee can you check?'])
+    expect((await task.details()).comments.at(-1)!.body).toBe(`${mention} can you check?`)
   })
 
   test('keeps a dirty body acknowledged after its assets are published', async () => {
@@ -437,7 +455,7 @@ describe('task sync engine', () => {
     const assetId = `${'b'.repeat(64)}.png`
     adapter.publishAsset = () => 'rewritten upstream body'
     const task = await linkedTask()
-    await task.update({ body: `Body ![shot](asset://${assetId})` })
+    await task.update({ body: `Body ![shot](asset://${assetId})` }, BY)
     await engine().syncTask('local', task.id)
 
     expect(adapter.pushes.at(-1)?.body).toBe('rewritten upstream body')
@@ -452,7 +470,7 @@ describe('task sync engine', () => {
     // duplicate a user saw whenever they ticked "also post to GitHub".
     const task = await linkedTask()
     adapter.postedExternalId = () => '2384927'
-    await task.comment('Same note', { pushToExternal: true })
+    await task.comment('Same note', { by: BY, pushToExternal: true })
     await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual(['Same note'])
 
@@ -471,7 +489,7 @@ describe('task sync engine', () => {
     // WHY: marking rows nothing will ever read would leave the page claiming a
     // push is queued when there is nowhere to push to.
     const task = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Local only' })).id)
-    await task.comment('Note')
+    await task.comment('Note', { by: BY })
     const comment = (await task.details()).comments[0]
     expect(task.publishComments([comment.id])).rejects.toThrow(/not linked/i)
   })
@@ -505,8 +523,8 @@ describe('task sync engine', () => {
     // one of them open after the branch merged. Work merged is work finished.
     const task = await linkedTask()
     const projectRoot = process.cwd()
-    await task.update({ projectKey: projectRoot, status: 'todo' })
-    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
+    await task.update({ projectKey: projectRoot, status: 'todo' }, BY)
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) }, BY)
 
     expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([task.id])
@@ -521,8 +539,8 @@ describe('task sync engine', () => {
     // the minute — the rule the sidebar used to hold on its own.
     const task = await linkedTask()
     const projectRoot = process.cwd()
-    await task.update({ projectKey: projectRoot, status: 'todo' })
-    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
+    await task.update({ projectKey: projectRoot, status: 'todo' }, BY)
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) }, BY)
     const mergedBeforeTouch = new Date(Date.now() - 60_000).toISOString()
 
     expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ mergedAt: mergedBeforeTouch })))
@@ -536,8 +554,8 @@ describe('task sync engine', () => {
     // session settles. A merely referenced session does not hold the task.
     const task = await linkedTask()
     const projectRoot = process.cwd()
-    await task.update({ projectKey: projectRoot, status: 'in_progress' })
-    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
+    await task.update({ projectKey: projectRoot, status: 'in_progress' }, BY)
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) }, BY)
     await task.linkSession('working-session', 'working', {})
     await task.linkSession('referenced-session', 'referenced', {})
 
@@ -557,11 +575,11 @@ describe('task sync engine', () => {
     const disabledRoot = join(dataDir, 'disabled-project')
     await saveProjectConfig(disabledRoot, { taskDoneOnMerge: false })
     const disabled = await taskStore.createTask('local', { title: 'Manual completion', projectKey: disabledRoot })
-    await (await tasks.Task.byId('local', disabled.id)).linkPullRequest({ number: 17, targetScope: disabledRoot, url: PR_URL(17) })
+    await (await tasks.Task.byId('local', disabled.id)).linkPullRequest({ number: 17, targetScope: disabledRoot, url: PR_URL(17) }, BY)
     const other = await taskStore.createTask('local', { title: 'Different repository', projectKey: dataDir })
-    await (await tasks.Task.byId('local', other.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: 'https://github.com/owner/other/pull/17' })
+    await (await tasks.Task.byId('local', other.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: 'https://github.com/owner/other/pull/17' }, BY)
     const enabled = await taskStore.createTask('local', { title: 'Automatic completion', projectKey: dataDir })
-    await (await tasks.Task.byId('local', enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) })
+    await (await tasks.Task.byId('local', enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) }, BY)
 
     expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: alwaysMerged }))).toEqual([enabled.id])
     expect((await tasks.Task.byId('local', disabled.id)).status).toBe('todo')
@@ -572,9 +590,9 @@ describe('task sync engine', () => {
     // WHY: a task that took two pull requests is not finished by the first one.
     const task = await linkedTask()
     const projectRoot = process.cwd()
-    await task.update({ projectKey: projectRoot, status: 'in_review' })
-    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
-    await task.linkPullRequest({ number: 18, targetScope: projectRoot, url: PR_URL(18) })
+    await task.update({ projectKey: projectRoot, status: 'in_review' }, BY)
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) }, BY)
+    await task.linkPullRequest({ number: 18, targetScope: projectRoot, url: PR_URL(18) }, BY)
 
     expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([])
@@ -651,7 +669,7 @@ describe('polling many links', () => {
     const sync = engine()
     await sync.poll()
 
-    await task.update({ title: 'Local edit' })
+    await task.update({ title: 'Local edit' }, BY)
     adapter.changed = new Set()
     await sync.poll()
 

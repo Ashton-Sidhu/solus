@@ -54,8 +54,8 @@
   aria-label="Attributes"
 >
   <header class="flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3">
-    <h2 class="m-0 text-insights-chrome font-normal text-muted-foreground uppercase">Attributes</h2>
-    <span class="text-insights-chrome tabular-nums text-muted-foreground opacity-60">{total}</span>
+    <h2 class="m-0 text-insights-summary font-medium">Attributes</h2>
+    <span class="text-insights-chrome tabular-nums text-muted-foreground">{total}</span>
     <span class="flex-1"></span>
     <CopyButton text={attributesAsText(groups)} title="Copy every attribute" iconOnly />
   </header>
@@ -64,7 +64,7 @@
     {#each visibleGroups as group (group.label)}
       <div class="flex flex-col">
         <h3
-          class="sticky top-0 z-1 m-0 bg-card px-1.5 pt-1 pb-1 text-[0.625rem] font-normal text-muted-foreground uppercase opacity-70"
+          class="sticky top-0 z-1 m-0 bg-card px-1.5 pt-1 pb-1 text-insights-chrome font-medium text-muted-foreground"
         >
           {group.label}
         </h3>
@@ -80,24 +80,27 @@
             <TooltipUI.Root>
               <TooltipUI.Trigger>
                 {#snippet child({ props })}
+                  <!-- The label is the fact in words; the column name it was
+                       read from waits in the tooltip, where the reader who is
+                       about to write a query goes looking for it. -->
                   {#if attribute.note}
                     <button
                       {...props}
                       type="button"
-                      class="min-w-0 truncate cursor-help border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-muted-foreground underline decoration-dotted decoration-muted-foreground/50 underline-offset-4 select-text focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
-                    >{attribute.key}</button
+                      class="min-w-0 truncate cursor-help border-0 bg-transparent p-0 text-left text-insights-chrome leading-[1.5] text-muted-foreground underline decoration-dotted decoration-muted-foreground/50 underline-offset-4 select-text focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
+                    >{attribute.label}</button
                     >
                   {:else}
                     <span
                       {...props}
-                      class="block min-w-0 truncate text-[0.6875rem] leading-[1.5] text-muted-foreground select-text"
-                      >{attribute.key}</span
+                      class="block min-w-0 truncate text-insights-chrome leading-[1.5] text-muted-foreground select-text"
+                      >{attribute.label}</span
                     >
                   {/if}
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content class="max-w-64 flex-col items-start font-normal">
-                <span class="max-w-full wrap-anywhere {attribute.mono ? 'font-mono' : ''}">{attribute.key}</span>
+                <span class="max-w-full font-mono wrap-anywhere">{attribute.key}</span>
                 {#if attribute.note}
                   <span class="text-muted-foreground">{attribute.note}</span>
                 {/if}
@@ -111,7 +114,7 @@
                       <button
                         {...props}
                         type="button"
-                        class="block w-full truncate cursor-pointer border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-primary underline decoration-primary/35 underline-offset-4 select-text transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
+                        class="block w-full truncate cursor-pointer border-0 bg-transparent p-0 text-left text-insights-chrome leading-[1.5] text-primary underline decoration-primary/35 underline-offset-4 select-text transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
                         title="Open task in the trailing pane"
                         onclick={() => onOpenTask(attribute.destination!.taskId)}
                       >{attribute.value}</button
@@ -119,7 +122,7 @@
                     {:else}
                       <span
                         {...props}
-                        class="block truncate text-[0.6875rem] leading-[1.5] select-text {attribute.mono
+                        class="block truncate text-insights-chrome leading-[1.5] select-text {attribute.mono
                           ? 'font-mono'
                           : 'tabular-nums'}"
                         style="color:{toneColor(attribute)}">{attribute.value}</span
@@ -149,7 +152,7 @@
   {#if hiddenCount > 0 || expanded}
     <button
       type="button"
-      class="flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 text-[0.6875rem] text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)] transition-colors select-none hover:bg-[var(--wash-1)] hover:text-foreground"
+      class="flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)] transition-colors select-none hover:bg-[var(--wash-1)] hover:text-foreground"
       aria-expanded={expanded}
       onclick={() => (expanded = !expanded)}
     >

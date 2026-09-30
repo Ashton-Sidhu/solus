@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
-import { ClaudeTurnNormalizer } from '@solus/server/agents/claude/claude-event-normalizer'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
 import {
   contextLimit,
   contextTokensUsed,

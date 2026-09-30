@@ -6,17 +6,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
+import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
+
+const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 
 // The connector reaches setup-handlers, which opens the host database module; bun has no node:sqlite.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let SeatConnector: typeof import('@solus/server/seats/seat-connect')['SeatConnector']
-let SeatManager: typeof import('@solus/server/seats/seat-manager')['SeatManager']
+let SeatConnector: typeof import('@solus/server/execution/seats/seat-connect')['SeatConnector']
+let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['SeatManager']
 type SeatManager = InstanceType<typeof SeatManager>
 
 beforeAll(async () => {
-  ;({ SeatConnector } = await import('@solus/server/seats/seat-connect'))
-  ;({ SeatManager } = await import('@solus/server/seats/seat-manager'))
+  ;({ SeatConnector } = await import('@solus/server/execution/seats/seat-connect'))
+  ;({ SeatManager } = await import('@solus/server/execution/seats/seat-manager'))
 })
 
 // Step 2 plan §3.6: the provider's own login runs on the host inside the member's
@@ -61,23 +64,23 @@ describe('SeatConnector', () => {
     const { seats, connector, spawned } = harness()
     process.env.ANTHROPIC_API_KEY = 'host-key'
     try {
-      const started = connector.start('bob', 'claude-code')
+      const started = connector.start(BOB, 'claude-code')
       await new Promise((resolve) => setTimeout(resolve, 0))
       const [spawn] = spawned
       expect(spawn?.command).toBe('claude')
       expect(spawn?.args).toEqual(['auth', 'login'])
-      expect(spawn?.env.CLAUDE_CONFIG_DIR).toBe(seats.homeFor('bob', 'claude-code'))
+      expect(spawn?.env.CLAUDE_CONFIG_DIR).toBe(seats.homeFor(BOB, 'claude-code'))
       expect(spawn?.env.PATH?.startsWith(seats.shimBinDir())).toBe(true)
       expect(spawn?.env.ANTHROPIC_API_KEY).toBeUndefined()
-      expect((await seats.status('bob', 'claude-code')).state).toBe('connecting')
+      expect((await seats.status(BOB, 'claude-code')).state).toBe('connecting')
       spawn!.child.stdout.emit('data', 'Browser didn\'t open, visit: https://claude.ai/oauth/authorize?code=true\nPaste code here if prompted > ')
       const result = await started
       expect(result).toEqual({ verificationUrl: 'https://claude.ai/oauth/authorize?code=true', requiresCodeInput: true })
-      connector.submitCode('bob', 'claude-code', ' abc-123 ')
+      connector.submitCode(BOB, 'claude-code', ' abc-123 ')
       expect(spawn!.child.stdinWrites).toEqual(['abc-123\n'])
       spawn!.child.emit('close', 0, null)
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(await seats.status('bob', 'claude-code')).toMatchObject({ state: 'connected', method: 'login' })
+      expect(await seats.status(BOB, 'claude-code')).toMatchObject({ state: 'connected', method: 'login' })
     } finally {
       delete process.env.ANTHROPIC_API_KEY
     }
@@ -85,17 +88,17 @@ describe('SeatConnector', () => {
 
   test('Codex: the device flow answers with URL and code; a clean exit with no credential is a failure, not a seat', async () => {
     const { seats, connector, spawned, events } = harness(false)
-    const started = connector.start('bob', 'codex')
+    const started = connector.start(BOB, 'codex')
     await new Promise((resolve) => setTimeout(resolve, 0))
     const [spawn] = spawned
     expect(spawn?.args).toEqual(['login', '--device-auth'])
-    expect(spawn?.env.CODEX_HOME).toBe(seats.homeFor('bob', 'codex'))
+    expect(spawn?.env.CODEX_HOME).toBe(seats.homeFor(BOB, 'codex'))
     spawn!.child.stdout.emit('data', 'Open https://auth.openai.com/codex/device\nEnter code: ABCD-EFGH\n')
     const result = await started
     expect(result).toEqual({ verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'ABCD-EFGH', requiresCodeInput: false })
     spawn!.child.emit('close', 0, null)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect((await seats.status('bob', 'codex')).state).toBe('none')
+    expect((await seats.status(BOB, 'codex')).state).toBe('none')
     // The reason rides the event to the member's client; a seat that never was has no row to keep it on.
     expect(events.at(-1)).toMatchObject({ state: 'none', error: expect.stringMatching(/no credential was saved/) })
   })
@@ -112,7 +115,7 @@ describe('SeatConnector', () => {
         return child as unknown as ChildProcess
       },
     })
-    const started = owner.start('host-owner', 'claude-code')
+    const started = owner.start(HOST_LOGIN_SEAT, 'claude-code')
     await new Promise((resolve) => setTimeout(resolve, 0))
     const [spawn] = spawned
     expect(spawn?.env.CLAUDE_CONFIG_DIR).toBeUndefined()
@@ -126,18 +129,18 @@ describe('SeatConnector', () => {
 
   test('a non-zero exit before any URL rejects the start and leaves no seat; cancel ends the process', async () => {
     const { seats, connector, spawned } = harness()
-    const started = connector.start('bob', 'codex')
+    const started = connector.start(BOB, 'codex')
     await new Promise((resolve) => setTimeout(resolve, 0))
     spawned[0]!.child.stdout.emit('data', 'network is down\n')
     spawned[0]!.child.emit('close', 1, null)
     await expect(started).rejects.toThrow(/exited with code 1/)
-    expect((await seats.status('bob', 'codex')).state).toBe('none')
+    expect((await seats.status(BOB, 'codex')).state).toBe('none')
 
-    const second = connector.start('bob', 'codex')
+    const second = connector.start(BOB, 'codex')
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(await connector.cancel('bob', 'codex')).toBe(true)
+    expect(await connector.cancel(BOB, 'codex')).toBe(true)
     expect(spawned[1]!.child.killed).toBe('SIGTERM')
     await expect(second).rejects.toThrow(/cancelled/)
-    expect(() => connector.submitCode('bob', 'codex', 'x')).toThrow(/not waiting/)
+    expect(() => connector.submitCode(BOB, 'codex', 'x')).toThrow(/not waiting/)
   })
 })

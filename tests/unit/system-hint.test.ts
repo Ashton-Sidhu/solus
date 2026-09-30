@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildSystemPrompt } from '@solus/server/agents/system-hint'
+import { buildSystemPrompt } from '@solus/server/execution/agents/system-hint'
 
 describe('system prompt composition', () => {
   test('adds no Solus-authored behavior when the user configured none', () => {

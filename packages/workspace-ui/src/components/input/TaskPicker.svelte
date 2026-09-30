@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check as CheckIcon, Plus as PlusIcon, X as XIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, X as XIcon } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { getWorkspaceContext } from "../../contexts";
   import type { TaskTarget } from "@solus/contracts/types";
@@ -38,16 +38,11 @@
   const tasks = $derived(
     workspace.tasksStore
       .tasksForCheckout(serverId, projectKey)
-      .filter(
-        (task) =>
-          task.kind === "task" &&
-          task.status !== "done" &&
-          task.status !== "dropped",
-      ),
+      .filter((task) => task.status !== "done" && task.status !== "dropped"),
   );
   const taskSections = $derived(taskPickerSections(tasks));
   const label = $derived(
-    selectedTask?.title ?? (target.kind === "none" ? "No task" : "New task"),
+    selectedTask?.title ?? "No task",
   );
 
   let open = $state(false);
@@ -171,19 +166,6 @@
     <Command.Root>
       <MenuSearch bind:value={query} placeholder="Search tasks" />
       <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
-        <Command.Item
-          value="new task create"
-          onSelect={() => select({ kind: "new" })}
-          data-menu-current={target.kind === "new"
-            ? ""
-            : undefined}
-        >
-          <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-          <span class="min-w-0 flex-1 truncate">New task</span>
-          {#if target.kind === "new"}
-            <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-          {/if}
-        </Command.Item>
         <Command.Item
           value="no task without task"
           onSelect={() => select({ kind: "none" })}

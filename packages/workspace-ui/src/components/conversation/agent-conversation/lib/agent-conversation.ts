@@ -1,72 +1,107 @@
-import type { AgentConversationRef, AgentExchange, AgentId, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SentSessionMessage, SessionMeta } from '@solus/contracts/types'
+import { exchangeRequestText, type ExchangeRequest, type SessionOutput } from '@solus/contracts/session-exchange'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { agentLabel } from '../../../../lib/agentAvailability'
-import { worktreeDisplayName } from '../../../../lib/git-context'
 import type { GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
 
-/** The card's single headline state — one treatment, one verb, no layout shift. */
-export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' | 'replied' | 'failed' | 'closed'
+/** The card's single headline state — one treatment, one verb, no layout shift.
+ *  `lost` is a message whose reply a host restart took; `limited` is a turn
+ *  parked on its provider's rate limit, which resumes on its own. */
+export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' | 'limited' | 'replied' | 'failed' | 'lost' | 'closed'
 
-const BUSY_STATUSES = new Set<SessionStatus>(['connecting', 'running', 'rate_limited'])
+const OPEN_STATUSES = new Set<AgentExchangeStatus>(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'answered'])
 
-/** A create_session card before its session exists — nothing to open, track or
+/** A start_session card before its session exists — nothing to open, track or
  *  interrupt yet. */
 export function isPendingAgent(ref: AgentConversationRef): boolean {
   return ref.agentSessionId.startsWith('pending:')
 }
 
-export function agentConversationCardState(ref: AgentConversationRef, agentStatus: SessionStatus | null, now: number): AgentConversationCardState {
+/** A message rebuilt from the transcript and not yet answered there: only the
+ *  host can say whether it is still being carried. */
+export function awaitsHostWord(ref: AgentConversationRef): boolean {
+  const last = ref.exchanges[ref.exchanges.length - 1]
+  return !!last?.restored && OPEN_STATUSES.has(last.status)
+}
+
+/**
+ * The card's state, read off its last exchange: the host's orchestrator says
+ * where every live exchange stands. `carried` is the host's word on a message
+ * rebuilt from the transcript (see `sent-messages.store`): undefined while
+ * unasked, null once the host no longer carries it — a restart ended it.
+ */
+export function agentConversationCardState(
+  ref: AgentConversationRef,
+  carried: SentSessionMessage | null | undefined,
+): AgentConversationCardState {
   if (ref.closedByAgent) return 'closed'
   const last = ref.exchanges[ref.exchanges.length - 1]
   if (!last) return 'dispatching'
-  if (last.status === 'awaiting_input') {
-    // The question may have been answered in the other agent's own tab — no
-    // agent-conversation event fires for that, so the live status feed decides:
-    // moved on and the card follows it back to replying.
-    return agentStatus && BUSY_STATUSES.has(agentStatus) ? 'replying' : 'waiting'
+  if (last.restored && OPEN_STATUSES.has(last.status)) {
+    if (carried === undefined) return 'dispatching'
+    if (carried === null) return 'lost'
+    if (carried.state === 'awaiting_input') return 'waiting'
+    if (carried.state === 'rate_limited') return 'limited'
+    return carried.state === 'queued' ? 'dispatching' : 'replying'
   }
-  // Answered by this side — the peer is unblocked and back at work, so the card
-  // reads as replying without waiting for the status feed to catch up.
-  if (last.status === 'answered') return 'replying'
-  if (last.status === 'failed') return 'failed'
-  // Startup has no status feed yet, so it stays 'dispatching' until the session
-  // attaches — never aged out into a false 'replied'.
-  if (last.status === 'dispatched' && isPendingAgent(ref)) return 'dispatching'
-  if (last.status === 'dispatched') {
-    if (agentStatus === 'awaiting_input' || agentStatus === 'awaiting_plan') return 'waiting'
-    if (agentStatus && BUSY_STATUSES.has(agentStatus)) return 'replying'
-    // A live dispatch is authoritative even if the status store still carries
-    // the previous round's quiet state. Only a dispatch rebuilt after restart
-    // can have lost its in-memory completion watcher and age out here.
-    return last.restored && now - last.dispatchedAt >= 15_000 ? 'replied' : 'dispatching'
+  switch (last.status) {
+    case 'dispatched':
+    case 'queued':
+      return 'dispatching'
+    case 'running':
+    case 'answered':
+      return 'replying'
+    case 'awaiting_input':
+      return 'waiting'
+    case 'rate_limited':
+      return 'limited'
+    case 'failed':
+      return 'failed'
+    case 'lost':
+      return 'lost'
+    case 'done':
+    case 'interrupted':
+      return 'replied'
   }
-  return 'replied'
+}
+
+/** What the card's last exchange is waiting on a person for, if it is waiting. */
+export function pendingRequest(ref: AgentConversationRef, carried: SentSessionMessage | null | undefined): ExchangeRequest | null {
+  const last = ref.exchanges[ref.exchanges.length - 1]
+  if (!last) return null
+  // The transcript never recorded a rebuilt request; the host still has it.
+  if (last.restored) return carried?.state === 'awaiting_input' ? carried.request ?? null : null
+  return last.status === 'awaiting_input' ? last.request ?? null : null
+}
+
+/** A plan the other agent's last finished turn brought back, which a person can
+ *  still approve or send back from here. The host refuses a decision on a plan
+ *  that was already acted on. */
+export function planAwaitingDecision(ref: AgentConversationRef): Extract<SessionOutput, { kind: 'plan' }> | null {
+  if (ref.closedByAgent) return null
+  const last = ref.exchanges[ref.exchanges.length - 1]
+  if (last?.status !== 'done') return null
+  return last.outputs?.findLast((output) => output.kind === 'plan') ?? null
+}
+
+/** The task the other session works on, as its latest report named it. */
+export function cardTaskId(ref: AgentConversationRef): string | undefined {
+  return ref.exchanges.findLast((exchange) => exchange.taskId)?.taskId
+}
+
+/** When a card parked on a rate limit resumes, if its provider said. The host
+ *  carries it for a message rebuilt from the transcript. */
+export function rateLimitedUntil(ref: AgentConversationRef, carried: SentSessionMessage | null | undefined): number | undefined {
+  const last = ref.exchanges[ref.exchanges.length - 1]
+  if (!last) return undefined
+  if (last.restored) return carried?.state === 'rate_limited' ? carried.resetsAt : undefined
+  return last.status === 'rate_limited' ? last.rateLimitedUntil : undefined
 }
 
 /** Live states keep their colour, clock and footer; settled states drop all three. */
 export function isLiveAgentConversationState(state: AgentConversationCardState): boolean {
-  return state === 'dispatching' || state === 'replying' || state === 'waiting'
-}
-
-/** One agent is a two-voice card; two or more share one card with a tab row. */
-export type AgentConversationLayout = 'single' | 'switchboard'
-
-export function agentConversationLayout(refs: AgentConversationRef[]): AgentConversationLayout {
-  return refs.length <= 1 ? 'single' : 'switchboard'
-}
-
-/** The at-rest row's single line: the agent's own words, quoted not summarised.
- *  A blocked agent shows its question — that block is what needs a human, so it
- *  outranks the last reply. */
-export function agentLatestLine(ref: AgentConversationRef, state: AgentConversationCardState): string {
-  const last = ref.exchanges[ref.exchanges.length - 1]
-  if (!last) return ''
-  if (state === 'waiting' && last.question) return truncate(last.question.text, 90)
-  // Just answered and nothing back yet — the last thing said in this card is
-  // what we answered with, not the prompt that opened the exchange.
-  if (last.status === 'answered' && last.answer) return truncate(last.answer, 90)
-  return truncate(last.reply || last.prompt, 90)
+  return state === 'dispatching' || state === 'replying' || state === 'waiting' || state === 'limited'
 }
 
 /** This agent has been asked something and hasn't answered yet — including a
@@ -77,7 +112,7 @@ export function isAwaitingReply(ref: AgentConversationRef): boolean {
   if (ref.closedByAgent) return false
   const last = ref.exchanges[ref.exchanges.length - 1]
   if (!last || last.reply) return false
-  return last.status === 'dispatched' || last.status === 'answered' || last.status === 'awaiting_input'
+  return OPEN_STATUSES.has(last.status)
 }
 
 /** Agents this turn has asked and not yet heard back from, in dispatch order.
@@ -128,7 +163,7 @@ export function agentMessages(ref: AgentConversationRef): AgentMessage[] {
   const messages: AgentMessage[] = []
   for (const exchange of ref.exchanges) {
     if (exchange.prompt) {
-      messages.push({ key: `${exchange.exchangeId}:you`, from: 'you', kind: 'prompt', text: exchange.prompt, pending: false })
+      messages.push({ key: `${exchange.messageId}:you`, from: 'you', kind: 'prompt', text: exchange.prompt, pending: false })
     }
     messages.push(...agentSideOf(exchange))
   }
@@ -136,22 +171,22 @@ export function agentMessages(ref: AgentConversationRef): AgentMessage[] {
 }
 
 function agentSideOf(exchange: AgentExchange): AgentMessage[] {
-  const key = `${exchange.exchangeId}:agent`
-  // Question then answer then reply are one exchange, so an answered pause keeps
+  const key = `${exchange.messageId}:agent`
+  // Request then answer then reply are one exchange, so an answered pause keeps
   // both halves rather than collapsing to whichever came last.
-  const asked = exchange.question && (exchange.status === 'awaiting_input' || exchange.answer)
-    ? [{ key, from: 'agent' as const, kind: 'question' as const, text: exchange.question.text, pending: false }]
+  const asked = exchange.request && (exchange.status === 'awaiting_input' || exchange.answers?.length)
+    ? [{ key, from: 'agent' as const, kind: 'question' as const, text: exchangeRequestText(exchange.request), pending: false }]
     : []
-  const answered = exchange.answer
-    ? [{ key: `${exchange.exchangeId}:answer`, from: 'you' as const, kind: 'prompt' as const, text: exchange.answer, pending: false }]
+  const answered = exchange.answers?.length
+    ? [{ key: `${exchange.messageId}:answer`, from: 'you' as const, kind: 'prompt' as const, text: exchange.answers.join('\n'), pending: false }]
     : []
-  const replyKey = `${exchange.exchangeId}:reply`
+  const replyKey = `${exchange.messageId}:reply`
   if (exchange.reply) {
     return [...asked, ...answered, { key: replyKey, from: 'agent', kind: 'reply', text: exchange.reply, pending: false }]
   }
   // One pending slot at most, and never beside an unanswered question — the
   // question IS what the exchange is doing right now.
-  if (exchange.status === 'dispatched' || exchange.status === 'answered' || (exchange.status === 'awaiting_input' && !asked.length)) {
+  if (exchange.status === 'dispatched' || exchange.status === 'queued' || exchange.status === 'running' || exchange.status === 'answered' || (exchange.status === 'awaiting_input' && !asked.length)) {
     return [...asked, ...answered, { key: replyKey, from: 'agent', kind: 'reply', text: '', pending: true }]
   }
   // Failed or interrupted with nothing said: the header carries the cause, so
@@ -159,121 +194,16 @@ function agentSideOf(exchange: AgentExchange): AgentMessage[] {
   return [...asked, ...answered]
 }
 
-export interface AgentMessageFold {
-  folded: AgentMessage[]
-  open: AgentMessage[]
-}
-
-/** Live shows the last two messages, at rest the final reply only — a long
- *  negotiation reads at constant height. */
-export function foldMessages(messages: AgentMessage[], atRest: boolean): AgentMessageFold {
-  const openCount = atRest ? 1 : 2
-  if (messages.length <= openCount) return { folded: [], open: messages }
-  return {
-    folded: messages.slice(0, messages.length - openCount),
-    open: messages.slice(messages.length - openCount),
-  }
-}
-
-/** The fold row's trail: the first clause of each folded reply, joined — the
- *  agent's own words, never a generated summary. */
-export function foldTrail(folded: AgentMessage[]): string {
-  return truncate(
-    folded
-      .filter((message) => message.from === 'agent' && message.text)
-      .map((message) => firstClause(message.text))
-      .join(' · '),
-    90,
-  )
-}
-
-/** The opening sentence, or the first line if it runs on — what a person would
- *  quote back when asked what the reply said. */
-function firstClause(text: string): string {
-  const line = text.replace(/\s+/g, ' ').trim()
-  const stop = line.search(/[.!?](\s|$)/)
-  return stop === -1 ? line : line.slice(0, stop + 1)
-}
-
-export function wordCount(text: string): number {
-  const trimmed = text.trim()
-  return trimmed ? trimmed.split(/\s+/).length : 0
-}
-
-export function truncate(text: string, max: number): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim()
-  return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
-}
-
 // ─── Identity ───
 
 /** Colour is identity, and only the remote side has one. Assigned by dispatch
- *  order rather than by vendor, so two Codex sessions in one card are still
+ *  order rather than by vendor, so two Codex sessions in one turn are still
  *  told apart. chart-2 (needs you) and destructive (failed) are states, never
  *  identities, so neither appears here. */
 const AGENT_ACCENTS = ['var(--chart-4)', 'var(--primary)', 'var(--chart-5)', 'var(--chart-3)']
 
 export function agentAccent(index: number): string {
   return AGENT_ACCENTS[((index % AGENT_ACCENTS.length) + AGENT_ACCENTS.length) % AGENT_ACCENTS.length]
-}
-
-/** Which way the in-flight message is travelling — the direction dot points at
- *  whoever it is going to. Everything settled hides the dot and keeps the rule. */
-export function directionFlow(state: AgentConversationCardState): 'to-you' | 'to-agent' | null {
-  if (state === 'replying') return 'to-you'
-  if (state === 'dispatching') return 'to-agent'
-  return null
-}
-
-/** The tab chip's disambiguator: the worktree, which is what actually differs
- *  between two sessions of the same agent. */
-export function worktreeLabel(ref: AgentConversationRef, meta: SessionMeta | undefined): string {
-  const segments = (meta?.cwd || ref.cwd).replace(/\/+$/, '').split('/').filter(Boolean)
-  return worktreeDisplayName(segments[segments.length - 1] ?? '')
-}
-
-// ─── Oversized replies ───
-
-/** Some replies are artefacts rather than answers. Those never inline at any
- *  height: the card states what arrived and hands off to the session or the
- *  diff panel. A conversation is not a log viewer. */
-export interface AgentReplyArtefact {
-  /** What arrived and how big it is, in the product's words. */
-  label: string
-  /** The agent's own one-line framing, where it wrote one before the payload.
-   *  Empty when the reply is nothing but the artefact. */
-  framing: string
-}
-
-const ARTEFACT_CHARS = 6000
-const DIFF_LINE_RE = /^(?:diff --git |@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|--- \S)/
-
-export function replyArtefact(text: string): AgentReplyArtefact | null {
-  const lines = text.split('\n')
-  const payloadStart = lines.findIndex((line) => DIFF_LINE_RE.test(line))
-  if (payloadStart !== -1) {
-    const files = lines.filter((line) => line.startsWith('diff --git ')).length
-      || lines.filter((line) => line.startsWith('--- ')).length
-      || 1
-    const changed = lines.filter((line) => /^[+-][^+-]/.test(line)).length
-    return {
-      label: `Patch · ${plural(files, 'file')}, ${plural(changed, 'line')}`,
-      framing: framingBefore(lines, payloadStart),
-    }
-  }
-  if (text.length > ARTEFACT_CHARS) {
-    return { label: `Output · ${plural(lines.length, 'line')}`, framing: firstClause(text) }
-  }
-  return null
-}
-
-function framingBefore(lines: string[], payloadStart: number): string {
-  const lead = lines.slice(0, payloadStart).join(' ').trim()
-  return lead ? firstClause(lead) : ''
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 // ─── Numbers, provenance, navigation ───
@@ -291,7 +221,7 @@ export function agentConversationElapsedMs(ref: AgentConversationRef, now: numbe
   const first = ref.exchanges[0]
   if (!first) return 0
   const last = ref.exchanges[ref.exchanges.length - 1]
-  const end = last.settledAt ?? (last.status === 'dispatched' || last.status === 'awaiting_input' || last.status === 'answered' ? now : last.dispatchedAt)
+  const end = last.settledAt ?? (OPEN_STATUSES.has(last.status) ? now : last.dispatchedAt)
   return Math.max(0, end - first.dispatchedAt)
 }
 
@@ -307,9 +237,7 @@ export function hostLabelFor(serverId: string | undefined): string | null {
 }
 
 /** `host · model effort` — provenance on demand only: this lives in the ⋯ menu,
- *  never in the resting card. The worktree stays out of it: it is the tab row's
- *  disambiguator (see `worktreeLabel`), so repeating the path here only spends
- *  three wrapped lines restating what the card already shows. */
+ *  never in the resting card. */
 export function provenanceLine(ref: AgentConversationRef, meta: SessionMeta | undefined, hostLabel: string | null): string {
   const model = meta?.model ?? ref.model
   const effort = meta?.reasoningEffort ?? ref.reasoningEffort
@@ -324,15 +252,14 @@ export interface AgentSessionOpener {
   openInSplit: (tabId: string) => void
 }
 
-/** Resume the other agent in a tab. Card and switchboard open it the same way:
- *  the index knows where it really lives, the ref's cwd is the fallback so a
+/** Resume the other agent in a tab. The index knows where it really lives, the ref's cwd is the fallback so a
  *  cross-project session still lands in the right directory.
  *
  *  `split` opens it beside this conversation and leaves focus where it is, so a
  *  live exchange stays watchable while the other side is read — which is why it
  *  resumes in the background first. */
 export async function openAgentSession(
-  ref: AgentConversationRef,
+  ref: Pick<AgentConversationRef, 'agentSessionId' | 'cwd'>,
   provider: AgentId,
   sourceServerId: string | undefined,
   opener: AgentSessionOpener,

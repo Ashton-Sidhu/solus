@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { installTestWorkspaceTools } from './helpers/workspace-tools'
+import { beforeEach, afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,19 +10,20 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 /**
  * One name per question.
  *
- * `list_works`/`search_works` and `list_sessions`/`search_sessions` were two
- * tools each for one question — find the thing — and the model picks a tool by
- * name before it can read either description. `link_task_session` was `link_task`
- * with one more kind. These tests pin that the merged tools still answer both
+ * `list_works`/`search_works` were two tools for one question — find the
+ * thing — and the model picks a tool by name before it can read either
+ * description. `link_task_session` was `link_task`
+ * with one more kind, and linking a pull request to a session is `link` with no
+ * task. These tests pin that the merged tools still answer both
  * ways, because a merge that quietly drops the listing half is the failure this
  * change could actually cause.
  */
 
-let workTools: typeof import('@solus/server/folio/work-tools')
-let taskTools: typeof import('@solus/server/tasks/task-tools')
-let works: typeof import('@solus/server/folio/works')
-let createTask: typeof import('@solus/server/tasks/task-store')['createTask']
-let TaskModule: typeof import('@solus/server/tasks/task')
+let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
+let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
+let works: typeof import('@solus/server/data/works/works')
+let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
+let TaskModule: typeof import('@solus/server/data/tasks/task')
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -36,14 +38,16 @@ function toolContext(sessionId: string) {
   } as never
 }
 
+beforeEach(async () => { await installTestWorkspaceTools() })
+
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-find-tools-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  workTools = await import('@solus/server/folio/work-tools')
-  taskTools = await import('@solus/server/tasks/task-tools')
-  works = await import('@solus/server/folio/works')
-  ;({ createTask } = await import('@solus/server/tasks/task-store'))
-  TaskModule = await import('@solus/server/tasks/task')
+  workTools = await import('@solus/server/execution/agents/tools/work-tools')
+  taskTools = await import('@solus/server/execution/agents/tools/task-tools')
+  works = await import('@solus/server/data/works/works')
+  ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
+  TaskModule = await import('@solus/server/data/tasks/task')
   ;({ closeDb } = await import('@solus/server/db'))
 })
 
@@ -87,50 +91,27 @@ describe('find_works answers with or without a query', () => {
   })
 })
 
-describe('find_sessions answers with or without a query', () => {
-  test('no query asks the controller for the roster; a query never does', async () => {
-    // WHY: the two halves take disjoint parameters and only one of them needs a
-    // wired controller. Dispatching on the wrong one turns a history search
-    // into "no session controller is wired" — or, worse, silently lists.
-    const sessionTools = await import('@solus/server/sessions/session-tools')
-    let rosterRequests = 0
-    sessionTools.setSessionController({
-      listSessions: async () => {
-        rosterRequests++
-        return [{
-          sessionId: 'peer-1',
-          provider: 'claude-code',
-          cwd: '/p',
-          status: 'running',
-          firstMessage: 'Draining the outbox',
-          lastTimestamp: '2026-09-01T00:00:00Z',
-        }]
-      },
-      liveStatus: () => 'running',
-    } as never)
-
-    const listed = await sessionTools.executeSessionTool('find_sessions', {}, {
-      ctx: { agentProvider: 'claude-code', cwd: '/p', sessionId: 'me' },
-    })
-    expect(listed.ok).toBe(true)
-    expect(listed.text).toContain('peer-1')
-    expect(rosterRequests).toBe(1)
-
-    const searched = await sessionTools.executeSessionTool('find_sessions', { query: 'outbox' }, {
-      ctx: { agentProvider: 'claude-code', cwd: '/p', sessionId: 'me' },
-    })
+describe('search_sessions only searches', () => {
+  test('a query goes to the index; without one the call is refused, never turned into a listing', async () => {
+    // WHY: listing the sessions at work moved to the task view. A search tool
+    // that quietly lists when its query is empty hands the model a roster it
+    // did not ask for and cannot tell from a result.
+    const sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
+    const deps = { ctx: { agentProvider: 'claude-code' as const, cwd: '/p', sessionId: 'me' } }
+    const searched = await sessionTools.executeSessionTool('search_sessions', { query: 'outbox' }, deps)
     expect(searched.ok).toBe(true)
-    // The index is empty in this data dir; what matters is that searching went
-    // to the index rather than to the roster.
-    expect(rosterRequests).toBe(1)
+    // The index is empty in this data dir; the search ran against it.
+    expect(searched.text).toContain('No matching sessions.')
+    expect(await sessionTools.executeSessionTool('search_sessions', { query: '  ' }, deps)).toEqual({ ok: false, text: 'search_sessions requires a non-empty query.' })
+    expect(await sessionTools.executeSessionTool('search_sessions', {}, deps)).toEqual({ ok: false, text: 'search_sessions requires a non-empty query.' })
   })
 })
 
-describe('link_task carries the session kind', () => {
+describe('link carries the session kind', () => {
   test('kind=session with no target links the calling session', async () => {
     const task = await createTask('local', { title: 'Bind me', projectKey: '/p', body: '' })
 
-    const linked = await taskTools.linkTaskAgentTool.execute(
+    const linked = await taskTools.linkAgentTool.execute(
       { task_id: task.id, kind: 'session' },
       toolContext('calling-session-id'),
     )
@@ -145,7 +126,7 @@ describe('link_task carries the session kind', () => {
     // link_task_session call shape alive as a second way to say the same thing.
     const task = await createTask('local', { title: 'One way to name it', projectKey: '/p', body: '' })
 
-    const linked = await taskTools.linkTaskAgentTool.execute(
+    const linked = await taskTools.linkAgentTool.execute(
       { task_id: task.id, kind: 'session', session_id: 'not-the-target' },
       toolContext('calling-session-id'),
     )
@@ -160,7 +141,7 @@ describe('link_task carries the session kind', () => {
     // optional for a work or a PR, where there is nothing to fall back to.
     const task = await createTask('local', { title: 'Needs a target', projectKey: '/p', body: '' })
 
-    const linked = await taskTools.linkTaskAgentTool.execute(
+    const linked = await taskTools.linkAgentTool.execute(
       { task_id: task.id, kind: 'work' },
       toolContext('calling-session-id'),
     )
@@ -168,5 +149,61 @@ describe('link_task carries the session kind', () => {
     expect(linked.ok).toBe(false)
     expect(linked.text).toContain('target_id')
     expect((await TaskModule.Task.byId('local', task.id)).links ?? []).toHaveLength(0)
+  })
+})
+
+describe('link with no task', () => {
+  test('links a pull request to the calling session', async () => {
+    // WHY: most sessions have no task. One tool links a pull request for all
+    // of them; a second tool for the session case would be a second name for
+    // the same question.
+    const sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
+
+    const linked = await taskTools.linkAgentTool.execute(
+      { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/7' },
+      toolContext('calling-session-id'),
+    )
+
+    expect(linked.ok).toBe(true)
+    const links = Object.values(await sessionPrs.readSessionPullRequests('local')).flat()
+    expect(links).toEqual([expect.objectContaining({ number: 7, repository: 'github.com/acme/solus', source: 'agent' })])
+  })
+
+  test('every other kind needs a task', async () => {
+    const linked = await taskTools.linkAgentTool.execute(
+      { kind: 'work', target_id: 'work-1' },
+      toolContext('calling-session-id'),
+    )
+
+    expect(linked).toEqual({ ok: false, text: 'link requires a task_id for kind=work.' })
+  })
+})
+
+describe('list_session_pull_requests', () => {
+  // WHY: gh opens a pull request without telling Solus. The agent checks this
+  // list before it finishes, so it must show exactly this session's links —
+  // another session's pull request here would hide the one that is missing.
+  test('lists the calling session\'s links and no other session\'s', async () => {
+    await taskTools.linkAgentTool.execute(
+      { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/7' },
+      toolContext('calling-session-id'),
+    )
+    await taskTools.linkAgentTool.execute(
+      { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/8' },
+      toolContext('other-session-id'),
+    )
+
+    const listed = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('calling-session-id'))
+
+    expect(listed.ok).toBe(true)
+    expect(listed.text).toContain('#7 github.com/acme/solus [not yet synced]')
+    expect(listed.text).toContain('(linked by agent)')
+    expect(listed.text).not.toContain('#8')
+  })
+
+  test('says so when the session has no links', async () => {
+    const listed = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinked-session-id'))
+
+    expect(listed).toEqual({ ok: true, text: 'No pull requests are linked to this session.' })
   })
 })

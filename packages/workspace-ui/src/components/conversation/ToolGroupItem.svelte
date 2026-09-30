@@ -4,6 +4,7 @@
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import ActivityRow from "./ActivityRow.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
+  import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
@@ -21,13 +22,18 @@
     type BackgroundWait,
     type ParsedToolInput,
   } from "./lib/activity-summary";
-  import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
   import { clickEndsTextSelection } from "./lib/text-selection";
+  import { latestThoughtPreview } from "../../lib/thought-preview";
+  import { conversationIsVisible } from "./lib/conversation-visibility";
+  import { liveActivityClock } from "../../lib/shared-clock";
   import type { Message, TurnStartKind } from "@solus/contracts/types";
 
   interface Props {
     history?: ToolHistoryStore;
     tools: Message[];
+    /** The calls plus the messages that only carry thoughts into this row, in
+     *  order. Defaults to the calls alone. */
+    steps?: Message[];
     skipMotion?: boolean;
     /** This group is the tail of a turn the session is still working on, so the
      *  run is happening right here — even between two tool calls. */
@@ -35,22 +41,19 @@
     /** Session lifecycle label shown between tool calls while this row owns the spinner. */
     activityLabel?: string;
     turnStart?: TurnStartKind | null;
-    /** Agents this turn has asked and not yet heard back from. A parent that is
-     *  blocked on another agent is not planning anything — it is waiting, and
-     *  the row should say whose reply it is waiting for. */
-    waitingOn?: string[];
-    /** A command this turn launched into the background and is still running.
-     *  Its tool call answered at launch, so nothing else in the row reports it. */
+    /** Another agent, sub-agent or command this turn launched and is still
+     *  waiting on. Its tool call answered at launch, so nothing else in the row
+     *  reports it. */
     backgroundWait?: BackgroundWait | null;
   }
   let {
     history,
     tools,
+    steps,
     skipMotion = false,
     working = false,
     activityLabel,
     turnStart = null,
-    waitingOn = [],
     backgroundWait = null,
   }: Props = $props();
 
@@ -67,25 +70,40 @@
     return last.toolStatus === "error" ? last : undefined;
   });
 
-  const parseCache = new WeakMap<Message, ParsedToolInput | null>();
+  const parseCache = new WeakMap<Message, { input: string; parsed: ParsedToolInput | null }>();
 
   // A running tool's toolInput is empty/absent — the full input lands only at
   // completion. Parsing (and caching) it while running would pin a stale null, so
-  // skip until it's done, then parse each tool at most once, cached on the message.
-  const parsedInputs = $derived(
-    tools.map((tool) => {
-      if (!tool.toolInput || tool.toolStatus === "running") return null;
-      const cached = parseCache.get(tool);
-      if (cached !== undefined) return cached;
-      const parsed = parseToolInput(tool.toolInput);
-      parseCache.set(tool, parsed);
-      return parsed;
-    }),
-  );
+  // skip until it's done, then parse each input once, cached on the message. A
+  // history row holds a summary until it is opened; the full input that
+  // replaces it is parsed again.
+  function parsedInput(tool: Message): ParsedToolInput | null {
+    if (!tool.toolInput || tool.toolStatus === "running") return null;
+    const cached = parseCache.get(tool);
+    if (cached?.input === tool.toolInput) return cached.parsed;
+    const parsed = parseToolInput(tool.toolInput);
+    parseCache.set(tool, { input: tool.toolInput, parsed });
+    return parsed;
+  }
+
+  const rowSteps = $derived(steps ?? tools);
 
   const kinds = $derived(activityKinds(tools));
   const summary = $derived(activitySummary(tools));
-  const durationMs = $derived(activityDurationMs(tools));
+
+  // A spinner beside a still clock reads as a hang, so the rail ticks for as
+  // long as the row shows one — and only while its tab is the active one.
+  const isLive = $derived(!!runningTool || (working && !failedTool));
+  let now = $state(Date.now());
+  const onScreen = conversationIsVisible();
+  $effect(() => {
+    if (!isLive || !onScreen()) return;
+    return liveActivityClock.subscribe((value) => {
+      now = value;
+    });
+  });
+
+  const durationMs = $derived(activityDurationMs(tools, isLive ? now : null));
   const duration = $derived(durationMs === null ? "" : formatActivityDuration(durationMs));
 
   // While running, the sentence names what is happening now, not the whole group.
@@ -96,11 +114,11 @@
   // group names none, because the summary already counts them.
   const namedTool = $derived(runningTool ?? failedTool);
   // The background wait is the row's last answer, not its first: a running
-  // foreground tool or an awaited sub-agent is the more immediate thing to say.
-  // So a turn that keeps working never names it — it speaks in the gaps, which
-  // is exactly where the row used to claim it was planning.
+  // foreground tool is the more immediate thing to say. So a turn that keeps
+  // working never names it — it speaks in the gaps, which is exactly where the
+  // row used to claim it was planning.
   const showsBackgroundWait = $derived(
-    working && !namedTool && waitingOn.length === 0 && backgroundWait !== null,
+    working && !namedTool && backgroundWait !== null,
   );
   const namedTarget = $derived.by(() => {
     if (showsBackgroundWait) return backgroundWait?.target ?? "";
@@ -109,6 +127,11 @@
     // The participle already carries the verb, so drop the description's own.
     return raw.replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "").trim();
   });
+  // A settled row that names no tool shows what the agent last thought
+  // beside its "Thought for" label. No readable thought keeps the plain label.
+  const thought = $derived(
+    namedTarget || working || failedTool ? "" : latestThoughtPreview(rowSteps),
+  );
   const doneCount = $derived(tools.filter((t) => t.toolStatus !== "running").length);
 
   const failureLine = $derived.by(() => {
@@ -138,6 +161,7 @@
 </script>
 
 {#snippet targetText()}{namedTarget}{/snippet}
+{#snippet thoughtText()}{thought}{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -154,8 +178,9 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    target={namedTarget ? targetText : undefined}
-    proseTarget={showsBackgroundWait}
+    target={namedTarget ? targetText : thought ? thoughtText : undefined}
+    proseTarget={showsBackgroundWait || !!thought}
+    foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
     testid={runningTool
       ? "activity-running"
@@ -181,8 +206,7 @@
         <span class="activity-shimmer">{runningLabel}</span>
       {:else if working && !failedTool}
         <span class="activity-shimmer">
-          {waitingOnLabel(waitingOn) ??
-            backgroundWait?.label ??
+          {backgroundWait?.label ??
             liveActivityLabel(activityLabel, 0, true, turnStart)}
         </span>
       {:else if failedTool}
@@ -210,40 +234,46 @@
       {#if failureLine}
         <div class="tool-stderr font-mono">{failureLine}</div>
       {/if}
-      {#each tools as tool, i (tool.id)}
-        {@const parsed = parsedInputs[i]}
-        {@const endMs = toolEndMs(tool)}
-        {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
-        {@const failed = tool.toolStatus === "error"}
-        <div class:tool-step--expanded={view.selectedToolId === tool.id} class="tool-step">
-          <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
-            {#if failed}
-              <WarningCircleIcon size={13} />
-            {:else}
-              <Glyph size={11} />
-            {/if}
-          </span>
-          <button
-            type="button"
-            class:is-expanded={view.selectedToolId === tool.id}
-            class="tool-step-text text-tool-step font-mono"
-            aria-expanded={view.selectedToolId === tool.id}
-            onclick={(e) => {
-              // An expanded row wraps its full command or path, which is the
-              // text worth copying. Releasing that drag must not collapse it.
-              if (clickEndsTextSelection(e.currentTarget)) return;
-              toggleToolExpanded(tool.id);
-            }}
-          >
-            {describe(tool, parsed)}
-          </button>
-          <span class="flex-1"></span>
-          {#if endMs !== undefined}
-            <span class="tool-step-duration text-tool-step font-mono shrink-0">
-              {formatActivityDuration(endMs - tool.timestamp)}
+      {#each rowSteps as step (step.id)}
+        {#if step.thoughts?.length}
+          <ThoughtStep messageId={step.id} thoughts={step.thoughts} />
+        {/if}
+        <!-- A step that is not a call only carried its thoughts into the row. -->
+        {#if step.role === "tool"}
+          {@const parsed = parsedInput(step)}
+          {@const endMs = toolEndMs(step)}
+          {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
+          {@const failed = step.toolStatus === "error"}
+          <div class:tool-step--expanded={view.selectedToolId === step.id} class="tool-step">
+            <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
+              {#if failed}
+                <WarningCircleIcon size={13} />
+              {:else}
+                <Glyph size={11} />
+              {/if}
             </span>
-          {/if}
-        </div>
+            <button
+              type="button"
+              class:is-expanded={view.selectedToolId === step.id}
+              class="tool-step-text text-tool-step font-mono"
+              aria-expanded={view.selectedToolId === step.id}
+              onclick={(e) => {
+                // An expanded row wraps its full command or path, which is the
+                // text worth copying. Releasing that drag must not collapse it.
+                if (clickEndsTextSelection(e.currentTarget)) return;
+                toggleToolExpanded(step.id);
+              }}
+            >
+              {describe(step, parsed)}
+            </button>
+            <span class="flex-1"></span>
+            {#if endMs !== undefined}
+              <span class="tool-step-duration text-tool-step font-mono shrink-0">
+                {formatActivityDuration(endMs - step.timestamp)}
+              </span>
+            {/if}
+          </div>
+        {/if}
       {/each}
     {/snippet}
   </ActivityRow>

@@ -3,7 +3,7 @@ import { MODEL_PROFILES } from '@solus/contracts/types'
 import {
   CODEX_TOKEN_PRICING,
   codexTokenCostUsd,
-} from '@solus/server/observability/model-pricing'
+} from '@solus/server/execution/observability/model-pricing'
 
 describe('Codex token pricing', () => {
   test('has a static price entry for every supported Codex model', () => {

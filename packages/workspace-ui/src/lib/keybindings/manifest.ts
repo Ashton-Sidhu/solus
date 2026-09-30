@@ -5,12 +5,13 @@ export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
   'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Open project',             group: 'General' },
-  'global.new-task':          { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
+  // A session has no task unless it joins one. `global.new-session` starts a
+  // session on its own; `global.new-task` opens the task composer, and the new
+  // task then opens as the split view (docs/plans/task-conversation.md).
+  'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
   'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
-  'global.new-session':       { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New session in task',       group: 'Tasks' },
-  // Files a task; `global.new-task` starts a session on one. Every ⌥⇧ letter is
-  // already spoken for, so the web default pairs ⌘⌥ with the same key.
-  'global.create-task':       { combo: { mod: true, shift: true, code: 'KeyT' }, web: { mod: true, alt: true, code: 'KeyT' }, scope: 'global', label: 'Create task',        group: 'Tasks' },
+  'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in task',      group: 'Tasks' },
+  'global.new-task':          { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
@@ -22,6 +23,9 @@ export const KEYBINDINGS = {
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   // The letter layer is taken; period is the one punctuation key still free on both desktop and web.
   'global.share':             { combo: { alt: true, shift: true, code: 'Period' },        scope: 'global',             label: 'Share session',            group: 'General' },
+  // The window's organization (organization-scope §2). On web ⌥⇧O already opens
+  // a project, so the web default takes the one free letter beside it.
+  'global.switch-organization': { combo: { alt: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyE' }, scope: 'global', label: 'Switch organization…', group: 'General' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   // Insights owns ⌥⇧I. Design mode remains available from the action menu and
   // Settings → Keybindings, but ships unassigned rather than shadowing Insights.
@@ -129,6 +133,7 @@ export const KEYBINDINGS = {
   'files-pane.next-file':         { combo: { alt: true, code: 'KeyJ' },                    scope: 'files-pane',         label: 'Next file',                group: 'Navigate' },
   'files-pane.prev-file':         { combo: { alt: true, code: 'KeyK' },                    scope: 'files-pane',         label: 'Previous file',            group: 'Navigate' },
   'files-pane.toggle-markdown':   { combo: { alt: true, code: 'KeyR' },                    scope: 'files-pane',         label: 'Toggle Markdown view',     group: 'Editor' },
+  'files-pane.find-in-pdf':       { combo: { mod: true, code: 'KeyF' }, aliases: [{ alt: true, code: 'KeyF' }], scope: 'files-pane', label: 'Find in PDF', group: 'Navigate' },
 
   // ── Workspace (plans + docs + diagrams ledger) ─────────────────────────────
   'workspace.close':              { combo: { code: 'Escape' },                             scope: 'workspace',          label: 'Close',                    group: 'Workspace' },
@@ -270,6 +275,9 @@ export const KEYBINDINGS = {
   'snapshot-lightbox.close':      { combo: { code: 'Escape' },                             scope: 'snapshot-lightbox',  label: 'Close capture',            group: 'General' },
   'snapshot-lightbox.previous':   { combo: { code: 'ArrowLeft' },                          scope: 'snapshot-lightbox',  label: 'Previous capture',         group: 'General' },
   'snapshot-lightbox.next':       { combo: { code: 'ArrowRight' },                         scope: 'snapshot-lightbox',  label: 'Next capture',             group: 'General' },
+
+  // ── Browser pane (while it has focus) ─────────────────────────────────────
+  'browser-pane.toggle-recording': { combo: { alt: true, code: 'KeyR' },                   scope: 'browser-pane',       label: 'Start or stop recording',  group: 'Browser' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },

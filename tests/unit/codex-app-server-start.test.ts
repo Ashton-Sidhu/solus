@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test'
-import { CodexAppServerClient } from '@solus/server/agents/codex/codex-agent'
+import { describe, expect, spyOn, test } from 'bun:test'
+import * as cliEnv from '@solus/server/cli-env'
+import { CodexAppServerClient } from '@solus/server/execution/agents/codex/codex-agent'
 
 /**
  * `start()` assigns `this.proc` the instant it spawns, long before the
@@ -83,5 +84,26 @@ describe('CodexAppServerClient.ensureStarted', () => {
     // landed while only 'spawned' had happened.
     expect(order.indexOf('second-resolved')).toBeGreaterThan(order.indexOf('initialized'))
     expect(order.indexOf('first-resolved')).toBeGreaterThan(order.indexOf('initialized'))
+  })
+})
+
+/**
+ * A host without Codex spawned `codex` anyway. The spawn failed with ENOENT,
+ * but the dead process stayed on the client, so it counted as started: the
+ * session-index poll then failed every few minutes with "Codex app-server is
+ * not running", and an install after boot was never picked up.
+ */
+describe('CodexAppServerClient without codex installed', () => {
+  test('refuses to start, stays unstarted, and checks again on the next request', async () => {
+    const pathLookup = spyOn(cliEnv, 'warmCliPath').mockResolvedValue('/nonexistent-solus-test-dir')
+    try {
+      const client = new CodexAppServerClient()
+      await expect(client.ensureStarted()).rejects.toThrow('Codex was not found on this host')
+      expect(client.hasStarted).toBe(false)
+      await expect(client.ensureStarted()).rejects.toThrow('Codex was not found on this host')
+      expect(pathLookup).toHaveBeenCalledTimes(2)
+    } finally {
+      pathLookup.mockRestore()
+    }
   })
 })

@@ -11,7 +11,8 @@
     "paths": {
       "@solus/contracts/*": ["../../packages/contracts/src/*"],
       "@solus/client-core/*": ["../../packages/client-core/src/*"],
-      "@solus/workspace-ui/*": ["../../packages/workspace-ui/src/*"]
+      "@solus/workspace-ui/*": ["../../packages/workspace-ui/src/*"],
+      "@solus/document-model/*": ["../../packages/document-model/src/*"]
     }
   },
   "include": ["src/**/*"],

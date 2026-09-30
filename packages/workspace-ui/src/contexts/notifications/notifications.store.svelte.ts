@@ -16,8 +16,11 @@ import {
   type NotificationSoundLog,
   type NotificationSoundTrigger,
 } from '@solus/contracts/notification-types'
-import type { AttentionEntry } from '@solus/contracts/attention-types'
+import type { AttentionEntry, AttentionKind } from '@solus/contracts/attention-types'
+import type { Component } from 'svelte'
 import notificationSrc from '../../../../../resources/notification.mp3'
+import SessionStatusGlyph from '../../components/session/SessionStatusGlyph.svelte'
+import { attentionStateForKind } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { createActivityBadge } from './activity-badge'
@@ -188,6 +191,7 @@ class NotificationsStore {
           id: `activity:${serverId}:${candidate.entry.sessionId}`,
           message: payload.title,
           description: payload.body,
+          icon: attentionToastIcon(candidate.entry.kind),
           action: { label: 'Open session', onAction: () => {
             deps.openRoute(notificationSessionRoute(candidate.entry.sessionId, serverId))
             requestInputFocus()
@@ -231,6 +235,13 @@ class NotificationsStore {
     }
     if (displayed) await markSeenByServiceWorkers(request.dedupKey)
   }
+}
+
+/** The sidebar's status glyph for an attention kind, bound as a prop-less
+ *  component because Sonner mounts a toast icon without props. */
+function attentionToastIcon(kind: AttentionKind): Component {
+  const attention = attentionStateForKind(kind)
+  return (internals) => SessionStatusGlyph(internals, { attention })
 }
 
 async function markSeenByServiceWorkers(dedupKey: string): Promise<void> {

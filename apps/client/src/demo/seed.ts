@@ -11,7 +11,7 @@ const SETTINGS_KEY = 'solus-settings'
  *  starts closed and is opened on purpose. */
 const DEMO_SETTINGS = {
   themeMode: 'light',
-  projectPanelCollapsed: { environment: false, git: false, goal: false, task: false, automations: true },
+  projectPanelCollapsed: { environment: false, git: false, goal: false, linked: false, watches: false },
 }
 
 export function seedDemoStorage(fixtures: DemoFixtures): void {

@@ -5,7 +5,7 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
   process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/cert.pem'
 }
 
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { warmCliPath } from '@solus/server/cli-env'
@@ -16,27 +16,29 @@ import { comboToAccelerator } from '@solus/workspace-ui/lib/keybindings/match'
 import { registerUpdateIpc } from '@solus/desktop-main/updates/ipc'
 import type { BootCore } from '@solus/server/boot-core'
 import { clientNotificationRequestSchema, showDesktopNotification } from '@solus/desktop-main/desktop-notifications'
-import type { WindowDeps } from '@solus/server/server/handlers/window-handlers'
+import type { WindowDeps } from '@solus/server/transport/handlers/window-handlers'
 import type { FileDeps } from '@solus/desktop-main/server/handlers/file-handlers'
 import { mintPairUrl } from '@solus/desktop-main/pair-url'
-import { destroyAllFinders } from '@solus/server/server/file-finder'
+import { destroyAllFinders } from '@solus/server/files/file-finder'
 import { registerBrowserHeadlessHost } from './browser/headless-window'
+import { registerBrowserRecordingEncoderHost } from './browser/recording-encoder-window'
 import { registerBrowserWebviewHost } from './browser/webview-driver'
 import { preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
-import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/server/auth'
+import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/admission/auth'
 import { closeDb } from '@solus/server/db'
 import { closeDatabase } from '@solus/server/db/database'
-import { startSessionIndexer, stopSessionIndexer } from '@solus/server/db/session-indexer'
 import { createShutdownCoordinator } from '@solus/desktop-main/shutdown-coordinator'
 import { watchLauncher } from '@solus/desktop-main/launcher-watch'
-import { handleArtifactRequest } from '@solus/desktop-main/artifact-protocol'
-import { LOCAL_DEVICE_LABEL } from '@solus/server/server/server'
+import { handleLocalVideoRequest } from '@solus/desktop-main/local-video-protocol'
+import { LOCAL_DEVICE_LABEL } from '@solus/server/transport/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachment-read'
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
+import { acquireHostAccessToken } from '@solus/desktop-main/account/uplink-client'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
+import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
 
@@ -45,6 +47,7 @@ import { z } from 'zod'
 markStartup('main.evaluated')
 
 const isHeadless = process.argv.includes('--headless')
+const skipOnboarding = process.argv.includes('--skip-onboarding') || process.env.SOLUS_SKIP_ONBOARDING === '1'
 const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
@@ -60,15 +63,14 @@ configurePlatformServices({
     version: app.getVersion(),
   },
   openExternal: (url) => shell.openExternal(url),
+  trashItem: (path) => shell.trashItem(path),
   safeStorage,
 })
 
-// Privileged custom scheme for rendering local image artifacts (from Codex's
-// ImageGeneration tool) inside sandboxed iframes / <img>. Must be registered
-// before app ready. `supportFetchAPI` lets ArtifactView fetch SVG bytes to feed
-// into srcdoc.
+// Privileged custom scheme the renderer fetches a video on this computer
+// through, to upload it to a remote host. Must be registered before app ready.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'solus-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'solus-local-video', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ])
 
 let forceQuit = false
@@ -82,7 +84,7 @@ let powerSaveBlockerId: number | null = null
 // machine warm at idle.
 function syncPowerSaveBlocker(): void {
   if (isHeadless || isTestMode || !core) return
-  const shouldBlock = core.controlPlane.hasActiveWork()
+  const shouldBlock = core.sessionRuntime.hasActiveWork()
   const isBlocking = powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)
   if (shouldBlock === isBlocking) return
   if (shouldBlock) {
@@ -116,7 +118,6 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
 // on selectionchange so native context-menu actions keep their exact source.
 let quoteContextTabId: string | null = null
 let hiddenUntilTrayShow = false
-let sessionIndexerStarted = false
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
@@ -324,9 +325,17 @@ function focusMainWindow(): void {
 
 function loadRenderer(win: BrowserWindow): void {
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    if (skipOnboarding) {
+      const url = new URL(process.env.ELECTRON_RENDERER_URL)
+      url.searchParams.set('skip-onboarding', '')
+      win.loadURL(url.toString())
+    } else {
+      win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    }
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'), skipOnboarding
+      ? { query: { 'skip-onboarding': '' } }
+      : undefined)
   }
 }
 
@@ -777,13 +786,13 @@ ipcMain.handle('solus:read-attachment-bytes', async (_event, rawPath, rawMime) =
 })
 
 function scheduleSessionIndexer(): void {
-  if (sessionIndexerStarted || sessionIndexerStartTimer) return
+  if (sessionIndexerStartTimer) return
   // The renderer reports after its first real idle window. Keep a small cushion
-  // between renderer hydration and the disk-heavy transcript sweep.
+  // between renderer hydration and the disk-heavy transcript sweep. The core
+  // owns the sweep and starts it once; the renderer mounts only after it booted.
   sessionIndexerStartTimer = setTimeout(() => {
     sessionIndexerStartTimer = null
-    sessionIndexerStarted = true
-    startSessionIndexer()
+    core?.startSessionIndex()
   }, 750)
   sessionIndexerStartTimer.unref?.()
 }
@@ -828,58 +837,6 @@ function exitDesignModeWindow(): void {
   focusMainWindow()
 }
 
-// ─── Permission preflight (macOS) ───
-
-async function requestPermissions(): Promise<void> {
-  if (process.platform !== 'darwin') return
-
-  try {
-    const micStatus = systemPreferences.getMediaAccessStatus('microphone')
-    if (micStatus === 'not-determined') {
-      await systemPreferences.askForMediaAccess('microphone')
-    } else if (micStatus === 'denied') {
-      const { response } = await dialog.showMessageBox({
-        type: 'warning',
-        title: 'Microphone Permission Required',
-        message: 'Solus needs Microphone access for voice input.',
-        detail: 'Click "Open Settings" to grant access in System Settings > Privacy & Security > Microphone.\n\nYou only need to do this once.',
-        buttons: ['Open Settings', 'Skip for Now'],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      if (response === 0) {
-        shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone')
-      }
-    }
-  } catch (err: any) {
-    log.warn('microphone_permission_check_failed', { error: err.message })
-  }
-
-  try {
-    const screenStatus = systemPreferences.getMediaAccessStatus('screen')
-    if (screenStatus === 'not-determined' || screenStatus === 'denied') {
-      const flagFile = join(app.getPath('userData'), 'screen-permission-prompted')
-      if (!existsSync(flagFile)) {
-        const { response } = await dialog.showMessageBox({
-          type: 'info',
-          title: 'Screen Recording Permission',
-          message: 'Solus needs Screen Recording access to take screenshots.',
-          detail: 'Click "Open Settings" to grant access, then relaunch the app.\n\nYou only need to do this once.',
-          buttons: ['Open Settings', 'Skip for Now'],
-          defaultId: 0,
-          cancelId: 1,
-        })
-        writeFileSync(flagFile, '')
-        if (response === 0) {
-          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')
-        }
-      }
-    }
-  } catch (err: any) {
-    log.warn('screen_permission_check_failed', { error: err.message })
-  }
-}
-
 // ─── App Lifecycle ───
 
 if (isPairUrl) {
@@ -896,13 +853,14 @@ if (isPairUrl) {
 } else {
   app.whenReady().then(async () => {
     markStartup('app.ready')
-    protocol.handle('solus-artifact', handleArtifactRequest)
+    protocol.handle('solus-local-video', handleLocalVideoRequest)
     // Teach the server how to render a browser page — in a renderer's
     // `<webview>` when a pane is showing it, and in a window that is never shown
     // when nothing is. Must precede boot: a client can attach a surface, and an
     // agent can drive a page, as soon as the browser domain answers.
     registerBrowserWebviewHost()
     registerBrowserHeadlessHost()
+    registerBrowserRecordingEncoderHost()
 
     // Resolve the login-shell PATH off the main thread now, so agent-binary
     // lookup is warm. The Codex app-server itself remains lazy: starting it here
@@ -940,6 +898,7 @@ if (isPairUrl) {
       bumpDesignModeCounter: () => ++designModeCounter,
       bumpPasteCounter: () => ++pasteCounter,
       designModeCaptureRegion,
+      ensureScreenCaptureAccess: isTestMode ? async () => true : ensureScreenCaptureAccess,
     }
 
     // Create the renderer window BEFORE booting the server so the renderer
@@ -985,6 +944,10 @@ if (isPairUrl) {
         port: desktopServerPort(),
         staticDir: join(__dirname, '../client'),
         transcribeAudio,
+        // The owner of this machine works here without a token; their account session gets one (plans/010-standard-oauth.md).
+        ownerAccessToken: async (hostId) => accountSession ? (await acquireHostAccessToken(accountSession, hostId))?.accessToken ?? null : null,
+        // A window paints first; a headless app has none and sweeps at once.
+        deferSessionIndex: !isHeadless,
       })
     } catch (err) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
@@ -996,13 +959,9 @@ if (isPairUrl) {
     core = bootedCore
     markStartup('core.booted')
     resolveBoot(bootedCore)
-    bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
+    bootedCore.sessionRuntime.on('active-work-changed', syncPowerSaveBlocker)
     syncPowerSaveBlocker()
     if (!isTestMode) void prepareTranscriptionModel()
-    if (isHeadless) {
-      sessionIndexerStarted = true
-      startSessionIndexer()
-    }
 
     if (!isHeadless) {
       nativeTheme.on('updated', () => {
@@ -1030,7 +989,7 @@ if (isPairUrl) {
         },
       })
 
-      if (!isTestMode) requestPermissions().catch((err: Error) => log.error('permission_preflight_failed', { error: err.message }))
+      if (!isTestMode) handleMicrophoneRequests()
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
@@ -1066,7 +1025,6 @@ app.on('will-quit', () => {
     clearTimeout(sessionIndexerStartTimer)
     sessionIndexerStartTimer = null
   }
-  stopSessionIndexer()
   void closeDatabase()
   closeDb()
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {

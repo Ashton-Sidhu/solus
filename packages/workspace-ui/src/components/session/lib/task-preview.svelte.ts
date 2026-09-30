@@ -63,6 +63,8 @@ export interface TaskPreviewPrRow {
   title: string
   url: string | null
   state: LinkedPrLifecycle | null
+  /** The code host says this pull request does not exist. */
+  missing: boolean
 }
 
 /** The left-rail PR mark: always a pull-request glyph, coloured by lifecycle
@@ -94,6 +96,7 @@ export function previewPrRows(
       title: row.title,
       url: row.url,
       state: row.state,
+      missing: row.missing,
     }))
   }
   if (!snapshotLink) return []
@@ -106,5 +109,6 @@ export function previewPrRows(
     title: titleWithoutPrRef(pr?.title ?? '', ref),
     url: pr?.url ?? snapshotLink.url ?? null,
     state: prLifecycleOf(pr?.pullRequest),
+    missing: pr?.missing ?? snapshotLink.missing === true,
   }]
 }

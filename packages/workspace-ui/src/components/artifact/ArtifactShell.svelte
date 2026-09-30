@@ -32,7 +32,6 @@
     onOpenChat?: (mode: "resume" | "new") => void;
     originalSessionMeta?: SessionMeta | null;
     onRename?: (title: string) => void;
-    onRevert?: () => void;
     onDelete?: () => void;
     onDuplicate?: () => void | Promise<void>;
     /** Opens the save picker on a chosen format; absent when there is no host. */
@@ -51,7 +50,6 @@
     onOpenChat,
     originalSessionMeta,
     onRename,
-    onRevert,
     onDelete,
     onDuplicate,
     onExport,
@@ -309,7 +307,6 @@
       {exportFormats}
       {onExport}
       {hostIsRemote}
-      {onRevert}
       {onDelete}
       {onDuplicate}
     />
@@ -338,7 +335,7 @@
         onAdd={addPinnedComment}
         onEdit={(commentId, text) => void session.worksStore.editAnnotationComment(workId, commentId, text)}
         onDelete={(commentId) => void session.worksStore.deleteAnnotationComment(workId, commentId)}
-        onReply={(commentId, text) => void session.worksStore.addAnnotationReply(workId, commentId, { id: uuid(), author: "you", text, createdAt: Date.now() })}
+        onReply={(commentId, text) => void session.worksStore.addAnnotationReply(workId, commentId, { id: uuid(), text, createdAt: Date.now() })}
         onResolve={(commentId, resolved) => void session.worksStore.setAnnotationResolved(workId, commentId, resolved)}
         onRead={(commentId) => void session.worksStore.markAnnotationRead(workId, commentId)}
       />
@@ -348,8 +345,7 @@
 
 <style>
   /* The same rungs as WorkHeaderActions' verbs and overflow: 1.625rem on a
-     desktop display, 1.5rem on a laptop display, a 2.5rem touch target on
-     mobile. `:global` because the Select trigger is a child component and a
+     desktop display, a 2.5rem touch target on mobile. `:global` because the Select trigger is a child component and a
      scoped class would not reach it; the titlebar ancestor keeps it local. */
   .workspace-titlebar :global(.artifact-tool) {
     display: inline-flex;
@@ -386,15 +382,6 @@
   .workspace-titlebar :global(.artifact-tool:focus-visible) {
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
-  }
-  @media (pointer: fine) and (min-width: 768px) {
-    :global(html.is-laptop-display) .workspace-titlebar :global(.artifact-tool) {
-      width: 1.5rem;
-      height: 1.5rem;
-    }
-    :global(html.is-laptop-display) .workspace-titlebar :global(.artifact-tool--labelled) {
-      width: auto;
-    }
   }
   @media (max-width: 767px) {
     .workspace-titlebar :global(.artifact-tool) {

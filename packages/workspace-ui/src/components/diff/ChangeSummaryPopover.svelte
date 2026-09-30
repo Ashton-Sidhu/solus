@@ -2,6 +2,7 @@
   import { GitBranch as GitBranchIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import type { ChangedFileSummary } from "./lib/review-header";
 
   /**
@@ -45,7 +46,7 @@
         {...tooltipProps}
         bind:this={triggerEl}
         type="button"
-        class="no-drag flex h-[1.625rem] min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 [.is-laptop-display_&]:max-w-[18rem] {open
+        class="no-drag flex h-[1.625rem] min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {open
           ? 'bg-[var(--wash-2)]'
           : 'bg-transparent hover:bg-[var(--wash-2)]'}"
         aria-haspopup="menu"
@@ -56,7 +57,11 @@
         <GitBranchIcon class="size-3 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
         <!-- The last thing to give, and the only thing that does: below a phone-width
              panel the two counts and the glyph carry the summary on their own. -->
-        <span class="truncate text-(--solus-text-primary) @max-[30rem]/band:hidden">{branchLabel}</span>
+        <MiddleTruncate
+          value={branchLabel}
+          showTitle={false}
+          class="text-(--solus-text-primary) @max-[30rem]/band:hidden"
+        />
         <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{additions}</span>
         <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{deletions}</span>
       </button>
@@ -100,7 +105,7 @@
     <DropdownMenu.Separator />
     <div class="flex items-center gap-1.5 px-2.5 pt-0.5 pb-1.5 text-(--solus-text-tertiary)">
       <span class="shrink-0">Compared against</span>
-      <span class="min-w-0 truncate text-(--solus-text-secondary)">{baseLabel}</span>
+      <MiddleTruncate value={baseLabel} class="text-(--solus-text-secondary)" />
     </div>
   </DropdownMenu.Content>
 </DropdownMenu.Root>

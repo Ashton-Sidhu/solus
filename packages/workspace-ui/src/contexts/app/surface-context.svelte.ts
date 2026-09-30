@@ -1,13 +1,14 @@
-import type { GitCheckout, IpcContext, RunConfig, Session, Work } from '@solus/contracts/types'
+import type { GitCheckout, IpcContext, RunConfig, Session } from '@solus/contracts/types'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { LogicalProject, ProjectPageScope, ProjectRef } from '../projects/project-catalog'
 import type { StaticInfo } from '../workspace/workspace-lifecycle.store.svelte'
 import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
-import type { WorksStore } from '../works/works.store.svelte'
+import type { WorksStore, WorkListing } from '../works/works.store.svelte'
 import type { OutboxStore } from '../outbox/outbox.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
+import type { presenceStore } from '../presence/presence.store.svelte'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -39,9 +40,10 @@ export interface SurfaceContext {
   /** A transcript's plan and automation cards resolve against these. */
   readonly automationsStore: AutomationsStore
   readonly planStore: PlanStore
-  readonly deferHistoryToolInputs: boolean
   /** The host a session is read from: its tab's host, or the one host a runnerless client holds. */
   apiForSession(sessionId: string): HostApi
+  /** Who the reader is on a host, so a transcript names only someone else. */
+  readonly presence?: Pick<typeof presenceStore, 'currentUserId'>
   /** The project the task board is scoped to; null with no runner. */
   readonly tasksProjectCwd: string | null
   readonly pluginCommands: Session['pluginCommands']
@@ -82,7 +84,7 @@ export interface SurfaceContext {
   openFolio(via?: Via, target?: 'focused' | 'aside'): void
   closeWork(paneId?: PaneId): void
   /** Delete a work with a brief undo window. */
-  requestWorkDelete(work: Work): void
+  requestWorkDelete(work: WorkListing): void
   /** Create an empty user-authored work on the surface's host and open it. */
   createBlankWork(type: 'doc' | 'slides' | 'diagram'): Promise<void>
   /** Create a user-authored work from existing content (blank or imported) and open it. */
@@ -125,6 +127,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openWorkModal'
   | 'openChatForWork'
   | 'sendMessageToNewWorkSession'
+  | 'sendMessageToWorkSession'
   | 'createArtifact'
   | 'openAutomations'
   | 'openAutomationBuilder'
@@ -134,7 +137,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openUrlInBrowser'
   | 'showSettings'
 > & {
-  readonly opening: Pick<SessionOpening, 'resumeSession' | 'openTaskSession' | 'openTaskLinkedSession'>
+  readonly opening: Pick<SessionOpening, 'resumeSession' | 'openTask' | 'openTaskSession' | 'openTaskLinkedSession'>
   readonly prReview: Pick<PrReviewActions, 'openReviewMode'>
 }
 

@@ -83,3 +83,55 @@ test('a theme message updates the existing stylesheet without rerunning the docu
   expect(style.textContent).toContain('--solus-container-bg:#262522')
   expect(loaded).toBe(1)
 })
+
+describe('a render sizes the frame to its whole document', () => {
+  async function reportedHeight(page: { rootHeight: number; bodyTop: number; bodyScrollHeight: number }): Promise<number> {
+    const { runInNewContext } = await import('node:vm')
+    stubTheme(false)
+    const reporter = /<script>([\s\S]*?)<\/script>/.exec(wrapSandboxSrcdoc('<h2>x</h2>', false))![1]
+    const posted: number[] = []
+    runInNewContext(reporter, {
+      parent: { postMessage: (message: { h: number }) => posted.push(message.h) },
+      document: {
+        readyState: 'complete',
+        documentElement: { getBoundingClientRect: () => ({ height: page.rootHeight }) },
+        body: {
+          scrollHeight: page.bodyScrollHeight,
+          offsetHeight: page.bodyScrollHeight,
+          getBoundingClientRect: () => ({ top: page.bodyTop }),
+        },
+      },
+      window: { addEventListener() {}, scrollY: 0 },
+      setTimeout() {},
+    })
+    return posted[0]
+  }
+
+  test('a margin that collapses through body is part of the height', async () => {
+    // WHY: body.scrollHeight alone left the frame short by the first heading's
+    // margin, so the render scrolled inside itself and clipped its top edge.
+    expect(await reportedHeight({ rootHeight: 640, bodyTop: 20, bodyScrollHeight: 600 })).toBe(640)
+  })
+
+  test('content that overflows a root pinned to the viewport still counts', async () => {
+    // WHY: html{height:100%} holds the root at the frame height; the frame must
+    // still grow to the body's content.
+    expect(await reportedHeight({ rootHeight: 120, bodyTop: 0, bodyScrollHeight: 900 })).toBe(900)
+  })
+
+  test('the document itself never scrolls', () => {
+    // WHY: a hidden inner scroller took the wheel from the transcript.
+    stubTheme(false)
+    expect(wrapSandboxSrcdoc('<p>x</p>', false)).toMatch(/html\{[^}]*overflow:hidden/)
+  })
+})
+
+test('a remounted render starts at the height it last reported', async () => {
+  // WHY: a transcript row remounts when it scrolls back into view. A frame that
+  // restarted at a guess grew under the reader and made the scroll jump.
+  const { lastReportedHeight, rememberReportedHeight } = await import('../../packages/workspace-ui/src/components/artifact/lib/artifact-view')
+  const html = `<style></style><p>${crypto.randomUUID()}</p>`
+  expect(lastReportedHeight(html)).toBeUndefined()
+  rememberReportedHeight(html, 812)
+  expect(lastReportedHeight(html)).toBe(812)
+})

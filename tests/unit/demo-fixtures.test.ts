@@ -131,7 +131,7 @@ describe('demo pull request', () => {
       ['prListReviewers', [ctx, listed.number]],
       ['prChangedFiles', [ctx, listed.number]],
       ['prChecks', [ctx, [listed.number]]],
-      ['prNeedsReview', [ctx]],
+      ['prSetInterest', [ctx, [{ kind: 'needs-review' }]]],
       ['providerViewer', [ctx]],
     ]
     for (const [method, args] of reads) {

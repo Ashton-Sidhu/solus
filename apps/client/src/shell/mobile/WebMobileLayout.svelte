@@ -13,6 +13,7 @@
   import InputBarHeader from "@solus/workspace-ui/components/input/InputBarHeader.svelte";
   import GoalSection from "@solus/workspace-ui/components/project-panel/GoalSection.svelte";
   import {
+    connectionsStore,
     getWorkspaceContext,
     getPullRequestsContext,
     getSessionEnvironmentStore,
@@ -46,6 +47,8 @@
   import { taskRef } from "@solus/workspace-ui/components/tasks/task-page/lib/task-page";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   import WebSidebarDrawer from "./WebSidebarDrawer.svelte";
+  import SessionPresence from "@solus/workspace-ui/components/presence/SessionPresence.svelte";
+  import ShareButton from "@solus/workspace-ui/components/sharing/ShareButton.svelte";
   import MobilePlusMenu from "./MobilePlusMenu.svelte";
   import MobileComposerActions from "./MobileComposerActions.svelte";
   const serverSheetComponent = afterPaint().then(() => import("./MobileServerSheet.svelte"));
@@ -100,15 +103,9 @@
   // A tab that has not started has no prompt to name it after, so it says what
   // it will become instead.
   const title = $derived(
-    mobileDraft
-      ? mobileDraft.task.kind === "existing"
-        ? "New session"
-        : "New task"
-      : tab && sess && hasSessionStarted(sess)
+    tab && sess && hasSessionStarted(sess) && !mobileDraft
       ? sessionTitle(sess)
-      : sess?.task.kind === "existing"
-        ? "New session"
-        : "New task",
+      : "New session",
   );
   const activeRun = $derived(mobileDraft?.run ?? sess?.run);
   // The destination strip (project · start-in · branch) is editable exactly
@@ -118,7 +115,7 @@
   const projectLabel = $derived(
     projectDirLabel(
       activeRun?.gitContext?.repoRoot ?? activeRun?.workingDirectory ?? "~",
-      session.staticInfo?.workspacePath,
+      connectionsStore.chatFolderFor(activeRun?.serverId),
     ),
   );
   const headerTask = $derived(
@@ -174,10 +171,7 @@
     const api = session.apiFor(session.activeTabId);
     const serverId = environmentServerId;
     const branch = currentBranch;
-    return untrack(() => pullRequests.projects.watch(
-      pullRequests.projects.get(api, serverId, ctx),
-      { branches: [branch] },
-    ));
+    return untrack(() => pullRequests.projects.want(api, serverId, ctx, [{ kind: 'branch', head: branch }]));
   });
 
   const stateIcon = $derived(
@@ -209,7 +203,9 @@
       session.serverIdForContext(session.ctx),
       session.ctx,
     ),
+    worksNeedingReview: session.worksStore.reviews.inbox.length,
   });
+  $effect(() => pullRequests.needsReview.wantShown(session));
   const currentSection = $derived(
     currentMobileSection(visibleRef(session.router.leadingPane)?.name),
   );
@@ -353,6 +349,24 @@
           {#if elapsed}<span class="mh-navbar-elapsed">{elapsed}</span>{/if}
         </div>
       </button>
+
+      {#if sessionStarted && sess}
+        <!-- Phones skip the session band, so the header carries who else is
+             here and the control that decides who may be (plan 004 step 12).
+             Both stay absent when the reader is alone or the host cannot share. -->
+        <SessionPresence
+          serverId={session.serverIdFor(session.activeTabId)}
+          sessionId={sess.id}
+          {title}
+          size={20}
+        />
+        <ShareButton
+          serverId={session.serverIdFor(session.activeTabId)}
+          resource={{ kind: "session", id: sess.id }}
+          {title}
+          class="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) active:bg-(--solus-surface-hover) active:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring"
+        />
+      {/if}
 
       <button
         class="mh-navbar-side-btn mh-navbar-side-btn--accent"

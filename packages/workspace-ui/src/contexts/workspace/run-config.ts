@@ -1,5 +1,5 @@
 import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, RunConfig, WorktreeEntry } from '@solus/contracts/types'
-import { MODEL_PROFILES, worktreeProjectRoot } from '@solus/contracts/types'
+import { MODEL_PROFILES, PERMISSION_MODES, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ProjectLocation } from '../app/settings.context.svelte'
 
@@ -166,9 +166,7 @@ export function modelConfigForModel(run: RunConfig, modelId: string): ModelConfi
   }
 }
 
-const PERMISSION_MODES = ['ask', 'auto', 'plan'] as const
-
-/** The permission mode after `mode`, wrapping ask → auto → plan → ask. */
+/** The permission mode after `mode`, in `PERMISSION_MODES` order, wrapping at the end. */
 export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig['permissionMode'] {
   const idx = PERMISSION_MODES.indexOf(mode)
   return PERMISSION_MODES[(idx + 1) % PERMISSION_MODES.length]
@@ -176,8 +174,8 @@ export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig
 
 /**
  * The project a run config belongs to — the repo rather than the checkout —
- * or null when it names none. "New task" means new work on the project, so it
- * anchors here: inheriting a worktree path would bury the new session in a
+ * or null when it names none. "New session" means new work on the project, so
+ * it anchors here: inheriting a worktree path would bury the new session in a
  * branch the user has already moved on from.
  */
 export function projectRootOf(run: RunConfig | null | undefined): string | null {
@@ -275,13 +273,15 @@ export function isDispatch(run: RunConfig | undefined | null): boolean {
 /**
  * Whether this run will branch its own worktree before the agent starts.
  *
- * A dispatch always uses a worktree. `worktree` requests a new one; a selected
- * pending target worktree is already isolated and therefore needs no creation.
+ * `worktree` requests a new one, on this host or on a dispatch's target host
+ * alike: a checkout there belongs to one person, so working in it directly is
+ * as safe as on their own machine. A selected pending target worktree already
+ * exists and therefore needs no creation.
  */
 export function startsWorktree(run: RunConfig | undefined | null): boolean {
   if (!run) return false
   if (run.pendingHostDispatch?.intent === 'dispatch' && run.pendingHostDispatch.worktree) return false
-  return (isDispatch(run) && !run.gitContext?.worktreePath) || !!run.worktree
+  return !!run.worktree
 }
 
 /**
@@ -296,7 +296,7 @@ export function startsWorktree(run: RunConfig | undefined | null): boolean {
 export function withHost(
   run: RunConfig,
   serverId: string,
-  opts: { path?: string; isolate: boolean },
+  opts: { path?: string },
 ): RunConfig {
   const movingHosts = run.serverId !== serverId
   const next: RunConfig = {
@@ -306,10 +306,8 @@ export function withHost(
   if (opts.path) next.workingDirectory = opts.path
   if (!movingHosts) return next
   // The old host's base branch named a branch over there, so a worktree survives
-  // the move as a request with its answer dropped. A host several people share
-  // (a managed host) isolates every new session in its own worktree
-  // (docs/plans/project-model.md §7).
-  return { ...next, gitContext: null, worktree: run.worktree || opts.isolate ? { baseBranch: null } : null }
+  // the move as a request with its answer dropped.
+  return { ...next, gitContext: null, worktree: run.worktree ? { baseBranch: null } : null }
 }
 
 /**
@@ -322,7 +320,7 @@ export function withHost(
 export function withProjectHost(
   run: RunConfig,
   serverId: string,
-  opts: { path?: string; isolate: boolean },
+  opts: { path?: string },
 ): RunConfig {
   return { ...withHost(run, serverId, opts), taskServerId: serverId }
 }
@@ -343,7 +341,7 @@ export function withPendingHost(
 }
 
 /** Choose where a pending remote dispatch works. An existing worktree records
- * its exact target-host path. Null returns to creating a new isolated worktree. */
+ * its exact target-host path. Null returns to creating a new worktree. */
 export function withDispatchWorktree(run: RunConfig, worktree: WorktreeEntry | null): RunConfig {
   const pending = run.pendingHostDispatch
   if (pending?.intent !== 'dispatch') return run
@@ -359,6 +357,18 @@ export function withDispatchWorktree(run: RunConfig, worktree: WorktreeEntry | n
     ...run,
     worktree: worktree ? null : { baseBranch: null },
     pendingHostDispatch,
+  }
+}
+
+/** Work directly in the target host's checkout of the repository, on the
+ * branch it holds, as a person does in their own clone. */
+export function withDispatchCheckout(run: RunConfig): RunConfig {
+  const pending = run.pendingHostDispatch
+  if (pending?.intent !== 'dispatch') return run
+  return {
+    ...run,
+    worktree: null,
+    pendingHostDispatch: { serverId: pending.serverId, intent: 'dispatch', repoKey: pending.repoKey },
   }
 }
 

@@ -5,7 +5,7 @@ import {
   metricsSchema,
   registeredViewNames,
   schemaForPrompt,
-} from '@solus/server/observability/field-registry'
+} from '@solus/server/data/insights/field-registry'
 import { presetsFor } from '@solus/workspace-ui/components/insights/lib/insights-queries'
 import type { TimeRange } from '@solus/workspace-ui/components/insights/lib/time-range'
 
@@ -13,11 +13,11 @@ import type { TimeRange } from '@solus/workspace-ui/components/insights/lib/time
 // import time, which is not a built-in under the test runtime.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
+type SqlGuardModule = typeof import('@solus/server/data/insights/sql-guard')
 let sqlGuard: SqlGuardModule
 
 beforeAll(async () => {
-  sqlGuard = await import('@solus/server/observability/sql-guard')
+  sqlGuard = await import('@solus/server/data/insights/sql-guard')
 })
 
 // A user cannot write a cross-kind question from a flat list of column names:

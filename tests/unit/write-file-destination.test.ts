@@ -5,18 +5,12 @@ import { join } from 'path'
 import { Database } from 'bun:sqlite'
 import type { IpcContext, WriteFileRequest, WriteFileResult } from '@solus/contracts/types'
 
-mock.module('electron', () => ({
-  app: { isPackaged: false, getPath: () => tmpdir() },
-  dialog: {},
-  shell: {},
-  utilityProcess: { fork: () => ({ on() {}, postMessage() {}, kill() {} }) },
-}))
-
 // bun has no node:sqlite; the handler module's import chain reaches the db even
 // though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { registerFileHandlers } = await import('@solus/desktop-main/server/handlers/file-handlers')
+// Shared, not desktop-only: a paired headless host saves files the same way.
+const { registerFilesystemHandlers } = await import('@solus/server/transport/handlers/filesystem-handlers')
 
 /**
  * The picker lets a user browse anywhere, so the write behind it has to be able
@@ -48,22 +42,7 @@ describe('writeFile destinations', () => {
     } as IpcContext
 
     const handlers = new Map<string, unknown>()
-    registerFileHandlers(
-      { register: (name: string, handler: unknown) => handlers.set(name, handler) } as never,
-      {
-        getWorkspaceWindow: () => null,
-        hideAppWindow: () => {},
-        showAndFocusWorkspaceWindow: () => {},
-        setWorkspaceWindowOpacity: () => {},
-        expandDesignModeWindow: () => {},
-        restoreDesignModeWindow: () => {},
-        exitDesignModeWindow: () => {},
-        bumpScreenshotCounter: () => 1,
-        bumpDesignModeCounter: () => 1,
-        bumpPasteCounter: () => 1,
-        designModeCaptureRegion: () => ({ x: 0, y: 0, width: 0, height: 0 }),
-      },
-    )
+    registerFilesystemHandlers({ register: (name: string, handler: unknown) => handlers.set(name, handler) } as never)
     writeFile = handlers.get('writeFile') as typeof writeFile
   })
 

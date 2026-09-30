@@ -1,21 +1,19 @@
-import { requestSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session, SessionProgress } from '@solus/contracts/types'
 import { z } from 'zod'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
 import { artifactUpdateFromHistory } from './artifact-history'
-import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
-import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
+import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { showsActivity } from '../../components/activity/lib/activity-line'
 
 // ─── Transcript loader ───
 
-// Initial/restored surfaces render 100 rows at a time. Keep one extra page in
-// memory for instant upward scroll and leave the rest on the host until asked.
-export { RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
 
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
@@ -35,6 +33,11 @@ function isCodexImageGenerationTool(name: string | undefined): boolean {
  *  and Codex (bare name). */
 function isAutomationSaveTool(name: string | undefined): boolean {
   return !!name && (name.endsWith('create_automation') || name.endsWith('update_automation'))
+}
+
+/** Matches the watch tool for both Claude (`mcp__solus__watch`) and Codex. */
+function isWatchTool(name: string | undefined): boolean {
+  return name === 'watch' || name === 'mcp__solus__watch'
 }
 
 /**
@@ -89,8 +92,9 @@ export interface SessionTranscriptLoadArgs {
   displayCwd: string
   provider: AgentId
   ctx: IpcContext
-  /** Hydrate only the most recent `limit` messages for a fast initial paint. */
-  limit?: number
+  /** Read only the newest `turnLimit` user turns, as one page with a cursor
+   *  to older ones. Without it the whole transcript is read. */
+  turnLimit?: number
   /** A restore can start this read while resolving the session's identity. */
   history?: Promise<WireSessionLoadMessage[] | SessionHistoryPage>
   before?: string
@@ -121,6 +125,11 @@ const automationInputSchema = z.object({
   name: z.string().optional(),
 })
 
+const watchInputSchema = z.object({
+  reason: z.string().optional(),
+  probe_command: z.string().optional(),
+})
+
 const artifactInputSchema = z.object({
   kind: z.enum(['image', 'html']).optional().catch(undefined),
   html: z.string().optional(),
@@ -132,13 +141,13 @@ const imageInputSchema = z.object({ path: z.string().optional() })
 
 export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
   const api = ctx.apiForSession(args.ctx.session.sessionId)
-  const loaded = await (args.history ?? (args.limit
+  const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
         sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
-        limit: args.limit, before: args.before, deferToolInputs: ctx.deferHistoryToolInputs,
-      }, args.ctx)
-    : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit,
-        ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined)))
+        turnLimit: args.turnLimit, before: args.before,
+      })
+    : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
+        { deferToolInputs: true })))
   const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
   if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
@@ -158,7 +167,7 @@ export function materializeSessionTranscript(
   const pageMessages = Array.isArray(loaded) ? loaded : loaded.messages
   const history = args.pendingMessages?.length ? pageMessages.concat(args.pendingMessages) : pageMessages
   const before = Array.isArray(loaded) ? undefined : loaded.before
-  const truncated = before !== undefined ? before !== null : !!args.limit && pageMessages.length >= args.limit
+  const truncated = before !== undefined && before !== null
   if (args.shouldApply && !args.shouldApply()) {
     return { messages: [], planIds: [], progress: null, truncated: false }
   }
@@ -176,22 +185,33 @@ export function materializeSessionTranscript(
   const pendingMessages: WireSessionLoadMessage[] = []
   // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
   // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
-  const agentConversations = new AgentConversationTranscriptBuilder(messages)
+  const agentConversations = new TranscriptAgentConversations(messages)
 
   const loadedHistory = history
   const resultsByToolId = new Map(history.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
   ))
-  // Thinking is never rendered as a turn — only its duration is, folded onto the
-  // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
-  // no span boundaries, so the run of reasoning turns is bracketed by the first
-  // one's timestamp and the message that ends the run.
+  // Thinking is never rendered as a turn — its duration and text are folded
+  // onto the tool call or prose block it preceded (mirrors the live reducer's
+  // thinkingSpans). Replay has no span boundaries, so the run of reasoning
+  // turns is bracketed by the first one's timestamp and the message that ends
+  // the run.
   let thinkingRunStartedAt: number | null = null
+  let thinkingRunThoughts: string[] = []
+  const reader = ctx.presence?.currentUserId(serverId) ?? null
   for (const m of loadedHistory) {
-    // Reasoning/thinking turns ride along in the transcript for provider handoffs;
-    // the conversation view shows how long they took, never their text.
+    // Activity the host merged in by its time (plans/012 §5): a row of its own,
+    // outside the thinking run, and only where the reader is meant to see it.
+    if (m.activity) {
+      if (showsActivity(m.activity, reader)) {
+        messages.push({ id: m.messageId ?? `activity:${m.activity.id}`, role: 'system', content: '', timestamp: m.timestamp, activity: m.activity })
+      }
+      continue
+    }
     if (m.role === 'reasoning') {
       if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
+      const thought = m.content.trim()
+      if (!m.parentToolUseId && thought) thinkingRunThoughts.push(thought)
       continue
     }
     if (m.role === 'tool_result') {
@@ -215,7 +235,9 @@ export function materializeSessionTranscript(
     // Whatever message follows the run of reasoning turns ends it, whether or not
     // it has anywhere to print the figure.
     const thinkingRunEndedAt = thinkingRunStartedAt
+    const thinkingRunEndedThoughts = thinkingRunThoughts
     thinkingRunStartedAt = null
+    thinkingRunThoughts = []
 
     // Sub-agent activity reconstructs into the spawning tool's nested transcript,
     // mirroring the live reducer — never the flat thread.
@@ -230,6 +252,7 @@ export function materializeSessionTranscript(
             content: m.content,
             toolName: m.toolName,
             toolId: m.toolId,
+            questionAnswer: m.questionAnswer,
             questionResult: m.questionResult,
             toolInput: m.toolInput,
             toolStatus: m.status === 'error' || m.toolStatus === 'error' ? 'error' as const : 'completed' as const,
@@ -266,34 +289,40 @@ export function materializeSessionTranscript(
       content: m.content,
       toolName: m.toolName,
       toolId: m.toolId,
+      questionAnswer: m.questionAnswer,
       questionResult: m.questionResult,
       toolInput: m.toolInput,
       historyToolInput: m.toolInputKey ? {
         serverId, sessionId: args.sessionId, projectPath: args.loadPath,
-        provider: args.provider, key: m.toolInputKey,
+        provider: args.provider, key: m.toolInputKey, summary: m.toolInput,
       } : undefined,
       toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
       planToolUseId: m.planToolUseId,
-      agentChangedTo: m.agentChangedTo,
-      agentChangedFromModel: m.agentChangedFromModel,
-      agentChangedToModel: m.agentChangedToModel,
-      agentChangedFromProvider: m.agentChangedFromProvider,
-      agentChangedToProvider: m.agentChangedToProvider,
       timestamp: msgTimestamp,
     }
+    if (m.role === 'user') {
+      const attached = splitAttachedFiles(m.content, serverId)
+      if (attached.attachments.length) {
+        msg.content = attached.text
+        msg.attachments = attached.attachments
+      }
+    }
     if (m.role === 'user' && m.imageAttachments?.length) {
-      msg.attachments = m.imageAttachments.map((image) => ({
+      msg.attachments = [...(msg.attachments ?? []), ...m.imageAttachments.map((image) => ({
         name: '',
         dataUrl: image.dataUrl,
         mimeType: image.mimeType,
         type: 'image' as const,
-      }))
+      }))]
     }
     // Only a tool call keeps the figure — the activity block is the one place
-    // with somewhere to print it.
+    // with somewhere to print it. A prose block keeps the thoughts before it.
     if (thinkingRunEndedAt !== null && m.role === 'tool') {
       const ms = msgTimestamp - thinkingRunEndedAt
       if (ms > 0) msg.thinkingMs = ms
+    }
+    if (thinkingRunEndedThoughts.length > 0 && (m.role === 'tool' || m.role === 'assistant')) {
+      msg.thoughts = thinkingRunEndedThoughts
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
     if (m.role === 'tool' && m.report) msg.report = m.report
@@ -374,6 +403,23 @@ export function materializeSessionTranscript(
         })
       }
       continue
+    } else if (m.role === 'tool' && isWatchTool(m.toolName)) {
+      // A watch call replays as its tool row and its watch card. The card finds
+      // its watch by reason and command, because the id was in the result.
+      messages.push(msg)
+      let input = watchInputSchema.parse({})
+      try {
+        input = watchInputSchema.parse(JSON.parse(m.toolInput || '{}'))
+      } catch {}
+      // A refused call (bad input, too many watches) made no watch.
+      const result = resultsByToolId.get(m.toolId ?? '') ?? m
+      const refused = result.status === 'error' || m.toolStatus === 'error'
+      if (input.reason && !refused) {
+        const watchRef: NonNullable<Message['watchRef']> = { reason: input.reason.trim() }
+        if (input.probe_command) watchRef.command = input.probe_command.trim()
+        messages.push({ id: nextMsgId(), role: 'assistant' as const, content: '', watchRef, timestamp: m.timestamp ?? Date.now() })
+      }
+      continue
     } else if (m.role === 'tool' && m.toolName?.endsWith('update_work')) {
       messages.push(msg)
       const result = resultsByToolId.get(m.toolId ?? '') ?? m
@@ -392,7 +438,7 @@ export function materializeSessionTranscript(
         const kind = input.kind === 'image' ? 'image' : 'html'
         let path = input.path
         // The stored path may be relative to the working directory; resolve it so
-        // the solus-artifact protocol can locate the file on reload.
+        // the host can sign a URL for the file on reload.
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
         let workRef: Message['workRef']
         if (kind === 'html' && input.html) {
@@ -465,9 +511,9 @@ export function materializeSessionTranscript(
  * directly after the user asks for it. */
 export function loadRestoredSessionTranscript(
   ctx: WorkspaceContext,
-  args: Omit<SessionTranscriptLoadArgs, 'limit'>,
+  args: Omit<SessionTranscriptLoadArgs, 'turnLimit'>,
 ): ReturnType<typeof loadSessionTranscript> {
-  return loadSessionTranscript(ctx, { ...args, limit: RESTORED_TRANSCRIPT_LIMIT })
+  return loadSessionTranscript(ctx, { ...args, turnLimit: INITIAL_HISTORY_TURNS })
 }
 
 // ─── Pending input sync ───
@@ -481,7 +527,8 @@ export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Sessio
     else if (event.type === 'question_request') newQuestions.push(toQuestionRequest(event))
   }
   session.permissionQueue.splice(0, session.permissionQueue.length, ...newPermissions)
-  session.questionQueue.splice(0, session.questionQueue.length, ...newQuestions)
+  const asyncQuestions = session.questionQueue.filter((question) => question.responseMode === 'message')
+  session.questionQueue.splice(0, session.questionQueue.length, ...newQuestions, ...asyncQuestions)
 
   if (!hasPlanEvent && session.agentSessionId) {
     ctx.clearPlanWaiting(session.agentSessionId)

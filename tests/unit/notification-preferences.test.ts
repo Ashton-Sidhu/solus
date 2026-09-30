@@ -21,7 +21,7 @@ import {
   notificationSettingsCoverContract,
 } from '@solus/workspace-ui/components/settings/lib/notification-settings'
 
-type SettingsModule = typeof import('@solus/server/server/settings')
+type SettingsModule = typeof import('@solus/server/host/settings')
 
 describe('notification preferences', () => {
   test('a notification needs both its channel and its event on', () => {
@@ -56,7 +56,7 @@ describe('notification preferences', () => {
       expect(DEFAULT_NOTIFICATION_PREFERENCES.events[event]).toBe(true)
     }
     expect(APP_NOTICE_EVENTS).toEqual([
-      'review_guide_ready', 'update_available', 'host_discovered', 'teammate_presence', 'share_revoked',
+      'review_guide_ready', 'review_lens_ready', 'update_available', 'host_discovered', 'teammate_presence', 'share_revoked', 'work_review',
     ])
   })
 
@@ -132,7 +132,7 @@ describe('the flags notifications replaced', () => {
     process.env.SOLUS_DATA_DIR = legacyDir
     try {
       const legacySettings = await import(
-        `@solus/server/server/settings?notifications=${Date.now()}`
+        `@solus/server/host/settings?notifications=${Date.now()}`
       ) as SettingsModule
       const { config, seeded } = legacySettings.getHostConfig()
 

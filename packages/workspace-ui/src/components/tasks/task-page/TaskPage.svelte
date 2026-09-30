@@ -11,7 +11,7 @@
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
-    hostRolesStore,
+    runtime,
     sharesStore,
   } from "../../../contexts";
   import { attemptServerId } from "../../../lib/sessionUtils";
@@ -33,7 +33,9 @@
   } from "../lib/tasks-api";
   import {
     isTaskRailFolded,
+    taskDetailsSummary,
     linkedWorkProvider,
+    taskLeadSession,
     taskPageCapabilities,
     taskRef,
   } from "./lib/task-page";
@@ -44,16 +46,19 @@
   } from "./lib/task-upstream";
   import { taskPrRows } from "./lib/task-prs";
   import { linkedPrNavigationTarget } from "./lib/linked-pr-navigation";
+  import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
   import TaskPrList from "./TaskPrList.svelte";
   import TaskChromeBar from "./TaskChromeBar.svelte";
   import TaskRecordBar from "./TaskRecordBar.svelte";
   import TaskCommentComposer from "./TaskCommentComposer.svelte";
+  import { provideMentionScope } from "../../mentions/lib/mention-scope.svelte";
   import TaskHeader from "./TaskHeader.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
   import TaskPinnedArtifact from "./TaskPinnedArtifact.svelte";
   import TaskPageSkeleton from "./TaskPageSkeleton.svelte";
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
   import TaskTabStrip from "./TaskTabStrip.svelte";
@@ -61,10 +66,10 @@
   import { BottomSheet } from "../../ui/bottom-sheet";
   import { isStackedPane, observePaneWidth } from "../../../lib/pane-width";
   import {
-    ChevronRight as CaretRightIcon,
-    SlidersHorizontal as PropertiesIcon,
+    CalendarDays as CalendarIcon,
+    ChevronDown as CaretDownIcon,
     Plus as PlusIcon,
-    User as UserIcon,
+    Tag as TagIcon,
   } from "@lucide/svelte";
 
   interface Props extends Omit<RouteSurfaceProps<"task">, "paneId"> {
@@ -124,6 +129,11 @@
     task?.projectKey ?? session.tasksProjectCwd ?? undefined,
   );
 
+  // The task's lead, when one is linked. The conversation with it is the
+  // lead's own tab, opened with this page beside it; the page only offers to
+  // start one while there is none (docs/plans/task-conversation.md).
+  const hasLead = $derived(taskLeadSession(sessions) !== null);
+
   // The pinned render is open by default, so its body is fetched as soon as the
   // page is visible rather than on a disclosure the reader never has to press.
   $effect(() => {
@@ -136,7 +146,6 @@
     cwd: () => projectCwd,
     serverId: () => store.get(taskId).serverId ?? LOCAL_SERVER_ID,
     ctx: () => projectCwd ? session.ctxForDirectory(projectCwd) : undefined,
-    isWeb: () => !shell.supportsLocalAttachments,
     api: () => {
       const serverId = store.get(taskId).serverId;
       return serverId ? serverConnections.apiFor(serverId) : undefined;
@@ -163,9 +172,16 @@
     shell.canOpenResource("workspace") ? (taskServerId ?? serverConnections.defaultServerId()) : null,
   );
   const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
-  // A session runs on the task's host. The workspace service serves collaboration
-  // only (docs/plans/cloud-service-model.md §15), so its task page offers no run.
-  const canStartSession = $derived(!!session.workspace && hostRolesStore.hasExecution(taskServerId ?? serverConnections.defaultServerId()));
+  // An organization task's comments mention its members (plan 004 D17). Task
+  // comments carry no account id, so the picker orders people by name.
+  provideMentionScope(() => task && taskServerId
+    ? { serverId: taskServerId, organizationId: task.organizationId ?? "local", resource: { kind: "task", id: task.id }, title: task.title, recentUserIds: [] }
+    : null);
+  // A session on a machine's task runs on that machine. A cloud task's home runs
+  // nothing (docs/plans/workspace-and-machines.md §5.4), so `openTaskSession`
+  // opens it on a machine the Run-on picker chooses, or asks for one. A guest
+  // shell has no workspace to start from.
+  const canStartSession = $derived(!!session.workspace);
   function openShare(record: Task): void {
     if (!shareServerId) return;
     sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });
@@ -190,7 +206,7 @@
     const linked = [...links, ...store.get(taskId).prLinks];
     const root = projectCwd;
     if (!serverId || !surfaceVisible) return;
-    return untrack(() => prs.watchLinkedPrs(
+    return untrack(() => prs.wantLinkedPrs(
       serverConnections.apiFor(serverId), serverId,
       session.ctxForEnvironment(root ?? "~", null), linked,
     ));
@@ -537,11 +553,12 @@
   }
 
   /** Compose a new session already bound to this task. The link lands when the
-   *  draft is sent, so an abandoned composer leaves nothing behind. */
-  function startSession(record: Task) {
+   *  draft is sent, so an abandoned composer leaves nothing behind. The lead's
+   *  draft opens with this page beside it. */
+  function startSession(record: Task, role?: "lead") {
     void session.workspace
-      ?.opening.openTaskSession(record)
-      .catch((err) => toastError("start a session", err));
+      ?.opening.openTaskSession(record, { role })
+      .catch((err) => toastError(role ? "start the lead" : "start a session", err));
   }
 
   function unlinkSession(sessionId: string) {
@@ -583,29 +600,25 @@
   // A separate question from `stacked`, and a wider one. `stacked` asks whether
   // this is a phone layout — one section at a time, a record bar, a pinned
   // composer. This asks only whether the rail still has a column to sit in,
-  // which it loses at 60rem, long before the page becomes a phone. Between the
+  // which it loses at 72rem, long before the page becomes a phone. Between the
   // two the rail used to fold under the content and land beneath the comment
   // composer, past everything, with no way to reach it as a sheet instead.
   const railFolded = $derived(isTaskRailFolded(paneWidth));
 
-  /** The branch the task's runs check out, and the ticket it mirrors — the two
-   *  facts the identity row states beneath the assignee. Both are optional, and
-   *  the row simply drops the line when neither exists. */
-  const identityDetail = $derived(
-    [
-      sessions.find((entry) => entry.branch)?.branch,
-      upstream ? `${upstream.provider} ${upstream.ref}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  );
 
   let tab = $state<TaskTabId>("overview");
-  let propertiesOpen = $state(false);
+  let detailsOpen = $state(false);
+  let detailsButton = $state<HTMLButtonElement | null>(null);
+  // Where the rail folds, its fields open in place under the title, inside
+  // this pane. Only the phone shell raises them as a sheet: a narrow pane on a
+  // wide window is still a desktop, and a full-window sheet there covers every
+  // other pane to edit three fields of one of them.
+  const detailsAsSheet = $derived(runtime.isMobileViewport);
+  const detailsSummary = $derived(task ? taskDetailsSummary(task) : null);
   const tabCounts = $derived({
     linked: links.length + prRows.length,
     sessions: sessions.length,
-    activity: (details?.comments?.length ?? 0) + (details?.events?.length ?? 0),
+    activity: (details?.comments?.length ?? 0) + (details?.activity?.length ?? 0),
   });
 
   /** Sections are hidden, never unmounted: a tab that unmounts loses its
@@ -634,71 +647,98 @@
   });
 </script>
 
-{#snippet identityRow()}
-  <!-- The sidebar's first three fields, on the one rung where that column has
-       nowhere to be: who it is assigned to, the branch its runs check out, and
-       the ticket it mirrors. It is a button, not a card — the whole row opens
-       the sheet that holds the rest of them. -->
+{#snippet detailsTrigger()}
+  <!-- Where the rail has folded, the status line ends in a Details disclosure,
+       drawn like the status and priority menus beside it: text and a chevron,
+       a wash only under the pointer. It leads with what a reader looks for
+       first — who has it, when it is due, how it is labelled — and only what is
+       set; status and priority are already on the line. A narrow pane sheds
+       the labels, then the due date, so the assignee keeps its room. It opens
+       the rail's fields under the title, or the sheet that holds them on a
+       phone. -->
   <button
+    bind:this={detailsButton}
     type="button"
-    class="flex h-[52px] w-full cursor-pointer items-center gap-2.5 rounded-xl border-0 bg-card px-3 text-left text-foreground shadow-[shadow:var(--elev-ring)] [-webkit-tap-highlight-color:transparent]"
-    onclick={() => (propertiesOpen = true)}
-    aria-haspopup="dialog"
-    aria-expanded={propertiesOpen}
+    class="-mx-1.5 inline-flex h-[26px] max-w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-1.5 font-normal text-muted-foreground outline-none transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground aria-expanded:text-foreground pointer-coarse:h-9 [-webkit-tap-highlight-color:transparent]"
+    onclick={() => (detailsOpen = detailsAsSheet ? true : !detailsOpen)}
+    aria-haspopup={detailsAsSheet ? "dialog" : undefined}
+    aria-controls={detailsAsSheet ? undefined : "task-details-panel"}
+    aria-expanded={detailsOpen}
   >
-    {#if task?.assignee}
-      <span
-        class="flex size-[26px] shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-        style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 74%, var(--foreground))"
-        aria-hidden="true">{authorInitials(task.assignee)}</span
-      >
-    {:else}
-      <span
-        class="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] text-muted-foreground"
-        aria-hidden="true"><UserIcon size={14} /></span
-      >
+    {#if detailsSummary?.assignee}
+      <span class="inline-flex min-w-0 items-center gap-1.5 text-foreground">
+        {#if task?.assigneeAvatarUrl}
+          <img src={task.assigneeAvatarUrl} alt="" class="size-4 shrink-0 rounded-full" />
+        {:else}
+          <span
+            class="flex size-4 shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-semibold"
+            style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 74%, var(--foreground))"
+            aria-hidden="true">{authorInitials(detailsSummary.assignee)}</span
+          >
+        {/if}
+        <span class="truncate">{detailsSummary.assignee}</span>
+      </span>
     {/if}
-    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span class="truncate font-medium"
-        >{task?.assignee ?? "Unassigned"}</span
+    {#if detailsSummary?.due}
+      <span
+        class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap @max-[26rem]:hidden {detailsSummary.due.tone === 'overdue'
+          ? 'text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]'
+          : detailsSummary.due.tone === 'soon'
+            ? 'text-foreground'
+            : ''}"
       >
-      {#if identityDetail}
-        <span
-          class="truncate font-mono text-xs text-muted-foreground"
-          >{identityDetail}</span
-        >
-      {/if}
+        <CalendarIcon size={13} class="shrink-0 opacity-70" aria-hidden="true" />
+        <span class="sr-only">Due</span>{detailsSummary.due.label}
+      </span>
+    {/if}
+    {#if detailsSummary?.labels}
+      <span class="inline-flex min-w-0 items-center gap-1 @max-[34rem]:hidden">
+        <TagIcon size={13} class="shrink-0 opacity-70" aria-hidden="true" />
+        <span class="sr-only">Labels</span><span class="truncate">{detailsSummary.labels}</span>
+      </span>
+    {/if}
+    <span class="inline-flex shrink-0 items-center gap-1">
+      Details
+      <CaretDownIcon
+        size={13}
+        class="shrink-0 opacity-70 transition-transform duration-150 motion-reduce:transition-none {detailsOpen &&
+        !detailsAsSheet
+          ? 'rotate-180'
+          : ''}"
+        aria-hidden="true"
+      />
     </span>
-    <CaretRightIcon
-      size={15}
-      class="shrink-0 text-muted-foreground opacity-70"
-    />
   </button>
+{/snippet}
+
+{#snippet detailsPanel()}
+  {#if detailsOpen && !detailsAsSheet}
+    <!-- Open, the rail's fields sit between the title and the description.
+         Escape closes them and hands focus back to Details, before the page's
+         own Escape can close the task. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      id="task-details-panel"
+      class="pt-3"
+      onkeydown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        detailsOpen = false;
+        detailsButton?.focus();
+      }}
+    >
+      {@render propertiesPanel("panel")}
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet bottomBar(record: Task)}
   <!-- The composer is outside the tabs on purpose: a comment is about the task,
        not about whichever section is on screen, and rule one of the redesign is
-       that the input is always reachable.
-
-       Properties sits on the left from the folded rung up, not the stacked one:
-       that is the moment the rail leaves the column, and hiding a destination
-       without building its replacement in the same breath is how it went
-       missing for every pane between the two. -->
+       that the input is always reachable. -->
   {#if capabilities?.canComment}
     <div class="flex items-end gap-2" class:hidden={bottomAction !== null}>
-      {#if railFolded}
-        <button
-          type="button"
-          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:size-9"
-          onclick={() => (propertiesOpen = true)}
-          aria-haspopup="dialog"
-          aria-expanded={propertiesOpen}
-          aria-label="Task properties"
-        >
-          <PropertiesIcon size={17} />
-        </button>
-      {/if}
       <div class="min-w-0 flex-1">
         <!-- Where the bar is pinned by the page, the composer's own sticky
              offset and scrim are the second copy of a job already done, and
@@ -749,7 +789,7 @@
   {/if}
 {/snippet}
 
-{#snippet propertiesPanel(variant: "column" | "sheet")}
+{#snippet propertiesPanel(variant: "column" | "panel" | "sheet")}
   {#if task}
     <TaskSidebar
       {task}
@@ -789,7 +829,9 @@
   aria-label="Task"
   tabindex="-1"
 >
-  {#if taskId !== loadedId || loadingTaskId === taskId || !store.loaded}
+  <!-- The sidebar row already holds the record, so the page draws at once;
+       only the detail read (links, comments, activity) is still in flight. -->
+  {#if !task && (taskId !== loadedId || loadingTaskId === taskId || !store.loaded)}
     <TaskPageSkeleton />
   {:else if task}
     <!-- Two heads, one set of decisions. The wide bar and the record bar take
@@ -888,7 +930,7 @@
         </div>
       {/if}
       <div
-        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
+        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-3 @max-[60rem]:px-6 @max-[42rem]:px-4"
       >
         <div class="flex min-w-0 flex-1 flex-col">
           <!-- Overview: the task itself, and the pull requests that close it.
@@ -904,7 +946,8 @@
               canEditPriority={capabilities?.canEditPriority ?? false}
               onSaveStatus={(status) => save({ status })}
               onSavePriority={(priority) => save({ priority })}
-              identity={stacked ? identityRow : undefined}
+              detailsTrigger={railFolded ? detailsTrigger : undefined}
+              detailsPanel={railFolded ? detailsPanel : undefined}
             />
 
             {#if prRows.length}
@@ -919,11 +962,17 @@
             {/if}
           </div>
 
+          <!-- Links, comments and activity come from the detail read. Until it
+               lands the page draws one placeholder in their place rather than
+               empty sections, and they arrive together with the composer below
+               them, so nothing already on screen is pushed down. A failed read
+               ends the wait and shows the sections as they are. -->
+          {#if details || (loadedId === taskId && loadingTaskId !== taskId)}
           <div class="flex flex-col" class:hidden={hiddenTab("linked")}>
           {#if pinnedArtifact}
             <TaskPinnedArtifact
               link={pinnedArtifact}
-              html={session.worksStore.get(pinnedArtifact.targetKey)?.content || null}
+              html={session.worksStore.savedWork(pinnedArtifact.targetKey)?.content || null}
               enabled={surfaceVisible}
               onOpen={openLink}
               onUnpin={(link) => void pinArtifact(link, false)}
@@ -937,7 +986,7 @@
             onAdd={openPicker}
             upstreamProvider={(link) =>
               linkedWorkProvider(link, (workId) => session.worksStore.get(workId))}
-            artifactHtml={(link) => session.worksStore.get(link.targetKey)?.content || null}
+            artifactHtml={(link) => session.worksStore.savedWork(link.targetKey)?.content || null}
             onExpandArtifact={(link) =>
               void session.worksStore.ensureContent(link.targetKey, "task-artifact-preview")}
             previewsEnabled={surfaceVisible}
@@ -957,6 +1006,7 @@
               onStop={stopSession}
               onUnlink={unlinkSession}
               onNewSession={canStartSession ? () => startSession(task) : null}
+              onStartLead={canStartSession && !hasLead ? () => startSession(task, "lead") : null}
             />
           </div>
 
@@ -964,11 +1014,12 @@
             <TaskActivityFeed
               {stacked}
               comments={details?.comments ?? []}
-              events={details?.events ?? []}
+              activity={details?.activity ?? []}
               {links}
               enabled={surfaceVisible && !hiddenTab("activity")}
               {sessions}
               onOpenSession={(sessionId) => void openSession(sessionId)}
+              currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
               provider={upstream?.canSync ? upstream.provider : null}
               onPublish={(commentId) => publishComments([commentId])}
               onDelete={deleteComment}
@@ -981,12 +1032,13 @@
                stacked rung it sticks to the foot of the scrollport and gains
                a new run on the right, which is the whole bottom bar.
 
-               Properties sits on the left from the folded rung up, not the
-               stacked one: that is the moment the rail leaves the column, and
-               hiding a destination without building its replacement in the same
-               breath is how it went missing for every pane between the two. -->
+               Where the rail folds, its fields are reached from Details at the
+               end of the status line, not from a button beside the composer. -->
           {#if !stacked}
             {@render bottomBar(task)}
+          {/if}
+          {:else}
+            <ContentSkeleton label="Loading task details" />
           {/if}
         </div>
 
@@ -1029,15 +1081,15 @@
 <!-- The desktop sidebar, in order, as a sheet. It stops short of the top so the
      task behind it stays identifiable — this edits the task you are reading,
      and covering it entirely would leave nothing to say which one that is. -->
-{#if railFolded && propertiesOpen}
-  <BottomSheet label="Task properties" onClose={() => (propertiesOpen = false)}>
+{#if railFolded && detailsOpen && detailsAsSheet}
+  <BottomSheet label="Task details" onClose={() => (detailsOpen = false)}>
     {#snippet header()}
       <div class="flex items-center justify-between">
-        <span class="text-workspace-chrome font-medium text-foreground">Properties</span>
+        <span class="text-workspace-chrome font-medium text-foreground">Details</span>
         <button
           type="button"
-          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-8"
-          onclick={() => (propertiesOpen = false)}
+          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent]"
+          onclick={() => (detailsOpen = false)}
         >
           Done
         </button>

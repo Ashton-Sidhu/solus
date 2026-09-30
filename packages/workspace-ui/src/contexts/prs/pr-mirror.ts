@@ -162,23 +162,4 @@ export class PrMirrors {
   readonly changedFiles = new PrMirror<ChangedFileStat[]>()
   readonly interdiff = new PrMirror<PrInterdiffResult>(PR_LARGE_MIRROR_MAX_ENTRIES)
   readonly viewer = new PrMirror<ProviderViewer>()
-
-  /** Forget everything filed under one project. */
-  forgetPrefix(prefix: string): void {
-    for (const mirror of [
-      this.list,
-      this.overview,
-      this.detail,
-      this.commits,
-      this.reviewers,
-      this.reviewerCandidates,
-      this.labelCandidates,
-      this.threads,
-      this.comments,
-      this.changedFiles,
-      this.interdiff,
-    ]) {
-      mirror.deleteByPrefix(prefix)
-    }
-  }
 }

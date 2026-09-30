@@ -8,7 +8,9 @@
     type ListGroupSpec,
     type VirtualGroupItem,
   } from "../ui/list-page";
-  import { PR_LIST_ROW_HEIGHT, type PrRowSpec } from "./lib/prs-list-view";
+  import { PR_LIST_ROW_HEIGHT, PR_LIST_SPLIT_ROW_HEIGHT, type PrRowSpec } from "./lib/prs-list-view";
+  import { prRowActions, type PrRowActionKind } from "./lib/pr-row-actions";
+  import { Button } from "../ui/button";
   import PrListRow from "./PrListRow.svelte";
   import PrPagination from "./PrPagination.svelte";
 
@@ -18,6 +20,7 @@
   interface Props {
     items: VirtualGroupItem<ListGroupSpec<PrRowSpec>, PrRowSpec>[];
     height: number;
+    split?: boolean;
     activeKey: string | null;
     scrollTop: number;
     selectedKey: string | null;
@@ -29,17 +32,21 @@
     loadingMore: boolean;
     /** The list is at its row cap; more needs a narrower search. */
     loadCapped: boolean;
+    /** Shift is held: every row shows its quick actions. */
+    showRowActions: boolean;
     prByKey: (key: string) => PullRequest | undefined;
     isSectionOpen: (key: string) => boolean;
     onToggleSection: (key: string) => void;
     onSelect: (pr: PullRequest) => void;
     onContextMenu: (event: MouseEvent, pr: PullRequest) => void;
     onToggleReview: (pr: PullRequest) => void;
+    onRowAction: (pr: PullRequest, kind: PrRowActionKind) => void;
     onLoadMore: () => void;
   }
   let {
     items,
     height,
+    split = false,
     activeKey,
     scrollTop = $bindable(),
     selectedKey,
@@ -48,12 +55,14 @@
     hasMore,
     loadingMore,
     loadCapped,
+    showRowActions,
     prByKey,
     isSectionOpen,
     onToggleSection,
     onSelect,
     onContextMenu,
     onToggleReview,
+    onRowAction,
     onLoadMore,
   }: Props = $props();
 </script>
@@ -62,11 +71,13 @@
   {items}
   {height}
   itemSize={(index) =>
-    items[index].kind === "header" ? LIST_GROUP_HEADER_HEIGHT : PR_LIST_ROW_HEIGHT}
+    items[index].kind === "header"
+      ? LIST_GROUP_HEADER_HEIGHT
+      : split ? PR_LIST_SPLIT_ROW_HEIGHT : PR_LIST_ROW_HEIGHT}
   keyOf={(item) => item.key}
   {activeKey}
   scrollOffset={scrollTop}
-  onAfterScroll={({ offset }) => (scrollTop = offset)}
+  onScroll={(offset) => (scrollTop = offset)}
 >
   {#snippet children(item, _index, style)}
     <div {style}>
@@ -98,10 +109,35 @@
             ✓
           </button>
         {/snippet}
+        <!-- Out of the tab order on purpose: they exist only while Shift is
+             held, so focus would vanish with them. The keyboard runs the same
+             actions as Shift+letter on the highlighted row. -->
+        {#snippet quickActions()}
+          {#if pr}
+            <span class="ml-2 flex shrink-0 items-center gap-1">
+              {#each prRowActions(pr) as action (action.kind)}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  class="cursor-pointer gap-1.5"
+                  tabindex={-1}
+                  title="{action.menuLabel} (⇧{action.key})"
+                  onclick={() => onRowAction(pr, action.kind)}
+                >
+                  {action.label}
+                  <span class="text-[10px] text-muted-foreground" aria-hidden="true">{action.key}</span>
+                </Button>
+              {/each}
+            </span>
+          {/if}
+        {/snippet}
         <PrListRow
           row={item.row}
+          {split}
           selected={rowSelected}
           leading={canReview ? reviewCheckbox : undefined}
+          actions={showRowActions ? quickActions : undefined}
           onSelect={() => {
             if (pr) onSelect(pr);
           }}

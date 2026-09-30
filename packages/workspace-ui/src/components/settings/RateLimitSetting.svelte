@@ -24,7 +24,7 @@
 
 <SettingsRow
   label="Rate limit behavior"
-  description="What happens when a user run on this host hits a provider rate limit. Shared by all clients connected to this host."
+  description="What a run does when it hits a provider rate limit. Applies to all clients."
   {visible}
 >
   {#snippet control()}

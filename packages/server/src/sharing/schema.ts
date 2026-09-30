@@ -37,7 +37,6 @@ export const shareGrant = defineTable('share_grant', {
 }, {
   indexes: [
     { name: 'share_grant_subject', columns: ['resource_kind', 'resource_id', 'subject_kind', 'subject_id'], unique: true },
-    { name: 'share_grant_resource_idx', columns: ['resource_kind', 'resource_id'] },
     { name: 'share_grant_secret_idx', columns: ['link_secret_hash'], where: 'link_secret_hash IS NOT NULL' },
   ],
 })

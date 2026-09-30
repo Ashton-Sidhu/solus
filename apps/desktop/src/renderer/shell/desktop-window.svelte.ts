@@ -21,7 +21,6 @@ export class DesktopWindow extends ClientViewport implements ClientShellContext 
   readonly hasProjectPanel = true
   readonly hasCompanionPanes = true
   private workspace: WorkspaceContext | null = null
-  get deferHistoryToolInputs(): boolean { return runtime.isMobileViewport }
 
   constructor() {
     super()

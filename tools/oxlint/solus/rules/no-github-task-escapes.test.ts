@@ -4,9 +4,9 @@ import { noGithubTaskEscapesRule } from './no-github-task-escapes.ts'
 
 const tester = new RuleTester({ languageOptions: { parserOptions: { lang: 'ts' } } })
 
-const taskLayerFile = 'packages/server/src/tasks/upstream.ts'
-const adapterFile = 'packages/server/src/tasks/adapters/github.ts'
-const providerFile = 'packages/server/src/tasks/providers/github.ts'
+const taskLayerFile = 'packages/server/src/data/tasks/upstream.ts'
+const adapterFile = 'packages/server/src/data/tasks/adapters/github.ts'
+const providerFile = 'packages/server/src/data/tasks/providers/github.ts'
 
 tester.run('solus/no-github-task-escapes', noGithubTaskEscapesRule, {
   valid: [

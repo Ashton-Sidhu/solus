@@ -1,12 +1,14 @@
 <script lang="ts">
   import {
     ExternalLink as ArrowSquareOutIcon,
-    CloudUpload as CloudUploadIcon,
     Columns3 as ColumnsIcon,
     Copy as CopyIcon,
     FolderOpen as FolderOpenIcon,
     Pin as PushPinIcon,
+    Share as ShareIcon,
     Trash2 as TrashIcon,
+    UserCheck as UserCheckIcon,
+    Link as LinkIcon,
   } from "@lucide/svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -22,7 +24,9 @@
     onTogglePin,
     onOpenSession,
     onOpenSessionSplit,
-    onMoveToCloud,
+    onShare,
+    onRequestReview,
+    onCopyReviewLink,
     onDelete,
     onClose,
   }: {
@@ -34,8 +38,12 @@
     onTogglePin: () => void;
     onOpenSession?: () => void;
     onOpenSessionSplit?: () => void;
-    /** Move the work to the organization's workspace service; absent when there is none connected or it is already there. */
-    onMoveToCloud?: () => void;
+    /** Works only: open the Share dialog, which uploads a Local work first (organization-scope §7). */
+    onShare?: () => void;
+    /** Works only: open the work with its Review popover. */
+    onRequestReview?: () => void;
+    /** Works only: copy the link people outside the organization review through. */
+    onCopyReviewLink?: () => void;
     onDelete?: () => void;
     onClose: () => void;
   } = $props();
@@ -98,10 +106,23 @@
       {item.pinned ? "Unpin" : "Pin"}
     </ContextMenu.Item>
 
-    {#if onMoveToCloud}
-      <ContextMenu.Item onSelect={() => select(onMoveToCloud)} data-testid="move-item-to-cloud">
-        <CloudUploadIcon />
-        Move to Solus Cloud
+    {#if onShare}
+      <ContextMenu.Item onSelect={() => select(onShare)} data-testid="share-item">
+        <ShareIcon />
+        Share…
+      </ContextMenu.Item>
+    {/if}
+
+    {#if onRequestReview}
+      <ContextMenu.Item onSelect={() => select(onRequestReview)} data-testid="request-review-item">
+        <UserCheckIcon />
+        Request review…
+      </ContextMenu.Item>
+    {/if}
+    {#if onCopyReviewLink}
+      <ContextMenu.Item onSelect={() => select(onCopyReviewLink)}>
+        <LinkIcon />
+        Copy review link
       </ContextMenu.Item>
     {/if}
 

@@ -5,10 +5,10 @@ import type { Session } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ClaudeGoalStore: typeof import('@solus/server/sessions/claude-goal-store')['ClaudeGoalStore']
+let ClaudeGoalStore: typeof import('@solus/server/data/sessions/claude-goal-store')['ClaudeGoalStore']
 
 beforeAll(async () => {
-  ;({ ClaudeGoalStore } = await import('@solus/server/sessions/claude-goal-store'))
+  ;({ ClaudeGoalStore } = await import('@solus/server/data/sessions/claude-goal-store'))
 })
 
 function goalStore() {

@@ -1,4 +1,4 @@
-import { readPrefetchedSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, readPrefetchedSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { materializeSessionTranscript } from './session-transcript'
 import { markStartupTranscriptApplied } from './startup-transcript'
 import type { PersistedTabs } from './tab-persistence'
@@ -17,8 +17,7 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
     sessionId: saved.agentSessionId,
     projectPath: loadPath,
     provider: saved.provider,
-    limit: RESTORED_TRANSCRIPT_LIMIT,
-    deferToolInputs: ctx.deferHistoryToolInputs,
+    turnLimit: INITIAL_HISTORY_TURNS,
   })
   if (!page) return
   const transcript = materializeSessionTranscript(ctx, {
@@ -27,7 +26,7 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
     displayCwd,
     provider: saved.provider,
     ctx: ctx.ctxFor(tabId),
-    limit: RESTORED_TRANSCRIPT_LIMIT,
+    turnLimit: INITIAL_HISTORY_TURNS,
   }, page)
   session.messages.splice(0, session.messages.length, ...transcript.messages)
   session.historyTruncated = transcript.truncated

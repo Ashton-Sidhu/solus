@@ -7,6 +7,12 @@ import {
 } from '@solus/workspace-ui/components/comments/lib/thread'
 import { threadTime } from '@solus/workspace-ui/lib/relative-time'
 import type { PlanComment } from '@solus/contracts/types'
+import type { Attribution } from '@solus/contracts/user'
+
+const SPEAKERS = {
+  you: { kind: 'user', user: { id: { kind: 'local', localId: 'reader' }, displayName: 'Reader' } },
+  solus: { kind: 'agent', sessionId: 'agent-session', provider: 'claude-code' },
+} satisfies Record<string, Attribution>
 
 // Comment prose is deliberately poorer than the document's. A thread that can
 // grow headings and tables stops being a margin note, so the tokenizer is an
@@ -79,9 +85,9 @@ describe('comment text', () => {
 })
 
 describe('threads', () => {
-  const at = (createdAt: number, author: 'you' | 'solus' = 'you') => ({
+  const at = (createdAt: number, speaker: keyof typeof SPEAKERS = 'you') => ({
     id: `r${createdAt}`,
-    author,
+    author: SPEAKERS[speaker] as Attribution,
     text: 't',
     createdAt,
   })
@@ -102,7 +108,7 @@ describe('threads', () => {
 
   test('unread means Solus said something the reader has not seen', () => {
     // SAFETY: each assertion adds the timestamps that isUnread reads.
-    const base = { id: 'c', selectedText: 's', comment: 'c', author: 'you' } as PlanComment
+    const base = { id: 'c', selectedText: 's', comment: 'c', author: SPEAKERS.you } as PlanComment
     // Your own thread with no answer is never unread — that would be unread of
     // yourself.
     expect(isUnread({ ...base, createdAt: 10, readAt: 10 })).toBe(false)

@@ -1,19 +1,18 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostPresenceSnapshot, PresenceFocus, SessionPresenceSnapshot } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
-import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
+import type { UserId } from '@solus/contracts/user'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { followStep, newArrivals, peopleFrom, sameFocus, type FocusReport, type PeopleOptions, type PresencePerson } from '../../components/presence/lib/presence-people'
-import { hostPeopleAcrossHosts, rosterPeople, type HostPerson, type RosterPerson } from '../../components/presence/lib/host-people'
-import { accountStore } from '../account/account.store.svelte'
+import { hostPeopleAcrossHosts, rosterPeople, type RosterPerson } from '../../components/presence/lib/host-people'
 import { serversStore } from '../connections/servers.store.svelte'
 import { sharesStore } from '../sharing/shares.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { visibleRef } from '../workspace/routing/location'
+import { TypingReporter } from './typing-reporter'
 
 /**
  * Who is here, per host (docs/plans/multiplayer-presence.md). The host owns the
@@ -27,8 +26,6 @@ import { visibleRef } from '../workspace/routing/location'
 
 /** How long a focus change waits before it is sent, so a tab sweep is one report. */
 const FOCUS_REPORT_DELAY_MS = 400
-/** How long a draft change waits, so a keystroke burst is one report. */
-const COMPOSING_REPORT_DELAY_MS = 300
 /** The one toast slot follow mode holds while it is on. */
 const FOLLOW_TOAST_ID = 'presence-follow'
 
@@ -40,7 +37,7 @@ export interface FollowTarget {
 }
 
 /** The workspace surface presence reads: the focused pane and the hosts behind it. */
-type PresenceWorkspace = Pick<WorkspaceContext, 'router' | 'focusedChatTabId' | 'sessionFor' | 'serverIdFor' | 'openRoute'>
+type PresenceWorkspace = Pick<WorkspaceContext, 'router' | 'focusedChatTabId' | 'sessionFor' | 'serverIdFor' | 'openRoute' | 'worksStore'>
 
 function sessionKey(serverId: string, sessionId: string): string {
   return `${serverId}|${sessionId}`
@@ -53,6 +50,10 @@ function workspaceFocus(workspace: Omit<PresenceWorkspace, 'openRoute'>): FocusR
     const tabId = workspace.focusedChatTabId
     const current = tabId ? workspace.sessionFor(tabId) : undefined
     if (tabId && current?.id) return { serverId: workspace.serverIdFor(tabId), focus: { kind: 'session', sessionId: current.id } }
+  }
+  if (ref?.name === 'work') {
+    const serverId = workspace.worksStore.hostFor(ref.params.workId) ?? ref.params.serverId ?? null
+    if (serverId) return { serverId, focus: { kind: 'work', workId: ref.params.workId } }
   }
   return { serverId: null, focus: PRESENCE_NO_FOCUS }
 }
@@ -70,8 +71,22 @@ class PresenceStore {
   private readonly lastFocus = new Map<string, PresenceFocus>()
   private focusTimer: ReturnType<typeof setTimeout> | null = null
   private pendingFocus: FocusReport | null = null
-  private readonly composingTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  private readonly lastComposing = new Map<string, boolean>()
+  /** `serverId|sessionId` → the room a typing report goes to. */
+  private readonly typingRooms = new Map<string, { serverId: string; sessionId: string }>()
+  private readonly typing = new TypingReporter((key, isComposing) => {
+    const room = this.typingRooms.get(key)
+    if (!room) return
+    if (!isComposing) this.typingRooms.delete(key)
+    serverConnections.apiFor(room.serverId).presenceSetComposing({ sessionId: room.sessionId, isComposing }).catch(() => {})
+  })
+  /** `serverId|workId` → the work an editing report goes to. */
+  private readonly editingRooms = new Map<string, { serverId: string; workId: string }>()
+  private readonly editing = new TypingReporter((key, isEditing) => {
+    const room = this.editingRooms.get(key)
+    if (!room) return
+    if (!isEditing) this.editingRooms.delete(key)
+    serverConnections.apiFor(room.serverId).presenceSetEditing({ workId: room.workId, isEditing }).catch(() => {})
+  })
   private stopListening: (() => void) | null = null
   /** The focus follow mode last opened, so a person's move is followed once. */
   private lastFollowed: PresenceFocus | null = null
@@ -104,7 +119,10 @@ class PresenceStore {
       unsubscribeSession()
       unsubscribeStatus()
       if (this.focusTimer) clearTimeout(this.focusTimer)
-      for (const timer of this.composingTimers.values()) clearTimeout(timer)
+      this.typing.clear()
+      this.typingRooms.clear()
+      this.editing.clear()
+      this.editingRooms.clear()
       this.stopListening = null
     }
     return this.stopListening
@@ -115,8 +133,7 @@ class PresenceStore {
     if (this.selfClientIds.has(serverId)) return
     const inFlight = this.loads.get(serverId)
     if (inFlight) return inFlight
-    // Who this client is to the host, by principal: an owner connection is the
-    // host owner under whichever id the room names them.
+    // Who this client is to the host, before the room arrives.
     void sharesStore.identityFor(serverId).catch(() => {})
     const load = serverConnections.apiFor(serverId).presenceSnapshot()
       .then((result) => {
@@ -132,51 +149,21 @@ class PresenceStore {
   }
 
   /**
-   * Every id that is the reader on a host: the participant the host says they
-   * are, the account behind their connection, and `host-owner` on a host they
-   * own — their own machine, or one they reach as its owner. The same person on a
-   * laptop and in a browser is then left out of their own stack on every host,
-   * whichever door each client came through.
+   * Who the reader is on a host: the one user the host named this client as
+   * (plans/012 §1). "Is this me?" is `sameUser` against it. The room's own row
+   * is read first because it is fresh on every snapshot; the connection's
+   * identity answers before the room arrives. Null until the host has said, and
+   * then nothing reads as the reader's own.
    */
-  selfUserIds(serverId: string): string[] {
-    const ids = new Set<string>()
+  currentUserId(serverId: string): UserId | null {
     const clientId = this.selfClientIds.get(serverId)
-    const own = clientId ? this.hosts.get(serverId)?.participants.find((participant) => participant.clientId === clientId)?.userId : undefined
-    if (own) ids.add(own)
-    const identity = sharesStore.identities.get(serverId)
-    if (identity?.userId) ids.add(identity.userId)
-    if (serverId === LOCAL_SERVER_ID || identity?.principal === 'local-owner' || identity?.principal === 'remote-owner') ids.add(HOST_OWNER_USER_ID)
-    const account = accountStore.state
-    if (account.kind === 'signed-in') ids.add(account.profile.id)
-    return [...ids]
+    const own = clientId ? this.hosts.get(serverId)?.participants.find((participant) => participant.clientId === clientId) : undefined
+    return own?.user.id ?? sharesStore.identities.get(serverId)?.user?.id ?? null
   }
 
-  /** How a host's participants are read: who the reader is there, and what its owner is called. */
+  /** How a host's participants are read: who the reader is there. */
   private peopleOptions(serverId: string): PeopleOptions {
-    const options: PeopleOptions = { self: this.selfUserIds(serverId) }
-    const ownerName = this.hostOwnerName(serverId)
-    if (ownerName) options.hostOwnerName = ownerName
-    return options
-  }
-
-  /** The account name behind a shared personal host's `host-owner`, from the directory row. */
-  private hostOwnerName(serverId: string): string | undefined {
-    const host = serversStore.hostFor(serverId)
-    return host && 'uplink' in host ? host.uplink?.ownerName : undefined
-  }
-
-  /**
-   * The identity behind a roster row, for merging across hosts: the account id,
-   * or for a personal host's `host-owner` the account that linked it — the reader's
-   * own on their machine, the directory's answer on a shared one. A host the
-   * directory never named keeps its owner apart under the host's own id.
-   */
-  identityOf(row: HostPerson): string {
-    if (row.userId !== HOST_OWNER_USER_ID) return row.userId
-    if (row.serverId === LOCAL_SERVER_ID && accountStore.state.kind === 'signed-in') return accountStore.state.profile.id
-    const host = serversStore.hostFor(row.serverId)
-    const ownerUserId = host && 'uplink' in host ? host.uplink?.ownerUserId : undefined
-    return ownerUserId ?? `${HOST_OWNER_USER_ID}@${row.serverId}`
+    return { self: this.currentUserId(serverId) }
   }
 
   /** Everyone else on the host, one per person, with what they have focused. */
@@ -196,7 +183,7 @@ class PresenceStore {
   /** Everyone else across the hosts this client is on, one face per person however many hosts they are on. */
   roster(): RosterPerson[] {
     const rows = hostPeopleAcrossHosts(serverConnections.connectedServerIds(), (serverId) => this.hostPeople(serverId))
-    return rosterPeople(rows, (row) => this.identityOf(row))
+    return rosterPeople(rows)
   }
 
   sessionRoom(serverId: string, sessionId: string): SessionPresenceSnapshot | undefined {
@@ -244,18 +231,32 @@ class PresenceStore {
     }
   }
 
-  /** This client has (or no longer has) a draft in a session; sent after a short quiet period. */
-  setComposing(serverId: string | null | undefined, sessionId: string | null | undefined, isComposing: boolean): void {
+  /** The person pressed a key in a session's prompt; the host hears it at most once per repeat interval. */
+  noteTyping(serverId: string | null | undefined, sessionId: string | null | undefined): void {
     if (!serverId || !sessionId) return
     const key = sessionKey(serverId, sessionId)
-    const timer = this.composingTimers.get(key)
-    if (timer) clearTimeout(timer)
-    this.composingTimers.set(key, setTimeout(() => {
-      this.composingTimers.delete(key)
-      if (this.lastComposing.get(key) === isComposing) return
-      this.lastComposing.set(key, isComposing)
-      serverConnections.apiFor(serverId).presenceSetComposing({ sessionId, isComposing }).catch(() => {})
-    }, isComposing ? COMPOSING_REPORT_DELAY_MS : 0))
+    this.typingRooms.set(key, { serverId, sessionId })
+    this.typing.keystroke(key)
+  }
+
+  /** Typing in a session ended on purpose: the prompt went out or was cleared, or the bar left it. */
+  stopTyping(serverId: string | null | undefined, sessionId: string | null | undefined): void {
+    if (!serverId || !sessionId) return
+    this.typing.stop(sessionKey(serverId, sessionId))
+  }
+
+  /** The person changed a work's body; the host hears it by the same rule as typing. */
+  noteEditing(serverId: string | null | undefined, workId: string | null | undefined): void {
+    if (!serverId || !workId) return
+    const key = sessionKey(serverId, workId)
+    this.editingRooms.set(key, { serverId, workId })
+    this.editing.keystroke(key)
+  }
+
+  /** Editing a work ended on purpose: the work closed or went out of view. */
+  stopEditing(serverId: string | null | undefined, workId: string | null | undefined): void {
+    if (!serverId || !workId) return
+    this.editing.stop(sessionKey(serverId, workId))
   }
 
   /** Someone arrived on a host: one quiet notice, naming the host only when this client is on several. */
@@ -307,7 +308,8 @@ class PresenceStore {
         // The click that started the follow is the one these navigations answer to.
         if (step.focus.kind === 'session') {
           workspace.openRoute({ name: 'chat', params: { sessionId: step.focus.sessionId, serverId: target.serverId } }, { via: 'click' })
-
+        } else if (step.focus.kind === 'work') {
+          workspace.openRoute({ name: 'work', params: { workId: step.focus.workId, serverId: target.serverId } }, { via: 'click' })
         }
         return
       case 'stop':

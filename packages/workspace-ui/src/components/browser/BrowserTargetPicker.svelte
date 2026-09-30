@@ -10,6 +10,7 @@
   import type { BrowserDiscoveredTarget } from "@solus/contracts/browser-types";
   import { Skeleton } from "../ui/skeleton";
   import * as TooltipUI from "../ui/tooltip";
+  import { MiddleTruncate } from "../ui/middle-truncate";
   import { navigableAddress } from "./lib/address";
 
   /**
@@ -203,9 +204,10 @@
                   </span>
                 {:else}
                   {#if target.branch}
-                    <span class="shrink-0 truncate text-(--solus-text-tertiary)">
-                      {target.branch}
-                    </span>
+                    <MiddleTruncate
+                      value={target.branch}
+                      class="max-w-[45%] shrink-0 text-(--solus-text-tertiary)"
+                    />
                   {/if}
                   <span
                     class="shrink-0 text-(--solus-text-tertiary) tabular-nums"

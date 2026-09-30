@@ -135,7 +135,7 @@ async function pollForToken(deviceCode: string, intervalSeconds: number, expires
   throw new Error('The device code expired before authorization completed.')
 }
 
-async function fetchLogin(token: string): Promise<{ login: string; scopes: string }> {
+export async function fetchLogin(token: string): Promise<{ login: string; scopes: string }> {
   const res = await getJson(USER_URL, token)
   if (res.status !== 200) throw new Error(`Failed to fetch GitHub user: ${res.body}`)
   const user = githubUserSchema.parse(JSON.parse(res.body))

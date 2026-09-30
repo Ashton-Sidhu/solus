@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
+import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
 import type { NormalizedEvent } from '@solus/contracts/types'
 

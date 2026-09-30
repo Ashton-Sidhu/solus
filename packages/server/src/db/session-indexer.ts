@@ -4,29 +4,28 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage, SessionMessageWindow } from '@solus/contracts/session-history'
-import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
-import type { AgentId, ReasoningEffort, SessionMeta, SessionRecord, SessionSearchResult } from '@solus/contracts/types'
+import type { AgentId, ReasoningEffort, SessionMeta, SessionRecord } from '@solus/contracts/types'
 import {
   encodePathAsFolder,
   SOLUS_WORKTREE_ENCODED_MARKER,
   worktreeProjectRoot,
 } from '@solus/contracts/types'
-import { readSessionHeadMeta } from '../agents/claude/claude-session-helpers'
-import { scanPlanFile } from '../agents/claude/claude-plan-helpers'
+import { readSessionHeadMeta } from '../execution/agents/claude/claude-session-helpers'
+import { scanPlanFile } from '../execution/agents/claude/claude-plan-helpers'
 import {
   markIndexedPlanSessionUnavailable,
   replaceIndexedPlansForSession,
   type IndexedPlanInput,
 } from '../plans/plan-index'
 import { createLogger } from '../logger'
-import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import { ANY_ORGANIZATION } from '../admission/principal'
+import { delegationColumnsFor, type SessionDelegationStart } from '../data/sessions/session-delegations'
 import {
   deleteSessionRecord,
-  listSessionRecords,
+  setSessionRecordBranch,
   setSessionRecordTitle,
-  upsertSessionRecord,
-} from '../sessions/session-records'
-import { sanitizeFtsQuery } from './fts'
+  upsertOwnSessionRecord,
+} from '../data/sessions/session-records'
 import { getDb, withTx } from '.'
 
 const log = createLogger('main', 'session-indexer')
@@ -37,6 +36,12 @@ const READ_CHUNK_BYTES = 256 * 1024
 export const MAX_INDEXED_SESSION_LINE_BYTES = 4 * 1024 * 1024
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 const CLAUDE_SWEEP_COMPLETED_KEY = 'claude-session-index-swept-at'
+/** Set by the migration that re-reads every message; cleared by the next full sweep. */
+const MESSAGES_REBUILD_KEY = 'session-messages-rebuild'
+/** A message row id is its session's number times this, plus its position in
+ *  the session (docs/plans/unified-search.md §4): a hit names its session with
+ *  no join. A session keeps its first 2^20 messages in the index. */
+export const SESSION_ROW_SPAN = 2 ** 20
 
 const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
 const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode'])
@@ -54,7 +59,7 @@ const transcriptLineSchema = z.object({
   timestamp: z.union([z.string(), z.number()]),
   uuid: z.string().nullable().optional(),
 })
-const sessionRowSchema = z.object({
+export const sessionRowSchema = z.object({
   session_id: z.string(),
   provider: storedProviderSchema,
   cwd: z.string().nullable(),
@@ -78,6 +83,8 @@ const sessionRowSchema = z.object({
   delegation_created_at: z.number().nullable(),
 })
 const countRowSchema = z.object({ count: z.number() })
+const numberRowSchema = z.object({ number: z.number() })
+const lastIdRowSchema = z.object({ last: z.number().nullable() })
 const offsetRowSchema = z.object({ last_offset: z.number() })
 const pathRowSchema = z.object({ path: z.string() })
 const storedMessageRowSchema = z.object({
@@ -91,12 +98,6 @@ const timestampRowSchema = z.object({
   last_timestamp: z.number().nullable(),
 })
 const sessionIdRowSchema = z.object({ session_id: z.string() })
-const searchResultRowSchema = sessionRowSchema.extend({
-  snippet: z.string(),
-  hit_ts: z.number().nullable(),
-  message_id: z.number(),
-  rank: z.number(),
-})
 const indexedMessageRowSchema = z.object({
   id: z.number(),
   role: z.enum(['user', 'assistant']),
@@ -153,7 +154,7 @@ function deleteSessionFile(filePath: string): void {
   // Plans are durable Workspace artifacts even after Claude's transcript
   // retention removes the source session. Keep the plan, but make resume
   // attempts fail before they create an empty conversation tab.
-  markIndexedPlanSessionUnavailable(LOCAL_ORGANIZATION_ID, 'claude-code', sessionId).catch((error) => {
+  markIndexedPlanSessionUnavailable('claude-code', sessionId).catch((error) => {
     log.warn('plan_index_session_unavailable_failed', { sessionId, error: String(error) })
   })
   forgetSessionRecordWithRow(sessionId)
@@ -163,7 +164,7 @@ function deleteSessionFile(filePath: string): void {
 function forgetSessionRecordWithRow(sessionId: string): void {
   const row = getDb().prepare('SELECT 1 AS present FROM sessions WHERE session_id = ?').get(sessionId)
   if (row) return
-  deleteSessionRecord(LOCAL_ORGANIZATION_ID, sessionId).catch((error) => {
+  deleteSessionRecord(ANY_ORGANIZATION, sessionId).catch((error) => {
     log.warn('session_record_delete_failed', { sessionId, error: String(error) })
   })
 }
@@ -173,21 +174,18 @@ function forgetSessionRecordWithRow(sessionId: string): void {
  *  would race the model-config write from session_init that promptSession needs
  *  to re-launch a non-resident session. De-listing a session is a separate
  *  concern owned by deleteSessionFile and the sidechain branch of indexFile. */
-export function resetSession(filePath: string, sessionId: string, size: number, mtime: number): void {
+export function resetSession(filePath: string, sessionId: string): void {
   withTx(() => {
     const db = getDb()
     db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
     db.prepare(`
-      INSERT INTO session_files(path, provider, size, mtime, last_offset, indexed_at)
-      VALUES (?, 'claude', ?, ?, 0, ?)
+      INSERT INTO session_files(path, provider, last_offset)
+      VALUES (?, 'claude', 0)
       ON CONFLICT(path) DO UPDATE SET
         provider = excluded.provider,
-        size = excluded.size,
-        mtime = excluded.mtime,
-        last_offset = 0,
-        indexed_at = excluded.indexed_at
-    `).run(filePath, size, mtime, Date.now())
+        last_offset = 0
+    `).run(filePath)
   })
 }
 
@@ -335,35 +333,42 @@ export async function* readTailRecordBatches(
   }
 }
 
+/** The number a session's message row ids are built on, given on first use. */
+function sessionNumber(sessionId: string): number {
+  const db = getDb()
+  db.prepare('INSERT INTO session_keys(session_id) VALUES (?) ON CONFLICT(session_id) DO NOTHING').run(sessionId)
+  return numberRowSchema.parse(db.prepare('SELECT number FROM session_keys WHERE session_id = ?').get(sessionId)).number
+}
+
 function insertSessionMessageRows(
   sessionId: string,
   messages: Iterable<StoredMessage | null>,
-): number {
+): void {
   const db = getDb()
+  const first = sessionNumber(sessionId) * SESSION_ROW_SPAN
+  const end = first + SESSION_ROW_SPAN
+  // Appended after the session's last row: a tail read continues the positions.
+  const last = lastIdRowSchema.parse(db.prepare('SELECT MAX(id) AS last FROM session_messages WHERE id >= ? AND id < ?').get(first, end)).last
+  let id = last === null ? first : last + 1
   const insertMessage = db.prepare(`
-    INSERT INTO session_messages(session_id, uuid, role, ts, text)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO session_messages(id, session_id, uuid, role, ts, text)
+    VALUES (?, ?, ?, ?, ?, ?)
   `)
   const insertFts = db.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
-  let inserted = 0
   for (const message of messages) {
     if (!message) continue
-    const result = insertMessage.run(
-      sessionId,
-      message.uuid,
-      message.role,
-      message.ts,
-      message.text,
-    )
-    insertFts.run(result.lastInsertRowid, message.text)
-    inserted += 1
+    if (id >= end) {
+      log.warn('session_index_span_full', { sessionId })
+      return
+    }
+    insertMessage.run(id, sessionId, message.uuid, message.role, message.ts, message.text)
+    insertFts.run(id, message.text)
+    id += 1
   }
-  return inserted
 }
 
 export function indexSessionMessages(
   sessionId: string,
-  provider: string,
   messages: SessionLoadMessage[],
 ): void {
   const storedMessages = messages
@@ -382,12 +387,7 @@ export function indexSessionMessages(
     const db = getDb()
     db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
-    const messageCount = insertSessionMessageRows(sessionId, storedMessages)
-    db.prepare(`
-      UPDATE sessions
-      SET message_count = ?
-      WHERE session_id = ? AND provider = ?
-    `).run(messageCount, sessionId, provider)
+    insertSessionMessageRows(sessionId, storedMessages)
   })
 }
 
@@ -401,27 +401,21 @@ function upsertSession(
   lastTimestamp: number,
   size: number,
 ): void {
-  const db = getDb()
-  const count = countRowSchema.parse(
-    db.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ?').get(sessionId),
-  )
-  db.prepare(`
+  getDb().prepare(`
     INSERT INTO sessions(
-      session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-      slug, first_message, last_timestamp, message_count, size
+      session_id, provider, cwd, project_path, project_root, is_worktree,
+      slug, first_message, last_timestamp, size
     )
-    VALUES (?, 'claude', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, 'claude', ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       provider = excluded.provider,
       cwd = excluded.cwd,
       project_path = excluded.project_path,
-      project_key = excluded.project_key,
       project_root = excluded.project_root,
       is_worktree = excluded.is_worktree,
       slug = excluded.slug,
       first_message = excluded.first_message,
       last_timestamp = excluded.last_timestamp,
-      message_count = excluded.message_count,
       size = excluded.size
   `).run(
     sessionId,
@@ -432,9 +426,31 @@ function upsertSession(
     slug,
     firstMessage,
     lastTimestamp,
-    count.count,
     size,
   )
+}
+
+/** The collaboration plane's record of a session, fed by the same sweep that indexed its file. */
+function recordIndexedClaudeSession(
+  sessionId: string,
+  projectPath: string,
+  isWorktree: boolean,
+  meta: { cwd: string | null; slug: string | null; firstMessage: string | null },
+  mtime: number,
+  size: number,
+): Promise<SessionRecord> {
+  return upsertOwnSessionRecord({
+    sessionId,
+    provider: 'claude-code',
+    projectPath,
+    title: meta.firstMessage ?? meta.slug ?? undefined,
+    lastActivityAt: mtime,
+    size,
+    cwd: meta.cwd ?? undefined,
+    slug: meta.slug ?? undefined,
+    isWorktree,
+    projectRoot: projectRootFor(meta.cwd) ?? undefined,
+  })
 }
 
 /** Resolves true when the file needed work, so a sweep can report how much of
@@ -463,17 +479,17 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
   const sessionId = basename(filePath, '.jsonl')
   const mtime = Math.trunc(fileStat.mtimeMs)
   if (fileStat.size < 100) {
-    resetSession(filePath, sessionId, fileStat.size, mtime)
+    resetSession(filePath, sessionId)
     return true
   }
   if (!tracked || fileStat.size < lastOffset) {
-    resetSession(filePath, sessionId, fileStat.size, mtime)
+    resetSession(filePath, sessionId)
   }
   const readOffset = !tracked || fileStat.size < lastOffset ? 0 : lastOffset
   const meta = await readSessionHeadMeta(filePath)
   if (activeGeneration !== generation) return false
   if (!meta.validated || meta.isSidechain) {
-    resetSession(filePath, sessionId, fileStat.size, mtime)
+    resetSession(filePath, sessionId)
     // De-list sidechain/unparseable files — but a session file mid-write can
     // transiently fail head validation, so (like deleteSessionFile) never drop
     // a row carrying the model config persisted at session_init.
@@ -481,11 +497,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       DELETE FROM sessions
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
-    getDb().prepare(`
-      UPDATE session_files
-      SET last_offset = ?, indexed_at = ?
-      WHERE path = ?
-    `).run(fileStat.size, Date.now(), filePath)
+    getDb().prepare('UPDATE session_files SET last_offset = ? WHERE path = ?').run(fileStat.size, filePath)
     forgetSessionRecordWithRow(sessionId)
     return true
   }
@@ -500,11 +512,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
     withTx(() => {
       const openedDb = getDb()
       insertSessionMessageRows(sessionId, records.map((record) => record.message))
-      openedDb.prepare(`
-        UPDATE session_files
-        SET size = ?, mtime = ?, last_offset = ?, indexed_at = ?
-        WHERE path = ?
-      `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
+      openedDb.prepare('UPDATE session_files SET last_offset = ? WHERE path = ?').run(lastIndexedOffset, filePath)
     })
     await yieldToMain()
   }
@@ -521,21 +529,9 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       mtime,
       fileStat.size,
     )
-    getDb().prepare(`
-      UPDATE session_files
-      SET size = ?, mtime = ?, last_offset = ?, indexed_at = ?
-      WHERE path = ?
-    `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
+    getDb().prepare('UPDATE session_files SET last_offset = ? WHERE path = ?').run(lastIndexedOffset, filePath)
   })
-  // The collaboration plane's record of the session, fed by the same sweep.
-  await upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
-    sessionId,
-    provider: 'claude-code',
-    projectPath,
-    title: meta.firstMessage ?? meta.slug ?? undefined,
-    lastActivityAt: mtime,
-    size: fileStat.size,
-  })
+  await recordIndexedClaudeSession(sessionId, projectPath, isWorktree, meta, mtime, fileStat.size)
   const scannedPlans = await scanPlanFile(filePath, sessionId, projectPath, meta.cwd ?? projectPath)
   const indexedPlans: IndexedPlanInput[] = scannedPlans.map((plan) => ({
     provider: 'claude-code',
@@ -550,7 +546,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
     content: plan.content,
     derivedStatus: plan.derivedStatus,
   }))
-  await replaceIndexedPlansForSession(LOCAL_ORGANIZATION_ID, 'claude-code', sessionId, indexedPlans)
+  await replaceIndexedPlansForSession('claude-code', sessionId, indexedPlans)
   return true
 }
 
@@ -699,7 +695,14 @@ function markSweepCompleted(): void {
     INSERT INTO kv(key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(CLAUDE_SWEEP_COMPLETED_KEY, String(Date.now()))
+  getDb().prepare('DELETE FROM kv WHERE key = ?').run(MESSAGES_REBUILD_KEY)
   sweptInEarlierRun = true
+}
+
+/** True while the messages are read again after the index changed shape: a
+ *  search answers from part of them, and says so. */
+export function sessionMessagesRebuilding(): boolean {
+  return Boolean(getDb().prepare('SELECT 1 FROM kv WHERE key = ?').get(MESSAGES_REBUILD_KEY))
 }
 
 /**
@@ -719,7 +722,7 @@ export function sessionIndexComplete(): boolean {
   return ready || sweptInAnEarlierRun()
 }
 
-function rowToSession(row: SessionRow): SessionMeta {
+export function rowToSession(row: SessionRow): SessionMeta {
   const provider = agentIdSchema.parse(row.provider === 'claude' ? 'claude-code' : row.provider)
   const delegation = row.parent_session_id
     && row.root_session_id
@@ -730,7 +733,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     ? {
         parentSessionId: row.parent_session_id,
         rootSessionId: row.root_session_id,
-        exchangeId: row.delegation_exchange_id,
+        messageId: row.delegation_exchange_id,
         depth: row.delegation_depth,
         intent: row.delegation_intent,
         createdAt: row.delegation_created_at,
@@ -770,13 +773,30 @@ export function getIndexedSession(sessionId: string): SessionMeta | null {
   return row ? rowToSession(row) : null
 }
 
+/** The sessions these sessions started, by provider thread. */
+export function getChildSessions(parentSessionIds: readonly string[]): SessionMeta[] {
+  if (!parentSessionIds.length) return []
+  const placeholders = parentSessionIds.map(() => '?').join(', ')
+  return sessionRowSchema.array().parse(
+    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE parent_session_id IN (${placeholders}) ORDER BY last_timestamp DESC`).all(...parentSessionIds),
+  ).map(rowToSession)
+}
+
 export function getSessionMessages(sessionId: string): Array<{ role: string; ts: number | null; text: string }> {
   return storedMessageRowSchema.array().parse(getDb().prepare(`
     SELECT role, ts, text
     FROM session_messages
     WHERE session_id = ?
-    ORDER BY ts ASC, id ASC
+    ORDER BY id ASC
   `).all(sessionId))
+}
+
+/** The six delegation columns of a `sessions` row, in insert order; all null
+ *  for a session nobody delegated. */
+function delegationRowValues(delegation: SessionDelegationStart | undefined): [string | null, string | null, string | null, number | null, string | null, number | null] {
+  if (!delegation) return [null, null, null, null, null, null]
+  const columns = delegationColumnsFor(delegation)
+  return [columns.parentSessionId, columns.rootSessionId, columns.messageId, columns.depth, columns.intent, columns.createdAt]
 }
 
 export function persistIndexedSessionStart(
@@ -788,19 +808,29 @@ export function persistIndexedSessionStart(
   reasoningEffort: ReasoningEffort,
   firstMessage: string | null = null,
   branch: string | null = null,
+  delegation?: SessionDelegationStart,
 ): void {
+  const parent = delegationRowValues(delegation)
   getDb().prepare(`
     INSERT INTO sessions(
-      session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort, branch
+      session_id, provider, cwd, project_path, project_root, is_worktree,
+      slug, first_message, last_timestamp, size, model, reasoning_effort, branch,
+      parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
+      delegation_intent, delegation_created_at
     )
-    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
       first_message = COALESCE(sessions.first_message, excluded.first_message),
       model = COALESCE(sessions.model, excluded.model),
       reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort),
-      branch = COALESCE(sessions.branch, excluded.branch)
+      branch = COALESCE(sessions.branch, excluded.branch),
+      parent_session_id = COALESCE(sessions.parent_session_id, excluded.parent_session_id),
+      root_session_id = COALESCE(sessions.root_session_id, excluded.root_session_id),
+      delegation_exchange_id = COALESCE(sessions.delegation_exchange_id, excluded.delegation_exchange_id),
+      delegation_depth = COALESCE(sessions.delegation_depth, excluded.delegation_depth),
+      delegation_intent = COALESCE(sessions.delegation_intent, excluded.delegation_intent),
+      delegation_created_at = COALESCE(sessions.delegation_created_at, excluded.delegation_created_at)
   `).run(
     sessionId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -813,8 +843,10 @@ export function persistIndexedSessionStart(
     model,
     reasoningEffort,
     branch,
+    ...parent,
   )
-  void upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+  const [parentSessionId, rootSessionId, messageId, depth, intent, createdAt] = parent
+  void upsertOwnSessionRecord({
     sessionId,
     provider,
     projectPath,
@@ -823,6 +855,15 @@ export function persistIndexedSessionStart(
     reasoningEffort,
     status: 'running',
     lastActivityAt: Date.now(),
+    parentSessionId: parentSessionId ?? undefined,
+    rootSessionId: rootSessionId ?? undefined,
+    cwd,
+    isWorktree: projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER),
+    branch: branch ?? undefined,
+    projectRoot: projectRootFor(cwd) ?? undefined,
+    delegation: messageId !== null && depth !== null && createdAt !== null && (intent === 'delegate' || intent === 'fire_and_forget')
+      ? { messageId, depth, intent, createdAt }
+      : undefined,
   }).catch((error) => {
     log.warn('session_record_start_failed', { sessionId, error: String(error) })
   })
@@ -850,10 +891,10 @@ export function persistRemoteSessionStart(
 ): void {
   getDb().prepare(`
     INSERT INTO sessions(
-      session_id, provider, cwd, project_path, project_key, project_root,
-      is_worktree, slug, first_message, last_timestamp, message_count, size, server_id
+      session_id, provider, cwd, project_path, project_root,
+      is_worktree, slug, first_message, last_timestamp, size, server_id
     )
-    VALUES (?, ?, NULL, NULL, NULL, ?, 0, NULL, NULL, ?, 0, 0, ?)
+    VALUES (?, ?, NULL, NULL, ?, 0, NULL, NULL, ?, 0, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
       server_id = COALESCE(excluded.server_id, sessions.server_id)
@@ -864,12 +905,13 @@ export function persistRemoteSessionStart(
     Date.now(),
     serverId,
   )
-  void upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+  void upsertOwnSessionRecord({
     sessionId,
     provider,
     projectPath: projectRoot ? encodePathAsFolder(projectRoot) : '',
     runnerHostId: serverId,
     lastActivityAt: Date.now(),
+    projectRoot: projectRoot ?? undefined,
   }).catch((error) => {
     log.warn('session_record_remote_start_failed', { sessionId, error: String(error) })
   })
@@ -890,6 +932,9 @@ export function setSessionBranch(sessionId: string, branch: string): void {
       LIMIT 1
     ), ?)
   `).run(branch, sessionId, sessionId)
+  void setSessionRecordBranch(sessionId, branch).catch((error) => {
+    log.warn('session_record_branch_failed', { sessionId, error: String(error) })
+  })
 }
 
 /** Name a session, or clear the name back to the derived one with null. Only
@@ -897,58 +942,7 @@ export function setSessionBranch(sessionId: string, branch: string): void {
  *  sessions land one at session_init, history sessions come from the index). */
 export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
   getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, sessionId)
-  await setSessionRecordTitle(LOCAL_ORGANIZATION_ID, sessionId, title)
-}
-
-/**
- * The picker's list: the collaboration plane's records decide which sessions
- * and in what order (docs/plans/cloud-service-model.md); the transcript index
- * on this machine, when it holds the session, fills in what only a runner
- * knows — the working directory, the slug, the branch, the lineage.
- */
-async function sessionsFromRecords(records: SessionRecord[]): Promise<SessionMeta[]> {
-  if (records.length === 0) return []
-  const placeholders = records.map(() => '?').join(', ')
-  const rows = sessionRowSchema.array().parse(getDb().prepare(`
-    SELECT ${SESSION_SELECT} FROM sessions WHERE session_id IN (${placeholders})
-  `).all(...records.map((record) => record.sessionId)))
-  const rowsById = new Map(rows.map((row) => [row.session_id, row]))
-  return records.map((record) => {
-    const row = rowsById.get(record.sessionId)
-    return row ? rowToSession(row) : sessionMetaFromRecord(record)
-  })
-}
-
-/** A session known by its record alone: what the record carries, and nothing the transcript index would add. */
-export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
-  return {
-    provider: record.provider,
-    sessionId: record.sessionId,
-    slug: null,
-    firstMessage: record.title,
-    customTitle: record.customTitle ?? undefined,
-    lastTimestamp: new Date(record.lastActivityAt).toISOString(),
-    size: record.size,
-    cwd: '',
-    projectPath: record.projectPath,
-    model: record.model ?? undefined,
-    reasoningEffort: record.reasoningEffort ?? undefined,
-    serverId: record.runnerHostId ?? undefined,
-  }
-}
-
-export async function listIndexedSessions(projectPaths: string[], limit?: number): Promise<SessionMeta[]> {
-  if (projectPaths.length === 0) return []
-  return sessionsFromRecords(await listSessionRecords(LOCAL_ORGANIZATION_ID, { provider: 'claude-code', projectPaths, limit }))
-}
-
-export async function listIndexedCodexSessions(projectPath: string, limit?: number): Promise<SessionMeta[]> {
-  return sessionsFromRecords(await listSessionRecords(LOCAL_ORGANIZATION_ID, {
-    provider: 'codex',
-    projectPath,
-    includeWorktrees: true,
-    limit,
-  }))
+  await setSessionRecordTitle(ANY_ORGANIZATION, sessionId, title)
 }
 
 export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<void> {
@@ -956,10 +950,10 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
   withTx(() => {
     const upsert = getDb().prepare(`
       INSERT INTO sessions(
-        session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-        slug, first_message, last_timestamp, message_count, size, branch
+        session_id, provider, cwd, project_path, project_root, is_worktree,
+        slug, first_message, last_timestamp, size, branch
       )
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         provider = excluded.provider,
         cwd = excluded.cwd,
@@ -989,13 +983,18 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
     }
   })
   for (const session of sessions) {
-    await upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+    await upsertOwnSessionRecord({
       sessionId: session.sessionId,
       provider: session.provider,
       projectPath: session.projectPath,
       title: session.firstMessage ?? session.slug ?? undefined,
       lastActivityAt: new Date(session.lastTimestamp).getTime(),
       size: session.size,
+      cwd: session.cwd || undefined,
+      slug: session.slug ?? undefined,
+      isWorktree: session.isWorktree ?? false,
+      branch: session.branch,
+      projectRoot: projectRootFor(session.cwd) ?? undefined,
     })
   }
 }
@@ -1048,113 +1047,6 @@ export function getCodexSessionsWithMessages(sessionIds: string[]): Set<string> 
     for (const row of rows) withMessages.add(row.session_id)
   }
   return withMessages
-}
-
-export function searchIndexedSessions(
-  query: string,
-  filters: {
-    providers?: string[]
-    role?: 'user' | 'assistant'
-    /** Inclusive lower/upper bounds on message timestamp (ms). Omit for open-ended. */
-    sinceTs?: number
-    untilTs?: number
-    /** Omit to search every project; set to scope to one git-root and all its worktrees. */
-    projectRoot?: string
-    /** Match the last token as a prefix, for a query still being typed. */
-    prefixLastToken?: boolean
-  } = {},
-  requestedLimit?: number,
-): SessionSearchResult[] {
-  const ftsQuery = sanitizeFtsQuery(query, { prefixLastToken: filters.prefixLastToken })
-  if (!ftsQuery) return []
-  const rawLimit = requestedLimit ?? 50
-  const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.trunc(rawLimit))) : 50
-  const providers = filters.providers?.map((provider) => provider === 'claude-code' ? 'claude' : provider)
-  const providerFilter = providers?.length
-    ? `AND s.provider IN (${providers.map(() => '?').join(', ')})`
-    : ''
-  const projectFilter = filters.projectRoot ? 'AND s.project_root = ?' : ''
-  const roleFilter = filters.role ? 'AND session_messages.role = ?' : ''
-  const sinceFilter = filters.sinceTs !== undefined ? 'AND session_messages.ts >= ?' : ''
-  const untilFilter = filters.untilTs !== undefined ? 'AND session_messages.ts <= ?' : ''
-  // The snippet marks each matched token so a client can show the hit without
-  // re-matching stemmed words by spelling. The markers bind before MATCH: the
-  // select list is evaluated first, so they are the first two placeholders.
-  const params: Array<string | number> = [SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE, ftsQuery]
-  if (filters.projectRoot) params.push(filters.projectRoot)
-  if (providers?.length) params.push(...providers)
-  if (filters.role) params.push(filters.role)
-  if (filters.sinceTs !== undefined) params.push(filters.sinceTs)
-  if (filters.untilTs !== undefined) params.push(filters.untilTs)
-  params.push(limit)
-
-  const rows = searchResultRowSchema.array().parse(getDb().prepare(`
-    WITH hits AS MATERIALIZED (
-      SELECT
-        s.session_id,
-        s.provider,
-        s.cwd,
-        s.project_path,
-        s.is_worktree,
-        s.slug,
-        s.first_message,
-        s.custom_title,
-        s.last_timestamp,
-        s.size,
-        s.model,
-        s.reasoning_effort,
-        s.project_root,
-        s.parent_session_id,
-        s.root_session_id,
-        s.delegation_exchange_id,
-        s.delegation_depth,
-        s.delegation_intent,
-        s.delegation_created_at,
-        snippet(session_fts, 0, ?, ?, '…', 64) AS snippet,
-        session_messages.id AS message_id,
-        session_messages.ts AS hit_ts,
-        bm25(session_fts) AS rank
-      FROM session_fts
-      JOIN session_messages ON session_messages.id = session_fts.rowid
-      JOIN sessions s ON s.session_id = session_messages.session_id
-      WHERE session_fts MATCH ?
-      ${projectFilter}
-      ${providerFilter}
-      ${roleFilter}
-      ${sinceFilter}
-      ${untilFilter}
-    )
-    , ranked AS (
-      SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY session_id ORDER BY rank ASC, hit_ts DESC, message_id ASC
-      ) AS match_number FROM hits
-    ), selected AS (
-      SELECT session_id FROM ranked WHERE match_number = 1
-      ORDER BY rank ASC, hit_ts DESC, session_id ASC LIMIT ?
-    )
-    SELECT ranked.* FROM ranked JOIN selected USING (session_id)
-    WHERE match_number <= 3
-    ORDER BY rank ASC, hit_ts DESC, message_id ASC
-  `).all(...params))
-
-  return groupSessionSearchResults(rows)
-}
-
-/** Preserve one result per session and keep its other passages bounded. */
-function groupSessionSearchResults(rows: z.infer<typeof searchResultRowSchema>[]): SessionSearchResult[] {
-  const results = new Map<string, SessionSearchResult>()
-  for (const row of rows) {
-    const hit = {
-      snippet: row.snippet,
-      ts: row.hit_ts ?? 0,
-      messageId: row.message_id,
-      rank: row.rank,
-    }
-    const existing = results.get(row.session_id)
-    if (existing) (existing.additionalMatches ??= []).push(hit)
-    else results.set(row.session_id, { session: rowToSession(row), ...hit })
-  }
-  return [...results.values()]
 }
 
 const MAX_WINDOW_RADIUS = 5

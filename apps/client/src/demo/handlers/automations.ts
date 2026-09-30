@@ -2,7 +2,6 @@ import { arg, optionalArg } from './args'
 import type {
   AutomationAction,
   AutomationsChangedEvent,
-  AutomationCreator,
   AutomationTrigger,
 } from '@solus/contracts/types'
 import type { DemoServer } from '../fixtures/types'
@@ -19,6 +18,8 @@ type AutomationPatch = {
 export function registerAutomationsHandlers(backend: DemoServer, store: DemoStore): void {
   const broadcast = (event: AutomationsChangedEvent) => backend.broadcast('automation.changed', event)
   backend.register('automationList', () => store.listAutomations())
+  // The demo has no host to probe, so no session has a watch.
+  backend.register('watchList', () => [])
   backend.register('automationRead', (args) => store.readAutomation(arg<string>(args, 0)))
   backend.register('automationListRuns', (args) => store.listAutomationRuns(arg<string>(args, 0)))
   backend.register('automationReadRun', (args) => store.readAutomationRun(arg<string>(args, 0), arg<string>(args, 1)))
@@ -35,10 +36,9 @@ export function registerAutomationsHandlers(backend: DemoServer, store: DemoStor
   backend.register('automationCreate', (args) => {
     const name = arg<string>(args, 0)
     const action = arg<AutomationAction>(args, 1)
-    const createdBy = arg<AutomationCreator>(args, 2)
-    const enabled = optionalArg<boolean>(args, 3)
-    const trigger = optionalArg<AutomationTrigger>(args, 4)
-    const automation = store.createAutomation(name, action, createdBy, enabled, trigger)
+    const enabled = optionalArg<boolean>(args, 2)
+    const trigger = optionalArg<AutomationTrigger>(args, 3)
+    const automation = store.createAutomation(name, action, enabled, trigger)
     broadcast({ kind: 'saved', automation })
     return automation
   })

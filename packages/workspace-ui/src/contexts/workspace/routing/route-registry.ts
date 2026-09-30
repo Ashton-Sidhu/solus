@@ -61,9 +61,9 @@ function isSettingsTab(value: string): value is SettingsTab {
 }
 
 /** Which face of a change the review pane is showing. */
-export type ReviewView = 'map' | 'guide' | 'diff'
+export type ReviewView = 'map' | 'guide' | 'lens' | 'diff'
 
-const REVIEW_VIEWS: ReadonlySet<string> = new Set<ReviewView>(['map', 'guide', 'diff'])
+const REVIEW_VIEWS: ReadonlySet<string> = new Set<ReviewView>(['map', 'guide', 'lens', 'diff'])
 
 function isReviewView(value: string): value is ReviewView {
   return REVIEW_VIEWS.has(value)
@@ -88,7 +88,7 @@ export interface RouteParams {
    *  so the waterfall is deep-linkable and survives the list that led to it. A
    *  span id lands the waterfall on that span's detail — how an event-listing
    *  row drills into its own span. */
-  insights: { traceId?: string; spanId?: string }
+  insights: { traceId?: string; spanId?: string; sessionId?: string }
   reviewMode: Record<string, never>
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
@@ -173,6 +173,9 @@ export interface RouteDescriptor<K extends RouteName> {
   serialize: (params: RouteParams[K]) => string
   placement: Placement
   exclusiveGroup?: ExclusiveGroup
+  /** A utility page the user steps into and back out of. Closing it returns its
+   *  pane to the main-workspace route it replaced, not to home or to history. */
+  returnsOnClose?: boolean
   /** The surface draws a shared-height header that consumes the window-control
    *  lead inset itself. Page outlets must not add a second titlebar-height pad. */
   ownsTitlebarChrome?: boolean
@@ -231,22 +234,15 @@ function serializeDiffScope(scope: DiffScope | undefined): string {
   if (!scope || scope.kind === 'session') return 'session'
   if (scope.kind === 'working-tree') return 'working-tree'
   if (scope.kind === 'turn') return `turn~${scope.index}`
-  return ['pr', scope.baseSha, scope.ownDeltaBaseSha ?? '', scope.parentPr ?? ''].join('~')
+  return ['pr', scope.baseSha].join('~')
 }
 
 function parseDiffScope(segment: string | undefined): DiffScope {
   const [kind, ...fields] = (segment ?? '').split('~')
   if (kind === 'working-tree') return { kind: 'working-tree' }
   if (kind === 'turn' && /^\d+$/.test(fields[0] ?? '')) return { kind: 'turn', index: Number(fields[0]) }
-  if (kind === 'pr' && fields[0]) {
-    const scope: DiffScope = {
-      kind: 'pr',
-      baseSha: fields[0],
-    }
-    if (fields[1]) scope.ownDeltaBaseSha = fields[1]
-    if (/^\d+$/.test(fields[2] ?? '')) scope.parentPr = Number(fields[2])
-    return scope
-  }
+  // A route from before stacked PRs were removed carries two more fields; they are ignored.
+  if (kind === 'pr' && fields[0]) return { kind: 'pr', baseSha: fields[0] }
   return { kind: 'session' }
 }
 
@@ -311,15 +307,23 @@ export const ROUTES: RouteTable = {
   },
   // A turn opens as a panel beside the list, PRs-style: the params name the
   // open turn, so the page and the turn are one destination and one surface.
+  // `session/<id>` opens a session's own page instead: every turn of one
+  // session on one axis. The word is reserved; a trace id is a hex hash and
+  // never reads "session".
   insights: {
     parse: (s) => {
       if (!s) return {}
       const [traceId, spanId] = s.split('/')
       if (!traceId) return {}
+      if (traceId === 'session') return spanId ? { sessionId: spanId } : {}
       return spanId ? { traceId, spanId } : { traceId }
     },
     serialize: (p) =>
-      p.traceId ? (p.spanId ? `${p.traceId}/${p.spanId}` : p.traceId) : '',
+      p.sessionId
+        ? `session/${p.sessionId}`
+        : p.traceId
+          ? (p.spanId ? `${p.traceId}/${p.spanId}` : p.traceId)
+          : '',
     placement: 'any',
     exclusiveGroup: 'page',
     // Keeps the console at the same fixed top measure as the other workspace
@@ -351,6 +355,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => (p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''),
     placement: 'any',
     exclusiveGroup: 'page',
+    returnsOnClose: true,
     // The nav column paints to the window's top edge, so the page clears the
     // window controls inside its own header band rather than being padded down.
     ownsTitlebarChrome: true,
@@ -397,7 +402,8 @@ export const ROUTES: RouteTable = {
     serialize: (p) => serializeScopedId(p.workId, p.serverId),
     placement: 'any',
     exclusiveGroup: 'artifact',
-    component: () => import('../../../components/work/WorkPane.svelte'),
+    // The pane shell mounts WorkPane eagerly: it owns the loading state for the
+    // content read, so there is no module boundary to cover in front of it.
   },
   automation: {
     parse: (s) => {

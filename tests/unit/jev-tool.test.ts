@@ -2,9 +2,9 @@ import { describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
 import { createJevAgentTool } from '../../packages/server/src/typesafe/jev-tool'
 import { createTypeSafe } from '../../packages/server/src/typesafe/index'
-import { executeAgentTool, type AgentToolContext } from '../../packages/server/src/agents/tools/agent-tool'
-import { adaptCodexTools, CodexToolDispatcher } from '../../packages/server/src/agents/codex/codex-tool-adapter'
-import { adaptClaudeTools } from '../../packages/server/src/agents/claude/claude-tool-adapter'
+import { executeAgentTool, type AgentToolContext } from '../../packages/server/src/execution/agents/tools/agent-tool'
+import { adaptCodexTools, CodexToolDispatcher } from '../../packages/server/src/execution/agents/codex/codex-tool-adapter'
+import { adaptClaudeTools } from '../../packages/server/src/execution/agents/claude/claude-tool-adapter'
 import { solusAgentToolName } from '../../packages/contracts/src/agent-tools'
 
 const context: AgentToolContext = {

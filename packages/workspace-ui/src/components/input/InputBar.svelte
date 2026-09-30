@@ -58,12 +58,14 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useComposerVoice } from "./lib/composer-voice.svelte";
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
+  import { otherPerson, steerPlaceholder } from "../presence/lib/actor-name";
   import { useComposerFocus } from "./lib/composer-focus.svelte";
   import { pendingPlanForPrompt } from "./lib/pending-plan";
   import {
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { useComposerFold } from "./lib/composer-fold.svelte";
 
   import type { Snippet } from "svelte";
@@ -265,8 +267,16 @@
         : null),
   );
   const composerServerId = $derived(
-    run?.serverId ?? serverConnections.defaultServerId(),
+    run?.serverId ?? session.fallbackServerId,
   );
+  // The host a video chip plays from, addressed by this composer's own source,
+  // as its uploads are.
+  const attachmentHost = $derived({
+    serverId: composerServerId ?? LOCAL_SERVER_ID,
+    ctx: (targetTabId ?? draftId)
+      ? session.ctxFor((targetTabId ?? draftId)!)
+      : session.ctxForDirectory(composerCwd),
+  });
 
   // ─── Editor state ───
 
@@ -356,14 +366,19 @@
   // because PromptEditor immediately reports the true state once its `value`
   // prop lands.
   let editorHasText = $state(untrack(() => inputText.trim().length > 0));
-  // The room hears that this person has a draft, and hears it end when the
-  // draft goes out or the bar goes inactive; the store coalesces keystrokes.
+  // The room hears that this person is typing from their keystrokes, and the
+  // host clears the mark when they pause. A stop is sent at once when the draft
+  // goes out or is cleared, the bar goes inactive, or it moves to another session.
   $effect(() => {
-    const composing = active && editorHasText;
+    if (!active || !editorHasText) return;
     const serverId = sess?.run.serverId;
     const roomSessionId = sess?.id;
-    untrack(() => presenceStore.setComposing(serverId, roomSessionId, composing));
+    return () => untrack(() => presenceStore.stopTyping(serverId, roomSessionId));
   });
+  function handlePromptChange(md: string) {
+    handleEditorChange(md);
+    if (active && md.trim()) presenceStore.noteTyping(sess?.run.serverId, sess?.id);
+  }
   const planRefs = $derived(prompt.planRefs);
   const workRefs = $derived(prompt.workRefs);
   const sessionRefs = $derived(prompt.sessionRefs);
@@ -380,12 +395,7 @@
   // do", and with an empty composer during a turn that is stopping it — the
   // instant anything is typed the button is a Send (or a Steer) again, so
   // nothing is taken away.
-  const stopsRun = $derived(
-    isTouch &&
-      !hasKeyboard &&
-      (isBusy || sess?.status === "background") &&
-      !hasContent,
-  );
+  const stopsRun = $derived(isTouch && !hasKeyboard && isBusy && !hasContent);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {
@@ -440,6 +450,11 @@
   const isRateLimited = $derived(sess?.status === "rate_limited");
   const resetsAt = $derived(sess?.rateLimitInfo?.resetsAt);
   const hasQueuedPrompts = $derived((sess?.outboundPrompts.length ?? 0) > 0);
+  // A steer joins the running turn on its author's seat (D3): a teammate's turn is named.
+  const othersTurn = $derived(sess ? otherPerson(
+    presenceStore.sessionRoom(sess.run.serverId, sess.id)?.activeTurn?.author,
+    presenceStore.currentUserId(sess.run.serverId),
+  ) : null);
 
   const placeholder = $derived(
     isReadOnly
@@ -463,9 +478,7 @@
                       ? "Waiting for Claude..."
                       : canSteer
                         ? // Only name the keys where there are keys to name.
-                          hasKeyboard
-                          ? "Enter to steer now · ⌥Enter to queue next"
-                          : "Send to steer this response..."
+                          steerPlaceholder(othersTurn, hasKeyboard)
                         : "Type to queue a message..."
                     : "Plan, Build, Automate · @ for context",
   );
@@ -661,6 +674,7 @@
       <AttachmentChips
         {attachments}
         tabId={targetTabId}
+        host={attachmentHost}
         onRemove={(id) => {
           const index = attachments.findIndex((a) => a.id === id);
           if (index !== -1) attachments.splice(index, 1);
@@ -836,7 +850,7 @@
       <PromptEditor
         bind:this={composerEl}
         value={editorValue}
-        onValueChange={handleEditorChange}
+        onValueChange={handlePromptChange}
         onEmptyChange={(empty) => (editorHasText = !empty)}
         {pluginCommands}
         provider={activeProvider}
@@ -878,7 +892,7 @@
                 : "Send message"}
             class="pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
               ? 'size-9'
-              : 'size-[1.875rem] [.is-laptop-display_&]:size-7'} {stopsRun
+              : 'size-[1.875rem]'} {stopsRun
               ? ''
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'

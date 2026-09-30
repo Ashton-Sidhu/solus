@@ -3,6 +3,7 @@
   import { runtime } from "../../contexts";
   import { formatRailTime, formatRailTitle } from "./lib/hover-rail";
   import { messageTimestampClock } from "../../lib/shared-clock";
+  import { conversationIsVisible } from "./lib/conversation-visibility";
 
   /**
    * The rail every message hangs on its outer edge — left of assistant prose,
@@ -26,8 +27,9 @@
   let now = $state(Date.now());
 
   // Hundreds of historical rows share one visibility-aware minute ticker.
+  const onScreen = conversationIsVisible();
   $effect(() => {
-    if (!timestamp) return;
+    if (!timestamp || !onScreen()) return;
     return messageTimestampClock.subscribe((value) => { now = value; });
   });
 
@@ -91,11 +93,12 @@
     margin-left: 0.625rem;
   }
 
-  /* The assistant row has 0.5rem top padding and 1.75rem line-height. Center
-     the 1.375rem copy control on that first line. Keep the timestamp above the
-     control without letting it shift the control down. */
+  /* The assistant row has 0.125rem top padding and a 1.625 line-height on
+     14px type (a 1.42rem line box). Center the 1.375rem copy control on that
+     first line. Keep the timestamp above the control without letting it shift
+     the control down. */
   .hover-rail.is-first-line {
-    top: 0.6875rem;
+    top: 0.15rem;
     bottom: auto;
     gap: 0;
   }

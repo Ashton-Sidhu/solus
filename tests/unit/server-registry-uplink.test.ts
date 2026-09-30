@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
-import { dialableRoutes, isCloudServer, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
+import { dialableRoutes, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
 import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
@@ -43,7 +43,7 @@ function paired(overrides: Partial<SavedServer> = {}): SavedServer {
 }
 
 function listed(overrides: Partial<DirectoryHost> = {}): DirectoryHost {
-  return { hostId: 'abcdefghijklmnop', installationId: 'inst-1', label: 'Studio Mac', os: 'macos', routes: [tunnel], ...overrides }
+  return { hostId: 'abcdefghijklmnop', installationId: 'inst-1', label: 'Studio Mac', os: 'macos', kind: 'personal', category: 'personal', routes: [tunnel], organizationIds: [], ...overrides }
 }
 
 describe('saved hosts and their routes', () => {
@@ -86,14 +86,15 @@ describe('merging the directory into saved hosts', () => {
     expect(merged[0].sessionToken).toBe('pairing-token')
     expect(merged[0].url).toBe('http://192.168.1.42:3000')
     expect(merged[0].routes?.map((route) => route.kind)).toEqual(['direct', 'tunnel'])
-    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY })
+    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, kind: 'personal', category: 'personal' })
   })
 
   test('a host only the directory knows is saved with the tunnel and no pairing', () => {
     const merged = mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10)
     expect(merged).toEqual([savedServerFromDirectory(listed(), DIRECTORY, 10)])
     expect(merged[0].sessionToken).toBe('')
-    expect(merged[0].url).toBe(tunnel.url)
+    expect(merged[0].url).toBe('')
+    expect(savedServerRoutes(merged[0])).toEqual([tunnel])
     expect(merged[0].id).toBe('inst-1')
   })
 
@@ -109,18 +110,21 @@ describe('merging the directory into saved hosts', () => {
     expect(mergeDirectoryIntoSaved(directoryOnly, [], DIRECTORY, 11)).toEqual([])
   })
 
-  test('the organization and owner of a shared host ride the merge, so the owner\'s share dialog can add people', () => {
+  test('the organizations and owner of a shared host ride the merge, so the owner\'s share dialog can add people', () => {
     // WHY: docs/plans/multiplayer-sharing.md §4.1 — the owner connects as `local-owner`
     // and the host never names an organization; the directory row is the only place
-    // the client learns which organization the host is shared with.
-    const shared = listed({ organizationId: 'org-1', ownerName: 'Alice' })
+    // the client learns which organizations the host is shared with (R15: several at once).
+    const shared = listed({ organizationIds: ['org-1', 'org-2'], ownerName: 'Alice', category: 'personal' })
     const merged = mergeDirectoryIntoSaved([paired()], [shared], DIRECTORY, 10)
-    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, organizationId: 'org-1', ownerName: 'Alice' })
-    expect(savedServerFromDirectory(shared, DIRECTORY, 10).uplink?.organizationId).toBe('org-1')
-    // Stop sharing on the website: the next merge forgets the organization.
-    expect(mergeDirectoryIntoSaved(merged, [listed()], DIRECTORY, 11)[0].uplink?.organizationId).toBeUndefined()
+    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, organizationIds: ['org-1', 'org-2'], category: 'personal', kind: 'personal', ownerName: 'Alice' })
+    expect(savedServerFromDirectory(shared, DIRECTORY, 10).uplink?.organizationIds).toEqual(['org-1', 'org-2'])
+    // Stop sharing on the website: the next merge forgets the organizations.
+    expect(mergeDirectoryIntoSaved(merged, [listed()], DIRECTORY, 11)[0].uplink?.organizationIds).toBeUndefined()
 
+    // The window's organization wins when the host is shared with it; else the first share stands.
     expect(organizationIdFor(null, merged[0].uplink)).toBe('org-1')
+    expect(organizationIdFor(null, merged[0].uplink, 'org-2')).toBe('org-2')
+    expect(organizationIdFor(null, merged[0].uplink, 'org-9')).toBe('org-1')
     expect(organizationIdFor('org-from-host', merged[0].uplink)).toBe('org-from-host')
     expect(organizationIdFor(null, undefined)).toBeNull()
   })
@@ -128,9 +132,9 @@ describe('merging the directory into saved hosts', () => {
   test('a managed host carries its kind and lifecycle through the merge, and the next directory read updates them', () => {
     // WHY: docs/plans/managed-hosts.md — the row is the client's only view of the
     // compute; a `stopped` host must read as stopped, not as an offline machine.
-    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', organizationId: 'org-1', managedState: 'provisioning' })
+    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', category: 'managed', organizationIds: ['org-1'], managedState: 'provisioning' })
     const merged = mergeDirectoryIntoSaved([], [managed], DIRECTORY, 10)
-    expect(merged[0].uplink).toEqual({ hostId: 'managedhost000001', directoryUrl: DIRECTORY, organizationId: 'org-1', kind: 'managed', managedState: 'provisioning' })
+    expect(merged[0].uplink).toEqual({ hostId: 'managedhost000001', directoryUrl: DIRECTORY, organizationIds: ['org-1'], kind: 'managed', category: 'managed', managedState: 'provisioning' })
     const ready = mergeDirectoryIntoSaved(merged, [listed({ ...managed, managedState: 'ready' })], DIRECTORY, 11)
     expect(ready[0].uplink?.managedState).toBe('ready')
     // Saved and reloaded, the fields survive; a value this build does not know is dropped, not fatal.
@@ -140,10 +144,32 @@ describe('merging the directory into saved hosts', () => {
     expect(reloaded[1].uplink?.managedState).toBeUndefined()
   })
 
+  test('a host only the directory knows follows its route when it changes, and never keeps the old one', () => {
+    // WHY: a managed host is listed at `h-….solus.sh` while it is set up and at its
+    // machine's own name once it links. The saved `url` kept the first name, a later
+    // merge turned it into a direct route, and a direct route is dialed first: the
+    // ready host was dialed at a name with no DNS record, and onboarding waited forever.
+    const machine = { kind: 'tunnel' as const, url: 'https://solus-h-1.sprites.test' }
+    // Solus Cloud lists a host being set up with no route; an older one listed the name early.
+    const provisioning = listed({ installationId: 'managed:h1', kind: 'managed', category: 'managed', managedState: 'provisioning', routes: [] })
+    expect(savedServerRoutes(mergeDirectoryIntoSaved([], [provisioning], DIRECTORY, 10)[0])).toEqual([])
+    const early = mergeDirectoryIntoSaved([], [{ ...provisioning, routes: [tunnel] }], DIRECTORY, 10)
+    const linked = listed({ ...provisioning, managedState: 'ready', routes: [machine] })
+    const ready = mergeDirectoryIntoSaved(early, [linked], DIRECTORY, 11)
+    const again = mergeDirectoryIntoSaved(ready, [linked], DIRECTORY, 12)
+    for (const server of [ready[0], again[0]]) {
+      expect(server.url).toBe('')
+      expect(savedServerRoutes(server)).toEqual([machine])
+    }
+    // A saved row the old merge already spoiled heals on the next read.
+    const spoiled = { ...again[0], url: tunnel.url, routes: [{ kind: 'direct' as const, url: tunnel.url }, machine] }
+    expect(savedServerRoutes(mergeDirectoryIntoSaved([spoiled], [linked], DIRECTORY, 13)[0])).toEqual([machine])
+  })
+
   test('a managed host takes the name members give it on the account site; a personal host keeps its saved one', () => {
     // WHY: a managed host's row reads its own name, and members rename it on Solus Cloud;
     // a rename there must reach every client, not stay frozen at first sight.
-    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', organizationId: 'org-1', label: 'Cloud host' })
+    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', category: 'managed', organizationIds: ['org-1'], label: 'Cloud host' })
     const first = mergeDirectoryIntoSaved([], [managed], DIRECTORY, 10)
     const renamed = mergeDirectoryIntoSaved(first, [{ ...managed, label: 'Build box' }], DIRECTORY, 11)
     expect(renamed[0].label).toBe('Build box')
@@ -151,48 +177,17 @@ describe('merging the directory into saved hosts', () => {
     expect(personal[0].label).toBe('Studio')
   })
 
-  test('a cloud row is the organization\'s workspace: named by the directory id, labelled by the organization, tunnel only, never paired', () => {
-    // WHY: docs/plans/cloud-service-model.md — the workspace service is a host of
-    // kind `cloud`. It is not a machine: no LAN route can reach it and no pairing
-    // exists for it, so the directory row is its whole registry entry.
-    const workspace = listed({
-      hostId: 'workspace:org-1', installationId: 'workspace:org-1', label: 'Acme', kind: 'cloud', organizationId: 'org-1',
-      os: undefined, routes: [{ kind: 'direct', url: 'http://10.0.0.1:1' }, { kind: 'tunnel', url: 'https://ws.example.test' }],
-    })
-    const merged = mergeDirectoryIntoSaved([paired()], [listed(), workspace], DIRECTORY, 10)
-    const cloud = merged.find((server) => server.id === 'workspace:org-1')
-    expect(cloud).toEqual({
-      id: 'workspace:org-1', label: 'Acme', url: 'https://ws.example.test', sessionToken: '', installationId: 'workspace:org-1',
-      lastConnected: 10, routes: [{ kind: 'tunnel', url: 'https://ws.example.test' }],
-      uplink: { hostId: 'workspace:org-1', directoryUrl: DIRECTORY, organizationId: 'org-1', kind: 'cloud' },
-    })
-    expect(isCloudServer(cloud)).toBe(true)
-    expect(isCloudServer(merged[0])).toBe(false)
-
-    // The next read renames the organization and moves the tunnel: the row follows, and never
-    // keeps a route or a pairing a stale save may have stamped on it.
-    const stale = { ...cloud!, sessionToken: 'never', routes: [{ kind: 'direct' as const, url: 'http://lan' }, ...cloud!.routes] }
-    const renamed = mergeDirectoryIntoSaved([stale], [{ ...workspace, label: 'Acme Corp', routes: [{ kind: 'tunnel', url: 'https://ws2.example.test' }] }], DIRECTORY, 11)
-    expect(renamed[0]).toMatchObject({ id: 'workspace:org-1', label: 'Acme Corp', url: 'https://ws2.example.test', sessionToken: '', lastConnected: 10 })
-    expect(renamed[0].routes).toEqual([{ kind: 'tunnel', url: 'https://ws2.example.test' }])
-
-    // Gone from the directory (the account left the organization): the row goes with it, pairing or not.
-    expect(mergeDirectoryIntoSaved([stale], [], DIRECTORY, 12)).toEqual([])
-    expect(mergeDirectoryIntoSaved([cloud!, paired()], [], DIRECTORY, 12).map((server) => server.id)).toEqual(['inst-1'])
-  })
-
-  test('the directory\'s mark of the organization the account works in follows every read, and is never kept from a stale save', () => {
-    // WHY: docs/plans/cloud-service-model.md §15 — the cloud-only boards read the
-    // marked workspace alone; the account website moves the mark, so a row must
-    // carry exactly what the last directory read said.
-    const workspace = (organizationId: string, isActiveWorkspace?: boolean) => listed({
-      hostId: `workspace:${organizationId}`, installationId: `workspace:${organizationId}`, label: organizationId, kind: 'cloud', organizationId,
-      os: undefined, routes: [{ kind: 'tunnel', url: 'https://ws.example.test' }], ...(isActiveWorkspace ? { isActiveWorkspace } : {}),
-    })
-    const first = mergeDirectoryIntoSaved([], [workspace('org-a'), workspace('org-b', true)], DIRECTORY, 10)
-    expect(first.map((server) => [server.id, server.uplink?.isActiveWorkspace ?? false])).toEqual([['workspace:org-a', false], ['workspace:org-b', true]])
-    const switched = mergeDirectoryIntoSaved(first, [workspace('org-a', true), workspace('org-b')], DIRECTORY, 11)
-    expect(switched.map((server) => [server.id, server.uplink?.isActiveWorkspace ?? false])).toEqual([['workspace:org-a', true], ['workspace:org-b', false]])
+  test('a workspace service saved as a host by an older build is not read as a machine', () => {
+    // WHY: a workspace service is a cloud service, never a host. Read as a
+    // machine it would be dialed, listed, and offered as a place to run work.
+    localStorage.setItem(KEY, JSON.stringify([
+      paired(),
+      {
+        id: 'workspace:org-1', label: 'Acme', url: 'https://ws.example.test', sessionToken: '', installationId: 'workspace:org-1', lastConnected: 1,
+        uplink: { hostId: 'workspace:org-1', directoryUrl: DIRECTORY, kind: 'cloud', organizationIds: ['org-1'] },
+      },
+    ]))
+    expect(loadServers().map((server) => server.id)).toEqual(['inst-1'])
   })
 
   test('hosts from another directory origin are left alone', () => {

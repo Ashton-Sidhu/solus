@@ -27,7 +27,6 @@
     fullScreen,
     onToggleFullScreen,
     onClose,
-    onStep,
   }: {
     number: number;
     api: HostApi;
@@ -42,13 +41,12 @@
     /** Absent when the surface has no room for a split in the first place. */
     onToggleFullScreen?: () => void;
     onClose: () => void;
-    onStep: (delta: number) => void;
   } = $props();
 
   const session = getWorkspaceContext();
 
   let pr = $state<PrReviewTarget | null>(null);
-  // A J / K step mounts a new panel, so an answer that lands after this one
+  // Opening another row mounts a new panel, so an answer that lands after this one
   // is gone must not close the panel that replaced it.
   let destroyed = false;
   onDestroy(() => (destroyed = true));
@@ -99,7 +97,6 @@
   {chatTabId}
   {fullScreen}
   {onToggleFullScreen}
-  {onStep}
   onExit={onClose}
   onRefreshTarget={refreshTarget}
   embedded

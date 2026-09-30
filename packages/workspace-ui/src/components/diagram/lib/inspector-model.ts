@@ -1,4 +1,4 @@
-import type { DiagramDoc, DiagramEdge, DiagramNode } from '@solus/contracts/diagram-types'
+import type { DiagramEdge, DiagramNode } from '@solus/contracts/diagram-types'
 import { z } from 'zod'
 
 const edgeLabelSchema = z.string().catch('')
@@ -131,7 +131,7 @@ export function nodeDegree(links: NodeLink[]): NodeDegree {
  * on a level you deliberately entered. The graph's entry point — the first node
  * nothing points at — or simply the first node when everything is in a cycle.
  */
-export function anchorNodeId(doc: DiagramDoc): string | null {
+export function anchorNodeId(doc: { readonly nodes: readonly DiagramNode[]; readonly edges: readonly DiagramEdge[] }): string | null {
   if (!doc.nodes.length) return null
   const pointedAt = new Set(doc.edges.map((e) => e.target))
   return (doc.nodes.find((n) => !pointedAt.has(n.id)) ?? doc.nodes[0]).id

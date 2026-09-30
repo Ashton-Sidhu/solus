@@ -3,24 +3,23 @@
     Copy as CopyIcon,
     ChevronDown as CaretDownIcon,
     CloudUpload as CloudUploadIcon,
-    RotateCcw as ArrowCounterClockwiseIcon,
     Download as DownloadSimpleIcon,
     FileOutput as FileOutputIcon,
     Folder as FolderIcon,
     Pen as PencilSimpleIcon,
     MessageCircle as ChatCircleIcon,
     Trash2 as TrashIcon,
-    X as XIcon,
     Ellipsis as DotsThreeIcon,
     Users as UsersIcon,
   } from "@lucide/svelte";
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import WorkPublishMenu from "./WorkPublishMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
-  import Diff from "../diff/Diff.svelte";
+  import WorkHistoryDialog from "./WorkHistoryDialog.svelte";
+  import WorkReviewControl from "./WorkReviewControl.svelte";
+  import WorkPresence from "./WorkPresence.svelte";
+  import { getWorkPaneContext } from "./lib/work-pane-context";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import Kbd from "../ui/Kbd.svelte";
-  import { portal } from "../portal";
   import { getClientShellContext, getSurfaceContext, serversStore, sharesStore } from "../../contexts";
   import type { SessionMeta } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
@@ -39,7 +38,7 @@
     originalSessionMeta?: SessionMeta | null;
     copied: boolean;
     copy: () => void;
-    /** When set, surfaces a "View changes" pill diffing the agent's last edit. */
+    /** When set, the header offers the work's History. */
     workId?: string;
     title?: string;
     currentContent?: string;
@@ -59,8 +58,6 @@
      * where a browser download is a different outcome from saving.
      */
     hostIsRemote?: boolean;
-    /** Restore the previous snapshot. When set, the diff modal shows "Restore". */
-    onRevert?: () => void;
     /** Delete the work (closes the pane + offers undo). When set, shows a Delete pill. */
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
@@ -83,7 +80,6 @@
     copyFormats = [],
     onExport,
     hostIsRemote = false,
-    onRevert,
     onDelete,
     onDuplicate,
     flushSave,
@@ -134,25 +130,11 @@
     downloadPayload(exportFileName(title, format.extension), format.mimeType, payload);
   }
 
-  function handleRestore() {
-    onRevert?.();
-    showDiff = false;
-  }
-
-  // "View changes": the single previous version snapshotted on agent saves.
-  const previous = $derived(workId ? (session.worksStore.previousSnapshots[workId] ?? null) : null);
-  let showDiff = $state(false);
-
-  // Reload the snapshot when the work changes or its content advances (an agent
-  // save both writes a new snapshot and bumps the store content we read here).
-  $effect(() => {
-    const id = workId;
-    const contentKey = currentContent; // re-run when persisted content advances
-    if (!id) return;
-    void session.worksStore.loadPrevious(id, contentKey);
-  });
-
-  const hasChanges = $derived(!!previous && previous.content !== currentContent);
+  // History: every checkpoint of the work, opened on the newest change.
+  let historyOpen = $state(false);
+  // Review needs the pane's draft version; a work shown outside a pane has none.
+  const inWorkPane = !!getWorkPaneContext();
+  const workType = $derived(workId ? session.worksStore.get(workId)?.type ?? session.worksStore.savedWork(workId)?.type ?? "doc" : "doc");
   const hasOutput = $derived(canSave || canExport || canDownload || copyFormats.length > 0);
 
   // Sharing (docs/plans/multiplayer-sharing.md §4.1): the work's host owns its share
@@ -160,23 +142,11 @@
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
   const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId));
-  // Move to the organization's workspace service (docs/plans/cloud-service-model.md R6):
-  // offered on a work that lives on a machine while a cloud host is connected.
-  const cloudHost = $derived(serversStore.connectedCloudServer);
-  const canMoveToCloud = $derived(!!workId && !!cloudHost && !serversStore.isCloudHost(shareServerId));
-  let movingToCloud = $state(false);
-  async function moveToCloud() {
-    if (!workId || !cloudHost || movingToCloud) return;
-    movingToCloud = true;
-    try {
-      await session.worksStore.moveToCloud(workId, cloudHost.id);
-      toasts.success(`Moved to Solus Cloud · ${cloudHost.label}`);
-    } catch (error) {
-      toasts.error("Couldn't move this work to Solus Cloud", { description: error instanceof Error ? error.message : String(error) });
-    } finally {
-      movingToCloud = false;
-    }
-  }
+  // Publish into the window's organization (docs/plans/organization-scope.md §7):
+  // offered on a work that lives on a machine while the window works in one.
+  const organizationName = $derived(serversStore.activeOrganizationName ?? "your organization");
+  const canPublish = $derived(!!workId && sharesStore.canPublishWork(shareServerId));
+  const publishing = $derived(!!shareServerId && !!shareResource && sharesStore.isPublishing(shareServerId, shareResource));
 
   function openShare() {
     if (!shareServerId || !shareResource) return;
@@ -226,12 +196,23 @@
      row carries no call to action: these are the work's controls, and the
      surface under them is what the reader came for. -->
 <div class="wha-actions">
-<!-- History: the document's previous version, persistent rather than buried in
+<!-- History: every version of the work, persistent rather than buried in
      the overflow — it is one of the four things the header always keeps. -->
-{#if hasChanges}
-  <button type="button" class="wha-verb" data-testid="view-changes" onclick={() => (showDiff = true)} title="See what the agent changed">
+{#if workId}
+  <button type="button" class="wha-verb" data-testid="view-changes" onclick={() => (historyOpen = true)} title="See every version of this work">
     History
   </button>
+{/if}
+
+<!-- Who else has this work open, and who edits it now. -->
+{#if workId}
+  <WorkPresence serverId={shareServerId} {workId} />
+{/if}
+
+<!-- Review: who reviews this work and what they decided. Guests who review
+     through a link see it too, so it sits outside the workspace-only group. -->
+{#if workId && inWorkPane}
+  <WorkReviewControl {workId} {title} type={workType} currentContent={resolvedContent} />
 {/if}
 
 <!-- The upstream mirror, inline rather than in the overflow: once a document is
@@ -313,9 +294,9 @@
           <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>
       {/if}
-      {#if canMoveToCloud}
-        <DropdownMenu.Item data-testid="move-work-to-cloud" disabled={movingToCloud} onSelect={() => void moveToCloud()}>
-          <CloudUploadIcon size={14} /><span class="flex-1 text-left">{movingToCloud ? "Moving…" : "Move to Solus Cloud"}</span>
+      {#if canPublish}
+        <DropdownMenu.Item data-testid="publish-work" disabled={publishing} onSelect={() => { if (shareServerId && workId) void sharesStore.publishWork(shareServerId, workId); }}>
+          <CloudUploadIcon size={14} /><span class="flex-1 text-left">{publishing ? "Publishing…" : `Publish to ${organizationName}`}</span>
         </DropdownMenu.Item>
       {/if}
 
@@ -365,38 +346,8 @@
   </DropdownMenu.Root>
 </div>
 
-{#if showDiff && previous}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    use:portal={document.body}
-    data-solus-ui
-    class="wha-diff-backdrop"
-    onclick={(e) => { if (e.target === e.currentTarget) showDiff = false; }}
-    role="presentation"
-  >
-    <div class="wha-diff-panel">
-      <div class="wha-diff-header">
-        <span class="wha-diff-title">Changes to “{title}”</span>
-        <div class="wha-diff-header__actions">
-          {#if onRevert}
-            <button type="button" class="wha-restore-btn" data-testid="restore-version" onclick={handleRestore} title="Restore the previous version">
-              <ArrowCounterClockwiseIcon size={13} weight="bold" />
-              Restore this version
-            </button>
-          {/if}
-          <button type="button" class="wha-diff-close" onclick={() => (showDiff = false)} title="Close" aria-label="Close changes">
-            <XIcon size={16} />
-          </button>
-        </div>
-      </div>
-      <div class="wha-diff-body">
-        <Diff
-          oldFile={{ name: title, contents: previous.content }}
-          newFile={{ name: title, contents: resolvedContent() }}
-        />
-      </div>
-    </div>
-  </div>
+{#if workId && historyOpen}
+  <WorkHistoryDialog bind:open={historyOpen} {workId} {title} type={workType} currentContent={resolvedContent} />
 {/if}
 
 <style>
@@ -405,7 +356,7 @@
      with a single filled surface at the end of it.
 
      Use the shared workspace rung so these actions match the shell title
-     and controls on desktop, laptop, and touch clients. */
+     and controls on desktop and touch clients. */
   .wha-verb {
     flex-shrink: 0;
     height: 1.625rem;
@@ -529,26 +480,6 @@
   .wha-actions {
     display: contents;
   }
-  /* The row's laptop rung. The runtime owns the display boundary and stamps
-     `is-laptop-display` on the document, so the cluster steps down with the
-     chrome around it instead of holding a desktop height on a 13" screen. The
-     whole row moves together — one control 2px taller than the ones beside it
-     would read as a second row. Fenced to a precise pointer above the
-     record width so the 40px touch strip below still wins: this selector
-     carries an ancestor and would otherwise outrank it. */
-  @media (pointer: fine) and (min-width: 768px) {
-    :global(html.is-laptop-display) .wha-verb,
-    :global(html.is-laptop-display) .wha-solus {
-      height: 1.5rem;
-    }
-    :global(html.is-laptop-display) .wha-overflow,
-    :global(html.is-laptop-display) .wha-solus-trigger {
-      width: 1.5rem;
-    }
-    :global(html.is-laptop-display) .wha-overflow {
-      height: 1.5rem;
-    }
-  }
   /* Mobile: the header is the formatting strip, whose buttons are 40px touch
      targets — these have to match it or they read as a second, smaller row. */
   @media (max-width: 767px) {
@@ -574,95 +505,5 @@
     .wha-solus-caret {
       width: 1.25rem;
     }
-  }
-
-  .wha-diff-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--solus-modal-scrim);
-    backdrop-filter: blur(0.5rem) saturate(1.05);
-    -webkit-backdrop-filter: blur(0.5rem) saturate(1.05);
-  }
-  .wha-diff-panel {
-    display: flex;
-    flex-direction: column;
-    width: min(64rem, 92vw);
-    height: min(80vh, 88vh);
-    border-radius: 1rem;
-    overflow: hidden;
-    background: var(--solus-container-bg);
-    border: 0.0625rem solid var(--solus-tool-border);
-    box-shadow: var(--solus-popover-shadow);
-  }
-  .wha-diff-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1.25rem;
-    border-bottom: 0.0625rem solid var(--solus-tool-border);
-    flex-shrink: 0;
-  }
-  .wha-diff-title {
-    font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--solus-text-primary);
-  }
-  .wha-diff-header__actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .wha-restore-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
-    padding: 0.25rem 0.625rem;
-    border-radius: 0.4375rem;
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--solus-accent);
-    background: var(--solus-accent-light);
-    border: 0.0625rem solid var(--solus-accent-border);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-  .wha-restore-btn:hover {
-    background: color-mix(in srgb, var(--solus-accent-light) 100%, var(--solus-accent) 12%);
-  }
-  .wha-restore-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
-  .wha-diff-close {
-    width: 1.625rem;
-    height: 1.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    border: none;
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-  .wha-diff-close:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .wha-diff-body {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 0.75rem 1rem;
   }
 </style>

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type { Prompt, Session } from '@solus/contracts/types'
-import type { TasksStore } from '@solus/workspace-ui/contexts/tasks/tasks.store.svelte'
 import type { PlanStore } from '@solus/workspace-ui/contexts/plans/plan.store.svelte'
 import type { WorksStore } from '@solus/workspace-ui/contexts/works/works.store.svelte'
 import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
@@ -12,7 +11,6 @@ describe('a referenced work in the prompt', () => {
     const composer = new PromptComposer(
       { get: () => null } as unknown as PlanStore,
       { get: (workId: string) => (workId === 'work-a' ? { id: 'work-a', type: 'diagram' } : undefined) } as unknown as WorksStore,
-      { tasks: [], taskForSession: () => null } as unknown as TasksStore,
     )
     const prompt = {
       planRefs: [],
@@ -24,7 +22,7 @@ describe('a referenced work in the prompt', () => {
       id: 'session',
       agentSessionId: null,
       boundWorkId: null,
-      task: { kind: 'new' },
+      task: { kind: 'none' },
       run: { serverId: 'local' },
     } as unknown as Session
 

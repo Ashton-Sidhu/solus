@@ -8,9 +8,10 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { runtime } from "../../contexts";
+  import type { PlanApprovalMode } from "../../contexts/workspace/session-plan-operations";
 
-  // Primary approve split button: the main segment approves in auto mode
-  // (today's primary action); the caret offers ask-each-step and the worktree
+  // Primary approve split button: the main segment approves in the default
+  // mode from Settings; the caret offers ask-each-step and the worktree
   // execution options. Model/effort knowledge lives in the composer's
   // SessionChip — the host passes the picker selection into
   // approvePlanWithModel itself.
@@ -19,7 +20,7 @@
     startNewSession?: boolean;
     showNewSessionOption?: boolean;
     showWorktreeToggle?: boolean;
-    onApprove: (mode: "ask" | "auto") => void;
+    onApprove: (mode: PlanApprovalMode) => void;
   }
 
   let {
@@ -42,7 +43,7 @@
 <div class="inline-flex h-7 overflow-hidden rounded-md max-md:h-9 max-md:flex-1">
   <button
     type="button"
-    onclick={() => onApprove("auto")}
+    onclick={() => onApprove("default")}
     data-testid="plan-action-yes-auto"
     class="flex h-7 cursor-pointer items-center gap-1 rounded-l-md border border-r-0 border-transparent bg-(--solus-accent) px-2 text-xs font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(217,119,87,0.25),inset_0_0_0_0.0625rem_rgba(255,255,255,0.10)] transition-[background-color,box-shadow,transform] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-send-hover) hover:shadow-[0_0.125rem_0.5rem_rgba(217,119,87,0.32),inset_0_0_0_0.0625rem_rgba(255,255,255,0.12)] active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) motion-reduce:transition-none motion-reduce:active:scale-100 max-md:h-9 max-md:flex-1 max-md:justify-center max-md:pr-1 max-md:text-sm"
   >
@@ -76,7 +77,7 @@
         data-testid="plan-action-yes"
         onSelect={() => {
           open = false;
-          onApprove("ask");
+          onApprove("supervised");
         }}
       >
         <RobotIcon size={14} />

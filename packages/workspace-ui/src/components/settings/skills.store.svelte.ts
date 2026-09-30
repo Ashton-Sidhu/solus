@@ -1,11 +1,13 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { InstalledSkill } from '@solus/contracts/skill-types'
+import type { InstalledSkill, SkillScope } from '@solus/contracts/skill-types'
 import type { RemoteSkill } from '@solus/contracts/types'
 
 /** One inventory per host, shared by mounted Settings pages. */
 export class SkillsStore {
   skills = $state<InstalledSkill[]>([])
+  /** Whose skills these are: the host's, or the caller's own in their seats there. */
+  scope = $state<SkillScope>('host')
   loading = $state(false)
   loaded = $state(false)
   error = $state('')
@@ -25,6 +27,7 @@ export class SkillsStore {
       if (result.ok) {
         this.installedIds.clear()
         this.skills = result.skills
+        this.scope = result.scope ?? 'host'
         this.loaded = true
       } else this.error = result.error
     } catch {

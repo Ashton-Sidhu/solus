@@ -1,3 +1,4 @@
+import { installTestWorkspaceTools } from './helpers/workspace-tools'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -5,42 +6,49 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
 
+/** The person every change in this file is made by. */
+const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
+/** An agent's session, as the doer of what it wrote. */
+const AGENT = { kind: 'agent' as const, sessionId: 'agent-session' }
+
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let createTask: typeof import('@solus/server/tasks/task-store')['createTask']
-let TaskModule: typeof import('@solus/server/tasks/task')
-let outbox: typeof import('@solus/server/outbox/outbox-store')
-let foreignTasks: typeof import('@solus/server/tasks/foreign-tasks')
-let taskApplier: typeof import('@solus/server/tasks/task-applier')
-let taskTools: typeof import('@solus/server/tasks/task-tools')
-let workTools: typeof import('@solus/server/folio/work-tools')
-let works: typeof import('@solus/server/folio/works')
+let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
+let TaskModule: typeof import('@solus/server/data/tasks/task')
+let outbox: typeof import('@solus/server/sync/outbox/outbox-store')
+let foreignTasks: typeof import('@solus/server/data/tasks/foreign-tasks')
+let taskApplier: typeof import('@solus/server/data/tasks/task-applier')
+let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
+let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
+let works: typeof import('@solus/server/data/works/works')
 let commentTools: typeof import('@solus/server/annotations/comment-tools')
-let automationTools: typeof import('@solus/server/automations/automation-tools')
-let linkedContent: typeof import('@solus/server/tasks/linked-content')
-let workApplier: typeof import('@solus/server/folio/work-applier')
+let automationTools: typeof import('@solus/server/execution/agents/tools/automation-tools')
+let linkedContent: typeof import('@solus/server/data/tasks/linked-content')
+let workApplier: typeof import('@solus/server/data/works/work-applier')
 let closeDb: typeof import('@solus/server/db')['closeDb']
-let serverSettings: typeof import('@solus/server/server/settings')
+let serverSettings: typeof import('@solus/server/host/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
+beforeEach(async () => { await installTestWorkspaceTools() })
+
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-dispatch-parity-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  ;({ createTask } = await import('@solus/server/tasks/task-store'))
-  TaskModule = await import('@solus/server/tasks/task')
-  outbox = await import('@solus/server/outbox/outbox-store')
-  foreignTasks = await import('@solus/server/tasks/foreign-tasks')
-  taskApplier = await import('@solus/server/tasks/task-applier')
-  taskTools = await import('@solus/server/tasks/task-tools')
-  workTools = await import('@solus/server/folio/work-tools')
-  works = await import('@solus/server/folio/works')
+  ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
+  TaskModule = await import('@solus/server/data/tasks/task')
+  outbox = await import('@solus/server/sync/outbox/outbox-store')
+  foreignTasks = await import('@solus/server/data/tasks/foreign-tasks')
+  taskApplier = await import('@solus/server/data/tasks/task-applier')
+  taskTools = await import('@solus/server/execution/agents/tools/task-tools')
+  workTools = await import('@solus/server/execution/agents/tools/work-tools')
+  works = await import('@solus/server/data/works/works')
   commentTools = await import('@solus/server/annotations/comment-tools')
-  automationTools = await import('@solus/server/automations/automation-tools')
-  linkedContent = await import('@solus/server/tasks/linked-content')
-  workApplier = await import('@solus/server/folio/work-applier')
-  serverSettings = await import('@solus/server/server/settings')
+  automationTools = await import('@solus/server/execution/agents/tools/automation-tools')
+  linkedContent = await import('@solus/server/data/tasks/linked-content')
+  workApplier = await import('@solus/server/data/works/work-applier')
+  serverSettings = await import('@solus/server/host/settings')
   taskApplier.registerTaskOutboxApplier()
   workApplier.registerWorkOutboxApplier()
 })
@@ -69,7 +77,6 @@ function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['detail
         id: taskId,
         providerId: 'local',
         projectKey: '/home/dev/solus',
-        kind: 'task',
         title: 'Fix the scroll bug',
         body: 'Restore scrollback after refresh.',
         status: 'in_progress',
@@ -77,25 +84,24 @@ function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['detail
         labels: [],
         ...overrides,
       } as TaskSnapshot['details']['task'],
-      subtasks: [],
       comments: [],
       links: [],
       events: [],
     },
-    parent: null,
     sessions: [],
   }
 }
 
 /** The two-id reality the real backends present: `sessionId()` reports the
  *  provider's thread id, a DIFFERENT string from the Solus session id the
- *  ControlPlane keys the foreign snapshot under. Using one string for both
+ *  SessionRuntime keys the foreign snapshot under. Using one string for both
  *  hid a keying bug that broke every foreign lookup in production. */
 function toolContext(solusSessionId: string) {
   return {
     cwd: process.cwd(),
     sessionId: () => `provider-thread-for-${solusSessionId}`,
     solusSessionId: () => solusSessionId,
+    parentToolUseId: () => undefined,
     emit: () => {},
   } as never
 }
@@ -194,7 +200,7 @@ describe('the host outbox (ADR-0007)', () => {
     expect((await TaskModule.Task.byId('local', task.id)).status).toBe('in_review')
 
     // A human moves it afterwards; the same op redelivers (lost ack).
-    await (await TaskModule.Task.byId('local', task.id)).update({ status: 'done' })
+    await (await TaskModule.Task.byId('local', task.id)).update({ status: 'done' }, BY)
     const redelivered = await outbox.applyOutboxOps([op])
     expect(redelivered.applied).toEqual([op.id])
     expect((await TaskModule.Task.byId('local', task.id)).status).toBe('done')
@@ -281,19 +287,12 @@ describe('task tools on a dispatched session (foreign task)', () => {
   test('unsupported foreign writes fail honestly, never with "not found"', async () => {
     // WHY: "Task not found" is a lie about a task that exists on another host,
     // and it teaches the agent to re-create work that is already tracked.
-    const linked = await taskTools.linkTaskAgentTool.execute(
+    const linked = await taskTools.linkAgentTool.execute(
       { task_id: foreignTaskId, kind: 'session' },
       toolContext(sessionId),
     )
     expect(linked.ok).toBe(false)
     expect(linked.text).toContain('another host')
-
-    const subtask = await taskTools.createTaskAgentTool.execute(
-      { title: 'child', parent_id: foreignTaskId },
-      toolContext(sessionId),
-    )
-    expect(subtask.ok).toBe(false)
-    expect(subtask.text).toContain('another host')
   })
 
   test('a local task is untouched by the foreign branch', async () => {
@@ -309,33 +308,57 @@ describe('task tools on a dispatched session (foreign task)', () => {
   })
 })
 
-describe('the shipped snapshot renders the packet without a local row', () => {
-  test('formatTaskContext consumes a TaskSnapshot verbatim', async () => {
-    const { formatTaskContext } = await import('@solus/server/tasks/task-context')
-    const snapshot = shippedSnapshot('01JSNAPSHOTONLYXXXXXXXXXXX')
-    const packet = formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
-    expect(packet).toContain('[Working On Task — "Fix the scroll bug"')
-    expect(packet).toContain('Restore scrollback after refresh.')
-    expect(packet).toContain('read_task')
+describe('read_task returns what the task packet no longer carries', () => {
+  const sessionId = 'dispatched-session-read'
+  const read = async (snapshot: TaskSnapshot) => {
+    foreignTasks.setForeignTaskSnapshot(sessionId, snapshot)
+    return taskTools.readTaskAgentTool.execute({ task_id: snapshot.details.task.id }, toolContext(sessionId))
+  }
+
+  test('names the project the task belongs to', async () => {
+    // WHY: the packet printed the project; read_task is now the only place the
+    // agent learns it.
+    const result = await read(shippedSnapshot('01JREADPROJECTXXXXXXXXXXXX'))
+    expect(result.text).toContain('project: /home/dev/solus')
   })
 
-  test('the packet names every linked item and the tool that reads it', async () => {
+  test('names every linked item and the tool that reads it', async () => {
     // WHY: links rendered nowhere agent-visible, so a dispatched agent had no
     // way to discover the design doc its task pointed at.
-    const { formatTaskContext } = await import('@solus/server/tasks/task-context')
-    const snapshot = shippedSnapshot('01JSNAPSHOTLINKSXXXXXXXXXX')
+    const snapshot = shippedSnapshot('01JREADLINKSXXXXXXXXXXXXXX')
     snapshot.details.links = [{
       taskId: snapshot.details.task.id,
       kind: 'work',
       targetScope: '',
       targetKey: 'work-1',
       title: 'Design doc',
-      createdBy: 'agent',
+      createdBy: AGENT,
       linkedAt: 0,
     }] as never
-    const packet = formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
-    expect(packet).toContain('Linked:')
-    expect(packet).toContain('work work-1 — "Design doc" (read_work)')
+    const result = await read(snapshot)
+    expect(result.text).toContain('Linked:')
+    expect(result.text).toContain('work work-1 — "Design doc" (read_work)')
+  })
+
+  test('prints the upstream epic with its description, clipped', async () => {
+    // WHY: the epic is context the agent cannot read any other way: it may not
+    // be a Solus task at all. A long epic must not crowd out the task itself.
+    const result = await read(shippedSnapshot('01JREADEPICXXXXXXXXXXXXXXX', {
+      epic: { provider: 'jira', externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: `Ship the release.\n${'x'.repeat(5000)}` },
+    }))
+    const lines = result.text.split('\n')
+    const at = lines.indexOf('Epic: jira ACME-7 — "Release 2.0" — https://acme.atlassian.net/browse/ACME-7')
+    expect(at).toBeGreaterThan(0)
+    expect(lines[at + 1].startsWith('  Ship the release. xxx')).toBe(true)
+    expect(lines[at + 1].length).toBeLessThan(2100)
+    expect(lines[at + 1].endsWith('…')).toBe(true)
+  })
+
+  test('a GitHub parent issue reads as its number', async () => {
+    const result = await read(shippedSnapshot('01JREADGHEPICXXXXXXXXXXXXX', {
+      epic: { provider: 'github', externalId: '12', url: 'https://github.com/o/r/issues/12', title: 'Roadmap', body: '' },
+    }))
+    expect(result.text).toContain('Epic: github #12 — "Roadmap" — https://github.com/o/r/issues/12')
   })
 })
 
@@ -350,6 +373,7 @@ describe('linked-item tools on a dispatched session', () => {
     workType: 'doc' as const,
     content: '# Design\n\nLazy checkout rules.',
     updatedAt: '2026-08-10T00:00:00.000Z',
+    contentVersion: 3,
   }
   const shippedPlan = {
     kind: 'plan' as const,
@@ -364,7 +388,7 @@ describe('linked-item tools on a dispatched session', () => {
     targetScope: '',
     targetKey,
     title: kind === 'pr' ? 'Fix the scroll bug' : 'Nightly triage',
-    createdBy: 'agent' as const,
+    createdBy: AGENT,
     linkedAt: 0,
     ...extra,
   })
@@ -402,18 +426,34 @@ describe('linked-item tools on a dispatched session', () => {
     // WHY: the row lives on the task's host — the write must travel as an
     // outbox op, not fail, and the agent must see its own revision pre-drain.
     const result = await workTools.updateWorkAgentTool.execute(
-      { work_id: shippedWork.key, content: 'revised remotely' },
+      { work_id: shippedWork.key, content: 'revised remotely', expected_content_version: 3 },
       toolContext(sessionId),
     )
     expect(result.ok).toBe(true)
     expect(result.text).toContain('syncs')
-    expect(outbox.pendingOutboxOpsFor('works', shippedWork.key).length).toBe(1)
+    const pending = outbox.pendingOutboxOpsFor('works', shippedWork.key)
+    expect(pending.length).toBe(1)
+    // The op carries the version the agent read, for the owner to check.
+    expect(pending[0]!.payload).toMatchObject({ expectedContentVersion: 3 })
 
     const read = await workTools.readWorkAgentTool.execute(
       { work_id: shippedWork.key },
       toolContext(sessionId),
     )
     expect(read.text).toContain('revised remotely')
+    expect(read.text).toContain('content_version: 4')
+    outbox.ackOutboxOps(pending.map((op) => op.id))
+  })
+
+  test('update_work from an older read of a shipped work records nothing', async () => {
+    // WHY: the owner would refuse the op anyway; the agent must read again now.
+    const result = await workTools.updateWorkAgentTool.execute(
+      { work_id: shippedWork.key, content: 'from an old read', expected_content_version: 2 },
+      toolContext(sessionId),
+    )
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('Stale write')
+    expect(outbox.pendingOutboxOpsFor('works', shippedWork.key)).toEqual([])
   })
 
   test('an unknown work id still reads as not found', async () => {
@@ -510,13 +550,13 @@ describe('works from a dispatched session travel through the outbox', () => {
     expect(created.text).toContain(`[Auth Architecture](work://embed?workId=${workId}&type=diagram)`)
   })
 
-  test('an update op re-applies convergently on the owner host', async () => {
+  test('a redelivered update op is answered by its receipt on the owner host', async () => {
     const created = await works.createWork('local', 'Owner doc', 'doc', 'v1', '', undefined, 'claude-code', '/p')
     const op = outbox.recordOutboxOp({
       domain: 'works',
       resourceId: created.id,
       name: 'update',
-      payload: { taskId: 'any-task', content: 'v2' },
+      payload: { taskId: 'any-task', content: 'v2', expectedContentVersion: 1 },
     })
     const result = await outbox.applyOutboxOps([op])
     expect(result.applied).toEqual([op.id])
@@ -531,7 +571,7 @@ describe('works from a dispatched session travel through the outbox', () => {
       domain: 'works',
       resourceId: 'work-that-is-gone',
       name: 'update',
-      payload: { taskId: 'any-task', content: 'too late' },
+      payload: { taskId: 'any-task', content: 'too late', expectedContentVersion: 1 },
     })
     const result = await outbox.applyOutboxOps([op])
     expect(result.failed.length).toBe(1)
@@ -551,9 +591,8 @@ describe('the task host ships linked content with the snapshot', () => {
       targetScope: '',
       targetKey: created.id,
       title: created.title,
-      createdBy: 'agent',
-    })
-    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
+    }, AGENT)
+    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked?.map((item) => item.key)).toEqual([created.id])
     expect(snapshot.linked?.[0].content).toBe('# The plan')
     expect(snapshot.linked?.[0].workType).toBe('doc')
@@ -562,9 +601,9 @@ describe('the task host ships linked content with the snapshot', () => {
   test('an unresolvable plan link is skipped, and a PR link ships no content', async () => {
     const task = await createTask('local', { title: 'Task with dead links', projectKey: '/p', body: '' })
     const bound = await TaskModule.Task.byId('local', task.id)
-    await bound.link({ kind: 'plan', targetScope: 'gone-session', targetKey: 'plan-x', title: 'Lost plan', createdBy: 'agent' })
-    await bound.link({ kind: 'pr', targetScope: '/p', targetKey: '7', title: '#7', url: 'https://github.com/acme/app/pull/7', createdBy: 'agent' })
-    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
+    await bound.link({ kind: 'plan', targetScope: 'gone-session', targetKey: 'plan-x', title: 'Lost plan' }, AGENT)
+    await bound.link({ kind: 'pr', targetScope: '/p', targetKey: '7', title: '#7', url: 'https://github.com/acme/app/pull/7' }, AGENT)
+    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked ?? []).toEqual([])
   })
 })

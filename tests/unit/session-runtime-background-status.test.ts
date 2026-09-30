@@ -1,0 +1,254 @@
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { HOST_ACTOR } from '@solus/server/admission/actor'
+import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+type SessionRuntimeModule = typeof import('@solus/server/execution/session-runtime')
+type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
+type DbModule = typeof import('@solus/server/db')
+
+const previousDataDir = process.env.SOLUS_DATA_DIR
+let dataDir: string
+let sessionRuntimeModule: SessionRuntimeModule
+let metricsDb: MetricsDbModule
+let db: DbModule
+
+beforeAll(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-background-status-'))
+  process.env.SOLUS_DATA_DIR = dataDir
+  sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
+  metricsDb = await import('@solus/server/data/insights/metrics-db')
+  db = await import('@solus/server/db')
+})
+
+afterEach(() => {
+  mock.restore()
+  metricsDb.closeMetricsDb()
+  db.closeDb()
+})
+
+afterAll(() => {
+  rmSync(dataDir, { recursive: true, force: true })
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
+})
+
+class Permissions implements PermissionResponder {
+  getPendingInfo(): undefined { return undefined }
+  respondToPermission(): boolean { return false }
+  respondToQuestion(): boolean { return false }
+  clearPendingForSession(): void {}
+  setCurrentSessionId(): void {}
+}
+
+const THREAD_ID = 'thread-background'
+
+/** One Claude query that stays open, as the SDK keeps it while a background
+ *  task runs: every later prompt must arrive through `steerSession`. */
+class Backend extends EventEmitter implements AgentBackend {
+  readonly id = 'claude-code' as const
+  readonly metadata: AgentMetadata = { id: 'claude-code', label: 'Claude', models: [], defaultModel: 'claude-test' }
+  readonly permissions = new Permissions()
+  readonly handles = new Map<string, RunHandle>()
+  starts = 0
+  steered: string[] = []
+  cancelled: string[] = []
+  stoppedTasks: string[] = []
+
+  startRun(_request: AgentRunRequest): RunHandle {
+    let resolve!: () => void
+    let reject!: (error: Error) => void
+    const handle: RunHandle = {
+      agentSessionId: THREAD_ID,
+      persistence: 'session',
+      startedAt: Date.now(),
+      toolCallCount: 0,
+      sawPermissionRequest: false,
+      permissionDenials: [],
+      abortController: new AbortController(),
+      runPromise: new Promise<void>((res, rej) => { resolve = res; reject = rej }),
+      _resolveRun: resolve,
+      _rejectRun: reject,
+    }
+    this.starts++
+    this.handles.set(THREAD_ID, handle)
+    queueMicrotask(() => this.init())
+    return handle
+  }
+
+  init(): void {
+    this.emit('normalized', THREAD_ID, {
+      type: 'session_init', sessionId: THREAD_ID, model: 'claude-test', skills: [],
+    } satisfies NormalizedEvent)
+  }
+
+  startTask(taskId: string): void {
+    this.emit('normalized', THREAD_ID, { type: 'background_task_started', taskId } satisfies NormalizedEvent)
+  }
+
+  settleTask(taskId: string): void {
+    this.emit('normalized', THREAD_ID, { type: 'background_task_settled', taskId, status: 'completed' } satisfies NormalizedEvent)
+  }
+
+  result(): void {
+    this.emit('normalized', THREAD_ID, {
+      type: 'task_complete', result: 'done', costUsd: 0, durationMs: 1, numTurns: 1, usage: {}, sessionId: THREAD_ID,
+    } satisfies NormalizedEvent)
+  }
+
+  getSessionHandle(sessionId: string): RunHandle | undefined { return this.handles.get(sessionId) }
+  getPendingHandles(): RunHandle[] { return [] }
+  cancelSession(sessionId: string): boolean {
+    this.cancelled.push(sessionId)
+    return this.handles.has(sessionId)
+  }
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+    this.stoppedTasks.push(taskId)
+    return this.handles.has(sessionId)
+  }
+  isSessionRunning(sessionId: string): boolean { return this.handles.has(sessionId) }
+  async steerSession(sessionId: string, options: { prompt: string }): Promise<RunHandle | null> {
+    this.steered.push(options.prompt)
+    return this.handles.get(sessionId) ?? null
+  }
+  loadHistory(): Promise<never[]> { return Promise.resolve([]) }
+  loadSessionSkills(): Promise<never[]> { return Promise.resolve([]) }
+  getEnrichedError() { return { message: 'failed', isError: true, stderrTail: [] } }
+}
+
+const SESSION_ID = 'solus-background-status'
+
+function input(): SessionRunInput {
+  return {
+    provider: 'claude-code', agentSessionId: null, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    model: 'claude-test', preferredModel: 'claude-test', reasoningEffort: 'medium', fastMode: false,
+    permissionMode: 'supervised', rateLimitBehavior: 'ask', extraInstructions: '',
+  }
+}
+
+/** Queued settlements are published on a microtask. */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+}
+
+/** A turn that started a background task (a `wrangler tail`, a dev server) and
+ *  then ended its turn while that task still runs. */
+async function endTurnWithTaskRunning() {
+  const backend = new Backend()
+  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
+  plane.on('error', () => {})
+  const events: NormalizedEvent[] = []
+  plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+
+  const lifecycle = await plane.runTurn({
+    target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
+    options: { prompt: 'tail the logs', promptSource: 'typed' },
+  })
+  lifecycle.done.catch(() => {})
+  await lifecycle.agentSessionId
+  await flush()
+
+  backend.startTask('tail')
+  backend.result()
+  await flush()
+  return { backend, plane, events }
+}
+
+const statuses = (events: NormalizedEvent[]) =>
+  events.flatMap((event) => (event.type === 'status_change' ? [event.status] : []))
+const settlements = (events: NormalizedEvent[]) =>
+  events.flatMap((event) => (event.type === 'turn_settled' ? [event] : []))
+
+describe.serial('SessionRuntime background status', () => {
+  test('a turn that ends with a background task running releases the session but does not settle', async () => {
+    const { plane, events } = await endTurnWithTaskRunning()
+    try {
+      expect(statuses(events).at(-1)).toBe('background')
+      // WHY: a settlement is what clients mark unread and notify on. Background
+      // work often starts mid-task and the agent resumes when it settles, so a
+      // "finished" notification here announced work that had not finished.
+      expect(settlements(events)).toEqual([])
+      expect(plane.isSessionBusy(SESSION_ID)).toBe(false)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a prompt sent in background goes into the open query, never a second run', async () => {
+    const { backend, plane } = await endTurnWithTaskRunning()
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: SESSION_ID }, sessionId: SESSION_ID, input: input(), tools: [],
+        // Even an explicit queue: the turn is over, so nothing would drain it.
+        options: { prompt: 'what did the tail show?', promptSource: 'typed', delivery: 'queue' },
+      })
+      expect(lifecycle.disposition).toBe('steered')
+      expect(backend.steered).toEqual(['what did the tail show?'])
+      expect(backend.starts).toBe(1)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('the agent turn that follows a background turn settles once, as completed', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning()
+    try {
+      // The SDK resumes the agent in the same query when the task settles.
+      backend.settleTask('tail')
+      backend.init()
+      backend.result()
+      await flush()
+
+      expect(statuses(events).slice(-2)).toEqual(['running', 'completed'])
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('stopping the background work ends the task, not the finished turn', async () => {
+    // WHY: the session Stop interrupts a turn. This turn already finished, so
+    // using it here reported "Stopped by you" and offered a retry for work that
+    // was never stopped.
+    const { backend, plane, events } = await endTurnWithTaskRunning()
+    try {
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(true)
+      expect(backend.stoppedTasks).toEqual(['tail'])
+      expect(backend.cancelled).toEqual([])
+      expect(statuses(events)).not.toContain('interrupted')
+      expect(settlements(events)).toEqual([])
+
+      // The provider settles the task and resumes the agent with it.
+      backend.settleTask('tail')
+      backend.init()
+      backend.result()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      // Nothing is left to stop.
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(false)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('Stop in background cancels the query that keeps the task alive', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning()
+    try {
+      expect(plane.stopSession(SESSION_ID, HOST_ACTOR)).toBe(true)
+      expect(backend.cancelled).toEqual([THREAD_ID])
+      expect(statuses(events).at(-1)).toBe('interrupted')
+    } finally {
+      plane.shutdown()
+    }
+  })
+})

@@ -7,13 +7,23 @@ import type {
   SessionActiveTurn,
   SessionActivity,
   SessionPresenceSnapshot,
-  TurnAuthor,
 } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
-import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
-import { isHostOwner, LOCAL_ORGANIZATION_ID, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
-import type { TurnActor } from '../sessions/turn-ledger'
-import { presenceColorIndex } from './presence-color'
+import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../admission/principal'
+import { actorFor, type Actor } from '../admission/actor'
+import { hostUser } from '../host/host-user'
+
+/**
+ * The host room a connected client is in (docs/plans/multiplayer-presence.md):
+ * the whole machine on a personal or managed host, where everyone admitted is
+ * one room; one organization's room on the Solus API, which serves them all.
+ */
+export function presenceRoomOf(principal: Principal): string {
+  if (principal.kind === 'org-member' && principal.hostKind === 'cloud') return principal.organizationId
+  if (principal.kind === 'guest') return principal.organizationId ?? LOCAL_ORGANIZATION_ID
+  if (principal.kind === 'runner') return principal.organizationId
+  return LOCAL_ORGANIZATION_ID
+}
 
 /**
  * Who is connected to this host right now (docs/plans/multiplayer-presence.md).
@@ -32,8 +42,27 @@ interface PresenceEntry {
   /** The organization whose room this client is in. */
   organizationId: string
   focus: PresenceFocus
-  /** The session this client currently has a non-empty draft for, if any. */
+  /** The session this client is typing in, if any. */
   composingSessionId: string | null
+  /** Clears the typing mark when the client's reports stop. */
+  cancelComposingExpiry: (() => void) | null
+  /** The work this client is editing, if any; the same expiry rule as typing. */
+  editingWorkId: string | null
+  cancelEditingExpiry: (() => void) | null
+}
+
+/**
+ * How long a typing mark lasts after the client's last report. A client
+ * repeats the report while its person types (every 3 s, `TYPING_REPEAT_MS`), so
+ * the mark stays up through a burst and falls a few seconds after it ends.
+ */
+export const TYPING_EXPIRY_MS = 5_000
+
+type Schedule = (run: () => void, delayMs: number) => () => void
+
+const scheduleTimeout: Schedule = (run, delayMs) => {
+  const timer = setTimeout(run, delayMs)
+  return () => clearTimeout(timer)
 }
 
 export function presenceAccessFor(principal: Principal): PresenceAccess {
@@ -41,56 +70,45 @@ export function presenceAccessFor(principal: Principal): PresenceAccess {
   return principal.kind === 'guest' ? 'guest' : 'member'
 }
 
-/** The identity every other client sees for a principal; a system caller has none. */
-export function turnAuthorFor(principal: Principal): TurnAuthor | null {
-  const userId = principalOwnerId(principal)
-  if (!userId) return null
-  const author: TurnAuthor = { userId, displayName: principalDisplayName(principal), colorIndex: presenceColorIndex(userId) }
-  if (principal.kind === 'org-member' && principal.avatarUrl) author.avatarUrl = principal.avatarUrl
-  return author
-}
-
-/** The same identity for a run's actor: the name on a bubble, a held prompt, or the room's active turn.
- *  Null for the host's own work (automations, follow-ups, local prompts), which carries no name. */
-export function turnAuthorOf(actor: TurnActor | undefined): TurnAuthor | null {
-  if (!actor?.displayName) return null
-  const author: TurnAuthor = { userId: actor.userId, displayName: actor.displayName, colorIndex: presenceColorIndex(actor.userId) }
-  if (actor.avatarUrl) author.avatarUrl = actor.avatarUrl
-  return author
-}
-
 export interface PresenceManagerOptions {
   /** What a focused session is doing, for the host roster; the control plane answers on a real host. */
   describeSession?: (sessionId: string) => SessionActivity | null | Promise<SessionActivity | null>
   now?: () => number
+  /** Runs the typing expiry; a test passes a clock it controls. */
+  schedule?: Schedule
 }
 
 export class PresenceManager {
   private readonly entries = new Map<string, PresenceEntry>()
   private readonly describeSession: (sessionId: string) => SessionActivity | null | Promise<SessionActivity | null>
   private readonly now: () => number
+  private readonly schedule: Schedule
+  private composingExpired: ((clientId: string, sessionId: string) => void) | null = null
+  private editingExpired: ((clientId: string) => void) | null = null
 
   constructor(options: PresenceManagerOptions = {}) {
     this.describeSession = options.describeSession ?? (() => null)
     this.now = options.now ?? Date.now
+    this.schedule = options.schedule ?? scheduleTimeout
+  }
+
+  /** Called when a typing mark falls because its client stopped reporting, so its rooms can be told. */
+  onComposingExpired(listener: (clientId: string, sessionId: string) => void): void {
+    this.composingExpired = listener
+  }
+
+  /** Called when an editing mark falls because its client stopped reporting. */
+  onEditingExpired(listener: (clientId: string) => void): void {
+    this.editingExpired = listener
   }
 
   /** A client connected. True when it is new to the host; a reconnect changes nothing. */
   join(clientId: string, principal: Principal, deviceLabel: string): boolean {
     if (this.entries.has(clientId)) return false
-    const author = turnAuthorFor(principal)
-    if (!author) return false
-    const participant: PresenceParticipant = {
-      clientId,
-      userId: author.userId,
-      displayName: author.displayName,
-      colorIndex: author.colorIndex,
-      deviceLabel,
-      access: presenceAccessFor(principal),
-      joinedAt: this.now(),
-    }
-    if (author.avatarUrl) participant.avatarUrl = author.avatarUrl
-    this.entries.set(clientId, { participant, organizationId: organizationOf(principal), focus: PRESENCE_NO_FOCUS, composingSessionId: null })
+    const user = actorFor(principal).user
+    if (!user) return false
+    const participant: PresenceParticipant = { user, clientId, deviceLabel, access: presenceAccessFor(principal), joinedAt: this.now() }
+    this.entries.set(clientId, { participant, organizationId: presenceRoomOf(principal), focus: PRESENCE_NO_FOCUS, composingSessionId: null, cancelComposingExpiry: null, editingWorkId: null, cancelEditingExpiry: null })
     return true
   }
 
@@ -117,6 +135,8 @@ export class PresenceManager {
   leave(clientId: string): { composingSessionId: string | null } | null {
     const entry = this.entries.get(clientId)
     if (!entry) return null
+    entry.cancelComposingExpiry?.()
+    entry.cancelEditingExpiry?.()
     this.entries.delete(clientId)
     return { composingSessionId: entry.composingSessionId }
   }
@@ -139,21 +159,65 @@ export class PresenceManager {
   }
 
   /**
-   * The sessions whose room changed. A client composes in at most one session:
-   * switching drafts moves the mark rather than doubling it, and the previous
-   * session is returned too so its room is republished.
+   * The sessions whose room changed. A client types in at most one session:
+   * moving to another session moves the mark rather than doubling it, and the
+   * previous session is returned too so its room is republished. Each report of
+   * typing restarts the expiry; a repeat changes no room.
    */
   setComposing(clientId: string, sessionId: string, isComposing: boolean): string[] {
     const entry = this.entries.get(clientId)
     if (!entry) return []
     const before = entry.composingSessionId
     const after = isComposing ? sessionId : before === sessionId ? null : before
+    if (isComposing) {
+      entry.cancelComposingExpiry?.()
+      entry.cancelComposingExpiry = this.schedule(() => this.expireComposing(clientId, sessionId), TYPING_EXPIRY_MS)
+    } else if (after === null) {
+      entry.cancelComposingExpiry?.()
+      entry.cancelComposingExpiry = null
+    }
     if (before === after) return []
     entry.composingSessionId = after
     const changed = new Set<string>()
     if (before) changed.add(before)
     if (after) changed.add(after)
     return [...changed]
+  }
+
+  /**
+   * Whether a client edits a work, for the gallery and the roster. Each report
+   * restarts the expiry, so the mark falls `TYPING_EXPIRY_MS` after the last
+   * one. True when the mark changed.
+   */
+  setEditing(clientId: string, workId: string, isEditing: boolean): boolean {
+    const entry = this.entries.get(clientId)
+    if (!entry) return false
+    const before = entry.editingWorkId
+    entry.cancelEditingExpiry?.()
+    entry.cancelEditingExpiry = null
+    if (isEditing) {
+      entry.editingWorkId = workId
+      entry.cancelEditingExpiry = this.schedule(() => this.expireEditing(clientId, workId), TYPING_EXPIRY_MS)
+    } else if (before === workId) {
+      entry.editingWorkId = null
+    }
+    return before !== entry.editingWorkId
+  }
+
+  private expireEditing(clientId: string, workId: string): void {
+    const entry = this.entries.get(clientId)
+    if (!entry || entry.editingWorkId !== workId) return
+    entry.editingWorkId = null
+    entry.cancelEditingExpiry = null
+    this.editingExpired?.(clientId)
+  }
+
+  private expireComposing(clientId: string, sessionId: string): void {
+    const entry = this.entries.get(clientId)
+    if (!entry || entry.composingSessionId !== sessionId) return
+    entry.composingSessionId = null
+    entry.cancelComposingExpiry = null
+    this.composingExpired?.(clientId, sessionId)
   }
 
   /**
@@ -170,6 +234,7 @@ export class PresenceManager {
         ...entry.participant,
         focus: entry.focus,
         isComposing: focusedSessionId !== null && entry.composingSessionId === focusedSessionId,
+        isEditing: entry.focus.kind === 'work' && entry.editingWorkId === entry.focus.workId,
       }
       const activity = focusedSessionId ? await this.describeSession(focusedSessionId) : null
       if (activity) participant.activity = activity
@@ -205,16 +270,12 @@ export class PresenceManager {
 function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
+  if (a.kind === 'work' && b.kind === 'work') return a.workId === b.workId
   return true
 }
 
-/** The active turn as the room reports it: the run's author, or the host itself. */
-export function activeTurnFor(actor: TurnActor | undefined, provider: SessionActiveTurn['provider']): SessionActiveTurn {
-  const userId = actor?.userId ?? HOST_OWNER_USER_ID
-  return {
-    authorUserId: userId,
-    authorDisplayName: actor?.displayName ?? (userId === HOST_OWNER_USER_ID ? 'Host owner' : userId),
-    colorIndex: presenceColorIndex(userId),
-    provider,
-  }
+/** The active turn as the room reports it: the run's author, or the host's user for the host's own work. */
+export function activeTurnFor(actor: Actor | undefined, provider: SessionActiveTurn['provider']): SessionActiveTurn | null {
+  const author = actor?.user ?? hostUser()
+  return author ? { author, provider } : null
 }
