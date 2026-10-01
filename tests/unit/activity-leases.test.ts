@@ -27,4 +27,16 @@ describe('activity leases', () => {
     leases.drop('client-b')
     expect(leases.hasForegroundLease(1_500)).toBe(false)
   })
+
+  test('the last foreground report outlives the lease, so a host can wait out a grace after everyone looked away', () => {
+    // WHY: a managed host keeps its Sprite awake for a while after the last
+    // foregrounded client (sprite-activity), which needs the time, not just the lease.
+    const leases = new ActivityLeases()
+    expect(leases.lastForegroundAt()).toBeNull()
+    leases.report('client-a', true, 1_000)
+    leases.report('client-b', false, 5_000)
+    leases.report('client-a', false, 6_000)
+    expect(leases.hasForegroundLease(6_000)).toBe(false)
+    expect(leases.lastForegroundAt()).toBe(1_000)
+  })
 })

@@ -1,4 +1,3 @@
-import type { WorkspaceInsightQuery, WorkspaceInsightPage } from './solus-api'
 import type { CheckoutSnapshot } from './checkout'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
@@ -275,18 +274,16 @@ export interface SolusAPI {
   publicationList(resource?: ShareResource): Promise<Publication[]>
   /** A Local work, whole, for its upload into an organization (docs/plans/cloud-sharing.md §3). */
   workExportForCloud(workId: string): Promise<WorkTransfer>
-  /** The Local work after its upload: removed only when it did not change since that export. */
-  workRemoveUploaded(workId: string, fingerprint: string): Promise<void>
+  /** The Local work after its upload into `organizationId`: removed only when it did not change since that export. Its row keeps that location (cloud-sharing.md §3a). */
+  workRemoveUploaded(workId: string, fingerprint: string, organizationId: string): Promise<void>
   /** Solus API: store an uploaded work in the caller's organization under its own id; the same work again answers as before. */
   workUpload(transfer: WorkTransfer): Promise<{ workId: string; organizationId: string }>
   /** A Local task with its local comments and its linked Local works, for its upload into an organization. */
   taskExportForCloud(taskId: string): Promise<{ task: TaskTransfer; works: WorkTransfer[] }>
   /** The Local task and its uploaded works after the upload: each removed only when it did not change since that export. */
-  taskRemoveUploaded(taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>): Promise<void>
+  taskRemoveUploaded(taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>, organizationId: string): Promise<void>
   /** Solus API: store an uploaded task in the caller's organization under its own id; the same task again answers as before. */
   taskUpload(transfer: TaskTransfer): Promise<{ taskId: string; organizationId: string }>
-  /** One organization's turns on the Solus API, membership checked before the read. */
-  insightsList(query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
   shareGet(request: { resource: ShareResource }): Promise<ShareList>
   shareSet(request: ShareSetRequest): Promise<ShareList>

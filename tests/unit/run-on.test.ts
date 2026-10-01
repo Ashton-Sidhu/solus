@@ -11,7 +11,7 @@ import {
   withRemoteDispatch,
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig } from '@solus/contracts/types'
-import { orderRunOnHosts, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
+import { listRunOnHosts, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
 import { projectChipOptions } from '@solus/workspace-ui/components/input/lib/project-chip-options'
 import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
@@ -159,7 +159,20 @@ describe('what each Run on row does for the project', () => {
 
   test('hosts list as current, then hosts with a checkout, then the rest', () => {
     const hosts = ['mini', 'studio', 'local']
-    expect(orderRunOnHosts(hosts, (hostId) => action(hostId))).toEqual(['local', 'studio', 'mini'])
+    expect(listRunOnHosts(hosts, (hostId) => action(hostId), true)).toEqual(['local', 'studio', 'mini'])
+  })
+
+  test('a chosen project lists only hosts that hold it or can copy it', () => {
+    // WHY: a host that would need a folder picked cannot run this project, so
+    // offering it beside the project invites a choice that leads nowhere.
+    const hosts = ['mini', 'studio', 'local']
+    expect(listRunOnHosts(hosts, (hostId) => action(hostId, { cloneRepoKey: null }), true)).toEqual(['local', 'studio'])
+  })
+
+  test('with no project chosen, every host is listed', () => {
+    // WHY: the host is chosen first, and the project chip then picks a folder there.
+    const hosts = ['mini', 'studio', 'local']
+    expect(listRunOnHosts(hosts, (hostId) => action(hostId, { cloneRepoKey: null }), false)).toEqual(['local', 'studio', 'mini'])
   })
 })
 

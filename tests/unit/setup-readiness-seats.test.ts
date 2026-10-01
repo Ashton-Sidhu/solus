@@ -1,9 +1,17 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import type { Seat, SeatProvider, SeatStatus } from '@solus/contracts/seats'
 import type { HostReadiness, SetupAgentAuthCheckResult } from '@solus/contracts/types'
-import { registerSetupHandlers } from '@solus/server/transport/handlers/setup-handlers'
-import { SolusServer, type HandlerCtx } from '@solus/server/transport/server'
+import type { HandlerCtx } from '@solus/server/transport/server'
+import type { GitIdentity, GitIdentityManager } from '@solus/server/git/git-identity-manager'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
+
+// bun has no node:sqlite; the handlers' import chain reaches the db even though
+// these tests never open it.
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
+const { SolusServer } = await import('@solus/server/transport/server')
 
 const MEMBER_ID = 'member-1'
 
@@ -23,10 +31,18 @@ const memberCtx: HandlerCtx = {
   },
 }
 
+/** The member commits as their GitHub account; the host login inherits the host's config. */
+const gitIdentities = {
+  resolve: async (seat: Seat): Promise<GitIdentity> => seat.kind === 'host-login'
+    ? { kind: 'host' }
+    : { kind: 'member', userId: MEMBER_ID, name: 'octocat', email: 'octocat@users.noreply.github.com', revision: 'r1', env: {} as never },
+} as unknown as GitIdentityManager
+
 /** Only the member's Claude seat is connected; the host login has nothing. */
-function serverWithMemberSeat(): SolusServer {
+function serverWithMemberSeat(): InstanceType<typeof SolusServer> {
   const server = new SolusServer()
   registerSetupHandlers(server, {
+    gitIdentities,
     resolveAgentBinary: async () => '/usr/bin/agent',
     hasCommand: () => false,
     projectsRoot: () => '/tmp',
@@ -64,5 +80,15 @@ describe('setup readiness on a host with seats', () => {
     const readiness = await server.handle('setupHostReadiness', [], TEST_HANDLER_CTX) as HostReadiness
 
     expect(readiness.agents.claude.signedIn).toBe(false)
+  })
+
+  test('a member’s commit identity is their GitHub account, not the host’s git config', async () => {
+    // WHY: a member's commits run with their own GitHub author, so a managed
+    // host with no global `user.name` must not report "No commit identity".
+    const server = serverWithMemberSeat()
+
+    const readiness = await server.handle('setupHostReadiness', [], memberCtx) as HostReadiness
+
+    expect(readiness.git.identity).toEqual({ name: 'octocat', email: 'octocat@users.noreply.github.com' })
   })
 })

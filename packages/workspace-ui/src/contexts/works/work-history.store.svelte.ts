@@ -13,13 +13,14 @@ export class WorkHistoryStore {
   private tokens = new Map<string, number>()
   private bodies = new Map<string, Promise<string>>()
 
-  constructor(private api: (workId: string) => HostApi) {}
+  /** `ask` runs a read on the host that has the work now. */
+  constructor(private ask: <T>(workId: string, read: (api: HostApi) => Promise<T>) => Promise<T>) {}
 
   async load(workId: string): Promise<void> {
     const token = (this.tokens.get(workId) ?? 0) + 1
     this.tokens.set(workId, token)
     try {
-      const revisions = await this.api(workId).loadWorkRevisions(workId)
+      const revisions = await this.ask(workId, (api) => api.loadWorkRevisions(workId))
       if (this.tokens.get(workId) !== token) return
       this.revisions.set(workId, revisions)
       this.errors.delete(workId)
@@ -33,10 +34,17 @@ export class WorkHistoryStore {
     const key = `${workId}:${revisionId}`
     const cached = this.bodies.get(key)
     if (cached) return cached
-    const read = this.api(workId).loadWorkRevision(workId, revisionId).then((revision) => revision.content)
+    const read = this.ask(workId, (api) => api.loadWorkRevision(workId, revisionId)).then((revision) => revision.content)
     this.bodies.set(key, read)
     read.catch(() => this.bodies.delete(key))
     return read
+  }
+
+  /** The body the work had at `contentVersion`; null when no checkpoint holds it. */
+  async bodyAtVersion(workId: string, contentVersion: number): Promise<string | null> {
+    const revisions = await this.ask(workId, (api) => api.loadWorkRevisions(workId))
+    const revision = revisions.find((entry) => entry.sourceContentVersion === contentVersion)
+    return revision ? this.body(workId, revision.revisionId) : null
   }
 
   forget(workId: string): void {

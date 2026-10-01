@@ -507,7 +507,7 @@ export class SharesStore {
     await serversStore.refreshDirectory()
     const cloudServerId = solusApiId(organizationId)
     await serverConnections.apiFor(cloudServerId).workUpload(transfer)
-    await host.workRemoveUploaded(workId, transfer.fingerprint)
+    await host.workRemoveUploaded(workId, transfer.fingerprint, organizationId)
     this.works?.markPublished(workId, organizationId, cloudServerId)
     this.lists.delete(listKey(serverId, { kind: 'work', id: workId }))
     return { kind: 'committed', cloudServerId }
@@ -526,7 +526,7 @@ export class SharesStore {
     const cloud = serverConnections.apiFor(cloudServerId)
     for (const work of works) await cloud.workUpload(work)
     await cloud.taskUpload(task)
-    await host.taskRemoveUploaded(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })))
+    await host.taskRemoveUploaded(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), organizationId)
     for (const work of works) {
       this.works?.markPublished(work.work.id, organizationId, cloudServerId)
       this.lists.delete(listKey(serverId, { kind: 'work', id: work.work.id }))

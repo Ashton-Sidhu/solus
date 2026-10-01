@@ -8,6 +8,8 @@ import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
+import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { LOCAL_ORGANIZATION_ID, visibleInWindow } from '../../lib/organization-filter'
@@ -38,7 +40,7 @@ export interface OpenWorkLease {
 
 export class WorksStore {
   readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
-  readonly history = new WorkHistoryStore(workId => this.apiForWork(workId))
+  readonly history = new WorkHistoryStore((workId, read) => this.followMove(workId, read))
   /** The works open live, shared by the panes that show them (phase 3b). */
   readonly live = new WorkLiveStore({ title: (workId) => this.get(workId)?.title || 'Untitled' })
   readonly reviews = new WorkReviewsStore(workId => this.apiForWork(workId), serverId => serverConnections.apiFor(serverId), workId => this.hostFor(workId))
@@ -148,6 +150,26 @@ export class WorksStore {
   /** Stamp a work returned by a host-addressed create or session event. */
   rememberHost(workId: string, serverId: string): void {
     this.hostByWorkId.set(workId, serverId)
+  }
+
+  /**
+   * Ask the host that has the work. A host the work left answers `MOVED`
+   * (cloud-sharing.md §3a): the work lists then name its new owner, and the
+   * read is asked there once. A work this client has not listed yet is looked
+   * up first: one shared before hosts kept a location has no row to answer.
+   */
+  private async followMove<T>(workId: string, read: (api: HostApi) => Promise<T>): Promise<T> {
+    if (!this.hostByWorkId.has(workId)) await this.loadAll()
+    try {
+      return await read(this.apiForWork(workId))
+    } catch (error) {
+      if (!isMovedError(error)) throw error
+      const askedServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+      await this.loadAll()
+      const ownerServerId = this.hostByWorkId.get(workId)
+      if (!ownerServerId || ownerServerId === askedServerId) throw error
+      return read(serverConnections.apiFor(ownerServerId))
+    }
   }
 
   hostFor(workId: string): string | null {
@@ -532,11 +554,11 @@ export class WorksStore {
   }
 
   private async loadSavedFromHost(workId: string, source: string): Promise<Work | null> {
-    const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
-    if (!serverId) return null
+    if (!(this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId())) return null
     try {
-      const work = await serverConnections.apiFor(serverId).loadWork(workId)
-      if (work) {
+      const work = await this.followMove(workId, (api) => api.loadWork(workId))
+      const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+      if (work && serverId) {
         this.acceptSaved(work, serverId)
         return this.saved[workId] ?? null
       }
@@ -800,6 +822,12 @@ function applyRecord(work: Work, next: Work): void {
   work.contentVersion = next.contentVersion
   work.contentHash = next.contentHash
   work.contentAuthor = next.contentAuthor
+}
+
+/** The host's answer for a work Share moved to an organization, over either transport. */
+function isMovedError(error: Parameters<typeof String>[0]): boolean {
+  if (error instanceof WorkspaceRequestError) return error.code === 'MOVED'
+  return error instanceof Error && rpcErrorCode(error) === 'MOVED'
 }
 
 function isMissingWorkError(err: Parameters<typeof String>[0]): boolean {

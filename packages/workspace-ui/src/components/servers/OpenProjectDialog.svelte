@@ -18,11 +18,12 @@
     requestInputFocus,
   } from "../../lib/inputFocus";
   import { abbreviateHome, truncateMiddle } from "../../lib/paths";
-  import { connectionsStore, hostStatusDotClass, runtime, serversStore } from "../../contexts";
+  import { connectionsStore, runtime, serversStore } from "../../contexts";
   import OpenProjectDestination from "./OpenProjectDestination.svelte";
   import OpenProjectHome from "./OpenProjectHome.svelte";
   import { openProjectStore as store } from "./open-project.store.svelte";
   import type { CloneFailure } from "./lib/clone-outcome";
+  import type { CloneProtocol } from "@solus/contracts/types";
   import { homeRows } from "./lib/open-project-home";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "./lib/managed-host";
@@ -50,6 +51,7 @@
   let highlightedIndex = $state(0);
   let showOutput = $state(false);
   let hostMenuOpen = $state(false);
+  let protocolMenuOpen = $state(false);
 
   // A project lives on a machine: the workspace service is never a destination.
   const hosts = $derived(serversStore.executionServers);
@@ -82,6 +84,10 @@
     Math.min(highlightedIndex, Math.max(rowCount - 1, 0)),
   );
 
+  const CLONE_PROTOCOLS: { protocol: CloneProtocol; label: string }[] = [
+    { protocol: "https", label: "HTTPS" },
+    { protocol: "ssh", label: "SSH" },
+  ];
   const isGithub = $derived(store.step === "destination" && store.source === "github");
   const isNewProject = $derived(store.source === "new");
   const rootLabel = $derived(truncateMiddle(abbreviateHome(store.projectsRoot), 22));
@@ -139,6 +145,11 @@
   function goBack() {
     highlightedIndex = 0;
     store.back();
+  }
+
+  function selectProtocol(protocol: CloneProtocol) {
+    store.protocol = protocol;
+    if (protocol === "ssh") void store.checkSshAccess();
   }
 
   function selectHost(host: (typeof hosts)[number]) {
@@ -243,7 +254,7 @@
    */
   function handleKeyDown(e: KeyboardEvent) {
     // The machine menu is a portal of its own; while it is open it owns the keys.
-    if (hostMenuOpen) return;
+    if (hostMenuOpen || protocolMenuOpen) return;
     if (e.key === "Tab") {
       trapFocus(e);
       return;
@@ -363,6 +374,59 @@
           {title}
         </h2>
 
+        {#if store.step === "destination" && store.cloneUrl}
+          <DropdownMenu.Root bind:open={protocolMenuOpen}>
+            <DropdownMenu.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 font-medium uppercase text-muted-foreground
+                    [transition:background-color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
+                    hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
+                  aria-label="Clone over {store.protocol.toUpperCase()}"
+                >
+                  {store.protocol}
+                  <CaretDownIcon size={9} class="shrink-0" />
+                </button>
+              {/snippet}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content
+              portalProps={{ to: layer.el ?? undefined }}
+              side="bottom"
+              align="end"
+              sideOffset={6}
+              class="w-[16rem]"
+              onCloseAutoFocus={(e) => {
+                e.preventDefault();
+                inputEl?.focus();
+              }}
+            >
+              <DropdownMenu.Label>Clone over</DropdownMenu.Label>
+              {#each CLONE_PROTOCOLS as option (option.protocol)}
+                {@const current = option.protocol === store.protocol}
+                <DropdownMenu.Item
+                  data-menu-current={current ? "" : undefined}
+                  class="items-start"
+                  onSelect={() => selectProtocol(option.protocol)}
+                >
+                  <CheckIcon size={12} class="mt-0.5 shrink-0 text-primary {current ? '' : 'opacity-0'}" />
+                  <span class="flex min-w-0 flex-1 flex-col">
+                    <span class="font-medium">{option.label}</span>
+                    <span class="text-pretty text-muted-foreground">
+                      {option.protocol === "https"
+                        ? store.readiness?.github?.solusToken
+                          ? `Uses ${store.hostLabel || "this machine"}’s own GitHub sign-in.`
+                          : `Public repositories only, until ${store.hostLabel || "this machine"} signs in.`
+                        : `Uses an SSH key that lives on ${store.hostLabel || "this machine"}.`}
+                    </span>
+                  </span>
+                </DropdownMenu.Item>
+              {/each}
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
+        {/if}
+
         <!-- Which machine is never a step, so it is a control that stays
              reachable from every screen instead. One machine is not a choice,
              so the chip only appears once there is something to switch to. -->
@@ -410,10 +474,6 @@
                 >
                   <CheckIcon size={12} class="shrink-0 text-primary {bound ? '' : 'opacity-0'}" />
                   <span class="min-w-0 flex-1 truncate">{host.label}</span>
-                  <span
-                    class="size-1.5 shrink-0 rounded-full {hostStatusDotClass(host.status)}"
-                    title={host.status}
-                  ></span>
                 </DropdownMenu.Item>
               {/each}
             </DropdownMenu.Content>

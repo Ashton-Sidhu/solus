@@ -1,0 +1,2 @@
+CREATE INDEX "insight_log_events_trace_idx" ON "insight_log_events" USING btree ("organization_id","host_id","trace_id");--> statement-breakpoint
+CREATE INDEX "insight_spans_trace_idx" ON "insight_spans" USING btree ("organization_id","host_id","trace_id");

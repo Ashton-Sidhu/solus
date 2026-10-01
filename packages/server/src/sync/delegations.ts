@@ -49,8 +49,8 @@ export interface DelegationsDeps {
   now?: () => number
 }
 
-/** What an organization run's credential may do at the Solus API: its tasks and works, its sessions, and admitting one. */
-const DELEGATED_SCOPES = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit'] as const
+/** What an organization run's credential may do at the Solus API: its tasks and works, its sessions, admitting one, and reading Insights (the person's own turns other hosts ran). */
+const DELEGATED_SCOPES = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit', 'insights:read'] as const
 
 const REQUEST_TIMEOUT_MS = 15_000
 /** An access token this close to its end is replaced before it is used. */

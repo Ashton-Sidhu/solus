@@ -281,7 +281,7 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const { operations, context, remote } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
       const loaded = await operations.getWork(context, workId).catch(error => {
-        if (error instanceof SolusApiError && error.status === 404) return null
+        if (error instanceof SolusApiError && error.status === 404 && error.code !== 'MOVED') return null
         throw error
       })
       const work = loaded ? workRecord(loaded) : null
@@ -361,7 +361,7 @@ export async function executeWorkTool(
 
       const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
       const current = await operations.getWork(context, workId).catch(error => {
-        if (error instanceof SolusApiError && error.status === 404) return null
+        if (error instanceof SolusApiError && error.status === 404 && error.code !== 'MOVED') return null
         throw error
       })
       const existing = current ? workRecord(current) : null
@@ -427,6 +427,10 @@ export async function executeWorkTool(
 
     return { ok: false, text: `Unknown work tool: ${name}` }
   } catch (err: any) {
+    // Share moved the work to an organization (cloud-sharing.md §3a): say where, not "not found".
+    if (err instanceof SolusApiError && err.code === 'MOVED') {
+      return { ok: false, text: `${err.message} Share moved it there, so this host no longer has it, and ${name} cannot read or change it from this session.` }
+    }
     log.error('work_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Work tool error: ${String(err?.message ?? err)}` }
   }

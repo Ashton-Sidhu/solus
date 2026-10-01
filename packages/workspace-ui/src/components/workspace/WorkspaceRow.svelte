@@ -9,6 +9,7 @@
     AppWindow as ArtifactIcon,
     Presentation as PresentationIcon,
     ChartNoAxesGantt as InsightsReportIcon,
+    Cloud as CloudIcon,
     Pin as PushPinIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
@@ -308,9 +309,16 @@
     >
       {item.projectLabel}
     </span>
-    {#if homeLabel}
-      <span class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 text-[0.8125em] leading-[1.4] text-(--solus-text-tertiary)" data-testid="workspace-row-home">{homeLabel}</span>
-    {/if}
+    <!-- Home is an icon-only column, like upstream: a fixed slot, so a row
+         that lives in Solus Cloud keeps the same column measures as one that
+         does not. -->
+    <span class="flex w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary) @max-[30rem]/pane:w-auto">
+      {#if homeLabel}
+        <span class="flex" role="img" aria-label={homeLabel} title={homeLabel} data-testid="workspace-row-home">
+          <CloudIcon size={14} />
+        </span>
+      {/if}
+    </span>
 
     {#if present.length > 0}
       <PresenceStack people={present} size={14} max={2} detail={(person) => (person.isEditing ? "editing…" : null)} class="shrink-0" />

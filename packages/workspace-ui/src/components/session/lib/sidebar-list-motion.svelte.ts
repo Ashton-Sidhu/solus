@@ -8,6 +8,7 @@
 const MAX_FADED_ROWS_PER_UPDATE = 40
 
 type RowPosition = { top: number; left: number; width: number; height: number }
+type Band = { top: number; bottom: number }
 
 function progress(animation: Animation): number {
   return animation.playState === 'finished'
@@ -27,8 +28,18 @@ function progress(animation: Animation): number {
  *
  * `durationMs` is read at each update, so a change in Settings applies to the
  * next change of order. 0 updates without motion, as reduced motion does.
+ *
+ * `scroller` is the element the list scrolls in. Only rows that pass through
+ * its visible part move or fade. When the list overflows, a row that goes to
+ * the Completed shelf displaces every row between its two places, and most of
+ * them are below the fold. One animation for each of them made the change lag,
+ * and nobody saw that motion.
  */
-export function createSidebarListMotion(parent: HTMLElement, durationMs: () => number) {
+export function createSidebarListMotion(
+  parent: HTMLElement,
+  durationMs: () => number,
+  scroller: () => HTMLElement | undefined = () => undefined,
+) {
   const motionTiming = (): KeyframeAnimationOptions => ({ duration: durationMs(), easing: 'ease-out' })
   let positions: Map<HTMLElement, RowPosition> | null = null
   let disposed = false
@@ -137,6 +148,17 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
     )
   }
 
+  /** The scroller's visible part, in the coordinates of `offsetTop`. */
+  const visibleBand = (): Band => {
+    const element = scroller()
+    if (!element) return { top: -Infinity, bottom: Infinity }
+    const top = element.getBoundingClientRect().top - parent.getBoundingClientRect().top
+    return { top, bottom: top + element.clientHeight }
+  }
+  /** Whether a row is in view at some time while it goes from `from` to `to`. */
+  const isSeen = (band: Band, from: number, to: number, height: number) =>
+    height > 0 && Math.min(from, to) < band.bottom && Math.max(from, to) + height > band.top
+
   const readPositions = () =>
     new Map(
       Array.from(parent.children)
@@ -152,17 +174,18 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
         ]),
     )
 
-  /** Rows in one reading and not the other, which each cost a fade. */
+  /** Rows in view in one reading and not in the other, which each cost a fade. */
   const countFades = (
     previous: Map<HTMLElement, RowPosition>,
     next: Map<HTMLElement, RowPosition>,
+    band: Band,
   ) => {
     let count = 0
-    for (const [node, position] of previous) {
-      if (!next.has(node) && position.height > 0) count++
+    for (const [node, { top, height }] of previous) {
+      if (!next.has(node) && isSeen(band, top, top, height)) count++
     }
-    for (const [node, position] of next) {
-      if (!previous.has(node) && position.height > 0) count++
+    for (const [node, { top, height }] of next) {
+      if (!previous.has(node) && isSeen(band, top, top, height)) count++
     }
     return count
   }
@@ -181,18 +204,23 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
     }
   }
 
-  /** Fade in the rows that arrived and slide the ones that moved. */
+  /** Fade in the rows that arrived and slide the ones that moved, if they are
+   *  in view. A row out of view goes to its place at once. */
   const animateRemaining = (
     previous: Map<HTMLElement, RowPosition>,
     next: Map<HTMLElement, RowPosition>,
+    band: Band,
   ) => {
-    for (const [node, position] of next) {
+    for (const [node, { top, height }] of next) {
       const previousTop = previous.get(node)?.top
       if (previousTop === undefined) {
-        if (position.height > 0) fadeIn(node)
-      } else if (previousTop !== position.top) {
-        move(node, previousTop + remainingOffset(node) - position.top)
+        if (isSeen(band, top, top, height)) fadeIn(node)
+        continue
       }
+      if (previousTop === top) continue
+      const drawnTop = previousTop + remainingOffset(node)
+      if (isSeen(band, drawnTop, top, height)) move(node, drawnTop - top)
+      else cancel(node)
     }
   }
 
@@ -203,18 +231,25 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
       if (disposed) return
       const next = readPositions()
       const previous = positions
+      const band = visibleBand()
       const shouldAnimate =
         animate &&
         previous !== null &&
         !reducedMotion?.matches &&
         durationMs() > 0 &&
-        countFades(previous, next) <= MAX_FADED_ROWS_PER_UPDATE
+        countFades(previous, next, band) <= MAX_FADED_ROWS_PER_UPDATE
       if (!shouldAnimate) clearFades()
       // A leaving row fades from where it is drawn, which includes its own
       // slide in flight, so it is read before stale slides are cancelled.
-      else for (const [node, position] of previous) if (!next.has(node)) fadeOut(node, position)
+      else {
+        for (const [node, position] of previous) {
+          if (next.has(node)) continue
+          const drawnTop = position.top + remainingOffset(node)
+          if (isSeen(band, drawnTop, drawnTop, position.height)) fadeOut(node, position)
+        }
+      }
       settleStale(next, shouldAnimate)
-      if (shouldAnimate) animateRemaining(previous, next)
+      if (shouldAnimate) animateRemaining(previous, next, band)
       positions = next
     },
     dispose() {
@@ -233,9 +268,13 @@ export function createSidebarListMotion(parent: HTMLElement, durationMs: () => n
  * every row's layout on each of those is exactly the work that made the list
  * stutter.
  */
-export function sidebarListMotion(orderKey: () => string, durationMs: () => number) {
+export function sidebarListMotion(
+  orderKey: () => string,
+  durationMs: () => number,
+  scroller: () => HTMLElement | undefined,
+) {
   return (list: HTMLElement) => {
-    const motion = createSidebarListMotion(list, durationMs)
+    const motion = createSidebarListMotion(list, durationMs, scroller)
     // Derived, so a re-render that leaves the order as it was compares equal
     // and never reaches the effect below.
     const key = $derived(orderKey())

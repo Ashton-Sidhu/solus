@@ -39,7 +39,7 @@ export async function loadWorkAnnotations(scope: RecordScope, workId: string): P
  */
 async function organizationOfWork(db: Db, scope: RecordScope, workId: string): Promise<string> {
   const row = z.object({ organization_id: z.string() }).nullish().parse(await db.get(sql`
-    SELECT organization_id FROM ${works} WHERE id = ${workId} AND ${scopeClause(scope)}
+    SELECT organization_id FROM ${works} WHERE id = ${workId} AND ${scopeClause(scope)} AND location IS NULL
   `))
   if (!row) throw new Error(`Work not found: ${workId}`)
   return row.organization_id

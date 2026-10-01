@@ -52,15 +52,19 @@ export function runOnHostNote(action: RunOnHostAction): string | null {
   }
 }
 
-/** Hosts in the order a person decides: where the run is, then hosts that
- *  already hold the project, then the rest. Equal hosts keep their order. */
-export function orderRunOnHosts<Host>(hosts: readonly Host[], actionFor: (host: Host) => RunOnHostAction): Host[] {
-  const rank = (host: Host) => {
-    const kind = actionFor(host).kind
-    return kind === 'current' ? 0 : kind === 'checkout' ? 1 : 2
-  }
+/** The hosts the picker lists, in the order a person decides: where the run
+ *  is, then hosts that already hold the project, then hosts that can copy it.
+ *  Once a project is chosen, a host that would need a folder picked is not
+ *  listed: it cannot run this project. Equal hosts keep their order. */
+export function listRunOnHosts<Host>(
+  hosts: readonly Host[],
+  actionFor: (host: Host) => RunOnHostAction,
+  hasProject: boolean,
+): Host[] {
+  const rank = (kind: RunOnHostAction['kind']) => kind === 'current' ? 0 : kind === 'checkout' ? 1 : 2
   return hosts
-    .map((host, index) => ({ host, index, rank: rank(host) }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((host, index) => ({ host, index, kind: actionFor(host).kind }))
+    .filter(({ kind }) => !hasProject || kind !== 'choose-folder')
+    .sort((a, b) => rank(a.kind) - rank(b.kind) || a.index - b.index)
     .map(({ host }) => host)
 }

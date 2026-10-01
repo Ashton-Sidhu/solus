@@ -20,7 +20,8 @@ import { workspaceResourceVisibility } from '../tasks/resource-visibility'
 import { getSessionRecord } from '../sessions/session-records'
 import { works } from './schema'
 import { createWork, loadWork, readWorkMetadataPage } from './works'
-import { Work, WorkContentInvalidError, WorkVersionConflictError } from './work'
+import { Work, WorkContentInvalidError, WorkMovedError, WorkVersionConflictError } from './work'
+import { workLocation } from './work-rows'
 import { announceWorkDeleted } from './work-events'
 import { requestWorkReview, shareWithReviewers } from './work-reviews'
 import { actorFor } from '../../admission/actor'
@@ -32,8 +33,18 @@ async function domainAnswer<T>(write: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof WorkVersionConflictError) throw new SolusApiError(412, 'STALE_VERSION', error.message)
     if (error instanceof WorkContentInvalidError) throw new SolusApiError(400, 'INVALID_REQUEST', error.message.slice(0, 1000))
+    if (error instanceof WorkMovedError) throw new SolusApiError(404, 'MOVED', error.message)
     throw error
   }
+}
+
+/** A work this scope does not hold: `MOVED` when Share took it to an
+ *  organization (cloud-sharing.md §3a), so the client asks the new owner. */
+async function notHere(context: WorkspaceRequestContext, workId: string): Promise<SolusApiError> {
+  const location = await workLocation(getDatabase(), apiScope(context), workId)
+  return location
+    ? new SolusApiError(404, 'MOVED', new WorkMovedError(workId, location).message)
+    : new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
 }
 
 export class WorkApiOperations {
@@ -63,7 +74,7 @@ export class WorkApiOperations {
 
   private async read(context: WorkspaceRequestContext, workId: string): Promise<WorkRecord> {
     const work = await loadWork(apiScope(context), workId)
-    if (!work) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+    if (!work) throw await notHere(context, workId)
     return work
   }
 
@@ -71,7 +82,7 @@ export class WorkApiOperations {
     requireScope(context, 'works:read')
     await requireResource(this.shares, context, { kind: 'work', id: workId }, 'viewer')
     const work = await Work.find(apiScope(context), workId)
-    if (!work) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+    if (!work) throw await notHere(context, workId)
     return work.updatedAt
   }
 

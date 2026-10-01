@@ -4,6 +4,7 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { IpcContext, TurnSnapshot } from '@solus/contracts/types'
 import type {
+  InsightPullState,
   MetricsQueryResult,
   MetricsQuerySpec,
   MetricsSchema,
@@ -118,6 +119,8 @@ export type TurnChangeReading =
   | { status: 'ready'; patch: string }
   | { status: 'missing' }
   | { status: 'failed' }
+  /** A turn pulled from another host: git recorded its change there. */
+  | { status: 'elsewhere'; host: string }
 
 export type TurnChange =
   | { status: 'loading' }
@@ -186,6 +189,10 @@ export class InsightsStore {
     dir: 'desc',
   })
   turnStatus = $state<MetricsTurnStatus | null>(null)
+  /** Absent is every host; null is the host being read; an id is one host its turns were pulled from. */
+  turnHost = $state<string | null | undefined>(undefined)
+  /** The host's pull of this person's turns from other hosts, or null when it does not pull. */
+  insightPull = $state.raw<InsightPullState | null>(null)
   turnSearch = $state('')
   turnSelection = $state.raw<{ from: number; to: number } | null>(null)
   lastRunMs = $state(0)
@@ -264,6 +271,9 @@ export class InsightsStore {
       if (name) this.sessionNames.set(change.sessionId, name)
       else this.sessionNames.delete(change.sessionId)
     })
+    const unsubscribePull = subscribeAllHosts('metrics.insightPullChanged', (serverId, state) => {
+      if (serverId === this.hostId) this.insightPull = state
+    })
     const unsubscribe = subscribeAllHosts('metrics.turnsChanged', (serverId, change) => {
       if (serverId !== this.hostId) return
       // A cached trace or session total that counted this turn is now old. The
@@ -277,6 +287,7 @@ export class InsightsStore {
     })
     return () => {
       unsubscribe()
+      unsubscribePull()
       unsubscribeTitles()
       if (this.turnsChangedTimer) clearTimeout(this.turnsChangedTimer)
       this.turnsChangedTimer = null
@@ -359,6 +370,8 @@ export class InsightsStore {
     this.turnPageSize = 25
     this.turnSort = { field: 'started_at', dir: 'desc' }
     this.turnStatus = null
+    this.turnHost = undefined
+    this.insightPull = null
     this.turnSearch = ''
     this.turnSelection = null
     if (this.turnSearchTimer) clearTimeout(this.turnSearchTimer)
@@ -599,6 +612,7 @@ export class InsightsStore {
       search: this.turnSearch || undefined,
       ...scope,
     }
+    if (this.turnHost !== undefined) filter.hostId = this.turnHost
     this.turnFilter = filter
     if (!quiet) {
       this.running = true
@@ -613,6 +627,7 @@ export class InsightsStore {
       ])
       if (answerToken !== this.turnAnswerToken) return
       this.turnListingSummary = summary
+      if (summary.pull !== undefined) this.insightPull = summary.pull
       // A page or sort change made while this read was out has newer rows.
       if (rowsToken === this.turnRowsToken) this.showTurnRows(page)
       this.answerWindowStale = false
@@ -670,6 +685,13 @@ export class InsightsStore {
   async setTurnStatus(status: MetricsTurnStatus | null): Promise<void> {
     if (status === this.turnStatus) return
     this.turnStatus = status
+    this.turnPageIndex = 0
+    await this.runTurnListing()
+  }
+
+  async setTurnHost(hostId: string | null | undefined): Promise<void> {
+    if (hostId === this.turnHost) return
+    this.turnHost = hostId
     this.turnPageIndex = 0
     await this.runTurnListing()
   }

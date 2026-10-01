@@ -48,6 +48,11 @@ CREATE TABLE log_events (
 );
 CREATE INDEX log_events_trace_time ON log_events(trace_id, occurred_at);
 CREATE INDEX log_events_span_time ON log_events(span_id, occurred_at);
+`, `
+-- The host that ran the span, as the workspace service names it
+-- (docs/plans/insights-across-hosts.md): set on a turn pulled from another
+-- host, null on a span this host recorded.
+ALTER TABLE spans ADD COLUMN host_id TEXT;
 `]
 
 export function runMetricsMigrations(db: DatabaseSync): void {

@@ -82,6 +82,8 @@ export type MetricsTurnSortField =
   | 'model'
   | 'session_id'
   | 'prompt'
+  | 'host'
+  | 'user'
 
 /** What narrows the normal Insights turn listing. The summary and the page
  * read the same filter, so the chart and the table describe the same turns. */
@@ -91,6 +93,10 @@ export interface MetricsTurnFilter {
   search?: string
   sessionId?: string
   taskId?: string
+  /** One host's turns: a host id names a turn pulled from that host, null the
+   *  turns the host being read ran itself. Absent is every host
+   *  (docs/plans/insights-across-hosts.md). */
+  hostId?: string | null
 }
 
 /** One page of the listing. The server applies every filter before it
@@ -146,6 +152,26 @@ export interface MetricsTurnListingSummary {
   statusCounts: MetricsTurnStatusCounts
   stats: MetricsTurnStats
   volume: MetricsTurnVolumeBucket[]
+  /** Every host with turns in the window, whatever host the filter names, so
+   *  the host filter can offer them. Absent from a host that predates it. */
+  hosts?: MetricsTurnHost[]
+  /** The pull of this person's turns from other hosts, when the host pulls. */
+  pull?: InsightPullState | null
+}
+
+/** A host that ran turns in the listing's window. */
+export interface MetricsTurnHost {
+  /** Null for the host being read; else the host the turns were pulled from. */
+  hostId: string | null
+  /** The machine name the turns recorded, when they recorded one. */
+  hostname: string | null
+  count: number
+}
+
+/** Whether the host is pulling turns that other hosts ran, and why the last pull failed. */
+export interface InsightPullState {
+  pulling: boolean
+  error: string | null
 }
 
 export interface MetricsTurnPageResult {
@@ -246,6 +272,9 @@ export interface MetricsSpan {
   durationMs: number | null
   status: string
   attrs: MetricsSpanAttrs
+  /** The host the span was pulled from; null when the host being read ran it.
+   *  Absent from a host that predates insights across hosts. */
+  hostId?: string | null
 }
 
 /**

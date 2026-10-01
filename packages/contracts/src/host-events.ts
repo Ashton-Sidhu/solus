@@ -23,6 +23,7 @@ import type {
 import type { GitActionProgressEvent } from './git-types'
 import type { BrowserPage, BrowserProfileSet } from './browser-types'
 import type { CodeIntelStatus } from './code-intel'
+import type { InsightPullState } from './observability-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
@@ -99,6 +100,8 @@ export interface HostEventMap {
    *  starts, finished when it ends. Sent after the write, so a client that reads
    *  on it sees the new row. `status` is 'unknown' while the turn runs. */
   'metrics.turnsChanged': { traceId: string; sessionId: string | null; status: 'ok' | 'error' | 'interrupted' | 'unknown' }
+  /** A pull of turns other hosts ran started or ended (docs/plans/insights-across-hosts.md). */
+  'metrics.insightPullChanged': InsightPullState
   /** An agent tool found a connection missing and its turn is waiting on it.
    *  One event for every provider: the card, the dismissal, and the continue
    *  are the same work regardless of which account is missing. */
@@ -202,6 +205,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
   'metrics.turnsChanged': { owner: 'metrics', category: 'delta', recovery: 'reload', description: "A turn's Insights row was written: started or finished." },
+  'metrics.insightPullChanged': { owner: 'metrics', category: 'snapshot', recovery: 'reload', description: 'A pull of turns other hosts ran started or ended.' },
   'connection.connectNeeded': { owner: 'connections', category: 'delta', recovery: 'reset', description: 'An agent tool needs the user to connect an external account.' },
   'browser.pageChanged': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page changed target, viewport, host, or load state.' },
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },

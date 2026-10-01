@@ -7,14 +7,15 @@ import { hostCategory } from './host-category'
 const log = createLogger('main', 'sprite-activity')
 
 /**
- * Keeps a managed machine awake while it has work (plan 004 item 3). A Sprite pauses
- * when no inbound request arrives, and an agent turn makes only outbound calls, so a
- * turn with no client connected would pause with it.
+ * Keeps a managed machine awake while it has work or someone looks at it (plan 004
+ * item 3). A Sprite pauses when no inbound request arrives, and neither an agent turn
+ * (outbound calls only) nor an open socket counts, so a turn with no client connected,
+ * or a tab left open on an idle host, would pause with it.
  *
  * - The hold. The Sprites Tasks API is served inside the Sprite on a management
  *   socket and needs no token, so the machine holds itself: one task, renewed while
- *   the host is busy or an automation is due soon, deleted when neither holds. The
- *   Fly token stays in the control plane.
+ *   the host is busy, a client was foregrounded within the grace, or an automation
+ *   is due soon, deleted when none holds. The Fly token stays in the control plane.
  * - The report. A paused machine cannot wake itself for a scheduled automation, so
  *   the host tells the control plane when the next one is due, and whether it is
  *   busy (the control plane puts off a restart for a new release while it is). Sent
@@ -38,15 +39,24 @@ const REQUEST_TIMEOUT_MS = 15_000
  * so the hold must start earlier than the earliest wake.
  */
 export const DUE_HOLD_LEAD_MS = 15 * 60_000
+/**
+ * The machine stays awake this long after a client was last foregrounded. A person
+ * who looks at the app must not find it paused; a short switch to another window
+ * must not cost a cold start; a tab forgotten in the background must not bill all night.
+ */
+export const FOREGROUND_HOLD_GRACE_MS = 15 * 60_000
 
 export interface SpriteActivityFacts {
   busy: boolean
   nextDueAt: number | null
+  lastForegroundAt: number | null
 }
 
-/** Whether the machine must stay awake now: busy, or an automation due within the lead. */
+/** Whether the machine must stay awake now: busy, a client foregrounded within the grace, or an automation due within the lead. */
 export function shouldHold(facts: SpriteActivityFacts, now: number): boolean {
-  return facts.busy || (facts.nextDueAt !== null && facts.nextDueAt - now <= DUE_HOLD_LEAD_MS)
+  return facts.busy
+    || (facts.lastForegroundAt !== null && now - facts.lastForegroundAt <= FOREGROUND_HOLD_GRACE_MS)
+    || (facts.nextDueAt !== null && facts.nextDueAt - now <= DUE_HOLD_LEAD_MS)
 }
 
 /** One call to the Sprites Tasks API; answers the HTTP status. */
@@ -55,7 +65,9 @@ export type SpriteTaskCall = (method: 'PUT' | 'DELETE', path: string, body?: str
 export interface SpriteActivityDeps {
   isBusy: () => boolean
   nextDueAt: () => number | null
-  link: () => UplinkLinkConfig | null
+  /** When a client last reported it was foregrounded (its activity lease). */
+  lastForegroundAt: () => number | null
+  link:() => UplinkLinkConfig | null
   hostToken: () => string | null
   fetchImpl?: FetchLike
   spriteTask?: SpriteTaskCall
@@ -98,7 +110,7 @@ export class SpriteActivity {
       return
     }
     const now = this.now()
-    const facts: SpriteActivityFacts = { busy: this.deps.isBusy(), nextDueAt: this.deps.nextDueAt() }
+    const facts: SpriteActivityFacts = { busy: this.deps.isBusy(), nextDueAt: this.deps.nextDueAt(), lastForegroundAt: this.deps.lastForegroundAt() }
     if (shouldHold(facts, now)) await this.hold(now)
     else await this.release()
     await this.report({ busy: facts.busy, nextWakeAt: facts.nextDueAt }, now)

@@ -29,7 +29,7 @@
   import { Button } from "../ui/button";
   import ProjectRowAction from "../ui/ProjectRowAction.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import { MenuFooter, MenuSearch } from "../ui/menu";
+  import { MenuSearch } from "../ui/menu";
   import {
     projectChipOptions,
     scratchpadCheckout,
@@ -270,10 +270,10 @@
     class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
     {#if view === "new"}
-      <!-- The name takes the place of the search field: the same header row,
-           typed as the end of its own path, so the step reads as this menu. -->
+      <!-- The name takes the place of the search field in the same header
+           row, so the step reads as this menu. -->
       <div
-        class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 text-(--solus-text-tertiary)"
+        class="flex items-center gap-2 px-3 py-2.5 text-(--solus-text-tertiary)"
       >
         <button
           type="button"
@@ -290,6 +290,7 @@
           platform={capabilities?.platform}
           disabled={creatingProject}
           onsubmit={() => void createProject()}
+          showsParent={false}
           class="h-4 leading-4"
         />
         {#if creatingProject}
@@ -299,16 +300,18 @@
             <CircleAlertIcon size={13} aria-label="Could not create project" />
           </span>
         {/if}
-      </div>
-      <MenuFooter hints={[["⏎", "create"], ["esc", "back"]]}>
+        <!-- The menu is too narrow for the folder path, so the location is a
+             tooltip on the control that changes it. -->
         <button
           type="button"
-          class="shrink-0 text-xs text-(--solus-text-tertiary) hover:text-(--solus-text-secondary) focus-visible:underline focus-visible:outline-none"
+          class="-m-1 flex size-5 shrink-0 items-center justify-center rounded-md hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
+          title="Change location — {projectsRoot}"
+          aria-label="Change location, now {projectsRoot}"
           onclick={openNewProjectFlow}
         >
-          Other location…
+          <FolderOpenIcon size={13} />
         </button>
-      </MenuFooter>
+      </div>
     {:else}
     <Command.Root bind:ref={commandEl}>
       <MenuSearch bind:value={query} placeholder="Search projects" />
@@ -378,7 +381,6 @@
         </Command.Item>
       </Command.List>
     </Command.Root>
-    <MenuFooter hints={[["⏎", "open"]]} summary="{projects.length} projects" />
     {/if}
   </Popover.Content>
 </Popover.Root>

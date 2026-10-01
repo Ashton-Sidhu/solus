@@ -3209,7 +3209,8 @@
                 "doc",
                 "slides",
                 "diagram",
-                "artifact"
+                "artifact",
+                "insights-report"
               ]
             }
           }
@@ -3337,7 +3338,8 @@
                               "doc",
                               "slides",
                               "diagram",
-                              "artifact"
+                              "artifact",
+                              "insights-report"
                             ]
                           },
                           "preview": {
@@ -3806,7 +3808,8 @@
                         "doc",
                         "slides",
                         "diagram",
-                        "artifact"
+                        "artifact",
+                        "insights-report"
                       ]
                     },
                     "preview": {
@@ -4526,7 +4529,8 @@
                       "doc",
                       "slides",
                       "diagram",
-                      "artifact"
+                      "artifact",
+                      "insights-report"
                     ]
                   },
                   "content": {
@@ -5389,7 +5393,8 @@
                         "doc",
                         "slides",
                         "diagram",
-                        "artifact"
+                        "artifact",
+                        "insights-report"
                       ]
                     },
                     "preview": {
@@ -6162,7 +6167,8 @@
                 "doc",
                 "slides",
                 "diagram",
-                "artifact"
+                "artifact",
+                "insights-report"
               ]
             }
           },
@@ -6213,7 +6219,8 @@
                               "doc",
                               "slides",
                               "diagram",
-                              "artifact"
+                              "artifact",
+                              "insights-report"
                             ]
                           },
                           "updatedAt": {
@@ -6504,7 +6511,8 @@
                         "doc",
                         "slides",
                         "diagram",
-                        "artifact"
+                        "artifact",
+                        "insights-report"
                       ]
                     },
                     "preview": {
@@ -7345,7 +7353,8 @@
                         "doc",
                         "slides",
                         "diagram",
-                        "artifact"
+                        "artifact",
+                        "insights-report"
                       ]
                     },
                     "preview": {
@@ -11213,6 +11222,51 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "service": {
+                            "type": "string",
+                            "maxLength": 128
+                          },
+                          "origin": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "projectRoot": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 4096
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "attrs": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "maxLength": 128
+                            },
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean"
+                              ]
+                            },
+                            "description": "The turn's recorded attributes: counts, timings, tokens, and short labels. The prompt is cut to 200 characters; the system prompt and response are not present. The turn's tree has every attribute."
                           }
                         },
                         "required": [
@@ -11230,7 +11284,12 @@
                           "status",
                           "costUsd",
                           "inputTokens",
-                          "outputTokens"
+                          "outputTokens",
+                          "name",
+                          "service",
+                          "origin",
+                          "projectRoot",
+                          "attrs"
                         ],
                         "additionalProperties": false,
                         "description": "One agent-turn observation, identified by an opaque host-and-trace ID within the verified organization. Organization Insights policy governs both list and individual reads. This does not authorize session transcripts. Unknown costs/tokens are null.",
@@ -11250,7 +11309,14 @@
                             "status": "ok",
                             "costUsd": null,
                             "inputTokens": 120,
-                            "outputTokens": 60
+                            "outputTokens": 60,
+                            "name": "turn",
+                            "service": "solus.sessions",
+                            "origin": "typed",
+                            "projectRoot": null,
+                            "attrs": {
+                              "toolCallCount": 3
+                            }
                           }
                         ]
                       }
@@ -11579,6 +11645,51 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    "service": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "origin": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 64
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "projectRoot": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 4096
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "attrs": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string",
+                        "maxLength": 128
+                      },
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
+                      },
+                      "description": "The turn's recorded attributes: counts, timings, tokens, and short labels. The prompt is cut to 200 characters; the system prompt and response are not present. The turn's tree has every attribute."
                     }
                   },
                   "required": [
@@ -11596,7 +11707,12 @@
                     "status",
                     "costUsd",
                     "inputTokens",
-                    "outputTokens"
+                    "outputTokens",
+                    "name",
+                    "service",
+                    "origin",
+                    "projectRoot",
+                    "attrs"
                   ],
                   "additionalProperties": false,
                   "description": "One agent-turn observation, identified by an opaque host-and-trace ID within the verified organization. Organization Insights policy governs both list and individual reads. This does not authorize session transcripts. Unknown costs/tokens are null.",
@@ -11616,9 +11732,401 @@
                       "status": "ok",
                       "costUsd": null,
                       "inputTokens": 120,
-                      "outputTokens": 60
+                      "outputTokens": 60,
+                      "name": "turn",
+                      "service": "solus.sessions",
+                      "origin": "typed",
+                      "projectRoot": null,
+                      "attrs": {
+                        "toolCallCount": 3
+                      }
                     }
                   ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "insights:read"
+      }
+    },
+    "/v1/insights/{insightId}/spans": {
+      "get": {
+        "operationId": "getInsightSpans",
+        "parameters": [
+          {
+            "name": "insightId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "spans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "spanId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "parentSpanId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "traceId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "maxLength": 64
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "service": {
+                            "type": "string",
+                            "maxLength": 128
+                          },
+                          "sessionId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "provider": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "model": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "projectRoot": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 4096
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "origin": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "userId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "userEmail": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 320,
+                                "format": "email",
+                                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedAt": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "endedAt": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "status": {
+                            "type": "string",
+                            "maxLength": 64
+                          },
+                          "attrs": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "maxLength": 128
+                            },
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean"
+                              ]
+                            },
+                            "description": "The turn's recorded attributes: counts, timings, tokens, and short labels. The prompt is cut to 200 characters; the system prompt and response are not present. The turn's tree has every attribute."
+                          }
+                        },
+                        "required": [
+                          "spanId",
+                          "parentSpanId",
+                          "traceId",
+                          "kind",
+                          "name",
+                          "service",
+                          "sessionId",
+                          "provider",
+                          "model",
+                          "projectRoot",
+                          "origin",
+                          "userId",
+                          "userEmail",
+                          "startedAt",
+                          "endedAt",
+                          "status",
+                          "attrs"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "spanId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "occurredAt": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "debug",
+                              "info",
+                              "warn",
+                              "error"
+                            ]
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "tag": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "file": {
+                            "type": "string",
+                            "maxLength": 1024
+                          },
+                          "attrs": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "maxLength": 128
+                            },
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean"
+                              ]
+                            },
+                            "description": "The turn's recorded attributes: counts, timings, tokens, and short labels. The prompt is cut to 200 characters; the system prompt and response are not present. The turn's tree has every attribute."
+                          }
+                        },
+                        "required": [
+                          "spanId",
+                          "occurredAt",
+                          "level",
+                          "name",
+                          "tag",
+                          "file",
+                          "attrs"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "spans",
+                    "events"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Every span and log event of one turn in the organization, with all recorded attributes. Times are epoch milliseconds."
                 }
               }
             }
@@ -11751,6 +12259,7 @@
                   "UNAUTHENTICATED",
                   "FORBIDDEN",
                   "NOT_FOUND",
+                  "MOVED",
                   "CONFLICT",
                   "STALE_VERSION",
                   "IDEMPOTENCY_CONFLICT",

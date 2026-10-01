@@ -130,6 +130,37 @@ describe('sidebar list motion', () => {
     expect(played.every((entry) => entry.options?.duration === 320)).toBe(true)
   })
 
+  test('in a list that overflows, only rows that pass through the view animate', () => {
+    // WHY: a row that goes to the Completed shelf displaces every row between
+    // its two places. In a long list most of them are below the fold, and one
+    // animation for each of them made the change lag where nobody saw it.
+    const { list, played, layOut, row, rowHeight } = setup()
+    const rows = Array.from({ length: 100 }, (_, index) => row(`row-${index}`))
+    list.append(...rows)
+    layOut()
+    // The scroller shows the first ten rows; the list starts at its top.
+    const scroller = list.ownerDocument.createElement('div')
+    Object.defineProperty(scroller, 'clientHeight', { value: 10 * rowHeight })
+    scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect
+    list.getBoundingClientRect = () => ({ top: 0 }) as DOMRect
+    const motion = createSidebarListMotion(list, () => 150, () => scroller)
+    motion.update(false)
+
+    const completed = rows[2]!
+    list.append(completed)
+    layOut()
+    motion.update(true)
+
+    const animated = new Set(played.map((entry) => entry.node))
+    // The moved row leaves the view, and the rows below it in view slide up.
+    expect(animated.has(completed)).toBe(true)
+    for (const index of [3, 4, 5, 6, 7, 8, 9, 10]) expect(animated.has(rows[index]!)).toBe(true)
+    // Rows that stay below the fold go to their places at once.
+    expect(animated.has(rows[11]!)).toBe(false)
+    expect(animated.has(rows[50]!)).toBe(false)
+    expect(animated.size).toBe(9)
+  })
+
   test('a duration of 0 turns the motion off', () => {
     const { list, played, layOut, row } = setup()
     list.append(row('older'))

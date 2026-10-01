@@ -2,7 +2,7 @@ import type {
   WorkspaceCreateTask, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
   WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, WorkspaceRequestWorkReview, WorkspaceWorkReview, WorkspaceWorkUpstream, WorkspaceUpdateWork, WorkspaceWork, WorkspaceWorkPage, WorkspaceWorkQuery, WorkspaceWorkSearchQuery, WorkspaceWorkSearchResult,
   WorkspaceSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
-  WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery,
+  WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
   WorkspaceActivityList, WorkspaceActivityQuery, WorkspaceMyActivityQuery,
 } from '@solus/contracts/solus-api'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
@@ -32,6 +32,7 @@ export interface WorkspaceOperations {
   listSessionMessages(context: WorkspaceRequestContext, sessionId: string, query: WorkspacePageQuery): Promise<WorkspaceTranscriptPage>
   listInsights(context: WorkspaceRequestContext, query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   getInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight>
+  getInsightSpans(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsightTree>
   listTaskActivity(context: WorkspaceRequestContext, taskId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listWorkActivity(context: WorkspaceRequestContext, workId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listSessionActivity(context: WorkspaceRequestContext, sessionId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>

@@ -66,7 +66,8 @@ repeat, so there is no pending row and no idempotency key.
    organization, the API refuses.
 3. **Remove.** The client tells the host to remove the local copy. The host
    removes it only if it did not change since step 1 (same fingerprint);
-   otherwise it keeps the newer copy and says so.
+   otherwise it keeps the newer copy and says so. A work keeps its row with a
+   location (§3a).
 4. **Share.** The dialog applies the access rules on the cloud record and
    shows its link.
 
@@ -76,6 +77,36 @@ Nothing is lost and nothing is copied twice. The host makes no network call.
 
 The membership check moves to the API: it refuses an upload the person may not
 make. The client offers the organizations of the signed-in account.
+
+## 3a. A shared work keeps its row
+
+Step 3 does not delete the work's row. It gives the row a **location**: the
+organization that has the work now. The host clears the body, the revisions,
+and the comments, so the organization's copy is the only copy of the content.
+The row keeps the id, title, type, and links.
+
+Many records name a work only by its id: transcript receipts, task links, the
+work's sessions, and `work://embed` links in other works. Some of them cannot
+be changed after a Share (a provider transcript is written once), and some are
+on other hosts. A reader of any of them asks the host it knows. The location
+lets that host answer "this work is in organization X" instead of "not found".
+
+- **Column.** `works.location` is null while the work is on this host, and
+  `{ "organizationId": "…" }` after Share.
+- **Lists.** This host's work lists, search, reviews, and a task's linked works
+  skip a row with a location.
+- **Reads and edits.** A read or edit of a moved work fails with the code
+  `WORK_MOVED`. Its message names the organization.
+- **Client.** The works store follows `WORK_MOVED` once: it reads the work
+  lists of the connected hosts, records the owner, and asks the owner. A
+  reload therefore does not depend on which host the reader asked first. A
+  work the client has not listed yet is looked up in the lists first, because
+  a work shared before this rule has no row on its old host.
+- **Agent tools.** `read_work` and `update_work` on a moved work tell the agent
+  which organization has it. They do not read or write the organization's
+  copy.
+- **Tasks.** A task is still removed after its upload. Its linked works get a
+  location through the same step.
 
 ## 4. Per resource
 
@@ -185,3 +216,6 @@ host keeps a local copy that changed after it was read.
    separate guest layout.
 4. **2026-10-01:** a task is not shared (§4b). Share on a task becomes Copy
    link, which still uploads a Local task with everything linked to it.
+5. **2026-10-01:** a shared work keeps its row with a location (§3a), so a
+   reference to the work on this host finds the work. A separate table of
+   moved records was rejected as more than the need.

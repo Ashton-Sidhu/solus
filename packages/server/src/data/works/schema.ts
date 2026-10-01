@@ -34,6 +34,9 @@ export const works = defineTable('works', {
   /** The `rev` the previous-version comparison and revert use: the body the
    * last agent write, upstream pull, or restore displaced. */
   previous_revision_id: integer(),
+  /** `WorkLocation` JSON: where a shared work is now (cloud-sharing.md §3a).
+   * Null while the work is on this host; a row with a location has no body. */
+  location: json(),
 }, {
   indexes: [
     { name: 'works_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },

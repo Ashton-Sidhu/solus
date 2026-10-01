@@ -65,10 +65,10 @@ export async function exportTaskForCloud(scope: RecordScope, taskId: string): Pr
  * After the upload: the task and each uploaded work leave this host. A task
  * that changed after it was read is kept, and so is a work that changed.
  */
-export async function removeUploadedTask(scope: RecordScope, taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>): Promise<void> {
+export async function removeUploadedTask(scope: RecordScope, taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>, organizationId: string): Promise<void> {
   const { snapshot } = await snapshotOf(scope, taskId)
   if (taskTransferFingerprint(snapshot) !== fingerprint) throw new Error('The task changed while it was shared. Its local copy was kept.')
-  for (const work of works) await removePushedWork(scope, work.workId, work.fingerprint)
+  for (const work of works) await removePushedWork(scope, work.workId, work.fingerprint, organizationId)
   await (await Task.byId(scope, taskId)).delete()
 }
 

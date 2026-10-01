@@ -194,7 +194,7 @@ const fts5SearchIndex: SearchIndex = {
       FROM works_fts
       JOIN works_fts_rows ON works_fts_rows.rowid = works_fts.rowid
       JOIN ${works} ON works.id = works_fts_rows.work_id
-      WHERE works_fts MATCH ${ftsQuery}
+      WHERE works_fts MATCH ${ftsQuery} AND works.location IS NULL
         AND ${scopeClause(request.scope, sql`works.organization_id`)}
         ${typeFilter(request.type)}
       ORDER BY rank ASC
@@ -229,7 +229,7 @@ const tsvectorSearchIndex: SearchIndex = {
         works.id, works.title, works.type, works.cwd, works.updated_at,
         ts_headline('english', COALESCE(works.content, ''), query, 'StartSel=,StopSel=,MaxWords=64,MinWords=24') AS snippet
       FROM ${works}, websearch_to_tsquery('english', ${query}) AS query
-      WHERE works.search @@ query
+      WHERE works.search @@ query AND works.location IS NULL
         AND ${scopeClause(request.scope, sql`works.organization_id`)}
         ${typeFilter(request.type)}
       ORDER BY ts_rank(works.search, query) DESC, works.updated_at DESC

@@ -33,4 +33,22 @@ describe('resolveRepositoryKey', () => {
   test('a folder with no hosted remote has no repository key', async () => {
     expect(await resolveRepositoryKey(repoWithRemotes({}))).toBeNull()
   })
+
+  test('names a partial clone by its remote', async () => {
+    // WHY: Solus clones dispatch and managed-host checkouts with a filter. A
+    // filtered clone read as a local-only folder listed the project twice.
+    const root = repoWithRemotes({ origin: 'https://github.com/acme/web.git' })
+    execFileSync('git', ['config', 'remote.origin.promisor', 'true'], { cwd: root })
+    execFileSync('git', ['config', 'remote.origin.partialclonefilter', 'blob:none'], { cwd: root })
+    expect(await resolveRepositoryKey(root)).toBe('github.com/acme/web')
+  })
+
+  test('a folder that gains a remote is read again', async () => {
+    // WHY: a clone in progress has no remote yet; caching that answer would
+    // leave the finished checkout a local-only project until a restart.
+    const root = repoWithRemotes({})
+    expect(await resolveRepositoryKey(root)).toBeNull()
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/web.git'], { cwd: root })
+    expect(await resolveRepositoryKey(root)).toBe('github.com/acme/web')
+  })
 })

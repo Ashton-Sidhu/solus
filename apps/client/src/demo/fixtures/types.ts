@@ -110,7 +110,7 @@ export interface ReplayStep {
  * each caller narrows it by the method it invoked — the same shape the real
  * WebSocket transport uses.
  */
-export const DEMO_RECORD_METHODS = ['tasksGet', 'tasksCreate', 'tasksUpdate', 'tasksDelete', 'createWork', 'saveWork', 'loadWork', 'listWorks', 'deleteWork', 'sessionRecordList', 'sessionRecordSearch', 'insightsList'] as const
+export const DEMO_RECORD_METHODS = ['tasksGet', 'tasksCreate', 'tasksUpdate', 'tasksDelete', 'createWork', 'saveWork', 'loadWork', 'listWorks', 'deleteWork', 'sessionRecordList', 'sessionRecordSearch'] as const
 export type DemoInvokeMethod = RpcInvokeMethod | typeof DEMO_RECORD_METHODS[number]
 export type DemoRpcResult = Awaited<ReturnType<SolusAPI[DemoInvokeMethod]>>
 

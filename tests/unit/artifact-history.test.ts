@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Work } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
-import type { HostApi } from '@solus/client-core/host-api'
 import { artifactUpdateFromHistory, loadArtifactFileBodies } from '../../packages/workspace-ui/src/contexts/workspace/artifact-history'
 
 test('known artifact updates rebuild from input without requiring a receipt, like new renders', () => {
@@ -19,21 +18,15 @@ test('an html_path update replays the revision that call wrote, never today\'s b
   // at the receipt's content version, not the work's current content.
   const tool: WireSessionLoadMessage = { role: 'tool', content: '', timestamp: 1, toolId: 'update-1', toolName: 'update_work', toolInput: JSON.stringify({ work_id: 'work', html_path: 'chart/bundle.html', expected_content_version: 2 }) }
   const result: WireSessionLoadMessage = { role: 'tool_result', content: '', timestamp: 2, toolResultForId: 'update-1', artifactWorkRef: { workId: 'work', title: 'Chart', contentVersion: 3 } }
-  const read: number[] = []
-  const api = {
-    loadWorkRevisions: async () => [
-      { revisionId: 7, sourceContentVersion: 2 },
-      { revisionId: 8, sourceContentVersion: 3 },
-    ],
-    loadWorkRevision: async (_workId: string, revisionId: number) => {
-      read.push(revisionId)
-      return { content: `<p>Revision ${revisionId}</p>` }
-    },
-  } as unknown as HostApi
+  const read: Array<[string, number]> = []
+  const bodyAtVersion = async (workId: string, contentVersion: number) => {
+    read.push([workId, contentVersion])
+    return `<p>Version ${contentVersion}</p>`
+  }
 
-  const bodies = await loadArtifactFileBodies(api, [tool, result])
-  expect(read).toEqual([8])
-  expect(artifactUpdateFromHistory(tool, result, () => undefined, bodies.get('update-1'))?.artifact?.html).toBe('<p>Revision 8</p>')
+  const bodies = await loadArtifactFileBodies(bodyAtVersion, [tool, result])
+  expect(read).toEqual([['work', 3]])
+  expect(artifactUpdateFromHistory(tool, result, () => undefined, bodies.get('update-1'))?.artifact?.html).toBe('<p>Version 3</p>')
   // A revision the host cannot answer leaves no card rather than an empty one.
   expect(artifactUpdateFromHistory(tool, result, () => undefined, undefined)).toBeUndefined()
 })

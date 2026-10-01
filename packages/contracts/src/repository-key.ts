@@ -40,11 +40,13 @@ export function primaryRemoteUrl(remotes: ReadonlyMap<string, string>): string |
   return first ? remotes.get(first) ?? null : null
 }
 
-/** The fetch URL of every remote in `git remote -v` output. */
-export function parseRemoteFetchUrls(gitRemoteVerbose: string): Map<string, string> {
+/** The URL of every remote in `git config --get-regexp '^remote\..*\.url$'`
+ *  output, one `remote.<name>.url <url>` per line. A remote name may hold dots.
+ *  Push URLs are `pushurl` entries and do not match. */
+export function parseRemoteUrls(gitConfigOutput: string): Map<string, string> {
   const remotes = new Map<string, string>()
-  for (const line of gitRemoteVerbose.split('\n')) {
-    const match = /^(\S+)\s+(\S+)\s+\(fetch\)$/.exec(line.trim())
+  for (const line of gitConfigOutput.split('\n')) {
+    const match = /^remote\.(.+)\.url\s+(\S+)$/.exec(line.trim())
     if (match) remotes.set(match[1], match[2])
   }
   return remotes

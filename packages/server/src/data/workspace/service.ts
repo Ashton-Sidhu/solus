@@ -3,7 +3,7 @@ import type { ShareManager } from '../../sharing/share-manager'
 import { TaskApiOperations } from '../tasks/api-operations'
 import { WorkApiOperations } from '../works/api-operations'
 import { SessionApiOperations } from '../sessions/api-operations'
-import { readInsight, readInsightPage } from '../insights/api-operations'
+import { readInsight, readInsightPage, readInsightTree } from '../insights/api-operations'
 import { ActivityApiOperations } from '../activity/api-operations'
 import type { WorkspaceOperations } from './operations'
 
@@ -37,6 +37,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     listSessionMessages: withWorkspaceBudget((context, sessionId, query) => sessions.messages(context, sessionId, query)),
     listInsights: withWorkspaceBudget((context, query) => readInsightPage(context, query)),
     getInsight: withWorkspaceBudget((context, insightId) => readInsight(context, insightId)),
+    getInsightSpans: withWorkspaceBudget((context, insightId) => readInsightTree(context, insightId)),
     listTaskActivity: withWorkspaceBudget((context, taskId, query) => activity.forRecord(context, { kind: 'task', id: taskId }, query)),
     listWorkActivity: withWorkspaceBudget((context, workId, query) => activity.forRecord(context, { kind: 'work', id: workId }, query)),
     listSessionActivity: withWorkspaceBudget((context, sessionId, query) => activity.forRecord(context, { kind: 'session', id: sessionId }, query)),

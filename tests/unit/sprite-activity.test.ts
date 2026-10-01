@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { SessionStatus } from '@solus/contracts/types'
 import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import { adoptProvisionedLink, resetHostCategoryForTests } from '@solus/server/host/host-category'
-import { DUE_HOLD_LEAD_MS, SpriteActivity } from '@solus/server/host/sprite-activity'
+import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, SpriteActivity } from '@solus/server/host/sprite-activity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -74,13 +74,14 @@ describe('what the host reports', () => {
   })
 })
 
-function harness(facts: { busy: boolean; nextDueAt: number | null }) {
+function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroundAt?: number | null }) {
   let now = 1_000_000_000
   const tasks: string[] = []
   const reports: unknown[] = []
   const activity = new SpriteActivity({
     isBusy: () => facts.busy,
     nextDueAt: () => facts.nextDueAt,
+    lastForegroundAt: () => facts.lastForegroundAt ?? null,
     link: () => link,
     hostToken: () => 'host-token',
     now: () => now,
@@ -140,6 +141,32 @@ describe('the hold and the report on a managed host', () => {
     await activity.check()
     expect(tasks).toEqual(['PUT /v1/tasks/solus-work {"expire":600}'])
     expect(reports.at(-1)).toEqual({ busy: false, nextWakeAt: facts.nextDueAt })
+  })
+
+  test('holds while someone looks at the app, and lets the machine pause once they have looked away for the grace', async () => {
+    // A person with the app in front of them must never find it paused; a tab
+    // left in the background must not keep the machine billing all night.
+    adoptProvisionedLink({ organizationId: 'org1' })
+    const facts = { busy: false, nextDueAt: null as number | null, lastForegroundAt: null as number | null }
+    const { activity, tasks, reports, advance, now } = harness(facts)
+
+    await activity.check()
+    expect(tasks).toEqual([])
+
+    facts.lastForegroundAt = now()
+    await activity.check()
+    expect(tasks).toEqual(['PUT /v1/tasks/solus-work {"expire":600}'])
+
+    // The tab went to the background: a short switch away keeps the hold.
+    advance(FOREGROUND_HOLD_GRACE_MS)
+    await activity.check()
+    expect(tasks.at(-1)).toBe('PUT /v1/tasks/solus-work {"expire":600}')
+
+    advance(1)
+    await activity.check()
+    expect(tasks.at(-1)).toBe('DELETE /v1/tasks/solus-work')
+    // Looking is not work: the control plane may still restart the machine for a release.
+    expect(reports.every((report) => (report as { busy: boolean }).busy === false)).toBe(true)
   })
 
   test('a machine that is not managed neither holds nor reports', async () => {

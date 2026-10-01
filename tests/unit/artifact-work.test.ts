@@ -251,6 +251,23 @@ describe('an artifact read from a compiled file', () => {
   })
 })
 
+describe('an artifact Share moved to an organization', () => {
+  test('read_work and update_work say which organization has it, not that it is missing', async () => {
+    // WHY: the agent that made an artifact asks its own host for it. After
+    // Share that host keeps only the location; "no work found" would send the
+    // agent to make a second copy instead of telling the person where it is.
+    const emitted: Array<{ workId: string }> = []
+    await artifactTools.executeArtifactTool({ html: HTML }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' }, onArtifact: (artifact) => emitted.push(artifact) })
+    const workId = emitted[0].workId
+    await works.removePushedWork('local', workId, (await works.exportWorkForCloud('local', workId)).fingerprint, 'org-1')
+
+    const read = await workTools.executeWorkTool('read_work', { work_id: workId }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' } })
+    expect(read).toEqual({ ok: false, text: expect.stringContaining('moved to organization org-1') })
+    const update = await workTools.executeWorkTool('update_work', { work_id: workId, content: HTML, expected_content_version: 1 }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' } })
+    expect(update).toEqual({ ok: false, text: expect.stringContaining('moved to organization org-1') })
+  })
+})
+
 describe('an artifact on a ticket', () => {
   test('the still always goes; the source goes only where the ticket can hold it', () => {
     // WHY: GitHub's upload endpoint takes images and video only, so a comment

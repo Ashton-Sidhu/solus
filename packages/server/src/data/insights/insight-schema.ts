@@ -42,6 +42,8 @@ export const insightSpans = defineTable('insight_spans', {
     { name: 'insight_turns_host_page', columns: ['organization_id', 'host_id', 'started_at', 'trace_id'], descending: ['started_at', 'trace_id'], where: "kind = 'turn' AND span_id = trace_id" },
     { name: 'insight_turns_session_page', columns: ['organization_id', 'session_id', 'started_at', 'host_id', 'trace_id'], descending: ['started_at', 'host_id', 'trace_id'], where: "kind = 'turn' AND span_id = trace_id" },
     { name: 'insight_turns_provider_page', columns: ['organization_id', 'provider', 'started_at', 'host_id', 'trace_id'], descending: ['started_at', 'host_id', 'trace_id'], where: "kind = 'turn' AND span_id = trace_id" },
+    // One turn's tree, read when its owner opens it on another host.
+    { name: 'insight_spans_trace_idx', columns: ['organization_id', 'host_id', 'trace_id'] },
     // Retention prunes by time across every organization.
     { name: 'insight_spans_time_idx', columns: ['started_at'] },
   ],
@@ -65,5 +67,6 @@ export const insightLogEvents = defineTable('insight_log_events', {
   primaryKey: ['organization_id', 'host_id', 'event_id'],
   indexes: [
     { name: 'insight_log_events_time_idx', columns: ['occurred_at'] },
+    { name: 'insight_log_events_trace_idx', columns: ['organization_id', 'host_id', 'trace_id'] },
   ],
 })

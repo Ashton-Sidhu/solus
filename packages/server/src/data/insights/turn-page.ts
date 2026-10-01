@@ -6,6 +6,7 @@ import type {
   MetricsTurnStats,
   MetricsTurnStatusCounts,
   MetricsTurnListingSummary,
+  MetricsTurnHost,
   MetricsTurnVolumeBucket,
 } from '@solus/contracts/observability-types'
 import { TURN_VOLUME_BUCKET_COUNT } from '@solus/contracts/observability-types'
@@ -31,6 +32,9 @@ const TURN_COLUMNS = [
   'input_tokens',
   'output_tokens',
   'tool_call_count',
+  'host_id',
+  'hostname',
+  'user_email',
 ] as const
 
 const SORT_SQL = {
@@ -41,11 +45,19 @@ const SORT_SQL = {
   model: 'model',
   session_id: 'session_id',
   prompt: 'prompt',
+  host: 'hostname',
+  user: 'user_email',
 } satisfies Record<MetricsTurnSortField, string>
 
 interface WhereClause {
   sql: string
   params: Array<string | number>
+}
+
+interface HostRow {
+  host_id: string | null
+  hostname: string | null
+  count: number
 }
 
 interface CountRow {
@@ -102,9 +114,14 @@ function normalizedRequest(input: MetricsTurnPageRequest): MetricsTurnPageReques
   return { ...request, pageSize: Math.min(request.pageSize, MAX_PAGE_SIZE) }
 }
 
-function whereClause(request: MetricsTurnFilter, includeStatus: boolean): WhereClause {
+function whereClause(request: MetricsTurnFilter, includeStatus: boolean, includeHost = true): WhereClause {
   const conditions = ['started_at >= ?', 'started_at < ?']
   const params: Array<string | number> = [request.timeRange.from, request.timeRange.to]
+  if (includeHost && request.hostId === null) conditions.push('host_id IS NULL')
+  if (includeHost && request.hostId) {
+    conditions.push('host_id = ?')
+    params.push(request.hostId)
+  }
   if (request.sessionId) {
     conditions.push('session_id = ?')
     params.push(request.sessionId)
@@ -226,6 +243,20 @@ function volume(where: WhereClause, from: number, to: number): MetricsTurnVolume
   }))
 }
 
+/** Every host with turns in the window, busiest first and this host before a tie: the host filter's choices. */
+function hosts(where: WhereClause): MetricsTurnHost[] {
+  const rawRows: unknown = getReadOnlyMetricsDb().prepare(`
+    SELECT host_id, MAX(hostname) AS hostname, COUNT(*) AS count
+    FROM turns
+    WHERE ${where.sql}
+    GROUP BY host_id
+    ORDER BY count DESC, host_id IS NOT NULL, host_id
+  `).all(...where.params)
+  // SAFETY: every grouped row is projected to the exact three columns below.
+  const rows = rawRows as HostRow[]
+  return rows.map((row) => ({ hostId: row.host_id, hostname: row.hostname, count: Number(row.count) }))
+}
+
 /** One bounded table page. It counts only to keep the page index in range;
  *  the aggregates are `turnListingSummary`'s, because paging does not change them. */
 export function turnPage(input: MetricsTurnPageRequest): MetricsTurnPageResult {
@@ -245,8 +276,9 @@ export function turnPage(input: MetricsTurnPageRequest): MetricsTurnPageResult {
   return { page, pageIndex, pageSize: request.pageSize }
 }
 
-/** The aggregates over every turn the filter matches. */
-export function turnListingSummary(input: MetricsTurnFilter): MetricsTurnListingSummary {
+/** The aggregates over every turn the filter matches. The host choices
+ *  ignore the host filter, so choosing one host still offers the others. */
+export function turnListingSummary(input: MetricsTurnFilter): Omit<MetricsTurnListingSummary, 'pull'> {
   const filter = normalizedFilter(input)
   const filteredWhere = whereClause(filter, true)
   return {
@@ -254,5 +286,6 @@ export function turnListingSummary(input: MetricsTurnFilter): MetricsTurnListing
     statusCounts: statusCounts(whereClause(filter, false)),
     stats: stats(filteredWhere),
     volume: volume(filteredWhere, filter.timeRange.from, filter.timeRange.to),
+    hosts: hosts(whereClause(filter, false, false)),
   }
 }

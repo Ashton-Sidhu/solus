@@ -13,6 +13,7 @@
     CircleDashed as RunningIcon,
   } from "@lucide/svelte";
   import * as Table from "../ui/table";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import DataTableEmptyState from "./data-table/DataTableEmptyState.svelte";
   import DataTableColumnsMenu from "./data-table/DataTableColumnsMenu.svelte";
   import DataTableContextMenu from "./data-table/DataTableContextMenu.svelte";
@@ -47,6 +48,7 @@
   import { MIN_TRACK_PX } from "./lib/table-grid";
   import { modelName, providerMark } from "./lib/provider";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { turnHostValue, type TurnHostChoice } from "./lib/turn-hosts";
   import type { TurnFlag } from "@solus/contracts/observability-types";
   import { flagChoice, flagColor, flagTitle } from "./lib/turn-flags";
   import {
@@ -73,7 +75,8 @@
     onGroupedChange: (grouped: boolean) => void;
     selectedTraceId: string | null;
     onOpenTurn: (row: TurnRow) => void;
-    onOpenSession: (sessionId: string) => void;
+    /** Opens a turn's conversation; absent where conversations cannot be opened. */
+    onOpenSession?: (sessionId: string) => void;
     /** The session's own Insights page — every turn of it on one axis. */
     onOpenSessionPage?: (sessionId: string) => void;
     /** The session's own name, when the host has one, for a turn with no task. */
@@ -93,6 +96,18 @@
     fullP95DurationMs?: number | null;
     search?: string;
     onSearchChange?: (search: string) => void;
+    /** What the Host column names a turn's host by. */
+    hostLabel: (row: TurnRow) => string;
+    /** Adds a User column: who ran each turn, for a listing of many people's turns. */
+    showUser?: boolean;
+    /** The Host filter's choices; the menu shows only when turns ran on more than one host. */
+    hostChoices?: TurnHostChoice[];
+    hostFilter?: string | null;
+    onHostFilterChange?: (hostId: string | null | undefined) => void;
+    /** The host is pulling turns other hosts ran: rows may still arrive. */
+    pulling?: boolean;
+    /** Why the last pull of other hosts' turns failed. */
+    pullError?: string | null;
   }
 
   let {
@@ -120,7 +135,17 @@
     fullP95DurationMs,
     search,
     onSearchChange,
+    hostLabel,
+    showUser = false,
+    hostChoices = [],
+    hostFilter,
+    onHostFilterChange,
+    pulling = false,
+    pullError = null,
   }: Props = $props();
+
+  const hostValue = $derived(turnHostValue(hostFilter));
+  const activeHost = $derived(hostChoices.find((choice) => choice.value === hostValue));
 
   const serverPaged = $derived(totalRows !== undefined);
 
@@ -164,6 +189,8 @@
     { key: "prompt", label: "Prompt", align: "start" },
     { key: "sessionId", label: "Session", align: "start" },
     { key: "model", label: "Model", align: "start" },
+    { key: "host", label: "Host", align: "start" },
+    { key: "user", label: "User", align: "start" },
     { key: "durationMs", label: "Duration", align: "end" },
     { key: "costUsd", label: "Cost", align: "end" },
     { key: "tokens", label: "Tokens", align: "end" },
@@ -177,6 +204,8 @@
     prompt: 360,
     sessionId: 184,
     model: 152,
+    host: 140,
+    user: 180,
     durationMs: 104,
     costUsd: 92,
     tokens: 96,
@@ -228,6 +257,26 @@
       size: WIDTHS.model,
       minSize: MIN_TRACK_PX,
     }),
+    columnHelper.accessor((row) => row.hostname ?? undefined, {
+      id: "host",
+      header: "Host",
+      sortDescFirst: false,
+      sortUndefined: "last",
+      size: WIDTHS.host,
+      minSize: MIN_TRACK_PX,
+    }),
+    ...(untrack(() => showUser)
+      ? [
+          columnHelper.accessor((row) => row.userEmail ?? undefined, {
+            id: "user",
+            header: "User",
+            sortDescFirst: false,
+            sortUndefined: "last",
+            size: WIDTHS.user,
+            minSize: MIN_TRACK_PX,
+          }),
+        ]
+      : []),
     columnHelper.accessor((row) => row.durationMs ?? undefined, {
       id: "durationMs",
       header: "Duration",
@@ -339,10 +388,11 @@
   function rowMenuActions(row: TurnRow): { label: string; run: () => void }[] {
     const actions = [{ label: "Open turn", run: () => onOpenTurn(row) }];
     const sessionId = row.sessionId;
-    if (sessionId) {
+    const openSession = onOpenSession;
+    if (sessionId && openSession) {
       actions.push({
         label: "Open session",
-        run: () => onOpenSession(sessionId),
+        run: () => openSession(sessionId),
       });
       const openPage = onOpenSessionPage;
       if (openPage) {
@@ -408,6 +458,36 @@
   </div>
 {/snippet}
 
+{#snippet hostMenu(change: (hostId: string | null | undefined) => void)}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class="flex h-8 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground outline-none transition-[background-color,color] shadow-[inset_0_0_0_0.5px_var(--hairline)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          aria-label="Filter by host"
+        >
+          <span class="truncate {hostFilter !== undefined ? 'text-foreground' : ''}">{activeHost?.label ?? "All hosts"}</span>
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-56">
+      <DropdownMenu.RadioGroup
+        value={hostValue}
+        onValueChange={(value) => change(hostChoices.find((choice) => choice.value === value)?.hostId)}
+      >
+        {#each hostChoices as choice (choice.value)}
+          <DropdownMenu.RadioItem value={choice.value}>
+            <span class="min-w-0 flex-1 truncate">{choice.label}</span>
+            {#if choice.count !== null}<span class="text-muted-foreground tabular-nums">{choice.count}</span>{/if}
+          </DropdownMenu.RadioItem>
+        {/each}
+      </DropdownMenu.RadioGroup>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
+{/snippet}
+
 {#snippet groupToggle()}
   <button
     type="button"
@@ -471,8 +551,9 @@
           title={row.sessionId ?? undefined}
           >{label.text}</span
         >
-        {#if row.sessionId}
+        {#if row.sessionId && onOpenSession}
           {@const sessionId = row.sessionId}
+          {@const openSession = onOpenSession}
           <button
             type="button"
             class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-colors group-hover/turn:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) pointer-coarse:opacity-100"
@@ -480,7 +561,7 @@
             aria-label="Open the session"
             onclick={(event) => {
               event.stopPropagation();
-              onOpenSession(sessionId);
+              openSession(sessionId);
             }}><SessionIcon class="size-3" aria-hidden="true" /></button
           >
         {/if}
@@ -495,6 +576,14 @@
         >{modelName(row.provider, row.model) ?? "—"}</span
       >
     </span>
+  {:else if columnId === "host"}
+    <span class="block truncate text-insights-table text-muted-foreground" title={row.hostname ?? undefined}
+      >{hostLabel(row)}</span
+    >
+  {:else if columnId === "user"}
+    <span class="block truncate text-insights-table text-muted-foreground" title={row.userEmail ?? undefined}
+      >{row.userEmail ?? "—"}</span
+    >
   {:else if columnId === "durationMs"}
     {#if isRunningTurn(row)}
       <!-- A turn with no end is still running. The state is a shape, not a
@@ -565,7 +654,7 @@
   aria-label={grouped ? "Sessions" : "Turns"}
 >
   <header
-    class="flex min-h-13 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
+    class="relative flex min-h-13 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
   >
     <div class="flex min-w-0 shrink-0 items-baseline gap-2">
       <h2 class="text-insights-chrome font-medium text-foreground">
@@ -584,8 +673,27 @@
     />
     {@render groupToggle()}
     <span class="flex-1"></span>
+    {#if pullError}
+      <span class="shrink-0 text-insights-chrome text-muted-foreground" title={pullError}>Other hosts unavailable</span>
+    {/if}
+    {#if hostChoices.length > 2 && onHostFilterChange}
+      {@render hostMenu(onHostFilterChange)}
+    {/if}
     {@render statusFilters()}
     <DataTableColumnsMenu table={dataTable} />
+    {#if pulling}
+      <!-- Turns from other hosts are still arriving: a sweep along the table's
+           top edge, finite because the pull ends. Reduced motion holds it still. -->
+      <div
+        class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden"
+        role="progressbar"
+        aria-label="Loading turns from other hosts"
+      >
+        <span
+          class="block h-full w-2/5 bg-primary motion-safe:[animation:indeterminate-sweep_1.15s_cubic-bezier(0.65,0,0.35,1)_infinite] motion-reduce:w-full motion-reduce:opacity-40"
+        ></span>
+      </div>
+    {/if}
   </header>
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb bind:this={listElement}>

@@ -12,6 +12,7 @@
     sortChoiceFor,
     statusFilterFor,
   } from "./lib/rail-filters";
+  import { turnHostValue, type TurnHostChoice } from "./lib/turn-hosts";
   import type {
     TurnSort,
     TurnStatusCounts,
@@ -40,6 +41,10 @@
     statusFilter: TurnStatusFilter | null;
     onStatusFilterChange: (status: TurnStatusFilter | null) => void;
     counts: TurnStatusCounts;
+    /** The Host filter's choices; shown only when turns ran on more than one host. */
+    hostChoices?: TurnHostChoice[];
+    hostFilter?: string | null;
+    onHostFilterChange?: (hostId: string | null | undefined) => void;
   }
 
   let {
@@ -52,7 +57,13 @@
     statusFilter,
     onStatusFilterChange,
     counts,
+    hostChoices = [],
+    hostFilter,
+    onHostFilterChange,
   }: Props = $props();
+
+  const hostValue = $derived(turnHostValue(hostFilter));
+  const activeFilters = $derived((statusFilter ? 1 : 0) + (hostFilter !== undefined ? 1 : 0));
 
   const sortValue = $derived(sortChoiceFor(sort)?.value ?? "");
 </script>
@@ -126,14 +137,14 @@
           {...props}
           type="button"
           class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-2 text-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] data-[state=open]:bg-[var(--wash-1)] @min-[40rem]/listpage:pr-3 @max-[32rem]/listpage:pr-3 @max-[30rem]/pane:h-10"
-          aria-label={statusFilter ? "Filter turns (1 active)" : "Filter turns"}
+          aria-label={activeFilters > 0 ? `Filter turns (${activeFilters} active)` : "Filter turns"}
           title="Filters"
         >
           <ListFilterIcon size={16} class="shrink-0 text-muted-foreground" />
           <span class="@max-[40rem]/listpage:@min-[32rem]/listpage:hidden">Filters</span>
-          {#if statusFilter}
+          {#if activeFilters > 0}
             <!-- The count is the only sign of a narrowed rail, so it shows at every width. -->
-            <span class="text-xs text-muted-foreground tabular-nums">1</span>
+            <span class="text-xs text-muted-foreground tabular-nums">{activeFilters}</span>
           {/if}
         </button>
       {/snippet}
@@ -152,6 +163,21 @@
           </DropdownMenu.RadioItem>
         {/each}
       </DropdownMenu.RadioGroup>
+      {#if hostChoices.length > 2 && onHostFilterChange}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Label>Host</DropdownMenu.Label>
+        <DropdownMenu.RadioGroup
+          value={hostValue}
+          onValueChange={(value) => onHostFilterChange(hostChoices.find((choice) => choice.value === value)?.hostId)}
+        >
+          {#each hostChoices as choice (choice.value)}
+            <DropdownMenu.RadioItem value={choice.value}>
+              <span class="min-w-0 flex-1 truncate">{choice.label}</span>
+              {#if choice.count !== null}<span class="text-muted-foreground tabular-nums">{choice.count}</span>{/if}
+            </DropdownMenu.RadioItem>
+          {/each}
+        </DropdownMenu.RadioGroup>
+      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 </div>

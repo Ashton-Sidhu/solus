@@ -13,6 +13,8 @@ import {
 } from '../../data/insights/saved-queries'
 import { runCompiledSql, runGuardedSql, validateMetricsSql } from '../../data/insights/sql-guard'
 import { solusDir } from '../../platform/paths'
+import type { InsightPull } from '../../sync/insight-pull'
+import { createLogger } from '../../logger'
 import { clearTurnFlag, listTurnFlags, setTurnFlag } from '../../data/insights/turn-flags'
 import { turnPage, turnListingSummary } from '../../data/insights/turn-page'
 import type { SolusServer } from '../server'
@@ -38,8 +40,13 @@ function distinctValuesSql(column: string): string | undefined {
 }
 
 const NL_TIMEOUT_MS = 60_000
+const log = createLogger('main', 'observability-handlers')
 
-export function registerObservabilityHandlers(server: SolusServer, deps: { sessionRuntime: SessionRuntime }): void {
+export function registerObservabilityHandlers(server: SolusServer, deps: {
+  sessionRuntime: SessionRuntime
+  /** Pulls the person's turns from other hosts; null while this host is not linked. */
+  insightPull: () => InsightPull | null
+}): void {
   const textGenerator = new TextGenerator(deps.sessionRuntime)
 
   server.register('metricsQuery', (args) => {
@@ -54,14 +61,19 @@ export function registerObservabilityHandlers(server: SolusServer, deps: { sessi
     return runGuardedSql(sql)
   })
 
+  // A list read starts a pull and answers from what is here; the turns it
+  // writes arrive as `metrics.turnsChanged`, as a turn this host runs does.
   server.register('metricsTurnPage', (args) => {
     const [request] = args
+    void deps.insightPull()?.request()
     return turnPage(request)
   })
 
   server.register('metricsTurnListingSummary', (args) => {
     const [filter] = args
-    return turnListingSummary(filter)
+    const pull = deps.insightPull()
+    void pull?.request()
+    return { ...turnListingSummary(filter), pull: pull?.state() ?? null }
   })
 
   server.register('metricsValidateSql', (args) => {
@@ -128,10 +140,16 @@ export function registerObservabilityHandlers(server: SolusServer, deps: { sessi
     return sessionSummary(sessionId)
   })
 
-  server.register('metricsTurnTrace', (args) => {
+  server.register('metricsTurnTrace', async (args) => {
     const [traceId] = args
     if (!traceId.trim()) {
       throw new Error('metricsTurnTrace requires a trace id')
+    }
+    // A turn another host ran holds only its row until it is opened.
+    try {
+      await deps.insightPull()?.fetchTree(traceId)
+    } catch (error) {
+      log.warn('insight_tree_pull_failed', { traceId, error: error instanceof Error ? error.message : String(error) })
     }
     return turnTrace(traceId)
   })

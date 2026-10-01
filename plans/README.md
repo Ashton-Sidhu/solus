@@ -13,8 +13,19 @@
 | [009 Organization VMs](009-organization-vms.md) | IMPLEMENTED in the working trees 2026-09-28 (uncommitted, not deployed) — org attachment changes new work only; API admission before the provider; run authority from the person's own grant; agent tools follow the record home; one setup wizard entered at the account plane with link codes; `SOLUS_MANAGED` removed. Limits in §9 | Implemented 008 API; existing organization/link/mirror/outbox machinery; coordinated Solus and solus-cloud contracts/bootstrap |
 | [010 Standard OAuth](010-standard-oauth.md) | IMPLEMENTED 2026-09-29 (uncommitted; Workers not proven) — app.solus.sh becomes an OAuth 2.1 / OpenID Connect server (Better Auth `oauth-provider`); hosts are confidential clients that act for a person by token exchange; one 5-minute access token and a rotating refresh token replace host, workspace, and runner grants and the run authority; removal ends everything. Stage 0 proves the provider first | 009 (replaces its §4 credentials, keeps its product rules); solus-cloud Better Auth 1.7.6 |
 | [012 One user, one actor, and one activity record](012-user-actor-and-activity.md) | IMPLEMENTED (uncommitted, 2026-09-29) — all eight stages built; stage 8 sends session activity through the transcript mirror and serves record activity and "activity naming me" on the Solus API — one `User` with a typed `UserId` (account, local, guest); `HOST_OWNER_USER_ID` and stored `'you'` labels removed (host-login seat, minted local owner, rows moved on link); one `Attribution` for every doer; the actor resolved once per request in every domain; one host-stored activity record for sessions, tasks and works (absorbs `task_events`, feeds the notifications hub); one user chip. Eight stages; O1 decided (`local` stays) | Plan 004 working tree; plan 010 account ids; P7 decides whose actor agent and automation turns carry |
+| [013 Unified cloud application](013-unified-cloud-application.md) | PLAN — architecture accepted 2026-10-01; one Node cloud application and release; local desktop/host APIs preserved; Better Auth server stays cloud-only | Current implementations of 007–010 and 012; existing live collaboration and runner delivery |
 
 ## Refactor and feature execution order
+
+Plan [013 Unified cloud application](013-unified-cloud-application.md) is PLAN
+(2026-10-01; architecture accepted, implementation not started). It combines the
+SvelteKit/Better Auth account application and Solus record API in one Node cloud
+deployment and one tested release. Desktop and standalone hosts keep their local
+APIs and shared record implementation; Better Auth server code stays cloud-only.
+It follows the current implementations of 007–010 and 012. It changes deployment
+composition, not the feature plans' record ownership or access rules. Source work,
+packaged verification, staging, and production cutover have separate gates; the
+plan does not authorize a deployment.
 
 Plan [011 Cloud coding primitives](011-cloud-coding-primitives.md) is
 IMPLEMENTED (2026-09-29), not committed. It follows the local-to-cloud task's

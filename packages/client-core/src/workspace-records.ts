@@ -5,12 +5,14 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 
-type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'insightsList'>
+type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank'>
 
+/** A record this host does not have. `MOVED` is not absence: the record is on
+ *  another host, and the caller asks that one (cloud-sharing.md §3a). */
 async function notFoundAsNull<T>(read: Promise<T>): Promise<T | null> {
   try { return await read }
-  catch (error) { if (error instanceof WorkspaceRequestError && error.status === 404) return null; throw error }
+  catch (error) { if (error instanceof WorkspaceRequestError && error.status === 404 && error.code !== 'MOVED') return null; throw error }
 }
 
 /** Adapts the established UI records while their storage requests use the versioned HTTP contract. */
@@ -23,7 +25,6 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
   const taskVersion = async (id: string) => taskVersions.get(id) ?? (await client.request('getTask', { id })).version
   const workVersion = async (id: string) => workVersions.get(id) ?? (await client.request('getWork', { id })).version
   return {
-    insightsList: query => client.request('listInsights', { query }),
     async tasksGet(id) {
       const [task, detail] = await Promise.all([client.request('getTask', { id }), extras(id)])
       return { ...detail, task: rememberTask(task) }

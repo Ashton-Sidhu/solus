@@ -161,7 +161,7 @@ export async function listWorks(scope: RecordScope): Promise<(WorkMeta & { id: s
     const rows = workRowSchema.array().parse(await database().all(sql`
       SELECT ${WORK_COLUMNS}
       FROM ${works}
-      WHERE ${scopeClause(scope)}
+      WHERE ${scopeClause(scope)} AND location IS NULL
       ORDER BY updated_at DESC, id
     `))
     return rows.map((row) => ({
@@ -181,7 +181,7 @@ export async function readWorkMetadataPage(where: SQL, limit: number): Promise<(
     : sql`${sql.identifier('works')}.${sql.identifier(name)}`)
   const rows = workRowSchema.array().parse(await database().all(sql`
     SELECT ${sql.join(columns, sql`, `)} FROM ${works}
-    WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ${limit}
+    WHERE ${where} AND location IS NULL ORDER BY created_at DESC, id DESC LIMIT ${limit}
   `))
   return rows.map(row => ({ id: row.id, ...metaFromRow(row) }))
 }
@@ -194,7 +194,7 @@ export async function listWorkRefsForSessions(
   if (!sessionIds.length) return []
   const rows = workRefRowSchema.array().parse(await database().all(sql`
     SELECT id, title, type, session_id FROM ${works}
-    WHERE ${scopeClause(scope)}
+    WHERE ${scopeClause(scope)} AND location IS NULL
       AND session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
     ORDER BY created_at DESC, id
   `))
@@ -317,11 +317,12 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
   })
 }
 
-/** A successful cloud write does not authorize deleting newer local edits. */
-export async function removePushedWork(scope: RecordScope, id: string, fingerprint: string): Promise<void> {
+/** A successful cloud write does not authorize deleting newer local edits. The
+ *  row stays with the work's new location (cloud-sharing.md §3a). */
+export async function removePushedWork(scope: RecordScope, id: string, fingerprint: string, organizationId: string): Promise<void> {
   await database().transaction(async () => {
     const snapshot = await exportWorkForCloud(scope, id)
     if (snapshot.fingerprint !== fingerprint) throw new Error('The work changed during the cloud push. Its local copy was kept.')
-    await (await WorkEntity.byId(scope, id)).delete()
+    await (await WorkEntity.byId(scope, id)).moveTo({ organizationId })
   })
 }

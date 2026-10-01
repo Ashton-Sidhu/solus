@@ -114,6 +114,7 @@ export const BASE_FIELDS: RegisteredField[] = [
     column('user_id', 'user_id', 'string', 'Account id of the person who ran the turn, as the host verified it; null for host-internal work'),
     column('user_email', 'user_email', 'string', "The acting account's email at the time of the turn; attribution metadata, not an authorization key"),
     column('organization_id', 'organization_id', 'string', "The session's organization; 'local' or null for scratch that belongs to no organization"),
+    column('host_id', 'host_id', 'string', 'Host that ran the turn, for a turn pulled from another host; null when this host ran it'),
   ]),
   ...withGroup('dimension', [
     column('provider', 'provider', 'string', "Agent backend: 'claude' or 'codex'"),

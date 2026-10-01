@@ -153,7 +153,7 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
-  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies(api, history))
+  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version), history))
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted

@@ -33,3 +33,4 @@ Generated contract: [openapi.json](openapi.json).
 | GET | `/v1/me/activity` | `listMyActivity` |
 | GET | `/v1/insights` | `listInsights` |
 | GET | `/v1/insights/{insightId}` | `getInsight` |
+| GET | `/v1/insights/{insightId}/spans` | `getInsightSpans` |

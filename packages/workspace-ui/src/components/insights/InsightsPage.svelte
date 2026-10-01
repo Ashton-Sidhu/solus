@@ -77,7 +77,7 @@
   import TurnDetailPanel from "./TurnDetailPanel.svelte";
   import TurnList from "./TurnList.svelte";
   import VolumeChart from "./VolumeChart.svelte";
-  import OrganizationTurns from "./OrganizationTurns.svelte";
+  import { turnHostChoices, turnHostLabel, turnHostServerId } from "./lib/turn-hosts";
 
   /**
    * Insights — the query surface over `metrics.db`.
@@ -111,14 +111,11 @@
     void serversStore.executionServers.map((server) => server.status);
     return serverConnections.defaultMachineId();
   });
-  // The Organization scope (organization-scope §6.1): the selected organization's
-  // turns from its workspace service, beside the host's own metrics. A toggle,
-  // not a redesign: the console and its answer stay as they are on the host scope.
-  let organizationScope = $state(false);
-  const organizationId = $derived(serversStore.activeOrganizationId);
-  const organizationServerId = $derived(serversStore.activeCloudServerId);
-  const organizationScopeAvailable = $derived(!!organizationId && !!organizationServerId);
-  const showsOrganization = $derived(organizationScope && organizationScopeAvailable);
+  // Turns this person ran on other hosts are pulled into the host's record
+  // (docs/plans/insights-across-hosts.md); each row names the host it ran on.
+  const hostLabel = (turn: { hostId: string | null; hostname: string | null }): string =>
+    turnHostLabel(turn, serversStore.servers, store.serverId);
+  const hostChoices = $derived(turnHostChoices(store.turnListingSummary?.hosts ?? [], hostLabel));
   /** Composing a query on a phone is not a workflow worth its cost: mobile gets
    *  presets and saved queries, read-only (approved exception, docs/plans). */
   const readOnly = $derived(runtime.isMobileViewport);
@@ -148,6 +145,8 @@
     model: "model",
     sessionId: "session_id",
     prompt: "prompt",
+    host: "host",
+    user: "user",
   } as const satisfies Record<TurnSortKey, MetricsTurnSortField>;
 
   $effect(() => {
@@ -365,10 +364,17 @@
    *  focused rather than opened a second time. A closed one is resumed from its
    *  indexed record: a span stores the session id, not its agent backend, and
    *  loading a Claude transcript through Codex returns an empty conversation. */
+  /** A session opens on the host its turn ran on: a pulled turn's session is
+   *  on another host, reachable only while this client is connected to it. */
   async function openSession(sessionId: string): Promise<void> {
-    if (!serverId) return;
-    const tabId = await workspace.revealSession(sessionId, serverId);
-    if (!tabId) toasts.error("That session is no longer on this host");
+    const pulledHostId = store.volumeRows.find((row) => row.sessionId === sessionId)?.hostId ?? null;
+    const sessionServerId = pulledHostId ? turnHostServerId(pulledHostId, serversStore.servers) : serverId;
+    if (!sessionServerId) {
+      toasts.error("That session ran on a host this client is not connected to");
+      return;
+    }
+    const tabId = await workspace.revealSession(sessionId, sessionServerId);
+    if (!tabId) toasts.error("That session is no longer on its host");
   }
 
   // ── The schema sheet ──
@@ -604,22 +610,15 @@
     {statusFilter}
     onStatusFilterChange={changeTurnStatus}
     counts={railStatusCounts}
+    hostChoices={pagedTurns ? hostChoices : []}
+    hostFilter={store.turnHost}
+    onHostFilterChange={(hostId) => void store.setTurnHost(hostId)}
   />
 {/snippet}
 
 <!-- The console owns the question's controls — the range lives on it. The head
      keeps only the way back to the default question. -->
 {#snippet resetAction()}
-  {#if organizationScopeAvailable}
-    <button
-      type="button"
-      class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome transition-colors hover:bg-[var(--wash-1)] hover:text-foreground aria-pressed:bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] aria-pressed:text-foreground"
-      aria-pressed={organizationScope}
-      title={organizationScope ? "Back to this host's Insights" : `Show ${serversStore.activeOrganizationName}'s turns`}
-      data-testid="insights-organization-scope"
-      onclick={() => (organizationScope = !organizationScope)}>Organization</button
-    >
-  {/if}
   <button
     type="button"
     class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
@@ -674,14 +673,6 @@
       : ''}"
     inert={panelFullScreen}
   >
-    {#if showsOrganization && organizationId && organizationServerId}
-      <OrganizationTurns
-        serverId={organizationServerId}
-        {organizationId}
-        organizationName={serversStore.activeOrganizationName ?? "Organization"}
-        range={store.range}
-      />
-    {:else}
     <QueryConsole
       bind:this={queryConsole}
       form={store.form}
@@ -763,6 +754,12 @@
           fullP95DurationMs={pagedTurns ? store.turnListingSummary?.stats.p95DurationMs : undefined}
           search={turnSearch}
           onSearchChange={changeTurnSearch}
+          {hostLabel}
+          hostChoices={pagedTurns ? hostChoices : []}
+          hostFilter={store.turnHost}
+          onHostFilterChange={(hostId) => void store.setTurnHost(hostId)}
+          pulling={pagedTurns && (store.insightPull?.pulling ?? false)}
+          pullError={store.insightPull?.error ?? null}
         />
       {:else if rendering.rendering === "events" && eventTable}
         <EventList
@@ -819,7 +816,6 @@
       {:else}
         <ResultTable result={store.result} />
       {/if}
-    {/if}
     {/if}
   </div>
 

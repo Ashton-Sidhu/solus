@@ -133,7 +133,9 @@
           </div>
         {:else}
           <p class="m-0 text-insights-chrome text-muted-foreground">
-            {change.status === "ready"
+            {change.status === "elsewhere"
+              ? `This turn ran on ${change.host}. Git recorded its change there.`
+              : change.status === "ready"
               ? "Git recorded no file change in this turn."
               : change.status === "failed"
                 ? "The change could not be read from the host."

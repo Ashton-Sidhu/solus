@@ -59,6 +59,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'config.changed',
   'usage.limitsChanged',
   'metrics.turnsChanged',
+  'metrics.insightPullChanged',
   'host.presenceChanged',
   'host.uplinkStatusChanged',
 ])

@@ -33,7 +33,7 @@ export const workspaceActorSchema = z.strictObject({
 })
 export type WorkspaceActor = z.infer<typeof workspaceActorSchema>
 
-export const workspaceErrorCodeSchema = z.enum(['INVALID_REQUEST', 'INVALID_CURSOR', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'STALE_VERSION', 'IDEMPOTENCY_CONFLICT', 'PAYLOAD_TOO_LARGE', 'RATE_LIMITED', 'CAPABILITY_UNAVAILABLE', 'READ_ONLY_RESOURCE', 'INTERNAL_ERROR'])
+export const workspaceErrorCodeSchema = z.enum(['INVALID_REQUEST', 'INVALID_CURSOR', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'MOVED', 'CONFLICT', 'STALE_VERSION', 'IDEMPOTENCY_CONFLICT', 'PAYLOAD_TOO_LARGE', 'RATE_LIMITED', 'CAPABILITY_UNAVAILABLE', 'READ_ONLY_RESOURCE', 'INTERNAL_ERROR'])
 export type WorkspaceErrorCode = z.infer<typeof workspaceErrorCodeSchema>
 
 export const workspaceErrorSchema = z.strictObject({
@@ -393,6 +393,10 @@ export const workspaceInsightWindowSchema = z.strictObject({ since: datetime, un
   .meta({ description: 'Effective startedAt range, inclusive since and exclusive until. Fixed across pages; at most 31 days.' })
 export type WorkspaceInsightWindow = z.infer<typeof workspaceInsightWindowSchema>
 
+const insightAttributeValueSchema = z.union([z.string(), z.number(), z.boolean()])
+export const workspaceInsightAttributesSchema = z.record(z.string().max(128), insightAttributeValueSchema)
+  .meta({ description: "The turn's recorded attributes: counts, timings, tokens, and short labels. The prompt is cut to 200 characters; the system prompt and response are not present. The turn's tree has every attribute." })
+
 export const workspaceInsightSchema = z.strictObject({
   id: z.string().min(1).max(1024),
   traceId: workspaceIdSchema,
@@ -409,12 +413,55 @@ export const workspaceInsightSchema = z.strictObject({
   costUsd: z.number().min(0).nullable(),
   inputTokens: z.number().int().min(0).nullable(),
   outputTokens: z.number().int().min(0).nullable(),
-}).meta({ description: 'One agent-turn observation, identified by an opaque host-and-trace ID within the verified organization. Organization Insights policy governs both list and individual reads. This does not authorize session transcripts. Unknown costs/tokens are null.', examples: [{ id: 'WyJob3N0X2V4YW1wbGUiLCJ0cmFjZV9leGFtcGxlIl0', traceId: 'trace_example', sessionId: 'session_example', hostId: 'host_example', userId: 'user_example', userEmail: null, provider: 'codex', model: null, startedAt: '2026-09-28T16:00:00Z', endedAt: '2026-09-28T16:00:01Z', durationMs: 1000, status: 'ok', costUsd: null, inputTokens: 120, outputTokens: 60 }] })
+  name: z.string().max(256),
+  service: z.string().max(128),
+  origin: nullableText(64),
+  projectRoot: nullableText(4096),
+  attrs: workspaceInsightAttributesSchema,
+}).meta({ description: 'One agent-turn observation, identified by an opaque host-and-trace ID within the verified organization. Organization Insights policy governs both list and individual reads. This does not authorize session transcripts. Unknown costs/tokens are null.', examples: [{ id: 'WyJob3N0X2V4YW1wbGUiLCJ0cmFjZV9leGFtcGxlIl0', traceId: 'trace_example', sessionId: 'session_example', hostId: 'host_example', userId: 'user_example', userEmail: null, provider: 'codex', model: null, startedAt: '2026-09-28T16:00:00Z', endedAt: '2026-09-28T16:00:01Z', durationMs: 1000, status: 'ok', costUsd: null, inputTokens: 120, outputTokens: 60, name: 'turn', service: 'solus.sessions', origin: 'typed', projectRoot: null, attrs: { toolCallCount: 3 } }] })
 export type WorkspaceInsight = z.infer<typeof workspaceInsightSchema>
 
 export const workspaceInsightPageSchema = page(workspaceInsightSchema).extend({ window: workspaceInsightWindowSchema })
   .meta({ description: 'Bounded records only. No total count, cost sum, raw SQL or arbitrary aggregation. Stable order: startedAt DESC, hostId DESC, traceId DESC. The window is fixed on the first page.', examples: [{ items: [], nextCursor: null, window: { since: '2026-09-21T16:00:00Z', until: '2026-09-28T16:00:00Z' } }] })
 export type WorkspaceInsightPage = z.infer<typeof workspaceInsightPageSchema>
+
+export const workspaceInsightSpanSchema = z.strictObject({
+  spanId: workspaceIdSchema,
+  parentSpanId: workspaceIdSchema.nullable(),
+  traceId: workspaceIdSchema,
+  kind: z.string().max(64),
+  name: z.string().max(256),
+  service: z.string().max(128),
+  sessionId: workspaceIdSchema.nullable(),
+  provider: nullableText(64),
+  model: nullableText(256),
+  projectRoot: nullableText(4096),
+  origin: nullableText(64),
+  userId: workspaceIdSchema.nullable(),
+  userEmail: z.email().max(320).nullable(),
+  startedAt: z.number().int(),
+  endedAt: z.number().int(),
+  status: z.string().max(64),
+  attrs: workspaceInsightAttributesSchema,
+})
+export type WorkspaceInsightSpan = z.infer<typeof workspaceInsightSpanSchema>
+
+export const workspaceInsightLogEventSchema = z.strictObject({
+  spanId: workspaceIdSchema,
+  occurredAt: z.number().int(),
+  level: z.enum(['debug', 'info', 'warn', 'error']),
+  name: z.string().max(256),
+  tag: z.string().max(256),
+  file: z.string().max(1024),
+  attrs: workspaceInsightAttributesSchema,
+})
+export type WorkspaceInsightLogEvent = z.infer<typeof workspaceInsightLogEventSchema>
+
+export const workspaceInsightTreeSchema = z.strictObject({
+  spans: z.array(workspaceInsightSpanSchema),
+  events: z.array(workspaceInsightLogEventSchema),
+}).meta({ description: "Every span and log event of one turn in the organization, with all recorded attributes. Times are epoch milliseconds." })
+export type WorkspaceInsightTree = z.infer<typeof workspaceInsightTreeSchema>
 
 // Activity (plans/012-user-actor-and-activity.md §5)
 

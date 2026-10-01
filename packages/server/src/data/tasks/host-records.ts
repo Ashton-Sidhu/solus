@@ -139,7 +139,7 @@ export async function linkTargetRecordsFor(scope: RecordScope, targets: LinkTarg
   if (workIds.length) {
     const rows = workRowSchema.array().parse(await getDatabase().all(sql`
       SELECT id, title, type FROM ${works}
-      WHERE ${scopeClause(scope)}
+      WHERE ${scopeClause(scope)} AND location IS NULL
         AND id IN (${sql.join(workIds.map((id) => sql`${id}`), sql`, `)})
     `))
     for (const row of rows) {

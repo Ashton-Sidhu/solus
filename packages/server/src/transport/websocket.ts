@@ -11,6 +11,7 @@ import { RpcAccessError } from '../admission/access-policy'
 import { PlaneDisabledError } from '../host/roles'
 import { GithubConnectionRequiredError } from '../providers/github/connection-required'
 import { WorkingTreeBusyError } from '../execution/sessions/working-tree-busy'
+import { WorkMovedError } from '../data/works/work'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
 import { principalExpiresAt, principalFor, principalSchema, type AdmissionEvidence, type Principal } from '../admission/principal'
@@ -394,6 +395,8 @@ function getCachedResponse(
       if (err instanceof GithubConnectionRequiredError) return { error: { message: err.message, code: err.code } }
       // Another session runs in this working tree: the client asks the person before it continues.
       if (err instanceof WorkingTreeBusyError) return { error: { message: err.message, code: err.code } }
+      // A shared work: the client asks the host that has it now (cloud-sharing.md §3a).
+      if (err instanceof WorkMovedError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

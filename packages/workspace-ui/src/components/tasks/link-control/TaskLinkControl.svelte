@@ -35,9 +35,12 @@
     projectKey?: string | null;
     /** The task the conversation itself belongs to: the one-click target. */
     conversationTaskId?: string | null;
+    /** Draw nothing while no task links the target and the conversation has
+     *  no task of its own: the control appears only when it has a task to name. */
+    onlyWithTask?: boolean;
   }
 
-  let { target, title, url, serverId, projectKey, conversationTaskId }: Props = $props();
+  let { target, title, url, serverId, projectKey, conversationTaskId, onlyWithTask = false }: Props = $props();
 
   const session = getSurfaceContext();
   const store = session.tasksStore;
@@ -129,7 +132,7 @@
   }
 </script>
 
-{#if controlState.kind !== "unknown"}
+{#if controlState.kind !== "unknown" && !(onlyWithTask && controlState.kind === "none" && !controlState.currentTask)}
   <span class="flex min-w-0 items-center gap-0.5" data-testid="task-link-control">
     {#if controlState.kind === "one"}
       <button

@@ -8,7 +8,8 @@
    *
    * With `onchangeparent`, the folder prefix is itself the control that moves
    * the project somewhere else. The size comes from the caller's text class;
-   * every part inherits it.
+   * every part inherits it. A surface too narrow for the folder sets
+   * `showsParent` to false and shows the location itself.
    */
   import { safeProjectDirName } from "@solus/contracts/project-folder-name";
   import { abbreviateHome } from "../../lib/paths";
@@ -26,6 +27,7 @@
     onsubmit?: () => void;
     /** Makes the folder prefix a button that picks another folder. */
     onchangeparent?: () => void;
+    showsParent?: boolean;
     class?: string;
   }
 
@@ -37,6 +39,7 @@
     inputEl = $bindable(null),
     onsubmit,
     onchangeparent,
+    showsParent = true,
     class: className = "",
   }: Props = $props();
 
@@ -54,7 +57,9 @@
 <!-- `direction: rtl` on the prefix clips a long folder from its start, so the
      end nearest the name stays readable; `bdi` keeps the path itself LTR. -->
 <span class="flex min-w-0 flex-1 items-baseline {className}">
-  {#if onchangeparent}
+  {#if !showsParent}
+    <!-- The caller shows the location. -->
+  {:else if onchangeparent}
     <button
       type="button"
       class="min-w-0 max-w-[55%] shrink overflow-hidden truncate rounded-sm text-muted-foreground [direction:rtl]

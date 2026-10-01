@@ -20,7 +20,7 @@ The existing host/service split in `workspace-and-machines.md` remains valid.
 | Organization policy | held against in `execution/sessions/turn-organization.ts` and `sync/mirror/insight-mirror.ts` | `organization_host_policy.allow_personal_hosts`, `sync_all_insights`; owner-only edit |
 | Per-organization delivery | `sync/mirror/mirror-log.ts`, `sync/outbox/outbox-store.ts`, `sync/runner-delivery.ts` (one queue per organization and person), `sync/delegations.ts` | OAuth token endpoint: token exchange and refresh for the host's client (plans/010-standard-oauth.md) |
 | Publication on Share/Move | `sync/publication.ts`, `publication-store.ts`, `/runner/works` intake | — |
-| Insights attribution | `spans.user_id/user_email/organization_id`, `insight_spans` copies, `data/insights/organization-turns.ts` | — |
+| Insights attribution | `spans.user_id/user_email/organization_id`, `insight_spans` copies, `data/insights/api-turns.ts` | — |
 | Client window scope | `packages/client-core/src/organization-selection.ts`, `workspace-ui/src/lib/organization-filter.ts`, the switcher, Share on submit, Insights settings | console: organization settings and host shares |
 
 ## 1. The model

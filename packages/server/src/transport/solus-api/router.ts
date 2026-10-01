@@ -174,6 +174,7 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
   app.get(routes.listMyActivity.path, async c => c.json(await operations.listMyActivity(authority(c), query(c, routes.listMyActivity.query))))
 
   app.get(routes.listInsights.path, async c => c.json(await operations.listInsights(authority(c), query(c, routes.listInsights.query))))
+  app.get(routes.getInsightSpans.path, async c => { query(c, routes.getInsightSpans.query); return c.json(await operations.getInsightSpans(authority(c), z.string().min(1).max(1024).parse(c.req.param('insightId')))) })
   app.get(routes.getInsight.path, async c => { query(c, routes.getInsight.query); return c.json(await operations.getInsight(authority(c), z.string().min(1).max(1024).parse(c.req.param('insightId')))) })
   return app
 }

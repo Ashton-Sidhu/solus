@@ -34,6 +34,12 @@ export interface TurnRow {
   inputTokens: number | null
   outputTokens: number | null
   toolCallCount: number | null
+  /** The host the turn was pulled from; null when the host being read ran it. */
+  hostId: string | null
+  /** The machine name the turn recorded. */
+  hostname: string | null
+  /** The account that ran the turn, as the host verified it. */
+  userEmail: string | null
 }
 
 /** Every non-null cell reads as a label, so a numeric or boolean column still
@@ -84,6 +90,9 @@ export function toTurnRows(result: MetricsQueryResult | null): TurnRow[] {
       inputTokens: asFiniteNumber(cell(row, 'input_tokens')),
       outputTokens: asFiniteNumber(cell(row, 'output_tokens')),
       toolCallCount: asFiniteNumber(cell(row, 'tool_call_count')),
+      hostId: asString(cell(row, 'host_id')),
+      hostname: asString(cell(row, 'hostname')),
+      userEmail: asString(cell(row, 'user_email')),
     })
   }
   return rows
@@ -162,7 +171,7 @@ export function countByStatus(rows: TurnRow[]): TurnStatusCounts {
   return counts
 }
 
-export type TurnSortKey = 'startedAt' | 'durationMs' | 'costUsd' | 'tokens' | 'model' | 'sessionId' | 'prompt'
+export type TurnSortKey = 'startedAt' | 'durationMs' | 'costUsd' | 'tokens' | 'model' | 'sessionId' | 'prompt' | 'host' | 'user'
 
 export interface TurnSort {
   key: TurnSortKey
@@ -185,6 +194,10 @@ function sortValue(row: TurnRow, key: TurnSortKey): string | number {
       return row.sessionId ?? ''
     case 'prompt':
       return row.prompt
+    case 'host':
+      return row.hostname ?? ''
+    case 'user':
+      return row.userEmail ?? ''
   }
 }
 

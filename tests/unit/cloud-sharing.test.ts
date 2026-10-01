@@ -247,20 +247,43 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a source change during the pus
 
   const beforeCheckpoint = await exportWorkForCloud('local', 'push-work')
   await work.checkpoint({ reason: 'review', expectedContentVersion: work.contentVersion })
-  await expect(removePushedWork('local', 'push-work', beforeCheckpoint.fingerprint)).rejects.toThrow('local copy was kept')
+  await expect(removePushedWork('local', 'push-work', beforeCheckpoint.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
 
   const beforeComment = await exportWorkForCloud('local', 'push-work')
   await applyWorkComment('local', 'push-work', { kind: 'add', comment: { id: 'comment2', selectedText: 'first', comment: 'Another' } }, { by: { kind: 'system' }, canModerate: true, now: 200 })
-  await expect(removePushedWork('local', 'push-work', beforeComment.fingerprint)).rejects.toThrow('local copy was kept')
+  await expect(removePushedWork('local', 'push-work', beforeComment.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
 
   const beforeEdit = await exportWorkForCloud('local', 'push-work')
   await edit(Work, 'local', 'push-work', { content: 'new edit', author: BOB, reason: 'edit' })
-  await expect(removePushedWork('local', 'push-work', beforeEdit.fingerprint)).rejects.toThrow('local copy was kept')
+  await expect(removePushedWork('local', 'push-work', beforeEdit.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
   expect((await loadWork('local', 'push-work'))?.content).toBe('new edit')
 
   // An unchanged work is removed once the service holds it.
-  await removePushedWork('local', 'push-work', (await exportWorkForCloud('local', 'push-work')).fingerprint)
+  await removePushedWork('local', 'push-work', (await exportWorkForCloud('local', 'push-work')).fingerprint, 'org-1')
   expect(await loadWork('local', 'push-work')).toBeNull()
+})
+
+test('a shared work keeps only its location, so a reference to its id here learns where it went', async () => {
+  // WHY: transcripts, task links, and embeds name a work by id, and some of them
+  // cannot change after Share. The row stays with the organization that has the
+  // work now (cloud-sharing.md §3a), so the host answers "moved to org-1", not
+  // "not found". The organization's copy is the only copy of the body.
+  const { exportWorkForCloud, listWorks, loadWork, removePushedWork } = await import('@solus/server/data/works/works')
+  const { Work, WorkMovedError } = await import('@solus/server/data/works/work')
+  const { sql } = await import('drizzle-orm')
+  await workWithHistory('moved-work')
+
+  await removePushedWork('local', 'moved-work', (await exportWorkForCloud('local', 'moved-work')).fingerprint, 'org-1')
+
+  const moved = await Work.byId('local', 'moved-work').catch((error) => error)
+  expect(moved).toBeInstanceOf(WorkMovedError)
+  expect(moved).toMatchObject({ code: 'MOVED', location: { organizationId: 'org-1' } })
+  expect(await loadWork('local', 'moved-work')).toBeNull()
+  expect((await listWorks('local')).map((work) => work.id)).not.toContain('moved-work')
+  const db = getDatabase()
+  expect(await db.get(sql`SELECT content FROM works WHERE id = 'moved-work'`)).toEqual({ content: '' })
+  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_revisions WHERE work_id = 'moved-work'`)).toEqual({ count: 0 })
+  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_annotations WHERE work_id = 'moved-work'`)).toEqual({ count: 0 })
 })
 
 test('a work from before versions transfers with its unknown authors and null source versions kept', async () => {
@@ -343,7 +366,7 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its 
 
   // A comment after the read: the task stays, and so does its work.
   await local.comment('One more thing', { by: ALICE })
-  await expect(removeUploadedTask('local', 'task-1', exported.task.fingerprint, works)).rejects.toThrow(/changed/)
+  await expect(removeUploadedTask('local', 'task-1', exported.task.fingerprint, works, 'org-1')).rejects.toThrow(/changed/)
   expect(await loadWork('local', 'task-work')).not.toBeNull()
   const current = await exportTaskForCloud('local', 'task-1')
   const bob: Extract<Principal, { kind: 'org-member' }> = { ...alice, organizationId: 'org2', userId: 'bob', displayName: 'Bob', deviceId: 'bob' }
@@ -376,7 +399,7 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its 
     resetApiModeForTests()
   }
 
-  await removeUploadedTask('local', 'task-1', current.task.fingerprint, current.works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })))
+  await removeUploadedTask('local', 'task-1', current.task.fingerprint, current.works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), 'org-1')
   await expect(Task.byId('local', 'task-1')).rejects.toThrow()
   expect(await loadWork('local', 'task-work')).toBeNull()
 })

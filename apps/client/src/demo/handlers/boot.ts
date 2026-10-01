@@ -123,7 +123,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
   backend.register('taskExportForCloud', () => {
     throw new Error('Sharing is not available in the demo.')
   })
-  backend.register('insightsList', () => ({ items: [], nextCursor: null, window: { since: new Date(Date.now() - 7 * 86400000).toISOString(), until: new Date().toISOString() } }))
   backend.register('outboxList', () => [])
   backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))

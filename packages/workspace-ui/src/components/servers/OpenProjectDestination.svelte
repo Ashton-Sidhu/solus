@@ -11,7 +11,6 @@ import Icon from "@iconify/svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import type { CloneProtocol } from "@solus/contracts/types";
   import { abbreviateHome } from "../../lib/paths";
   import DevicePrompt from "./DevicePrompt.svelte";
   import HostReadinessNotes from "./HostReadinessNotes.svelte";
@@ -39,10 +38,20 @@ import Icon from "@iconify/svelte";
     localIdentity = null,
   }: Props = $props();
 
-  const PROTOCOLS: CloneProtocol[] = ["https", "ssh"];
   const isClone = $derived(store.source === "clone");
   const setup = $derived(store.setup);
-  const showProtocol = $derived(!!store.cloneUrl);
+  const protocolWarning = $derived.by((): { message: string; blocking: boolean } | null => {
+    if (!store.cloneUrl) return null;
+    const host = store.hostLabel || "this machine";
+    if (store.protocol === "https") {
+      return store.readiness?.github?.solusToken
+        ? null
+        : { message: `Public repositories only, until ${host} signs in.`, blocking: false };
+    }
+    if (store.sshKeyMissing) return { message: "No SSH key on this machine — clone over HTTPS instead.", blocking: true };
+    if (store.sshAccess && !store.sshAccess.ok) return { message: store.sshAccess.message, blocking: true };
+    return null;
+  });
   const destination = $derived(store.destinationPreview);
 
   async function connectGithub() {
@@ -140,8 +149,10 @@ import Icon from "@iconify/svelte";
   </div>
 {:else if store.source === "github"}
   <div class="text-xs border-t border-border px-3 pb-2 pt-3">
-    <label class="mb-1 flex h-[2.125rem] items-center gap-2 rounded-lg bg-muted px-2.5">
-      <MagnifyingGlassIcon size={13} class="shrink-0 text-muted-foreground" />
+    <label
+      class="mb-1 flex h-[2.125rem] items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
+    >
+      <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
       <Input
         bind:ref={inputEl}
         bind:value={store.query}
@@ -244,39 +255,15 @@ import Icon from "@iconify/svelte";
   </div>
 {/if}
 
-{#if showProtocol}
-  <div class="text-xs flex items-center gap-2 px-5 pb-1" transition:slide={{ duration: 160 }}>
-    <div class="inline-flex h-7 shrink-0 items-center rounded-lg bg-muted p-0.5" role="group" aria-label="Clone protocol">
-      {#each PROTOCOLS as option (option)}
-        <button
-          type="button"
-          class="h-6 rounded-md px-2.5  font-medium uppercase
-            [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
-            {store.protocol === option ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'}"
-          aria-pressed={store.protocol === option}
-          onclick={() => {
-            store.protocol = option;
-            if (option === "ssh") void store.checkSshAccess();
-          }}
-        >
-          {option}
-        </button>
-      {/each}
-    </div>
-    <p class="min-w-0 flex-1 text-pretty  leading-relaxed text-muted-foreground">
-      {#if store.protocol === "https" && store.readiness?.github?.solusToken}
-        Uses {store.hostLabel || "this machine"}’s own GitHub sign-in.
-      {:else if store.protocol === "https"}
-        Public repositories only, until {store.hostLabel || "this machine"} signs in.
-      {:else if store.sshKeyMissing}
-        <span class="text-(--solus-status-error)">No SSH key on this machine — clone over HTTPS instead.</span>
-      {:else if store.sshAccess}
-        <span class={store.sshAccess.ok ? "" : "text-(--solus-status-error)"}>{store.sshAccess.message}</span>
-      {:else}
-        Uses an SSH key that lives on {store.hostLabel || "this machine"}.
-      {/if}
-    </p>
-  </div>
+<!-- The protocol is a header control; only what will make the clone fail
+     or fall short is said here. -->
+{#if protocolWarning}
+  <p
+    class="text-xs px-5 pb-1 text-pretty leading-relaxed {protocolWarning.blocking ? 'text-(--solus-status-error)' : 'text-muted-foreground'}"
+    transition:slide={{ duration: 160 }}
+  >
+    {protocolWarning.message}
+  </p>
 {/if}
 
 <div class="text-xs px-4 pb-1">

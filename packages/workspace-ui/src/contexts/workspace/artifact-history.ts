@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { Message, WorkMeta } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
-import type { HostApi } from '@solus/client-core/host-api'
 import { resolveArtifactTitle } from '@solus/contracts/work-preview'
 import { nextMsgId } from './session.utils'
 
@@ -42,37 +41,33 @@ const htmlPathInput = z.object({ html_path: z.string() })
  * The HTML each `html_path` artifact call in a page wrote, by tool id. The
  * host read the file, so the transcript holds only the path. Every agent write
  * keeps a revision at the content version the receipt names; this reads that
- * revision. A call whose revision cannot be read is left out, and its card is
- * not rebuilt.
+ * revision from the work's owner, which Share can move off the session's host.
+ * A call whose revision cannot be read is left out, and its card is not rebuilt.
  */
-export async function loadArtifactFileBodies(api: HostApi, history: WireSessionLoadMessage[]): Promise<Map<string, string>> {
+export async function loadArtifactFileBodies(
+  bodyAtVersion: (workId: string, contentVersion: number) => Promise<string | null>,
+  history: WireSessionLoadMessage[],
+): Promise<Map<string, string>> {
   const results = new Map(history.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
   ))
-  const wanted = new Map<string, { toolId: string; contentVersion: number }[]>()
+  const wanted: { toolId: string; workId: string; contentVersion: number }[] = []
   for (const message of history) {
     if (message.role !== 'tool' || !message.toolId || !message.toolInput?.includes('"html_path"')) continue
     if (!message.toolName?.endsWith('render_artifact') && !message.toolName?.endsWith('update_work')) continue
-    if (!htmlPathInput.safeParse(safeJson(message.toolInput)).success) continue
+    if (!namesHtmlPath(message.toolInput)) continue
     const ref = (results.get(message.toolId) ?? message).artifactWorkRef
     if (!ref?.contentVersion) continue
-    const calls = wanted.get(ref.workId) ?? []
-    calls.push({ toolId: message.toolId, contentVersion: ref.contentVersion })
-    wanted.set(ref.workId, calls)
+    wanted.push({ toolId: message.toolId, workId: ref.workId, contentVersion: ref.contentVersion })
   }
   const bodies = new Map<string, string>()
-  await Promise.all([...wanted].map(async ([workId, calls]) => {
-    try {
-      const revisions = await api.loadWorkRevisions(workId)
-      await Promise.all(calls.map(async ({ toolId, contentVersion }) => {
-        const revision = revisions.find((entry) => entry.sourceContentVersion === contentVersion)
-        if (revision) bodies.set(toolId, (await api.loadWorkRevision(workId, revision.revisionId)).content)
-      }))
-    } catch {}
+  await Promise.all(wanted.map(async ({ toolId, workId, contentVersion }) => {
+    const body = await bodyAtVersion(workId, contentVersion).catch(() => null)
+    if (body !== null) bodies.set(toolId, body)
   }))
   return bodies
 }
 
-function safeJson(text: string): unknown {
-  try { return JSON.parse(text) } catch { return undefined }
+function namesHtmlPath(toolInput: string): boolean {
+  try { return htmlPathInput.safeParse(JSON.parse(toolInput)).success } catch { return false }
 }

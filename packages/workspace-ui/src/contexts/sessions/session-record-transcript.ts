@@ -12,8 +12,7 @@ import type { SurfaceContext } from '../app/surface-context.svelte'
  */
 export async function loadSessionRecordTranscript(workspace: SurfaceContext, serverId: string, meta: SessionMeta): Promise<Message[]> {
   const ctx = workspace.ctxForDirectory(meta.cwd)
-  const api = serverConnections.apiFor(serverId)
-  const page = await requestSessionHistoryPage(api, {
+  const page = await requestSessionHistoryPage(serverConnections.apiFor(serverId), {
     sessionId: meta.sessionId,
     projectPath: meta.projectPath,
     provider: meta.provider,
@@ -27,5 +26,5 @@ export async function loadSessionRecordTranscript(workspace: SurfaceContext, ser
     ctx,
     turnLimit: INITIAL_HISTORY_TURNS,
     serverId,
-  }, page, await loadArtifactFileBodies(api, page.messages)).messages
+  }, page, await loadArtifactFileBodies((workId, version) => workspace.worksStore.history.bodyAtVersion(workId, version), page.messages)).messages
 }

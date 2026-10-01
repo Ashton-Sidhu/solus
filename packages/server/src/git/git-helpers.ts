@@ -8,7 +8,7 @@ import { getWorkingTreeStats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
-import { parseRemoteFetchUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
+import { parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 
 const gitCommandErrorSchema = z.object({
   message: z.string().optional(),
@@ -277,17 +277,24 @@ const repositoryKeyCache = new Map<string, Promise<string | null>>()
 /**
  * The repository key of `cwd`'s project (docs/plans/project-model.md §1): its
  * primary remote — `upstream`, then `origin`, then the first by name — reduced
- * to `host/path`. Null for a folder with no hosted remote. Cached per cwd like
- * `resolveRepoRef`; a failed read is not cached.
+ * to `host/path`. Null for a folder with no hosted remote. The URLs are read
+ * from git config, not `git remote -v`, whose lines carry a partial clone's
+ * filter. `safe.directory` admits a checkout another user owns, as on a shared
+ * host: reading config runs no hook. Only a key is cached, so a folder that
+ * gains a remote, such as a clone in progress, is read again.
  */
 export function resolveRepositoryKey(cwd: string): Promise<string | null> {
   const cached = repositoryKeyCache.get(cwd)
   if (cached) return cached
   const pending = (async () => {
     try {
-      const remoteUrl = primaryRemoteUrl(parseRemoteFetchUrls(await runAsync('git', ['remote', '-v'], cwd)))
-      return remoteUrl ? repositoryKeyFromRemoteUrl(remoteUrl) : null
+      const output = await runAsync('git', ['-c', 'safe.directory=*', 'config', '--get-regexp', '^remote\\..*\\.url$'], cwd)
+      const remoteUrl = primaryRemoteUrl(parseRemoteUrls(output))
+      const repositoryKey = remoteUrl ? repositoryKeyFromRemoteUrl(remoteUrl) : null
+      if (!repositoryKey) repositoryKeyCache.delete(cwd)
+      return repositoryKey
     } catch {
+      // Exit 1: no remote, or not a repository.
       repositoryKeyCache.delete(cwd)
       return null
     }

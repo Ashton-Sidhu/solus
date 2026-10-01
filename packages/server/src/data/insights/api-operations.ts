@@ -1,12 +1,12 @@
 import {
   workspaceInsightQuerySchema, INSIGHT_DEFAULT_WINDOW_MS, INSIGHT_MAX_WINDOW_MS,
-  type WorkspaceInsight, type WorkspaceInsightPage, type WorkspaceInsightQuery,
+  type WorkspaceInsight, type WorkspaceInsightPage, type WorkspaceInsightQuery, type WorkspaceInsightTree,
 } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../../admission/workspace-error'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { requireScope } from '../workspace/context'
 import { pageOf, readCursor } from '../workspace/page'
-import { getApiInsight, listApiInsights } from './api-turns'
+import { getApiInsight, getApiInsightTree, listApiInsights } from './api-turns'
 
 function organization(context: WorkspaceRequestContext): string {
   requireScope(context, 'insights:read')
@@ -15,9 +15,15 @@ function organization(context: WorkspaceRequestContext): string {
   return context.home.organizationId
 }
 
-/** Both reads enforce the same organization policy; knowing an ID grants nothing. */
+/** Every read enforces the same organization policy; knowing an ID grants nothing. */
 export async function readInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight> {
   const result = await getApiInsight(organization(context), insightId)
+  if (!result) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+  return result
+}
+
+export async function readInsightTree(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsightTree> {
+  const result = await getApiInsightTree(organization(context), insightId)
   if (!result) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
   return result
 }

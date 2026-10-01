@@ -10,10 +10,20 @@ const LEASE_TTL_MS = 20_000
 
 export class ActivityLeases {
   private foregroundByClient = new Map<string, number>()
+  private lastForeground: number | null = null
 
   report(clientId: string, foreground: boolean, now = Date.now()): void {
-    if (foreground) this.foregroundByClient.set(clientId, now)
-    else this.foregroundByClient.delete(clientId)
+    if (foreground) {
+      this.foregroundByClient.set(clientId, now)
+      this.lastForeground = now
+    } else {
+      this.foregroundByClient.delete(clientId)
+    }
+  }
+
+  /** When any client last said it was foregrounded; null until one has. */
+  lastForegroundAt(): number | null {
+    return this.lastForeground
   }
 
   drop(clientId: string): void {

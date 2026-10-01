@@ -40,6 +40,8 @@ interface SpanRow {
   duration_ms: number | null
   status: string
   attrs: string
+  /** Absent from a statement that does not select it. */
+  host_id?: string | null
 }
 
 interface LogEventRow {
@@ -85,6 +87,7 @@ function toSpan(row: SpanRow): MetricsSpan {
     durationMs: row.duration_ms,
     status: row.status,
     attrs: parseAttrs(row.attrs),
+    hostId: row.host_id ?? null,
   }
 }
 

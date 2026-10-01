@@ -684,9 +684,15 @@ Decisions:
 
 - **The hold** (`host/sprite-activity.ts`, managed host only, by
   `hostCategory()`). One task, `solus-work`, expiring after ten minutes and
-  renewed every four, so a host that dies frees the Sprite. Held while busy or
-  while an automation is due within fifteen minutes; deleted otherwise. Checked
-  every 30 seconds.
+  renewed every four, so a host that dies frees the Sprite. Held while busy,
+  while a client was foregrounded within the last fifteen minutes, or while an
+  automation is due within fifteen minutes; deleted otherwise. Checked every 30
+  seconds.
+- **Foregrounded** is the client's activity lease (`activityLease`, a 10-second
+  heartbeat from every client): `ActivityLeases.lastForegroundAt()`. An open
+  socket did not keep the Sprite running: without this, a tab left open on an
+  idle host found the Sprite paused. A background tab does not hold it, and
+  the report does not call it busy.
 - **Busy** is `SessionRuntime.hasWorkToKeepAwake()`: `hasActiveWork()` or
   `hasWorkForUpdate()`, or a session `awaiting_input` or `awaiting_plan`. A
   rate-limit wait is not busy: it can last hours, and an inbound request wakes

@@ -16,7 +16,7 @@ import { parseDiagram } from '@solus/contracts/diagram-types'
 import { getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
-import { workAnnotations, workRevisions, works } from './schema'
+import { workAnnotations, workLiveDocs, workReviewers, workRevisions, works } from './schema'
 import { emitWorkChanged } from './work-events'
 import { workLiveBridge } from './work-live-bridge'
 import { recordNewMentions } from '../activity/mentions'
@@ -32,7 +32,9 @@ import {
   revisionRowSchema,
   revisionSummaryFromRow,
   workFromRow,
+  workLocation,
   workRow,
+  type WorkLocation,
   type WorkRow,
 } from './work-rows'
 
@@ -40,6 +42,17 @@ export const GOOGLE_WORK_READ_ONLY = 'This work is linked to Google Docs and is 
 
 export function assertWorkEditable(meta: WorkMeta): void {
   if (meta.mirroredDoc?.provider === 'gdrive') throw new Error(GOOGLE_WORK_READ_ONLY)
+}
+
+/** A work that Share moved to an organization (cloud-sharing.md §3a): this host
+ *  has only its location. The code lets a client ask the work's new owner. */
+export class WorkMovedError extends Error {
+  readonly code = 'MOVED' as const
+
+  constructor(readonly workId: string, readonly location: WorkLocation) {
+    super(`Work ${workId} moved to organization ${location.organizationId}.`)
+    this.name = 'WorkMovedError'
+  }
 }
 
 /** A body the work's type cannot hold. Nothing was written. */
@@ -256,8 +269,10 @@ export class Work implements WorkRecord {
   /** Loads the work inside `scope`. Throws when the id is unknown there. */
   static async byId(scope: RecordScope, workId: string): Promise<Work> {
     const work = await Work.find(scope, workId)
-    if (!work) throw new Error(`Work not found: ${workId}`)
-    return work
+    if (work) return work
+    const location = await workLocation(getDatabase(), scope, workId)
+    if (location) throw new WorkMovedError(workId, location)
+    throw new Error(`Work not found: ${workId}`)
   }
 
   /** Loads the work inside `scope`, or null when the id is unknown there.
@@ -476,6 +491,26 @@ export class Work implements WorkRecord {
   }
 
   /** Permanently remove the work, its revisions (by cascade), and its annotations. */
+  /**
+   * Keep only where the work went (cloud-sharing.md §3a): the organization's copy
+   * is now the only copy, so the body, its history, comments, and reviews go.
+   * The row and its links stay, so a reference to the id here can be answered.
+   */
+  async moveTo(location: WorkLocation): Promise<void> {
+    await getDatabase().transaction(async (db) => {
+      const row = await workRow(db, this.#organizationId, this.id, true)
+      if (!row) throw new Error(`Work not found: ${this.id}`)
+      for (const table of [workAnnotations, workRevisions, workReviewers, workLiveDocs]) {
+        await db.run(sql`DELETE FROM ${table} WHERE work_id = ${this.id}`)
+      }
+      await db.run(sql`
+        UPDATE ${works} SET content = '', preview = '', content_hash = ${documentContentHash('')},
+          previous_revision_id = NULL, location = ${JSON.stringify(location)}
+        WHERE id = ${this.id}
+      `)
+    })
+  }
+
   async delete(): Promise<void> {
     await getDatabase().transaction(async (db) => {
       const row = await workRow(db, this.#organizationId, this.id, true)

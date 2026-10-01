@@ -8,10 +8,12 @@
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import type { RunConfig } from "@solus/contracts/types";
   import {
+    connectionsStore,
     getClientShellContext,
     hostAffinityGlyph,
     projectsStore,
   } from "../../contexts";
+  import { isChatFolder } from "../../lib/paths";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -32,7 +34,7 @@
   } from "./run-on";
   import { withPendingHost } from "../../contexts/workspace/run-config";
   import {
-    orderRunOnHosts,
+    listRunOnHosts,
     runOnHostAction,
     runOnHostNote,
     type RunOnHostAction,
@@ -157,7 +159,15 @@
       checkouts,
       cloneRepoKey: sourceRepoKey,
     });
-  const hosts = $derived(orderRunOnHosts(serversStore.executionServers, actionFor));
+  // Scratchpad is no project: any host can take the chat.
+  const hasProject = $derived(
+    !!projectDir &&
+      projectDir !== "~" &&
+      !isChatFolder(projectDir, connectionsStore.chatFolderFor(projectHost)),
+  );
+  const hosts = $derived(
+    listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
+  );
 
   $effect(() => {
     // Retargeting clears gitContext, so retain the last repo key while selection finishes.

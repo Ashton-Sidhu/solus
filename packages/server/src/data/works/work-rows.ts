@@ -135,14 +135,27 @@ export function workFromRow(row: WorkRow): WorkRecord {
 }
 
 /** `lock` holds the row for the rest of the transaction on Postgres; SQLite's
- * write transaction already serializes. */
+ * write transaction already serializes. A shared work is not here: its row
+ * holds only where it went (`workLocation`). */
 export async function workRow(db: Db, scope: RecordScope, id: string, lock = false): Promise<WorkRow | undefined> {
   return workRowSchema.nullish().parse(await db.get(sql`
     SELECT ${WORK_COLUMNS}
     FROM ${works}
-    WHERE id = ${id} AND ${scopeClause(scope)}
+    WHERE id = ${id} AND ${scopeClause(scope)} AND location IS NULL
     ${lock && db.engine === 'postgres' ? sql`FOR UPDATE` : sql``}
   `)) ?? undefined
+}
+
+/** Where a shared work is now (cloud-sharing.md §3a). */
+export const workLocationSchema = z.strictObject({ organizationId: z.string().min(1) })
+export type WorkLocation = z.infer<typeof workLocationSchema>
+
+/** The location of a work that left this host, or null when it is here or unknown. */
+export async function workLocation(db: Db, scope: RecordScope, id: string): Promise<WorkLocation | null> {
+  const row = z.object({ location: z.string().nullable() }).nullish().parse(await db.get(sql`
+    SELECT location FROM ${works} WHERE id = ${id} AND ${scopeClause(scope)}
+  `))
+  return row?.location ? workLocationSchema.parse(JSON.parse(row.location)) : null
 }
 
 /** The body, version, author, and hash a new or imported work starts with. */

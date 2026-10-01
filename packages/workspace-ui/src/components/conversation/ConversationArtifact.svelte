@@ -115,19 +115,15 @@
       {/if}
     </div>
   {/if}
-  {#if update || (expanded && selected)}
-    <div class={update || revisions.length > 1 ? "rounded-xl ring-[0.5px] ring-(--solus-tx-divider)" : ""}>
-      {#if update}
-        <ArtifactView artifact={update} skipMotion />
-      {:else if selected}
-        {#key selected.messageId}
-        {#if selected.workRef}
-          <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
-        {:else}
-          <HtmlBlock html={selected.html} />
-        {/if}
-        {/key}
-      {/if}
-    </div>
+  {#if update}
+    <ArtifactView artifact={update} skipMotion />
+  {:else if expanded && selected}
+    {#key selected.messageId}
+    {#if selected.workRef}
+      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
+    {:else}
+      <HtmlBlock html={selected.html} />
+    {/if}
+    {/key}
   {/if}
 </div>

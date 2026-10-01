@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore, sharesStore } from "../../contexts";
   import type { MetricsSpan, TurnFlagKind } from "@solus/contracts/observability-types";
   import {
     Download as ExportIcon,
@@ -28,7 +28,8 @@
     type TurnReport,
   } from "./lib/turn-report";
   import { downloadText } from "./lib/trace-export";
-  import { insightsStore } from "./insights.store.svelte";
+  import { insightsStore, type TurnChangeReading } from "./insights.store.svelte";
+  import { turnHostLabel, turnHostServerId } from "./lib/turn-hosts";
   import TurnDetailSkeleton from "./TurnDetailSkeleton.svelte";
   import TurnFlagMenu from "./TurnFlagMenu.svelte";
   import TurnReadings from "./TurnReadings.svelte";
@@ -101,6 +102,7 @@
       // Metrics attrs are a snapshot and older turns may predate task-name
       // capture. Resolve the durable session binding too, so the session table
       // can still open the task the session belongs to.
+      if (trace?.spans[0]?.hostId) return;
       void workspace.tasksStore.ensureSessionBinding(
         tracedSessionId,
         insightsStore.serverId ?? undefined,
@@ -112,6 +114,13 @@
   const view = $derived(buildTraceView(trace));
   const root = $derived(view?.root ?? null);
   const sessionId = $derived(root?.sessionId ?? null);
+  /** A turn this person ran on another host and pulled here
+   *  (docs/plans/insights-across-hosts.md): its session and its git change
+   *  live on that host, which this client reaches only if it is connected. */
+  const pulledHostId = $derived(root?.hostId ?? null);
+  const sessionServerId = $derived(
+    pulledHostId ? turnHostServerId(pulledHostId, serversStore.servers) : insightsStore.serverId,
+  );
   const session = $derived(sessionId ? insightsStore.sessionSummary(sessionId) : null);
 
   /** A running turn: its root has not closed. Re-read on a short cadence
@@ -161,10 +170,22 @@
 
   const baselines = $derived(root ? turnBaselines(root, session, insightsStore.volumeRows) : []);
   const prompts = $derived(promptsByTrace(insightsStore.volumeRows));
-  const turnChange = $derived(insightsStore.turnChange(traceId));
+  const storedChange = $derived(insightsStore.turnChange(traceId));
+  const pulledHostLabel = $derived(
+    pulledHostId
+      ? turnHostLabel(
+          { hostId: pulledHostId, hostname: String(attr(root, "hostname") ?? "") || null },
+          serversStore.servers,
+          insightsStore.serverId,
+        )
+      : null,
+  );
+  const turnChange = $derived<TurnChangeReading | null>(
+    pulledHostLabel ? { status: "elsewhere", host: pulledHostLabel } : storedChange,
+  );
   // Git records a turn's change when the turn ends, so a running turn has none
   // to read yet; the host's announcement of the end clears the cached answer.
-  const sessionRecordCtx = $derived(sessionId ? workspace.ctxForSessionRecord(sessionId) : null);
+  const sessionRecordCtx = $derived(sessionId && !pulledHostId ? workspace.ctxForSessionRecord(sessionId) : null);
   $effect(() => {
     if (!sessionRecordCtx || isLive || !root) return;
     void insightsStore.loadTurnChange(sessionRecordCtx, traceId);
@@ -207,9 +228,13 @@
   /** The session id a span carries is Solus's own, so an open conversation is
    *  focused rather than opened a second time; a closed one is resumed. */
   async function revealSession(): Promise<string | null> {
-    if (!sessionId || !insightsStore.serverId) return null;
-    const tabId = await workspace.revealSession(sessionId, insightsStore.serverId);
-    if (!tabId) toasts.error("That session is no longer on this host");
+    if (!sessionId) return null;
+    if (!sessionServerId) {
+      toasts.error("That session ran on a host this client is not connected to");
+      return null;
+    }
+    const tabId = await workspace.revealSession(sessionId, sessionServerId);
+    if (!tabId) toasts.error("That session is no longer on its host");
     return tabId;
   }
 
@@ -246,7 +271,7 @@
       taskTitle,
       baselines,
       prompts: Object.fromEntries(promptsByTrace(insightsStore.volumeRows.filter((row) => row.sessionId === sessionId))),
-      patch: turnChange?.status === "ready" ? turnChange.patch : null,
+      patch: storedChange?.status === "ready" && !pulledHostId ? storedChange.patch : null,
     };
     const title = turnReportTitle({ subject: turnReportSubject({ sessionName, taskTitle, prompt }), capturedAt });
     void sharesStore.shareReport(serverId, { title, content: turnReportContent(report), agentProvider: reportAgent(root.provider) });
@@ -430,7 +455,7 @@
         {baselines}
         {prompts}
         change={turnChange}
-        showResult={!!sessionRecordCtx}
+        showResult={!!sessionRecordCtx || !!pulledHostId}
         loadRepoFiles={sessionRecordCtx ? insightsStore.repoFileLoader(sessionRecordCtx) : async () => null}
         {spanId}
         actions={turnActions}

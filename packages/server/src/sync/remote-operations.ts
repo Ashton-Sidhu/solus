@@ -60,6 +60,7 @@ export function remoteWorkspaceOperations(
     listSessionMessages: (_context, sessionId, query) => call(() => client.request('listSessionMessages', { id: sessionId, query })),
     listInsights: (_context, query) => call(() => client.request('listInsights', { query })),
     getInsight: (_context, insightId) => call(() => client.request('getInsight', { id: insightId })),
+    getInsightSpans: (_context, insightId) => call(() => client.request('getInsightSpans', { id: insightId })),
     listTaskActivity: (_context, taskId, query) => call(() => client.request('listTaskActivity', { id: taskId, query })),
     listWorkActivity: (_context, workId, query) => call(() => client.request('listWorkActivity', { id: workId, query })),
     listSessionActivity: (_context, sessionId, query) => call(() => client.request('listSessionActivity', { id: sessionId, query })),

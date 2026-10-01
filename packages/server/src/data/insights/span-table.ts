@@ -68,7 +68,7 @@ export function onTurnRowWritten(listener: TurnRowListener): () => void {
   return () => turnRowListeners.delete(listener)
 }
 
-function announceTurnRow(row: OpenSpanRow, status: SpanStatus): void {
+export function announceTurnRow(row: Pick<OpenSpanRow, 'traceId' | 'sessionId'>, status: SpanStatus): void {
   const change: TurnRowWritten = { traceId: row.traceId, sessionId: row.sessionId ?? null, status }
   for (const listener of turnRowListeners) {
     try {

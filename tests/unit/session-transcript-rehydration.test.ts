@@ -255,13 +255,11 @@ describe('session transcript rehydration', () => {
         artifactWorkRef: { workId: 'w-art', title: 'Latency', contentVersion: 1 },
         timestamp: 1,
       }],
-      loadWorkRevisions: async () => [{ revisionId: 1, sourceContentVersion: 1 }],
-      loadWorkRevision: async () => ({ content: html }),
     })
     const ctx = {
       apiForSession: () => connections.apiFor('transcript-host'),
       automationsStore: { loaded: true },
-      worksStore: { works: {} },
+      worksStore: { works: {}, history: { bodyAtVersion: async (workId: string, version: number) => workId === 'w-art' && version === 1 ? html : null } },
     } as unknown as WorkspaceContext
 
     const transcript = await loadSessionTranscript(ctx, {

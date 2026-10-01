@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
 import { hostUserKey } from '../../host/host-user'
@@ -91,16 +92,16 @@ export function registerOrganizationHandlers(server: SolusServer, deps: Organiza
     return transfer
   })
 
-  server.register('workRemoveUploaded', async ([workId, fingerprint], ctx) => {
-    await removePushedWork(recordScopeOf(ctx.principal), workId, fingerprint)
+  server.register('workRemoveUploaded', async ([workId, fingerprint, organizationId], ctx) => {
+    await removePushedWork(recordScopeOf(ctx.principal), workId, fingerprint, z.string().min(1).parse(organizationId))
     await deps.forgetResource({ kind: 'work', id: workId })
   })
 
   // A task leaves the same way, with its linked Local works (cloud-sharing.md §4).
   server.register('taskExportForCloud', async ([taskId], ctx) => exportTaskForCloud(recordScopeOf(ctx.principal), taskId))
 
-  server.register('taskRemoveUploaded', async ([taskId, fingerprint, works], ctx) => {
-    await removeUploadedTask(recordScopeOf(ctx.principal), taskId, fingerprint, works)
+  server.register('taskRemoveUploaded', async ([taskId, fingerprint, works, organizationId], ctx) => {
+    await removeUploadedTask(recordScopeOf(ctx.principal), taskId, fingerprint, works, z.string().min(1).parse(organizationId))
     await deps.forgetResource({ kind: 'task', id: taskId })
     for (const work of works) await deps.forgetResource({ kind: 'work', id: work.workId })
   })

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   isRepositoryKey,
   localProjectKey,
-  parseRemoteFetchUrls,
+  parseRemoteUrls,
   primaryRemoteUrl,
   repositoryKeyFromRemoteUrl,
 } from '@solus/contracts/repository-key'
@@ -42,15 +42,19 @@ describe('repository key', () => {
     expect(primaryRemoteUrl(new Map())).toBeNull()
   })
 
-  test('reads fetch URLs from `git remote -v`', () => {
+  test('reads remote URLs from git config', () => {
+    // WHY: Solus clones dispatch and managed-host checkouts with a filter, and
+    // `git remote -v` prints it after `(fetch)`. Parsing that text made such a
+    // checkout a local-only project, listed twice beside its own repository.
+    // Config output has one fixed shape, and push URLs are a separate key.
     const output = [
-      'origin\tgit@github.com:me/web.git (fetch)',
-      'origin\tgit@github.com:me/web.git (push)',
-      'upstream\thttps://github.com/acme/web.git (fetch)',
-      'upstream\tno-push (push)',
+      'remote.origin.url https://github.com/me/web.git',
+      'remote.my.fork.url git@github.com:me/web-fork.git',
+      'remote.upstream.url https://github.com/acme/web.git',
     ].join('\n')
-    expect(parseRemoteFetchUrls(output)).toEqual(new Map([
-      ['origin', 'git@github.com:me/web.git'],
+    expect(parseRemoteUrls(output)).toEqual(new Map([
+      ['origin', 'https://github.com/me/web.git'],
+      ['my.fork', 'git@github.com:me/web-fork.git'],
       ['upstream', 'https://github.com/acme/web.git'],
     ]))
   })

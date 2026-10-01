@@ -35,5 +35,6 @@ export const solusApiOperations = {
   listMyActivity: { method: 'get', path: '/me/activity', query: queries.workspaceMyActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
   listInsights: { method: 'get', path: '/insights', scope: 'insights:read', query: queries.workspaceInsightQuerySchema, response: schemas.workspaceInsightPageSchema, status: 200 },
   getInsight: { method: 'get', path: '/insights/:insightId', scope: 'insights:read', query: empty, response: schemas.workspaceInsightSchema, status: 200 },
+  getInsightSpans: { method: 'get', path: '/insights/:insightId/spans', scope: 'insights:read', query: empty, response: schemas.workspaceInsightTreeSchema, status: 200 },
 } as const
 export type SolusApiOperation = keyof typeof solusApiOperations

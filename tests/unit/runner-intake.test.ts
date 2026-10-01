@@ -148,9 +148,11 @@ describe('runner intake', () => {
     await task.linkSession('thread-1')
     const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')
     const transfer = await works.exportWorkForCloud('local', work.id)
-    // This fixture uses one database to represent the service; remove the
-    // source fixture after taking its snapshot to model a different host.
-    await works.removePushedWork('local', work.id, transfer.fingerprint)
+    // This fixture uses one database to represent the service; delete the
+    // source row after taking its snapshot to model a different host. (A real
+    // host keeps the row with its location, on its own database.)
+    const { Work } = await import('@solus/server/data/works/work')
+    await (await Work.byId('local', work.id)).delete()
     const alice: Principal = { kind: 'org-member', hostKind: 'cloud', organizationId: 'org1', organizationRole: 'member', userId: 'alice', teamIds: [], displayName: 'Alice', deviceId: 'alice', deviceLabel: 'Cloud', expiresAt: Date.now() + 60_000 }
     const service = new SolusServer()
     registerCloudUploadHandlers(service, { shares })

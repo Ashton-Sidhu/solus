@@ -32,10 +32,11 @@ import { onSessionRecordBound } from './execution/sessions/turn-organization'
 import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { PublicationCoordinator } from './sync/publication'
-import { useInsightsPolicy } from './sync/mirror/insight-mirror'
+import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
 import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
 import { SpriteActivity } from './host/sprite-activity'
+import { activityLeases } from './execution/activity-leases'
 import { adoptProvisionedLink, applyHostCategory, hostCategory } from './host/host-category'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { adoptHostUser, followHostAccount } from './host/host-user-rows'
@@ -152,6 +153,7 @@ import { registerAttachmentHandlers } from './transport/handlers/attachment-hand
 import { registerAssetHandlers } from './transport/handlers/asset-handlers'
 import { registerCapabilityHandlers } from './transport/handlers/capability-handlers'
 import { registerObservabilityHandlers } from './transport/handlers/observability-handlers'
+import { InsightPull } from './sync/insight-pull'
 import { startMetricsRollover, stopMetricsRollover } from './data/insights/rollover'
 import { onTurnRowWritten } from './data/insights/span-table'
 import { projectSessionEvent, serializedBytes } from './data/sessions/result-projection'
@@ -651,7 +653,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startMetricsRollover(() => getServerSettings().metricsRetentionDays)
-  registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime })
+  // Set below once this host can act for its owner at the Solus API.
+  let insightPull: InsightPull | null = null
+  registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server, { shares })
   registerOutboxHandlers(server)
@@ -902,6 +906,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const spriteActivity = new SpriteActivity({
     isBusy: () => opts.sessionRuntime.hasWorkToKeepAwake(),
     nextDueAt: nextAutomationDueAt,
+    lastForegroundAt: () => activityLeases.lastForegroundAt(),
     link: () => uplinkManager.currentLink(),
     hostToken: () => uplinkManager.hostToken(),
   })
@@ -934,6 +939,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
     })
     delegations = hostDelegations
+    // Insights across hosts (docs/plans/insights-across-hosts.md): the owner's turns other hosts ran.
+    insightPull = new InsightPull({
+      userId: () => hostOrganizations.owner()?.userId ?? null,
+      hostId: () => uplinkManager.currentLink()?.hostId ?? null,
+      organizations: () => hostOrganizations.organizations().map((entry) => entry.organizationId).filter(insightsEligible),
+      onChange: (state) => events.broadcast('metrics.insightPullChanged', state),
+      source: async (userId, organizationId) => {
+        await hostDelegations.ensure(userId, organizationId)
+        const client = hostDelegations.apiClient(userId, organizationId)
+        return {
+          listInsights: (query) => client.request('listInsights', { query }),
+          getInsightSpans: (insightId) => client.request('getInsightSpans', { id: insightId }),
+        }
+      },
+    })
     useDelegatedTokens(async (userId) => {
       const held = hostDelegations.holders().find((holder) => holder.userId === userId)
       return held ? hostDelegations.accessToken(held.userId, held.organizationId) : null

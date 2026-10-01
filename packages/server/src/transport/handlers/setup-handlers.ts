@@ -464,8 +464,15 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { connected: true, repos }
   })
 
-  server.register('setupHostReadiness', (_args, ctx): Promise<HostReadiness> => {
-    return probeHostReadiness(hasCommand, agentDepsFor(ctx), projectsRootOf(ctx))
+  server.register('setupHostReadiness', async (_args, ctx): Promise<HostReadiness> => {
+    const [readiness, identity] = await Promise.all([
+      probeHostReadiness(hasCommand, agentDepsFor(ctx), projectsRootOf(ctx)),
+      deps.gitIdentities.resolve(seatFor(ctx.actor)),
+    ])
+    if (identity.kind === 'host') return readiness
+    // A member commits as their own GitHub account, never as the host's global config.
+    const memberIdentity = identity.kind === 'member' ? { name: identity.name, email: identity.email } : null
+    return { ...readiness, git: { ...readiness.git, identity: memberIdentity } }
   })
 
   server.register('setupInstallGit', (_args, ctx) => {

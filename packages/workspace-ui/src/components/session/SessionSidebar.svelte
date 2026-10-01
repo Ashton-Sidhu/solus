@@ -1153,6 +1153,7 @@
         {@attach sidebarListMotion(
           () => sidebarListOrderKey(listItems),
           () => theme.sidebarMotionMs,
+          () => scrollEl,
         )}
       >
         {#each listItems as item (item.key)}
