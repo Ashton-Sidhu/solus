@@ -47,7 +47,8 @@ export function hostProfileHomes(provider: SeatProvider): string[] {
  * from, such as their personal VM. The owner's turns run on the host login, so
  * that is where their agent looks.
  */
-export type AgentProfileTarget = { kind: 'member'; userId: string } | { kind: 'owner' }
+/** A member's `name` names their folder the first time it is made. */
+export type AgentProfileTarget = { kind: 'member'; userId: string; name?: string } | { kind: 'owner' }
 
 export interface AgentProfileDeps {
   /** The homes this machine's profile is read from, per provider; first one wins a path. */

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { Seat } from '@solus/contracts/seats'
 import { userKey } from '@solus/contracts/user'
 import { createLogger } from '../logger'
+import { recordedMemberFolder } from '../host/member-folders'
 import { GITHUB_CREDENTIAL_KEY } from '../providers/github/git-credential'
 
 const log = createLogger('main', 'git-identity')
@@ -142,7 +143,7 @@ export class GitIdentityManager {
   /** The member may no longer act here: forget their identity and remove every credential of theirs now. */
   revoke(userId: string): void {
     this.cached.delete(userId)
-    const prefix = join(this.deps.credentialsDir, `${userId}-`)
+    const prefix = join(this.deps.credentialsDir, `${recordedMemberFolder(userId)}-`)
     for (const path of this.tokens.keys()) {
       if (!path.startsWith(prefix)) continue
       this.tokens.delete(path)
@@ -188,7 +189,7 @@ export class GitIdentityManager {
   }
 
   private credentialPath(userId: string, revision: string): string {
-    return join(this.deps.credentialsDir, `${userId}-${revision}`)
+    return join(this.deps.credentialsDir, `${recordedMemberFolder(userId)}-${revision}`)
   }
 
   private writeCredential(path: string): void {

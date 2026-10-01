@@ -96,11 +96,8 @@ export function attributionOf(actor: Actor, via?: { sessionId: string; provider?
 export function seatFor(actor: Actor): Seat {
   const principal = actor.principal
   switch (principal.kind) {
-    case 'org-member': {
-      const seat: Seat = { kind: 'user', userId: { kind: 'account', accountId: principal.userId } }
-      if (principal.displayName) seat.name = principal.displayName
-      return seat
-    }
+    case 'org-member':
+      return memberSeat(principal.userId, principal.displayName)
     case 'guest': {
       const sharer = principal.share.sharedByUserId
       return isHostUserKey(sharer) ? HOST_LOGIN_SEAT : { kind: 'user', userId: parseUserKey(sharer) }
@@ -111,6 +108,13 @@ export function seatFor(actor: Actor): Seat {
     case 'system':
       return HOST_LOGIN_SEAT
   }
+}
+
+/** A member's own seat; their name, when known, names its folder. */
+export function memberSeat(accountId: string, name?: string): Seat {
+  const seat: Extract<Seat, { kind: 'user' }> = { kind: 'user', userId: { kind: 'account', accountId } }
+  if (name) seat.name = name
+  return seat
 }
 
 /**

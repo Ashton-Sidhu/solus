@@ -4,6 +4,7 @@ import { SOLUS_REMOTE_DISPATCH_DIR, type DispatchHistoryRoot } from '@solus/cont
 import { resolveRepositoryKey } from '../git/git-helpers'
 import { listProjectWorktrees } from '../git/worktree-manager'
 import { hostCategory } from '../host/host-category'
+import { memberUserIdOf, recordedMemberFolder } from '../host/member-folders'
 import type { Principal } from '../admission/principal'
 
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -34,12 +35,12 @@ export function dispatchCheckoutOwnerKey(principal: Principal, deviceId: string)
   return hostCategory() === 'managed' && principal.kind === 'org-member' ? principal.userId : deviceId
 }
 
-/** A dispatch checkout belongs to one owner (`dispatchCheckoutOwnerKey`) and one repository. */
+/** A dispatch checkout belongs to one owner (`dispatchCheckoutOwnerKey`) and one repository. A member's folder is their name. */
 export function dispatchCheckoutPath(projectsRoot: string, ownerKey: string, repoKey: string): string {
   if (!SAFE_PATH_SEGMENT.test(ownerKey) || ownerKey.includes('..')) {
     throw new Error('The checkout owner cannot be used as a dispatch checkout path.')
   }
-  return join(projectsRoot, SOLUS_REMOTE_DISPATCH_DIR, ownerKey, ...normalizeDispatchRepoKey(repoKey).split('/'))
+  return join(projectsRoot, SOLUS_REMOTE_DISPATCH_DIR, recordedMemberFolder(ownerKey), ...normalizeDispatchRepoKey(repoKey).split('/'))
 }
 
 /**
@@ -53,7 +54,7 @@ export function dispatchCheckoutOwnerKeyOf(cwd: string): string | null {
   const markerIndex = cwd.indexOf(marker)
   if (markerIndex === -1) return null
   const ownerKey = cwd.slice(markerIndex + marker.length).split('/')[0]
-  return ownerKey && SAFE_PATH_SEGMENT.test(ownerKey) ? ownerKey : null
+  return ownerKey && SAFE_PATH_SEGMENT.test(ownerKey) ? memberUserIdOf(ownerKey) : null
 }
 
 /** Validate an exact existing worktree against the owner's dispatch

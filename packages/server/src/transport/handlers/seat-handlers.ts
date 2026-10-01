@@ -73,7 +73,7 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
 }
 
 function profileTargetOf(principal: Principal): AgentProfileTarget {
-  if (principal.kind === 'org-member') return { kind: 'member', userId: principal.userId }
+  if (principal.kind === 'org-member') return { kind: 'member', userId: principal.userId, name: principal.displayName }
   if (isHostOwner(principal)) return { kind: 'owner' }
   throw new Error('Only the owner or an organization member has an agent profile on this host.')
 }
