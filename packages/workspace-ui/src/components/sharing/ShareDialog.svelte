@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Globe as GlobeIcon, Link as LinkIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, Share as ShareIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
+  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Globe as GlobeIcon, Link as LinkIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
   import type { ShareRole } from "@solus/contracts/sharing";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import BottomSheet from "../ui/bottom-sheet/bottom-sheet.svelte";
-  import { runtime, sharesStore, uplinkStore } from "../../contexts";
+  import { runtime, sharesStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, type PersonRow, type ScopeOption } from "./lib/share-rows";
@@ -60,7 +60,7 @@
       ? "Turns started by guests run under the login of whoever made the link."
       : null,
   );
-  const kindWord = $derived(target?.resource.kind === "task" ? "task, its sessions, and its documents" : target?.resource.kind ?? "session");
+  const kindWord = $derived(target?.resource.kind ?? "session");
 
   function close(): void {
     sharesStore.close();
@@ -127,13 +127,13 @@
 
 {#snippet scopeIcon(option: ScopeOption)}
   {#if option.scope.kind === "private"}
-    <LockIcon size={14} class="shrink-0" />
+    <LockIcon size={16} class="size-4 shrink-0" />
   {:else if option.scope.kind === "team"}
-    <UsersIcon size={14} class="shrink-0" />
+    <UsersIcon size={16} class="size-4 shrink-0" />
   {:else if option.scope.kind === "organization"}
-    <OrganizationIcon size={14} class="shrink-0" />
+    <OrganizationIcon size={16} class="size-4 shrink-0" />
   {:else}
-    <GlobeIcon size={14} class="shrink-0" />
+    <GlobeIcon size={16} class="size-4 shrink-0" />
   {/if}
 {/snippet}
 
@@ -182,56 +182,110 @@
   {:else if !list}
     <p class="py-6 text-center text-muted-foreground" role="status">Loading who can open it…</p>
   {:else}
-    <!-- People invited by name, the owner first. Each has a role of their own:
-         a person named here keeps it whatever the general access below says. -->
-    <section class="flex flex-col gap-1.5" aria-label="People with access">
-      <h3 class="text-[0.875em] font-medium uppercase tracking-[0.04em] text-muted-foreground">People with access</h3>
-      {#if canShare && canInvite}
-        <div class="relative">
-          <Input
-            bind:value={query}
-            placeholder="Add people by name or email"
-            aria-label="Add people"
-            data-testid="share-add-people"
-            class="h-9 text-workspace-chrome pointer-coarse:h-10"
-            disabled={sharesStore.busy}
-          />
-          {#if query.trim() && candidates.length}
-            <ul class="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-[shadow:var(--solus-popover-shadow)]" role="listbox" aria-label="People to add">
-              {#each candidates as candidate (userKey(candidate.id))}
-                {@const candidateKey = userKey(candidate.id)}
-                <li>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected="false"
-                    class="flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left hover:bg-muted pointer-coarse:min-h-11"
-                    data-testid="share-candidate"
-                    data-user-id={candidateKey}
-                    onclick={() => void invite(candidateKey)}
-                  >
-                    <UserAvatar user={candidate} size={24} />
-                    <span class="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span class="truncate text-foreground">{candidate.displayName}</span>
-                      {#if candidate.email}<span class="truncate text-[0.875em] text-muted-foreground">{candidate.email}</span>{/if}
-                    </span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {:else if query.trim()}
-            <p class="px-1 pt-1.5 text-[0.875em] text-muted-foreground">Nobody in the organization matches. Anyone else can use the link.</p>
+    {#if canShare && canInvite}
+      <div class="relative">
+        <Input
+          bind:value={query}
+          placeholder="Add people"
+          aria-label="Add people"
+          data-testid="share-add-people"
+          class="h-10 rounded-lg px-3 text-workspace-chrome pointer-coarse:h-11"
+          disabled={sharesStore.busy}
+        />
+        {#if query.trim() && candidates.length}
+          <ul class="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-[shadow:var(--solus-popover-shadow)]" role="listbox" aria-label="People to add">
+            {#each candidates as candidate (userKey(candidate.id))}
+              {@const candidateKey = userKey(candidate.id)}
+              <li>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  class="flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left hover:bg-muted pointer-coarse:min-h-11"
+                  data-testid="share-candidate"
+                  data-user-id={candidateKey}
+                  onclick={() => void invite(candidateKey)}
+                >
+                  <UserAvatar user={candidate} size={24} />
+                  <span class="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span class="truncate text-foreground">{candidate.displayName}</span>
+                    {#if candidate.email}<span class="truncate text-[0.875em] text-muted-foreground">{candidate.email}</span>{/if}
+                  </span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {:else if query.trim()}
+          <p class="px-1 pt-1.5 text-[0.875em] text-muted-foreground">Nobody in the organization matches.</p>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Link access: one choice, widest last. Each choice holds the ones
+         before it — the organization has every team, the link has everyone — so
+         widening never takes the resource from a group that had it. Each
+         choice explains itself in the menu, not on the dialog. -->
+    <section class="flex flex-col gap-2.5" aria-label="Link access">
+      <h3 class="font-medium text-foreground">Link access</h3>
+      {#if selected}
+        <div class="flex min-h-10 items-center gap-3 pointer-coarse:min-h-12">
+          <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">{@render scopeIcon(selected)}</span>
+          <span class="flex min-w-0 flex-1 items-center">
+            {#if canShare}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger>
+                  {#snippet child({ props })}
+                    <button {...props} type="button" class="-mx-1.5 inline-flex h-8 max-w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-left text-foreground hover:bg-muted data-[state=open]:bg-transparent disabled:cursor-default pointer-coarse:h-10" title={selected.detail} data-testid="share-scope" data-scope={selected.key} disabled={sharesStore.busy}>
+                      <span class="truncate">{selected.name}</span>
+                      <CaretDownIcon size={16} class="shrink-0 text-muted-foreground" />
+                    </button>
+                  {/snippet}
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content align="start" class="w-auto min-w-72 p-1.5" portalProps={menuPortal}>
+                  {#each options as option (option.key)}
+                    <DropdownMenu.Item onSelect={() => void chooseScope(option)} class="h-auto gap-3 py-2" data-testid="share-scope-option" data-scope={option.key}>
+                      {@render scopeIcon(option)}
+                      <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                        <span class="truncate">{option.name}</span>
+                        <span class="truncate text-[0.875em] text-muted-foreground">{option.detail}</span>
+                      </span>
+                      {#if option.key === selected.key}<CheckIcon />{/if}
+                    </DropdownMenu.Item>
+                  {/each}
+                </DropdownMenu.Content>
+              </DropdownMenu.Root>
+            {:else}
+              <span class="truncate text-foreground" title={selected.detail}>{selected.name}</span>
+            {/if}
+          </span>
+          {#if selected.role}
+            {#if canShare}
+              {@render roleMenu(selected.role, (role) => void chooseScope(selected, role), null, "share-scope-role")}
+            {:else}
+              <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(selected.role)}</span>
+            {/if}
           {/if}
         </div>
       {/if}
-      <ul class="flex flex-col gap-0.5" data-testid="share-people">
+      {#if consentSentence}
+        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-consent">{consentSentence}</p>
+      {/if}
+      {#if link?.kind === "secret"}
+        <p class="text-pretty text-[0.875em] text-muted-foreground">Copy link copies the bare secret. Link this host under Connections to get a link.</p>
+      {:else if link?.kind === "unavailable"}
+        <p class="text-pretty text-[0.875em] text-muted-foreground">This old link cannot be copied. Choose another access, then the link again, to get a new one.</p>
+      {/if}
+    </section>
+
+    <!-- People invited by name, the owner first. Each has a role of their own:
+         a person named here keeps it whatever the link access above says. -->
+    <section class="flex flex-col gap-2.5" aria-label="Who has access">
+      <h3 class="font-medium text-foreground">Who has access</h3>
+      <ul class="flex flex-col gap-1" data-testid="share-people">
         {#each people as person (person.userId)}
-          <li class="flex min-h-10 items-center gap-2.5 rounded-lg px-1.5 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
-            <UserAvatar user={person.user} size={24} />
-            <span class="flex min-w-0 flex-1 flex-col leading-tight">
-              <span class="truncate text-foreground">{person.user.displayName}{person.isSelf ? " (you)" : ""}</span>
-              {#if person.detail}<span class="truncate text-[0.875em] text-muted-foreground">{person.detail}</span>{/if}
-            </span>
+          <li class="flex min-h-10 items-center gap-3 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
+            <UserAvatar user={person.user} size={32} />
+            <span class="min-w-0 flex-1 truncate text-foreground" title={person.detail || undefined}>{person.user.displayName}{person.isSelf ? " (you)" : ""}</span>
             {#if person.role === "owner" || !canShare}
               <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(person.role)}</span>
             {:else}
@@ -246,65 +300,6 @@
         </p>
       {/if}
     </section>
-
-    <!-- General access: one choice, widest last. Each choice holds the ones
-         before it — the organization has every team, the link has everyone — so
-         widening never takes the resource from a group that had it. -->
-    <section class="flex flex-col gap-1.5" aria-label="General access">
-      <h3 class="text-[0.875em] font-medium uppercase tracking-[0.04em] text-muted-foreground">General access</h3>
-      {#if selected}
-        <div class="flex min-h-10 items-center gap-2.5 rounded-lg px-1.5 pointer-coarse:min-h-12">
-          <span class="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">{@render scopeIcon(selected)}</span>
-          <span class="flex min-w-0 flex-1 flex-col leading-tight">
-            {#if canShare}
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger>
-                  {#snippet child({ props })}
-                    <button {...props} type="button" class="-mx-1 inline-flex h-7 max-w-full cursor-pointer items-center gap-1 rounded-md px-1 text-left text-foreground hover:bg-muted disabled:cursor-default pointer-coarse:h-9" data-testid="share-scope" data-scope={selected.key} disabled={sharesStore.busy}>
-                      <span class="truncate">{selected.name}</span>
-                      <CaretDownIcon size={14} class="shrink-0 text-muted-foreground" />
-                    </button>
-                  {/snippet}
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Content align="start" class="w-auto min-w-56" portalProps={menuPortal}>
-                  {#each options as option (option.key)}
-                    <DropdownMenu.Item onSelect={() => void chooseScope(option)} data-testid="share-scope-option" data-scope={option.key}>
-                      {@render scopeIcon(option)}
-                      <span class="flex-1">{option.name}</span>
-                      {#if option.key === selected.key}<CheckIcon />{/if}
-                    </DropdownMenu.Item>
-                  {/each}
-                </DropdownMenu.Content>
-              </DropdownMenu.Root>
-            {:else}
-              <span class="truncate text-foreground">{selected.name}</span>
-            {/if}
-            <span class="truncate text-[0.875em] text-muted-foreground" data-testid="share-scope-detail">{selected.detail}</span>
-          </span>
-          {#if selected.role}
-            {#if canShare}
-              {@render roleMenu(selected.role, (role) => void chooseScope(selected, role), null, "share-scope-role")}
-            {:else}
-              <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(selected.role)}</span>
-            {/if}
-          {/if}
-        </div>
-      {/if}
-      {#if consentSentence}
-        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-consent">{consentSentence}</p>
-      {/if}
-      {#if target?.resource.kind === "task"}
-        <p class="text-pretty text-[0.875em] text-muted-foreground">Sharing this task shares its page, its sessions, and its documents.</p>
-      {/if}
-      {#if !uplinkStore.accountAvailable && !identity?.organizationId && options.length === 2}
-        <p class="text-pretty text-[0.875em] text-muted-foreground">Teams appear here once this host is shared with an organization in Solus cloud. The link works now.</p>
-      {/if}
-      {#if link?.kind === "secret"}
-        <p class="text-pretty text-[0.875em] text-muted-foreground">This host is not linked to Solus cloud, so Copy link copies the bare secret. Link the host under Connections to get a link.</p>
-      {:else if link?.kind === "unavailable"}
-        <p class="text-pretty text-[0.875em] text-muted-foreground">This link was made before the host kept links. Choose another access and come back to the link to get one you can copy; the old one stops working.</p>
-      {/if}
-    </section>
   {/if}
 {/snippet}
 
@@ -313,31 +308,28 @@
 {#snippet dialogFooter()}
   {#if publication}
     {#if publication.status.kind === "failed" || publication.status.kind === "offline" || publication.status.kind === "waiting"}
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:h-10" onclick={() => void sharesStore.publish()} data-testid="share-publish-retry">Retry</Button>
+      <Button variant="outline" class="h-10 rounded-full px-4 text-workspace-chrome" onclick={() => void sharesStore.publish()} data-testid="share-publish-retry">Retry</Button>
     {:else}
       <span></span>
     {/if}
   {:else if canShare}
-    <Button size="sm" variant="outline" class="gap-1.5 text-workspace-chrome pointer-coarse:h-10" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyText ?? undefined}>
+    <Button variant="outline" class="h-10 gap-2 rounded-full px-4 text-workspace-chrome" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyText ?? undefined}>
       {#if copied}<CheckIcon />{:else}<LinkIcon />{/if}
       {copied ? "Copied" : "Copy link"}
     </Button>
   {:else}
     <span></span>
   {/if}
-  <Button size="sm" class="text-workspace-chrome pointer-coarse:h-10" onclick={close} data-testid="share-done">Done</Button>
+  <Button class="h-10 rounded-full px-5 text-workspace-chrome" onclick={close} data-testid="share-done">Done</Button>
 {/snippet}
 
 {#if target}
   {#if useSheet}
     <BottomSheet label={`Share ${target.title}`} onClose={close}>
       {#snippet header()}
-        <span class="flex min-w-0 items-center gap-2 font-medium text-foreground">
-          <ShareIcon size={14} class="shrink-0 text-(--solus-accent)" />
-          <span class="truncate">Share “{target.title}”</span>
-        </span>
+        <span class="min-w-0 truncate font-semibold text-foreground">Share {target.title}</span>
       {/snippet}
-      <div class="flex flex-col gap-4 pb-2">{@render dialogBody()}</div>
+      <div class="flex flex-col gap-6 pb-2">{@render dialogBody()}</div>
       {#snippet footer()}
         <div class="flex items-center justify-between gap-3">{@render dialogFooter()}</div>
       {/snippet}
@@ -353,7 +345,7 @@
       onkeydown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}
     >
       <div
-        class="share-dialog-enter flex max-h-[min(38rem,80svh)] w-[clamp(20rem,40vw,28rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
+        class="share-dialog-enter flex max-h-[min(38rem,80svh)] w-[clamp(22rem,40vw,30rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
         role="dialog"
         aria-label={`Share ${target.title}`}
         aria-modal="true"
@@ -361,21 +353,20 @@
         data-kind={target.resource.kind}
         bind:this={dialogEl}
       >
-        <div class="relative flex h-[2.875rem] shrink-0 items-center gap-2 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35] after:content-['']">
-          <ShareIcon size={14} class="shrink-0 text-(--solus-accent)" />
-          <span class="min-w-0 flex-1 truncate font-medium text-foreground" title={`Share this ${kindWord}`}>Share “{target.title}”</span>
+        <div class="flex shrink-0 items-center gap-2 px-6 pt-6 pb-5">
+          <h2 class="min-w-0 flex-1 truncate text-[1.25em] font-semibold text-foreground" title={`Share this ${kindWord}`}>Share {target.title}</h2>
           <button
             type="button"
-            class="relative ml-auto inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color,scale] duration-100 hover:bg-muted hover:text-foreground active:scale-[0.96] after:absolute after:-inset-1.5 after:content-['']"
+            class="relative ml-auto inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color,scale] duration-100 hover:bg-muted hover:text-foreground active:scale-[0.96] after:absolute after:-inset-1.5 after:content-['']"
             onclick={close}
             aria-label="Close"
             title="Close"
           >
-            <XIcon size={14} />
+            <XIcon size={18} />
           </button>
         </div>
-        <div class="flex flex-col gap-4 overflow-y-auto px-[1.125rem] py-3.5">{@render dialogBody()}</div>
-        <div class="relative flex h-[3.25rem] shrink-0 items-center justify-between gap-3 px-[1.125rem] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35] before:content-['']">
+        <div class="flex flex-col gap-6 overflow-y-auto px-6 pb-2">{@render dialogBody()}</div>
+        <div class="flex shrink-0 items-center justify-between gap-3 px-6 pt-6 pb-6">
           {@render dialogFooter()}
         </div>
       </div>

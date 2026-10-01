@@ -157,7 +157,7 @@
 
   function removeProject(project: ProjectChipOption) {
     projectsStore.removeProject(project.key);
-    if (project.checkout) projectsStore.remove(project.checkout);
+    projectsStore.remove(project.checkout);
     commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
   }
 
@@ -228,7 +228,7 @@
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
               variant="ghost"
-              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-medium transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
@@ -236,7 +236,7 @@
               <ProjectFavicon
                 projectRoot={projectDir}
                 serverId={hostId}
-                class="size-3.5 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+                class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
               />
@@ -342,22 +342,19 @@
             {@const isCurrent = project.key === currentKey}
             <Command.Item
               value="{project.label} {project.key}"
-              disabled={!project.checkout}
-              onSelect={() => project.checkout && activate(project.checkout)}
+              onSelect={() => activate(project.checkout)}
               data-menu-current={isCurrent ? "" : undefined}
               class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11"
             >
               <ProjectFavicon
-                projectRoot={project.checkout?.projectRoot ?? project.key}
-                serverId={project.checkout?.serverId ?? hostId}
+                projectRoot={project.checkout.projectRoot}
+                serverId={project.checkout.serverId}
                 class="size-[13px]"
               />
               <span class="min-w-0 flex-1 truncate">
                 {project.label}
               </span>
-              {#if !project.checkout}
-                <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Offline</span>
-              {:else if project.hostLabel}
+              {#if project.hostLabel}
                 <span class="max-w-24 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{project.hostLabel}</span>
               {/if}
               <ProjectRowAction

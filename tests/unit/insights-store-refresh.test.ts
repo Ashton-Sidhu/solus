@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { MetricsQueryResult, MetricsQuerySpec, MetricsTurnPageRequest, MetricsTurnPageResult } from '@solus/contracts/observability-types'
+import type { MetricsQueryResult, MetricsQuerySpec, MetricsTurnFilter, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnListingSummary } from '@solus/contracts/observability-types'
 import type { DiffRequest, IpcContext, TurnSnapshot } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -47,6 +47,7 @@ function turnResult(traceIds: string[]): MetricsQueryResult {
 let sqlRuns: string[] = []
 let compiledQuestions: string[] = []
 let pageRequests: MetricsTurnPageRequest[] = []
+let summaryRequests: MetricsTurnFilter[] = []
 let available: string[] = []
 let sessionTitles = new Map<string, string>()
 let snapshots: TurnSnapshot[] = []
@@ -98,6 +99,11 @@ function installHost(): void {
             page: turnResult(available),
             pageIndex: request.pageIndex,
             pageSize: request.pageSize,
+          }
+        },
+        metricsTurnListingSummary: async (filter: MetricsTurnFilter): Promise<MetricsTurnListingSummary> => {
+          summaryRequests.push(filter)
+          return {
             totalRows: available.length,
             statusCounts: { ok: 0, error: available.length, interrupted: 0 },
             stats: { counted: available.length, failed: available.length, failureRate: 1, totalCostUsd: 0, p50DurationMs: 10, p95DurationMs: 10 },
@@ -135,6 +141,7 @@ beforeEach(() => {
   sqlRuns = []
   compiledQuestions = []
   pageRequests = []
+  summaryRequests = []
   available = ['trace-old']
   sessionTitles = new Map()
   snapshots = []
@@ -466,5 +473,103 @@ describe('what a turn changed', () => {
 
     expect(store.turnChange('trace-live')).toMatchObject({ status: 'ready' })
     stop()
+  })
+})
+
+describe('Insights turn paging', () => {
+  test('a page change reads only the rows and keeps the answer on screen', async () => {
+    // WHY: the summary — the count, the chips, the stats, and the histogram —
+    // does not depend on the page. Paging used to re-read it and set `running`,
+    // so the whole result, chart included, was replaced by a skeleton and drawn
+    // again for every page.
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    await store.load()
+    const summary = store.turnListingSummary
+    expect(summary).not.toBe(null)
+
+    const paging = store.setTurnPage(1)
+    expect(store.running).toBe(false)
+    expect(store.turnRowsLoading).toBe(true)
+    await paging
+
+    expect(store.turnRowsLoading).toBe(false)
+    expect(summaryRequests).toHaveLength(1)
+    expect(pageRequests.at(-1)?.pageIndex).toBe(1)
+    expect(store.turnListingSummary).toBe(summary)
+
+    await store.setTurnSort({ field: 'duration_ms', dir: 'desc' })
+    expect(summaryRequests).toHaveLength(1)
+    expect(pageRequests.at(-1)?.sort).toEqual({ field: 'duration_ms', dir: 'desc' })
+  })
+
+  test('a filter change reads the summary and the rows again', async () => {
+    // WHY: the chart and the status chips count the filtered turns. A filter
+    // that moved only the rows would leave the chart describing other turns.
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    await store.load()
+
+    await store.setTurnStatus('error')
+
+    expect(summaryRequests).toHaveLength(2)
+    expect(summaryRequests.at(-1)?.status).toBe('error')
+    expect(pageRequests.at(-1)?.status).toBe('error')
+  })
+
+  test('a page read during a filter read uses the new filter and wins the rows', async () => {
+    // WHY: the rows and the summary must describe the same turns. A page click
+    // while a filter read is out must not read the old filter's rows, and the
+    // filter read must not replace the page the user moved to.
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    await store.load()
+
+    const solus = (globalThis.window as unknown as {
+      solus: { metricsTurnListingSummary: (filter: MetricsTurnFilter) => Promise<MetricsTurnListingSummary> }
+    }).solus
+    const answerSummary = solus.metricsTurnListingSummary
+    let releaseSummary: () => void = () => {}
+    const held = new Promise<void>((resolve) => (releaseSummary = resolve))
+    solus.metricsTurnListingSummary = async (filter) => {
+      await held
+      return answerSummary(filter)
+    }
+
+    const filtering = store.setTurnStatus('error')
+    expect(store.running).toBe(true)
+    await store.setTurnPage(2)
+    expect(pageRequests.at(-1)).toMatchObject({ status: 'error', pageIndex: 2 })
+
+    releaseSummary()
+    await filtering
+
+    expect(store.running).toBe(false)
+    expect(store.turnPage?.pageIndex).toBe(2)
+    expect(store.turnPageIndex).toBe(2)
+    expect(store.turnListingSummary).not.toBe(null)
+  })
+
+  test('a failed page read does not leave the page busy', async () => {
+    // WHY: a lying spinner is a correctness bug. A failure clears the listing
+    // and says why, and no loading flag outlives the read that set it.
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    await store.load()
+
+    const solus = (globalThis.window as unknown as { solus: { metricsTurnPage: () => Promise<never> } }).solus
+    solus.metricsTurnPage = async () => {
+      throw new Error('metrics.db is busy')
+    }
+    await store.setTurnPage(1)
+
+    expect(store.error).toBe('metrics.db is busy')
+    expect(store.running).toBe(false)
+    expect(store.turnRowsLoading).toBe(false)
+    expect(store.hasPagedTurnListing).toBe(false)
   })
 })

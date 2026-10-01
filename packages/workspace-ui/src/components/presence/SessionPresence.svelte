@@ -53,7 +53,7 @@
     else presenceStore.follow({ serverId, userId: person.userId, displayName: person.displayName });
   }
 
-  const canShare = $derived(!!serverId && !!sessionId && sharesStore.canShareFrom(serverId));
+  const canShare = $derived(!!serverId && !!sessionId && sharesStore.canShareFrom(serverId, "session"));
 
   function openScope(): void {
     if (!serverId || !sessionId) return;

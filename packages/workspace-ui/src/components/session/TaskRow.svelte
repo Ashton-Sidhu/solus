@@ -520,7 +520,7 @@
              also what pays for the hover actions: the slot on its right is the
              only thing that yields width when they arrive. -->
         <span
-          class="flex h-[1.1875rem] min-w-0 items-center gap-[0.375rem] text-workspace-chrome @max-[15rem]:gap-1"
+          class="flex h-[1.1875rem] min-w-0 items-center gap-[0.375rem] text-chrome-dense @max-[15rem]:gap-1"
         >
           <!-- The context cluster carries its own step down in ink, so it stays
                a supporting detail on a row at full strength and recedes twice

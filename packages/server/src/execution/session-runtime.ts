@@ -2943,7 +2943,7 @@ export class SessionRuntime extends EventEmitter {
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
         captureServerEvent('worktree_created', {})
         this._emit(sessionId, { type: 'git_context', gitContext })
-        void this.nameWorktreeBranch(sessionId, gitContext, options.prompt)
+        void this.nameWorktreeBranch(sessionId, gitContext, options.prompt, request.actor)
         // Worktree done → advance to "Linking thread workspace".
         this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(1) })
       } catch (e) {
@@ -3221,9 +3221,11 @@ export class SessionRuntime extends EventEmitter {
         cwd: effectiveCwd,
         tools: credentialScopedAgentTools([
           ...request.tools,
-          provider === 'codex'
-            ? createClaudeSubagentAgentTool(this)
-            : createCodexSubagentAgentTool(this),
+          // The other backend's subagent runs on the turn author's own login.
+          (provider === 'codex' ? createClaudeSubagentAgentTool : createCodexSubagentAgentTool)(
+            this,
+            (subagentProvider) => this.seatForTurn(request.actor, subagentProvider),
+          ),
         ], request.actor),
         model: effectiveInput.model,
         reasoningEffort: effectiveInput.reasoningEffort,
@@ -3332,25 +3334,26 @@ export class SessionRuntime extends EventEmitter {
     sessionId: string,
     promptRole: 'lead' | undefined,
   ): Promise<string> {
-    const lifecyclePolicy = getHostConfig().config.agentTaskLifecyclePolicy
+    const { agentTaskLifecyclePolicy: lifecyclePolicy, leadInstructions, workerModel } = getHostConfig().config
+    const lead = { leadInstructions, workerModel }
     const roleOf = (sessions: readonly TaskSessionLink[]): TaskSessionRole =>
       promptRole ?? sessions.find((link) => link.sessionId === sessionId)?.role ?? 'working'
     if (shipped && shipped.details.task.id === taskId) {
       setForeignTaskSnapshot(sessionId, shipped)
-      return formatTaskContext(shipped.details.task, lifecyclePolicy, roleOf(shipped.sessions))
+      return formatTaskContext(shipped.details.task, lifecyclePolicy, roleOf(shipped.sessions), lead)
     }
     setForeignTaskSnapshot(sessionId, null)
     try {
       const local = await taskWithAttempts(ANY_ORGANIZATION, taskId)
       if (!local) throw new Error('task not found')
-      return formatTaskContext(local.task, lifecyclePolicy, roleOf(local.attempts))
+      return formatTaskContext(local.task, lifecyclePolicy, roleOf(local.attempts), lead)
     } catch (err) {
       // On a dispatch this once failed silently — the task's row lives on
       // another host. A taskId this host cannot read now always names a defect:
       // either the snapshot was not shipped or the local row is gone. The id
       // and the contract still reach the agent; read_task will say what failed.
       log.warn('task_context_injection_failed', { taskId, sessionId, shippedSnapshot: !!shipped, error: String(err) })
-      return formatTaskContext({ id: taskId }, lifecyclePolicy, promptRole ?? 'working')
+      return formatTaskContext({ id: taskId }, lifecyclePolicy, promptRole ?? 'working', lead)
     }
   }
 
@@ -3759,10 +3762,10 @@ export class SessionRuntime extends EventEmitter {
    * prompt. It runs beside the agent's first turn and only logs a failure:
    * the temporary branch is a correct branch, only a less readable one.
    */
-  async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string): Promise<void> {
+  async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined): Promise<void> {
     if (!checkout.worktreePath) return
     this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
-    await this.checkouts.name(checkout.worktreePath, prompt, this)
+    await this.checkouts.name(checkout.worktreePath, prompt, this, (provider) => this.seatForTurn(actor, provider))
   }
 
   setSessionGitCheckout(sessionId: string, gitContext: GitCheckout | undefined): void {

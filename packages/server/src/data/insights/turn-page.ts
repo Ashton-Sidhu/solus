@@ -1,9 +1,11 @@
 import type {
+  MetricsTurnFilter,
   MetricsTurnPageRequest,
   MetricsTurnPageResult,
   MetricsTurnSortField,
   MetricsTurnStats,
   MetricsTurnStatusCounts,
+  MetricsTurnListingSummary,
   MetricsTurnVolumeBucket,
 } from '@solus/contracts/observability-types'
 import { TURN_VOLUME_BUCKET_COUNT } from '@solus/contracts/observability-types'
@@ -75,11 +77,16 @@ interface VolumeRow {
   costed_count: number
 }
 
-function normalizedRequest(request: MetricsTurnPageRequest): MetricsTurnPageRequest {
-  const { from, to } = request.timeRange
+function normalizedFilter<Filter extends MetricsTurnFilter>(filter: Filter): Filter {
+  const { from, to } = filter.timeRange
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
     throw new Error('Insights needs an ordered, finite time range.')
   }
+  return { ...filter, search: filter.search?.trim() || undefined }
+}
+
+function normalizedRequest(input: MetricsTurnPageRequest): MetricsTurnPageRequest {
+  const request = normalizedFilter(input)
   if (!Number.isInteger(request.pageIndex) || request.pageIndex < 0) {
     throw new Error('Insights pageIndex must be a non-negative integer.')
   }
@@ -92,14 +99,10 @@ function normalizedRequest(request: MetricsTurnPageRequest): MetricsTurnPageRequ
   if (request.sort.dir !== 'asc' && request.sort.dir !== 'desc') {
     throw new Error(`Unsupported Insights turn sort direction: ${request.sort.dir}`)
   }
-  return {
-    ...request,
-    pageSize: Math.min(request.pageSize, MAX_PAGE_SIZE),
-    search: request.search?.trim() || undefined,
-  }
+  return { ...request, pageSize: Math.min(request.pageSize, MAX_PAGE_SIZE) }
 }
 
-function whereClause(request: MetricsTurnPageRequest, includeStatus: boolean): WhereClause {
+function whereClause(request: MetricsTurnFilter, includeStatus: boolean): WhereClause {
   const conditions = ['started_at >= ?', 'started_at < ?']
   const params: Array<string | number> = [request.timeRange.from, request.timeRange.to]
   if (request.sessionId) {
@@ -223,31 +226,33 @@ function volume(where: WhereClause, from: number, to: number): MetricsTurnVolume
   }))
 }
 
-/** One bounded table page and the aggregates for every matching turn. */
+/** One bounded table page. It counts only to keep the page index in range;
+ *  the aggregates are `turnListingSummary`'s, because paging does not change them. */
 export function turnPage(input: MetricsTurnPageRequest): MetricsTurnPageResult {
   const request = normalizedRequest(input)
-  const unfilteredStatusWhere = whereClause(request, false)
-  const filteredWhere = whereClause(request, true)
-  const totalRows = countRows(filteredWhere)
-  const lastPage = Math.max(0, Math.ceil(totalRows / request.pageSize) - 1)
+  const where = whereClause(request, true)
+  const lastPage = Math.max(0, Math.ceil(countRows(where) / request.pageSize) - 1)
   const pageIndex = Math.min(request.pageIndex, lastPage)
   const sortSql = SORT_SQL[request.sort.field]
   const direction = request.sort.dir.toUpperCase()
   const page = runCompiledSql(`
     SELECT ${TURN_COLUMNS.join(', ')}
     FROM turns
-    WHERE ${filteredWhere.sql}
+    WHERE ${where.sql}
     ORDER BY ${sortSql} ${direction}, started_at DESC, span_id DESC
     LIMIT ? OFFSET ?
-  `, [...filteredWhere.params, request.pageSize, pageIndex * request.pageSize], 'turns')
+  `, [...where.params, request.pageSize, pageIndex * request.pageSize], 'turns')
+  return { page, pageIndex, pageSize: request.pageSize }
+}
 
+/** The aggregates over every turn the filter matches. */
+export function turnListingSummary(input: MetricsTurnFilter): MetricsTurnListingSummary {
+  const filter = normalizedFilter(input)
+  const filteredWhere = whereClause(filter, true)
   return {
-    page,
-    pageIndex,
-    pageSize: request.pageSize,
-    totalRows,
-    statusCounts: statusCounts(unfilteredStatusWhere),
+    totalRows: countRows(filteredWhere),
+    statusCounts: statusCounts(whereClause(filter, false)),
     stats: stats(filteredWhere),
-    volume: volume(filteredWhere, request.timeRange.from, request.timeRange.to),
+    volume: volume(filteredWhere, filter.timeRange.from, filter.timeRange.to),
   }
 }

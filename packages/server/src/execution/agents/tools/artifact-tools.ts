@@ -4,6 +4,7 @@ import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { createAgentWork, type WorkCreateCtx } from './work-tools'
+import { readArtifactHtml } from './artifact-file'
 
 const log = createLogger('folio', 'artifact-tools.ts')
 
@@ -41,7 +42,10 @@ export interface ArtifactToolDeps {
 export const ARTIFACT_TOOL_NAME = 'render_artifact'
 
 const artifactFields = {
-  html: z.string().describe('A finished, self-contained HTML document to render.'),
+  html: z.string().optional().describe('A finished, self-contained HTML document to render. Pass this or html_path, not both.'),
+  html_path: z.string().optional().describe(
+    'The path of a compiled HTML file on this host, such as the visual-artifacts bundle.html. A relative path is relative to your working directory. Solus reads the file, so its content does not pass through your output. Pass this or html, not both.',
+  ),
   title: z.string().optional().describe(
     'A short, human-readable title for the artifact, as it should read in the works gallery and on a task. Defaults to the document <title>.',
   ),
@@ -56,6 +60,7 @@ export const ARTIFACT_TOOL_DESC = [
   'Only call this when the render needs that durable identity — you will revise it by id, it belongs on a task, or the user asked to keep it. It is not linked to a task unless link_to_task is true.',
   'For something visual the user reads once, write a fenced ```html block in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence carrying a <style>, a <script>, or a whole document renders; a bare fragment stays code to read. Write ```html render or ```html source to say which when the content does not make it obvious.',
   'Give inline HTML fences a stable conversation-local identity: ```html render artifact=revenue-chart. Reuse that artifact= value when revising the same visual in later replies; use a new value for a separate visual or alternative. Use only letters, digits, hyphens, and underscores, up to 80 characters. Completed revisions collapse earlier previews, which remain available. Emit only one completed revision per identity in a reply. Saved artifact works are revised with update_work, which renders the new version inline automatically.',
+  'For a compiled file, such as the visual-artifacts bundle.html, pass html_path rather than the file content: Solus reads the file on this host.',
   'Either way, do NOT hand-author the HTML directly. Use the `visual-artifacts` skill — it owns the Solus design system and the sandbox constraints, authors the HTML, and calls this tool for you when a tool call is the right one.',
 ].join('\n')
 
@@ -66,6 +71,7 @@ export interface ArtifactToolResult {
 
 interface ArtifactToolArgs {
   html?: string
+  html_path?: string
   title?: string
   link_to_task?: boolean
 }
@@ -76,8 +82,14 @@ export async function executeArtifactTool(
 ): Promise<ArtifactToolResult> {
   try {
     const input = artifactInputSchema.parse(args)
-    const html = input.html
-    if (!html.trim()) return { ok: false, text: 'render_artifact requires non-empty html.' }
+    if (input.html && input.html_path) return { ok: false, text: 'render_artifact takes html or html_path, not both.' }
+    let html = input.html
+    if (input.html_path) {
+      const read = await readArtifactHtml(input.html_path, deps.ctx?.cwd ?? '~')
+      if ('error' in read) return { ok: false, text: `render_artifact error: ${read.error}` }
+      html = read.html
+    }
+    if (!html.trim()) return { ok: false, text: 'render_artifact requires non-empty html or an html_path.' }
     const title = resolveArtifactTitle(input.title, html)
     const created = await createAgentWork(title, 'artifact', html, deps.ctx, input.link_to_task === true)
     deps.onArtifact?.({ html, workId: created.workId, title: created.title })
@@ -101,6 +113,7 @@ export async function executeArtifactTool(
 
 const artifactInputSchema = z.object({
   html: z.string().catch(''),
+  html_path: z.string().optional().catch(undefined),
   title: z.string().optional().catch(undefined),
   link_to_task: z.boolean().optional().catch(undefined),
 })

@@ -32,7 +32,7 @@ export function searchServerIds(
   localServerId: string | null,
   saved: readonly Pick<SavedServer, 'id' | 'uplink'>[],
 ): string[] {
-  const organizationMachines = new Set(saved.filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
+  const organizationMachines = organizationMachineIds(saved)
   const machines = connectedServerIds.filter((id) => !isSolusApiId(id) && !organizationMachines.has(id))
   const ordered = localServerId && machines.includes(localServerId)
     ? [localServerId, ...machines.filter((id) => id !== localServerId)]
@@ -58,10 +58,31 @@ const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch'
  */
 export type ScopePathOnHost = (serverId: string, projectRoot: string) => string | null | undefined
 
+/** The organizations' machines: their sessions are read from the workspace service. */
+function organizationMachineIds(saved: readonly Pick<SavedServer, 'id' | 'uplink'>[]): Set<string> {
+  return new Set(saved.filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
+}
+
+/**
+ * The folder one host searches, from the repository's checkouts. The workspace
+ * service holds no checkout of its own: it keeps the sessions an organization's
+ * machine ran, at that machine's path. Passed over, it would leave a project
+ * scope on the web with no home to ask.
+ */
+export function scopePathFromCheckouts(
+  serverId: string,
+  projectRoot: string,
+  checkouts: readonly { serverId: string; projectRoot: string }[],
+  organizationMachines: ReadonlySet<string>,
+): string | null {
+  if (isSolusApiId(serverId)) return checkouts.find((entry) => organizationMachines.has(entry.serverId))?.projectRoot ?? projectRoot
+  return checkouts.find((entry) => entry.serverId === serverId)?.projectRoot ?? null
+}
+
 function checkoutPathOnHost(serverId: string, projectRoot: string): string | null | undefined {
   const repositoryKey = projectsStore.entries.find((entry) => entry.projectRoot === projectRoot && entry.repositoryKey)?.repositoryKey
   if (!repositoryKey) return undefined
-  return projectsStore.checkoutsOf(repositoryKey).find((entry) => entry.serverId === serverId)?.projectRoot ?? null
+  return scopePathFromCheckouts(serverId, projectRoot, projectsStore.checkoutsOf(repositoryKey), organizationMachineIds(loadServers()))
 }
 
 /**

@@ -5,6 +5,7 @@ import { hostInstructionsFor } from './run-input'
 import type { AgentId, PromptOptions, ReasoningEffort } from '@solus/contracts/types'
 import { SPAN_SERVICES, type SpanService } from '../../data/insights/registries'
 import { resolveHomePath } from '../../platform/paths'
+import type { TurnSeat } from '../seats/seat-manager'
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
@@ -29,6 +30,8 @@ export interface TextGenerationOptions {
   unattended?: boolean
   /** Span attribution for the ephemeral run; defaults to text generation. */
   service?: SpanService
+  /** The member's own provider login; absent for the host's login. */
+  seat?: TurnSeat
 }
 
 export class TextGenerator {
@@ -55,6 +58,7 @@ export class TextGenerator {
       systemPrompt,
       maxTurns: options.maxTurns,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      seat: options.seat,
     })
     const cancel = () => run.cancel()
     if (options.abortSignal) {

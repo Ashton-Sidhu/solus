@@ -72,15 +72,18 @@
 
   /**
    * Ends the cloud flow for the account, on every device, and opens the work
-   * it chose: the repository, else the person's workspace on the chosen machine.
+   * it chose: the repository, cloned before the flow closes so its draft is
+   * ready to send, else the person's workspace on the chosen machine.
    */
   async function finishCloud(withProject: boolean) {
+    // A repository that could not be prepared keeps the flow open on its step.
+    if (withProject && !(await cloud.openChosenRepository(workspace))) return;
     // Reopened from a "Get started" row: skipping only closes it again; the
     // person is already in the workspace and a new session would be noise.
     const wasReopened = cloud.reopenedAt !== null;
     void cloud.complete();
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    if (!wasReopened || withProject) await cloud.land(workspace, withProject);
+    if (!withProject && !wasReopened) await cloud.landInScratchpad(workspace);
     requestInputFocus();
   }
 

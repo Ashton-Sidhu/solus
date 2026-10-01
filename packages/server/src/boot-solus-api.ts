@@ -23,7 +23,7 @@ import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { getSessionRecord } from './data/sessions/session-records'
 import { createWorkspaceOperations } from './data/workspace/service'
-import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords, applyRunnerWork } from './sync/runner-intake'
+import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
 import { buildHttpServer } from './transport/http'
 import { attachWebSocketTransport } from './transport/websocket'
@@ -75,7 +75,6 @@ export async function bootSolusApi(options: { host?: string; port?: number; stat
       applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
       applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
       applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }),
-      applyWork: (runner, request) => applyRunnerWork(runner, request, shares),
     },
   })
   socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true,

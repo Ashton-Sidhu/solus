@@ -11,7 +11,7 @@
    */
   interface Props {
     user: User;
-    size?: 14 | 16 | 18 | 20 | 24;
+    size?: 14 | 16 | 18 | 20 | 24 | 32;
     /** The turn running in this session is theirs. */
     ringed?: boolean;
     /** They have a draft in this session. */

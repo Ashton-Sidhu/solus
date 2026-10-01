@@ -555,10 +555,23 @@ export class TasksStore {
   }
 
   /** The task this client knows, or null — the read counterpart to `get`, for
-   *  the surfaces that render "no such task" rather than acting on one. */
+   *  the surfaces that render "no such task" rather than acting on one.
+   *
+   *  `byId` is not reactive, so a miss reads `knownTaskCount`: a page opened
+   *  before the first read of its task (a share link) asks again when it lands. */
   peek(id: string | null | undefined): Task | null {
     const task = id ? this.byId.get(id) : undefined
-    return task?.isKnown ? task : null
+    if (task) return task.isKnown ? task : null
+    void this.knownTaskCount
+    return null
+  }
+
+  /** Grows when a task becomes known, so a `peek` that missed asks again. */
+  private knownTaskCount = $state(0)
+
+  /** Called by a task the first time a read describes it. */
+  noteTaskKnown(): void {
+    this.knownTaskCount++
   }
 
   /** The host a project's provider tickets are read through, once one has been. */

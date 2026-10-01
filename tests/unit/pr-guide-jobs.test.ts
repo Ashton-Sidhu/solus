@@ -371,7 +371,7 @@ test('session guide reads in a PR session never return that PR guide', async () 
     const { registerReviewHandlers } = await import('@solus/server/transport/handlers/review-handlers')
     const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
     const server = new SolusServer()
-    registerReviewHandlers(server, {} as AgentDispatcher, {} as Parameters<typeof registerReviewHandlers>[2])
+    registerReviewHandlers(server, {} as Parameters<typeof registerReviewHandlers>[1], {} as Parameters<typeof registerReviewHandlers>[2])
     const context = { session: {
       projectPath: directory, workingDirectory: directory,
       prReview: { ...target, branch: 'feature' },

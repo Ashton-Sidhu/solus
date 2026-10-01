@@ -13,8 +13,8 @@ import {
 // guest grant that names the host's route; the page dials the first route it can open.
 
 describe('cloud resource links', () => {
-  test('all resource kinds keep the secret in the fragment and reject host links', () => {
-    for (const kind of ['work', 'session', 'task'] as const) {
+  test('works and sessions keep the secret in the fragment; host links and task links open nothing', () => {
+    for (const kind of ['work', 'session'] as const) {
       const resource = { kind, id: 'resource-1' }
       const secret = 'a'.repeat(43)
       const url = new URL(cloudShareUrl('https://app.example.test', resource, secret))
@@ -24,6 +24,8 @@ describe('cloud resource links', () => {
     expect(parseCloudShareLink('/app/', '#/h/host/s/secret')).toBeNull()
     expect(parseCloudShareLink('/w/id', '#short')).toBeNull()
     expect(parseCloudShareLink('/w/../id', '#' + 'a'.repeat(43))).toBeNull()
+    // WHY: a task has no link of its own; its organization sees it (cloud-sharing.md §4a).
+    expect(parseCloudShareLink('/t/resource-1', '#' + 'a'.repeat(43))).toBeNull()
   })
 })
 

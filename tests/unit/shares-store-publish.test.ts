@@ -6,8 +6,9 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 // docs/plans/organization-scope.md §7: the Share action is the opt-in to publish.
 // Opening Share on a Local resource starts its upload into the window's
-// organization at once, with no second confirmation; once the machine reports
-// `committed`, the dialog continues on that organization's share list.
+// organization at once, with no second confirmation. A session is published by
+// its machine, and the dialog continues once the machine reports `committed`. A
+// work is uploaded by the client with its own sign-in (docs/plans/cloud-sharing.md).
 
 const connections = singleHostServerConnections()
 const offlineServerIds = new Set<string>()
@@ -44,6 +45,8 @@ mock.module('@solus/workspace-ui/contexts/connections/uplink.store.svelte', () =
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
   notificationsStore: { wants: () => false },
 }))
+const account = { state: { kind: 'signed-in', consoleUrl: 'https://app.example.test' } as { kind: string; consoleUrl?: string } }
+mock.module('@solus/workspace-ui/contexts/account/account.store.svelte', () => ({ accountStore: account }))
 
 const stateShim = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
 type RuneHost = typeof globalThis & { $state?: typeof stateShim }
@@ -67,7 +70,7 @@ afterEach(() => {
 })
 
 const CLOUD = 'workspace:org-1'
-const resource: ShareResource = { kind: 'work', id: 'w1' }
+const resource: ShareResource = { kind: 'session', id: 's1' }
 const target = { serverId: 'local', resource, title: 'Release plan' }
 
 const cloudList: ShareList = { resource, ownerUserId: 'u1', grants: [], callerRole: 'owner', link: null }
@@ -104,7 +107,7 @@ describe('sharing a Local resource', () => {
       publicationStart: async (request: PublicationStartRequest) => { starts.push(request); return publication('pending') },
     })
     registerCloud()
-    const { store, published } = await newStore()
+    const { store } = await newStore()
 
     await store.open(target)
     await settle()
@@ -123,8 +126,7 @@ describe('sharing a Local resource', () => {
     await settle()
 
     // WHY: the receipt is what makes the workspace service the record's home. Only
-    // then does the store follow the work there and read the cloud share list.
-    expect(published).toEqual([['w1', 'org-1', CLOUD]])
+    // then does the store follow the session there and read the cloud share list.
     expect(store.dialog).toEqual({ serverId: CLOUD, resource, title: 'Release plan' })
     expect(store.listFor(CLOUD, resource)).toEqual(cloudList)
     expect(directoryReads).toBe(1)
@@ -192,7 +194,7 @@ describe('sharing a Local resource', () => {
       publicationStart: async () => (++attempt === 1 ? publication('pending') : publication('committed')),
     })
     registerCloud()
-    const { store, published } = await newStore()
+    const { store } = await newStore()
 
     await store.open(target)
     await settle()
@@ -201,12 +203,10 @@ describe('sharing a Local resource', () => {
 
     // WHY: the source is preserved and the state is retryable; the reservation
     // keeps the same destination, so a retry cannot pick another organization.
-    expect(published).toEqual([])
     expect(store.dialog?.publication?.status).toEqual({ kind: 'failed', error: 'The organization refused the upload.' })
 
     await store.publish()
     expect(attempt).toBe(2)
-    expect(published).toEqual([['w1', 'org-1', CLOUD]])
     expect(store.dialog?.serverId).toBe(CLOUD)
   })
 
@@ -234,12 +234,11 @@ test('a resource the machine already published opens directly on its organizatio
       publicationStart: async () => { starts++; throw new Error('already published') },
     })
     registerCloud()
-    const { store, published } = await newStore()
+    const { store } = await newStore()
 
     await store.open(target)
 
     expect(starts).toBe(0)
-    expect(published).toEqual([['w1', 'org-1', CLOUD]])
     expect(store.dialog).toEqual({ serverId: CLOUD, resource, title: 'Release plan' })
   })
 
@@ -273,28 +272,192 @@ test('a resource the machine already published opens directly on its organizatio
 })
 
 
-test('publish entry points share one request and report the captured organization after a switch', async () => {
-  const starts: PublicationStartRequest[] = []
-  let announceStart: () => void = () => {}
-  const started = new Promise<void>((resolve) => { announceStart = resolve })
-  connections.registerPrimary('local', {
-    publicationList: async () => [],
-    publicationStart: async (request: PublicationStartRequest) => { starts.push(request); announceStart(); return publication('pending') },
+describe('sharing a Local work', () => {
+  const work: ShareResource = { kind: 'work', id: 'w1' }
+  const workTarget = { serverId: 'local', resource: work, title: 'Release plan' }
+  const transfer = { work: { id: 'w1' }, previousRevisionId: null, revisions: [], annotations: null, fingerprint: 'fp-1' }
+  const workList: ShareList = { ...cloudList, resource: work }
+
+  /** The machine gives the work and removes it; the cloud stores the upload. Every call is recorded. */
+  function machineAndCloud(options: { upload?: () => Promise<unknown>; remove?: () => Promise<void> } = {}) {
+    const calls: string[] = []
+    connections.registerPrimary('local', {
+      publicationList: async () => [],
+      publicationStart: async () => { calls.push('publicationStart'); throw new Error('a work is not published by the machine') },
+      workExportForCloud: async (workId: string) => { calls.push(`export:${workId}`); return transfer },
+      workRemoveUploaded: async (workId: string, fingerprint: string) => { calls.push(`remove:${workId}:${fingerprint}`); await options.remove?.() },
+    })
+    connections.registerHost(CLOUD, {
+      shareGet: async () => workList,
+      connectionsGetServerInfo: async () => ({ principal: 'org-member', userId: 'u1', organizationId: 'org-1' }),
+      workUpload: async (sent: unknown) => {
+        calls.push(`upload:${sent === transfer ? 'the export' : 'something else'}`)
+        return options.upload ? options.upload() : { workId: 'w1', organizationId: 'org-1' }
+      },
+    })
+    return calls
+  }
+
+  test('Share reads the work from the machine, uploads that export to the organization, then removes the local copy', async () => {
+    // WHY: a work is a cloud copy made with the person's sign-in; the machine only
+    // gives and removes it, so the host link plays no part (docs/plans/cloud-sharing.md §3).
+    const calls = machineAndCloud()
+    const { store, published } = await newStore()
+
+    await store.open(workTarget)
+    await settle()
+
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(published).toEqual([['w1', 'org-1', CLOUD]])
+    expect(store.dialog).toEqual({ serverId: CLOUD, resource: work, title: 'Release plan' })
   })
-  const { store } = await newStore()
-  const first = store.publishWork('local', 'w1')
-  await started
-  const second = store.publishWork('local', 'w1')
-  const followed = store.publishResource({ serverId: 'local', resource, organizationId: 'org-1' })
-  expect(store.isPublishing('local', resource)).toBe(true)
-  window.activeOrganizationId = 'org-2'
-  window.activeOrganizationName = 'Beta'
-  expect(await store.publishResource({ serverId: 'local', resource, organizationId: 'org-2' })).toMatchObject({ kind: 'failed' })
-  connections.emit('local', 'publication.changed', publication('committed'))
-  await Promise.all([first, second, followed])
-  expect(starts).toEqual([{ resource, organizationId: 'org-1' }])
-  expect(toastCalls).toEqual(['success:Published to Acme'])
-  expect(store.isPublishing('local', resource)).toBe(false)
+
+  test('a refused upload keeps the local copy and shows the reason with Retry', async () => {
+    // WHY: the local copy goes only after the cloud has it.
+    const calls = machineAndCloud({ upload: async () => { throw new Error('This work already belongs to another organization.') } })
+    const { store, published } = await newStore()
+
+    await store.open(workTarget)
+    await settle()
+
+    expect(calls).toEqual(['export:w1', 'upload:the export'])
+    expect(published).toEqual([])
+    expect(store.dialog?.publication?.status).toEqual({ kind: 'failed', error: 'This work already belongs to another organization.' })
+  })
+
+  test('a work that changed after it was read stays on the machine, and Share says so', async () => {
+    const calls = machineAndCloud({ remove: async () => { throw new Error('The work changed during the cloud push. Its local copy was kept.') } })
+    const { store, published } = await newStore()
+
+    await store.open(workTarget)
+    await settle()
+
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(published).toEqual([])
+    expect(store.dialog?.publication?.status).toEqual({ kind: 'failed', error: 'The work changed during the cloud push. Its local copy was kept.' })
+  })
+
+  test('a work can be shared from a machine that is not linked; a session cannot', async () => {
+    // WHY: the user's rule: sharing a work needs only a signed-in organization.
+    // A session needs its machine linked, because the machine sends its later turns.
+    const { store } = await newStore()
+    expect(store.canShareFrom('local', 'work')).toBe(true)
+    expect(store.canShareFrom('local', 'session')).toBe(false)
+    window.activeOrganizationId = null
+    expect(store.canShareFrom('local', 'work')).toBe(false)
+  })
+
+  test('publish entry points share one upload and report the captured organization after a switch', async () => {
+    let releaseUpload: () => void = () => {}
+    const uploaded = new Promise<void>((resolve) => { releaseUpload = resolve })
+    const calls = machineAndCloud({ upload: async () => { await uploaded; return { workId: 'w1', organizationId: 'org-1' } } })
+    const { store } = await newStore()
+    const first = store.publishWork('local', 'w1')
+    const second = store.publishWork('local', 'w1')
+    const followed = store.publishResource({ serverId: 'local', resource: work, organizationId: 'org-1' })
+    expect(store.isPublishing('local', work)).toBe(true)
+    window.activeOrganizationId = 'org-2'
+    window.activeOrganizationName = 'Beta'
+    expect(await store.publishResource({ serverId: 'local', resource: work, organizationId: 'org-2' })).toMatchObject({ kind: 'failed' })
+    releaseUpload()
+    await Promise.all([first, second, followed])
+    expect(calls.filter((call) => call.startsWith('upload'))).toHaveLength(1)
+    expect(toastCalls).toEqual(['success:Published to Acme'])
+    expect(store.isPublishing('local', work)).toBe(false)
+  })
+})
+
+/** What a copied task link opens: the app's own route, read back the way the web client reads it. */
+async function opensTaskOf(url: string): Promise<{ origin: string; taskId?: string; serverId?: string }> {
+  const { parseRoute } = await import('@solus/workspace-ui/contexts/workspace/routing/codec')
+  const parsed = new URL(url)
+  const ref = parseRoute(parsed.hash.slice(1))
+  return ref?.name === 'task' ? { origin: parsed.origin, taskId: ref.params.taskId, serverId: ref.params.serverId } : { origin: parsed.origin }
+}
+
+describe('a task\'s link', () => {
+  const taskTransfer = { task: { id: 't1' }, comments: [], workIds: ['w1'], fingerprint: 'task-fp' }
+  const workTransfer = { work: { id: 'w1' }, previousRevisionId: null, revisions: [], annotations: null, fingerprint: 'work-fp' }
+  let copied: string[] = []
+  beforeEach(() => {
+    copied = []
+    account.state = { kind: 'signed-in', consoleUrl: 'https://app.example.test' }
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (text: string) => { copied.push(text) } } } })
+  })
+
+  test('Copy link puts a Local task in the organization with everything linked to it, then copies the address that opens it', async () => {
+    // WHY: a task is not shared on its own; its organization sees it. Its link
+    // must open the task there, so a Local task goes first, with its linked
+    // works ahead of it (docs/plans/cloud-sharing.md §8), and leaves the machine.
+    const calls: string[] = []
+    connections.registerPrimary('local', {
+      taskExportForCloud: async (taskId: string) => { calls.push(`export:${taskId}`); return { task: taskTransfer, works: [workTransfer] } },
+      taskRemoveUploaded: async (taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>) => {
+        calls.push(`remove:${taskId}:${fingerprint}:${works.map((work) => `${work.workId}:${work.fingerprint}`).join(',')}`)
+      },
+    })
+    connections.registerHost(CLOUD, {
+      workUpload: async (sent: { work: { id: string } }) => { calls.push(`upload-work:${sent.work.id}`); return { workId: sent.work.id, organizationId: 'org-1' } },
+      taskUpload: async (sent: { task: { id: string } }) => { calls.push(`upload-task:${sent.task.id}`); return { taskId: sent.task.id, organizationId: 'org-1' } },
+    })
+    const { store, published } = await newStore()
+
+    await store.copyTaskLink('local', 't1')
+
+    expect(calls).toEqual(['export:t1', 'upload-work:w1', 'upload-task:t1', 'remove:t1:task-fp:w1:work-fp'])
+    expect(published).toEqual([['w1', 'org-1', CLOUD]])
+    expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
+    expect(store.dialog).toBeNull()
+  })
+
+  test('a task already in the organization copies its link with no upload, and a task is never offered Share', async () => {
+    const { store } = await newStore()
+    await store.copyTaskLink(CLOUD, 't1')
+    expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
+    expect(store.canShareFrom('local', 'task')).toBe(false)
+    expect(store.canShareFrom(CLOUD, 'task')).toBe(false)
+  })
+
+  test('without an account or an organization there is no link, and nothing leaves the machine', async () => {
+    const { store } = await newStore()
+    account.state = { kind: 'signed-out' }
+    expect(store.canCopyTaskLink('local')).toBe(false)
+    await store.copyTaskLink('local', 't1')
+    account.state = { kind: 'signed-in', consoleUrl: 'https://app.example.test' }
+    window.activeOrganizationId = null
+    expect(store.canCopyTaskLink('local')).toBe(false)
+    expect(store.canCopyTaskLink(CLOUD)).toBe(true)
+    await store.copyTaskLink('local', 't1')
+    expect(copied).toEqual([])
+    expect(toastCalls.every((call) => call.startsWith('error:'))).toBe(true)
+  })
+})
+
+describe('sharing an Insights report', () => {
+  test('Share files the report as a Local work on the machine, then uploads it like any work', async () => {
+    // WHY: a report reads the same while the computer that ran the turn is off, so it
+    // leaves as a cloud copy; nothing about it needs the host link.
+    const calls: string[] = []
+    const transfer = { work: { id: 'report-1' }, previousRevisionId: null, revisions: [], annotations: null, fingerprint: 'fp' }
+    connections.registerPrimary('local', {
+      publicationList: async () => [],
+      createWork: async (title: string, type: string, content: string) => { calls.push(`create:${type}:${title}:${content}`); return { id: 'report-1' } },
+      workExportForCloud: async (workId: string) => { calls.push(`export:${workId}`); return transfer },
+      workRemoveUploaded: async (workId: string) => { calls.push(`remove:${workId}`) },
+    })
+    connections.registerHost(CLOUD, {
+      shareGet: async () => ({ ...cloudList, resource: { kind: 'work', id: 'report-1' } }),
+      connectionsGetServerInfo: async () => ({ principal: 'org-member', userId: 'u1', organizationId: 'org-1' }),
+      workUpload: async () => { calls.push('upload'); return { workId: 'report-1', organizationId: 'org-1' } },
+    })
+    const { store } = await newStore()
+
+    await store.shareReport('local', { title: 'Turn report', content: '# Turn report', agentProvider: 'claude-code' })
+    await settle()
+
+    expect(calls).toEqual(['create:insights-report:Turn report:# Turn report', 'export:report-1', 'upload', 'remove:report-1'])
+    expect(store.dialog).toEqual({ serverId: CLOUD, resource: { kind: 'work', id: 'report-1' }, title: 'Turn report' })
+  })
 })
 
 describe('the organization directory', () => {

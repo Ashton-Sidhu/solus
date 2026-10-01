@@ -16,7 +16,6 @@
   "packages/workspace-ui/src/components/editor/DiagramEmbedNodeView.svelte",
   "packages/workspace-ui/src/components/files/FilesPane.svelte",
   "packages/workspace-ui/src/components/input/ProjectChip.svelte",
-  "packages/workspace-ui/src/components/input/SavedPromptsControl.svelte",
   "packages/workspace-ui/src/components/input/TaskPicker.svelte",
   "packages/workspace-ui/src/components/insights/InsightsPage.svelte",
   "packages/workspace-ui/src/components/insights/QueryConsole.svelte",

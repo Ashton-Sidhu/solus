@@ -47,7 +47,6 @@ POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54335/postgres bun lab ru
 - `guest-revoke` — regenerating or removing the link ends every guest socket within a second; a removed member's next call fails and they are told who did it.
 - `ownership` — the creator owns a work and a session; only the owner transfers; a managed host has no owner person.
 - `presence` — the host names every participant; a session's room is its connected watchers; typing and focus reach the other watcher; a guest gets its one room and never the host roster; a dropped socket leaves every room at once.
-- `task-share` — a task shared with a person by name opens its page, the session under it, and the document linked to it at the task's role; the person's own row survives a scope change; a guest with a task link reaches exactly the task and its contents, prompts as an editor on the sharer's seat, and is ended when the link is turned off; only the owner deletes.
 - `seats` — a member with no provider seat is refused with `SEAT_REQUIRED` and nothing is spawned; a pasted token seat rides the run; a guest runs on the sharer's seat; two members run at once on their own seats; only the administrator removes a seat. The mock backend records every run it is handed in `<dataDir>/lab/mock-runs.ndjson`, which `src/oracle.ts` reads.
 - `cloud-sessions` (personal flavor only; cloud-service-model.md §18–§19, the P2 exit test) — a runner streams a slow turn whose rows reach the service as they land; the runner is killed mid-turn; the transcript so far is readable and the session listed with the runner dead; the runner restarts on its data directory and its owner prompts it locally; the new turn's rows reach the service and the record settles to idle; bob reads the same rows.
 - `host-auth` (personal flavor, SQLite and Postgres Solus API instances) — the service refuses seat RPCs and the removed credential lease route; Claude and Codex seats stay on the selected host. Two hosts use independent logins; disconnect on A leaves B usable; another member cannot use either seat. Providers are mocked, never real accounts.
@@ -70,10 +69,11 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 ### Cloud sharing (P4)
 
 `cloud-sharing` proves server-owned work publication through `publicationStart`,
-including history, comments, and source removal, offline work/task reads, cross-organization
+including history, comments, and source removal, offline work reads, the refusal of a
+task share link, cross-organization
 refusal and the absence of a runner guest door. `cloud-sessions` additionally proves
 an offline guest transcript and an online prompt under the sharer's execution-host seat.
-`share-matrix`, `guest-revoke` and `task-share` now run against the Solus API,
+`share-matrix` and `guest-revoke` now run against the Solus API,
 not the personal/managed host. Set `POSTGRES_ADMIN_URL` to a disposable Postgres
 server to run both workspace engines. `bun scripts/lab.ts run all` is the command.
 

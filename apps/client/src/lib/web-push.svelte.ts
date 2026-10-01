@@ -1,7 +1,6 @@
 import { base64UrlToUint8Array } from '@solus/client-core/push'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WebPushSubscriptionJSON } from '@solus/contracts/types'
-import { track } from '@solus/workspace-ui/lib/analytics'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { activeWorkspace, loadWorkspaces } from '@solus/client-core/workspace-registry'
 import { solusApiId } from '@solus/contracts/uplink'
@@ -23,15 +22,11 @@ const BASE = import.meta.env.BASE_URL
 
 class WebPushState {
   supported = $state(false)
-  permission = $state<NotificationPermission>('default')
-  subscribed = $state(false)
-  busy = $state(false)
 
   private initialized = false
   private enabled: boolean | null = null
   private readonly reconciler = new PushReconciler(() => this.reconcileHosts())
   private readonly removedHosts = new Map<string, Promise<void>>()
-  private activeOperations = 0
   private shellRegistration: ServiceWorkerRegistration | null = null
   private registrations = new Map<string, ServiceWorkerRegistration>()
 
@@ -40,10 +35,13 @@ class WebPushState {
     this.initialized = true
     this.supported = isPushSupported()
     if (!this.supported) return
-    this.permission = Notification.permission
     void this.ensureShellRegistration().catch(() => {
       this.supported = false
     })
+    // Settings asks for the grant; subscribe or drop the hosts once it changes.
+    void navigator.permissions?.query({ name: 'notifications' })
+      .then((status) => status.addEventListener('change', () => this.scheduleReconcile()))
+      .catch(() => {})
     serverConnections.onStatusChange((_serverId, status) => {
       if (status === 'connected') this.scheduleReconcile()
     })
@@ -62,25 +60,6 @@ class WebPushState {
     if (this.enabled === enabled) return
     this.enabled = enabled
     await this.reconcile()
-  }
-
-  private async enableWithPermission(): Promise<void> {
-    if (!this.supported || this.busy) return
-    this.beginOperation()
-    try {
-      if (Notification.permission === 'default') {
-        this.permission = await Notification.requestPermission()
-      } else {
-        this.permission = Notification.permission
-      }
-      track('push_permission_result', { granted: this.permission === 'granted' })
-      if (this.permission === 'granted') {
-        this.enabled = true
-        await this.reconcile()
-      }
-    } finally {
-      this.endOperation()
-    }
   }
 
   private async unsubscribeHost(serverId: string, serverUnsubscribe = this.unsubscribeFromServer(serverId)): Promise<void> {
@@ -102,16 +81,6 @@ class WebPushState {
     const reachable = await serverConnections.probeHealth(serverId, true).catch(() => null)
     if (!reachable) return
     await serverConnections.withTemporaryConnection(serverId, (api) => api.pushUnsubscribe()).catch(() => {})
-  }
-
-  async toggle(): Promise<void> {
-    if (this.busy) return
-    if (this.subscribed) {
-      this.enabled = false
-      await this.reconcile()
-    } else {
-      await this.enableWithPermission()
-    }
   }
 
   private async subscribeHost(host: PushHostRef): Promise<void> {
@@ -180,35 +149,25 @@ class WebPushState {
   }
 
   private async reconcileHosts(): Promise<void> {
-    this.beginOperation()
-    try {
-      const hosts = this.hosts().filter((host) => !this.removedHosts.has(host.serverId))
-      const registrations = await this.hostRegistrations()
-      const knownServerIds = new Set([
-        ...hosts.map((host) => host.serverId),
-        ...registrations.keys(),
-        ...this.removedHosts.keys(),
-      ])
-      const plan = planPushReconciliation(
-        hosts,
-        knownServerIds,
-        this.enabled === true && Notification.permission === 'granted',
-      )
-      await Promise.all([
-        fanOutPushHosts(plan.subscribe, (host) => this.subscribeHost(host)),
-        Promise.allSettled(plan.unsubscribe.map((serverId) => this.unsubscribeHost(
-          serverId,
-          this.removedHosts.get(serverId),
-        ))),
-      ])
-      this.permission = Notification.permission
-      this.subscribed = (await Promise.all(plan.subscribe.map(async (host) => {
-        const registration = await this.findHostRegistration(host.serverId)
-        return !!(await registration?.pushManager.getSubscription())
-      }))).some(Boolean)
-    } finally {
-      this.endOperation()
-    }
+    const hosts = this.hosts().filter((host) => !this.removedHosts.has(host.serverId))
+    const registrations = await this.hostRegistrations()
+    const knownServerIds = new Set([
+      ...hosts.map((host) => host.serverId),
+      ...registrations.keys(),
+      ...this.removedHosts.keys(),
+    ])
+    const plan = planPushReconciliation(
+      hosts,
+      knownServerIds,
+      this.enabled === true && Notification.permission === 'granted',
+    )
+    await Promise.all([
+      fanOutPushHosts(plan.subscribe, (host) => this.subscribeHost(host)),
+      Promise.allSettled(plan.unsubscribe.map((serverId) => this.unsubscribeHost(
+        serverId,
+        this.removedHosts.get(serverId),
+      ))),
+    ])
   }
 
   private async ensureShellRegistration(): Promise<ServiceWorkerRegistration> {
@@ -245,15 +204,6 @@ class WebPushState {
     return registrations
   }
 
-  private beginOperation(): void {
-    this.activeOperations += 1
-    this.busy = true
-  }
-
-  private endOperation(): void {
-    this.activeOperations -= 1
-    this.busy = this.activeOperations > 0
-  }
 }
 
 function pushScope(serverId: string): string {

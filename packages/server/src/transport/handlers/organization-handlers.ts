@@ -1,7 +1,9 @@
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { shareResourceSchema } from '@solus/contracts/sharing'
+import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
 import { hostUserKey } from '../../host/host-user'
-import { isAnyOrganization, recordScopeOf } from '../../admission/principal'
+import { isAnyOrganization, LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
+import { exportWorkForCloud, removePushedWork } from '../../data/works/works'
+import { exportTaskForCloud, removeUploadedTask } from '../../data/tasks/task-transfer'
 import { ownerKeyOf } from '../../admission/actor'
 import { hostCategory } from '../../host/host-category'
 import { organizationAttachedAt } from '../../host/organization-attachment'
@@ -20,6 +22,8 @@ import type { SolusServer } from '../server'
 export interface OrganizationHandlerDeps {
   hostOrganizations: HostOrganizations
   publications: PublicationCoordinator | null
+  /** Drop the share rows of a resource that left this host. */
+  forgetResource: (resource: ShareResource) => Promise<void>
   events: HostEventPublisher
   linkHostId: () => string | null
   /** The Solus API the link names; null while unlinked. */
@@ -71,10 +75,34 @@ export function registerOrganizationHandlers(server: SolusServer, deps: Organiza
     if (!deps.publications) throw new Error('Publishing is available on a host, not on the Solus API.')
     const resource = shareResourceSchema.parse(request.resource)
     if (!request.organizationId?.trim()) throw new Error('Choose an organization to publish to.')
-    if (!deps.hostOrganizations.organization(request.organizationId)) throw new Error('This host cannot deliver to that organization. Sign in and check your memberships.')
+    if (!deps.hostOrganizations.current()) throw new Error('This computer is not connected to Solus cloud yet. Sign in to Solus on it, then try again.')
+    if (!deps.hostOrganizations.organization(request.organizationId)) throw new Error('This computer cannot deliver to that organization. Check that you are a member of it.')
     const scope = recordScopeOf(ctx.principal)
     if (!isAnyOrganization(scope) && scope !== request.organizationId) throw new Error('You can publish only into your own organization.')
     return deps.publications.start({ resource, organizationId: request.organizationId }, ownerKeyOf(ctx.actor) ?? hostUserKey())
+  })
+
+  // Cloud sharing (docs/plans/cloud-sharing.md §3): the client reads a Local work
+  // here, uploads it to the Solus API with its own sign-in, then removes it here.
+  // This host makes no cloud call.
+  server.register('workExportForCloud', async ([workId], ctx) => {
+    const transfer = await exportWorkForCloud(recordScopeOf(ctx.principal), workId)
+    if (transfer.work.organizationId !== LOCAL_ORGANIZATION_ID) throw new Error('This work already belongs to an organization.')
+    return transfer
+  })
+
+  server.register('workRemoveUploaded', async ([workId, fingerprint], ctx) => {
+    await removePushedWork(recordScopeOf(ctx.principal), workId, fingerprint)
+    await deps.forgetResource({ kind: 'work', id: workId })
+  })
+
+  // A task leaves the same way, with its linked Local works (cloud-sharing.md §4).
+  server.register('taskExportForCloud', async ([taskId], ctx) => exportTaskForCloud(recordScopeOf(ctx.principal), taskId))
+
+  server.register('taskRemoveUploaded', async ([taskId, fingerprint, works], ctx) => {
+    await removeUploadedTask(recordScopeOf(ctx.principal), taskId, fingerprint, works)
+    await deps.forgetResource({ kind: 'task', id: taskId })
+    for (const work of works) await deps.forgetResource({ kind: 'work', id: work.workId })
   })
 
   server.register('publicationList', (args) => {

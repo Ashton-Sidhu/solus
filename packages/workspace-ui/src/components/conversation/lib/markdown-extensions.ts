@@ -1,4 +1,4 @@
-import type { MarkedExtension } from 'marked'
+import type { MarkedExtension, Token } from 'marked'
 
 /**
  * GitHub alerts (`> [!NOTE]`) and footnotes (`[^1]`) for assistant replies.
@@ -86,6 +86,46 @@ export const footnoteMarkedExtension: MarkedExtension = {
         }
         return footnotes.length ? { type: FOOTNOTE_SECTION_TOKEN, raw: match[0], footnotes } : undefined
       },
+    },
+  ],
+}
+
+/**
+ * `![caption](/Users/me/Application Support/clip.mp4)` as an image. CommonMark
+ * ends a destination at the first space, so the reply would show the raw
+ * source. Agents are told to embed absolute paths, and the macOS data folder
+ * holds a space, so this matches only an absolute or `file:` path with
+ * whitespace — the one form CommonMark has already rejected. An optional
+ * `"title"` at the end stays the title.
+ */
+export const SPACED_IMAGE_PATH_RE = /!\[[^\]\n]*\]\((?:\/|file:)[^\n()]*\s/
+const SPACED_IMAGE_RE = /^!\[([^\]\n]*)\]\(((?:\/|file:)[^\n()]*?)(?:\s+"([^"\n]*)")?\)/
+
+function spacedImageTokenizer(this: { lexer: { inlineTokens(src: string): Token[] } }, src: string) {
+  const match = SPACED_IMAGE_RE.exec(src)
+  const href = match?.[2].trim()
+  if (!match || !href || !/\s/.test(href)) return undefined
+  return {
+    type: 'image',
+    raw: match[0],
+    href,
+    title: match[3] ?? null,
+    text: match[1],
+    tokens: this.lexer.inlineTokens(match[1]),
+  }
+}
+Object.assign(spacedImageTokenizer, { [TAIL_WINDOW_SAFE]: true })
+
+export const spacedImagePathMarkedExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: 'solusSpacedImagePath',
+      level: 'inline',
+      start(src: string) {
+        const index = src.indexOf('![')
+        return index === -1 ? undefined : index
+      },
+      tokenizer: spacedImageTokenizer,
     },
   ],
 }

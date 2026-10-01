@@ -82,8 +82,6 @@
   const state = $derived(
     live ? "live" : turn.end?.kind === "failed" ? "failed" : "done",
   );
-  // A turn with nothing folded away keeps the chevron's slot — for the
-  // geometry — but has nothing to open.
   // The error is part of the failed row now, not hidden detail. Only actual
   // activity beneath the row earns a disclosure caret.
   const canExpand = $derived(hasVisibleTurnBody(turn));
@@ -229,7 +227,7 @@
   {/snippet}
 
   <!-- §16 — the rail counts, it never narrates: steps, then time. The count is
-       the only thing that says how much is folded behind the chevron. -->
+       the only thing that says how much is folded behind the row. -->
   {#snippet rail()}
     {#if workingFor}
       <span data-testid="turn-working-for">for <UserChip user={workingFor} short /></span>

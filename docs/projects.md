@@ -83,6 +83,18 @@ creator's own folder, and other members do not see it. To share it, use
 **Publish to GitHub** in the project panel, then add the repository as a
 project.
 
+In cloud onboarding, **Start** on the repository step makes the repository a
+project on the machine it will run on. If no online machine has a copy, that
+machine clones it first. The chosen repository row shows the step:
+**Starting** (a stopped cloud host), **Connecting to**, or **Cloning**. When
+the project is ready, onboarding closes and a new session opens in it, ready
+to send. If the clone fails, the row shows the reason and **Try again**. The
+clone is a project on that machine, so the project chip lists it after that.
+
+The project chip lists a project only when an online host has a copy of it.
+A project whose copies are all on offline hosts, for example a laptop that is
+asleep, is not in the list until that host is online again.
+
 ## Scratchpad
 
 Scratchpad is the place where a session with no project runs. Use it to ask a

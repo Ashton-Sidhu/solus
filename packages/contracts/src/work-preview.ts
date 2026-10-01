@@ -15,6 +15,7 @@ export function workPreview(type: WorkType, content: string): string {
     }
   }
   if (type === 'artifact') return artifactPreview(content)
+  if (type === 'insights-report') return 'Insights report'
   return content.slice(0, 200).replace(/[#*_`]/g, '').trim()
 }
 

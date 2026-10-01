@@ -93,6 +93,26 @@ async function generate(f: ReturnType<typeof fixture>, title: string) {
 }
 
 describe('review lens jobs', () => {
+  test('a lens runs on the requester\'s own provider login, and says so when they have none', async () => {
+    // WHY: on a cloud host each member signs in on their own seat; a lens run
+    // on the host login fails for a member who is signed in only on their seat.
+    const { SeatRequiredError } = await import('@solus/server/execution/seats/seat-manager')
+    const seat = { seat: { kind: 'user' as const, userId: { kind: 'account' as const, accountId: 'member-1' } }, provider: 'claude-code' as const, home: '/seats/member-1/claude' }
+    const f = fixture()
+    await f.jobs.generate(ctx, { target: prTarget, source: { name: 'Flow', prompt: 'Draw the flow' } }, f.emit, async () => seat)
+    await settle()
+    expect(f.agentRuns.at(-1)?.input.seat).toBe(seat)
+
+    const unseated = fixture()
+    await unseated.jobs.generate(ctx, { target: prTarget, source: { name: 'Flow', prompt: 'Draw the flow' } }, unseated.emit, async (provider) => {
+      throw new SeatRequiredError(provider === 'codex' ? 'codex' : 'claude-code', 'none')
+    })
+    await settle()
+    expect(unseated.agentRuns).toHaveLength(0)
+    expect(unseated.events.at(-1)?.job?.status).toBe('failed')
+    expect(unseated.events.at(-1)?.job?.error).toContain('Claude')
+  })
+
   test('the PR list reads each saved-lens revision in request order, 0 for none', async () => {
     const other = { kind: 'pr' as const, host: 'github.com', owner: 'acme', repo: 'app', number: 8 }
     const f = fixture({

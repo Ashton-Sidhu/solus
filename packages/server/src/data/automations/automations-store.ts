@@ -52,7 +52,7 @@ const automationActionSchema = z.object({
   workRefs: z.array(z.object({
     workId: z.string(),
     title: z.string(),
-    type: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+    type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report']),
   })).optional(),
 })
 /** A creator as metadata written before plan 012 stage 4 holds it. Strict, so a

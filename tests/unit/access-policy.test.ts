@@ -39,7 +39,7 @@ describe('the access map', () => {
     // unless it is a catalog read (listSessions, listWorks) or a creation.
     // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
     // `sessionPullRequestsList` lists across sessions, and its handler keeps only the sessions the caller may open.
-    const catalog = new Set(['sessionPullRequestsList', 'sessionShelfList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates'])
+    const catalog = new Set(['sessionPullRequestsList', 'sessionShelfList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !RESOURCE_RPC_RULES.has(method))
     expect(unclassified).toEqual([])
   })
@@ -47,6 +47,30 @@ describe('the access map', () => {
   test('a class is a class: no method is in two sets', async () => {
     for (const method of HOST_ADMIN_RPC_METHODS) expect(RESOURCE_RPC_RULES.has(method)).toBe(false)
     for (const method of GUEST_HOST_RPC_METHODS) expect(rpcAccessMap().get(method)).toBe('host-wide')
+  })
+})
+
+describe('cloud sharing of a work or a task', () => {
+  test('only the owner of a work or a task may read it out of its host or remove it after upload; any member may upload, a guest may not', async () => {
+    // WHY: a work leaves its host only by its owner's Share (docs/plans/cloud-sharing.md).
+    // An editor who could export it could copy it out; one who could remove it could delete it.
+    const editorOnly = resources({ 'work:w1': 'editor' })
+    const ownerOnly = resources({ 'work:w1': 'owner' })
+    for (const method of ['workExportForCloud', 'workRemoveUploaded'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, ['w1'], editorOnly, false)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, MEMBER, ['w1'], ownerOnly, false)).resolves.toBeUndefined()
+    }
+    const taskEditor = resources({ 'task:t1': 'editor' })
+    const taskOwner = resources({ 'task:t1': 'owner' })
+    for (const method of ['taskExportForCloud', 'taskRemoveUploaded'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, ['t1'], taskEditor, false)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, MEMBER, ['t1'], taskOwner, false)).resolves.toBeUndefined()
+    }
+    // The upload names no stored resource: the Solus API puts it in the caller's own organization.
+    for (const method of ['workUpload', 'taskUpload'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, [{}], editorOnly, false)).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, GUEST, [{}], editorOnly, false)).rejects.toThrow(RpcAccessError)
+    }
   })
 })
 
@@ -139,14 +163,10 @@ describe('tasks', () => {
     for (const method of ['tasksSidebarSnapshot'] as const) expect(rpcAccessMap().get(method)).toBe('host-wide')
   })
 
-  test('a guest on a task reads its page and its filtered listing, and nothing else of the tasks', async () => {
-    const taskGuest: Principal = { ...GUEST, share: { ...GUEST.share, resource: { kind: 'task', id: 't1' } } }
-    const table = resources({ 'task:t1': 'viewer', 'session:s1': 'viewer' })
-    await expect(assertRpcAccess('tasksReadExtras', taskGuest, ['t1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksSidebarSnapshot', taskGuest, [], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('watchSession', taskGuest, [{ sessionId: 's1' }], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksReadExtras', taskGuest, ['t2'], table)).rejects.toThrow(/not shared/)
-    await expect(assertRpcAccess('shareSet', taskGuest, [{ resource: { kind: 'task', id: 't1' }, grants: [] }], table)).rejects.toThrow(RpcAccessError)
+  test('a guest reads nothing of the tasks, not even the filtered listing', async () => {
+    // WHY: a link opens a work or a session; a task has no link of its own.
+    const table = resources({ 'task:t1': 'viewer' })
+    await expect(assertRpcAccess('tasksSidebarSnapshot', GUEST, [], table)).rejects.toThrow(RpcAccessError)
   })
 })
 

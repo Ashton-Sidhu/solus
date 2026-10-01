@@ -141,7 +141,7 @@
   // list; the dialog is one per app, opened from here.
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
-  const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId));
+  const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId, "work"));
   // Publish into the window's organization (docs/plans/organization-scope.md §7):
   // offered on a work that lives on a machine while the window works in one.
   const organizationName = $derived(serversStore.activeOrganizationName ?? "your organization");

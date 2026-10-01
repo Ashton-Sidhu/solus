@@ -51,7 +51,7 @@ const log = createLogger('folio', 'works.ts')
 const workRefRowSchema = z.object({
   id: z.string(),
   title: z.string(),
-  type: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+  type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report']),
   session_id: z.string(),
 })
 
@@ -210,6 +210,7 @@ export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
       return 'html'
     case 'diagram':
     case 'slides':
+    case 'insights-report':
       return 'json'
   }
 }

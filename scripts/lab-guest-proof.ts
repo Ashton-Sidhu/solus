@@ -23,7 +23,7 @@ import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '@solus/lab/client'
 import { LabIssuer } from '@solus/lab/issuer'
 import { personaForHost } from '@solus/lab/personas'
-import { cloudShareUrl, type ShareResource } from '@solus/contracts/sharing'
+import { cloudShareUrl, type GuestLinkResource } from '@solus/contracts/sharing'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const APP_DIR = resolve(ROOT, '.solus-local/guest-proof/app')
@@ -88,7 +88,7 @@ function startOrigin(issuer: LabIssuer, host: LabSolusApi): Promise<{ server: Se
   })
 }
 
-async function landAsGuest(page: Page, origin: string, resource: ShareResource, secret: string, name: string): Promise<string[]> {
+async function landAsGuest(page: Page, origin: string, resource: GuestLinkResource, secret: string, name: string): Promise<string[]> {
   const refused: string[] = []
   page.on('console', (message) => {
     const text = message.text()

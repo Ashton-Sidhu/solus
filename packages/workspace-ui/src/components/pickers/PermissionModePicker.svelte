@@ -88,10 +88,10 @@
         class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        <span class="inline-flex size-[1em] shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
+        <span class="inline-flex size-4 shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
           <display.icon class="block size-full" />
         </span>
-        <!-- Composer ladder, rung 4: icon-only below 28rem. The shield glyph
+        <!-- Composer ladder, rung 3: icon-only below 28rem. The shield glyph
              already names the mode, so the word is the cheapest thing on the row
              to spend. Declared here rather than passed down as a prop, so the
              rung is one CSS fact instead of a width measurement each of the

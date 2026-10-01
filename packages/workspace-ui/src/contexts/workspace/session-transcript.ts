@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
-import { artifactUpdateFromHistory } from './artifact-history'
+import { artifactUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -133,6 +133,7 @@ const watchInputSchema = z.object({
 const artifactInputSchema = z.object({
   kind: z.enum(['image', 'html']).optional().catch(undefined),
   html: z.string().optional(),
+  html_path: z.string().optional(),
   title: z.string().optional().catch(undefined),
   path: z.string().optional(),
 })
@@ -152,7 +153,7 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
-  return materializeSessionTranscript(ctx, args, loaded)
+  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies(api, history))
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted
@@ -162,6 +163,8 @@ export function materializeSessionTranscript(
   ctx: SurfaceContext,
   args: SessionTranscriptLoadArgs,
   loaded: SessionHistoryPage | WireSessionLoadMessage[],
+  /** The HTML of each `html_path` artifact call, by tool id. Without it those cards wait for the asynchronous load. */
+  artifactFileBodies?: ReadonlyMap<string, string>,
 ): SessionTranscriptLoadResult {
   const serverId = args.serverId ?? serverConnections.serverIdForApi(ctx.apiForSession(args.ctx.session.sessionId))
   const pageMessages = Array.isArray(loaded) ? loaded : loaded.messages
@@ -423,7 +426,7 @@ export function materializeSessionTranscript(
     } else if (m.role === 'tool' && m.toolName?.endsWith('update_work')) {
       messages.push(msg)
       const result = resultsByToolId.get(m.toolId ?? '') ?? m
-      const revision = artifactUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId))
+      const revision = artifactUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId), artifactFileBodies?.get(m.toolId ?? ''))
       if (revision) messages.push(revision)
       continue
     } else if (m.role === 'tool' && isRenderArtifactTool(m.toolName)) {
@@ -436,22 +439,25 @@ export function materializeSessionTranscript(
       try {
         const input = artifactInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         const kind = input.kind === 'image' ? 'image' : 'html'
+        // A call that named an html_path holds no HTML: it shows the revision it wrote, or no card.
+        const html = input.html_path ? artifactFileBodies?.get(m.toolId ?? '') : input.html
+        if (kind === 'html' && input.html_path && html === undefined) continue
         let path = input.path
         // The stored path may be relative to the working directory; resolve it so
         // the host can sign a URL for the file on reload.
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
         let workRef: Message['workRef']
-        if (kind === 'html' && input.html) {
+        if (kind === 'html' && html) {
           // Never infer artifact identity from a title: two artifacts can share
           // a title, and a later rename must not break the revision chain.
           const ref = result.artifactWorkRef
-          if (ref) workRef = { ...ref, workType: 'artifact' }
+          if (ref) workRef = { workId: ref.workId, title: ref.title, workType: 'artifact' }
         }
         messages.push({
           id: nextMsgId(),
           role: 'assistant' as const,
           content: '',
-          artifact: { kind, html: input.html, path },
+          artifact: { kind, html, path },
           workRef,
           timestamp: m.timestamp ?? Date.now(),
         })

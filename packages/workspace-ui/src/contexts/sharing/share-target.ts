@@ -9,6 +9,6 @@ export function activeSessionShareTarget(session: Pick<WorkspaceContext, 'active
   const current = session.sessionFor(tabId)
   if (!current?.id) return null
   const serverId = session.serverIdFor(tabId)
-  if (!sharesStore.canShareFrom(serverId)) return null
+  if (!sharesStore.canShareFrom(serverId, 'session')) return null
   return { serverId, resource: { kind: 'session', id: current.id }, title: sessionTitle(current) }
 }

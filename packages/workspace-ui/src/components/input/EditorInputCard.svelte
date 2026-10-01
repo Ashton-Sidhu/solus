@@ -102,7 +102,7 @@
       {readOnlyReason}
       bind:prompt
     >
-      {#snippet leadingActions(savedPromptsControl)}
+      {#snippet leadingActions()}
         <InputToolbar
           {active}
           spacious
@@ -113,7 +113,6 @@
           {onAttachFile}
           {onScreenshot}
           {onDesignMode}
-          {savedPromptsControl}
           {trailingActions}
         />
       {/snippet}

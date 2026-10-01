@@ -1,7 +1,12 @@
 import type { SvelteMarkdownOptions } from "@humanspeak/svelte-markdown";
 import type { MarkedExtension } from "marked";
 import { rawHtmlMarkedExtension } from "./raw-html";
-import { alertMarkedExtension, footnoteMarkedExtension } from "./markdown-extensions";
+import {
+  SPACED_IMAGE_PATH_RE,
+  alertMarkedExtension,
+  footnoteMarkedExtension,
+  spacedImagePathMarkedExtension,
+} from "./markdown-extensions";
 import { decodeHtmlEntities } from "./html-entities";
 
 export const assistantMarkdownOptions: SvelteMarkdownOptions = {};
@@ -29,14 +34,20 @@ const FOOTNOTE_RE = /\[\^[^\]\s]+\]/;
  *  reply streams and the incremental parser is not rebuilt on every token. */
 const extensionSets = new Map<number, MarkedExtension[]>();
 
-function extensionSet(rawHtml: boolean, alert: boolean, footnote: boolean): MarkedExtension[] {
-  const key = (rawHtml ? 1 : 0) | (alert ? 2 : 0) | (footnote ? 4 : 0);
+function extensionSet(
+  rawHtml: boolean,
+  alert: boolean,
+  footnote: boolean,
+  spacedImagePath: boolean,
+): MarkedExtension[] {
+  const key = (rawHtml ? 1 : 0) | (alert ? 2 : 0) | (footnote ? 4 : 0) | (spacedImagePath ? 8 : 0);
   let set = extensionSets.get(key);
   if (!set) {
     set = [
       ...(rawHtml ? [rawHtmlMarkedExtension] : []),
       ...(alert ? [alertMarkedExtension] : []),
       ...(footnote ? [footnoteMarkedExtension] : []),
+      ...(spacedImagePath ? [spacedImagePathMarkedExtension] : []),
     ];
     extensionSets.set(key, set);
   }
@@ -58,10 +69,16 @@ function hasRawHtml(source: string): boolean {
 }
 
 /** Raw HTML can merge adjacent blocks and requires the full parser, and so do
- * footnotes, whose references and definitions cross blocks. GitHub alerts are
- * block-anchored and keep the incremental parser. Each extension is added only
+ * footnotes, whose references and definitions cross blocks. GitHub alerts and
+ * image paths with spaces stay inside their own span and keep the incremental
+ * parser. Each extension is added only
  * when the reply uses its syntax, so ordinary prose and fenced source keep the
  * library's stable-prefix incremental parser. */
 export function assistantMarkdownExtensions(source: string): MarkedExtension[] {
-  return extensionSet(hasRawHtml(source), ALERT_RE.test(source), FOOTNOTE_RE.test(source));
+  return extensionSet(
+    hasRawHtml(source),
+    ALERT_RE.test(source),
+    FOOTNOTE_RE.test(source),
+    SPACED_IMAGE_PATH_RE.test(source),
+  );
 }

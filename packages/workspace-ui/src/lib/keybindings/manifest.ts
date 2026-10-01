@@ -30,8 +30,6 @@ export const KEYBINDINGS = {
   // Insights owns ⌥⇧I. Design mode remains available from the action menu and
   // Settings → Keybindings, but ships unassigned rather than shadowing Insights.
   'global.design-mode':       { combo: null,                                                scope: 'global',             label: 'Design mode',              group: 'Compose' },
-  'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' }, web: { alt: true, shift: true, code: 'KeyS' }, scope: 'global', label: 'Save prompt',              group: 'Compose' },
-  'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   // The letter layer is already occupied by other global actions. Semicolon
   // gives Files one collision-free default on desktop and web without making
@@ -251,10 +249,6 @@ export const KEYBINDINGS = {
 
   // ── Attachment preview ─────────────────────────────────────────────────────
   'attachment.close-preview':     { combo: { code: 'Escape' },                             scope: 'attachment-preview', label: 'Close preview',            group: 'General' },
-
-  // ── Saved prompts (sheet open; ⌫ is gated on an empty search field so it
-  //    still backspaces while you type) ───────────────────────────────────────
-  'saved-prompts.delete':         { combo: { code: 'Backspace' },                          scope: 'saved-prompts',      label: 'Delete saved prompt',      group: 'Saved prompts' },
 
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },

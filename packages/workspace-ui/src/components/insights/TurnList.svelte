@@ -86,6 +86,9 @@
     pageSize?: number;
     onPageChange?: (pageIndex: number) => void;
     onPageSizeChange?: (pageSize: number) => void;
+    /** A page or sort change is reading new rows. The rows on screen stay,
+     *  dimmed, until the new ones land. */
+    rowsLoading?: boolean;
     fullStatusCounts?: TurnStatusCounts;
     fullP95DurationMs?: number | null;
     search?: string;
@@ -112,6 +115,7 @@
     pageSize,
     onPageChange,
     onPageSizeChange,
+    rowsLoading = false,
     fullStatusCounts,
     fullP95DurationMs,
     search,
@@ -645,7 +649,10 @@
       </Table.Header>
       <!-- The app disables selection at the root, so the rows opt back in: a
            reader must be able to drag a prompt or an id out of the table. -->
-      <Table.Body class="select-text">
+      <Table.Body
+        class={["select-text motion-safe:transition-opacity", rowsLoading && "opacity-60"]}
+        aria-busy={rowsLoading}
+      >
         {#if grouped}
           {#each groups as group (group.sessionId)}
             {@const open = collapsed[group.sessionId] !== true}

@@ -96,6 +96,8 @@ export class UplinkLinkManager {
   private persisted: PersistedLink | null
   private observed: UplinkObservedState = 'offline'
   private observedError: string | undefined
+  /** Solus cloud no longer accepts the stored link: another copy took it, it was removed, or its credentials are gone. */
+  private linkRejected = false
 
   constructor(private readonly deps: UplinkLinkDeps) {
     this.persisted = readPersistedLink()
@@ -139,6 +141,9 @@ export class UplinkLinkManager {
 
   status(): UplinkStatus {
     if (!this.persisted || this.persisted.desired !== 'linked') return { linked: false }
+    // A link Solus cloud rejected is no link: nothing can be delivered or reached through it,
+    // and Link replaces it. The reason stays visible.
+    if (this.linkRejected) return { linked: false, error: this.observedError ?? SUPERSEDED_MESSAGE }
     const state: UplinkLinkState = this.observedError
       ? { observed: this.observed, error: this.observedError }
       : { observed: this.observed }
@@ -151,6 +156,8 @@ export class UplinkLinkManager {
    * a person copies links a new host or attaches one already linked.
    */
   async link(request: UplinkLinkRequest): Promise<UplinkStatus> {
+    // A link Solus cloud rejected cannot attach anything: its token is dead. Link anew.
+    if (this.persisted?.desired === 'linked' && this.linkRejected) this.forgetRejectedLink()
     if (this.persisted?.desired === 'linked') return this.attach(request)
     if (this.persisted) {
       // An unlink the control plane has not confirmed yet: finish it first so the old
@@ -248,6 +255,15 @@ export class UplinkLinkManager {
     return this.status()
   }
 
+  /** Drop a link Solus cloud already rejected; there is nothing to tell it. */
+  private forgetRejectedLink(): void {
+    void this.deps.connector.stop()
+    secretStore().remove(TOKENS_KEY, tokensElectronPath())
+    this.linkRejected = false
+    this.setPersisted(null)
+    log.info('uplink_rejected_link_forgotten')
+  }
+
   /** Desired state first, then the connector, then the control plane, then the secrets. */
   async unlink(): Promise<UplinkStatus> {
     if (!this.persisted) throw new UplinkLinkError('not-linked', 'This host is not linked.')
@@ -287,6 +303,7 @@ export class UplinkLinkManager {
       // The record says linked but the credentials are gone: the host cannot run the
       // tunnel or prove itself. Surface it; the owner re-links.
       this.setObservation({ observed: 'error', error: 'Link credentials are missing; link this host again.' })
+      this.linkRejected = true
       return
     }
     const { proxiedPort } = this.persisted.link
@@ -369,6 +386,7 @@ export class UplinkLinkManager {
   private markSuperseded(): 'superseded' {
     log.warn('uplink_superseded', { hostId: this.persisted?.link.hostId ?? null })
     this.setObservation({ observed: 'error', error: SUPERSEDED_MESSAGE })
+    this.linkRejected = true
     return 'superseded'
   }
 

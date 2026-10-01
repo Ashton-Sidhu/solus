@@ -25,7 +25,6 @@ export type Scope =
   | 'design-annotation'
   | 'plan-action-bar'
   | 'attachment-preview'
-  | 'saved-prompts'
   | 'diagram'
   /** An artifact work open in a pane: the render with its comment pins. */
   | 'artifact'

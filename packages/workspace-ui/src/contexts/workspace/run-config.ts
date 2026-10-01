@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, RunConfig, WorktreeEntry } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, ReasoningEffort, RunConfig, WorktreeEntry } from '@solus/contracts/types'
 import { MODEL_PROFILES, PERMISSION_MODES, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ProjectLocation } from '../app/settings.context.svelte'
@@ -164,6 +164,19 @@ export function modelConfigForModel(run: RunConfig, modelId: string): ModelConfi
     contextWindow: profile?.defaultContextWindow ?? null,
     fastMode: profile?.supportsFastMode ? run.modelConfig.fastMode : false,
   }
+}
+
+/** The run on another agent and model, with that model's own defaults and the
+ *  reasoning level the selection names. A task lead starts on the lead model
+ *  the user set (Settings → Tasks). */
+export function runOnModel(
+  run: RunConfig,
+  selection: { provider: AgentId; model: string; reasoningEffort?: ReasoningEffort },
+): RunConfig {
+  const next = { ...run, provider: selection.provider }
+  const modelConfig = modelConfigForModel(next, selection.model)
+  if (selection.reasoningEffort) modelConfig.reasoningEffort = selection.reasoningEffort
+  return { ...next, modelConfig }
 }
 
 /** The permission mode after `mode`, in `PERMISSION_MODES` order, wrapping at the end. */

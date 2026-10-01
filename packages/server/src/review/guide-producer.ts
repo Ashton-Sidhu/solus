@@ -9,6 +9,7 @@ import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
 import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget } from './review-target'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { SeatResolver } from '../execution/seats/seat-manager'
 import { runAsync } from '../git/exec'
 
 const log = createLogger('review', 'guide-producer.ts')
@@ -219,6 +220,7 @@ export async function generateGuide(
   opts: GenerateGuideOptions = {},
   onProgress?: (event: ReviewProgressEvent) => void,
   onStatus?: EmitStatus,
+  seatFor?: SeatResolver,
 ): Promise<GeneratedGuide | null> {
   // Resolve from the actual checkout (the worktree, for PR review / isolation) so
   // the guide is keyed on that branch — matching the key the renderer reads.
@@ -248,7 +250,7 @@ export async function generateGuide(
 
   const abortController = new AbortController()
   setGuideStatus(statusKey, statusEvent(review, target, 'generating', { step: 'preparing' }), onStatus)
-  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, emit)
+  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, seatFor, emit)
     .then((generated) => {
       if (inFlight.get(dedupeKey) !== entry) return generated
       const latest = guideStatuses.get(statusKey)
@@ -298,6 +300,7 @@ export async function requestReviewGuide(
   opts: GenerateGuideOptions = {},
   onProgress?: (event: ReviewProgressEvent) => void,
   onStatus?: EmitStatus,
+  seatFor?: SeatResolver,
 ): Promise<ReviewGuideStatusEvent | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return null
@@ -324,6 +327,7 @@ export async function requestReviewGuide(
       opts,
       onProgress,
       onStatus,
+      seatFor,
     ))
     .catch((error) => {
       log.warn('review_generation_failed', {
@@ -432,12 +436,13 @@ export async function authorPrGuide(
   opts: GenerateGuideOptions,
   signal: AbortSignal,
   emit: EmitProgress,
+  seatFor?: SeatResolver,
 ): Promise<GeneratedGuide | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review || signal.aborted) return null
   const target = await resolveTarget(ctx, review, opts)
   if (signal.aborted) return null
-  return produceGuide(dispatcher, ctx, opts, review, target, signal, emit, false)
+  return produceGuide(dispatcher, ctx, opts, review, target, signal, seatFor, emit, false)
 }
 
 async function produceGuide(
@@ -447,6 +452,7 @@ async function produceGuide(
   review: ReviewContext,
   target: GuideTarget,
   abortSignal: AbortSignal,
+  seatFor: SeatResolver | undefined,
   emit?: EmitProgress,
   persist = true,
 ): Promise<GeneratedGuide | null> {
@@ -491,6 +497,8 @@ async function produceGuide(
       context: review,
       agent,
       model: opts.model ?? null,
+      // The guide runs on the requester's own provider login, as their turns do.
+      seat: await seatFor?.(agent) ?? undefined,
       reasoningEffort: opts.reasoningEffort ?? null,
       reviewGuideInstructions: ctx.settings.reviewGuideInstructions,
       requestInstructions: opts.instructions,

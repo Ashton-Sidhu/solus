@@ -36,10 +36,7 @@
     WorkReference,
     SessionReference,
   } from "@solus/contracts/types";
-  import {
-    isSteerableStatus,
-    worktreeProjectRoot,
-  } from "@solus/contracts/types";
+  import { isSteerableStatus } from "@solus/contracts/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { isMac } from "../../lib/keybindings/match";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -49,7 +46,6 @@
     parseAnnotationAttachmentId,
     removeMarkFromAttachment,
   } from "../browser/lib/annotation-attachment";
-  import SavedPromptsControl from "./SavedPromptsControl.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
   import RecordingControls from "./RecordingControls.svelte";
@@ -94,8 +90,8 @@
      *  belong to. */
     paneId?: string;
     /** How the target will run. A draft's run and a started session's are the
-     *  same shape in the same position, so @-file search and saved prompts find
-     *  their project without asking which of the two they were handed. */
+     *  same shape in the same position, so @-file search finds its project
+     *  without asking which of the two it was handed. */
     run?: RunConfig;
     /** How a draft's run is edited. The draft owns that object, so the change
      *  goes back to its owner rather than being written through the prop — the
@@ -135,11 +131,9 @@
      *  session's own reason (a worktree that is gone) still applies without it.
      *  The bar shows the reason as its placeholder and takes no input. */
     readOnlyReason?: string | null;
-    /** Receives the saved-prompts control, which the toolbar seats in the left
-     *  cluster beside the pickers rather than out with the mic and send: saving
-     *  a prompt is a composer decision, not a send action. It is handed over as
-     *  a snippet because every prop it needs is private to this bar. */
-    leadingActions?: Snippet<[Snippet]>;
+    /** The toolbar row under the text well: the pickers, seated beside the
+     *  mic and send. */
+    leadingActions?: Snippet;
   }
   let {
     active,
@@ -258,14 +252,6 @@
       run?.workingDirectory ??
       statusBar.ctxForRun(run).workingDirectory,
   );
-  // Saved prompts file under the project, not the worktree, so a prompt written
-  // in one worktree is there in its siblings and in the main checkout.
-  const composerProjectRoot = $derived(
-    run?.gitContext?.repoRoot ??
-      (composerCwd && composerCwd !== "~"
-        ? worktreeProjectRoot(composerCwd)
-        : null),
-  );
   const composerServerId = $derived(
     run?.serverId ?? session.fallbackServerId,
   );
@@ -304,7 +290,7 @@
     autocompletePrompt = nextPrompt;
     untrack(() => composerEl?.clearCompletions());
   });
-  /** The composer card — the saved-prompts sheet matches its width. */
+  /** The composer card, which the idle fold measures. */
   let composerRootEl = $state<HTMLElement | null>(null);
 
   // ─── Voice recorder ───
@@ -733,7 +719,7 @@
           <div
             class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height)"
           >
-            {@render leadingActions(savedPromptsControl)}
+            {@render leadingActions()}
           </div>
         </div>
       </div>
@@ -769,30 +755,7 @@
   {/if}
 </div>
 
-{#snippet savedPromptsControl()}
-  <!-- No width guard here: rung 1 of the composer ladder hides this below 30rem,
-       which is the same answer without the unmount. The phone never reached this
-       branch anyway — it passes its own `leadingActions`, which takes no
-       arguments and so never renders this snippet. -->
-  <SavedPromptsControl
-    {prompt}
-    tabId={targetTabId}
-    projectRoot={composerProjectRoot}
-    serverId={composerServerId}
-    active={active && receivesFocusedInput}
-    {isReadOnly}
-    anchorEl={composerRootEl}
-    onClearEditor={() => composerEl?.clearEditor()}
-    onRefocus={refocusComposer}
-  />
-{/snippet}
-
 {#snippet actionButtons()}
-  <!-- The compact bar has no toolbar row to seat it in, so it keeps the saved
-       control out here with the mic and send. -->
-  {#if !leadingActions}
-    {@render savedPromptsControl()}
-  {/if}
   {@render voiceButtons()}
   {@render sendButton()}
 {/snippet}

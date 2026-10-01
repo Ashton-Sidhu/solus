@@ -1,16 +1,10 @@
-import { withTx } from '../db'
 import type { ShareResource } from '@solus/contracts/sharing'
 import type { Publication, PublicationStartRequest } from '@solus/contracts/organization-scope'
-import type { WorkTransfer } from '@solus/contracts/work-transfer'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { assignSessionOrganization, getSessionRecord, markSessionPublished, recordSessionId } from '../data/sessions/session-records'
-import { exportWorkForCloud, removePushedWork } from '../data/works/works'
-import { Work } from '../data/works/work'
-import { Task } from '../data/tasks/task'
 import { mirrorPendingThrough } from './mirror/mirror-log'
-import { publicationOutboxPending, queueSessionReport, recordOutboxOp, sessionReportPendingThrough } from './outbox/outbox-store'
-import { RUNNER_WORKS_PATH, runnerWorkResponseSchema, type RunnerWorkRequest } from './runner-protocol'
+import { queueSessionReport, sessionReportPendingThrough } from './outbox/outbox-store'
 import type { TranscriptMirror, TranscriptSource } from './mirror/transcript-mirror'
 import type { RunnerDelivery } from './runner-delivery'
 import type { DeliveryDestination } from './outbox/outbox-store'
@@ -20,25 +14,21 @@ const log = createLogger('main', 'publication')
 
 /**
  * Publication (organization-scope §7): the one recoverable operation that moves
- * a Local work, session, or task into one organization on the Solus API. Share
- * and Move both start one; opening or cancelling Share starts none.
+ * a Local session into one organization on the Solus API. Share and Move both
+ * start one; opening or cancelling Share starts none. A work or a task does not
+ * come here: the client uploads it to the Solus API with its own sign-in
+ * (docs/plans/cloud-sharing.md). A session needs this host because the host
+ * keeps sending its later turns.
  *
- * Order of events for every kind: reserve the destination first (a `pending`
+ * Order of events: reserve the destination first (a `pending`
  * row, unique per resource, so a concurrent Share B or an Insights assignment
  * cannot choose another organization), then send, then wait for the service's
  * receipt, then commit the record's new state. A failure keeps the row and its
  * story; a restart resumes what is `pending` or `sent`.
  *
- * - A **work** is exported with its complete history and annotations, posted
- *   to the organization's service under this host's runner grant (the service
- *   imports it atomically, or answers that the same content is already there),
- *   and only then removed here — unless it changed meanwhile, in which case the
- *   local copy is kept and the publication fails.
- * - A **session** is assigned to the organization if it was unassigned, waits
- *   for its turn to settle, has its record reported and its transcript
- *   mirrored, and is `published` once the service acknowledged both.
- * - A **task** travels as outbox ops — its creation and its comments — and its
- *   local row leaves once the service applied them.
+ * A session is assigned to the organization if it was unassigned, waits for
+ * its turn to settle, has its record reported and its transcript mirrored, and
+ * is `published` once the service acknowledged both.
  */
 
 export interface PublicationDeps {
@@ -49,8 +39,6 @@ export interface PublicationDeps {
   isTurnRunning: (sessionId: string) => boolean
   hostId: () => string | null
   onChanged: (publication: Publication) => void
-  /** Drop the share rows of a resource that left this host. */
-  forgetResource?: (resource: ShareResource) => Promise<void>
   /** How long to wait for a turn to settle or a receipt to arrive before the publication stays where it is. */
   waitMs?: number
   pollMs?: number
@@ -78,6 +66,7 @@ export class PublicationCoordinator {
    */
   async start(request: PublicationStartRequest, actorUserId: string): Promise<Publication> {
     if (request.organizationId === LOCAL_ORGANIZATION_ID) throw new Error('Choose an organization to publish to.')
+    if (request.resource.kind !== 'session') throw new Error(`A ${request.resource.kind} is shared through Solus cloud with your sign-in, not by this machine.`)
     const active = activePublication(request.resource)
     if (active) {
       if (active.organizationId !== request.organizationId) {
@@ -86,7 +75,7 @@ export class PublicationCoordinator {
       this.drive(active.id)
       return toPublication(active)
     }
-    const home = await this.currentOrganization(request.resource)
+    const home = (await getSessionRecord(ANY_ORGANIZATION, recordSessionId(request.resource.id)))?.organizationId ?? null
     if (home !== null && home !== LOCAL_ORGANIZATION_ID && home !== request.organizationId) {
       throw new Error('This resource belongs to another organization and cannot move between organizations.')
     }
@@ -113,55 +102,10 @@ export class PublicationCoordinator {
     const row = readPublication(id)
     if (!row || (row.state !== 'pending' && row.state !== 'sent')) return
     switch (row.resource.kind) {
-      case 'work': return this.publishWork(row)
       case 'session': return this.publishSession(row)
-      case 'task': return this.publishTask(row)
+      // A row from before works and tasks were uploaded by the client: nothing here sends it any more.
+      default: return this.fail(row, `Share this ${row.resource.kind} again: it is now uploaded with your sign-in.`)
     }
-  }
-
-  private async currentOrganization(resource: ShareResource): Promise<string | null> {
-    switch (resource.kind) {
-      case 'session': return (await getSessionRecord(ANY_ORGANIZATION, recordSessionId(resource.id)))?.organizationId ?? null
-      case 'work': return (await Work.find(ANY_ORGANIZATION, resource.id))?.organizationId ?? null
-      case 'task': {
-        try { return (await Task.byId(ANY_ORGANIZATION, resource.id)).organizationId } catch { return null }
-      }
-    }
-  }
-
-  // ── Works ────────────────────────────────────────────────────────────────
-
-  private async publishWork(row: PublicationRow): Promise<void> {
-    const hostId = this.deps.hostId()
-    if (!hostId) return this.fail(row, 'This host is not linked to Solus cloud.')
-    let transfer: WorkTransfer
-    try {
-      transfer = await exportWorkForCloud(ANY_ORGANIZATION, row.resource.id)
-    } catch (error) {
-      return this.fail(row, error instanceof Error ? error.message : String(error))
-    }
-    if (transfer.work.organizationId !== LOCAL_ORGANIZATION_ID && transfer.work.organizationId !== row.organizationId) {
-      return this.fail(row, 'This work belongs to another organization.')
-    }
-    const sent = updatePublication(row.id, { state: 'sent', fingerprint: transfer.fingerprint })
-    if (row.state !== 'sent') this.deps.onChanged(toPublication(sent))
-    const destination = { organizationId: row.organizationId, actorUserId: row.actorUserId }
-    const body: RunnerWorkRequest = { hostId, transfer, actorUserId: row.actorUserId }
-    const answer = await this.deps.delivery.call(destination, RUNNER_WORKS_PATH, body, runnerWorkResponseSchema)
-    if (answer.kind === 'refused') return this.fail(sent, answer.error ?? `The organization's service refused the work (${answer.status}).`)
-    if (answer.kind !== 'ok') {
-      // Unreachable or no grant yet: the reservation holds and the next delivery cycle tries again.
-      if (!this.waitingOnPerson(sent, destination)) log.info('publication_deferred', { publicationId: row.id, reason: answer.kind })
-      return
-    }
-    try {
-      await removePushedWork(ANY_ORGANIZATION, row.resource.id, transfer.fingerprint)
-    } catch (error) {
-      // The work changed while it travelled: the cloud has the old version, the newer local copy is kept.
-      return this.fail(sent, error instanceof Error ? error.message : String(error))
-    }
-    await this.deps.forgetResource?.(row.resource)
-    this.commit(sent)
   }
 
   // ── Sessions ─────────────────────────────────────────────────────────────
@@ -206,82 +150,6 @@ export class PublicationCoordinator {
       return
     }
     await markSessionPublished(recordId)
-    this.commit(sent)
-  }
-
-  // ── Tasks ────────────────────────────────────────────────────────────────
-
-  private async publishTask(row: PublicationRow): Promise<void> {
-    const hostId = this.deps.hostId()
-    if (!hostId) return this.fail(row, 'This host is not linked to Solus cloud.')
-    let task: Task
-    try {
-      task = await Task.byId(ANY_ORGANIZATION, row.resource.id)
-    } catch {
-      return this.fail(row, 'This task no longer exists on this host.')
-    }
-    if (task.organizationId !== LOCAL_ORGANIZATION_ID && task.organizationId !== row.organizationId) {
-      return this.fail(row, 'This task belongs to another organization.')
-    }
-    const details = row.state === 'pending' ? await task.details() : null
-    const sent = withTx(() => {
-      let throughSeq = row.throughSeq ?? 0
-      if (details) {
-        const created = recordOutboxOp({
-          domain: 'tasks',
-          resourceId: task.id,
-          name: 'create',
-          destination: 'cloud',
-          organizationId: row.organizationId,
-          actorUserId: row.actorUserId,
-          publicationId: row.id,
-          payload: {
-            title: task.title,
-            projectKey: task.projectKey ?? null,
-            body: task.body,
-            priority: task.priority ?? null,
-            labels: task.labels,
-            dueDate: task.dueDate ?? null,
-            status: task.status,
-            originSessionId: task.originSessionId ?? null,
-            createdAt: task.createdAt,
-          },
-        })
-        throughSeq = created.seq
-        for (const comment of details.comments) {
-          if (comment.source !== 'local') continue
-          const op = recordOutboxOp({
-            domain: 'tasks',
-            resourceId: task.id,
-            name: 'comment',
-            destination: 'cloud',
-            organizationId: row.organizationId,
-            actorUserId: row.actorUserId,
-            publicationId: row.id,
-            payload: { body: comment.body, author: comment.author ?? 'Host owner', originSessionId: comment.originSessionId ?? undefined },
-          })
-          throughSeq = Math.max(throughSeq, op.seq)
-        }
-      }
-      return updatePublication(row.id, { state: 'sent', throughSeq })
-    })
-    if (row.state !== 'sent') this.deps.onChanged(toPublication(sent))
-    const destination = { organizationId: row.organizationId, actorUserId: row.actorUserId }
-    if (this.waitingOnPerson(sent, destination)) return
-    this.deps.delivery.kick()
-    await this.waitUntil(() => readPublication(row.id)?.state === 'failed' || !publicationOutboxPending(row.id) || this.deps.delivery.waitingReason(destination) !== null)
-    const result = readPublication(row.id)
-    if (result?.state === 'failed') {
-      this.deps.onChanged(toPublication(result))
-      return
-    }
-    if (publicationOutboxPending(row.id)) {
-      if (!this.waitingOnPerson(sent, destination)) log.info('publication_waiting_for_receipt', { publicationId: row.id, taskId: task.id, throughSeq: sent.throughSeq })
-      return
-    }
-    // The service holds it now; the local row and its shares leave, as a published work's do.
-    await task.delete()
-    await this.deps.forgetResource?.(row.resource)
     this.commit(sent)
   }
 

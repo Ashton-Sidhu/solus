@@ -712,8 +712,7 @@
   /** Works only: the Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
   function canShare(item: WorkspaceItem): boolean {
     const serverId = session.worksStore.hostFor(item.id);
-    return item.source.kind === "work" && !!serverId
-      && (sharesStore.canShareFrom(serverId) || sharesStore.canPublishWork(serverId));
+    return item.source.kind === "work" && !!serverId && sharesStore.canShareFrom(serverId, "work");
   }
   function shareItem(item: WorkspaceItem) {
     const serverId = session.worksStore.hostFor(item.id);

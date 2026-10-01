@@ -6,6 +6,7 @@ import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { PrProject } from '@solus/workspace-ui/contexts/prs/prs.store.svelte'
 import {
   flattenQualifiedProjects,
+  prProjectTargets,
   qualifiedPrKey,
   type QualifiedProject,
 } from '@solus/workspace-ui/components/prs/lib/pr-cross-project'
@@ -340,3 +341,32 @@ describe('qualified PR identity', () => {
   })
 })
 
+
+// Pull requests are read through a host with the project's checkout. The Solus
+// API serves records and answers no `pr*` method, so a project whose hosts are
+// all off is left out rather than sent there to fail with "Unknown method".
+describe('prProjectTargets', () => {
+  const reach = {
+    isOnlineCheckout: (serverId: string) => serverId === 'sprite',
+    apiFor: () => asHostApi({}),
+    ctxFor,
+  }
+
+  test('reads each project through its own online host', () => {
+    const targets = prProjectTargets(
+      [{ key: 'github.com/acme/app', projectKey: '/data/projects/app', serverId: 'sprite', label: 'app' }],
+      reach,
+    )
+
+    expect(targets.map((t) => [t.serverId, t.projectRoot])).toEqual([['sprite', '/data/projects/app']])
+  })
+
+  test('leaves out a project whose host is off, even when it names a repository', () => {
+    const targets = prProjectTargets(
+      [{ key: 'github.com/acme/app', projectKey: '/Users/me/app', serverId: 'laptop', label: 'app' }],
+      reach,
+    )
+
+    expect(targets).toEqual([])
+  })
+})

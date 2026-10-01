@@ -97,6 +97,8 @@
   const callerRole = $derived(workServerId ? sharesStore.listFor(workServerId, { kind: "work", id: params.workId })?.callerRole ?? null : null);
   // A commenter reads and reviews; only an editor changes the body.
   const viewerReadOnly = $derived(callerRole === "viewer" || callerRole === "commenter");
+  // The host deletes a work for its owner alone; a Local work has no list.
+  const canDelete = $derived(callerRole === null || callerRole === "owner");
   $effect(() => {
     const serverId = workServerId;
     const workId = params.workId;
@@ -193,9 +195,10 @@
     sess?.run.gitContext?.worktreePath ?? sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "",
   );
   // Saving writes to the host's filesystem. When that host is this very machine
-  // there is nothing a browser download would add; when it is not, downloading
-  // is the only way to get the file onto the device the user is holding.
-  const hostIsRemote = $derived(!!sess && !hostPolicy.isClientMachine(sess.run.serverId));
+  // there is nothing a browser download would add; when it is not, or there is
+  // no project to save into (a share link), downloading is the only way to get
+  // the file onto the device the user is holding.
+  const hostIsRemote = $derived(!exportStartPath || (!!sess && !hostPolicy.isClientMachine(sess.run.serverId)));
 
   // The crumb's way back: leave this pane, then show the page the work is a
   // row on — the same two steps the automation builder takes.
@@ -213,6 +216,7 @@
   }
 
   // A guest shell has nowhere for these to lead, so the surfaces offer no way there.
+  // A duplicate lands in the sharer's Workspace, which a guest cannot open.
   const canOpenWorkspace = $derived(shell.canOpenResource("workspace"));
   const canOpenChat = $derived(shell.canOpenResource("chat"));
 
@@ -333,12 +337,34 @@
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
               onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
-              onRename={handleRename}
-              onDelete={handleDelete}
-              onDuplicate={handleDuplicate}
+              onRename={viewerReadOnly ? undefined : handleRename}
+              onDelete={canDelete ? handleDelete : undefined}
+              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
               live={liveBinding}
+            />
+          {:catch error}
+            <RouteLoadError
+              {error}
+              compact
+              onRetry={() => (renderKey += 1)}
+            />
+          {/await}
+        {:else if work.type === "insights-report"}
+          {#await import("../insights/InsightsReportShell.svelte")}
+            <DocumentModalSkeleton inline title={work.title} />
+          {:then reportModule}
+            <reportModule.default
+              content={draft.content}
+              title={work.title}
+              workId={work.id}
+              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
+              onRename={viewerReadOnly ? undefined : handleRename}
+              onDelete={canDelete ? handleDelete : undefined}
+              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
+              onExport={exportStartPath ? handleExport : undefined}
+              {hostIsRemote}
             />
           {:catch error}
             <RouteLoadError
@@ -356,9 +382,9 @@
             onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
             onOpenChat={canOpenChat ? handleOpenChat : undefined}
             {originalSessionMeta}
-            onRename={handleRename}
-            onDelete={handleDelete}
-            onDuplicate={handleDuplicate}
+            onRename={viewerReadOnly ? undefined : handleRename}
+            onDelete={canDelete ? handleDelete : undefined}
+            onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
             onExport={exportStartPath ? handleExport : undefined}
             {hostIsRemote}
           />
@@ -388,9 +414,9 @@
               minimizeOutline={!pane.isLeading}
               onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
-              onRename={handleRename}
-              onDelete={handleDelete}
-              onDuplicate={handleDuplicate}
+              onRename={viewerReadOnly ? undefined : handleRename}
+              onDelete={canDelete ? handleDelete : undefined}
+              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
               live={liveBinding}
@@ -419,7 +445,9 @@
           ? "Close diagram"
           : work.type === "artifact"
             ? "Close artifact"
-            : "Close document"}
+            : work.type === "insights-report"
+              ? "Close report"
+              : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
       />
     {/if}
@@ -440,7 +468,7 @@
   {/if}
 {/if}
 
-{#if !work}
+{#if !work && canOpenWorkspace}
   <PaneChrome
     onClose={handleClose}
     onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}

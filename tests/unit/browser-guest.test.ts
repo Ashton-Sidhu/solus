@@ -153,7 +153,21 @@ describe('browserGuest load reports', () => {
     node.fire('page-title-updated')
     expect(reports.every((report) => report.loadState === 'loading')).toBe(true)
 
-    node.fire('did-finish-load')
+    node.fire('did-stop-loading')
+    expect(reports.at(-1)?.loadState).toBe('ready')
+  })
+
+  test('a subframe load after the page is ready does not leave it loading', () => {
+    // WHY: Electron fires did-start-loading for any frame but did-finish-load only
+    // for the main frame. A page that loaded an iframe after its own load showed a
+    // spinning reload glyph and a running load bar forever.
+    const { node, reports } = setup()
+    node.getURL = () => 'https://app.solus.sh/'
+    node.fire('did-start-loading')
+    node.fire('did-stop-loading')
+    node.fire('did-start-loading')
+    expect(reports.at(-1)?.loadState).toBe('loading')
+    node.fire('did-stop-loading')
     expect(reports.at(-1)?.loadState).toBe('ready')
   })
 
@@ -169,16 +183,16 @@ describe('browserGuest load reports', () => {
     expect(reports.at(-1)?.failure).toBe('ERR_CONNECTION_REFUSED')
 
     node.fire('did-start-loading')
-    node.fire('did-finish-load')
+    node.fire('did-stop-loading')
     expect(reports.at(-1)?.loadState).toBe('ready')
     expect(reports.at(-1)?.failure).toBeUndefined()
   })
 
   test('does not treat an unreadable or blank startup document as a loaded page', () => {
     const { node, reports } = setup()
-    node.fire('did-finish-load')
+    node.fire('did-stop-loading')
     node.getURL = () => ''
-    node.fire('did-finish-load')
+    node.fire('did-stop-loading')
     node.getURL = () => { throw new Error('Not attached') }
     node.fire('page-title-updated')
     expect(reports).toEqual([])
@@ -187,7 +201,7 @@ describe('browserGuest load reports', () => {
   test('a subframe failure does not fail the page', () => {
     const { node, reports } = setup()
     node.getURL = () => 'http://localhost:5173/'
-    node.fire('did-finish-load')
+    node.fire('did-stop-loading')
     node.fire('did-fail-load', { isMainFrame: false, errorDescription: 'ERR_CONNECTION_REFUSED' })
     expect(reports.at(-1)?.loadState).toBe('ready')
   })

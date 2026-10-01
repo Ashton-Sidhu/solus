@@ -14,6 +14,7 @@ import { mentionsAsText, restoreMentions } from '@solus/contracts/mentions'
 import type { AgentId, WorkType } from '@solus/contracts/types'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
+import { readArtifactHtml } from './artifact-file'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -82,7 +83,8 @@ const findWorksFields = {
 
 const updateWorkFields = {
   work_id: z.string().describe('The id of the work to update (from find_works).'),
-  content: z.string().describe('The full new content of the work. Replaces the existing content entirely.'),
+  content: z.string().optional().describe('The full new content of the work. Replaces the existing content entirely. Pass this or html_path, not both.'),
+  html_path: z.string().optional().describe('Artifacts only: the path of a compiled HTML file on this host, such as the visual-artifacts bundle.html, to use as the new content. A relative path is relative to your working directory. Pass this or content, not both.'),
   title: z.string().optional().describe('Optional new title for the work.'),
   expected_content_version: z.number().int().min(0).describe('The content_version that read_work returned for the content you revised. If the work changed since then, nothing is saved and you must call read_work again.'),
 }
@@ -120,7 +122,7 @@ const CREATE_DESC = [
 const UPDATE_DESC = [
   'Google-linked works are read-only in Solus. Edit in Google Docs and pull the latest content; local and shared comments remain available.',
   'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document, diagram, or HTML artifact the user is looking at — never create a new work to revise one that already exists.',
-  'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract. For an artifact, `content` is the full self-contained HTML document.',
+  'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract. For an artifact, `content` is the full self-contained HTML document; for a compiled file, pass `html_path` instead and Solus reads the file on this host.',
   'Call read_work first so you revise the latest version, and carry forward any standalone work://embed link and any fenced ```html block already in the content — both are live renders, not stale text.',
   'Pass the content_version read_work returned as `expected_content_version`. If the user or another writer changed the work after your read, nothing is saved: call read_work again and apply your change to that content. On success the new content_version is returned.',
 ].join('\n')
@@ -141,6 +143,7 @@ interface WorkToolArgs {
   title?: string
   doc_type?: 'doc' | 'slides' | 'diagram'
   content?: string
+  html_path?: string
   expected_content_version?: number
 }
 
@@ -215,6 +218,10 @@ function embedTokenNote(workId: string, title: string, type: WorkType): string {
 
 /** The typed answer to a write against a body the agent did not read. The
  * agent must read again; this tool never supplies a newer version for it. */
+function htmlPathNotArtifact(title: string): WorkToolResult {
+  return { ok: false, text: `html_path is for artifacts only. "${title}" is not an artifact; pass its content instead. Nothing was saved.` }
+}
+
 function staleWrite(title: string, expectedContentVersion: number): WorkToolResult {
   return {
     ok: false,
@@ -340,8 +347,14 @@ export async function executeWorkTool(
     if (name === 'update_work') {
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'update_work requires a work_id.' }
-      const content = args.content ?? ''
-      if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content.' }
+      if (args.content && args.html_path) return { ok: false, text: 'update_work takes content or html_path, not both.' }
+      let content = args.content ?? ''
+      if (args.html_path) {
+        const read = await readArtifactHtml(args.html_path, deps.ctx?.cwd ?? '~')
+        if ('error' in read) return { ok: false, text: `update_work error: ${read.error}` }
+        content = read.html
+      }
+      if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content or an html_path.' }
       const title = args.title
       const expectedContentVersion = args.expected_content_version
       if (expectedContentVersion === undefined) return { ok: false, text: 'update_work requires expected_content_version: the content_version read_work returned.' }
@@ -358,6 +371,7 @@ export async function executeWorkTool(
         const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
         const foreignTaskId = foreignTaskIdFor(deps.ctx?.solusSessionId)
         if (foreign && foreignTaskId) {
+          if (args.html_path && foreign.workType !== 'artifact') return htmlPathNotArtifact(foreign.title)
           // The owner validates again; refusing here saves a dead-lettered op.
           try {
             validateWorkContent(foreign.workType, content)
@@ -390,6 +404,7 @@ export async function executeWorkTool(
       // The record version is fetched now, for If-Match; the content version is
       // the agent's own, and both are checked in the save's transaction. The
       // work's host validates the body (a diagram must parse).
+      if (args.html_path && existing.type !== 'artifact') return htmlPathNotArtifact(existing.title)
       let saved
       try {
         saved = await operations.updateWork(context, workId, { content: restoreMentions(content, existing.content), title, expectedContentVersion }, existing.updatedAt)

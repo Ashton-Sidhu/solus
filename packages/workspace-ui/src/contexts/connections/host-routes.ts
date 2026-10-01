@@ -17,6 +17,7 @@ export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {
 export function uplinkStatusDescription(status: UplinkStatus | undefined): string {
   if (!status) return 'Checking the link…'
   if (!status.linked) {
+    if (status.error) return `${status.error} You can continue to use Solus locally.`
     return 'Reach this host from your other devices through your Solus account. It stays available on your local network either way.'
   }
   const { hostname } = status.link

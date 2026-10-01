@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { pauseWhenOffscreen } from "./lib/visible-animation";
 
@@ -36,8 +35,8 @@
     /** This row is nested under the turn-level activity summary. */
     nested?: boolean;
     expanded?: boolean;
-    /** Absent means there is nothing folded away: the chevron keeps its slot for
-     *  the geometry but has nothing to open. */
+    /** Absent means there is nothing folded away. The whole row is the
+     *  disclosure — there is no chevron; hover and the detail's rule say it opens. */
     onToggle?: () => void;
     testid?: string;
   }
@@ -75,18 +74,6 @@
       aria-expanded={onToggle ? expanded : undefined}
       onclick={onToggle}
     >
-      {#if onToggle}
-        <CaretRightIcon
-          size={12}
-          aria-hidden="true"
-          class="activity-caret shrink-0 {expanded ? 'rotate-90' : ''}"
-        />
-      {:else}
-        <!-- Nothing to open, so the caret is not drawn — only its slot is kept.
-             It cannot be hidden with a utility: `.activity-caret` below is
-             unlayered component CSS and outranks the whole utilities layer. -->
-        <span class="activity-caret-slot" aria-hidden="true"></span>
-      {/if}
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>
       {#if target}
@@ -128,8 +115,8 @@
     /* Fully round: at this row's height a corner radius reads as a cut no matter
        how large it gets, so the ends are capped instead. */
     border-radius: 9999px;
-    /* Hover only — an open row is still a caption, and the rotated caret plus
-       the detail's rule already say it is open. */
+    /* Hover only — an open row is still a caption, and the detail's rule
+       already says it is open. */
     transition:
       background var(--duration-quick) var(--ease-premium),
       box-shadow var(--duration-quick) var(--ease-premium);
@@ -172,23 +159,6 @@
     outline: 0.125rem solid var(--solus-accent-border-medium);
     outline-offset: 0.25rem;
     border-radius: 0.25rem;
-  }
-
-  :global(.activity-caret) {
-    width: var(--activity-icon-size);
-    height: var(--activity-icon-size);
-    color: var(--muted-foreground);
-    opacity: 0.45;
-    transition: transform var(--duration-quick) var(--ease-premium);
-  }
-
-  .activity-disclose.is-stacked :global(.activity-caret) {
-    margin-top: 0.25rem;
-  }
-
-  .activity-caret-slot {
-    width: 0.75rem;
-    flex-shrink: 0;
   }
 
   /* The 22px slot the icon cluster, the spinner and the stop glyph all share, so
@@ -269,8 +239,9 @@
     text-align: right;
   }
 
+  /* The rule drops from the centre of the 22px glyph slot. */
   .activity-detail {
-    margin: 0.125rem 0 0 0.9375rem;
+    margin: 0.125rem 0 0 0.6875rem;
     padding-left: 0.75rem;
     border-left: 0.0625rem solid
       color-mix(in oklch, var(--foreground) 9%, transparent);

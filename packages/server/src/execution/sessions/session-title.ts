@@ -2,11 +2,8 @@ import { z } from 'zod'
 import { TextGenerator } from '../agents/text-generator'
 import type { AgentDispatcher } from '../agents/agent-runner'
 import type { AgentTool } from '../agents/tools/agent-tool'
-import { findOnPath, getCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import {
-  AGENT_BIN,
-  type AgentId,
   type ReasoningEffort,
   type SessionGeneratedMetadata,
   type SessionMetadataAttachment,
@@ -14,6 +11,8 @@ import {
 } from '@solus/contracts/types'
 import { resolveTextGenerationModel } from '../../host/settings'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
+import type { SeatResolver, TurnSeat } from '../seats/seat-manager'
+import { writingBackendFor } from '../agents/writing-backend'
 
 const log = createLogger('main', 'session-title')
 
@@ -143,10 +142,6 @@ function sanitizeDescription(raw: string): string | null {
     : cleaned
 }
 
-function isInstalled(agentId: AgentId): boolean {
-  return !!findOnPath(AGENT_BIN[agentId], getCliPath())
-}
-
 export type MetadataBackend = keyof typeof METADATA_MODELS
 
 /**
@@ -159,15 +154,13 @@ export async function generateSessionMetadata(
   promptText: string,
   cwd: string,
   context?: SessionMetadataGenerationContext,
+  seatFor?: SeatResolver,
 ): Promise<SessionGeneratedMetadata | null> {
   const trimmed = promptText.trim()
   if (!trimmed) return null
-  const selection = resolveTextGenerationModel()
-  if (!isInstalled(selection.provider)) {
-    log.warn('session_title_no_backend')
-    return null
-  }
-  return generateMetadataWith(dispatcher, selection.provider, trimmed, cwd, selection.model, context)
+  const backend = await writingBackendFor(resolveTextGenerationModel(), seatFor)
+  if (!backend) return null
+  return generateMetadataWith(dispatcher, backend.provider, trimmed, cwd, backend.model, context, backend.seat)
 }
 
 /** The metadata run itself, against an already-chosen backend. */
@@ -178,6 +171,7 @@ export async function generateMetadataWith(
   cwd: string,
   selectedModel?: string,
   context?: SessionMetadataGenerationContext,
+  seat?: TurnSeat,
 ): Promise<SessionGeneratedMetadata | null> {
   const { model: defaultModel, reasoningEffort } = METADATA_MODELS[provider]
   const model = selectedModel ?? defaultModel
@@ -205,6 +199,7 @@ export async function generateMetadataWith(
         submission.abort()
       })],
       abortSignal: submission.signal,
+      seat,
       unattended: true,
       // Linked context can require inspection before the structured submission.
       maxTurns: /https?:\/\//i.test(trimmed) || context?.attachments?.length ? 4 : 2,

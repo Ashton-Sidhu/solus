@@ -334,6 +334,7 @@ const MIRRORED_HOST_KEYS = [
   'sidebarCompletedRetentionDays',
   'sidebarMotionMs',
   'archivedAutomationRetentionDays',
+  'leadModel',
 ] as const satisfies readonly HostConfigKey[]
 
 type MirroredHostKey = (typeof MIRRORED_HOST_KEYS)[number]

@@ -34,7 +34,7 @@ function baseOptions(overrides: Partial<GitActionManagerOptions> = {}): GitActio
     generateCommitSubject: async () => 'chore: generated subject',
     publish: () => {},
     writer: {
-      provider: 'codex',
+      backend: { provider: 'codex', model: 'gpt-6-luna' },
       textGenerator: { generate: async () => '' } as unknown as TextGenerator,
       instructions: '',
       followPullRequestTemplate: false,

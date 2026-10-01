@@ -5,6 +5,8 @@ import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
 import { resolveTextGenerationModel } from '../host/settings'
 import type { AgentId } from '@solus/contracts/types'
+import type { SeatResolver, TurnSeat } from '../execution/seats/seat-manager'
+import { writingBackendFor } from '../execution/agents/writing-backend'
 
 const log = createLogger('WorktreeName', 'worktree-name.ts')
 const WORKTREE_NAME_TOOL = 'submit_worktree_name'
@@ -38,18 +40,20 @@ export async function generateWorktreeName(
   promptText: string,
   cwd: string,
   abortSignal?: AbortSignal,
+  seatFor?: SeatResolver,
 ): Promise<string | null> {
   const prompt = promptText.trim()
   if (!prompt) return null
-  const selection = resolveTextGenerationModel()
-  return generateWorktreeNameWith(dispatcher, prompt, cwd, selection, abortSignal)
+  const backend = await writingBackendFor(resolveTextGenerationModel(), seatFor)
+  if (!backend) return null
+  return generateWorktreeNameWith(dispatcher, prompt, cwd, backend, abortSignal)
 }
 
 export async function generateWorktreeNameWith(
   dispatcher: AgentDispatcher,
   prompt: string,
   cwd: string,
-  selection: { provider: AgentId; model: string },
+  selection: { provider: AgentId; model: string; seat?: TurnSeat },
   abortSignal?: AbortSignal,
 ): Promise<string | null> {
   const submitted: SubmittedWorktreeName = { name: null }
@@ -57,6 +61,7 @@ export async function generateWorktreeNameWith(
     await new TextGenerator(dispatcher).generate({
       provider: selection.provider,
       model: selection.model,
+      seat: selection.seat,
       reasoningEffort: 'low',
       cwd,
       prompt: [

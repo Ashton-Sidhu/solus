@@ -1,4 +1,5 @@
 import { untrack } from 'svelte'
+import { serverConnections } from '@solus/client-core/server-connections'
 import type { IpcContext } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../../../contexts'
 import { reviewGuideStore, sessionGuideIdentity, type ReviewGuideIdentity } from '../review-guide.store.svelte'
@@ -25,6 +26,8 @@ export function trackSessionReviewGuides(workspace: Pick<WorkspaceContext, 'tabO
       const session = workspace.sessionFor(tabId)
       const identity = sessionGuideIdentity(session)
       if (!session || !identity) continue
+      // A restored tab on a deleted machine has no API to probe.
+      if (!serverConnections.isKnownServer(untrack(() => workspace.serverIdFor(tabId)))) continue
       liveSessionIds.add(session.id)
       const probeKey = `${identity.repoRoot}::${identity.key}`
       if (probedGuides.get(session.id) === probeKey) continue

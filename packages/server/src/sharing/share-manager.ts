@@ -106,6 +106,15 @@ export class ShareAccessError extends Error {
   }
 }
 
+/**
+ * A task is not shared on its own (docs/plans/cloud-sharing.md §4a): its
+ * organization sees it from the grant it is born with, and its link is the app's
+ * address for it. Its works and sessions still take their access from it.
+ */
+function assertShareable(resource: ShareResource): void {
+  if (resource.kind === 'task') throw new ShareAccessError('FORBIDDEN', 'A task is not shared. Everyone in its organization can open it; copy its link instead.')
+}
+
 export interface ResolvedLinkShare {
   organizationId: string
   resource: ShareResource
@@ -369,9 +378,7 @@ export class ShareManager {
     const scope = recordScopeOf(principal)
     if (principal.kind === 'guest') {
       const bound = this.canonical(principal.share.resource)
-      const reaches = sameResource(bound, canonical)
-        || (bound.kind === 'task' && (await this.taskContents(scope, [bound.id])).some((item) => sameResource(item, canonical)))
-      if (!reaches) return 'none'
+      if (bound.kind === 'task' || !sameResource(bound, canonical)) return 'none'
       // The link the guest arrived with must still exist unchanged, in the guest's organization.
       const row = (await this.grantRows(bound, scope)).find((grant) => grant.subject_kind === 'everyone')
       if (!row || row.link_secret_hash !== principal.share.linkSecretHash) return 'none'
@@ -442,10 +449,7 @@ export class ShareManager {
     if (principal.kind === 'guest') {
       const bound = this.canonical(principal.share.resource)
       if (await this.roleFor(principal, bound) === 'none') return new Set()
-      const ids = new Set<string>()
-      if (bound.kind === kind) ids.add(bound.id)
-      if (bound.kind === 'task') for (const item of await this.taskContents(scope, [bound.id])) if (item.kind === kind) ids.add(item.id)
-      return ids
+      return new Set(bound.kind === kind ? [bound.id] : [])
     }
     if (principal.kind !== 'org-member') return 'all'
     const ids = await this.ownVisibleIds(principal, kind)
@@ -552,6 +556,7 @@ export class ShareManager {
   /** Replaces every named row. The owner and editors may share; a viewer may not (§3.4).
    *  A row removed for a team or the organization names nobody: only a person's own row does. */
   async setGrants(request: ShareSetRequest, principal: Principal): Promise<ShareList> {
+    assertShareable(request.resource)
     return this.deps.db.transaction(async (db) => {
       const resource = this.canonical(request.resource)
       await this.assertRole(principal, request.resource, 'editor')
@@ -595,6 +600,7 @@ export class ShareManager {
    * disconnects every guest at once (§3.4).
    */
   async setLink(request: ShareSetLinkRequest, principal: Principal): Promise<ShareLink | null> {
+    assertShareable(request.resource)
     return this.deps.db.transaction(async () => {
       const resource = this.canonical(request.resource)
       await this.assertRole(principal, request.resource, 'editor')
@@ -642,7 +648,8 @@ export class ShareManager {
     const row = grantRowSchema.nullish().parse(await this.deps.db.get(sql`
       SELECT * FROM ${shareGrant} WHERE subject_kind = 'everyone' AND link_secret_hash = ${hash}
     `))
-    if (!row) return null
+    // A task link made before tasks stopped being shared opens nothing.
+    if (!row || row.resource_kind === 'task') return null
     return {
       organizationId: row.organization_id,
       resource: { kind: row.resource_kind, id: row.resource_id },

@@ -60,3 +60,22 @@ had these problems:
 - The document outline no longer opens automatically at the top of a document
   in a shell narrower than 1408px. It still opens on hover, on pin, and on a
   keyboard jump.
+
+## Dense supporting text
+
+Peer apps use 12px for supporting text in a sidebar and in side panels, and
+14px for titles. Solus follows this:
+
+- A session row's project and host line uses `text-chrome-dense`. The title
+  stays on `text-workspace-chrome`.
+- The project panel declares `text-chrome-dense` on the rail, and its rows
+  inherit it.
+
+`text-chrome-dense` is 12px with a precise pointer and 14px on touch, so phones
+and tablets keep the readable size.
+
+Rows in the project panel and controls in the input bar use 16px icons and a
+500 weight on their labels, as peer apps do. The weight and the icon carry the
+presence that the smaller type gives up. Body text, titles, and the transcript
+stay at the face's own weight. The branch name at the top of the project panel
+uses 600, so it stays one step heavier than the rows below it.

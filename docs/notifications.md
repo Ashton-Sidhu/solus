@@ -27,8 +27,12 @@ whether the window is visible, which is how a window hidden to the tray counts
 as the background.
 
 On web and mobile, the system-alert switch also owns the web-push subscription:
-on subscribes this device, off unsubscribes it. The bell in the mobile session
-list is the same switch.
+on subscribes this device, off unsubscribes it. The switch is a host setting
+that every client shares, but the browser grant is per device. When the switch
+is on and this browser has not answered, the row offers Allow; when the browser
+has blocked notifications, the row says so. Turning the switch on asks too.
+Settings is the only place to change it; the input bar has no notifications
+control.
 
 ## Session events
 

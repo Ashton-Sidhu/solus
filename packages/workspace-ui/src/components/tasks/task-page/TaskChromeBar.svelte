@@ -2,10 +2,10 @@
   import {
     ExternalLink as ArrowSquareOutIcon,
     LoaderCircle as CircleNotchIcon,
+    Link as LinkIcon,
     Maximize2 as ArrowsOutSimpleIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
-  import ShareButton from "../../sharing/ShareButton.svelte";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
   import {
@@ -40,8 +40,8 @@
     isLeading?: boolean;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
-    /** The host the task lives on, for the Share control; null where sharing has no home (a guest shell). */
-    shareServerId?: string | null;
+    /** Upload a Local task if it needs it, then copy its link. Null where there is no organization to link into. */
+    onCopyLink?: (() => void) | null;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -57,7 +57,7 @@
     onMoveAcross,
     isLeading = true,
     onOpenPage,
-    shareServerId = null,
+    onCopyLink = null,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -117,14 +117,20 @@
     </span>
   {/if}
 
-  <!-- Who may open this task, and with it every session and document under it:
-       the same control the session band and the work header carry. -->
-  <ShareButton
-    serverId={shareServerId}
-    resource={{ kind: "task", id: task.id }}
-    title={task.title}
-    class={SUB_PAGE_ROUND_BTN}
-  />
+  <!-- A task is not shared on its own: everyone in its organization sees it,
+       so the band offers its link. -->
+  {#if onCopyLink}
+    <button
+      type="button"
+      class={SUB_PAGE_ROUND_BTN}
+      onclick={onCopyLink}
+      title="Copy link"
+      aria-label="Copy link to this task"
+      data-testid="task-copy-link"
+    >
+      <LinkIcon size={13} />
+    </button>
+  {/if}
 
   {#if onOpenPage}
     <button

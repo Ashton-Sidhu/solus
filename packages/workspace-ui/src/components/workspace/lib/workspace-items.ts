@@ -21,7 +21,7 @@ export type PlanStatus = 'pending' | 'accepted' | 'rejected'
  * them in the project panel, slides included, even though slides file under the
  * Docs facet.
  */
-export type WorkspaceGlyph = 'claude' | 'codex' | 'plan' | 'doc' | 'slides' | 'diagram' | 'artifact'
+export type WorkspaceGlyph = 'claude' | 'codex' | 'plan' | 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
 
 /** One row of the Workspace ledger — a plan descriptor or a work, normalized
  *  to a single shape so grouping, filtering, and keyboard nav treat every

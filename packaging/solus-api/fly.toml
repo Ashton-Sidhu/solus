@@ -9,8 +9,8 @@ primary_region = "iad"
   # `bun run release:api`; the same tarball a personal host installs.
   # The digest is the one Fly's registry reports for the machine after the deploy
   # (`fly machine list --json`), not the one `docker push` prints: Fly stores its
-  # own manifest for a pushed image. Tag: solus-managed:0.32.3-20260924.
-  image = "registry.fly.io/solus-managed@sha256:fabb8abf6fee9ece753fe1e8c730072122c8044aad9ec16c4cd4edae64532632"
+  # own manifest for a pushed image. Tag: solus-sh-api:0.34.1-20260930-211841.
+  image = "registry.fly.io/solus-sh-api@sha256:f0714418e70af90cb443586516487f944a84a34c005c98b1f9b8a9ac1ddce20d"
 
 [env]
   SOLUS_API = "1"

@@ -1,6 +1,6 @@
 import { installTestWorkspaceTools } from './helpers/workspace-tools'
 import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -188,6 +188,66 @@ describe('render_artifact persists a work', () => {
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ type: 'artifact_created', toolId: 'artifact-call-1', kind: 'html', html: HTML, title: 'Latency report' })
     expect(events[0].type === 'artifact_created' && events[0].workId).toBeTruthy()
+  })
+})
+
+describe('an artifact read from a compiled file', () => {
+  // WHY: a compiled bundle is hundreds of kilobytes. When the agent had to
+  // write it back as tool input, the copy was slow, costly, and could change
+  // bytes, so agents opened the bundle in a browser and saved no work. The
+  // host reads the file the agent wrote; the saved work is that file, exactly.
+  const ctx = () => ({ sessionId: SESSION_ID, agentProvider: 'claude-code' as const, cwd: dataDir })
+
+  function writeBundle(html: string, name = 'bundle.html'): string {
+    mkdirSync(join(dataDir, 'chart'), { recursive: true })
+    writeFileSync(join(dataDir, 'chart', name), html)
+    return join('chart', name)
+  }
+
+  test('render_artifact saves the file a relative html_path names, resolved from the working directory', async () => {
+    const emitted: Array<{ html: string; workId: string }> = []
+    const result = await artifactTools.executeArtifactTool(
+      { html_path: writeBundle(HTML) },
+      { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) },
+    )
+    expect(result.ok).toBe(true)
+    expect(emitted[0].html).toBe(HTML)
+    expect((await works.loadWork('local', emitted[0].workId))?.content).toBe(HTML)
+  })
+
+  test('update_work replaces an artifact with the file html_path names', async () => {
+    const emitted: Array<{ workId: string }> = []
+    await artifactTools.executeArtifactTool({ html: HTML }, { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) })
+    const revised = HTML.replace('<h1>Chart</h1>', '<h1>Revised</h1>')
+    const result = await workTools.executeWorkTool('update_work', {
+      work_id: emitted[0].workId, html_path: writeBundle(revised), expected_content_version: 1,
+    }, { ctx: ctx() })
+    expect(result).toEqual({ ok: true, text: expect.stringContaining('New content_version: 2.') })
+    expect((await works.loadWork('local', emitted[0].workId))?.content).toBe(revised)
+  })
+
+  test('html_path is refused for a work that is not an artifact', async () => {
+    // A document is markdown the agent writes; a compiled HTML file is never its body.
+    await workTools.executeWorkTool('create_work', { title: 'Notes', doc_type: 'doc', content: '# Notes' }, { ctx: ctx() })
+    const [doc] = await works.listWorks('local')
+    const result = await workTools.executeWorkTool('update_work', {
+      work_id: doc.id, html_path: writeBundle(HTML), expected_content_version: 1,
+    }, { ctx: ctx() })
+    expect(result.ok).toBe(false)
+    expect((await works.loadWork('local', doc.id))?.content).toBe('# Notes')
+  })
+
+  test('an ambiguous, missing, empty, or non-HTML file is refused before anything is written', async () => {
+    const refusals = [
+      { html: HTML, html_path: writeBundle(HTML) },
+      { html_path: 'chart/missing.html' },
+      { html_path: writeBundle('  ', 'empty.html') },
+      { html_path: writeBundle(HTML, 'bundle.txt') },
+    ]
+    for (const args of refusals) {
+      expect((await artifactTools.executeArtifactTool(args, { ctx: ctx() })).ok).toBe(false)
+    }
+    expect(await works.listWorks('local')).toHaveLength(0)
   })
 })
 

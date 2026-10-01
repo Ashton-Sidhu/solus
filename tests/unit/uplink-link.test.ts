@@ -259,15 +259,28 @@ describe('the host side of the link', () => {
     const rebooted = manager(superseding, fakeConnector())
     await rebooted.instance.resume()
     expect(rebooted.connector.events).toEqual([])
-    const status = rebooted.instance.status()
-    expect(status.linked).toBe(true)
-    if (status.linked) expect(status.state).toEqual({ observed: 'error', error: SUPERSEDED_MESSAGE })
+    // A link the cloud rejected is no link: a client must not offer what needs one (a live
+    // session Share), and Settings must offer Link again. The reason stays visible.
+    expect(rebooted.instance.status()).toEqual({ linked: false, error: SUPERSEDED_MESSAGE })
 
     // A newer generation in the record means the same.
     const newer = fakeControlPlane({ link: () => Response.json({ hostId: 'abcdefghijklmnop', desired: 'linked', connectionGeneration: 2, hostname: 'h', proxiedPort: 34118 }) })
     const other = manager(newer, fakeConnector())
     await other.instance.resume()
     expect(other.connector.events).toEqual([])
+  })
+
+  test('a link Solus cloud rejected is linked anew, not attached with its dead token', async () => {
+    const plane = fakeControlPlane()
+    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const rejecting = fakeControlPlane({ link: () => Response.json({ error: 'invalid_host_token' }, { status: 401 }) })
+    const rebooted = manager(rejecting, fakeConnector())
+    await rebooted.instance.resume()
+
+    const status = await rebooted.instance.link({ ticket: 'set_again', directoryUrl: DIRECTORY })
+    expect(status.linked && status.state).toEqual({ observed: 'offline' })
+    expect(rejecting.calls.some((call) => call.url.endsWith('/organizations/attach'))).toBe(false)
+    expect(rejecting.calls.at(-1)).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`, body: { ticket: 'set_again' } })
   })
 
   test('what the connector observes is the status line, and stays on this host', async () => {

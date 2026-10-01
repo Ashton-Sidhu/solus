@@ -102,7 +102,12 @@ function artifactProjection(toolName: string | undefined, content: string, faile
       ? /Updated "([\s\S]*?)" \(artifact, id: ([^\s)]+)\)/.exec(content)
       : null
   const result: Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded'> = {}
-  if (match) result.artifactWorkRef = { title: match[1], workId: match[2] }
+  if (match) {
+    // A new work's first body is version 1; an update receipt names its version.
+    const contentVersion = toolName?.endsWith('render_artifact') ? 1 : Number(/New content_version: (\d+)/.exec(content)?.[1])
+    result.artifactWorkRef = { title: match[1], workId: match[2] }
+    if (contentVersion) result.artifactWorkRef.contentVersion = contentVersion
+  }
   if (toolName?.endsWith('update_work') && content.startsWith('Updated "')) result.workUpdateSucceeded = true
   return result
 }

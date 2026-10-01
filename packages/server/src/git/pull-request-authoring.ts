@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
+import type { WritingBackend } from '../execution/agents/writing-backend'
 import type { TextGenerator } from '../execution/agents/text-generator'
-import type { AgentId } from '@solus/contracts/types'
 import { runAsync } from './exec'
 import type { GitIdentityEnv } from './git-identity-manager'
 
@@ -33,8 +33,8 @@ export interface PullRequestAuthoringContext {
 }
 
 export interface PullRequestWriter {
-  provider: AgentId
-  model?: string | null
+  /** Null when no backend the caller can run is installed: the draft is then written from the commits. */
+  backend: WritingBackend | null
   textGenerator: TextGenerator
   instructions: string
   followPullRequestTemplate: boolean
@@ -211,10 +211,13 @@ export async function authorPullRequest(
     writer.followPullRequestTemplate,
     gitEnv,
   )
+  const { backend } = writer
+  if (!backend) return fallbackPullRequestDraft(context)
   let submitted: PullRequestDraft | null = null
   await writer.textGenerator.generate({
-    provider: writer.provider,
-    model: writer.model,
+    provider: backend.provider,
+    model: backend.model,
+    seat: backend.seat,
     cwd,
     prompt: buildPullRequestAuthoringPrompt(context, writer.instructions),
     tools: [createDraftTool((draft) => { submitted = draft })],

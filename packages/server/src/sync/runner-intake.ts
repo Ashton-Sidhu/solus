@@ -6,8 +6,6 @@ import { applyOutboxOp, PermanentApplyError } from './outbox/outbox-store'
 import { runnerCursors } from './outbox/schema'
 import { getSessionRecord, upsertSessionRecord } from '../data/sessions/session-records'
 import { readSessionAdmission } from '../data/sessions/session-admissions'
-import { linkWorkToSessionTasks } from '../data/works/work-tasks'
-import { importWorkFromHost } from '../data/works/works'
 import { applyMirrorItem } from './mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from '../admission/principal'
@@ -22,8 +20,6 @@ import {
   type RunnerOutboxResponse,
   type RunnerSessionRecordsRequest,
   type RunnerSessionRecordsResponse,
-  type RunnerWorkRequest,
-  type RunnerWorkResponse,
 } from './runner-protocol'
 
 const log = createLogger('main', 'runner-intake')
@@ -123,23 +119,6 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
     lastSeq = seq
   }
   return { lastSeq }
-}
-
-/**
- * A work published whole (organization-scope §7): imported atomically into the
- * runner's organization, owned by the account that asked to publish it and
- * shared with the organization like anything made in its space. The same
- * fingerprint sent again is a retry and answers the stored work; different
- * content under the same id is refused, and the runner keeps its copy.
- */
-export async function applyRunnerWork(runner: RunnerPrincipal, request: RunnerWorkRequest, shares?: ShareManager): Promise<RunnerWorkResponse> {
-  const work = await importWorkFromHost(runner.organizationId, request.transfer)
-  // The publisher is the person whose delegated token delivered it (plans/010-standard-oauth.md), not what the body says.
-  const publisher = runner.ownerUserId
-  if (shares) await shares.claimForRunner({ kind: 'work', id: work.id }, { ...runner, ownerUserId: publisher })
-  await linkWorkToSessionTasks(runner.organizationId, work)
-  log.info('runner_work_published', { hostId: runner.hostId, organizationId: runner.organizationId, workId: work.id, actorUserId: publisher })
-  return { workId: work.id, organizationId: runner.organizationId }
 }
 
 /**

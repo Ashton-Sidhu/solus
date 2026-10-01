@@ -127,8 +127,6 @@ export function recordOutboxOp(input: {
   destination?: OutboxDestination
   /** The organization a `cloud` op is delivered to: the source record's canonical organization. */
   organizationId?: string
-  /** The publication whose required delivery this operation represents. */
-  publicationId?: string
   /** The person whose delegated token delivers a `cloud` op (plans/010-standard-oauth.md); empty means the host's linker. */
   actorUserId?: string
 }): OutboxOp & { seq: number } {
@@ -150,9 +148,9 @@ export function recordOutboxOp(input: {
   withTx(() => {
     seq = nextDeliverySeq()
     getDb().prepare(`
-      INSERT INTO outbox_ops(id, domain, resource_id, name, payload, session_id, recorded_at, state, seq, destination, organization_id, publication_id, actor_user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-    `).run(op.id, op.domain, op.resourceId, op.name, JSON.stringify(op.payload), op.sessionId ?? null, now, seq, destination, organizationId, input.publicationId ?? null, input.actorUserId ?? '')
+      INSERT INTO outbox_ops(id, domain, resource_id, name, payload, session_id, recorded_at, state, seq, destination, organization_id, actor_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    `).run(op.id, op.domain, op.resourceId, op.name, JSON.stringify(op.payload), op.sessionId ?? null, now, seq, destination, organizationId, input.actorUserId ?? '')
   })
   log.info('outbox_op_recorded', { opId: op.id, domain: op.domain, resourceId: op.resourceId, name: op.name, destination, organizationId })
   emitChanged({ courierListChanged: destination === 'host' })
@@ -215,11 +213,6 @@ export function cloudOutboxPendingThrough(organizationId: string, seq: number): 
   return row.count > 0
 }
 
-/** Required operations still awaiting a successful receipt for this publication. */
-export function publicationOutboxPending(publicationId: string): boolean {
-  return !!getDb().prepare("SELECT 1 FROM outbox_ops WHERE publication_id = ? AND state = 'pending' LIMIT 1").get(publicationId)
-}
-
 /** Every destination with a pending cloud-bound op. */
 export function cloudOutboxDestinations(): DeliveryDestination[] {
   const rows = z.array(destinationRowSchema).parse(getDb().prepare(`
@@ -270,17 +263,7 @@ export function markOutboxOpsFailed(failures: Array<{ id: string; error: string 
   if (!failures.length) return
   withTx(() => {
     const update = getDb().prepare("UPDATE outbox_ops SET state = 'failed', error = ? WHERE id = ?")
-    const failPublication = getDb().prepare(`
-      UPDATE publications SET state = 'failed', error = ?, updated_at = ?
-      WHERE id = (SELECT publication_id FROM outbox_ops WHERE id = ?)
-        AND state IN ('pending', 'sent')
-    `)
-    for (const failure of failures) {
-      update.run(failure.error, failure.id)
-      // Keep the failure on the publication even if a client later dismisses
-      // the dead letter. An empty queue must never authorize source deletion.
-      failPublication.run(failure.error, Date.now(), failure.id)
-    }
+    for (const failure of failures) update.run(failure.error, failure.id)
   })
   log.warn('outbox_ops_dead_lettered', { count: failures.length, opIds: failures.map((f) => f.id) })
   // A dead-lettered op is listed whatever its destination, so its failure stays visible.

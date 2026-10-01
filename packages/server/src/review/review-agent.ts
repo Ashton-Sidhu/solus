@@ -3,6 +3,7 @@ import type { ReviewContext, ReviewLedger, ReviewGuideDraft } from '@solus/contr
 import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { ReviewProgressStep } from '@solus/contracts/review'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { TurnSeat } from '../execution/seats/seat-manager'
 import { buildSystemPrompt } from '../execution/agents/system-hint'
 import { hostInstructionsFor } from '../execution/agents/run-input'
 import {
@@ -24,6 +25,8 @@ export interface ReviewAgentInput {
   context: ReviewContext
   agent: AgentId
   model?: string | null
+  /** The member's own provider login; absent for the host's login. */
+  seat?: TurnSeat
   /** Reasoning effort for the review run; falls back to 'high' when unset.
    *  Callers resolve this from settings (default medium, see resolveReviewAgent). */
   reasoningEffort?: ReasoningEffort | null
@@ -70,6 +73,7 @@ export async function runReviewAgent(
       cwd: input.workTree,
       tools: [submitGuideTool],
       model: input.model,
+      seat: input.seat,
       reasoningEffort,
       permissionMode: 'plan',
       persistence: 'ephemeral',

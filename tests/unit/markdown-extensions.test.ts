@@ -6,8 +6,10 @@ import {
   FOOTNOTE_SECTION_TOKEN,
   alertMarkedExtension,
   footnoteMarkedExtension,
+  spacedImagePathMarkedExtension,
 } from '../../packages/workspace-ui/src/components/conversation/lib/markdown-extensions'
 import { assistantMarkdownExtensions } from '../../packages/workspace-ui/src/components/conversation/lib/assistant-markdown'
+import { isMarkdownVideo, markdownImagePath } from '../../packages/workspace-ui/src/components/conversation/lib/markdown-image'
 
 function lex(src: string): Token[] {
   return new Marked(alertMarkedExtension, footnoteMarkedExtension).lexer(src)
@@ -51,6 +53,47 @@ describe('footnotes in a reply', () => {
       ],
     })
     expect(tokens.some((token) => token.type === 'paragraph' && token.raw.includes('[^1]:'))).toBe(false)
+  })
+})
+
+describe('image paths with spaces in a reply', () => {
+  function images(src: string): Token[] {
+    const tokens = flatten(new Marked(...assistantMarkdownExtensions(src)).lexer(src))
+    return tokens.filter((token) => token.type === 'image')
+  }
+
+  test('an absolute path under Application Support embeds and plays as a video', () => {
+    // WHY: agents are told to embed absolute paths, and every recording on a
+    // macOS host lives under `Application Support`. CommonMark rejects the
+    // space, so the reply showed raw source instead of the video.
+    const href = '/Users/me/Library/Application Support/solus/assets/clip.mp4'
+    const [image] = images(`Before ![Retry flow *ok*](${href}) after.`)
+    expect(image).toMatchObject({ type: 'image', href, title: null, text: 'Retry flow *ok*' })
+    const path = markdownImagePath(href, '/repo')
+    expect(path).toBe(href)
+    expect(isMarkdownVideo(href, path, null)).toBe(true)
+  })
+
+  test('a trailing quoted title stays the title, and file: URLs match too', () => {
+    expect(images('![a](/My Shots/a.png "Shot")')[0]).toMatchObject({ href: '/My Shots/a.png', title: 'Shot' })
+    expect(images('![a](file:///My Shots/a.png)')[0]).toMatchObject({ href: 'file:///My Shots/a.png' })
+  })
+
+  test('forms CommonMark already accepts keep their usual parse', () => {
+    expect(images('![a](</My Shots/a.png>)')[0]).toMatchObject({ href: '/My Shots/a.png', raw: '![a](</My Shots/a.png>)' })
+    expect(images('![a](/My%20Shots/a.png)')[0]).toMatchObject({ href: '/My%20Shots/a.png' })
+    expect(images('![a](/shots/a.png "Shot")')[0]).toMatchObject({ href: '/shots/a.png', title: 'Shot' })
+  })
+
+  test('prose and web URLs with a space stay text', () => {
+    // WHY: only a local path is a likely image; anything else is the author's
+    // text and must not turn into a broken image.
+    expect(images('![see](the docs) and ![x](https://x.dev/a b.png)')).toHaveLength(0)
+  })
+
+  test('the tokenizer is marked safe for the streaming tail window', () => {
+    const tokenizer = spacedImagePathMarkedExtension.extensions![0] as { tokenizer: object }
+    expect(Reflect.get(tokenizer.tokenizer, Symbol.for('svelte-markdown.tailWindowSafe'))).toBe(true)
   })
 })
 

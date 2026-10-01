@@ -692,20 +692,6 @@ export interface Attachment {
   designData?: DesignModeSelection
 }
 
-/**
- * A composer draft parked for later: the prompt text plus its attachments,
- * scoped to one project. Restoring drops both into the current tab's composer;
- * sending the restored draft deletes the saved prompt.
- */
-export interface SavedPrompt {
-  id: string
-  /** Repo root, or the working directory when the composer isn't in a checkout. */
-  projectRoot: string
-  text: string
-  attachments: Attachment[]
-  createdAt: number
-}
-
 export interface DesignAnnotation {
   id: string
   type: 'rectangle' | 'arrow' | 'pin' | 'text'
@@ -1379,8 +1365,10 @@ export interface Message {
 
 /** How a work's `content` renders: markdown for `doc` and `slides`, serialized
  *  diagram JSON for `diagram`, and a self-contained HTML document for
- *  `artifact` (the `render_artifact` tool's output, shown in a sandbox). */
-export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
+ *  `artifact` (the `render_artifact` tool's output, shown in a sandbox), and
+ *  one turn's captured Insights readings as JSON for `insights-report`
+ *  (docs/plans/cloud-sharing.md §4). */
+export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */

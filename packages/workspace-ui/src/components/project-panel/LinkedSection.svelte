@@ -145,10 +145,10 @@ does not push the rest of the rail off screen. -->
               class="inline-flex shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
               aria-hidden="true"
             >
-              <GitPullRequestIcon size={13} />
+              <GitPullRequestIcon size={16} />
             </span>
             <span class="shrink-0 text-xs text-(--solus-text-tertiary)">#{row.number}</span>
-            <span class="min-w-0 flex-1 truncate text-left">{row.title}</span>
+            <span class="min-w-0 flex-1 truncate text-left font-medium">{row.title}</span>
             {#if row.state}
               <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{row.state}</span>
             {/if}

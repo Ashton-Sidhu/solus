@@ -1,6 +1,7 @@
 import { clip } from '@solus/contracts/session-exchange'
 import type { TaskEpic, TaskLink, TaskSessionRole } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
+import type { HostConfig } from '@solus/contracts/host-config'
 
 /** Characters of the epic's description read_task returns. The epic is
  *  context for this task, not the work itself; the agent can open the url. */
@@ -24,6 +25,12 @@ const LEAD_CONTRACT = [
   '- When the user writes to you, call read_task_sessions first. After session reports, do not: they already say what each worker did.',
 ]
 
+/** The user's settings for a task's lead (Settings → Tasks). They extend the
+ *  lead contract; they never replace it. */
+export type LeadSettings = Pick<HostConfig, 'leadInstructions' | 'workerModel'>
+
+const NO_LEAD_SETTINGS: LeadSettings = { leadInstructions: '', workerModel: null }
+
 /** Render the task packet appended to the system prompt of every run on a
  *  task-backed session. It names the task and the rules the agent works under,
  *  and nothing that changes while the agent works: the status, body, comments
@@ -31,11 +38,12 @@ const LEAD_CONTRACT = [
  *  changed on every status move or comment would re-send the whole cached
  *  prompt. The title is absent when the task cannot be read; the id still
  *  names it. `role` is the session's own link role; the lead's packet ends
- *  with the lead contract. */
+ *  with the lead contract and then the user's lead settings. */
 export function formatTaskContext(
   task: { id: string; title?: string },
   lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',
   role: TaskSessionRole = 'working',
+  lead: LeadSettings = NO_LEAD_SETTINGS,
 ): string {
   const title = task.title ? ` — "${task.title}"` : ''
   return [
@@ -44,7 +52,22 @@ export function formatTaskContext(
     '',
     'Work contract:',
     ...workContract(lifecyclePolicy, role),
+    ...(role === 'lead' ? leadSettingsLines(lead) : []),
   ].join('\n')
+}
+
+/** The user's lead settings, after the lead contract. A worker model is a
+ *  default only: the user's instructions can route work elsewhere. */
+function leadSettingsLines(lead: LeadSettings): string[] {
+  const lines: string[] = []
+  if (lead.workerModel) {
+    const { provider, model, reasoningEffort } = lead.workerModel
+    const reasoning = reasoningEffort ? ` and reasoning_effort '${reasoningEffort}'` : ''
+    lines.push(`- When the user's instructions name no agent and model for a worker, start it with agent_provider '${provider}', model_id '${model}'${reasoning}.`)
+  }
+  const instructions = lead.leadInstructions.trim()
+  if (instructions) lines.push('', 'User lead instructions:', instructions)
+  return lines
 }
 
 /** The rules the agent works under: the lifecycle policy's, then the lead's

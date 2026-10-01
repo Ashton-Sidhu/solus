@@ -8,7 +8,7 @@ import diffs from '../../apps/client/src/demo/fixtures/data/diffs.json'
 import tasks from '../../apps/client/src/demo/fixtures/data/tasks.json'
 import replayScript from '../../apps/client/src/demo/fixtures/data/replay-script.json'
 import pr from '../../apps/client/src/demo/fixtures/data/pr.json'
-import { demoTurnRecords, turnListingResult, turnPageResult } from '../../apps/client/src/demo/fixtures/insights'
+import { demoTurnRecords, turnListingResult, turnPageResult, turnListingSummaryResult } from '../../apps/client/src/demo/fixtures/insights'
 import { answerFor, sqlSessionId, sqlWindow } from '../../apps/client/src/demo/fixtures/insights-answers'
 import { defaultExploreSql, sessionTurnsSql, sqlPresets } from '@solus/workspace-ui/components/insights/lib/insights-queries'
 import { DEFAULT_TIME_RANGE, resolveRange } from '@solus/workspace-ui/components/insights/lib/time-range'
@@ -180,8 +180,8 @@ describe('demo insights answers', () => {
     expect(new Set(matched).size).toBe(matched.length)
   })
 
-  // The page opens on `metricsTurnPage`, not on the SQL handlers below it: the
-  // default listing is paginated on the host. Leaving it unanswered left the
+  // The page opens on `metricsTurnPage` and `metricsTurnListingSummary`, not on the SQL
+  // handlers below them: the default listing is paginated on the host. Leaving it unanswered left the
   // demo's Insights page opening on an error instead of its own recorded turns.
   test('the default listing is paged, counted and bucketed', () => {
     const window = resolveRange(DEFAULT_TIME_RANGE, now)
@@ -192,12 +192,13 @@ describe('demo insights answers', () => {
       pageSize: 5,
       sort: { field: 'started_at', dir: 'desc' },
     })
+    const summary = turnListingSummaryResult(turns, { timeRange: window })
 
-    expect(page.totalRows).toBe(inWindow.length)
+    expect(summary.totalRows).toBe(inWindow.length)
     expect(page.page.rows.length).toBe(5)
-    expect(page.stats.counted).toBe(inWindow.length)
+    expect(summary.stats.counted).toBe(inWindow.length)
     // The histogram under the list describes the whole window, not the page.
-    expect(page.volume.reduce((total, bucket) => total + bucket.total, 0)).toBe(inWindow.length)
+    expect(summary.volume.reduce((total, bucket) => total + bucket.total, 0)).toBe(inWindow.length)
     expect(toTurnRows(page.page)[0].startedAt).toBe(Math.max(...inWindow.map((turn) => turn.startedAt)))
   })
 
@@ -205,14 +206,8 @@ describe('demo insights answers', () => {
   // the counts are taken before the status filter and the stats after it.
   test('a status filter narrows the rows but not the counts that undo it', () => {
     const window = resolveRange(DEFAULT_TIME_RANGE, now)
-    const request = {
-      timeRange: window,
-      pageIndex: 0,
-      pageSize: 25,
-      sort: { field: 'started_at', dir: 'desc' } as const,
-    }
-    const all = turnPageResult(turns, request)
-    const failures = turnPageResult(turns, { ...request, status: 'error' as const })
+    const all = turnListingSummaryResult(turns, { timeRange: window })
+    const failures = turnListingSummaryResult(turns, { timeRange: window, status: 'error' })
 
     expect(failures.statusCounts).toEqual(all.statusCounts)
     expect(failures.stats.counted).toBe(all.statusCounts.error)

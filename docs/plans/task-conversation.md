@@ -264,6 +264,33 @@ link transfers session ownership exactly as `working` does.
 6. **Console without a workspace.** The task page lists the lead in Sessions
    and opens its record read-only, as any session row does. Nothing else.
 
+## Settings → Tasks
+
+The Tasks tab in Settings holds every task setting. It is host-framed, like
+General.
+
+- **Task behavior.** Task lifecycle control and Completed task history moved
+  here from General. They keep their keys (`agentTaskLifecyclePolicy`,
+  `sidebarCompletedRetentionDays`).
+- **Lead agent and model** (`leadModel`, mirrored by the settings context like
+  `defaultModels`). Off means the default agent and model for new sessions.
+  `SessionOpening.createTaskDraft` applies it to a lead draft through
+  `runOnModel`; the draft's chip still changes it before Send.
+- **Default worker model** (`workerModel`) and **Lead instructions**
+  (`leadInstructions`) are settings of each host, because the execution host
+  builds the lead's packet. `formatTaskContext` adds them after the lead
+  contract, and only for a lead. They extend the contract; they never replace
+  it. The worker model is a default: instructions that name another agent and
+  model win. Routing rules ("frontend work to Claude, backend work to Codex")
+  go in the instructions, because the lead already chooses each worker's
+  agent and model with `start_session`.
+- Each model setting also stores a reasoning level (`reasoningEffort`),
+  chosen in the chip's reasoning column. The lead draft starts at it, and the
+  packet names it as `reasoning_effort` for a worker. A selection saved
+  without a level runs at the model's default.
+- A model setting stores only Claude Code and Codex, as the other model
+  settings do. Both backends get the same packet.
+
 ## States
 
 - Lead running: its tab shows the run; a worker's question or permission shows

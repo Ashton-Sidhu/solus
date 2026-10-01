@@ -30,8 +30,9 @@
      *  while the durable session binding loads. */
     taskTitle: string | null;
     currentTraceId: string;
-    onOpenTurn: (traceId: string) => void;
-    onOpenTask: () => void;
+    /** Absent on a shared report: the other turns stayed on the computer. */
+    onOpenTurn?: (traceId: string) => void;
+    onOpenTask?: () => void;
   }
 
   let {
@@ -79,8 +80,9 @@
            that binding before it navigates. -->
       <button
         type="button"
-        class="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-insights-summary decoration-muted-foreground/50 underline-offset-4 transition-colors hover:underline focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
-        title="Open task in the trailing pane"
+        class="min-w-0 truncate border-0 bg-transparent p-0 text-left text-insights-summary decoration-muted-foreground/50 underline-offset-4 transition-colors enabled:cursor-pointer enabled:hover:underline focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
+        title={onOpenTask ? "Open task in the trailing pane" : undefined}
+        disabled={!onOpenTask}
         onclick={onOpenTask}
       >{taskTitle ?? sessionName ?? shortId(session.sessionId)}</button
       >
@@ -115,11 +117,12 @@
               {...props}
               type="button"
               data-trace={row.traceId}
-              class="flex h-7 w-full shrink-0 cursor-pointer items-center gap-3 overflow-hidden rounded-md px-2 text-left transition-colors select-none focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] {row.isCurrent
+              class="flex h-7 w-full shrink-0 items-center gap-3 overflow-hidden rounded-md px-2 text-left transition-colors select-none focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] {row.isCurrent
                 ? 'bg-[var(--wash-3)]'
-                : 'hover:bg-[var(--wash-2)]'}"
+                : onOpenTurn ? 'cursor-pointer hover:bg-[var(--wash-2)]' : ''}"
               aria-current={row.isCurrent ? "true" : undefined}
-              onclick={() => onOpenTurn(row.traceId)}
+              aria-disabled={onOpenTurn ? undefined : "true"}
+              onclick={() => onOpenTurn?.(row.traceId)}
             >
               <span
                 class="w-5 shrink-0 text-right text-insights-chrome text-muted-foreground tabular-nums">{row.turnNumber}</span

@@ -123,23 +123,30 @@ export interface ShareChangedEvent {
   removedUserIds: string[]
 }
 
+/** What a link can open. A task has no link of its own: its organization sees it. */
+export type GuestLinkResource = ShareResource & { kind: 'work' | 'session' }
+
+export function isGuestLinkResource(resource: ShareResource): resource is GuestLinkResource {
+  return resource.kind === 'work' || resource.kind === 'session'
+}
+
 /** Cloud resource links keep the bearer secret in the fragment. */
 export interface GuestLink {
-  resource: ShareResource
+  resource: GuestLinkResource
   secret: string
 }
 
-const SHARE_PATHS = { work: 'w', session: 's', task: 't' } as const
+const SHARE_PATHS = { work: 'w', session: 's' } as const
 
-export function cloudShareUrl(origin: string, resource: ShareResource, secret: string): string {
+export function cloudShareUrl(origin: string, resource: GuestLinkResource, secret: string): string {
   return `${origin.replace(/\/$/, '')}/${SHARE_PATHS[resource.kind]}/${encodeURIComponent(resource.id)}#${secret}`
 }
 
 export function parseCloudShareLink(pathname: string, hash: string): GuestLink | null {
-  const path = /^\/(w|s|t)\/([A-Za-z0-9_-]+)\/?$/.exec(pathname)
+  const path = /^\/(w|s)\/([A-Za-z0-9_-]+)\/?$/.exec(pathname)
   const secret = /^#([A-Za-z0-9_-]{32,256})$/.exec(hash)
   if (!path || !secret) return null
-  const kind = path[1] === 'w' ? 'work' : path[1] === 's' ? 'session' : 'task'
+  const kind = path[1] === 'w' ? 'work' : 'session'
   return { resource: { kind, id: path[2]! }, secret: secret[1]! }
 }
 

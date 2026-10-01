@@ -7,7 +7,7 @@
   import * as Popover from "../ui/popover";
   import { Button } from "../ui/button";
   import UserAvatar from "../users/UserAvatar.svelte";
-  import { getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
   import { getMentionContext } from "../mentions/lib/mention-context";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -35,6 +35,7 @@
   let { workId, title, type, currentContent }: Props = $props();
 
   const session = getSurfaceContext();
+  const shell = getClientShellContext();
   const pane = getWorkPaneContext();
   const mentions = getMentionContext();
   const reviews = session.worksStore.reviews;
@@ -292,7 +293,7 @@
             <LinkIcon size={13} />
             Copy review link
           </Button>
-          {#if session.workspace}
+          {#if session.workspace && shell.canOpenResource("chat")}
             <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={busy} onclick={sendOpenComments}>
               <SendIcon size={13} />
               Send open comments to agent

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentDispatcher } from '../agent-runner'
+import type { SeatResolver, TurnSeat } from '../../seats/seat-manager'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { buildSystemPrompt } from '../system-hint'
@@ -37,7 +38,8 @@ const codexSubagentFields = {
 const CODEX_SUBAGENT_DESC =
   "Delegate a task to a Codex subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
 
-export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
+/** `seatFor` is the turn author's own provider login, which the subagent uses. */
+export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFor?: SeatResolver): AgentTool {
   return {
     name: 'codex_subagent',
     description: CODEX_SUBAGENT_DESC,
@@ -45,6 +47,12 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
     requiresApproval: false,
     execute: async (args, context) => {
       const parentToolUseId = context.parentToolUseId()
+      let seat: TurnSeat | undefined
+      try {
+        seat = await seatFor?.('codex') ?? undefined
+      } catch (error) {
+        return { ok: false, text: `Codex subagent failed: ${error instanceof Error ? error.message : String(error)}` }
+      }
       const model = args.model ?? 'gpt-6-sol'
       const run = dispatcher.runAgent({
         provider: 'codex',
@@ -65,6 +73,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
         reasoningEffort: args.reasoning_effort,
         permissionMode: 'full-access',
         persistence: 'ephemeral',
+        seat,
         service: SPAN_SERVICES.subagents,
         systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
         onEvent: (event) => {

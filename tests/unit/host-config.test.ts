@@ -373,3 +373,21 @@ describe('merge', () => {
     expect(merged.extraInstructions).toBe('')
   })
 })
+
+describe('lead and worker models', () => {
+  test('keep the reasoning level, and still read a selection saved without one', () => {
+    // WHY: Settings → Tasks saves a reasoning level with each model. A lead or
+    // worker model saved before that must not be dropped on the next read.
+    const parsed = hostConfigPatchSchema.parse({
+      leadModel: { provider: 'claude-code', model: 'claude-opus-5', reasoningEffort: 'max' },
+      workerModel: { provider: 'codex', model: 'gpt-6' },
+    })
+    expect(parsed.leadModel).toEqual({ provider: 'claude-code', model: 'claude-opus-5', reasoningEffort: 'max' })
+    expect(parsed.workerModel).toEqual({ provider: 'codex', model: 'gpt-6', reasoningEffort: undefined })
+  })
+
+  test('an unknown reasoning level heals to no model rather than failing the config', () => {
+    const parsed = hostConfigPatchSchema.parse({ workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: 'extreme' } })
+    expect(parsed.workerModel).toBeNull()
+  })
+})

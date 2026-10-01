@@ -37,8 +37,6 @@
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
-    /** The bar's saved-prompts control, seated with the pickers it belongs with. */
-    savedPromptsControl?: Snippet;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
     /** Editing is not permitted here (a viewer on a shared session). The row
@@ -59,7 +57,6 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    savedPromptsControl,
     trailingActions,
     readOnly = false,
   }: Props = $props();
@@ -86,7 +83,8 @@
   );
 
   $effect(() => {
-    void hostCapabilitiesStore.load(serverId);
+    // A restored tab may name a deleted machine; asking it throws synchronously.
+    if (serverConnections.isKnownServer(serverId)) void hostCapabilitiesStore.load(serverId);
   });
 </script>
 
@@ -105,8 +103,7 @@
   added to one — they are the reverse-state guarantee that you can always send
   and always stop dictating. Rungs, widest first:
 
-    ≥ 38rem  everything
-    < 38rem  saved-prompts control          (this file)
+    ≥ 34rem  everything
     < 34rem  context usage meter            (StatusBarControls)
     < 31rem  reasoning label on the chip    (SessionChip)
     < 28rem  permission picker → icon-only  (PermissionModePicker)
@@ -147,15 +144,8 @@
   />
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
   <SessionChip {tabId} {isPrimary} bind:selection returnFocusOnClose />
-  <!-- Rung 1. Wrapped rather than hidden in place: the control is a snippet the
-       bar owns, so the rung has to live on a box this row controls. `contents`
-       generates no box of its own, so a caller that passes no snippet does
-       not pay an empty flex item and its `gap-2` here. -->
-  <div class="contents @max-[38rem]/composer:hidden">
-    {@render savedPromptsControl?.()}
-  </div>
 
-  <!-- Rungs 2 and 5 live inside StatusBarControls, which hides its own readouts and
+  <!-- Rungs 1 and 4 live inside StatusBarControls, which hides its own readouts and
        keeps `trailingActions` — connection retry, push bell, Switch server on
        web — reachable at every width. `ml-auto` is inert once a row overflows,
        which is why the ladder acts before the row can overflow, not after. -->

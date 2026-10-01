@@ -4,6 +4,7 @@ import { buildSystemPrompt } from '../system-hint'
 import { hostInstructionsFor } from '../run-input'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../agent-runner'
+import type { SeatResolver, TurnSeat } from '../../seats/seat-manager'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
@@ -46,7 +47,8 @@ const claudeSubagentInputSchema = z.object(claudeSubagentFields)
 const CLAUDE_SUBAGENT_DESC =
   "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
 
-export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
+/** `seatFor` is the turn author's own provider login, which the subagent uses. */
+export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatFor?: SeatResolver): AgentTool {
   return {
     name: CLAUDE_SUBAGENT_TOOL_NAME,
     description: CLAUDE_SUBAGENT_DESC,
@@ -58,6 +60,12 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
       const reasoningEffort =
         args.reasoning_effort ?? claudeProfiles[model]?.defaultReasoningEffort ?? 'medium'
       const parentToolUseId = context.parentToolUseId()
+      let seat: TurnSeat | undefined
+      try {
+        seat = await seatFor?.('claude-code') ?? undefined
+      } catch (error) {
+        return { ok: false, text: `Claude subagent failed: ${error instanceof Error ? error.message : String(error)}` }
+      }
       const run = dispatcher.runAgent({
         provider: 'claude-code',
         prompt: args.prompt,
@@ -77,6 +85,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
         reasoningEffort,
         permissionMode: 'full-access',
         persistence: 'ephemeral',
+        seat,
         service: SPAN_SERVICES.subagents,
         unattended: true,
         systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,

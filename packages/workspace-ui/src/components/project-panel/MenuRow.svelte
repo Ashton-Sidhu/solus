@@ -67,12 +67,12 @@
         <span class="menu-left">
           <span class="menu-icon" data-tone={item.iconTone}>
             {#if item.phase === "loading"}
-              <span class="glyph-spin"><SpinnerGapIcon size={13} /></span>
+              <span class="glyph-spin"><SpinnerGapIcon size={16} /></span>
             {:else if item.phase === "success"}
-              <span class="glyph-pop"><CheckIcon size={13} weight="bold" /></span>
+              <span class="glyph-pop"><CheckIcon size={16} weight="bold" /></span>
             {:else}
               {@const Icon = item.icon}
-              <Icon size={13} />
+              <Icon size={16} />
             {/if}
           </span>
           <span class="menu-label">{item.label}</span>
@@ -113,7 +113,7 @@
     /* The project rail declares its device-based type rung once. Rows inherit
        it so resizing this container cannot change their typography. */
     font-size: inherit;
-    font-weight: 400;
+    font-weight: 500;
     text-align: left;
     cursor: pointer;
     transition:

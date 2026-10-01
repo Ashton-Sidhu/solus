@@ -14,6 +14,7 @@
     Cloud as CloudIcon,
     NotebookPen as NotePencilIcon,
     Folder as FolderIcon,
+    ListChecks as ListChecksIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -37,6 +38,7 @@
   import SettingsTabAppearance from "./SettingsTabAppearance.svelte";
   import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
   import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
+  import SettingsTabTasks from "./SettingsTabTasks.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
   import SettingsTabTools from "./SettingsTabTools.svelte";
@@ -98,6 +100,13 @@
       label: "Custom Instructions",
       description: "Text appended to the system prompt on every agent run.",
       icon: NotePencilIcon,
+      group: "Workspace",
+    },
+    {
+      id: "tasks",
+      label: "Tasks",
+      description: "How agents work on tasks, and how a task's lead runs.",
+      icon: ListChecksIcon,
       group: "Workspace",
     },
     {
@@ -211,6 +220,7 @@
   );
   const hostFramedTab = $derived(
     session.settingsTab === "general" ||
+      session.settingsTab === "tasks" ||
       session.settingsTab === "projects" ||
       session.settingsTab === "source-control" ||
       session.settingsTab === "providers" ||
@@ -345,6 +355,13 @@
     />
   {:else if session.settingsTab === "general" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabGeneral
+      {searchQuery}
+      serverId={selectedSettingsHost.serverId}
+      api={selectedSettingsApi}
+      hostLabel={selectedSettingsHost.label}
+    />
+  {:else if session.settingsTab === "tasks" && selectedSettingsHost && selectedSettingsApi}
+    <SettingsTabTasks
       {searchQuery}
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}

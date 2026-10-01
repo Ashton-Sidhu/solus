@@ -234,7 +234,10 @@ applied:
 - Colors and shadows must work in **both light and dark mode**.
 - Use Tailwind v4 utilities rather than CSS wherever practical.
 - Use `text-workspace-chrome` for navigation, rails, action labels, and other
-  workspace chrome. It is 14px on every display. Solus has one density: do not
+  workspace chrome. It is 14px on every display. Supporting text in the session
+  sidebar (a row's project and host line) and the project panel use
+  `text-chrome-dense` (12px, 14px on touch). Labels of project panel rows and
+  input bar controls use weight 500 with 16px icons. Solus has one density: do not
   size type or geometry by the monitor. Users make the UI denser or roomier
   with zoom (`mod+plus` / `mod+minus`). Layout adapts to its container
   (`@container`) and to the pointer (`pointer-coarse:`), never to `screen.width`

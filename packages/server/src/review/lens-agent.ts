@@ -1,6 +1,7 @@
 import type { ReviewLedger } from '@solus/contracts/review'
 import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { TurnSeat } from '../execution/seats/seat-manager'
 import { buildSystemPrompt } from '../execution/agents/system-hint'
 import { hostInstructionsFor } from '../execution/agents/run-input'
 import { createLogger } from '../logger'
@@ -30,6 +31,8 @@ export interface LensAgentInput {
   edit?: LensEditInput
   agent: AgentId
   model: string | null
+  /** The member's own provider login; absent for the host's login. */
+  seat?: TurnSeat
   reasoningEffort: ReasoningEffort | null
   onWriting: () => void
   abortSignal: AbortSignal
@@ -49,6 +52,7 @@ export async function runLensAgent(dispatcher: AgentDispatcher, input: LensAgent
       cwd: input.workTree,
       tools: [tool],
       model: input.model,
+      seat: input.seat,
       reasoningEffort: input.reasoningEffort ?? 'medium',
       permissionMode: 'plan',
       persistence: 'ephemeral',

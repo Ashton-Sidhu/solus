@@ -3286,7 +3286,9 @@ button.solus-token {
    no filled header and no stripes. The header takes the body colour at 600. */
 .prose-transcript .transcript-table {
   max-width: 100%;
-  margin: 0.65rem 0;
+  margin: 0.65rem 0 0.25rem;
+}
+.prose-transcript .transcript-table-scroll {
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -3326,6 +3328,15 @@ button.solus-token {
   line-height: 1.5;
   overflow-wrap: anywhere;
   border-bottom: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+/* Collapsed: one line per row. The table keeps its natural width and scrolls,
+   and a cell longer than 24rem ends in an ellipsis. */
+.prose-transcript .transcript-table[data-expanded="false"] table { min-width: max-content; }
+.prose-transcript .transcript-table[data-expanded="false"] tbody td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 /* §5 — inline reference chips. One shell for everything atomic and copyable in a

@@ -9,9 +9,12 @@ import type {
   MetricsSchema,
   MetricsSessionSummary,
   MetricsSqlValidation,
+  MetricsTurnFilter,
+  MetricsTurnPageRequest,
   MetricsTurnPageResult,
   MetricsTurnSortField,
   MetricsTurnStatus,
+  MetricsTurnListingSummary,
   MetricsTurnTrace,
   MetricsValue,
   SavedMetricsQuery,
@@ -109,6 +112,13 @@ async function formatGeneratedSqlLazily(sql: string): Promise<string> {
  * carries this trace, because the project is not a git repository or the turn
  * ran before snapshots recorded their trace.
  */
+/** What the turn page reads of a change: a shared report carries the patch alone. */
+export type TurnChangeReading =
+  | { status: 'loading' }
+  | { status: 'ready'; patch: string }
+  | { status: 'missing' }
+  | { status: 'failed' }
+
 export type TurnChange =
   | { status: 'loading' }
   | { status: 'ready'; snapshot: TurnSnapshot; patch: string }
@@ -161,8 +171,14 @@ export class InsightsStore {
   error = $state<string | null>(null)
   result = $state.raw<MetricsQueryResult | null>(null)
   /** Server-paged state for Solus's generated turn listing. Null for arbitrary
-   * SQL, event listings, and aggregate answers. */
+   * SQL, event listings, and aggregate answers. The summary — the count, the
+   * status chips, the stats, and the histogram — is read apart from the page,
+   * because a page or sort change does not change it. */
+  turnListingSummary = $state.raw<MetricsTurnListingSummary | null>(null)
   turnPage = $state.raw<MetricsTurnPageResult | null>(null)
+  /** True while a page, page-size, or sort change reads new rows. The rows on
+   *  screen stay until the new ones land; only `running` replaces the answer. */
+  turnRowsLoading = $state(false)
   turnPageIndex = $state(0)
   turnPageSize = $state(25)
   turnSort = $state.raw<{ field: MetricsTurnSortField; dir: 'asc' | 'desc' }>({
@@ -208,7 +224,17 @@ export class InsightsStore {
   private turnChanges = new SvelteMap<string, TurnChange>()
   private lastRun: LastRun | null = null
   private loadToken = 0
-  private turnPageToken = 0
+  /** A filter change reads the summary and the rows; a page change reads the
+   *  rows alone. Each kind of read is superseded only by a newer read of it. */
+  private turnAnswerToken = 0
+  private turnRowsToken = 0
+  /** The answer read that set `running`, or 0. A read that is dropped must
+   *  still give `running` back, and must not clear it for a newer owner. */
+  private runningTurnAnswer = 0
+  /** The filter of the latest answer read, landed or still out. A page read
+   *  reuses it, so the rows and the summary always describe the same turns and
+   *  a relative window does not move between the chart and the table. */
+  private turnFilter: MetricsTurnFilter | null = null
   private turnSearchTimer: ReturnType<typeof setTimeout> | null = null
   private turnsChangedTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -264,8 +290,8 @@ export class InsightsStore {
     this.turnsChangedTimer = setTimeout(() => {
       this.turnsChangedTimer = null
       if (!this.generatedTurnScope() || !this.turnPage) return
-      if (this.running) this.scheduleTurnsReload()
-      else void this.runTurnPage({ quiet: true })
+      if (this.running || this.turnRowsLoading) this.scheduleTurnsReload()
+      else void this.runTurnListing({ quiet: true })
     }, TURNS_CHANGED_DEBOUNCE_MS)
   }
 
@@ -275,7 +301,7 @@ export class InsightsStore {
     if (this.serverId === serverId) return
     this.serverId = serverId
     this.result = null
-    this.turnPage = null
+    this.clearTurnListing()
     this.error = null
     this.compiledSql = ''
     this.answerWindowStale = false
@@ -314,7 +340,7 @@ export class InsightsStore {
     this.sqlText = defaultExploreSql(this.range)
     this.answerWindowStale = false
     this.result = null
-    this.turnPage = null
+    this.clearTurnListing()
     this.error = null
     this.compiledSql = ''
     this.compileAttempts = 0
@@ -347,7 +373,22 @@ export class InsightsStore {
   }
 
   get hasPagedTurnListing(): boolean {
-    return this.turnPage !== null && this.generatedTurnScope() !== null
+    return this.turnPage !== null && this.turnListingSummary !== null && this.generatedTurnScope() !== null
+  }
+
+  /** Bumping both tokens makes a read still in flight land on nothing. A
+   *  caller that runs a new statement clears first, then sets `running`. */
+  private clearTurnListing(): void {
+    this.turnAnswerToken += 1
+    this.turnRowsToken += 1
+    if (this.runningTurnAnswer !== 0) {
+      this.running = false
+      this.runningTurnAnswer = 0
+    }
+    this.turnListingSummary = null
+    this.turnPage = null
+    this.turnRowsLoading = false
+    this.turnFilter = null
   }
 
   /**
@@ -412,7 +453,7 @@ export class InsightsStore {
     this.turnPageIndex = 0
     this.turnSelection = null
     if (this.serverId) {
-      if (this.generatedTurnScope()) await this.runTurnPage()
+      if (this.generatedTurnScope()) await this.runTurnListing()
       else await this.runSql(sql)
     }
   }
@@ -431,7 +472,7 @@ export class InsightsStore {
   setUserSql(sql: string): void {
     this.sqlText = sql
     this.generated = null
-    this.turnPage = null
+    this.clearTurnListing()
   }
 
   /** Everything the page needs before it can answer anything: the registry, the
@@ -466,7 +507,7 @@ export class InsightsStore {
       const window = resolveRange(this.range, Date.now())
       this.windowFrom = window.from
       this.windowTo = window.to
-      await this.runTurnPage()
+      await this.runTurnListing()
       return
     }
     // Re-running a statement does not re-author it: text that already described
@@ -515,78 +556,122 @@ export class InsightsStore {
     this.history = [entry, ...this.history.filter((run) => run.text !== text)].slice(0, HISTORY_LIMIT)
   }
 
-  /** `quiet` is a re-read the user did not ask for: the rows change in place,
-   *  with no loading state, and a failure keeps the rows already on screen. */
-  private async runTurnPage({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
+  private turnPageRequest(filter: MetricsTurnFilter): MetricsTurnPageRequest {
+    return { ...filter, pageIndex: this.turnPageIndex, pageSize: this.turnPageSize, sort: this.turnSort }
+  }
+
+  /** Shows a page and the session names its rows need. */
+  private showTurnRows(page: MetricsTurnPageResult): void {
+    this.turnPage = page
+    this.turnPageIndex = page.pageIndex
+    this.turnPageSize = page.pageSize
+    this.result = page.page
+    // Detail surfaces use these only as nearby turn context. Keeping the
+    // current page bounded avoids rebuilding them from the whole range.
+    this.volumeRows = toTurnRows(page.page)
+    // A turn with no task is listed under its session's name. A page is a
+    // bounded set of sessions, and each name is read once per host.
+    for (const row of this.volumeRows) {
+      if (row.sessionId && !row.taskTitle) void this.loadSessionName(row.sessionId)
+    }
+  }
+
+  /** A failed read leaves no listing, rather than a chart and a table that
+   *  describe different filters. */
+  private failTurnListing(cause: unknown): void {
+    this.result = null
+    this.clearTurnListing()
+    this.error = cause instanceof Error ? cause.message : String(cause)
+  }
+
+  /** Reads a new answer: the summary and the rows together, because a filter
+   *  change moves both. `quiet` is a re-read the user did not ask for: the
+   *  answer changes in place, with no loading state, and a failure keeps the
+   *  answer already on screen. */
+  private async runTurnListing({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
     const scope = this.generatedTurnScope()
     if (!scope) return
-    const requestToken = ++this.turnPageToken
-    const selectedWindow = this.turnSelection ?? resolveRange(this.range, Date.now())
+    const answerToken = ++this.turnAnswerToken
+    const rowsToken = ++this.turnRowsToken
+    const filter: MetricsTurnFilter = {
+      timeRange: this.turnSelection ?? resolveRange(this.range, Date.now()),
+      status: this.turnStatus ?? undefined,
+      search: this.turnSearch || undefined,
+      ...scope,
+    }
+    this.turnFilter = filter
     if (!quiet) {
       this.running = true
+      this.runningTurnAnswer = answerToken
       this.error = null
     }
     const startedAt = performance.now()
     try {
-      const page = await this.api.metricsTurnPage({
-        timeRange: selectedWindow,
-        pageIndex: this.turnPageIndex,
-        pageSize: this.turnPageSize,
-        sort: this.turnSort,
-        status: this.turnStatus ?? undefined,
-        search: this.turnSearch || undefined,
-        ...scope,
-      })
-      if (requestToken !== this.turnPageToken) return
-      this.turnPage = page
-      this.turnPageIndex = page.pageIndex
-      this.turnPageSize = page.pageSize
-      this.result = page.page
-      // Detail surfaces use these only as nearby turn context. Keeping the
-      // current page bounded avoids rebuilding them from the whole range.
-      this.volumeRows = toTurnRows(page.page)
-      // A turn with no task is listed under its session's name. A page is a
-      // bounded set of sessions, and each name is read once per host.
-      for (const row of this.volumeRows) {
-        if (row.sessionId && !row.taskTitle) void this.loadSessionName(row.sessionId)
-      }
+      const [summary, page] = await Promise.all([
+        this.api.metricsTurnListingSummary(filter),
+        this.api.metricsTurnPage(this.turnPageRequest(filter)),
+      ])
+      if (answerToken !== this.turnAnswerToken) return
+      this.turnListingSummary = summary
+      // A page or sort change made while this read was out has newer rows.
+      if (rowsToken === this.turnRowsToken) this.showTurnRows(page)
       this.answerWindowStale = false
       if (!quiet) this.lastRunMs = Math.round(performance.now() - startedAt)
     } catch (cause) {
-      if (requestToken !== this.turnPageToken || quiet) return
-      this.result = null
-      this.turnPage = null
-      this.error = cause instanceof Error ? cause.message : String(cause)
+      if (answerToken !== this.turnAnswerToken || quiet) return
+      this.failTurnListing(cause)
     } finally {
-      if (requestToken === this.turnPageToken && !quiet) this.running = false
+      if (this.runningTurnAnswer === answerToken) {
+        this.running = false
+        this.runningTurnAnswer = 0
+      }
+      if (rowsToken === this.turnRowsToken) this.turnRowsLoading = false
+    }
+  }
+
+  /** Reads only the rows, for a page, page-size, or sort change. The summary
+   *  and the chart above the table do not depend on them, so they stay. */
+  private async runTurnRows(): Promise<void> {
+    const filter = this.turnFilter
+    if (!filter) return
+    const rowsToken = ++this.turnRowsToken
+    this.turnRowsLoading = true
+    this.error = null
+    try {
+      const page = await this.api.metricsTurnPage(this.turnPageRequest(filter))
+      if (rowsToken === this.turnRowsToken) this.showTurnRows(page)
+    } catch (cause) {
+      if (rowsToken === this.turnRowsToken) this.failTurnListing(cause)
+    } finally {
+      if (rowsToken === this.turnRowsToken) this.turnRowsLoading = false
     }
   }
 
   async setTurnPage(pageIndex: number): Promise<void> {
     if (pageIndex === this.turnPageIndex) return
     this.turnPageIndex = pageIndex
-    await this.runTurnPage()
+    await this.runTurnRows()
   }
 
   async setTurnPageSize(pageSize: number): Promise<void> {
     if (pageSize === this.turnPageSize) return
     this.turnPageSize = pageSize
     this.turnPageIndex = 0
-    await this.runTurnPage()
+    await this.runTurnRows()
   }
 
   async setTurnSort(sort: { field: MetricsTurnSortField; dir: 'asc' | 'desc' }): Promise<void> {
     if (sort.field === this.turnSort.field && sort.dir === this.turnSort.dir) return
     this.turnSort = sort
     this.turnPageIndex = 0
-    await this.runTurnPage()
+    await this.runTurnRows()
   }
 
   async setTurnStatus(status: MetricsTurnStatus | null): Promise<void> {
     if (status === this.turnStatus) return
     this.turnStatus = status
     this.turnPageIndex = 0
-    await this.runTurnPage()
+    await this.runTurnListing()
   }
 
   setTurnSearch(search: string): void {
@@ -595,21 +680,21 @@ export class InsightsStore {
     if (this.turnSearchTimer) clearTimeout(this.turnSearchTimer)
     this.turnSearchTimer = setTimeout(() => {
       this.turnSearchTimer = null
-      void this.runTurnPage()
+      void this.runTurnListing()
     }, 180)
   }
 
   async setTurnSelection(selection: { from: number; to: number } | null): Promise<void> {
     this.turnSelection = selection
     this.turnPageIndex = 0
-    await this.runTurnPage()
+    await this.runTurnListing()
   }
 
   async runSql(sql: string): Promise<void> {
     const text = sql.trim()
     if (!text) return
+    this.clearTurnListing()
     this.running = true
-    this.turnPage = null
     this.error = null
     const startedAt = performance.now()
     try {
@@ -628,8 +713,8 @@ export class InsightsStore {
   }
 
   async runSpec(spec: MetricsQuerySpec): Promise<void> {
+    this.clearTurnListing()
     this.running = true
-    this.turnPage = null
     this.error = null
     const startedAt = performance.now()
     try {
@@ -658,8 +743,8 @@ export class InsightsStore {
   async compileAndRun(ctx: IpcContext, question: string): Promise<void> {
     const text = question.trim()
     if (!text) return
+    this.clearTurnListing()
     this.running = true
-    this.turnPage = null
     this.compiling = true
     this.error = null
     const startedAt = performance.now()

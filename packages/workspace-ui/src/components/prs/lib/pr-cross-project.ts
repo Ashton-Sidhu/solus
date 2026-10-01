@@ -9,7 +9,6 @@ import type { PullRequest } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
-import { isRepositoryKey } from '@solus/contracts/repository-key'
 
 export interface QualifiedProject {
   serverId: string
@@ -83,11 +82,9 @@ export function qualifiedKeyOf(byPr: Map<PullRequest, QualifiedPr>): (pr: PullRe
   }
 }
 
-/** How the page reaches a project: through a checkout whose host is online,
- *  or through the organization's workspace service. */
+/** How the page reaches a project: through a checkout whose host is online.
+ *  The Solus API is never a host to read through (docs/plans/workspace-and-machines.md). */
 export interface PrProjectReach {
-  /** The workspace service, when it is online to read through. */
-  cloudServerId: string | null
   isOnlineCheckout: (serverId: string) => boolean
   apiFor: (serverId: string) => HostApi
   ctxFor: (projectRoot: string) => IpcContext
@@ -98,30 +95,20 @@ export interface PrProjectReach {
  * reachable right now: a saved host that has never dialed keeps its request
  * queued in the transport with nothing to age it out, and one of those inside
  * the bounded worker pool blocks every project behind it. A project whose
- * checkouts are all off is read once per repository through the workspace
- * service, and one with neither is left out until a host connects.
+ * checkouts are all off is left out until one of its hosts connects.
  */
 export function prProjectTargets(
   options: readonly { key: string; projectKey: string; serverId: string; label: string }[],
   reach: PrProjectReach,
 ): { serverId: string; projectRoot: string; label: string; api: HostApi; ctx: IpcContext }[] {
   return options.flatMap((option) => {
-    if (reach.isOnlineCheckout(option.serverId)) {
-      return [{
-        serverId: option.serverId,
-        projectRoot: option.projectKey,
-        label: option.label,
-        api: reach.apiFor(option.serverId),
-        ctx: reach.ctxFor(option.projectKey),
-      }]
-    }
-    if (!reach.cloudServerId || !isRepositoryKey(option.key)) return []
+    if (!reach.isOnlineCheckout(option.serverId)) return []
     return [{
-      serverId: reach.cloudServerId,
-      projectRoot: option.key,
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
       label: option.label,
-      api: reach.apiFor(reach.cloudServerId),
-      ctx: reach.ctxFor(option.key),
+      api: reach.apiFor(option.serverId),
+      ctx: reach.ctxFor(option.projectKey),
     }]
   })
 }

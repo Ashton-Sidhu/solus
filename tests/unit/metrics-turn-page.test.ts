@@ -67,10 +67,12 @@ describe.serial('Insights turn pagination', () => {
   test('pages rows without truncating the full-range count, chart, or statistics', () => {
     const first = turnPageModule.turnPage(baseRequest)
     expect(first.page.rows).toHaveLength(25)
-    expect(first.totalRows).toBe(120)
     expect(first.pageIndex).toBe(0)
-    expect(first.statusCounts).toEqual({ ok: 80, error: 40, interrupted: 0 })
-    expect(first.stats).toMatchObject({
+
+    const summary = turnPageModule.turnListingSummary(baseRequest)
+    expect(summary.totalRows).toBe(120)
+    expect(summary.statusCounts).toEqual({ ok: 80, error: 40, interrupted: 0 })
+    expect(summary.stats).toMatchObject({
       counted: 120,
       failed: 40,
       failureRate: 1 / 3,
@@ -78,16 +80,15 @@ describe.serial('Insights turn pagination', () => {
       p50DurationMs: 61,
       p95DurationMs: 115,
     })
-    expect(first.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(120)
-    expect(first.volume.reduce((sum, bucket) => sum + bucket.costUsd, 0)).toBe(60)
+    expect(summary.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(120)
+    expect(summary.volume.reduce((sum, bucket) => sum + bucket.costUsd, 0)).toBe(60)
 
     const last = turnPageModule.turnPage({ ...baseRequest, pageIndex: 4 })
     expect(last.page.rows).toHaveLength(20)
-    expect(last.totalRows).toBe(120)
   })
 
   test('applies status, search, scope, time, and sorting before pagination', () => {
-    const filtered = turnPageModule.turnPage({
+    const request: MetricsTurnPageRequest = {
       ...baseRequest,
       timeRange: { from: 30, to: 90 },
       pageSize: 10,
@@ -95,16 +96,18 @@ describe.serial('Insights turn pagination', () => {
       sessionId: 'session-a',
       search: 'turn 3',
       sort: { field: 'started_at', dir: 'asc' },
-    })
-    expect(filtered.totalRows).toBe(4)
+    }
+    const filtered = turnPageModule.turnPage(request)
+    const summary = turnPageModule.turnListingSummary(request)
+    expect(summary.totalRows).toBe(4)
     expect(filtered.page.rows).toHaveLength(4)
     const startedAtIndex = filtered.page.columns.findIndex((column) => column.name === 'started_at')
     expect(filtered.page.rows.map((row) => row[startedAtIndex])).toEqual([30, 33, 36, 39])
     // Status chips describe the same scoped/search result before the active
     // status filter, not merely the current page.
-    expect(filtered.statusCounts).toEqual({ ok: 6, error: 4, interrupted: 0 })
-    expect(filtered.stats.counted).toBe(4)
-    expect(filtered.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(4)
+    expect(summary.statusCounts).toEqual({ ok: 6, error: 4, interrupted: 0 })
+    expect(summary.stats.counted).toBe(4)
+    expect(summary.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(4)
   })
 
   test('clamps page size and an out-of-range page safely', () => {

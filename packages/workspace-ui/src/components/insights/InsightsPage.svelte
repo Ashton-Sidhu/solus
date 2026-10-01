@@ -93,7 +93,7 @@
    * route's params — that is what makes it deep-linkable.
    *
    * `metrics.db` is host-local — each host records its own runs — so the page
-   * follows the active host and clears rather than mixing two machines' spans.
+   * follows the default machine and clears rather than mixing two machines' spans.
    */
   let { params, paneId }: RouteSurfaceProps<"insights"> = $props();
 
@@ -103,7 +103,14 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const open = $derived(workspace.router.at("insights"));
-  const serverId = $derived(serverConnections.resolveId(serversStore.activeServerId));
+  // `metrics.db` is a machine's. At app.solus.sh the active host can be the
+  // organization's Solus API, which records no turns, so read the default machine.
+  const serverId = $derived.by(() => {
+    // Read so a host switch, or a machine connecting or dropping, chooses again.
+    void serversStore.activeServerId;
+    void serversStore.executionServers.map((server) => server.status);
+    return serverConnections.defaultMachineId();
+  });
   // The Organization scope (organization-scope §6.1): the selected organization's
   // turns from its workspace service, beside the host's own metrics. A toggle,
   // not a redesign: the console and its answer stay as they are on the host scope.
@@ -253,7 +260,7 @@
         : store.error
           ? "Query failed"
           : store.result
-            ? `${formatRowCount(store.turnPage?.totalRows ?? store.result.rows.length)} · ${store.lastRunMs} ms${
+            ? `${formatRowCount(store.turnListingSummary?.totalRows ?? store.result.rows.length)} · ${store.lastRunMs} ms${
                 store.answerWindowStale ? " · asked over the previous range — run again" : ""
               }`
             : "No query has run yet",
@@ -359,6 +366,7 @@
    *  indexed record: a span stores the session id, not its agent backend, and
    *  loading a Claude transcript through Codex returns an empty conversation. */
   async function openSession(sessionId: string): Promise<void> {
+    if (!serverId) return;
     const tabId = await workspace.revealSession(sessionId, serverId);
     if (!tabId) toasts.error("That session is no longer on this host");
   }
@@ -419,7 +427,7 @@
   const railCondensed = $derived(railFold.condensed);
 
   const railStatusCounts = $derived(
-    (pagedTurns ? store.turnPage?.statusCounts : undefined) ?? countByStatus(visibleRows),
+    (pagedTurns ? store.turnListingSummary?.statusCounts : undefined) ?? countByStatus(visibleRows),
   );
 
   /** The rows the rail shows and the panel's stepper walks — the current
@@ -718,8 +726,8 @@
       {#if showVolume}
         <VolumeChart
           points={chartPoints}
-          aggregateBuckets={pagedTurns ? store.turnPage?.volume : undefined}
-          aggregateStats={pagedTurns ? store.turnPage?.stats : undefined}
+          aggregateBuckets={pagedTurns ? store.turnListingSummary?.volume : undefined}
+          aggregateStats={pagedTurns ? store.turnListingSummary?.stats : undefined}
           heading={chartHeading}
           countLabel={chartCountLabel}
           from={chartWindow.from}
@@ -745,13 +753,14 @@
           sessionName={(sessionId) => store.sessionName(sessionId)}
           flags={store.turnFlags}
           {emptyHint}
-          totalRows={pagedTurns ? store.turnPage?.totalRows : undefined}
+          totalRows={pagedTurns ? store.turnListingSummary?.totalRows : undefined}
           pageIndex={pagedTurns ? store.turnPageIndex : undefined}
           pageSize={pagedTurns ? store.turnPageSize : undefined}
           onPageChange={pagedTurns ? (page) => void store.setTurnPage(page) : undefined}
           onPageSizeChange={pagedTurns ? (size) => void store.setTurnPageSize(size) : undefined}
-          fullStatusCounts={pagedTurns ? store.turnPage?.statusCounts : undefined}
-          fullP95DurationMs={pagedTurns ? store.turnPage?.stats.p95DurationMs : undefined}
+          rowsLoading={pagedTurns && store.turnRowsLoading}
+          fullStatusCounts={pagedTurns ? store.turnListingSummary?.statusCounts : undefined}
+          fullP95DurationMs={pagedTurns ? store.turnListingSummary?.stats.p95DurationMs : undefined}
           search={turnSearch}
           onSearchChange={changeTurnSearch}
         />

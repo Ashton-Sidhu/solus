@@ -496,8 +496,8 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
-    font-size: var(--text-workspace-chrome);
-    line-height: var(--text-workspace-chrome--line-height);
+    font-size: var(--text-chrome-dense);
+    line-height: var(--text-chrome-dense--line-height);
   }
 
   /* At the rail's narrow measure the fixed gutter is a large share of

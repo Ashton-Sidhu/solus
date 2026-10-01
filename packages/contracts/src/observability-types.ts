@@ -83,18 +83,23 @@ export type MetricsTurnSortField =
   | 'session_id'
   | 'prompt'
 
-/** The normal Insights turn listing. The server applies every filter before it
- * paginates, so a page is a window into the selected dataset rather than the
- * whole dataset being copied to the client. */
-export interface MetricsTurnPageRequest {
+/** What narrows the normal Insights turn listing. The summary and the page
+ * read the same filter, so the chart and the table describe the same turns. */
+export interface MetricsTurnFilter {
   timeRange: Required<MetricsTimeRange>
-  pageIndex: number
-  pageSize: number
-  sort: { field: MetricsTurnSortField; dir: 'asc' | 'desc' }
   status?: MetricsTurnStatus
   search?: string
   sessionId?: string
   taskId?: string
+}
+
+/** One page of the listing. The server applies every filter before it
+ * paginates, so a page is a window into the selected dataset rather than the
+ * whole dataset being copied to the client. */
+export interface MetricsTurnPageRequest extends MetricsTurnFilter {
+  pageIndex: number
+  pageSize: number
+  sort: { field: MetricsTurnSortField; dir: 'asc' | 'desc' }
 }
 
 export interface MetricsTurnStatusCounts {
@@ -134,14 +139,19 @@ export interface MetricsTurnVolumeBucket {
   costedCount: number
 }
 
-export interface MetricsTurnPageResult {
-  page: MetricsQueryResult
-  pageIndex: number
-  pageSize: number
+/** The aggregates over every turn the filter matches. They do not depend on
+ * the page or the sort, so paging the table never reads them again. */
+export interface MetricsTurnListingSummary {
   totalRows: number
   statusCounts: MetricsTurnStatusCounts
   stats: MetricsTurnStats
   volume: MetricsTurnVolumeBucket[]
+}
+
+export interface MetricsTurnPageResult {
+  page: MetricsQueryResult
+  pageIndex: number
+  pageSize: number
 }
 
 export type MetricsFieldType = 'string' | 'number' | 'boolean' | 'duration'

@@ -30,7 +30,7 @@ import { Delegations } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
 import { onSessionRecordBound } from './execution/sessions/turn-organization'
 import { useOrganizationAttachment } from './host/organization-attachment'
-import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords, applyRunnerWork } from './sync/runner-intake'
+import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { PublicationCoordinator } from './sync/publication'
 import { useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
@@ -46,6 +46,7 @@ import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import { SOLUS_API_AUDIENCE, hostAudience, type HostKind, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './transport/handlers/uplink-handlers'
 import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
+import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
 import { ShareManager } from './sharing/share-manager'
 import { taskShareContents, tasksContaining } from './data/tasks/task-sharing'
 import { registerSeatHandlers } from './transport/handlers/seat-handlers'
@@ -127,7 +128,6 @@ import { registerUsageHandlers } from './transport/handlers/usage-handlers'
 import { registerSkillsHandlers } from './transport/handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sessions-handlers'
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
-import { registerSavedPromptsHandlers } from './transport/handlers/saved-prompts-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
@@ -339,7 +339,6 @@ function runnerRoutes(shares: ShareManager): NonNullable<HttpServerOptions['runn
     applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
     applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
     applyMirror: applyRunnerMirror,
-    applyWork: (runner, request) => applyRunnerWork(runner, request, shares),
   }
 }
 
@@ -590,6 +589,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerWorkReviewHandlers(server, { shares })
   registerWorkLiveHandlers(server, { live: workLive, shares })
   registerSharingHandlers(server, { shares })
+  registerCloudUploadHandlers(server, { shares })
   const sharedPrompts = apiMode ? new SharedPromptRelay(shares) : undefined
   server.register('sharedSessionAvailable', (args, ctx) => sharedPrompts ? sharedPrompts.available(ctx.principal, args[0]) : false)
   server.register('sharedSessionPrompt', (args, ctx) => {
@@ -689,7 +689,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSkillsHandlers(server, { sessionRuntime: opts.sessionRuntime, seats })
   registerPinnedSessionsHandlers(server)
   registerSessionReadStateHandlers(server, { events })
-  registerSavedPromptsHandlers(server)
   phaseDone('domain_handlers_registered')
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
@@ -858,15 +857,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let tokenVerifier: AccessTokenVerifier | null = workspaceTokenVerifier(apiMode)
   let runnerDelivery: RunnerDelivery | null = null
   let delegations: Delegations | null = null
-  let linkedHostId = readStoredLink()?.hostId ?? null
+  // A link again under the same host id is a new generation with a new OAuth client.
+  const linkKey = (link: UplinkLinkConfig | null) => link ? `${link.hostId}:${link.connectionGeneration}` : null
+  let linkedKey = linkKey(readStoredLink())
   const followLink = (link: UplinkLinkConfig | null): void => {
     if (apiMode) return
     tokenVerifier = tokenVerifierForLink(link)
     // A provisioned machine's link names the organization it was made for (organization-scope §3, R9).
     adoptProvisionedLink(link)
     // Another link is another OAuth client: nothing the old one held acts for anyone now.
-    if ((link?.hostId ?? null) !== linkedHostId) delegations?.clear()
-    linkedHostId = link?.hostId ?? null
+    if (linkKey(link) !== linkedKey) delegations?.clear()
+    linkedKey = linkKey(link)
     // Unlinked: the owner's Local rows go back to the host's `local` user (U5).
     if (!link) void followHostAccount(getDatabase(), null)
     runnerDelivery?.linkChanged()
@@ -954,7 +955,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       isTurnRunning: (recordId) => opts.sessionRuntime.activeTurnFor(opts.sessionRuntime.sessionIdForRecord(recordId)) !== null,
       hostId: () => uplinkManager.currentLink()?.hostId ?? null,
       onChanged: (publication) => events.broadcast('publication.changed', publication),
-      forgetResource: (resource) => shares.forget(resource),
     })
     publications = coordinator
     domainEventUnsubscribes.push(runnerDelivery.onCycle(() => coordinator.resume()))
@@ -982,6 +982,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerOrganizationHandlers(server, {
     hostOrganizations,
     publications,
+    forgetResource: (resource) => shares.forget(resource),
     events,
     linkHostId: () => uplinkManager.currentLink()?.hostId ?? null,
     apiUrl: () => uplinkManager.currentLink()?.apiUrl ?? null,

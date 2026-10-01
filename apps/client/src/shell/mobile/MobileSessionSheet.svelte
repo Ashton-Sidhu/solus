@@ -24,7 +24,6 @@
   import { portal } from "@solus/workspace-ui/components/portal";
   import { registerBackOverlay } from "../../lib/back-stack.svelte";
   import MobileSheet from "./MobileSheet.svelte";
-  import WebPushBell from "../../components/WebPushBell.svelte";
   import { filterModelGroups, groupModels } from "./lib/mobile-model-groups";
 
   interface Props {
@@ -395,9 +394,6 @@
         </div>
       {/if}
 
-      <div class={SHEET_CARD}>
-        <WebPushBell variant="row" />
-      </div>
     </div>
   </MobileSheet>
 </div>

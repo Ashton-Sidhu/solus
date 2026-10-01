@@ -41,7 +41,7 @@
      *  supplies them: the editor toolbar's `+` attaches files, while every other
      *  `+` on that surface opens the Add-to-chat sheet, and a draft may not be
      *  the one composer where the glyph means something else. */
-    composerActions?: Snippet<[Snippet]>;
+    composerActions?: Snippet;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -395,9 +395,9 @@
           onDispatch={dispatch}
           onDispatchInBackground={dispatchInBackground}
         >
-          {#snippet leadingActions(savedPromptsControl)}
+          {#snippet leadingActions()}
             {#if composerActions}
-              {@render composerActions(savedPromptsControl)}
+              {@render composerActions()}
             {:else}
               <InputToolbar
                 active={surfaceVisible}
@@ -410,7 +410,6 @@
                 onAttachFile={attachFile}
                 {onScreenshot}
                 {onDesignMode}
-                {savedPromptsControl}
               />
             {/if}
           {/snippet}

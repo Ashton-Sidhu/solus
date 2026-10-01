@@ -1,5 +1,5 @@
 import type { UplinkStatus } from '@solus/contracts/uplink'
-import { cloudShareUrl, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
+import { cloudShareUrl, isGuestLinkResource, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
 import { parseUserKey, userKey, type User } from '@solus/contracts/user'
 import { memberByKey, type OrganizationPeople } from '../../users/lib/organization-people'
 
@@ -270,7 +270,7 @@ export function linkPresentation(link: ShareList['link'], context: GuestLinkCont
   if (!canShare) return { kind: 'hidden' }
   if (!link.secret) return { kind: 'unavailable' }
   switch (context.kind) {
-    case 'linked': return resource ? { kind: 'url', url: cloudShareUrl(context.directoryUrl, resource, link.secret) } : { kind: 'unavailable' }
+    case 'linked': return resource && isGuestLinkResource(resource) ? { kind: 'url', url: cloudShareUrl(context.directoryUrl, resource, link.secret) } : { kind: 'unavailable' }
     case 'checking': return { kind: 'checking' }
     case 'unlinked': return { kind: 'secret', secret: link.secret }
   }

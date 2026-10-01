@@ -13,7 +13,7 @@ import { attributionSchema } from '@solus/contracts/user'
 const workCreatePayloadSchema = z.object({
   taskId: z.string(),
   title: z.string(),
-  docType: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+  docType: z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report']),
   content: z.string(),
   agentProvider: z.string().optional(),
   originSessionId: z.string().optional(),

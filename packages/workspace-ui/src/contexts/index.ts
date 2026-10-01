@@ -60,7 +60,6 @@ export type {
 } from './projects/project-catalog'
 
 /** Composer drafts parked for later, scoped per project. */
-export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'
 
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'

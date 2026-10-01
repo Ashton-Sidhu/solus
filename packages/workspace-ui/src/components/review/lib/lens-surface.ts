@@ -222,6 +222,11 @@ export const LENS_TEMPLATES: Omit<SavedLens, "id">[] = [
     prompt:
       "Trace how one request or event moves through the changed code, step by step. Show where data is read, transformed, and written, and link each step to its line.",
   },
+  {
+    name: "Show me",
+    prompt:
+      "Read the show-me skill at https://raw.githubusercontent.com/humanlayer/skills/refs/heads/main/plugins/show-me/skills/show-me/SKILL.md and follow it to help me understand this change visually. Put every view in this lens: draw Mermaid-style diagrams as inline SVG, and do not open a file.",
+  },
 ];
 
 const ANCHOR_REPLY_TIMEOUT_MS = 600;

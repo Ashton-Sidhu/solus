@@ -667,3 +667,29 @@ export interface TaskSessionLink {
   /** Epoch ms the link was recorded; drives "most recent session" ordering. */
   linkedAt: number
 }
+
+/**
+ * A Local task for its upload into an organization (docs/plans/cloud-sharing.md
+ * §4). The cloud copy keeps the task's id and its comments' ids, so the same
+ * upload again changes nothing. `workIds` are the linked works the cloud task
+ * links to; they are uploaded first. The fingerprint covers all of it, so the
+ * host keeps a task that changed after it was read.
+ */
+export interface TaskTransfer {
+  task: {
+    id: string
+    title: string
+    projectKey: string | null
+    body: string
+    status: TaskStatus
+    priority: TaskPriority | null
+    labels: string[]
+    dueDate: string | null
+    source: TaskSource | null
+    originSessionId: string | null
+    createdAt: number
+  }
+  comments: Array<{ id: string; body: string; author: Attribution | null; originSessionId: string | null }>
+  workIds: string[]
+  fingerprint: string
+}

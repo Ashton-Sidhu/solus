@@ -12,10 +12,11 @@ let PAGE_SIZE: ConversationSearchModule['PAGE_SIZE']
 let searchServerIds: ConversationSearchModule['searchServerIds']
 let RecentSessions: ConversationSearchModule['RecentSessions']
 let TaskCommentSearch: ConversationSearchModule['TaskCommentSearch']
+let scopePathFromCheckouts: ConversationSearchModule['scopePathFromCheckouts']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ ConversationSearch, PAGE_SIZE, searchServerIds, RecentSessions, TaskCommentSearch } = await import(
+  ;({ ConversationSearch, PAGE_SIZE, searchServerIds, RecentSessions, TaskCommentSearch, scopePathFromCheckouts } = await import(
     '@solus/workspace-ui/components/session/unified-picker/lib/conversation-search.svelte'
   ))
 })
@@ -72,6 +73,27 @@ describe('which homes a search reads', () => {
     expect(searchServerIds([SERVICE, 'org-vm', 'personal-vm', 'local'], 'local', saved)).toEqual(['local', 'personal-vm', SERVICE])
     // On web there is no machine of the client's own.
     expect(searchServerIds([SERVICE, 'personal-vm'], null, saved)).toEqual(['personal-vm', SERVICE])
+  })
+})
+
+describe('the folder a project scope sends to each home', () => {
+  const checkouts = [
+    { serverId: 'laptop', projectRoot: '/Users/me/web' },
+    { serverId: 'org-vm', projectRoot: '/workspace/web' },
+  ]
+  const organizationMachines = new Set(['org-vm'])
+
+  test('a machine is asked for its own checkout, and passed over without one', () => {
+    expect(scopePathFromCheckouts('laptop', '/Users/me/web', checkouts, organizationMachines)).toBe('/Users/me/web')
+    expect(scopePathFromCheckouts('scratch-box', '/Users/me/web', checkouts, organizationMachines)).toBeNull()
+  })
+
+  test('the workspace service is asked at the organization machine\'s checkout, never passed over', () => {
+    // WHY: the service holds no checkout, and the organization's machine is not
+    // asked. Passing the service over left History empty on the web for every
+    // project scope, though the service held the sessions.
+    expect(scopePathFromCheckouts(SERVICE, '/Users/me/web', checkouts, organizationMachines)).toBe('/workspace/web')
+    expect(scopePathFromCheckouts(SERVICE, '/Users/me/web', checkouts.slice(0, 1), organizationMachines)).toBe('/Users/me/web')
   })
 })
 

@@ -608,7 +608,10 @@ export class Task implements TaskRecord {
     // A task inside its Undo window still exists on the host, so a refresh
     // landing here would otherwise put it straight back on screen.
     if (this.#hiddenForUndo) return this
-    this.#known = true
+    if (!this.#known) {
+      this.#known = true
+      this.#store.noteTaskKnown()
+    }
     this.providerId = record.providerId
     this.shortId = record.shortId
     this.organizationId = record.organizationId

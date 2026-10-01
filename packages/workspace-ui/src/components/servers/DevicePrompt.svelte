@@ -51,46 +51,28 @@
   }
 </script>
 
-<div class="text-xs mt-3.5 flex flex-wrap items-baseline gap-3">
-  <span class="min-w-0 flex-1 text-pretty leading-relaxed text-(--solus-text-tertiary)">
+<div class="text-xs mt-3.5 flex flex-col gap-3">
+  <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">
     {submitState === "sent" ? `Code sent — finishing sign-in on the host…` : why}
-  </span>
+  </p>
   {#if code}
-    <code
-      class="shrink-0 font-sans text-sm font-medium tracking-wider tabular-nums text-(--solus-text-primary)"
-    >
-      {code}
-    </code>
-    <CopyButton text={code} />
-  {/if}
-  <button
-    type="button"
-    class="inline-flex shrink-0 items-center gap-1 text-(--solus-accent) hover:underline"
-    onclick={() => void localApi.openExternal(url)}
-  >
-    Open
-    <ArrowSquareOutIcon size={11} />
-  </button>
-  {#if oncancel}
-    <button
-      type="button"
-      class="shrink-0 text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
-      onclick={oncancel}
-    >
-      Cancel
-    </button>
+    <div class="flex items-center gap-2">
+      <code
+        class="font-sans text-sm font-medium tracking-wider tabular-nums text-(--solus-text-primary)"
+      >
+        {code}
+      </code>
+      <CopyButton text={code} />
+    </div>
   {/if}
   {#if requiresCodeInput}
     {#if submitState === "sent"}
-      <span
-        class="flex w-full items-center gap-2 text-(--solus-text-tertiary)"
-        role="status"
-      >
+      <span class="flex items-center gap-2 text-(--solus-text-tertiary)" role="status">
         <CircleNotchIcon size={12} class="shrink-0 animate-spin text-(--solus-accent)" />
         Waiting for {label} to accept it.
       </span>
     {:else}
-      <form class="flex w-full items-center gap-2" onsubmit={submit}>
+      <form class="flex items-center gap-2" onsubmit={submit}>
         <Input
           bind:value={returnedCode}
           class="h-8 min-w-0 flex-1"
@@ -103,6 +85,7 @@
         />
         <Button
           type="submit"
+          class="h-8"
           size="sm"
           disabled={!returnedCode.trim() || submitState === "submitting"}
         >
@@ -111,4 +94,19 @@
       </form>
     {/if}
   {/if}
+  <!-- Where a code goes back, Submit is the step that finishes sign-in, so
+       Open steps down to a secondary action. Otherwise it is the only one. -->
+  <div class="flex items-center gap-2">
+    <Button
+      size="sm"
+      variant={requiresCodeInput ? "outline" : "default"}
+      onclick={() => void localApi.openExternal(url)}
+    >
+      Open sign-in page
+      <ArrowSquareOutIcon data-icon="inline-end" />
+    </Button>
+    {#if oncancel}
+      <Button size="sm" variant="ghost" onclick={oncancel}>Cancel</Button>
+    {/if}
+  </div>
 </div>

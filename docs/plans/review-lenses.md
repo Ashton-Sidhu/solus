@@ -63,7 +63,8 @@ new saved lens. A single ticked lens keeps its own source.
 ### Settings → Review → Lenses
 
 - Add, edit, reorder, and delete saved lenses. Each has a name and a prompt.
-- Starter templates: "Architecture delta", "Risk by file", and "Data flow".
+- Starter templates: "Architecture delta", "Risk by file", "Data flow", and
+  "Show me" (tells the agent to read and follow the humanlayer show-me skill).
   The user can start from a template and edit it.
 - Saved lenses are global in v1. Saved lenses for one project are a later
   change.

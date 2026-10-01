@@ -6,7 +6,7 @@ import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { uuid } from '@solus/contracts/uuid'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
-import { chooseRunOnHost, type RunOnHost } from '../projects/run-on-rule'
+import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import { type Task } from '@solus/contracts/task-types'
@@ -24,6 +24,7 @@ import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/
 import { ownedTaskId } from './session-draft.svelte'
 import { type GitRefreshResult } from '../git/session-environment.store.svelte'
 import { findLastUserIndex } from './session.utils'
+import { runOnModel } from './run-config'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
@@ -572,13 +573,20 @@ export class SessionOpening {
     const cwd = task.projectKey ?? '~'
     const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
     const binding = { taskId: task.id, taskRole: role, taskServerId }
+    let draft: SessionDraft
     if (!taskServerId || hostRolesStore.hasExecution(taskServerId)) {
       const options = { ...binding, target, serverId: taskServerId }
-      return target
+      draft = target
         ? this.workspace.drafts.openSessionDraft(options, cwd)
         : this.workspace.drafts.createSessionDraft(options, cwd)
+    } else {
+      draft = this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId }, undefined, target)
     }
-    return this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId }, undefined, target)
+    // A lead starts on the lead model when the user set one. The draft's
+    // chip still changes it before Send.
+    const leadModel = this.workspace.settings.leadModel
+    if (role === 'lead' && leadModel) draft.run = runOnModel(draft.run, leadModel)
+    return draft
   }
 
   private get runOnHosts(): RunOnHost[] {
@@ -608,6 +616,16 @@ export class SessionOpening {
   }
 
   /**
+   * Where work in a repository runs (docs/plans/project-model.md §6): its most
+   * recently used checkout on a host that is up, else the organization's
+   * managed host, which has no checkout yet (`path: null`). A
+   * `preferredServerId` — the machine cloud onboarding chose — is asked first.
+   */
+  repositoryRunOn(repositoryKey: string, preferredServerId?: string): RunOnChoice | null {
+    return chooseRunOnHost(projectsStore.checkoutsOf(repositoryKey), this.runOnHosts, preferredServerId)
+  }
+
+  /**
    * A draft for work in a repository no machine was named for — a task whose
    * home is the workspace service, which runs nothing, or the project cloud
    * onboarding ends in (docs/plans/project-model.md §6): it runs in the
@@ -627,9 +645,7 @@ export class SessionOpening {
     preferredServerId?: string,
     target: NavTarget | undefined = this.workspace.router.leadingPane.id,
   ): SessionDraft {
-    const choice = projectKey
-      ? chooseRunOnHost(projectsStore.checkoutsOf(projectKey), this.runOnHosts, preferredServerId)
-      : null
+    const choice = projectKey ? this.repositoryRunOn(projectKey, preferredServerId) : null
     const open = (options: CreateTabOptions, cwd: string): SessionDraft => target
       ? this.workspace.drafts.openSessionDraft({ ...options, target }, cwd)
       : this.workspace.drafts.createSessionDraft(options, cwd)

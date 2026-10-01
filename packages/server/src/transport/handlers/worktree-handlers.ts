@@ -23,6 +23,7 @@ import type { GitIdentityManager } from '../../git/git-identity-manager'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { getHostConfig, resolveSourceControlWriterModel } from '../../host/settings'
+import { writingBackendFor, type WritingBackend } from '../../execution/agents/writing-backend'
 
 const log = createLogger('main', 'worktree-handlers')
 
@@ -102,23 +103,27 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
   const generateCommitSubject = async (
     cwd: string,
-    writer: ReturnType<typeof resolveSourceControlWriterModel>,
+    writer: WritingBackend | null,
     instructions: string,
-  ) => textGenerator.generate({
-    provider: writer.provider,
-    model: writer.model,
-    cwd,
-    prompt: [
-      await buildCommitMessagePrompt(cwd),
-      '',
-      'Writing policy:',
-      instructions,
-    ].join('\n'),
-    systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
-    disableReasoning: true,
-    maxTurns: 1,
-    timeoutMs: 30_000,
-  })
+  ) => {
+    if (!writer) throw new Error('No Claude or Codex login on this host can write the commit message. Connect one, or write the message yourself.')
+    return textGenerator.generate({
+      provider: writer.provider,
+      model: writer.model,
+      seat: writer.seat,
+      cwd,
+      prompt: [
+        await buildCommitMessagePrompt(cwd),
+        '',
+        'Writing policy:',
+        instructions,
+      ].join('\n'),
+      systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
+      disableReasoning: true,
+      maxTurns: 1,
+      timeoutMs: 30_000,
+    })
+  }
 
   server.register('worktreeListProject', (args) => {
     const [ctx] = args
@@ -190,7 +195,10 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       cwd,
       getHostConfig().config.sourceControlWriting,
     )
-    const writerModel = resolveSourceControlWriterModel()
+    const writerBackend = await writingBackendFor(
+      resolveSourceControlWriterModel(),
+      (provider) => sessionRuntime.seatForTurn(handlerCtx.actor, provider),
+    )
     const pullRequestRequested = request.action === 'create_pull_request'
       || request.action === 'commit_push_pull_request'
     const githubRepo = pullRequestRequested ? await resolveRepoRef(cwd) : null
@@ -200,15 +208,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       identity,
       holdIdentity: (held) => deps.gitIdentities.hold(held),
       writer: {
-        provider: writerModel.provider,
-        model: writerModel.model,
+        backend: writerBackend,
         textGenerator,
         instructions: policy.pullRequestInstructions,
         followPullRequestTemplate: policy.followPullRequestTemplate,
       },
       generateCommitSubject: (targetCwd) => generateCommitSubject(
         targetCwd,
-        writerModel,
+        writerBackend,
         policy.commitInstructions,
       ),
       findPullRequest: githubRepo && githubProvider
@@ -340,7 +347,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         if (branch) moved.branch = branch
         await sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, handlerCtx.actor, moved)
       }
-      if (namePrompt) void sessionRuntime.nameWorktreeBranch(sessionId, gitContext, namePrompt)
+      if (namePrompt) void sessionRuntime.nameWorktreeBranch(sessionId, gitContext, namePrompt, handlerCtx.actor)
       return { success: true, gitContext }
     } catch (err) {
       log.error('continue_in_worktree_failed', { error: err instanceof Error ? err.message : String(err) })

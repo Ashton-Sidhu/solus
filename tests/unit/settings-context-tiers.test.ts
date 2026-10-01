@@ -77,27 +77,27 @@ function stored(storage: ReturnType<typeof memoryStorage>): Record<string, unkno
 describe('a mirrored host key', () => {
   test('reads the contract default on a fresh install and is written straight back', async () => {
     const { settings, storage } = await load()
-    expect(settings.showToolCalls).toBe(false)
-    expect(stored(storage).showToolCalls).toBe(false)
+    expect(settings.showToolCalls).toBe(true)
+    expect(stored(storage).showToolCalls).toBe(true)
   })
 
   test('reads its default from a blob saved before the key existed', async () => {
     const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ themeMode: 'dark' }) }))
-    expect(settings.showToolCalls).toBe(false)
+    expect(settings.showToolCalls).toBe(true)
     expect(settings.themeMode).toBe('dark')
   })
 
   test('heals a bad stored value to the contract default', async () => {
     const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ showToolCalls: 'no' }) }))
-    expect(settings.showToolCalls).toBe(false)
+    expect(settings.showToolCalls).toBe(true)
   })
 
   test('a change reads back, persists, and is part of the host mirror', async () => {
     const { settings, storage } = await load()
-    settings.update({ showToolCalls: true })
-    expect(settings.showToolCalls).toBe(true)
-    expect(stored(storage).showToolCalls).toBe(true)
-    expect(settings.hostConfig.showToolCalls).toBe(true)
+    settings.update({ showToolCalls: false })
+    expect(settings.showToolCalls).toBe(false)
+    expect(stored(storage).showToolCalls).toBe(false)
+    expect(settings.hostConfig.showToolCalls).toBe(false)
   })
 })
 

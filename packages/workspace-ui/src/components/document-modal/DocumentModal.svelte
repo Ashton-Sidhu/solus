@@ -13,7 +13,7 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentHighlights } from "../comments/lib/comment-highlights";
-  import { getSurfaceContext, sharesStore } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, sharesStore } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -62,10 +62,11 @@
   // Live: the agent edit lock, a reader's role, or an older schema stops typing.
   const liveLocked = $derived(!!live && !live.live.canEdit);
 
-  // The console mounts this too, with no workspace: the comments and the editor
-  // work there, and the verbs that open a chat are omitted.
+  // The console mounts this too, with no workspace, and a share link has no chat
+  // to open: the comments and the editor work there, and the verbs that open a
+  // chat are omitted.
   const session = getSurfaceContext();
-  const workspace = session.workspace;
+  const workspace = getClientShellContext().canOpenResource("chat") ? session.workspace : null;
   setMarkdownImageContext({
     cwd: () => undefined,
     serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
@@ -297,7 +298,7 @@
   {onDirtyChange}
   onClose={() => onClose?.()}
   onCommentSelection={workId ? () => commentLayer?.startComment() : undefined}
-  canCommentSelection={canComment}
+  canCommentSelection={canComment && callerRole !== "viewer"}
   {threadAnchors}
   railWidth={workId ? RAIL_WIDTH : "0px"}
   onAskSolus={workId && workspace ? askSolusAbout : undefined}

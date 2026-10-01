@@ -2,17 +2,21 @@
   /**
    * The repository choice under "Open existing code" in cloud onboarding.
    * A project is a repository: choosing one adds it to Solus Cloud, where every
-   * member of the organization sees its tasks and pull requests. Start opens a
-   * new session in it; the run-on rule picks the machine, and the cloud host
-   * clones the repository on the first send when no machine holds it.
+   * member of the organization sees its tasks and pull requests. Start makes it
+   * a project on the machine it runs on — cloning it there when no online
+   * machine holds it — and the flow ends in a draft in that checkout. The
+   * chosen row reports the clone while it runs, and why it failed.
    */
   import {
     Check as CheckIcon,
+    CircleAlert as CircleAlertIcon,
     FolderGit2 as RepositoryIcon,
     LoaderCircle as LoaderIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { workspaceProjectsStore } from "../../contexts";
+  import { serversStore, workspaceProjectsStore } from "../../contexts";
+  import { hostIsManaged } from "../servers/lib/managed-host";
+  import { repositoryPreparationTitle } from "./lib/repository-preparation";
   import { Input } from "../ui/input";
   import { cn } from "../../lib/utils";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
@@ -32,6 +36,20 @@
   const projects = $derived(workspaceProjectsStore.projectsFor(cloud.workspaceServerId));
   const rows = $derived(repositoryRows(projects, cloud.repositories ?? [], query));
   const organizationName = $derived(cloud.organization?.name ?? "your organization");
+  const preparation = $derived(cloud.repositoryPreparation);
+  const preparationError = $derived(cloud.repositoryPreparationError);
+  const preparationTitle = $derived.by(() => {
+    if (!preparation || !cloud.chosenRepositoryKey) return null;
+    const host = serversStore.hostFor(preparation.serverId);
+    const hostIsStarting =
+      hostIsManaged(host) && serversStore.statusFor(preparation.serverId) !== "online";
+    return repositoryPreparationTitle(
+      preparation.step,
+      cloud.chosenRepositoryKey,
+      host?.label ?? preparation.serverId,
+      hostIsStarting,
+    );
+  });
 
   onMount(() => {
     if (!cloud.repositories) void cloud.loadRepositories();
@@ -97,16 +115,28 @@
               isChosen && "bg-[var(--wash-1)]",
             )}
             aria-pressed={isChosen}
-            disabled={!!cloud.addingRepositoryKey}
+            disabled={!!cloud.addingRepositoryKey || !!preparation}
             onclick={() => void cloud.chooseRepository(row.repositoryKey)}
           >
             <RepositoryIcon size={16} class="shrink-0 text-muted-foreground" />
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span class="truncate text-sm font-medium">{row.name}</span>
-              <span class="truncate text-xs text-muted-foreground" title={row.detail}>{row.detail}</span>
+              {#if isChosen && preparationTitle}
+                <span class="truncate text-xs text-muted-foreground" role="status">{preparationTitle}</span>
+              {:else if isChosen && preparationError}
+                <span class="text-xs text-pretty text-(--solus-status-error)" role="alert">{preparationError}</span>
+              {:else}
+                <span class="truncate text-xs text-muted-foreground" title={row.detail}>{row.detail}</span>
+              {/if}
             </span>
-            {#if isAdding}
-              <LoaderIcon size={14} class="shrink-0 animate-spin text-muted-foreground" aria-label="Adding" />
+            {#if isAdding || (isChosen && preparation)}
+              <LoaderIcon
+                size={14}
+                class="shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
+                aria-label={isAdding ? "Adding" : "Preparing"}
+              />
+            {:else if isChosen && preparationError}
+              <CircleAlertIcon size={15} class="shrink-0 text-(--solus-status-error)" aria-hidden="true" />
             {:else if isChosen}
               <CheckIcon size={15} class="shrink-0 text-primary" aria-label="Chosen" />
             {/if}
@@ -117,10 +147,10 @@
   </div>
 
   <OnboardingStageActions
-    continueLabel="Start"
-    continueEnabled={!!cloud.chosenRepositoryKey && !cloud.addingRepositoryKey}
+    continueLabel={preparationError ? "Try again" : "Start"}
+    continueEnabled={!!cloud.chosenRepositoryKey && !cloud.addingRepositoryKey && !preparation}
     oncontinue={onstart}
-    onback={() => store.back()}
+    onback={preparation ? undefined : () => store.back()}
     {onskip}
     skipLabel="Just chat"
   />

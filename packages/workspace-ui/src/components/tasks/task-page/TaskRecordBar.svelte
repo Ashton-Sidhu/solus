@@ -5,7 +5,7 @@
     ChevronLeft as CaretLeftIcon,
     LoaderCircle as CircleNotchIcon,
     MoreHorizontal as DotsIcon,
-    Share as ShareIcon,
+    Link as LinkIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
@@ -36,8 +36,8 @@
     onOpenSource?: (() => void) | null;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
-    /** Open the share dialog for this task. Null where sharing has no home (a guest shell). */
-    onShare?: (() => void) | null;
+    /** Upload a Local task if it needs it, then copy its link. Null where there is no organization to link into. */
+    onCopyLink?: (() => void) | null;
     onOpenList: () => void;
   }
 
@@ -51,7 +51,7 @@
     onNext,
     onOpenSource,
     onOpenPage,
-    onShare = null,
+    onCopyLink = null,
     onOpenList,
   }: Props = $props();
 
@@ -124,10 +124,10 @@
           <span class="flex-1 text-left">Open task page</span>
         </DropdownMenu.Item>
       {/if}
-      {#if onShare}
-        <DropdownMenu.Item onSelect={() => onShare?.()} data-testid="task-share">
-          <ShareIcon size={14} />
-          <span class="flex-1 text-left">Share…</span>
+      {#if onCopyLink}
+        <DropdownMenu.Item onSelect={() => onCopyLink?.()} data-testid="task-copy-link">
+          <LinkIcon size={14} />
+          <span class="flex-1 text-left">Copy link</span>
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator />

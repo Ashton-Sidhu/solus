@@ -210,6 +210,11 @@ const resourceRpcRules = {
   shareTransfer: { ...owner(sharedResourceAt(0)), hostAdminDecidedByDomain: true },
   // Publication into an organization moves the resource: its owner's decision (organization-scope §7).
   publicationStart: owner(sharedResourceAt(0)),
+  // A Local work leaves its host by its owner's Share (docs/plans/cloud-sharing.md).
+  workExportForCloud: owner(workIdAt(0)),
+  workRemoveUploaded: owner(workIdAt(0)),
+  taskExportForCloud: owner(taskIdAt(0)),
+  taskRemoveUploaded: owner(taskIdAt(0)),
 } satisfies Partial<Record<RpcMethod, ResourceRule>>
 
 export const RESOURCE_RPC_RULES: ReadonlyMap<RpcMethod, ResourceRule> = new Map(
@@ -340,9 +345,6 @@ export const GUEST_HOST_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   // Its own client id and an empty host; the handler scopes a guest's focus to its one resource.
   'presenceSnapshot',
   'presenceSetFocus',
-  // The task page reads the sidebar snapshot; the handler filters it to what the caller may open,
-  // which for a guest is the one task its link names, or nothing.
-  'tasksSidebarSnapshot',
 ])
 
 export function rpcAccessClass(method: RpcMethod): RpcAccessClass {

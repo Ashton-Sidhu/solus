@@ -44,6 +44,16 @@ On a host where each member uses their own seat, a new session shows **Connect
 Claude** or **Connect Codex** before the first send when you have no seat for
 the chosen agent on the Run on host.
 
+The work Solus does for you in the background also uses your seat: session and
+worktree names, commit messages, pull request text, Insights questions, review
+guides, review lenses, and subagents. Names, commit messages, and pull request
+text use the host's writing model when you have a seat for it, and otherwise the
+other agent's writing model. If you have no seat for either agent, a session or
+worktree keeps its first-prompt name, a pull request uses text made from its
+commits, and a commit asks you to connect an agent or write the message. A
+review guide, a review lens, an Insights question, or a subagent
+that needs a seat you do not have stops and tells you which agent to connect.
+
 On such a host, your agent and Solus commit as your GitHub account and push with
 your GitHub connection, not the host's. Your instructions and skills come with
 you: see [Agent profile](agent-profile.md).

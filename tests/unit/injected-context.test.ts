@@ -134,6 +134,44 @@ describe('the lead contract', () => {
     expect(formatTaskContext(task, 'moderate', 'referenced')).not.toContain('Lead contract:')
     expect(formatTaskContext(task)).not.toContain('Lead contract:')
   })
+
+  test("the user's lead settings follow the lead contract and do not replace it", () => {
+    // WHY: Settings → Tasks lets a user route workers and add rules to the
+    // lead. The built-in contract keeps the lead's thread small, so the user's
+    // text extends it rather than taking its place.
+    const lead = {
+      leadInstructions: 'Send frontend work to Claude Opus.',
+      workerModel: { provider: 'codex' as const, model: 'gpt-6', reasoningEffort: 'xhigh' as const },
+    }
+    const lines = formatTaskContext(task, 'moderate', 'lead', lead).split('\n')
+    const contract = lines.indexOf('Lead contract:')
+    const workerDefault = lines.findIndex((line) => line.includes("agent_provider 'codex', model_id 'gpt-6' and reasoning_effort 'xhigh'"))
+    const instructions = lines.indexOf('Send frontend work to Claude Opus.')
+    expect(contract).toBeGreaterThan(-1)
+    expect(workerDefault).toBeGreaterThan(contract)
+    expect(instructions).toBeGreaterThan(workerDefault)
+    expect(lines).toContain('- Keep this thread small: short reads, short replies. Say what happened, what was produced with its link, and what is open.')
+  })
+
+  test('a worker model saved without a reasoning level leaves the level to the model', () => {
+    // WHY: a selection saved before reasoning was configurable must still
+    // parse, and start_session then uses the model's default level.
+    const packet = formatTaskContext(task, 'moderate', 'lead', { leadInstructions: '', workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: undefined } })
+    expect(packet).toContain("agent_provider 'codex', model_id 'gpt-6'.")
+    expect(packet).not.toContain('reasoning_effort')
+  })
+
+  test('a worker never receives the lead settings', () => {
+    const lead = { leadInstructions: 'Send frontend work to Claude Opus.', workerModel: { provider: 'codex' as const, model: 'gpt-6', reasoningEffort: undefined } }
+    const packet = formatTaskContext(task, 'moderate', 'working', lead)
+    expect(packet).not.toContain('Send frontend work to Claude Opus.')
+    expect(packet).not.toContain('gpt-6')
+  })
+
+  test('empty lead settings add nothing to the lead packet', () => {
+    expect(formatTaskContext(task, 'moderate', 'lead', { leadInstructions: '  ', workerModel: null }))
+      .toBe(formatTaskContext(task, 'moderate', 'lead'))
+  })
 })
 
 describe('the task packet', () => {

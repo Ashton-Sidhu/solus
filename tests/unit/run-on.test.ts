@@ -225,9 +225,15 @@ describe('the project chip lists projects, not checkouts', () => {
     expect(option!.hostLabel).toBe('STUDIO')
   })
 
-  test('a project whose hosts are all offline stays listed with nothing to open', () => {
-    const [option] = projectChipOptions([project('k', [{ serverId: 'offline', projectRoot: '/a' }])], 'local', online, label)
-    expect(option!.checkout).toBeNull()
+  test('a project whose hosts are all offline is not listed', () => {
+    // WHY: the web client remembers every host it has reached. A laptop that is
+    // asleep must not fill a cloud workspace's project list with rows that
+    // cannot open.
+    const options = projectChipOptions(
+      [project('k', [{ serverId: 'offline', projectRoot: '/a' }]), project('j', [{ serverId: 'local', projectRoot: '/b' }])],
+      'local', online, label,
+    )
+    expect(options.map((option) => option.key)).toEqual(['j'])
   })
 })
 

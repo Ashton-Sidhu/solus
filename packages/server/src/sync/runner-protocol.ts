@@ -2,7 +2,6 @@ import type { SharedPromptPoll, SharedPromptResult } from '../sharing/shared-pro
 import { z } from 'zod'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
-import type { WorkTransfer } from '@solus/contracts/work-transfer'
 import { activitySchema } from '@solus/contracts/activity'
 
 /**
@@ -26,8 +25,6 @@ import { activitySchema } from '@solus/contracts/activity'
 export const RUNNER_OUTBOX_PATH = '/runner/outbox'
 export const RUNNER_SESSION_RECORDS_PATH = '/runner/session-records'
 export const RUNNER_MIRROR_PATH = '/runner/mirror'
-/** `/runner/works` — a whole work, published on Share or Move (organization-scope §7). */
-export const RUNNER_WORKS_PATH = '/runner/works'
 
 /** How many items a runner sends per request. */
 export const RUNNER_BATCH_LIMIT = 100
@@ -173,62 +170,6 @@ const logEventWireSchema = z.object({
 export const insightsMirrorPayloadSchema = z.object({ span: spanWireSchema, events: z.array(logEventWireSchema) })
 export type InsightsMirrorPayload = z.infer<typeof insightsMirrorPayloadSchema>
 
-// ── Publication (organization-scope §7) ──────────────────────────────────────
-
-/**
- * The transfer's outline. It is passed through unparsed, so the fingerprint is
- * computed over what the runner sent; the work domain checks that fingerprint
- * and every body, hash, revision id, and reference on import.
- */
-/** Who wrote a body, as an `Attribution`; null where nobody recorded it (plans/012 §2). */
-const attributionOutlineSchema = z.object({ kind: z.enum(['user', 'agent', 'automation', 'upstream', 'system']) }).loose().nullable()
-
-const workTransferOutlineSchema = z.object({
-  work: z.object({
-    id: z.string().min(1),
-    content: z.string(),
-    title: z.string(),
-    type: z.enum(['doc', 'slides', 'diagram', 'artifact']),
-    contentVersion: z.number().int().positive(),
-    contentHash: z.string().min(1),
-    contentAuthor: attributionOutlineSchema,
-  }).loose(),
-  previousRevisionId: z.number().int().positive().nullable(),
-  revisions: z.array(z.object({
-    workId: z.string().min(1),
-    revisionId: z.number().int().positive(),
-    content: z.string(),
-    contentHash: z.string().min(1),
-    sourceContentVersion: z.number().int().positive().nullable(),
-    reason: z.enum(['baseline', 'checkpoint', 'agent', 'upstream', 'review', 'restore']),
-    author: attributionOutlineSchema,
-    capturedAt: z.string().min(1),
-  }).loose()),
-  annotations: z.object({ workId: z.string().min(1) }).loose().nullable(),
-  fingerprint: z.string().min(1),
-})
-
-/**
- * One work, exported whole from the runner (its record, complete history, and
- * comments) for the organization's service to import atomically.
- * `actorUserId` is the account that asked to publish, as the runner admitted
- * them; the service records it as the work's owner and shares the work with
- * the organization like anything made in its space. The same fingerprint sent
- * twice is a retry and answers the stored work.
- */
-export const runnerWorkRequestSchema = z.object({
-  hostId: z.string().min(1),
-  transfer: z.custom<WorkTransfer>((value) => workTransferOutlineSchema.safeParse(value).success),
-  actorUserId: z.string().min(1),
-})
-export type RunnerWorkRequest = z.infer<typeof runnerWorkRequestSchema>
-
-export const runnerWorkResponseSchema = z.object({
-  workId: z.string().min(1),
-  organizationId: z.string().min(1),
-})
-export type RunnerWorkResponse = z.infer<typeof runnerWorkResponseSchema>
-
 /** Every body a runner posts to the service; the delivery's one authenticated door takes nothing else. */
 export type RunnerRequestBody =
   | SharedPromptPoll
@@ -236,4 +177,3 @@ export type RunnerRequestBody =
   | RunnerOutboxRequest
   | RunnerSessionRecordsRequest
   | RunnerMirrorRequest
-  | RunnerWorkRequest

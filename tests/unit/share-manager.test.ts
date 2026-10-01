@@ -272,26 +272,25 @@ describe('tasks', () => {
   const personal = (userId: string, teamIds: string[] = []) => member(userId, teamIds, 'member', 'personal')
   const tree: TaskTree = { t1: [{ kind: 'session', id: 's1' }, { kind: 'work', id: 'w1' }], t2: [{ kind: 'session', id: 's9' }] }
 
-  test('a task shared with someone shares its sessions and works at the task\'s role, short of ownership', async () => {
-    // WHY: "share everything in the task" is the promise; the task page alone
-    // would be a list of doors that do not open.
+  test('a task\'s organization opens its sessions and works through it, short of ownership; the task itself is not shared', async () => {
+    // WHY: a task is seen by its whole organization, and the sessions and works
+    // in it come with it, or the task page is a list of doors that do not open.
+    // There is no other way in: a task has no share rows or link of its own.
+    const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
     const { shares } = manager(undefined, tree)
-    await shares.claimOwner({ kind: 'task', id: 't1' }, personal('alice'))
-    await shares.claimOwner({ kind: 'session', id: 's1' }, personal('alice'))
-    expect(await shares.roleFor(personal('bob'), { kind: 'session', id: 's1' })).toBe('none')
-    await shares.setGrants({ resource: { kind: 'task', id: 't1' }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, personal('alice'))
-    expect(await shares.roleFor(personal('bob'), { kind: 'task', id: 't1' })).toBe('viewer')
-    expect(await shares.roleFor(personal('bob'), { kind: 'session', id: 's1' })).toBe('viewer')
-    expect(await shares.roleFor(personal('bob'), { kind: 'work', id: 'w1' })).toBe('viewer')
-    expect(await shares.roleFor(personal('bob'), { kind: 'session', id: 's9' })).toBe('none')
-    // The session's own row still wins when it is higher.
-    await shares.setGrants({ resource: { kind: 'session', id: 's1' }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, personal('alice'))
-    expect(await shares.roleFor(personal('bob'), { kind: 'session', id: 's1' })).toBe('editor')
+    await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
+    await shares.claimOwner({ kind: 'session', id: 's1' }, cloud('alice'), { shareWithOrganization: false })
+    await shares.claimOwner({ kind: 'session', id: 's7' }, cloud('alice'), { shareWithOrganization: false })
+    expect(await shares.roleFor(cloud('bob'), { kind: 'task', id: 't1' })).toBe('editor')
+    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('editor')
+    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's7' })).toBe('none')
+    await expect(shares.setGrants({ resource: { kind: 'task', id: 't1' }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, cloud('alice'))).rejects.toThrow(ShareAccessError)
+    await expect(shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'viewer' }, cloud('alice'))).rejects.toThrow(ShareAccessError)
     // The task's owner edits, but never owns, a session someone else started in it.
-    await shares.transfer({ resource: { kind: 'task', id: 't1' }, toUserId: 'cara' }, personal('alice'))
-    expect(await shares.roleFor(personal('cara'), { kind: 'session', id: 's1' })).toBe('editor')
-    // The session's list names the task it is shared through.
-    expect((await shares.list({ kind: 'session', id: 's1' }, personal('alice'))).inheritedFrom).toEqual([{ taskId: 't1', title: 'Task t1' }])
+    await shares.transfer({ resource: { kind: 'task', id: 't1' }, toUserId: 'cara' }, cloud('alice'))
+    expect(await shares.roleFor(cloud('cara'), { kind: 'session', id: 's1' })).toBe('editor')
+    // The session's list names the task it is opened through.
+    expect((await shares.list({ kind: 'session', id: 's1' }, cloud('alice'))).inheritedFrom).toEqual([{ taskId: 't1', title: 'Task t1' }])
   })
 
   test('a session listing reads what all of a member\'s tasks hold at once', async () => {
@@ -315,30 +314,23 @@ describe('tasks', () => {
     expect(reads[0]?.sort()).toEqual(['t1', 't2'])
   })
 
-  test('a listing shows what a shared task holds, and a guest on a task reaches exactly its contents', async () => {
+  test('a listing shows what an organization\'s task holds, and a guest bound to a task reaches nothing', async () => {
+    const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
     const { shares } = manager(undefined, tree)
-    await shares.claimOwner({ kind: 'task', id: 't1' }, personal('alice'))
-    await shares.setGrants({ resource: { kind: 'task', id: 't1' }, grants: [{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }] }, personal('alice'))
+    await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
+    await shares.claimOwner({ kind: 'session', id: 's1' }, cloud('alice'), { shareWithOrganization: false })
+    await shares.claimOwner({ kind: 'session', id: 's9' }, cloud('alice'), { shareWithOrganization: false })
     const sessions = [{ id: 's1' }, { id: 's9' }]
-    expect((await shares.filterVisible(personal('bob', ['team-a']), 'session', sessions, (s) => s.id)).map((s) => s.id)).toEqual(['s1'])
-    expect(await shares.filterVisible(personal('bob'), 'session', sessions, (s) => s.id)).toEqual([])
-    expect((await shares.filterVisible(personal('bob', ['team-a']), 'task', [{ id: 't1' }, { id: 't2' }], (t) => t.id)).map((t) => t.id)).toEqual(['t1'])
-
-    const link = (await shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'editor' }, personal('alice')))!
-    // A guest's ticket carries the organization the link resolved to; that is the scope the guest reads.
+    expect((await shares.filterVisible(cloud('bob'), 'session', sessions, (s) => s.id)).map((s) => s.id)).toEqual(['s1'])
+    // A guest from a task link made before tasks stopped being shared opens nothing.
     const maya: Principal = {
       kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
-      share: { resource: { kind: 'task', id: 't1' }, role: 'editor', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) },
+      share: { resource: { kind: 'task', id: 't1' }, role: 'editor', sharedByUserId: 'alice', linkSecretHash: 'legacy' },
       expiresAt: 0, deviceLabel: 'Guest link',
     }
-    expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('editor')
-    expect(await shares.roleFor(maya, { kind: 'session', id: 's1' })).toBe('editor')
-    expect(await shares.roleFor(maya, { kind: 'work', id: 'w1' })).toBe('editor')
-    expect(await shares.roleFor(maya, { kind: 'session', id: 's9' })).toBe('none')
-    expect(await shares.visibleIds(maya, 'session')).toEqual(new Set(['s1']))
-    expect(await shares.visibleIds(maya, 'task')).toEqual(new Set(['t1']))
-    await shares.setLink({ resource: { kind: 'task', id: 't1' }, role: null }, personal('alice'))
+    expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('none')
     expect(await shares.roleFor(maya, { kind: 'session', id: 's1' })).toBe('none')
+    expect(await shares.visibleIds(maya, 'session')).toEqual(new Set())
   })
 })
 

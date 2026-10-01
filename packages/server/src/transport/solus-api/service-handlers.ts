@@ -6,6 +6,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { registerSharingHandlers } from '../handlers/sharing-handlers'
 import { registerTasksHandlers } from '../handlers/tasks-handlers'
 import { registerFolioHandlers } from '../handlers/folio-handlers'
+import { registerCloudUploadHandlers } from './cloud-uploads'
 import { registerWorkReviewHandlers } from '../handlers/work-review-handlers'
 import { registerWorkLiveHandlers } from '../handlers/work-live-handlers'
 import type { WorkLiveManager } from '../../work-live/work-live-manager'
@@ -32,6 +33,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   registerSharingHandlers(server, { shares: deps.shares })
   registerTasksHandlers(server, { shares: deps.shares, sync: false })
   registerFolioHandlers(server, { shares: deps.shares })
+  registerCloudUploadHandlers(server, { shares: deps.shares })
   registerWorkReviewHandlers(server, { shares: deps.shares })
   registerWorkLiveHandlers(server, { live: deps.workLive, shares: deps.shares })
   registerCapabilityHandlers(server)

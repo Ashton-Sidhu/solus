@@ -237,7 +237,9 @@
   }
 
   /** Sharing needs the session's host, which only an open tab names, and that host linked to Solus cloud. */
-  const canShare = $derived(!!tabId && !!sess?.id && sharesStore.canShareFrom(session.serverIdFor(tabId)));
+  const hasSession = $derived(!!tabId && !!sess?.id);
+  // Live sharing needs the host linked: the item stays, disabled, and says so (docs/plans/cloud-sharing.md §6).
+  const canShare = $derived(hasSession && sharesStore.canShareFrom(session.serverIdFor(tabId!), "session"));
 
   function share() {
     const targetTabId = tabId;
@@ -370,8 +372,8 @@
         Open in Insights
       </ContextMenu.Item>
     {/if}
-    {#if canShare}
-      <ContextMenu.Item onSelect={share}>
+    {#if hasSession}
+      <ContextMenu.Item onSelect={share} disabled={!canShare} title={canShare ? undefined : "Live sharing needs this computer linked"}>
         <ShareIcon />
         Share…
         <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>

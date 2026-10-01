@@ -26,7 +26,7 @@ import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
 import { normalizeDisplayName, parseGrantSubject, type AccessTokenClaims, type GrantSubject } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from '../sync/runner-protocol'
-import { RUNNER_MIRROR_PATH, RUNNER_WORKS_PATH, runnerMirrorRequestSchema, runnerWorkRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse, type RunnerWorkRequest, type RunnerWorkResponse } from '../sync/runner-protocol'
+import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from '../sync/runner-protocol'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -86,7 +86,6 @@ export interface HttpServerOptions {
     /** The mirrored domains (§6): transcript rows and insights. */
     applyMirror: (runner: RunnerPrincipal, request: RunnerMirrorRequest) => Promise<RunnerMirrorResponse>
     /** A work published whole (organization-scope §7). */
-    applyWork: (runner: RunnerPrincipal, request: RunnerWorkRequest) => Promise<RunnerWorkResponse>
   }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
@@ -460,19 +459,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       if (!body) return c.json({ error: 'invalid_request' }, 400)
       if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
       return c.json(await runner.applyMirror(principal, body))
-    })
-    app.post(RUNNER_WORKS_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerWorkRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      try {
-        return c.json(await runner.applyWork(principal, body))
-      } catch (error) {
-        // A refused import is the publication's answer, not a transport failure: the runner keeps its copy.
-        return c.json({ error: error instanceof Error ? error.message : String(error) }, 409)
-      }
     })
   }
 

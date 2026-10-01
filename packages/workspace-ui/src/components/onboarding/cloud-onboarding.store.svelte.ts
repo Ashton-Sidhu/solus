@@ -22,6 +22,7 @@ import type { WorkspaceContext } from '../../contexts/workspace/workspace.contex
 import type { OnboardingStage } from './lib/onboarding-model'
 import type { GetStartedFacts } from './lib/get-started'
 import { hostSetupStore } from '../servers/host-setup.store.svelte'
+import { ensureRepositoryCheckout, type CheckoutStep } from '../../contexts/workspace/repository-checkout'
 
 /** How often the directory is read while a link code waits for its machine. */
 const LINK_POLL_MS = 3_000
@@ -55,6 +56,11 @@ class CloudOnboardingStore {
   addingRepositoryKey = $state<string | null>(null)
   /** The repository the flow ends in, once it is a project in Solus Cloud. */
   chosenRepositoryKey = $state<string | null>(null)
+  /** Start makes the chosen repository a project on its machine before the
+   *  draft opens; this is where that is, while it runs. */
+  repositoryPreparation = $state<{ serverId: string; step: CheckoutStep } | null>(null)
+  /** Why the last Start could not prepare the repository; Start tries again. */
+  repositoryPreparationError = $state<string | null>(null)
 
   /** A "Get started" item reopened the flow at this stage; null when it is not reopened. */
   reopenedAt = $state<OnboardingStage | null>(null)
@@ -316,6 +322,7 @@ class CloudOnboardingStore {
     if (!serverId || this.addingRepositoryKey) return false
     this.addingRepositoryKey = repositoryKey
     this.repositoriesError = null
+    this.repositoryPreparationError = null
     try {
       const known = workspaceProjectsStore.projectsFor(serverId).some((project) => project.repositoryKey === repositoryKey)
       if (!known) await workspaceProjectsStore.add(serverId, repositoryKey)
@@ -330,16 +337,49 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Where the workspace opens when the flow ends: a new session in the chosen
-   * repository, or — without one — in the person's Scratchpad (their chat
-   * folder) on the chosen machine. With no machine either, the new-tab home stays.
+   * Start, with a repository chosen: makes it a project on the machine it will
+   * run on — the chosen machine, else the run-on rule's — and only then opens
+   * a draft in that checkout, so the composer the person lands in can send at
+   * once. A checkout an online machine already holds opens without a clone.
+   * False keeps onboarding open: the stage shows why, and Start tries again.
+   * With no machine at all, the draft opens unbound and the run picker says why.
    */
-  async land(workspace: Pick<WorkspaceContext, 'opening' | 'drafts' | 'router'>, withProject: boolean): Promise<void> {
-    const repositoryKey = withProject ? this.chosenRepositoryKey : null
-    if (repositoryKey) {
-      workspace.opening.openRepositoryDraft(repositoryKey, undefined, this.chosenServerId ?? undefined)
-      return
+  async openChosenRepository(workspace: Pick<WorkspaceContext, 'opening' | 'drafts' | 'router'>): Promise<boolean> {
+    const repositoryKey = this.chosenRepositoryKey
+    if (!repositoryKey || this.repositoryPreparation) return false
+    const preferredServerId = this.chosenServerId ?? undefined
+    const choice = workspace.opening.repositoryRunOn(repositoryKey, preferredServerId)
+    if (!choice) {
+      workspace.opening.openRepositoryDraft(repositoryKey, undefined, preferredServerId)
+      return true
     }
+    this.repositoryPreparationError = null
+    let path = choice.path
+    if (!path) {
+      this.repositoryPreparation = { serverId: choice.serverId, step: 'reaching' }
+      try {
+        path = await ensureRepositoryCheckout(choice.serverId, repositoryKey, (step) => {
+          if (this.repositoryPreparation) this.repositoryPreparation.step = step
+        })
+      } catch (error) {
+        this.repositoryPreparationError = error instanceof Error ? error.message : String(error)
+        return false
+      } finally {
+        this.repositoryPreparation = null
+      }
+      // Skipped while it cloned: the person is already working elsewhere.
+      if (!this.isOpen) return false
+    }
+    workspace.drafts.openSessionDraft({ serverId: choice.serverId, target: workspace.router.leadingPane.id }, path)
+    return true
+  }
+
+  /**
+   * Where the workspace opens when the flow ends without a repository: the
+   * person's Scratchpad (their chat folder) on the chosen machine. With no
+   * machine, the new-tab home stays.
+   */
+  async landInScratchpad(workspace: Pick<WorkspaceContext, 'drafts' | 'router'>): Promise<void> {
     const serverId = this.chosenServerId
     if (!serverId) return
     if (!connectionsStore.capabilitiesFor(serverId)) await connectionsStore.refreshCapabilities({ serverId })

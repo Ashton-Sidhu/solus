@@ -26,6 +26,7 @@ export type SettingsTab =
   | 'appearance'
   | 'notifications'
   | 'instructions'
+  | 'tasks'
   | 'source-control'
   | 'review'
   | 'providers'
@@ -43,6 +44,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'appearance',
   'notifications',
   'instructions',
+  'tasks',
   'source-control',
   'review',
   'providers',

@@ -7,6 +7,7 @@ import { runAsync } from './exec'
 import type { GitIdentityEnv } from './git-identity-manager'
 import { createWorktree, ensureBranchWorktree, fetchAndCheckoutPr, renameWorktreeBranch, type CreateWorktreeOptions } from './worktree-manager'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { SeatResolver } from '../execution/seats/seat-manager'
 import { generateWorktreeName } from './worktree-name'
 import { isTemporaryWorktreeBranch } from './worktree-branch-name'
 import { GitWatcher } from './git-watcher'
@@ -66,12 +67,12 @@ export class CheckoutService {
     return this.commit(checkout.worktreePath!, checkout, 'created').checkout!
   }
 
-  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher): Promise<void> {
+  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher, seatFor?: SeatResolver): Promise<void> {
     cwd = resolveHomePath(cwd)
     const branch = this.get(cwd)?.checkout?.branch
     if (!branch || !isTemporaryWorktreeBranch(branch)) return
     try {
-      const name = await generateWorktreeName(dispatcher, prompt, cwd)
+      const name = await generateWorktreeName(dispatcher, prompt, cwd, undefined, seatFor)
       if (name) await this.rename(cwd, branch, name)
     } catch (error) {
       log.warn('worktree_branch_rename_failed', { cwd, branch, error: String(error) })

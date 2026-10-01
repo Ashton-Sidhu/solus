@@ -217,9 +217,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('generateSessionMetadata', (args) => {
+  server.register('generateSessionMetadata', (args, ctx) => {
     const [promptText, cwd, context] = args
-    return generateSessionMetadata(sessionRuntime, promptText, cwd, context)
+    // The run uses the caller's own provider login, as their turns do.
+    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider))
   })
 
   server.register('setSessionTitle', async (args, ctx) => {

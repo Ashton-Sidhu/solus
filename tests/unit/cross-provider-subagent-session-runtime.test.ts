@@ -3,15 +3,18 @@ import { Database } from 'bun:sqlite'
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { NormalizedEvent } from '@solus/contracts/types'
+import type { SeatResolver, TurnSeat } from '@solus/server/execution/seats/seat-manager'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let createClaudeSubagentAgentTool: (dispatcher: AgentDispatcher) => AgentTool
-let createCodexSubagentAgentTool: (dispatcher: AgentDispatcher) => AgentTool
+let createClaudeSubagentAgentTool: (dispatcher: AgentDispatcher, seatFor?: SeatResolver) => AgentTool
+let createCodexSubagentAgentTool: (dispatcher: AgentDispatcher, seatFor?: SeatResolver) => AgentTool
+let SeatRequiredError: typeof import('@solus/server/execution/seats/seat-manager')['SeatRequiredError']
 
 beforeAll(async () => {
   ;({ createClaudeSubagentAgentTool } = await import('@solus/server/execution/agents/claude/claude-subagent-tool'))
   ;({ createCodexSubagentAgentTool } = await import('@solus/server/execution/agents/codex/codex-subagent-tool'))
+  ;({ SeatRequiredError } = await import('@solus/server/execution/seats/seat-manager'))
 })
 
 class ChildDispatcher implements AgentDispatcher {
@@ -48,6 +51,24 @@ function context(provider: 'claude-code' | 'codex', emitted: NormalizedEvent[] =
 }
 
 describe('cross-provider subagent control-plane dispatch', () => {
+  test.each([
+    ['claude-code', () => createClaudeSubagentAgentTool] as const,
+    ['codex', () => createCodexSubagentAgentTool] as const,
+  ])('%s child runs on the turn author\'s own login, and refuses without one', async (provider, factory) => {
+    // WHY: on a cloud host a member's login lives in their seat; a child run on
+    // the host login would fail, or spend another person's quota.
+    const seat: TurnSeat = { seat: { kind: 'user', userId: { kind: 'account', accountId: 'member-1' } }, provider, home: '/seats/member-1' }
+    const seated = new ChildDispatcher()
+    await factory()(seated, async () => seat).execute({ prompt: 'Inspect the change' }, context(provider))
+    expect(seated.request?.seat).toBe(seat)
+
+    const unseated = new ChildDispatcher()
+    const refused = await factory()(unseated, async () => { throw new SeatRequiredError(provider, 'none') })
+      .execute({ prompt: 'Inspect the change' }, context(provider))
+    expect(refused.ok).toBe(false)
+    expect(unseated.request).toBeNull()
+  })
+
   test.each([
     ['claude-code', () => createClaudeSubagentAgentTool] as const,
     ['codex', () => createCodexSubagentAgentTool] as const,

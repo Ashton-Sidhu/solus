@@ -14,7 +14,7 @@
   const blocked = $derived(mentionsWithoutAccess(scope(), people));
   const canShare = $derived.by(() => {
     const current = scope();
-    return !!current && sharesStore.canShareFrom(current.serverId);
+    return !!current && sharesStore.canShareFrom(current.serverId, current.resource.kind);
   });
 
   function openShare() {

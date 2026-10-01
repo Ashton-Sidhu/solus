@@ -36,7 +36,7 @@ test('naming before session registration updates the checkout retained by dispat
   const events: NormalizedEvent[] = []
   plane.on('event', (_sessionId: string, event: NormalizedEvent) => events.push(event))
   try {
-    await plane.nameWorktreeBranch('pending-session', checkout, 'Fix layout')
+    await plane.nameWorktreeBranch('pending-session', checkout, 'Fix layout', undefined)
     expect(checkout.branch).toBe('solus/fix-layout')
     expect(git(['branch', '--show-current'], checkout.worktreePath!)).toBe(checkout.branch)
     expect(events).toContainEqual({ type: 'git_context', gitContext: checkout })

@@ -1208,8 +1208,6 @@ solus pair</div>
 					['⌥⇧A', 'Attach file'],
 					['⌥⇧S', 'Take screenshot'],
 					['⌥⇧I', 'Design annotation mode'],
-					['⌘⇧S', 'Save prompt'],
-					['⌥⇧K', 'Saved prompts'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Agent</h3>

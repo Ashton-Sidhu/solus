@@ -2,12 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { ReviewGuide, ReviewGuideRequestOptions, ReviewGuideStatusEvent, ReviewProgressStep } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { SeatResolver } from '../execution/seats/seat-manager'
 import { authorPrGuide, type GeneratedGuide } from './guide-producer'
 import { currentPrGuideTarget, prepareReviewGuidePrContext, type PrGuideTarget, type ResolvedPrGuideTarget } from './pr-guide-context'
 import { prGuideKey, readPrGuide, writePrGuide } from './pr-guide-store'
 
 export interface PrGuideJobRequest {
   dispatcher: AgentDispatcher
+  /** The requester's own provider login for each backend. */
+  seatFor?: SeatResolver
   ctx: IpcContext
   opts: ReviewGuideRequestOptions & { target: PrGuideTarget }
   onStatus: (event: ReviewGuideStatusEvent) => void
@@ -33,7 +36,7 @@ const defaultDependencies: PrGuideJobDependencies = {
   prepare: prepareReviewGuidePrContext,
   author: (request, ctx, target, signal, progress) => authorPrGuide(request.dispatcher, ctx, {
     ...request.opts, target, regenerationBaseSha: undefined,
-  }, signal, progress),
+  }, signal, progress, request.seatFor),
   read: readPrGuide,
   write: writePrGuide,
 }

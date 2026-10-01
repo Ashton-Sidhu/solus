@@ -81,8 +81,9 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   contentBytes?: number
   /** Structured correlation facts extracted before tool output is discarded. */
   agentConversationResult?: AgentConversationResultProjection
-  /** Stable work identity from a successful artifact tool result. */
-  artifactWorkRef?: { workId: string; title: string }
+  /** Stable work identity from a successful artifact tool result, and the
+   *  content version the call wrote, when the receipt names one. */
+  artifactWorkRef?: { workId: string; title: string; contentVersion?: number }
   /** A legacy update receipt can identify success without naming the work type. */
   workUpdateSucceeded?: boolean
 }

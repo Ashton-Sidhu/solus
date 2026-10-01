@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Eye as EyeIcon } from "@lucide/svelte";
+  import { Eye as EyeIcon, Pause as PauseIcon, Play as PlayIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import TranscriptCard from "../conversation/TranscriptCard.svelte";
@@ -69,9 +69,13 @@
 
 {#snippet stateActions()}
   {#if watch && canPauseWatch(watch)}
-    <TranscriptCardAction kind="ghost" disabled={busy} onclick={() => run("pause")}>Pause</TranscriptCardAction>
+    <TranscriptCardAction kind="icon" label="Pause watch" disabled={busy} onclick={() => run("pause")}>
+      <PauseIcon size={14} strokeWidth={1.75} />
+    </TranscriptCardAction>
   {:else if watch?.status === "paused"}
-    <TranscriptCardAction kind="ghost" disabled={busy} onclick={() => run("resume")}>Resume</TranscriptCardAction>
+    <TranscriptCardAction kind="icon" label="Resume watch" disabled={busy} onclick={() => run("resume")}>
+      <PlayIcon size={14} strokeWidth={1.75} />
+    </TranscriptCardAction>
   {/if}
 {/snippet}
 

@@ -214,7 +214,7 @@ test('a Solus commit for a member without an identity is refused before git runs
       holdIdentity: (identity) => identities.hold(identity),
       generateCommitSubject: async () => 'unused',
       publish: () => {},
-      writer: { provider: 'codex', textGenerator: { generate: async () => '' }, instructions: '', followPullRequestTemplate: false },
+      writer: { backend: { provider: 'codex', model: 'gpt-6-luna' }, textGenerator: { generate: async () => '' }, instructions: '', followPullRequestTemplate: false },
     },
   )
   await expect(run).rejects.toThrow('Connect GitHub')

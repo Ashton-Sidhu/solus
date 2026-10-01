@@ -112,9 +112,13 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
     report()
   }
   // A navigation commit or title change can precede the first document load.
-  // Only completion can release the picker and its loading veil. Stopping also
+  // Only completion can release the picker and its loading veil. Completion is
+  // `did-stop-loading`, the pair of `did-start-loading`: both fire for any frame,
+  // so a page that loads an iframe after its own load starts loading again, and
+  // `did-finish-load` (main frame only) never comes to end it. Stopping also
   // happens after a failed load, so it must not turn that failure into success.
-  const onFinishLoading = (): void => {
+  const onStopLoading = (): void => {
+    if (loadState === 'failed') return
     loadState = 'ready'
     failure = undefined
     report()
@@ -145,7 +149,7 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
   node.addEventListener('crashed', onCrash)
   node.addEventListener('render-process-gone', onCrash)
   node.addEventListener('did-start-loading', onStartLoading)
-  node.addEventListener('did-finish-load', onFinishLoading)
+  node.addEventListener('did-stop-loading', onStopLoading)
   node.addEventListener('did-navigate', onNavigate)
   node.addEventListener('did-navigate-in-page', onNavigate)
   node.addEventListener('page-title-updated', onTitle)
@@ -163,7 +167,7 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
       node.removeEventListener('crashed', onCrash)
       node.removeEventListener('render-process-gone', onCrash)
       node.removeEventListener('did-start-loading', onStartLoading)
-      node.removeEventListener('did-finish-load', onFinishLoading)
+      node.removeEventListener('did-stop-loading', onStopLoading)
       node.removeEventListener('did-navigate', onNavigate)
       node.removeEventListener('did-navigate-in-page', onNavigate)
       node.removeEventListener('page-title-updated', onTitle)

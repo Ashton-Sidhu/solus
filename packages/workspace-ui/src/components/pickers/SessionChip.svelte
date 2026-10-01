@@ -453,27 +453,27 @@
               : 'text-(--solus-accent)'}"
         >
           {#if isAuto}
-            <SparklesIcon size={13} />
+            <SparklesIcon size={16} />
           {:else if isClaude}
-            <ClaudeIcon size={13} />
+            <ClaudeIcon size={16} />
           {:else if isCodex}
             {#if fastMode}
-              <LightningIcon size={14} fill="currentColor" />
+              <LightningIcon size={16} fill="currentColor" />
             {:else}
-              <OpenAIBlossom size={13} />
+              <OpenAIBlossom size={16} />
             {/if}
           {:else}
-            <CodeIcon size={13} class="flex-shrink-0" />
+            <CodeIcon size={16} class="flex-shrink-0" />
           {/if}
         </span>
-        <!-- Composer ladder, rung 6: below 22rem the chip is the glyph alone.
+        <!-- Composer ladder, rung 5: below 22rem the chip is the glyph alone.
              It stays a hit target and keeps its ⌥ shortcut; only the label
              goes. Named `/composer` so the rung is inert wherever the chip is
              not in a composer. The label inherits the chip's secondary colour,
              the same as the permission chip beside it. -->
         <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
-          <!-- Rung 3: the reasoning label is the first thing the chip can spend. -->
+          <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
           <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
         {/if}
         {#if handoffInProgress}

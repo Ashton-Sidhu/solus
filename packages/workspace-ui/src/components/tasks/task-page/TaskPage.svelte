@@ -167,11 +167,9 @@
   // The PR store owns linked identity, saved observations and background reads.
   const prs = pullRequests.projects;
   const taskServerId = $derived(store.get(taskId).serverId);
-  // Sharing needs a host to ask and a workspace to share from; a guest shell has neither to offer.
-  const shareServerId = $derived(
-    shell.canOpenResource("workspace") ? (taskServerId ?? serverConnections.defaultServerId()) : null,
-  );
-  const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
+  // A task is not shared on its own: its link opens it for everyone in its organization.
+  const linkServerId = $derived(taskServerId ?? serverConnections.defaultServerId());
+  const canCopyLink = $derived(!!linkServerId && sharesStore.canCopyTaskLink(linkServerId));
   // An organization task's comments mention its members (plan 004 D17). Task
   // comments carry no account id, so the picker orders people by name.
   provideMentionScope(() => task && taskServerId
@@ -182,9 +180,8 @@
   // opens it on a machine the Run-on picker chooses, or asks for one. A guest
   // shell has no workspace to start from.
   const canStartSession = $derived(!!session.workspace);
-  function openShare(record: Task): void {
-    if (!shareServerId) return;
-    sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });
+  function copyLink(record: Task): void {
+    if (linkServerId) void sharesStore.copyTaskLink(linkServerId, record.id);
   }
   $effect(() => {
     const workIds = linkedWorkIds;
@@ -868,7 +865,7 @@
         onNext={chromeNext}
         onOpenSource={chromeOpenSource}
         onOpenPage={embedded ? onOpenRoute : undefined}
-        onShare={canShare ? () => openShare(task) : null}
+        onCopyLink={canCopyLink ? () => copyLink(task) : null}
         onOpenList={chromeOpenList}
       />
     {:else}
@@ -883,7 +880,7 @@
         onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
         isLeading={pane.isLeading}
         onOpenPage={embedded ? onOpenRoute : undefined}
-        {shareServerId}
+        onCopyLink={canCopyLink ? () => copyLink(task) : null}
         onOpenList={chromeOpenList}
         onClose={onRequestClose ?? (() => pane.close())}
       />

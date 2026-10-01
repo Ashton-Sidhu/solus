@@ -270,12 +270,12 @@
       >
         <span class="branch-row-icon"
           >{#if isWorktree || env.pending || pendingDispatch}<GitForkIcon
-              size={13}
-            />{:else}<GitBranchIcon size={13} />{/if}</span
+              size={16}
+            />{:else}<GitBranchIcon size={16} />{/if}</span
         >
         <!-- The branch is the section's anchor — a constant half-step heavier
              than the action rows beneath it. -->
-        <MiddleTruncate value={displayedBranch} class="flex-1 font-medium" />
+        <MiddleTruncate value={displayedBranch} class="flex-1 font-semibold" />
         {#if copyableBranch}
           <span class="branch-copy-indicator" aria-hidden="true">
             <CopyIcon size={11} />
@@ -471,13 +471,13 @@
     cursor: not-allowed;
     opacity: 0.4;
   }
-  /* Stats line beneath the branch, indented past the branch icon (13px glyph +
+  /* Stats line beneath the branch, indented past the branch icon (16px glyph +
      0.5rem gap) so it hangs under the branch name. */
   .branch-stats-line {
     display: flex;
     align-items: center;
     gap: 0.5625rem;
-    padding: 0.0625rem 0.5rem 0 1.8125rem;
+    padding: 0.0625rem 0.5rem 0 2rem;
     font-variant-numeric: tabular-nums;
   }
   .branch-divider {

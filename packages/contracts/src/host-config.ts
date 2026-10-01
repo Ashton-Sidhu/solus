@@ -142,6 +142,9 @@ export interface HostConfig {
   sidebarCompletedRetentionDays: number
   /** Sidebar row motion, in milliseconds; 0 turns it off. */
   sidebarMotionMs: number
+  /** The agent and model a new task lead starts on. Null means the default
+   *  agent and model for new sessions. */
+  leadModel: LeadModelSelection | null
 
   // ─── Operator settings ───
   //
@@ -154,6 +157,12 @@ export interface HostConfig {
   // its `headers` field carries collector credentials.
 
   agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy
+  /** User rules added after the built-in lead contract in a task lead's packet
+   *  (docs/plans/task-conversation.md). Routing rules for workers go here. */
+  leadInstructions: string
+  /** The agent and model a lead names for a worker when the lead instructions
+   *  name none. Null leaves the choice to the lead. */
+  workerModel: LeadModelSelection | null
   /** Where this host sends its own telemetry. */
   otel: OtelSettings
   textGenerationModel: TextGenerationModelSelection
@@ -211,6 +220,21 @@ const modelSelectionSchema = z.object({
   provider: selection.provider,
   model: selection.model.trim().slice(0, 200),
 }))
+
+/** A lead or worker model, with the reasoning level it runs at. Host config
+ *  stores one only for these agents. A selection saved before the level
+ *  existed has none, and runs at the model's default. */
+const leadModelSelectionSchema = z.object({
+  provider: z.enum(['codex', 'claude-code']),
+  model: z.string(),
+  reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+}).strict().transform((selection) => ({
+  provider: selection.provider,
+  model: selection.model.trim().slice(0, 200),
+  reasoningEffort: selection.reasoningEffort,
+}))
+
+export type LeadModelSelection = z.output<typeof leadModelSelectionSchema>
 
 /** Enabling with no endpoint would be a switch that reports "on" while
  *  exporting nowhere, so the endpoint is part of being enabled. The endpoint is
@@ -321,7 +345,7 @@ export const HOST_CONFIG_FIELDS = {
   responseStreamingMode: field(z.enum(['buffered', 'paragraph']).catch('paragraph'), 'paragraph', true),
   rateLimitBehavior: field(z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'), 'ask', true),
   autoRenameSessions: field(z.boolean().catch(true), true, true),
-  showToolCalls: field(z.boolean().catch(false), false, true),
+  showToolCalls: field(z.boolean().catch(true), true, true),
   showDiffSummaryAfterTurn: field(z.boolean().catch(true), true, true),
   collapseComposerWhenIdle: field(z.boolean().catch(true), true, true),
   fontFamily: field(fontFamilyPreferenceSchema.catch('system'), 'system', true),
@@ -355,7 +379,11 @@ export const HOST_CONFIG_FIELDS = {
     DEFAULT_SIDEBAR_MOTION_MS,
     true,
   ),
+  leadModel: field(leadModelSelectionSchema.nullable().catch(null), null, false),
   agentTaskLifecyclePolicy: field(z.enum(['none', 'moderate', 'autonomous']).catch('moderate'), 'moderate', false),
+  // Bounded for the reason `extraInstructions` is: it is added to each lead run.
+  leadInstructions: field(z.string().max(20_000).catch(''), '', false),
+  workerModel: field(leadModelSelectionSchema.nullable().catch(null), null, false),
   otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS, false),
   textGenerationModel: field(
     modelSelectionSchema,

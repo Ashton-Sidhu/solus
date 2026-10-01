@@ -1,7 +1,9 @@
 <script lang="ts">
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
+  import { BrowserNotificationPermission } from "./lib/browser-notification-permission.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import {
@@ -19,6 +21,7 @@
   let { searchQuery = "" }: Props = $props();
 
   const settings = getSettingsContext();
+  const browserPermission = new BrowserNotificationPermission();
 
   const channelRows = $derived(
     NOTIFICATION_CHANNEL_ROWS.filter((row) => notificationRowMatches(row, searchQuery)),
@@ -52,12 +55,21 @@
     visible={situation.rows.length > 0}
   >
     {#each situation.rows as row (row.id)}
-      <SettingsRow label={row.label} description={row.description}>
+      <SettingsRow
+        label={row.label}
+        description={row.id === "system"
+          ? browserPermission.systemAlertDescription(settings.notifications.channels.system, row.description)
+          : row.description}
+      >
         {#snippet control()}
+          {#if row.id === "system" && settings.notifications.channels.system && browserPermission.state === "default"}
+            <Button variant="outline" size="sm" onclick={() => void browserPermission.request()}>Allow</Button>
+          {/if}
           <Switch
             checked={settings.notifications.channels[row.id]}
             onCheckedChange={(enabled) => {
               settings.setNotificationChannel(row.id, enabled);
+              if (row.id === "system" && enabled) void browserPermission.request();
               requestInputFocus();
             }}
             aria-label={row.label}

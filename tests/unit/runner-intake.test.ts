@@ -139,17 +139,33 @@ describe('runner intake', () => {
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
 
-  test('work publication links the imported work to its session task and retry does not duplicate the link', async () => {
+  test('an uploaded work is linked to its session task, and the same upload again does not duplicate the link', async () => {
+    // The upload replaced the runner's work delivery (docs/plans/cloud-sharing.md); it keeps its task link.
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
+    const apiMode = await import('@solus/server/host/api-mode')
     const task = await TaskModule.Task.byId('org1', 'task-a')
     await task.linkSession('thread-1')
     const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')
-    const request = { hostId: 'runner-1', actorUserId: 'alice', transfer: await works.exportWorkForCloud('local', work.id) }
+    const transfer = await works.exportWorkForCloud('local', work.id)
     // This fixture uses one database to represent the service; remove the
     // source fixture after taking its snapshot to model a different host.
-    await works.removePushedWork('local', work.id, request.transfer.fingerprint)
-    const receipt = await intake.applyRunnerWork(runner(), request, shares)
-    expect(receipt).toEqual({ workId: work.id, organizationId: 'org1' })
-    expect(await intake.applyRunnerWork(runner(), request, shares)).toEqual(receipt)
+    await works.removePushedWork('local', work.id, transfer.fingerprint)
+    const alice: Principal = { kind: 'org-member', hostKind: 'cloud', organizationId: 'org1', organizationRole: 'member', userId: 'alice', teamIds: [], displayName: 'Alice', deviceId: 'alice', deviceLabel: 'Cloud', expiresAt: Date.now() + 60_000 }
+    const service = new SolusServer()
+    registerCloudUploadHandlers(service, { shares })
+    const previous = process.env.SOLUS_API
+    process.env.SOLUS_API = '1'
+    apiMode.resetApiModeForTests()
+    try {
+      const receipt = await service.handle('workUpload', [transfer], { clientId: 'alice', principal: alice })
+      expect(receipt).toEqual({ workId: work.id, organizationId: 'org1' })
+      expect(await service.handle('workUpload', [transfer], { clientId: 'alice', principal: alice })).toEqual(receipt)
+    } finally {
+      if (previous === undefined) delete process.env.SOLUS_API
+      else process.env.SOLUS_API = previous
+      apiMode.resetApiModeForTests()
+    }
     const links = (await task.details()).links.filter((link) => link.targetKey === work.id)
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({ kind: 'work', title: 'Published', originSessionId: 'thread-1' })

@@ -7,7 +7,6 @@ import { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import type { Publication } from '@solus/contracts/organization-scope'
-import { runnerOutboxRequestSchema } from '@solus/server/sync/runner-protocol'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -29,9 +28,6 @@ let delegationsModule: typeof import('@solus/server/sync/delegations')
 let transcriptMirrorModule: typeof import('@solus/server/sync/mirror/transcript-mirror')
 let outbox: typeof import('@solus/server/sync/outbox/outbox-store')
 let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
-let tasks: typeof import('@solus/server/data/tasks/task-store')
-let taskModule: typeof import('@solus/server/data/tasks/task')
-let works: typeof import('@solus/server/data/works/works')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let principal: typeof import('@solus/server/admission/principal')
 let dbModule: typeof import('@solus/server/db')
@@ -48,9 +44,6 @@ beforeAll(async () => {
   transcriptMirrorModule = await import('@solus/server/sync/mirror/transcript-mirror')
   outbox = await import('@solus/server/sync/outbox/outbox-store')
   mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
-  tasks = await import('@solus/server/data/tasks/task-store')
-  taskModule = await import('@solus/server/data/tasks/task')
-  works = await import('@solus/server/data/works/works')
   records = await import('@solus/server/data/sessions/session-records')
   principal = await import('@solus/server/admission/principal')
   dbModule = await import('@solus/server/db')
@@ -67,26 +60,15 @@ afterAll(async () => {
 
 const HOST_ID = 'runner-host-1'
 
-const workBodySchema = z.object({ hostId: z.string(), actorUserId: z.string(), transfer: z.object({ fingerprint: z.string(), work: z.object({ id: z.string(), title: z.string(), organizationId: z.string(), content: z.string() }) }) })
 const reportsBodySchema = z.object({ hostId: z.string(), reports: z.array(z.object({ seq: z.number(), record: z.object({ sessionId: z.string(), runnerHostId: z.string().nullable().optional() }) })) })
 const mirrorBodySchema = z.object({ hostId: z.string(), items: z.array(z.object({ seq: z.number(), domain: z.string(), key: z.string(), payload: z.unknown() })) })
 
-type WorkBody = z.infer<typeof workBodySchema>
-
 /** The organization's Solus API routes a publication uses; the delivering token names the organization (plans/010-standard-oauth.md). */
 class FakeCloud {
-  readonly worksReceived: Array<{ organization: string; body: WorkBody }> = []
   readonly reports: Array<z.infer<typeof reportsBodySchema>> = []
   readonly mirrored: Array<z.infer<typeof mirrorBodySchema>> = []
   /** Every organization whose delegated token delivered something. */
   readonly deliveredFor: string[] = []
-  /** Answer `/runner/works` with this status and error instead of importing. */
-  refuseWorks: { status: number; error: string } | null = null
-  /** Hold every `/runner/works` answer until `releaseWorks()`. */
-  refuseOutboxName: string | null = null
-  readonly taskOperations: string[] = []
-  holdWorks = false
-  private held: Array<() => void> = []
   private server: Server | null = null
   url = ''
 
@@ -103,24 +85,6 @@ class FakeCloud {
         const authorization = request.headers.authorization ?? null
         const organization = authorization?.replace('Bearer delegated-', '') ?? ''
         if (request.url?.startsWith('/runner/') && !this.deliveredFor.includes(organization)) this.deliveredFor.push(organization)
-        if (request.url === '/runner/works') {
-          const body = workBodySchema.parse(JSON.parse(raw))
-          const answer = () => {
-            if (this.refuseWorks) return json(this.refuseWorks.status, { error: this.refuseWorks.error })
-            this.worksReceived.push({ organization, body })
-            json(200, { workId: body.transfer.work.id, organizationId: organization })
-          }
-          if (this.holdWorks) this.held.push(answer)
-          else answer()
-          return
-        }
-        if (request.url === '/runner/outbox') {
-          const { ops } = runnerOutboxRequestSchema.parse(JSON.parse(raw))
-          this.taskOperations.push(...ops.map(({ op }) => op.name))
-          const failed = ops.filter(({ op }) => op.name === this.refuseOutboxName)
-            .map(({ seq }) => ({ seq, error: 'Required task data was refused.', permanent: true }))
-          return json(200, { lastSeq: Math.max(0, ...ops.map(({ seq }) => seq)), failed })
-        }
         if (request.url === '/runner/session-records') {
           const body = reportsBodySchema.parse(JSON.parse(raw))
           this.reports.push(body)
@@ -137,11 +101,6 @@ class FakeCloud {
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve))
     const address = this.server.address()
     this.url = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`
-  }
-
-  releaseWorks(): void {
-    this.holdWorks = false
-    for (const answer of this.held.splice(0)) answer()
   }
 
   async stop(): Promise<void> {
@@ -234,70 +193,15 @@ async function drained(condition: () => boolean): Promise<void> {
 
 const statesOf = (changes: Publication[], resource: Publication['resource']) => changes.filter((row) => row.resource.kind === resource.kind && row.resource.id === resource.id).map((row) => row.state)
 
-describe('publishing a work', () => {
-  test('a Local work goes pending → sent → committed, arrives whole with the actor, and leaves this host', async () => {
+describe('what the machine does not publish', () => {
+  test('a work or a task is not published by the machine: the client uploads it with its own sign-in', async () => {
+    // WHY: sharing a work or a task must not depend on the host link (docs/plans/cloud-sharing.md).
     const h = await harness()
     try {
-      const work = await works.createWork('local', 'Design notes', 'doc', '# Notes', '', undefined, 'claude-code', '/repo')
-      const resource = { kind: 'work', id: work.id } as const
-      await expect(h.coordinator.start({ resource, organizationId: 'local' }, 'alice')).rejects.toThrow(/Choose an organization/)
-      const started = await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      expect(started).toMatchObject({ resource, organizationId: 'A', actorUserId: 'alice', state: 'pending' })
-      expect(h.coordinator.reservedOrganization(resource)).toBe('A')
-
-      const done = await settled(h, resource)
-      expect(done.state).toBe('committed')
-      expect(done.error).toBeUndefined()
-      expect(statesOf(h.changes, resource)).toEqual(['pending', 'sent', 'committed'])
-      expect(h.cloud.deliveredFor).toEqual(['A'])
-      expect(h.cloud.worksReceived).toHaveLength(1)
-      expect(h.cloud.worksReceived[0]).toMatchObject({ organization: 'A', body: { hostId: HOST_ID, actorUserId: 'alice', transfer: { work: { id: work.id, title: 'Design notes', content: '# Notes', organizationId: 'local' } } } })
-      // The service holds it now; the local copy is gone and nothing is reserved any more.
-      expect(await works.loadWork(principal.ANY_ORGANIZATION, work.id)).toBeNull()
-      expect(h.coordinator.reservedOrganization(resource)).toBeNull()
-      expect(h.forgotten).toEqual([resource])
-    } finally {
-      await h.stop()
-    }
-  })
-
-  test('a work on its way to A cannot be sent to B; the reservation holds until the receipt', async () => {
-    // WHY: two Shares racing, or a Share and an Insights assignment, must not
-    // send one record to two organizations (§7).
-    const h = await harness()
-    try {
-      h.cloud.holdWorks = true
-      const work = await works.createWork('local', 'Contested', 'doc', '# One', '', undefined, 'claude-code', '/repo')
-      const resource = { kind: 'work', id: work.id } as const
-      const first = await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      await expect(h.coordinator.start({ resource, organizationId: 'B' }, 'alice')).rejects.toThrow(/already on its way to another organization/)
-      // Asking for A again resumes the same publication rather than starting another.
-      expect((await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')).id).toBe(first.id)
-      expect(h.coordinator.reservedOrganization(resource)).toBe('A')
-      expect(await works.loadWork('local', work.id)).not.toBeNull()
-
-      h.cloud.releaseWorks()
-      expect((await settled(h, resource)).state).toBe('committed')
-      expect(h.coordinator.list(resource)).toHaveLength(1)
-      expect(await works.loadWork(principal.ANY_ORGANIZATION, work.id)).toBeNull()
-    } finally {
-      await h.stop()
-    }
-  })
-
-  test('a service that refuses the work fails the publication with its reason and keeps the local copy', async () => {
-    const h = await harness()
-    try {
-      h.cloud.refuseWorks = { status: 409, error: 'The cloud already has a different version. Open it before sharing.' }
-      const work = await works.createWork('local', 'Stale', 'doc', '# Old', '', undefined, 'claude-code', '/repo')
-      const resource = { kind: 'work', id: work.id } as const
-      await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      const done = await settled(h, resource)
-      expect(done).toMatchObject({ state: 'failed', error: 'The cloud already has a different version. Open it before sharing.' })
-      expect(statesOf(h.changes, resource)).toEqual(['pending', 'sent', 'failed'])
-      expect((await works.loadWork('local', work.id))?.content).toBe('# Old')
-      // A failed publication reserves nothing: the work may be sent elsewhere.
-      expect(h.coordinator.reservedOrganization(resource)).toBeNull()
+      for (const resource of [{ kind: 'work', id: 'w1' }, { kind: 'task', id: 't1' }] as const) {
+        await expect(h.coordinator.start({ resource, organizationId: 'A' }, 'alice')).rejects.toThrow(/with your sign-in/)
+        expect(h.coordinator.reservedOrganization(resource)).toBeNull()
+      }
     } finally {
       await h.stop()
     }
@@ -363,78 +267,5 @@ describe('publishing a session', () => {
       records.useLiveRecordIds(() => null)
       await h.stop()
     }
-  })
-})
-
-
-describe('publishing a task', () => {
-  test('a permanent failure of a required comment keeps the local task even after the dead letter is dismissed', async () => {
-    const h = await harness()
-    const stop = outbox.onOutboxChanged(() => {
-      const failed = outbox.listOutboxOps().filter((op) => op.state === 'failed')
-      if (failed.length) outbox.ackOutboxOps(failed.map((op) => op.id))
-    })
-    try {
-      h.cloud.refuseOutboxName = 'comment'
-      const created = await tasks.createTask('local', { title: 'Keep my task', body: 'Source data' })
-      const task = await taskModule.Task.byId('local', created.id)
-      await task.comment('Required comment', { by: BY })
-      const resource = { kind: 'task', id: task.id } as const
-      const finished = h.finished(resource)
-      await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      expect(await finished).toMatchObject({ state: 'failed', error: 'Required task data was refused.' })
-      expect((await taskModule.Task.byId('local', task.id)).body).toBe('Source data')
-      expect((await task.details()).comments.map((comment) => comment.body)).toContain('Required comment')
-      expect(outbox.listOutboxOps().filter((op) => op.state === 'failed')).toEqual([])
-      h.coordinator.resume()
-      expect(h.coordinator.list(resource)[0].state).toBe('failed')
-    } finally { stop(); await h.stop() }
-  })
-
-  test('a task whose publisher must reconnect says so at once, stays quiet while it waits, and commits once they connect', async () => {
-    // WHY: delivery parked the rows until the person connected, and the publication
-    // waited for a receipt that could not come. It said nothing, so the share dialog
-    // showed "pending" forever and polled the host twice a second.
-    const away = new Set(['alice'])
-    const h = await harness(away)
-    try {
-      const created = await tasks.createTask('local', { title: 'Publish after sign-in' })
-      const resource = { kind: 'task', id: created.id } as const
-      const finished = h.finished(resource)
-      await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      await drained(() => (h.coordinator.list(resource)[0]?.error ?? '').includes('Reconnect'))
-      expect(h.coordinator.list(resource)[0].state).toBe('sent')
-      expect(h.cloud.taskOperations).toEqual([])
-
-      // Later delivery passes resume it without a new event each time.
-      const eventsWhileWaiting = h.changes.length
-      for (let pass = 0; pass < 5; pass++) {
-        h.coordinator.resume()
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
-      expect(h.changes.length).toBe(eventsWhileWaiting)
-
-      away.delete('alice')
-      h.runner.retryWaiting()
-      const done = await finished
-      expect(done.state).toBe('committed')
-      expect(done.error).toBeUndefined()
-      expect(h.cloud.taskOperations).toEqual(['create'])
-    } finally { await h.stop() }
-  })
-
-  test('only successful receipts for all required task operations allow source removal', async () => {
-    const h = await harness()
-    try {
-      const created = await tasks.createTask('local', { title: 'Publish my task' })
-      const task = await taskModule.Task.byId('local', created.id)
-      await task.comment('Required comment', { by: BY })
-      const resource = { kind: 'task', id: task.id } as const
-      const finished = h.finished(resource)
-      await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-      expect((await finished).state).toBe('committed')
-      expect(h.cloud.taskOperations).toEqual(['create', 'comment'])
-      await expect(taskModule.Task.byId('local', task.id)).rejects.toThrow()
-    } finally { await h.stop() }
   })
 })

@@ -86,7 +86,7 @@ import Icon from "@iconify/svelte";
     <Button
       variant="outline"
       size="sm"
-      class="w-full justify-center gap-1.5 text-workspace-chrome"
+      class="w-full justify-center gap-1.5 text-chrome-dense"
       disabled={initializing}
       onclick={initializeGit}
     >
@@ -102,7 +102,7 @@ import Icon from "@iconify/svelte";
     <Button
       variant="outline"
       size="sm"
-      class="w-full justify-center gap-1.5 text-workspace-chrome"
+      class="w-full justify-center gap-1.5 text-chrome-dense"
       onclick={() => (publishDialogOpen = true)}
     >
       <Icon icon="logos:github-icon" size={13} />

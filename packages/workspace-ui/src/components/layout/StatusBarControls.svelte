@@ -111,7 +111,9 @@
   // shows when the destination controls are enabled. Text truncates to degrade gracefully.
   const showBranch = $derived(showDestination);
   const showDirLabel = true;
-  const showUsage = $derived(!showDestination);
+  // The context meter is hidden for now while we decide whether to remove it.
+  // Restore `!showDestination` to show it again.
+  const showUsage = false;
 
   $effect(() => {
     if (isPinned) return;
@@ -214,7 +216,7 @@
   a full-width status bar. The workspace keeps context usage here.
 -->
 <div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
-  <!-- Composer ladder, rung 5: the whole status cluster goes below 25rem. It is
+  <!-- Composer ladder, rung 4: the whole status cluster goes below 25rem. It is
        what the row reads, not what the row does — every fact here is also in the
        input bar's header strip or the project panel.
 
@@ -232,7 +234,7 @@
   {/if}
 
   {#if showUsage}
-    <!-- Composer ladder, rung 2: the usage meter leaves before the rest of the
+    <!-- Composer ladder, rung 1: the usage meter leaves before the rest of the
          cluster. It is the widest readout here and the only one repeated
          elsewhere — the project panel carries the same figure — so it buys the
          project and branch chips a rung of legibility at no cost. `contents`
@@ -299,10 +301,10 @@
       style="max-width:240px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
     >
       {#if showDirIcon}
-        <FolderOpenIcon size={14} class="shrink-0 opacity-70" />
+        <FolderOpenIcon size={16} class="shrink-0 opacity-70" />
       {/if}
       {#if showDirLabel}
-        <span class="truncate">{displayDir}</span>
+        <span class="truncate font-medium">{displayDir}</span>
       {/if}
     </button>
         {/snippet}
@@ -332,11 +334,11 @@
         style="max-width:16rem"
       >
         {#if pendingDispatch}
-          <GitForkIcon size={14} class="shrink-0 opacity-70" />
+          <GitForkIcon size={16} class="shrink-0 opacity-70" />
         {:else}
-          <GitBranchIcon size={14} class="shrink-0 opacity-70" />
+          <GitBranchIcon size={16} class="shrink-0 opacity-70" />
         {/if}
-        <MiddleTruncate value={displayBranchLabel} showTitle={false} />
+        <MiddleTruncate value={displayBranchLabel} showTitle={false} class="font-medium" />
         {#if creatingWorktree || worktreeModePending}
           <GitForkIcon
             size={9}

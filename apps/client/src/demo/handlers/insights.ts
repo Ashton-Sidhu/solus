@@ -2,8 +2,10 @@ import { arg } from './args'
 import type {
   MetricsQueryResult,
   MetricsQuerySpec,
+  MetricsTurnFilter,
   MetricsTurnPageRequest,
   MetricsTurnPageResult,
+  MetricsTurnListingSummary,
   SavedMetricsQuery,
   TurnFlag,
   TurnFlagKind,
@@ -19,6 +21,7 @@ import {
   demoTurnTrace,
   turnListingResult,
   turnPageResult,
+  turnListingSummaryResult,
   DEMO_SESSION_BY_TASK,
   type DemoTurnRecord,
 } from '../fixtures/insights'
@@ -95,6 +98,8 @@ export function registerInsightsHandlers(backend: DemoServer): void {
   // statement handlers below.
   backend.register('metricsTurnPage', (args): MetricsTurnPageResult =>
     turnPageResult(turns, arg<MetricsTurnPageRequest>(args, 0)))
+  backend.register('metricsTurnListingSummary', (args): MetricsTurnListingSummary =>
+    turnListingSummaryResult(turns, arg<MetricsTurnFilter>(args, 0)))
 
   // Anything else the page runs is a turn listing: the explore statement and
   // the session and task drill-ins all select from `turns`.

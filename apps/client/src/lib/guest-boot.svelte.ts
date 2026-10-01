@@ -1,5 +1,4 @@
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { GuestLink } from '@solus/contracts/sharing'
+import type { GuestLink, GuestLinkResource, ShareRole } from '@solus/contracts/sharing'
 
 /**
  * A guest's visit, from the link to the one resource it opens
@@ -18,7 +17,11 @@ export type GuestPhase =
   /** The host refused the secret: the link was turned off or regenerated. */
   | 'revoked'
 
-export type GuestShare = NonNullable<ConnectionsServerInfo['share']>
+/** The one resource a link opens, and the standing it gives. */
+export interface GuestShare {
+  resource: GuestLinkResource
+  role: ShareRole
+}
 
 class GuestBootState {
   phase = $state<GuestPhase>('naming')

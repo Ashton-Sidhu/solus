@@ -39,7 +39,9 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     ctx.check(`${engine}: pushed work has one cloud home`, (await alice.records.loadWork(localWork.id))?.content === 'after' && await source.records.loadWork(localWork.id) === null)
     const work = await alice.records.createWork('Shared cloud work', 'doc', '# Offline safe', '', undefined, 'claude-code', ctx.cwd)
     const task = await alice.records.tasksCreate({ title: 'Shared cloud task', body: 'Cloud body' })
-    for (const resource of [{ kind: 'work', id: work.id }, { kind: 'task', id: task.id }] as const) {
+    // A task is not shared: its organization sees it, and it has no guest link.
+    await expectRefused(ctx, 'a task has no share link', alice.rpc('shareSetLink', { resource: { kind: 'task', id: task.id }, role: 'viewer' }), 'FORBIDDEN')
+    for (const resource of [{ kind: 'work', id: work.id }] as const) {
       const link = await alice.rpc('shareSetLink', { resource, role: 'viewer' })
       const guest = client('maya', link!.secret)
       ctx.check(`${engine}: guest opens ${resource.kind} without runner`, (await guest.connect()).ok)
@@ -60,10 +62,6 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
         ctx.check(`${engine}: stale copy cannot overwrite the saved change`, refused)
         await expectRefused(ctx, 'other organization cannot check work version', carol.api.request('getWork', { id: work.id, ifNoneMatch: work.updatedAt }), 'NOT_FOUND')
         ctx.check(`${engine}: role upgrade applies to live guest`, (await alice.records.loadWork(work.id))?.content === 'Guest edit')
-      } else {
-        const details = await guest.records.tasksGet(task.id)
-        ctx.check(`${engine}: guest reads task`, !!details)
-        await expectRefused(ctx, 'task guest cannot read unrelated work', guest.api.request('getWork', { id: work.id }), 'NOT_FOUND')
       }
       await alice.rpc('shareSetLink', { resource, role: 'viewer', regenerate: true })
       const stale = client('maya', link!.secret)

@@ -16,6 +16,7 @@ import type {
 } from '@solus/contracts/review'
 import type { IpcContext } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { SeatResolver } from '../execution/seats/seat-manager'
 import { createLogger } from '../logger'
 import { providerForRepo } from '../providers/registry'
 import { prIndex } from '../prs/pr-index'
@@ -194,9 +195,10 @@ export class ReviewLensJobs {
     }))
   }
 
-  generate(ctx: IpcContext, request: ReviewLensGenerateRequest, emit: EmitLens): Promise<ReviewLensSnapshot | null> {
+  /** `seatFor` is the requester's own provider login, which the run uses. */
+  generate(ctx: IpcContext, request: ReviewLensGenerateRequest, emit: EmitLens, seatFor?: SeatResolver): Promise<ReviewLensSnapshot | null> {
     if (!request.source.prompt.trim()) throw new Error('Write a lens prompt first.')
-    return this.start(ctx, request.target, 'generate', emit, async () => ({
+    return this.start(ctx, request.target, 'generate', emit, seatFor, async () => ({
       source: request.source,
       edits: [],
       edit: undefined,
@@ -205,9 +207,9 @@ export class ReviewLensJobs {
     }))
   }
 
-  edit(ctx: IpcContext, request: ReviewLensEditRequest, emit: EmitLens): Promise<ReviewLensSnapshot | null> {
+  edit(ctx: IpcContext, request: ReviewLensEditRequest, emit: EmitLens, seatFor?: SeatResolver): Promise<ReviewLensSnapshot | null> {
     if (!request.prompt.trim() && request.commentIds.length === 0) throw new Error('Write a change or add a comment first.')
-    return this.start(ctx, request.target, 'edit', emit, async (record) => {
+    return this.start(ctx, request.target, 'edit', emit, seatFor, async (record) => {
       if (!record) throw new Error('There is no lens to edit.')
       const lens = record.current.lens
       const comments = record.current.comments.filter((comment) =>
@@ -347,6 +349,7 @@ export class ReviewLensJobs {
     target: ReviewTarget,
     kind: ReviewLensJob['kind'],
     emit: EmitLens,
+    seatFor: SeatResolver | undefined,
     plan: (record: ReviewLensRecord | null) => Promise<LensRunPlan>,
   ): Promise<ReviewLensSnapshot | null> {
     const located = await this.deps.locate(ctx, target)
@@ -361,7 +364,7 @@ export class ReviewLensJobs {
     const running: RunningLens = { controller: new AbortController() }
     this.running.set(id, running)
     this.setJob(located, { kind, status: 'queued', updatedAt: this.deps.now() }, emit)
-    void this.run(ctx, located, kind, running, emit, plan)
+    void this.run(ctx, located, kind, running, emit, seatFor, plan)
     return this.snapshot(ctx, located)
   }
 
@@ -371,6 +374,7 @@ export class ReviewLensJobs {
     kind: ReviewLensJob['kind'],
     running: RunningLens,
     emit: EmitLens,
+    seatFor: SeatResolver | undefined,
     plan: (record: ReviewLensRecord | null) => Promise<LensRunPlan>,
   ): Promise<void> {
     const { address, target } = located
@@ -391,6 +395,8 @@ export class ReviewLensJobs {
       // the one the user sees when the run starts, not when it was queued.
       const runPlan = await plan(await this.deps.read(address))
       step('analyzing')
+      const agent = runPlan.options.agent ?? 'claude-code'
+      const seat = await seatFor?.(agent) ?? undefined
       const draft = await this.deps.runAgent({
         workTree: resolved.workTree,
         base: change.base,
@@ -399,8 +405,9 @@ export class ReviewLensJobs {
         ledger: await this.deps.readLedger(resolved),
         prompt: runPlan.source.prompt,
         edit: runPlan.edit,
-        agent: runPlan.options.agent ?? 'claude-code',
+        agent,
         model: runPlan.options.model ?? null,
+        seat,
         reasoningEffort: runPlan.options.reasoningEffort ?? null,
         onWriting: () => step('writing'),
         abortSignal: signal,

@@ -4,11 +4,11 @@ import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
-import { parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
+import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { clearActiveServerId, getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
 import { adoptCloudOriginIfPresent } from '@solus/client-core/uplink-account'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
@@ -82,7 +82,6 @@ let solusApp: ReturnType<typeof mount> | null = null
 let serviceWorkerBridgeInstalled = false
 let connectionGeneration = 0
 let workspaceAppImport: Promise<typeof import('./App.svelte')> | null = null
-let logoutListener: (() => void) | null = null
 
 function loadWorkspaceApp(): Promise<typeof import('./App.svelte')> {
   if (!workspaceAppImport) {
@@ -117,18 +116,6 @@ function installServiceWorkerMessageBridge(): void {
     if (solusApp) window.dispatchEvent(new CustomEvent('solus:open-route', { detail: route }))
     else location.hash = route
   })
-}
-
-function installLogoutListener(): void {
-  if (logoutListener) document.removeEventListener('solus:logout', logoutListener)
-  logoutListener = () => {
-    // The client is host-agnostic (dispatch-client step 4): "switch server"
-    // is a catalog action inside the workspace, never a reload. The forgotten
-    // preference only stops the next boot from favouring this host.
-    clearActiveServerId()
-    webState.openServerSetup()
-  }
-  document.addEventListener('solus:logout', logoutListener)
 }
 
 async function connectToServer(
@@ -182,7 +169,6 @@ async function connectToServer(
       return
     }
     solusApp = mount(App, { target: root })
-    installLogoutListener()
   } catch (error) {
     if (generation !== connectionGeneration) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
@@ -381,19 +367,20 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   try {
     const info = await api.connectionsGetServerInfo()
     if (generation !== connectionGeneration) return
-    if (info.principal !== 'guest' || !info.share || info.share.resource.kind !== link.resource.kind || info.share.resource.id !== link.resource.id) {
+    if (info.principal !== 'guest' || !info.share || !isGuestLinkResource(info.share.resource) || info.share.resource.kind !== link.resource.kind || info.share.resource.id !== link.resource.id) {
       guestBoot.fail('This link does not match the shared resource.')
       return
     }
     guestBoot.serverId = serverId
     guestBoot.accountUserId = info.userId ?? null
-    guestBoot.share = info.share
+    const share = { resource: info.share.resource, role: info.share.role }
+    guestBoot.share = share
     guestBoot.displayName = info.displayName ?? displayName
     const { default: GuestApp } = await loadGuestApp()
     if (generation !== connectionGeneration) return
     onShellMounted()
     guestBoot.phase = 'ready'
-    solusApp = mount(GuestApp, { target: root, props: { serverId, share: info.share, displayName: guestBoot.displayName } })
+    solusApp = mount(GuestApp, { target: root, props: { serverId, share, displayName: guestBoot.displayName } })
   } catch (error) {
     if (generation !== connectionGeneration || guestBoot.revoked) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
@@ -410,7 +397,7 @@ if (bootPairToken) {
   void pairFromLocation(bootPairToken)
 } else if (bootGuestLink) {
   void bootGuest(bootGuestLink)
-} else if (/^\/(w|s|t)\//.test(location.pathname)) {
+} else if (/^\/(w|s)\//.test(location.pathname)) {
   void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
     guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')
     mount(GuestLanding, { target: root, props: { onContinue: () => {} } })

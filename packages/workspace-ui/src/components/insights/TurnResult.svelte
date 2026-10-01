@@ -19,7 +19,7 @@
   import { diffViewPreferences } from "../../lib/diff-view-preferences.svelte";
   import { splitPatchByFile } from "../pr-review/guide/lib/guide-data";
   import FindingRow from "./FindingRow.svelte";
-  import type { TurnChange } from "./insights.store.svelte";
+  import type { TurnChangeReading } from "./insights.store.svelte";
   import {
     CHECK_KIND_LABELS,
     verdictSummary,
@@ -38,7 +38,7 @@
    */
   interface Props {
     verification: TurnVerification;
-    change: TurnChange | null;
+    change: TurnChangeReading | null;
     /** The turn is running: git records its change when it ends. */
     isLive: boolean;
     projectRoot: string | null;

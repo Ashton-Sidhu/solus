@@ -104,8 +104,10 @@ async function openHeadlessGuest(request: BrowserHeadlessOpenRequest): Promise<B
     failure = description
     report()
   })
-  contents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-    if (!isMainFrame) return
+  contents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    // A hash or history change stays in the same document, so no
+    // `did-finish-load` follows it to end the loading state.
+    if (!isMainFrame || isInPlace) return
     loadState = 'loading'
     report()
   })

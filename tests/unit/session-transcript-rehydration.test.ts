@@ -240,6 +240,44 @@ describe('session transcript rehydration', () => {
     })
   })
 
+  test('rebuilds an html_path render from the revision it saved', async () => {
+    // WHY: the stored input of an html_path call is only a path on the host.
+    // The full transcript load must fetch the body that call wrote, or the
+    // card would come back empty after every reload.
+    const html = '<!doctype html><html><head><title>Latency</title></head><body>bundle</body></html>'
+    connections.registerPrimary('transcript-host', {
+      loadSession: async () => [{
+        role: 'tool' as const,
+        content: '',
+        toolName: 'mcp__solus__render_artifact',
+        toolId: 'artifact-1',
+        toolInput: JSON.stringify({ html_path: 'chart/bundle.html' }),
+        artifactWorkRef: { workId: 'w-art', title: 'Latency', contentVersion: 1 },
+        timestamp: 1,
+      }],
+      loadWorkRevisions: async () => [{ revisionId: 1, sourceContentVersion: 1 }],
+      loadWorkRevision: async () => ({ content: html }),
+    })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore: { loaded: true },
+      worksStore: { works: {} },
+    } as unknown as WorkspaceContext
+
+    const transcript = await loadSessionTranscript(ctx, {
+      sessionId: 'session-1',
+      loadPath: '/repo',
+      displayCwd: '/repo',
+      provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
+    })
+
+    expect(transcript.messages[1]).toMatchObject({
+      artifact: { kind: 'html', html },
+      workRef: { workId: 'w-art', title: 'Latency', workType: 'artifact' },
+    })
+  })
+
   test('rebuilds provider-history images as user-message attachments', async () => {
     connections.registerPrimary('transcript-host', {
       loadSession: async () => [{

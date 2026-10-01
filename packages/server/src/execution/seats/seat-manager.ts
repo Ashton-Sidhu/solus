@@ -121,6 +121,12 @@ export interface TurnSeat {
 }
 
 /**
+ * The caller's own provider login for a backend: null for the host login.
+ * Throws `SeatRequiredError` when the caller has no login for that backend.
+ */
+export type SeatResolver = (provider: AgentId) => Promise<TurnSeat | null>
+
+/**
  * What the handlers, the connector, and the control plane need of a seat store:
  * implemented by the execution host's SeatManager.
  */

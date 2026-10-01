@@ -5,6 +5,7 @@ import {
   alignRunProvider,
   inheritRunConfig,
   resolveNewRunConfig,
+  runOnModel,
 } from '@solus/workspace-ui/contexts/workspace/run-config'
 
 function run(provider: AgentId | null, modelId: string | null): RunConfig {
@@ -188,5 +189,22 @@ describe('working in a checkout on a managed host', () => {
     const checkout = withDispatchCheckout(worktree)
     expect(startsWorktree(checkout)).toBe(false)
     expect(checkout.pendingHostDispatch).toEqual({ serverId: 'managed', intent: 'dispatch', repoKey: 'github.com/acme/web' })
+  })
+
+  test('a lead starts on the lead model with that model\'s own defaults', () => {
+    // WHY: Settings → Tasks names the agent and model a task lead runs on. The
+    // provider must move with the model, and the outgoing model's tuning must
+    // not run the new one.
+    const lead = runOnModel(run('codex', 'gpt-5.6-sol'), { provider: 'claude-code', model: 'claude-opus-5' })
+
+    expect(lead.provider).toBe('claude-code')
+    expect(lead.modelConfig.modelId).toBe('claude-opus-5')
+    expect(lead.workingDirectory).toBe('/repo')
+  })
+
+  test('a lead starts at the reasoning level the lead model names', () => {
+    const lead = runOnModel(run('codex', 'gpt-5.6-sol'), { provider: 'claude-code', model: 'claude-opus-5', reasoningEffort: 'max' })
+
+    expect(lead.modelConfig.reasoningEffort).toBe('max')
   })
 })

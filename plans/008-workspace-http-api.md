@@ -32,7 +32,7 @@ GitHub already provides pull request data and operations. Do not build a PR
 proxy in this API. Solus-owned links, session associations and saved review
 works remain Solus records, with existing association operations retained.
 
-Comments, sharing administration, projects, saved prompts, upstream tasks,
+Comments, sharing administration, projects, upstream tasks,
 document publication, assets and detailed transcript hydration remain on their
 current routes. Automation definitions, history and scheduling remain host-owned.
 Session creation/admission, prompt execution, terminal/files/browser, pairing,

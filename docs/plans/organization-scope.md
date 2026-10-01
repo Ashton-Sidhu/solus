@@ -157,19 +157,19 @@ sign-in expired, or Solus answered 403), the publication stays `sent` and its
 error gives the reason. The dialog shows that reason with Retry instead of the
 upload. The publication finishes by itself after the publisher connects.
 
-Share and Publish use one server publication operation. Concurrent actions for
-one resource follow the same operation and keep its original destination. Task
-publication removes the source only after every required outbox operation succeeds.
-A permanent failure is stored on the publication, even after its queue error is
-dismissed. The service does not advance its receipt past a rejected operation:
-if the response is lost, retry must report the same failure. Once the runner
-receives that failure, it omits that operation and can deliver later operations.
+A work, a task, or an Insights report does not use this operation: the
+client uploads it with the person's sign-in, and the host link plays no part
+(`cloud-sharing.md`). For a session, Share and Publish use one server
+publication operation. Concurrent actions for
+one resource follow the same operation and keep its original destination. An
+uploaded work or task leaves its host only after the Solus API has it, and only
+if it did not change after it was read.
 
 Sharing an individual work publishes that work and the assets needed to read
 it. It does not publish its surrounding scratch conversation. Task sharing
-retains its existing access inheritance for linked sessions and works; the
-publication set must explicitly account for those dependencies and their
-homes. Do not sweep every session in the project into the upload.
+retains its existing access inheritance for linked sessions and works; a task's
+linked Local works upload with it, and its linked sessions keep their homes
+(`cloud-sharing.md` §8). Do not sweep every session in the project into the upload.
 
 Revoking a link removes link access. It does not delete cloud content, move it
 back to Local, or remove access independently granted through a task or team.

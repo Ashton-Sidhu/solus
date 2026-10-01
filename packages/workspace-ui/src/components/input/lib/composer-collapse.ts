@@ -53,7 +53,7 @@ export function resolveComposerInset(state: {
 
 /**
  * The portalled surfaces a bar's own controls open: bits-ui floating content
- * (the model chip, the permission picker, the saved-prompts sheet) and any
+ * (the model chip, the permission picker) and any
  * dialog. Focus moving into one of these is the bar still being used — its
  * trigger has to stay on screen for the menu to anchor to and return to.
  */

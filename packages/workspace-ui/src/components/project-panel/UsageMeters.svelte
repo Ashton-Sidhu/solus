@@ -48,20 +48,20 @@
              mode. The slot is fixed at the glyph column's width either way, so
              both labels land where Files and Terminal's do. -->
         <span
-          class="flex size-[0.8125rem] shrink-0 items-center justify-center text-(--solus-accent) {row.provider ===
+          class="flex size-4 shrink-0 items-center justify-center text-(--solus-accent) {row.provider ===
           'codex'
             ? 'rounded-full bg-white'
             : ''}"
         >
           {#if row.provider === "claude-code"}
-            <ClaudeIcon size={13} />
+            <ClaudeIcon size={16} />
           {:else if row.provider === "codex"}
-            <OpenAIBlossom size={11} />
+            <OpenAIBlossom size={14} />
           {:else}
-            <CodeIcon size={13} />
+            <CodeIcon size={16} />
           {/if}
         </span>
-        <span class="min-w-0 flex-1 truncate">{row.label}</span>
+        <span class="min-w-0 flex-1 truncate font-medium">{row.label}</span>
         {#if row.status}
           <span class="shrink-0 text-xs text-(--solus-text-tertiary)">
             {row.status === "api" ? "API billing" : "Unavailable"}
@@ -69,7 +69,7 @@
         {/if}
       </div>
       {#if row.meters.length > 0}
-        <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-[1.8125rem]">
+        <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-8">
         {#each row.meters as meter (meter.key)}
           <div class="flex flex-col gap-[0.1875rem]">
             <!-- The window and what's left of it read as one phrase; when it

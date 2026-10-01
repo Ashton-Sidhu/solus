@@ -167,14 +167,11 @@ export const RPC_PLANES = {
   skillsList: 'execution',
   skillsRemove: 'execution',
 
-  // Pinned sessions, read state, activity, saved prompts
+  // Pinned sessions, read state, activity
   pinnedSessionsList: 'collaboration',
   togglePinnedSession: 'collaboration',
   setSessionReadState: 'collaboration',
   activityLease: 'collaboration',
-  savedPromptsList: 'collaboration',
-  savedPromptsCreate: 'collaboration',
-  savedPromptsDelete: 'collaboration',
 
   // Design mode
   enterDesignMode: 'execution',
@@ -204,6 +201,13 @@ export const RPC_PLANES = {
   hostSetInsightsOptIn: 'execution',
   publicationStart: 'execution',
   publicationList: 'execution',
+  // Cloud sharing: the host gives and removes the Local work; the Solus API stores the upload.
+  workExportForCloud: 'execution',
+  workRemoveUploaded: 'execution',
+  workUpload: 'collaboration',
+  taskExportForCloud: 'execution',
+  taskRemoveUploaded: 'execution',
+  taskUpload: 'collaboration',
 
   // Sharing
   shareGet: 'collaboration',
@@ -506,6 +510,7 @@ export const RPC_PLANES = {
   metricsQuery: 'execution',
   metricsRunSql: 'execution',
   metricsTurnPage: 'execution',
+  metricsTurnListingSummary: 'execution',
   metricsValidateSql: 'execution',
   metricsCompileNl: 'execution',
   metricsSchema: 'execution',

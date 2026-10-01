@@ -233,11 +233,6 @@ export const RPC_INVOKE_METHODS = [
   // Client activity lease: foreground heartbeat gating host freshness work
   'activityLease',
 
-  // Saved prompts (per-project composer drafts in ~/.solus/solus.db)
-  'savedPromptsList',
-  'savedPromptsCreate',
-  'savedPromptsDelete',
-
   // Design mode
   'enterDesignMode',
   'designModeReady',
@@ -263,6 +258,13 @@ export const RPC_INVOKE_METHODS = [
   'hostSetInsightsOptIn',
   'publicationStart',
   'publicationList',
+  // Cloud sharing (docs/plans/cloud-sharing.md): a Local work read from its host, uploaded to the Solus API, then removed
+  'workExportForCloud',
+  'workRemoveUploaded',
+  'workUpload',
+  'taskExportForCloud',
+  'taskRemoveUploaded',
+  'taskUpload',
   // Sharing: who may open one session or work on this host
   'shareGet',
   'shareSet',
@@ -563,6 +565,7 @@ export const RPC_INVOKE_METHODS = [
   'metricsQuery',
   'metricsRunSql',
   'metricsTurnPage',
+  'metricsTurnListingSummary',
   'metricsValidateSql',
   'metricsCompileNl',
   'metricsSchema',

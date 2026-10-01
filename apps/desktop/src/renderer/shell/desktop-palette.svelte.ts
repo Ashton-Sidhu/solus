@@ -15,8 +15,6 @@ import {
   SquareCheck as CheckSquareIcon,
   Folder as FolderIcon,
   FolderOpen as FolderOpenIcon,
-  Bookmark as BookmarkSimpleIcon,
-  BookMarked as BookmarksIcon,
   ListChecks as ListChecksIcon,
   Unplug as PlugsIcon,
   Search as MagnifyingGlassIcon,
@@ -59,7 +57,6 @@ import { openInConfiguredEditor } from "@solus/workspace-ui/lib/openExternalEdit
 import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
 
 import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
-import { requestSavedPrompts } from "@solus/workspace-ui/lib/savedPromptsRequest";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
@@ -291,24 +288,6 @@ export function createDesktopPalette(
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
     justChatCommand(session),
-    {
-      id: "save-prompt",
-      label: "Save prompt",
-      group: "Compose",
-      icon: BookmarkSimpleIcon,
-      hint: comboHint("global.save-prompt"),
-      keywords: ["stash", "draft", "park", "later", "composer"],
-      run: () => requestSavedPrompts({ action: "save" }),
-    },
-    {
-      id: "saved-prompts",
-      label: "Saved prompts…",
-      group: "Compose",
-      icon: BookmarksIcon,
-      hint: comboHint("global.saved-prompts"),
-      keywords: ["stash", "draft", "park", "restore", "composer"],
-      run: () => requestSavedPrompts({ action: "open" }),
-    },
     {
       id: "view-working-tree-diff",
       label: "View working tree diff",

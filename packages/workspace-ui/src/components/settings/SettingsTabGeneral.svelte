@@ -8,9 +8,7 @@
   import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
   import type { HostApi } from "@solus/client-core/host-api";
   import { Input } from "../ui/input";
-  import * as DropdownMenu from "../ui/dropdown-menu";
   import {
-    ChevronDown as CaretDownIcon,
     Folder as FolderIcon,
     ChevronRight as CaretRightIcon,
     RotateCcw as ArrowCounterClockwiseIcon,
@@ -41,10 +39,7 @@
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
   import { solusToolsStore } from "./solus-tools.store.svelte";
-  import type {
-    AgentTaskLifecyclePolicy,
-    TextGenerationModelSelection,
-  } from "@solus/contracts/types";
+  import type { TextGenerationModelSelection } from "@solus/contracts/types";
 
   interface Props {
     searchQuery?: string;
@@ -103,15 +98,6 @@
     textGenerationPickerSelection.modelId = selection.model;
   });
 
-  const taskLifecyclePolicies: Array<{
-    value: AgentTaskLifecyclePolicy;
-    label: string;
-  }> = [
-    { value: "none", label: "None" },
-    { value: "moderate", label: "Moderate" },
-    { value: "autonomous", label: "Autonomous" },
-  ];
-
   // Live metadata wins over the static profiles; the stored choice is only
   // honored while it still belongs to this agent, otherwise the agent default
   // shows in the shared model picker. Auto names no model of its own, so it is
@@ -157,14 +143,6 @@
     await connectionsStore.setProjectsBaseDirectory(serverId, next);
     requestInputFocus();
   }
-
-  const taskLifecyclePolicy = $derived(
-    connectionsStore.capabilitiesFor(serverId)?.agentTaskLifecyclePolicy,
-  );
-  const taskLifecyclePolicyLabel = $derived(
-    taskLifecyclePolicies.find((option) => option.value === taskLifecyclePolicy)
-      ?.label ?? "Unavailable",
-  );
 
   function selectDefaultAgentModel(selection: PickerSelection) {
     session.config.setDefaultAgent(selection.provider);
@@ -215,13 +193,6 @@
       .catch(() => {});
   }
 
-  function commitCompletedRetentionDays(value: number) {
-    const days = Number.isFinite(value)
-      ? Math.max(1, Math.min(365, Math.floor(value)))
-      : theme.sidebarCompletedRetentionDays;
-    theme.update({ sidebarCompletedRetentionDays: days });
-  }
-
   /** One press of the stepper: fine enough to tune by feel, coarse enough that
    *  the full range is a couple of dozen presses. */
   const SIDEBAR_MOTION_STEP_MS = 25;
@@ -231,14 +202,6 @@
   function commitSidebarMotionMs(value: number) {
     if (!Number.isFinite(value)) return;
     theme.update({ sidebarMotionMs: value });
-  }
-
-  async function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
-    await connectionsStore.setAgentTaskLifecyclePolicy(value, {
-      serverId,
-      api,
-    });
-    requestInputFocus();
   }
 
   interface SettingItem {
@@ -289,19 +252,6 @@
       keywords: ["rate", "limit", "behavior", "queue", "throttle"],
     },
     {
-      id: "task-lifecycle",
-      keywords: [
-        "agent",
-        "task",
-        "ticket",
-        "lifecycle",
-        "status",
-        "done",
-        "autonomous",
-        "moderate",
-      ],
-    },
-    {
       id: "sidebar-motion",
       keywords: [
         "sidebar",
@@ -312,18 +262,6 @@
         "slide",
         "fade",
         "ms",
-      ],
-    },
-    {
-      id: "completed-retention",
-      keywords: [
-        "task",
-        "completed",
-        "done",
-        "sidebar",
-        "history",
-        "days",
-        "retention",
       ],
     },
     {
@@ -449,59 +387,8 @@
 
 <SettingsSection
   label="Organization"
-  visible={["completed-retention", "automation-retention"].some(isVisible)}
+  visible={isVisible("automation-retention")}
 >
-  <SettingsRow
-    label="Completed task history"
-    description="Days to keep completed tasks in the sidebar."
-    visible={isVisible("completed-retention")}
-  >
-    {#snippet control()}
-      <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
-      >
-        <button
-          type="button"
-          onclick={() =>
-            commitCompletedRetentionDays(
-              theme.sidebarCompletedRetentionDays - 1,
-            )}
-          aria-label="Decrease completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >&minus;</button
-        >
-        <Input
-          type="number"
-          min={1}
-          max={365}
-          step={1}
-          value={String(theme.sidebarCompletedRetentionDays)}
-          aria-label="Completed task history in days"
-          onchange={(event) => {
-            commitCompletedRetentionDays(
-              Number((event.target as HTMLInputElement).value),
-            );
-            (event.target as HTMLInputElement).value = String(
-              theme.sidebarCompletedRetentionDays,
-            );
-          }}
-          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <span class="mr-1 text-xs text-(--solus-text-tertiary)">d</span>
-        <button
-          type="button"
-          onclick={() =>
-            commitCompletedRetentionDays(
-              theme.sidebarCompletedRetentionDays + 1,
-            )}
-          aria-label="Increase completed task history"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >+</button
-        >
-      </div>
-    {/snippet}
-  </SettingsRow>
-
   <AutomationRetentionSetting {serverId} visible={isVisible("automation-retention")} />
 </SettingsSection>
 
@@ -514,7 +401,6 @@
     "collapse-composer",
     "auto-rename",
     "ratelimit",
-    "task-lifecycle",
     "sidebar-motion",
   ].some(isVisible)}
 >
@@ -643,62 +529,6 @@
   </SettingsRow>
 
   <RateLimitSetting {serverId} visible={isVisible("ratelimit")} />
-
-  <SettingsRow
-    label="Task lifecycle control"
-    description="None: no changes. Moderate: Done is yours. Autonomous: full control."
-    visible={isVisible("task-lifecycle")}
-  >
-    {#snippet control()}
-      <DropdownMenu.Root
-        onOpenChange={(next) => {
-          if (!next) requestInputFocus();
-        }}
-      >
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              variant="outline"
-              size="sm"
-              aria-label="Task lifecycle control"
-              class="min-w-28 justify-between text-xs font-normal shadow-xs"
-              disabled={taskLifecyclePolicy === undefined ||
-                connectionsStore.agentTaskLifecyclePolicyUpdating}
-            >
-              <span>{taskLifecyclePolicyLabel}</span>
-              <CaretDownIcon size={11} style="opacity:0.6" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content
-          side="bottom"
-          align="end"
-          sideOffset={6}
-          class="w-[160px]"
-        >
-          <DropdownMenu.RadioGroup value={taskLifecyclePolicy}>
-            {#each taskLifecyclePolicies as option (option.value)}
-              <DropdownMenu.RadioItem
-                value={option.value}
-                onSelect={() => selectTaskLifecyclePolicy(option.value)}
-              >
-                {option.label}
-              </DropdownMenu.RadioItem>
-            {/each}
-          </DropdownMenu.RadioGroup>
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
-    {/snippet}
-    {#if taskLifecyclePolicy === undefined}
-      {#snippet body()}
-        <p class="text-xs text-muted-foreground">
-          This host does not expose task lifecycle controls. Reconnect it after
-          updating Solus.
-        </p>
-      {/snippet}
-    {/if}
-  </SettingsRow>
 </SettingsSection>
 
 <SettingsSection label="Projects" visible={isVisible("projects-base")}>

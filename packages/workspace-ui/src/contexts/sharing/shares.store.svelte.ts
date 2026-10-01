@@ -1,9 +1,10 @@
 import { isSolusApiId, organizationIdOfSolusApiId, solusApiId } from '@solus/contracts/uplink'
+import type { AgentId } from '@solus/contracts/types'
 import type { WorksStore } from '../works/works.store.svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { Publication } from '@solus/contracts/organization-scope'
-import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
+import type { ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
 import type { User } from '@solus/contracts/user'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
@@ -17,6 +18,8 @@ import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { grantsFor, guestLinkContext, linkPresentation, linkRoleFor, sameScope, scopeOf, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
 import { publishProblemMessage } from '../../components/sharing/lib/publish-copy'
+import { accountStore } from '../account/account.store.svelte'
+import { taskLinkUrl } from './task-link'
 import { uplinkStore } from '../connections/uplink.store.svelte'
 import { organizationPeople, type OrganizationPeople } from '../../components/users/lib/organization-people'
 
@@ -127,15 +130,6 @@ export class SharesStore {
       if (this.lists.has(key) || this.dialog && listKey(this.dialog.serverId, this.dialog.resource) === key) {
         void this.load(serverId, change.resource, { force: true })
       }
-      // A task's share reaches its sessions and works: their cached lists say so and must follow.
-      if (change.resource.kind === 'task') {
-        for (const cachedKey of this.lists.keys()) {
-          if (cachedKey.startsWith(`${serverId}|`) && !cachedKey.startsWith(`${serverId}|task|`)) {
-            const [, kind, id] = cachedKey.split('|')
-            if (kind === 'session' || kind === 'work') void this.load(serverId, { kind, id: id! }, { force: true })
-          }
-        }
-      }
       const me = this.identities.get(serverId)?.userId
       if (me && change.removedUserIds.includes(me)) {
         if (notificationsStore.wants('share_revoked')) toasts.info(change.changedBy ? `Access removed by ${change.changedBy.displayName}` : 'Access removed')
@@ -241,18 +235,43 @@ export class SharesStore {
   }
 
   /**
-   * Whether a share made on this host can reach anyone. A guest link needs the
-   * cloud to mint the grant and route the tunnel, and the directory needs an
-   * organization the cloud named, so an unlinked host can share with nobody:
-   * every Share entry point hides behind this. Asks the host once; until it
-   * answers, the answer is no.
+   * Whether this resource can be shared from where it lives. A work becomes a
+   * cloud copy with this client's sign-in (docs/plans/cloud-sharing.md), so it
+   * needs an organization, not a linked host. A session runs on its host, which
+   * sends its later turns, so it needs the host linked. A task is not shared: it
+   * is seen by its whole organization, and offers its link (`copyTaskLink`).
    */
-  canShareFrom(serverId: string): boolean {
+  canShareFrom(serverId: string, kind: ShareResourceKind): boolean {
+    if (kind === 'task') return false
+    if (kind === 'session') return this.isHostLinked(serverId)
+    return isSolusApiId(serverId) || this.canPublishWork(serverId)
+  }
+
+  /**
+   * Whether the host is linked to Solus cloud, or is a workspace service. Asks
+   * the host once; until it answers, the answer is no.
+   */
+  isHostLinked(serverId: string): boolean {
     if (!this.linkStatusAsked.has(serverId)) {
       this.linkStatusAsked.add(serverId)
       void uplinkStore.refresh(serverId)
     }
     return this.linkContext(serverId).kind === 'linked'
+  }
+
+  /**
+   * An Insights report (docs/plans/cloud-sharing.md §4): the report becomes a
+   * Local work on the computer the readings came from, and Share uploads it like
+   * any work. Each Share captures a new report, labelled with when it was taken.
+   */
+  async shareReport(serverId: string, report: { title: string; content: string; agentProvider: AgentId }): Promise<void> {
+    if (this.busy) return
+    try {
+      const work = await serverConnections.apiFor(serverId).createWork(report.title, 'insights-report', report.content, undefined, undefined, report.agentProvider)
+      await this.open({ serverId, resource: { kind: 'work', id: work.id }, title: report.title })
+    } catch (error) {
+      toasts.error('Could not share this report', { description: error instanceof Error ? error.message : undefined })
+    }
   }
 
   /** Opens the dialog; resolves once it is on screen or the attempt was explained. */
@@ -396,6 +415,49 @@ export class SharesStore {
     else toasts.error(`Couldn't publish this work to ${organizationName}`, { description: publishProblemMessage(outcome, 'work', organizationName) ?? undefined })
   }
 
+  /** Whether a task on this host can have a link: it is in an organization, or can be put in one. */
+  canCopyTaskLink(serverId: string): boolean {
+    return accountStore.state.kind === 'signed-in' && (isSolusApiId(serverId) || !!serversStore.activeOrganizationId)
+  }
+
+  /**
+   * A task is not shared on its own: everyone in its organization sees it. Copy
+   * link puts a Local task in the window's organization first, with its comments
+   * and its linked Local works (docs/plans/cloud-sharing.md §4), then copies the
+   * address that opens it on the account origin.
+   */
+  async copyTaskLink(serverId: string, taskId: string): Promise<void> {
+    const account = accountStore.state
+    const accountOrigin = account.kind === 'signed-in' ? account.consoleUrl : null
+    if (!accountOrigin) {
+      toasts.error('Sign in to Solus Cloud to copy a link to this task.')
+      return
+    }
+    let cloudServerId = serverId
+    if (!isSolusApiId(serverId)) {
+      const organizationId = serversStore.activeOrganizationId
+      const organizationName = serversStore.activeOrganizationName ?? 'your organization'
+      if (!organizationId) {
+        toasts.error('Select an organization before copying a link.', {
+          description: 'A task link opens the task in your organization on Solus Cloud.',
+        })
+        return
+      }
+      const outcome = await this.publishResource({ serverId, resource: { kind: 'task', id: taskId }, organizationId })
+      if (outcome.kind !== 'committed') {
+        toasts.error(`Couldn't put this task in ${organizationName}`, { description: publishProblemMessage(outcome, 'task', organizationName) ?? undefined })
+        return
+      }
+      cloudServerId = outcome.cloudServerId
+    }
+    try {
+      await navigator.clipboard.writeText(taskLinkUrl(accountOrigin, taskId, cloudServerId))
+      toasts.success('Link copied', { description: 'Anyone in your organization can open this task.' })
+    } catch {
+      toasts.error("Couldn't copy the link")
+    }
+  }
+
   publishResource(request: PublishRequest): Promise<PublishOutcome> {
     const key = listKey(request.serverId, request.resource)
     const pending = this.publications.get(key)
@@ -413,13 +475,14 @@ export class SharesStore {
     const { serverId, resource, organizationId } = request
     if (serverConnections.statusFor(serverId) !== 'connected') return { kind: 'offline' }
     try {
+      if (resource.kind === 'work') return await this.uploadWork(serverId, resource.id, organizationId)
+      if (resource.kind === 'task') return await this.uploadTask(serverId, resource.id, organizationId)
       const api = serverConnections.apiFor(serverId)
       const started = await api.publicationStart({ resource, organizationId })
       const settled = await this.awaitAnswer(serverId, started)
       if (settled.state === 'sent') return { kind: 'waiting', error: settled.error ?? 'Publishing did not finish.' }
       if (settled.state !== 'committed') return { kind: 'failed', error: settled.error ?? 'Publishing did not finish.' }
       const cloudServerId = solusApiId(organizationId)
-      if (resource.kind === 'work') this.works?.markPublished(resource.id, organizationId, cloudServerId)
       // The machine's share list, if one was cached, described a Local resource that is gone from there.
       this.lists.delete(listKey(serverId, resource))
       return { kind: 'committed', cloudServerId }
@@ -428,6 +491,48 @@ export class SharesStore {
       if (error instanceof Error && rpcErrorCode(error) === 'FORBIDDEN') return { kind: 'denied', error: message }
       return { kind: 'failed', error: message }
     }
+  }
+
+  /**
+   * A Local work leaves its machine as a cloud copy (docs/plans/cloud-sharing.md §3):
+   * read from the machine, uploaded to the Solus API with this client's sign-in
+   * under the same id, then removed from the machine. Every step is safe to
+   * repeat: the same work uploaded again answers as before, so a Share that
+   * stopped halfway finishes the next time.
+   */
+  private async uploadWork(serverId: string, workId: string, organizationId: string): Promise<PublishOutcome> {
+    const host = serverConnections.apiFor(serverId)
+    const transfer = await host.workExportForCloud(workId)
+    // The organization's workspace service is reached through the account's directory.
+    await serversStore.refreshDirectory()
+    const cloudServerId = solusApiId(organizationId)
+    await serverConnections.apiFor(cloudServerId).workUpload(transfer)
+    await host.workRemoveUploaded(workId, transfer.fingerprint)
+    this.works?.markPublished(workId, organizationId, cloudServerId)
+    this.lists.delete(listKey(serverId, { kind: 'work', id: workId }))
+    return { kind: 'committed', cloudServerId }
+  }
+
+  /**
+   * A Local task leaves its machine the same way, with its linked Local works
+   * (docs/plans/cloud-sharing.md §4): the works go first, so the cloud task never
+   * links to a work the cloud does not have. Linked sessions stay where they are.
+   */
+  private async uploadTask(serverId: string, taskId: string, organizationId: string): Promise<PublishOutcome> {
+    const host = serverConnections.apiFor(serverId)
+    const { task, works } = await host.taskExportForCloud(taskId)
+    await serversStore.refreshDirectory()
+    const cloudServerId = solusApiId(organizationId)
+    const cloud = serverConnections.apiFor(cloudServerId)
+    for (const work of works) await cloud.workUpload(work)
+    await cloud.taskUpload(task)
+    await host.taskRemoveUploaded(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })))
+    for (const work of works) {
+      this.works?.markPublished(work.work.id, organizationId, cloudServerId)
+      this.lists.delete(listKey(serverId, { kind: 'work', id: work.work.id }))
+    }
+    this.lists.delete(listKey(serverId, { kind: 'task', id: taskId }))
+    return { kind: 'committed', cloudServerId }
   }
 
   /**
@@ -511,7 +616,7 @@ export class SharesStore {
    * dialog is where that work is published first.
    */
   async reviewLink(serverId: string, resource: ShareResource): Promise<string | null> {
-    if (!this.canShareFrom(serverId)) return null
+    if (!this.isHostLinked(serverId)) return null
     const list = await this.load(serverId, resource, { force: true })
     if (!list) return null
     if (!list.link || list.link.role === 'viewer') await this.setLink(serverId, resource, 'commenter')

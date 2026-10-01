@@ -146,7 +146,7 @@ export type WorkspaceTaskPage = z.infer<typeof workspaceTaskPageSchema>
 
 // Works
 
-const workType = z.enum(['doc', 'slides', 'diagram', 'artifact'])
+const workType = z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report'])
 const agentProvider = z.enum(['claude-code', 'codex', 'opencode'])
 const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerUserId: 'local:host_user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
 

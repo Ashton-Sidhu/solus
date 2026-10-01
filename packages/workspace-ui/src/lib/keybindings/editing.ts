@@ -22,7 +22,7 @@ export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[
   { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs'] },
   { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review', 'design-annotation'] },
   { key: 'diagram', label: 'Diagram', scopes: ['diagram'] },
-  { key: 'overlays', label: 'Overlays', scopes: ['saved-prompts', 'command-palette', 'task-picker', 'go-to-file', 'project-search', 'shortcuts-help'] },
+  { key: 'overlays', label: 'Overlays', scopes: ['command-palette', 'task-picker', 'go-to-file', 'project-search', 'shortcuts-help'] },
 ]
 
 /** Per-scope labels: sub-headers inside a merged category, and the section
@@ -46,7 +46,6 @@ export const SCOPE_LABELS = {
   'pr-review': 'Pull request review',
   'design-annotation': 'Design annotation',
   diagram: 'Diagram',
-  'saved-prompts': 'Saved prompts',
   'command-palette': 'Command palette',
   'task-picker': 'Task picker',
   'go-to-file': 'Go to file',

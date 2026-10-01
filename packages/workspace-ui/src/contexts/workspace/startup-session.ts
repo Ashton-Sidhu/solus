@@ -1,3 +1,4 @@
+import { serverConnections } from '@solus/client-core/server-connections'
 import { INITIAL_HISTORY_TURNS, readPrefetchedSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { materializeSessionTranscript } from './session-transcript'
 import { markStartupTranscriptApplied } from './startup-transcript'
@@ -11,6 +12,9 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
   const saved = snapshot.tabs.find((tab) => tab.tabId === tabId)
   const session = ctx.sessionFor(tabId)
   if (!saved?.agentSessionId || !saved.provider || saved.pendingFork || !session) return
+  // A tab restored onto a deleted machine has no API to read; `hydrateTab` takes it
+  // down the gone-machine path once the runtime boots. Throwing here fails the mount.
+  if (!serverConnections.isKnownServer(session.run.serverId)) return
   const displayCwd = session.run.workingDirectory
   const loadPath = saved.gitContext?.worktreePath || displayCwd
   const page = readPrefetchedSessionHistoryPage(ctx.apiFor(tabId), {

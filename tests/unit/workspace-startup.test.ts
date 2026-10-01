@@ -47,7 +47,6 @@ for (const client of ['desktop', 'web'] as const) {
       installServiceWorkerMessageBridge() {},
       touchLastConnected() {},
       setActiveServerId() {},
-      installLogoutListener: ready,
       isStaleBuildError: () => false,
     }
     const run = new Function(...Object.keys(dependencies), `
@@ -59,6 +58,8 @@ for (const client of ['desktop', 'web'] as const) {
       return ${name}({ id: 'saved-host' });
     `)
     const boot = run(...Object.values(dependencies))
+    // Desktop signals the native shell; web is ready once its boot settles.
+    if (client === 'web') boot.then(ready)
     try {
       // Drain the resolved module imports without settling history or using timers.
       for (let turn = 0; turn < 12; turn++) await Promise.resolve()

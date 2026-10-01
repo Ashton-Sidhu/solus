@@ -92,6 +92,21 @@ describe('session result projection', () => {
     expect(projected[3]).not.toHaveProperty('report')
   })
 
+  test('an artifact receipt names the content version its call wrote', () => {
+    // WHY: a call that passed html_path has no HTML in its input. On reload the
+    // client rebuilds its card from the revision at this version; without it the
+    // card would show nothing, or today's body instead of what the call wrote.
+    const projected = projectSessionHistory([
+      { role: 'tool', content: '', toolName: 'mcp__solus__render_artifact', toolId: 'render-1', timestamp: 1 },
+      { role: 'tool_result', content: 'Rendered "Latency" in the conversation and saved it as an artifact (id: w-1). Revise it with update_work.', toolResultForId: 'render-1', timestamp: 2 },
+      { role: 'tool', content: '', toolName: 'update_work', toolId: 'update-1', timestamp: 3 },
+      { role: 'tool_result', content: 'Updated "Latency" (artifact, id: w-1). New content_version: 4.', toolResultForId: 'update-1', timestamp: 4 },
+    ])
+
+    expect(projected[1].artifactWorkRef).toEqual({ workId: 'w-1', title: 'Latency', contentVersion: 1 })
+    expect(projected[3].artifactWorkRef).toEqual({ workId: 'w-1', title: 'Latency', contentVersion: 4 })
+  })
+
   test('extracts agent-conversation correlation without shipping result text', () => {
     const agentSessionId = '11111111-1111-1111-1111-111111111111'
     const projected = projectSessionHistory([

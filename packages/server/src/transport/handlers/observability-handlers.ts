@@ -14,7 +14,7 @@ import {
 import { runCompiledSql, runGuardedSql, validateMetricsSql } from '../../data/insights/sql-guard'
 import { solusDir } from '../../platform/paths'
 import { clearTurnFlag, listTurnFlags, setTurnFlag } from '../../data/insights/turn-flags'
-import { turnPage } from '../../data/insights/turn-page'
+import { turnPage, turnListingSummary } from '../../data/insights/turn-page'
 import type { SolusServer } from '../server'
 
 /** Registered low-cardinality columns `metricsDistinctValues` may enumerate.
@@ -59,12 +59,17 @@ export function registerObservabilityHandlers(server: SolusServer, deps: { sessi
     return turnPage(request)
   })
 
+  server.register('metricsTurnListingSummary', (args) => {
+    const [filter] = args
+    return turnListingSummary(filter)
+  })
+
   server.register('metricsValidateSql', (args) => {
     const [sql] = args
     return validateMetricsSql(sql)
   })
 
-  server.register('metricsCompileNl', async (args) => {
+  server.register('metricsCompileNl', async (args, handlerCtx) => {
     const [ctx, question] = args
     if (!question.trim()) {
       throw new Error('metricsCompileNl requires a question')
@@ -72,10 +77,14 @@ export function registerObservabilityHandlers(server: SolusServer, deps: { sessi
     const cwd = ctx.session.workingDirectory && ctx.session.workingDirectory !== '~'
       ? ctx.session.workingDirectory
       : solusDir()
+    const provider = ctx.session.provider ?? ctx.settings.activeAgent
+    // The question runs on the caller's own provider login, as their turns do.
+    const seat = await deps.sessionRuntime.seatForTurn(handlerCtx.actor, provider) ?? undefined
     return compileNlToSql(question, {
       generate: (prompt) => textGenerator.generate({
-        provider: ctx.session.provider ?? ctx.settings.activeAgent,
+        provider,
         model: ctx.statusBar.model,
+        seat,
         cwd,
         prompt,
         systemPrompt: nlCompileSystemPrompt(),

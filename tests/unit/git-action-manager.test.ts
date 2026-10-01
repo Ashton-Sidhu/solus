@@ -38,7 +38,7 @@ describe('Git action manager', () => {
           findPullRequest: async () => providerPullRequest,
           publish: (event) => events.push(event),
           writer: {
-            provider: 'codex',
+            backend: { provider: 'codex', model: 'gpt-6-luna' },
             textGenerator: { generate: async () => '' },
             instructions: 'Follow repository conventions.',
             followPullRequestTemplate: true,
@@ -110,7 +110,7 @@ describe('Git action manager', () => {
           generateCommitSubject: async () => 'unused',
           publish: () => {},
           writer: {
-            provider: 'codex',
+            backend: { provider: 'codex', model: 'gpt-6-luna' },
             instructions: 'Use Conventional Commits.',
             followPullRequestTemplate: true,
             textGenerator: {

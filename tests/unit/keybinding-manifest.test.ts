@@ -50,11 +50,6 @@ describe('session task shortcuts', () => {
       shift: true,
       code: 'BracketLeft',
     })
-    expect(KEYBINDINGS['global.save-prompt'].web).toEqual({
-      alt: true,
-      shift: true,
-      code: 'KeyS',
-    })
     expect(KEYBINDINGS['conversation.find'].web).toEqual({
       alt: true,
       shift: true,

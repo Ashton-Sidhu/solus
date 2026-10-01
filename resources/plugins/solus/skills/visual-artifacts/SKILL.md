@@ -47,11 +47,11 @@ No development server, global package install, or application build is required.
 
 ### 4. Verify and render
 
-Check the final payload, then read the complete `bundle.html` text. A filesystem path is not the tool payload.
+Check the final payload. Do not read `bundle.html` into your output: the tools read the file on this host.
 
-For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html` and a short `title` matching the document title. The returned work ID is its durable identity. Set `link_to_task: true` only when the user asked to file it on that task or its pull request. Do not also emit the same HTML in a fence.
+For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html_path` set to the `bundle.html` path and a short `title` matching the document title. Do not open the bundle in a browser instead; that saves no work. The returned work ID is its durable identity. Set `link_to_task: true` only when the user asked to file it on that task or its pull request. Do not also emit the same HTML in a fence.
 
-Use the same compiled output in a rendered fence only when the result is a one-time inline explanation with no durable identity need, or the user explicitly does not want a saved work. This is a delivery option, not another build path. Use `html render artifact=<stable-name>`; names use letters, digits, hyphens, or underscores, up to 80 characters. Reuse the name for revisions of that inline visual. Emit one completed revision per identity per reply. `html source` shows code instead.
+Use the same compiled output in a rendered fence only when it is small enough to write in your reply and the result is a one-time inline explanation with no durable identity need, or the user explicitly does not want a saved work. This is a delivery option, not another build path. Use `html render artifact=<stable-name>`; names use letters, digits, hyphens, or underscores, up to 80 characters. Reuse the name for revisions of that inline visual. Emit one completed revision per identity per reply. `html source` shows code instead.
 
 Explain the result briefly. State material limits such as sample data, network requirements, or inputs that reset on reload. Do not claim checks that were not run.
 
@@ -60,7 +60,7 @@ Explain the result briefly. State material limits such as sample data, network r
 1. Use `find_works` if the work ID is unknown, then `read_work`. Read the current content and `content_version`, even if source files remain from the previous turn.
 2. Reuse artifact source if it is still available, but account for changes made directly to the saved work. If source is missing, initialize a new source directory and reconstruct the requested view from the saved content and evidence. Do not pretend minified HTML is the original TSX or overwrite edits from an old source copy.
 3. Develop and compile through the same pipeline.
-4. Call `update_work` with the same `work_id`, the full compiled HTML, and `expected_content_version` from the read. Do not call `render_artifact` again.
+4. Call `update_work` with the same `work_id`, `html_path` set to the new `bundle.html` path, and `expected_content_version` from the read. Do not call `render_artifact` again.
 5. On a conflict, read again and reapply the change to the latest content. If edits overlap in meaning or conflicts repeat, stop and ask which change to keep.
 
 Preserve the existing design unless redesign is requested. Source directories are build inputs, not a second work or a promised permanent archive. The saved HTML is the portable deliverable. Keep source files when the user asks for them; otherwise do not promise cross-host source availability.

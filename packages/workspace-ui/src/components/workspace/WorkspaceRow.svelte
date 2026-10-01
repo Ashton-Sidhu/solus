@@ -8,6 +8,7 @@
     Network as ArchitectureIcon,
     AppWindow as ArtifactIcon,
     Presentation as PresentationIcon,
+    ChartNoAxesGantt as InsightsReportIcon,
     Pin as PushPinIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
@@ -122,6 +123,7 @@
     diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     // An artifact is drawn, not written, so it takes the diagram's hue.
     artifact: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
+    "insights-report": "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     // Codex's mark is solid black, so it takes the white plate it wears
     // everywhere else in Solus rather than a text colour — that is what keeps
     // it legible in dark mode.
@@ -167,6 +169,8 @@
       <ArchitectureIcon size={14} />
     {:else if item.glyph === "artifact"}
       <ArtifactIcon size={14} />
+    {:else if item.glyph === "insights-report"}
+      <InsightsReportIcon size={14} />
     {:else if item.glyph === "slides"}
       <PresentationIcon size={14} />
     {:else}

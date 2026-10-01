@@ -728,7 +728,8 @@ export interface UplinkLinkRequest {
 }
 
 export const uplinkStatusSchema = z.discriminatedUnion('linked', [
-  z.object({ linked: z.literal(false) }),
+  /** `error`: the stored link Solus cloud no longer accepts, and why. Linking again replaces it. */
+  z.object({ linked: z.literal(false), error: z.string().optional() }),
   z.object({
     linked: z.literal(true),
     link: uplinkLinkConfigSchema,

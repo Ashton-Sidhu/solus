@@ -171,18 +171,27 @@ test('restored history and live attachment finish before secondary metadata, wit
 })
 
 
-test.each([false, true])('first render keeps the loading state unless startup history is ready (%s)', (isReady) => {
+function loadMaterializeStartupTranscript(dependencies: {
+  page: unknown; transcript: unknown; marks: string[]; isKnownServer?: (serverId: string) => boolean
+}) {
   const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-session.ts', import.meta.url), 'utf8')
   const compiled = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
+  return new Function('serverConnections', 'readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
+    'materializeSessionTranscript', 'markStartupTranscriptApplied',
+    `${compiled}\nreturn materializeStartupTranscript;`)(
+      { isKnownServer: dependencies.isKnownServer ?? (() => true) },
+      () => dependencies.page, 200, () => dependencies.transcript, (tabId: string) => dependencies.marks.push(tabId),
+    )
+}
+
+test.each([false, true])('first render keeps the loading state unless startup history is ready (%s)', (isReady) => {
   const page = { messages: [], before: 'older' }
   const messages = [{ role: 'user', content: 'restored transcript' }]
   const session = { run: { workingDirectory: '/repo' }, messages: [], loadingHistory: true, historyCursor: null }
   const marks: string[] = []
-  const materialize = new Function('readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
-    'materializeSessionTranscript', 'markStartupTranscriptApplied',
-    `${compiled}\nreturn materializeStartupTranscript;`)(
-      () => isReady ? page : undefined, 200, () => ({ messages, before: 'older', truncated: true }), (tabId: string) => marks.push(tabId),
-    )
+  const materialize = loadMaterializeStartupTranscript({
+    page: isReady ? page : undefined, transcript: { messages, before: 'older', truncated: true }, marks,
+  })
   const context = {
     activeTabId: 'active', sessionFor: () => session, apiFor: () => ({}), ctxFor: () => ({}),
     eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
@@ -192,4 +201,21 @@ test.each([false, true])('first render keeps the loading state unless startup hi
   expect(session.loadingHistory).toBe(!isReady)
   expect(session.historyCursor).toBe(isReady ? 'older' : null)
   expect(marks).toEqual(isReady ? ['active'] : [])
+})
+
+test('first render leaves a tab on a deleted machine loading instead of failing the mount', () => {
+  const session = { run: { serverId: 'managed:gone', workingDirectory: '/repo' }, messages: [], loadingHistory: true, historyCursor: null }
+  const marks: string[] = []
+  const materialize = loadMaterializeStartupTranscript({
+    page: { messages: [], before: null }, transcript: { messages: [], before: null, truncated: false }, marks,
+    isKnownServer: (serverId) => serverId !== 'managed:gone',
+  })
+  const context = {
+    activeTabId: 'active', sessionFor: () => session, ctxFor: () => ({}),
+    apiFor: () => { throw new Error('Unknown Solus server: managed:gone') },
+    eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
+  }
+  expect(() => materialize(context, { tabs: [{ tabId: 'active', agentSessionId: 'thread', provider: 'codex' }] })).not.toThrow()
+  expect(session.loadingHistory).toBe(true)
+  expect(marks).toEqual([])
 })

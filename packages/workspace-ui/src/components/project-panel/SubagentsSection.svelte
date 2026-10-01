@@ -102,21 +102,21 @@
                    flat list: a spinner while it runs, a check when it lands,
                    the one colour that means failure when it dies. -->
               <span
-                class="inline-flex size-[13px] shrink-0 items-center justify-center"
+                class="inline-flex size-4 shrink-0 items-center justify-center"
                 aria-hidden="true"
               >
                 {#if row.state === "running"}
                   <SpinnerIcon
-                    size={13}
+                    size={16}
                     class="text-(--solus-status-running) motion-safe:animate-spin"
                   />
                 {:else if row.state === "failed"}
-                  <WarningCircleIcon size={13} class="text-(--solus-status-error)" />
+                  <WarningCircleIcon size={16} class="text-(--solus-status-error)" />
                 {:else}
-                  <CheckIcon size={13} class="text-(--solus-status-complete)" />
+                  <CheckIcon size={16} class="text-(--solus-status-complete)" />
                 {/if}
               </span>
-              <span class="min-w-0 flex-1 truncate">{row.name}</span>
+              <span class="min-w-0 flex-1 truncate font-medium">{row.name}</span>
               <!-- Reserve space for short durations and grow for longer ones. -->
               <span
                 class="min-w-11 shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-(--solus-text-tertiary)"

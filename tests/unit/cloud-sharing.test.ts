@@ -167,7 +167,6 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a cloud push carries every rev
 
 test.skipIf(process.env.SOLUS_DB === 'postgres')('the destination refuses a history that does not belong to the work, and writes nothing', async () => {
   const { exportWorkForCloud, importWorkFromHost, loadWork, workTransferFingerprint } = await import('@solus/server/data/works/works')
-  const { runnerWorkRequestSchema } = await import('@solus/server/sync/runner-protocol')
   const { documentContentHash } = await import('@solus/server/docs/content-hash')
   await workWithHistory('checked-work')
   const transfer = await exportWorkForCloud('local', 'checked-work')
@@ -192,10 +191,52 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('the destination refuses a hist
     await importWorkFromHost('org1', transfer)
     expect((await loadWork('org1', 'checked-work'))?.content).toBe('first')
   })
-  // The service's door refuses a transfer that carries no history at all, like one from before this shape.
-  const { revisions: _revisions, previousRevisionId: _previousRevisionId, ...withoutHistory } = transfer
-  expect(runnerWorkRequestSchema.safeParse({ hostId: 'runner1', actorUserId: 'alice', transfer: { ...withoutHistory, previous: null } }).success).toBe(false)
-  expect(runnerWorkRequestSchema.safeParse({ hostId: 'runner1', actorUserId: 'alice', transfer }).success).toBe(true)
+})
+
+test.skipIf(process.env.SOLUS_DB === 'postgres')('a member uploads a Local work under its own id: again is the same answer, another organization is refused, and no host is involved', async () => {
+  // WHY: sharing a work needs only the person's sign-in (docs/plans/cloud-sharing.md §3).
+  // The kept id is what makes a Share that stopped halfway safe to repeat: the second
+  // upload must not make a second copy, and a work cannot land in two organizations.
+  const { exportWorkForCloud, loadWork } = await import('@solus/server/data/works/works')
+  const { SolusServer } = await import('@solus/server/transport/server')
+  const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
+  const { resetApiModeForTests } = await import('@solus/server/host/api-mode')
+  await workWithHistory('shared-work')
+  const transfer = await exportWorkForCloud('local', 'shared-work')
+  const bob: Extract<Principal, { kind: 'org-member' }> = { ...alice, organizationId: 'org2', userId: 'bob', displayName: 'Bob', deviceId: 'bob' }
+  const call = (server: InstanceType<typeof SolusServer>, principal: Principal, input: unknown) =>
+    server.handle('workUpload', [input as typeof transfer], { clientId: principal.deviceId ?? 'c', principal })
+
+  const host = new SolusServer()
+  registerCloudUploadHandlers(host, { shares: new ShareManager({ db: getDatabase() }) })
+  await expect(call(host, alice, transfer)).rejects.toThrow(/not to a machine/)
+
+  const previous = process.env.SOLUS_API
+  process.env.SOLUS_API = '1'
+  resetApiModeForTests()
+  try {
+    await atDestination(async () => {
+      const shares = new ShareManager({ db: getDatabase() })
+      const service = new SolusServer()
+      registerCloudUploadHandlers(service, { shares })
+      expect(await call(service, alice, transfer)).toEqual({ workId: 'shared-work', organizationId: 'org1' })
+      expect((await loadWork('org1', 'shared-work'))?.content).toBe('first')
+      expect(await shares.ownerOf({ kind: 'work', id: 'shared-work' })).toBe('alice')
+      expect(await shares.roleFor({ ...alice, userId: 'carol', organizationRole: 'member' }, { kind: 'work', id: 'shared-work' })).not.toBe('none')
+
+      expect(await call(service, alice, transfer)).toEqual({ workId: 'shared-work', organizationId: 'org1' })
+      await expect(call(service, bob, transfer)).rejects.toThrow(/another organization/)
+      expect(await loadWork('org2', 'shared-work')).toBeNull()
+
+      // A transfer that carries no history, like one from before this shape, is refused at the door.
+      const { revisions: _revisions, previousRevisionId: _previousRevisionId, ...withoutHistory } = transfer
+      await expect(call(service, alice, { ...withoutHistory, id: 'other' })).rejects.toThrow()
+    })
+  } finally {
+    if (previous === undefined) delete process.env.SOLUS_API
+    else process.env.SOLUS_API = previous
+    resetApiModeForTests()
+  }
 })
 
 test.skipIf(process.env.SOLUS_DB === 'postgres')('a source change during the push, even history alone, keeps the local copy', async () => {
@@ -274,4 +315,68 @@ test('an authenticated link visitor uses the verified account identity, never a 
   expect(commands[0]?.actor).toEqual({ userId: 'bob', seatUserId: 'bob', displayName: 'Bob' })
   relay.result(runner, { hostId: runner.hostId, requestId: commands[0]!.requestId, error: null })
   await pending
+})
+
+test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its comments and linked works under its own ids, and leaves its host only unchanged', async () => {
+  // WHY: a task's linked Local works go with it (docs/plans/cloud-sharing.md §8). The
+  // cloud task must link to the uploaded works, a repeat must change nothing, and the
+  // host must keep a task that changed after it was read.
+  const { loadWork } = await import('@solus/server/data/works/works')
+  const { createTask } = await import('@solus/server/data/tasks/task-store')
+  const { Task } = await import('@solus/server/data/tasks/task')
+  const { exportTaskForCloud, removeUploadedTask } = await import('@solus/server/data/tasks/task-transfer')
+  const { SolusServer } = await import('@solus/server/transport/server')
+  const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
+  const { resetApiModeForTests } = await import('@solus/server/host/api-mode')
+  await workWithHistory('task-work')
+  await createTask('local', { title: 'Ship it', body: 'The plan', status: 'todo' }, { id: 'task-1', now: 1 }, ALICE)
+  const local = await Task.byId('local', 'task-1')
+  await local.comment('Looks good', { by: BOB })
+  await local.link({ kind: 'work', targetKey: 'task-work' }, ALICE)
+
+  const exported = await exportTaskForCloud('local', 'task-1')
+  expect(exported.task.task).toMatchObject({ id: 'task-1', title: 'Ship it', body: 'The plan', status: 'todo' })
+  expect(exported.task.comments.map((comment) => comment.body)).toEqual(['Looks good'])
+  expect(exported.task.workIds).toEqual(['task-work'])
+  expect(exported.works.map((work) => work.work.id)).toEqual(['task-work'])
+  const works = [{ workId: 'task-work', fingerprint: exported.works[0]!.fingerprint }]
+
+  // A comment after the read: the task stays, and so does its work.
+  await local.comment('One more thing', { by: ALICE })
+  await expect(removeUploadedTask('local', 'task-1', exported.task.fingerprint, works)).rejects.toThrow(/changed/)
+  expect(await loadWork('local', 'task-work')).not.toBeNull()
+  const current = await exportTaskForCloud('local', 'task-1')
+  const bob: Extract<Principal, { kind: 'org-member' }> = { ...alice, organizationId: 'org2', userId: 'bob', displayName: 'Bob', deviceId: 'bob' }
+
+  const previous = process.env.SOLUS_API
+  process.env.SOLUS_API = '1'
+  resetApiModeForTests()
+  try {
+    await atDestination(async () => {
+      const shares = new ShareManager({ db: getDatabase() })
+      const service = new SolusServer()
+      registerCloudUploadHandlers(service, { shares })
+      const as = (principal: Principal) => ({ clientId: principal.deviceId ?? 'c', principal })
+      for (const work of current.works) await service.handle('workUpload', [work], as(alice))
+      expect(await service.handle('taskUpload', [current.task], as(alice))).toEqual({ taskId: 'task-1', organizationId: 'org1' })
+      const cloud = await (await Task.byId('org1', 'task-1')).details()
+      expect(cloud.task.title).toBe('Ship it')
+      expect(cloud.comments.map((comment) => comment.body)).toEqual(['Looks good', 'One more thing'])
+      expect(cloud.links.filter((link) => link.kind === 'work').map((link) => link.targetKey)).toEqual(['task-work'])
+      expect(await shares.ownerOf({ kind: 'task', id: 'task-1' })).toBe('alice')
+
+      expect(await service.handle('taskUpload', [current.task], as(alice))).toEqual({ taskId: 'task-1', organizationId: 'org1' })
+      expect((await (await Task.byId('org1', 'task-1')).details()).comments).toHaveLength(2)
+      await expect(service.handle('taskUpload', [current.task], as(bob))).rejects.toThrow(/another organization/)
+      await expect(service.handle('taskUpload', [{ ...current.task, fingerprint: 'forged' }], as(alice))).rejects.toThrow(/incomplete/)
+    })
+  } finally {
+    if (previous === undefined) delete process.env.SOLUS_API
+    else process.env.SOLUS_API = previous
+    resetApiModeForTests()
+  }
+
+  await removeUploadedTask('local', 'task-1', current.task.fingerprint, current.works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })))
+  await expect(Task.byId('local', 'task-1')).rejects.toThrow()
+  expect(await loadWork('local', 'task-work')).toBeNull()
 })

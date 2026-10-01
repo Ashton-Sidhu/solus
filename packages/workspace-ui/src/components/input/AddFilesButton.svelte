@@ -46,9 +46,9 @@
     style="cursor:{disabled || attachDisabled ? 'not-allowed' : 'pointer'}"
     aria-label="Add files"
   >
-    <PlusIcon size={15} class="flex-shrink-0" />
+    <PlusIcon size={16} class="flex-shrink-0" />
     <span
-      class="max-w-0 translate-x-[-0.25rem] overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,margin-left,opacity,translate] duration-[var(--duration-base)] ease-(--ease-premium) group-hover/add:ml-1.5 group-hover/add:max-w-[4.5rem] group-hover/add:translate-x-0 group-hover/add:opacity-100 group-focus-within/add:ml-1.5 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:translate-x-0 group-focus-within/add:opacity-100"
+      class="max-w-0 translate-x-[-0.25rem] overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,margin-left,opacity,translate] duration-[var(--duration-base)] ease-(--ease-premium) group-hover/add:ml-1.5 group-hover/add:max-w-[4.5rem] group-hover/add:translate-x-0 group-hover/add:opacity-100 group-focus-within/add:ml-1.5 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:translate-x-0 group-focus-within/add:opacity-100 font-medium"
       >Add files</span
     >
   </button>
@@ -59,7 +59,7 @@
 
   {#if onScreenshot || onDesignMode}
     <div
-      class="flex h-full max-w-0 items-center overflow-hidden opacity-0 transition-[max-width,opacity,padding-left] duration-[var(--duration-base)] ease-(--ease-premium) group-hover/add:max-w-[4.5rem] group-hover/add:pl-2 group-hover/add:opacity-100 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:pl-2 group-focus-within/add:opacity-100"
+      class="flex h-full max-w-0 items-center overflow-hidden opacity-0 transition-[max-width,opacity,padding-left] duration-[var(--duration-base)] ease-(--ease-premium) group-hover/add:max-w-[4.5rem] group-hover/add:pl-2 group-hover/add:opacity-100 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:pl-2 group-focus-within/add:opacity-100 font-medium"
     >
       <div class="mr-1 h-4 w-px flex-shrink-0 bg-(--solus-container-border)"></div>
       {#if onScreenshot}

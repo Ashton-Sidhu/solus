@@ -29,8 +29,8 @@ is "linked to a session". A session makes an output. A task links it.
 2. **The task keeps a row for each output.** The row is a copy that Solus keeps
    in step with the session, not a live read. The reason is access: the
    workspace API gives read access to a work through its `task_links` row
-   (`data/tasks/resource-visibility.ts`), and a task share reaches the works
-   that have a row (`data/tasks/task-sharing.ts`). A work records a provider
+   (`data/tasks/resource-visibility.ts`), and access to a task reaches the
+   works that have a row (`data/tasks/task-sharing.ts`). A work records a provider
    thread and a task records Solus's session id, and the map between the two
    is not in the database those checks run on. A live read would need that map
    in SQL, so it would change who can read a work.

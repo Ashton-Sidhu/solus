@@ -2,6 +2,7 @@ import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import { materializeSessionTranscript } from '../workspace/session-transcript'
+import { loadArtifactFileBodies } from '../workspace/artifact-history'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 
 /**
@@ -11,7 +12,8 @@ import type { SurfaceContext } from '../app/surface-context.svelte'
  */
 export async function loadSessionRecordTranscript(workspace: SurfaceContext, serverId: string, meta: SessionMeta): Promise<Message[]> {
   const ctx = workspace.ctxForDirectory(meta.cwd)
-  const page = await requestSessionHistoryPage(serverConnections.apiFor(serverId), {
+  const api = serverConnections.apiFor(serverId)
+  const page = await requestSessionHistoryPage(api, {
     sessionId: meta.sessionId,
     projectPath: meta.projectPath,
     provider: meta.provider,
@@ -25,5 +27,5 @@ export async function loadSessionRecordTranscript(workspace: SurfaceContext, ser
     ctx,
     turnLimit: INITIAL_HISTORY_TURNS,
     serverId,
-  }, page).messages
+  }, page, await loadArtifactFileBodies(api, page.messages)).messages
 }

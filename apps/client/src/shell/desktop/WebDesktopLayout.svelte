@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { LogOut as SignOutIcon } from "@lucide/svelte";
   import EditorInputCard from "@solus/workspace-ui/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@solus/workspace-ui/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@solus/client-core/connection-display";
   import { runtime, serversStore } from "@solus/workspace-ui/contexts";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { webState } from "../../lib/web-state.svelte";
-  import WebPushBell from "../../components/WebPushBell.svelte";
 
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
@@ -59,22 +57,6 @@
               <TooltipUI.Content value={`${connectionLabel} — click to retry now`} />
             </TooltipUI.Root>
           {/if}
-          <WebPushBell />
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                <button {...tooltipProps}
-            class="ws-logout-btn"
-            onclick={() =>
-              document.dispatchEvent(new CustomEvent("solus:logout"))}
-            aria-label="Switch server"
-          >
-            <SignOutIcon size={14} />
-          </button>
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value={"Switch server"} />
-          </TooltipUI.Root>
         {/snippet}
       </EditorInputCard>
     {/snippet}
@@ -108,26 +90,4 @@
     padding-bottom: 0.625rem;
   }
 
-  .ws-logout-btn {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.375rem;
-    height: 1.375rem;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    padding: 0;
-    transition:
-      color 0.15s ease,
-      background 0.15s ease;
-  }
-
-  .ws-logout-btn:hover {
-    color: var(--solus-rail-danger-color);
-    background: var(--solus-rail-danger-bg);
-  }
 </style>

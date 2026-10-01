@@ -2,11 +2,13 @@ import type {
   MetricsQueryResult,
   MetricsSessionSummary,
   MetricsSpan,
+  MetricsTurnFilter,
   MetricsTurnPageRequest,
   MetricsTurnPageResult,
   MetricsTurnSortField,
   MetricsTurnStats,
   MetricsTurnStatusCounts,
+  MetricsTurnListingSummary,
   MetricsTurnTrace,
   MetricsTurnVolumeBucket,
 } from '@solus/contracts/observability-types'
@@ -220,24 +222,29 @@ function volumeOf(turns: DemoTurnRecord[], from: number, to: number): MetricsTur
   return [...byIndex.entries()].sort(([a], [b]) => a - b).map(([, bucket]) => bucket)
 }
 
+/** The turns a filter selects, before (`scoped`) and after (`selected`) its
+ *  status narrows them, the way the host's `whereClause` builds both. */
+function filteredTurns(turns: DemoTurnRecord[], filter: MetricsTurnFilter) {
+  const { from, to } = filter.timeRange
+  const scoped = turns.filter((turn) =>
+    turn.startedAt >= from
+    && turn.startedAt < to
+    && (!filter.sessionId || turn.sessionId === filter.sessionId)
+    && (!filter.taskId || turn.sessionId === DEMO_SESSION_BY_TASK.get(filter.taskId))
+    && (!filter.search || matchesSearch(turn, filter.search)))
+  const selected = filter.status ? scoped.filter((turn) => turn.status === filter.status) : scoped
+  return { scoped, selected }
+}
+
 /**
- * The listing the Insights page opens on, paginated and aggregated the way the
- * host's `turnPage` does it: every filter is applied before the page is cut, so
- * the stats and the histogram describe the whole selection rather than the
- * twenty-five rows on screen.
+ * The listing the Insights page opens on, paginated the way the host's
+ * `turnPage` does it: every filter is applied before the page is cut.
  */
 export function turnPageResult(
   turns: DemoTurnRecord[],
   request: MetricsTurnPageRequest,
 ): MetricsTurnPageResult {
-  const { from, to } = request.timeRange
-  const scoped = turns.filter((turn) =>
-    turn.startedAt >= from
-    && turn.startedAt < to
-    && (!request.sessionId || turn.sessionId === request.sessionId)
-    && (!request.taskId || turn.sessionId === DEMO_SESSION_BY_TASK.get(request.taskId))
-    && (!request.search || matchesSearch(turn, request.search)))
-  const selected = request.status ? scoped.filter((turn) => turn.status === request.status) : scoped
+  const { selected } = filteredTurns(turns, request)
   const value = SORT_VALUE[request.sort.field]
   const direction = request.sort.dir === 'asc' ? 1 : -1
   const ordered = [...selected].sort((a, b) => {
@@ -253,12 +260,23 @@ export function turnPageResult(
     page: turnListingResult(ordered.slice(offset, offset + request.pageSize)),
     pageIndex,
     pageSize: request.pageSize,
-    totalRows: ordered.length,
+  }
+}
+
+/** The aggregates the host's `turnListingSummary` returns: the stats and the
+ *  histogram describe the whole selection, not the rows on one page. */
+export function turnListingSummaryResult(
+  turns: DemoTurnRecord[],
+  filter: MetricsTurnFilter,
+): MetricsTurnListingSummary {
+  const { scoped, selected } = filteredTurns(turns, filter)
+  return {
+    totalRows: selected.length,
     // The status chips count the selection *before* a status filter narrows it,
     // so picking "error" does not empty the chips that offer the way back.
     statusCounts: statusCountsOf(scoped),
     stats: statsOf(selected),
-    volume: volumeOf(selected, from, to),
+    volume: volumeOf(selected, filter.timeRange.from, filter.timeRange.to),
   }
 }
 
