@@ -12,8 +12,10 @@ const log = createLogger('main', 'member-folders')
  * credentials. Everything else keys a member by their account id; only the
  * filesystem shows the name.
  *
- * A member's folder is named after them (`ada-lovelace`); a second person with
- * the same name gets `ada-lovelace-2`, and so on. The name is fixed in
+ * A member's folder is their name and the start of their account id
+ * (`ada-lovelace-k3x9q2`), so two people with one name are told apart by who
+ * they are, not by who came first, and the folder still reads back to the
+ * account in the cloud. The name is fixed in
  * `member_folder` the first time it is known and kept through a rename, so a
  * running process never loses its directory. A member who already had a folder
  * under their account id before folders were named keeps it: nothing is moved.
@@ -30,6 +32,8 @@ CREATE TABLE IF NOT EXISTS member_folder (
 export const memberFolderSegmentSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
 
 const MAX_MEMBER_FOLDER_LENGTH = 48
+/** How much of the account id a folder shows; more only when that much is already taken. */
+const ID_SLUG_LENGTH = 6
 
 /** `Ada Lovelace` → `ada-lovelace`: lowercase ASCII letters and digits, hyphens between words. Never empty. */
 export function memberFolderName(name: string): string {
@@ -73,7 +77,7 @@ export class MemberFolders {
     if (!name?.trim()) return safeUserId
     const roots = this.deps.roots()
     const predates = roots.some((root) => existsSync(join(root, safeUserId)))
-    const folder = predates ? safeUserId : this.freeFolder(memberFolderName(name), roots)
+    const folder = predates ? safeUserId : this.freeFolder(memberFolderName(name), safeUserId, roots)
     this.deps.db.prepare('INSERT INTO member_folder (user_id, folder) VALUES (?, ?)').run(safeUserId, folder)
     this.remember(safeUserId, folder)
     log.info('member_folder_named', { userId: safeUserId, folder })
@@ -108,17 +112,24 @@ export class MemberFolders {
     return row.folder
   }
 
-  /** `base`, else `base-2`, `base-3`, …: the first no member holds and no directory already uses. */
-  private freeFolder(base: string, roots: string[]): string {
+  /**
+   * `<name>-<id slug>`, the slug the start of the account id, lowercased. Ids
+   * that differ only in case, or a folder already there, lengthen the slug; a
+   * whole id still taken falls back to a counter.
+   */
+  private freeFolder(base: string, userId: string, roots: string[]): string {
     const taken = (folder: string) =>
       !!this.deps.db.prepare('SELECT 1 FROM member_folder WHERE folder = ?').get(folder)
       || roots.some((root) => existsSync(join(root, folder)))
-    let candidate = base
-    for (let attempt = 2; taken(candidate); attempt++) {
-      const suffix = `-${attempt}`
-      candidate = `${base.slice(0, MAX_MEMBER_FOLDER_LENGTH - suffix.length)}${suffix}`
+    const id = userId.toLowerCase().replace(/[^a-z0-9]/g, '') || 'member'
+    const named = (suffix: string) => `${base.slice(0, MAX_MEMBER_FOLDER_LENGTH - suffix.length - 1).replace(/-+$/, '')}-${suffix}`
+    for (let length = ID_SLUG_LENGTH; length < id.length + ID_SLUG_LENGTH; length += ID_SLUG_LENGTH) {
+      const candidate = named(id.slice(0, length))
+      if (!taken(candidate)) return candidate
     }
-    return candidate
+    let attempt = 2
+    while (taken(named(`${id.slice(0, ID_SLUG_LENGTH)}-${attempt}`))) attempt++
+    return named(`${id.slice(0, ID_SLUG_LENGTH)}-${attempt}`)
   }
 
   private remember(userId: string, folder: string): void {

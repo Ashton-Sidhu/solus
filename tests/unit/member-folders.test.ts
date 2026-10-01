@@ -14,7 +14,7 @@ const { dispatchCheckoutOwnerKeyOf, dispatchCheckoutPath } = await import('@solu
 
 // Every member folder on a host (projects, seats, dispatch checkouts, Git
 // credentials) is named after its member; two people with one name are told
-// apart by a suffix; a member who predates named folders keeps their id folder.
+// apart by the start of their account id; a member who predates named folders keeps their id folder.
 
 const roots: string[] = []
 afterEach(() => {
@@ -34,6 +34,10 @@ function setup() {
   return { root, projects, db, folders }
 }
 
+/** Better Auth account ids. */
+const ADA = 'K3x9Q2ZfHr8TvL1mNa0bCd4eGh5jKl6p'
+const OTHER_ADA = 'p7Wm4cXq2Rt9Yu8Io7Pa6Sd5Fg4Hj3Kl'
+
 const member = (userId: string, displayName: string): Principal => ({
   kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed',
   displayName, deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud',
@@ -47,50 +51,63 @@ describe('member folders', () => {
     expect(memberFolderName('山田')).toBe('member')
   })
 
-  test('a member\'s projects live under their name; the same name gets a suffix', () => {
+  test('a member\'s projects live under their name and the start of their id', () => {
     const { projects } = setup()
-    expect(projectsRootFor(member('u1', 'Ada Lovelace'), projects)).toBe(join(projects, 'ada-lovelace'))
-    expect(projectsRootFor(member('u2', 'Ada Lovelace'), projects)).toBe(join(projects, 'ada-lovelace-2'))
-    expect(projectsRootFor(member('u3', 'ada lovelace'), projects)).toBe(join(projects, 'ada-lovelace-3'))
+    expect(projectsRootFor(member(ADA, 'Ada Lovelace'), projects)).toBe(join(projects, 'ada-lovelace-k3x9q2'))
+    // Another Ada is told apart by their own id, not by arriving second.
+    expect(projectsRootFor(member(OTHER_ADA, 'Ada Lovelace'), projects)).toBe(join(projects, 'ada-lovelace-p7wm4c'))
     // A rename keeps the folder.
-    expect(projectsRootFor(member('u1', 'Ada King'), projects)).toBe(join(projects, 'ada-lovelace'))
-    expect(memberUserIdOf('ada-lovelace-2')).toBe('u2')
+    expect(projectsRootFor(member(ADA, 'Ada King'), projects)).toBe(join(projects, 'ada-lovelace-k3x9q2'))
+    expect(memberUserIdOf('ada-lovelace-p7wm4c')).toBe(OTHER_ADA)
   })
 
-  test('a name the owner\'s own project already uses is not taken', () => {
+  test('ids that agree on their start, or differ only in case, lengthen the slug', () => {
+    setup()
+    expect(memberFolderFor('K3X9q2AAAAAA', 'Ada')).toBe('ada-k3x9q2')
+    expect(memberFolderFor('k3x9Q2BBBBBB', 'Ada')).toBe('ada-k3x9q2bbbbbb')
+  })
+
+  test('a folder already on disk is not taken', () => {
     const { projects } = setup()
-    mkdirSync(join(projects, 'solus'))
-    expect(memberFolderFor('u1', 'Solus')).toBe('solus-2')
+    mkdirSync(join(projects, 'solus-k3x9q2'))
+    expect(memberFolderFor(ADA, 'Solus')).toBe('solus-k3x9q2zfhr8t')
+  })
+
+  test('a long name is cut so the id slug still fits', () => {
+    setup()
+    const folder = memberFolderFor(ADA, 'A'.repeat(80))
+    expect(folder.length).toBeLessThanOrEqual(48)
+    expect(folder.endsWith('-k3x9q2')).toBe(true)
   })
 
   test('a member who already had a folder under their id keeps it', () => {
     const { projects } = setup()
-    mkdirSync(join(projects, 'u1'))
-    expect(projectsRootFor(member('u1', 'Ada'), projects)).toBe(join(projects, 'u1'))
-    expect(memberFolderFor('u1', 'Ada')).toBe('u1')
+    mkdirSync(join(projects, ADA))
+    expect(projectsRootFor(member(ADA, 'Ada'), projects)).toBe(join(projects, ADA))
+    expect(memberFolderFor(ADA, 'Ada')).toBe(ADA)
   })
 
   test('without a name nothing is fixed: the folder is the id until the name arrives', () => {
     setup()
-    expect(memberFolderFor('u1')).toBe('u1')
-    expect(memberFolderFor('u1', 'Ada')).toBe('ada')
-    expect(memberFolderFor('u1')).toBe('ada')
+    expect(memberFolderFor(ADA)).toBe(ADA)
+    expect(memberFolderFor(ADA, 'Ada')).toBe('ada-k3x9q2')
+    expect(memberFolderFor(ADA)).toBe('ada-k3x9q2')
   })
 
   test('the folder survives a restart', () => {
     const { db, projects, root } = setup()
-    expect(memberFolderFor('u1', 'Ada')).toBe('ada')
+    expect(memberFolderFor(ADA, 'Ada')).toBe('ada-k3x9q2')
     useMemberFolders(new MemberFolders({ db, roots: () => [projects, join(root, 'seats', 'claude')] }))
-    expect(memberFolderFor('u1', 'Someone Else')).toBe('ada')
+    expect(memberFolderFor(ADA, 'Someone Else')).toBe('ada-k3x9q2')
   })
 
-  test('a dispatch checkout is under the member\'s name and reads back to their account', () => {
+  test('a dispatch checkout is under the member\'s folder and reads back to their account', () => {
     const { projects } = setup()
-    const memberRoot = projectsRootFor(member('u1', 'Ada'), projects)
-    const checkout = dispatchCheckoutPath(memberRoot, 'u1', 'github.com/acme/app')
-    expect(checkout).toContain('/ada/')
-    expect(checkout.split('/')).not.toContain('u1')
-    expect(dispatchCheckoutOwnerKeyOf(checkout)).toBe('u1')
+    const memberRoot = projectsRootFor(member(ADA, 'Ada'), projects)
+    const checkout = dispatchCheckoutPath(memberRoot, ADA, 'github.com/acme/app')
+    expect(checkout.split('/')).toContain('ada-k3x9q2')
+    expect(checkout.split('/')).not.toContain(ADA)
+    expect(dispatchCheckoutOwnerKeyOf(checkout)).toBe(ADA)
     // A paired device's key is no member's: it stays as it is.
     expect(recordedMemberFolder('device.1')).toBe('device.1')
     expect(dispatchCheckoutOwnerKeyOf(dispatchCheckoutPath(projects, 'device.1', 'github.com/acme/app'))).toBe('device.1')

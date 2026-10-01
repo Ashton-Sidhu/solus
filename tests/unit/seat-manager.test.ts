@@ -137,14 +137,14 @@ describe('layout', () => {
   test('a member\'s seats live in their named member folder', async () => {
     const { seats, root, db } = manager()
     useMemberFolders(new MemberFolders({ db, roots: () => [join(root, 'seats', 'claude'), join(root, 'seats', 'codex')] }))
-    const ada: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'u1' }, name: 'Ada Lovelace' }
-    expect(seats.homeFor(ada, 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
-    expect(seats.homeFor(ada, 'codex')).toBe(join(root, 'seats', 'codex', 'ada-lovelace'))
+    const ada: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'U1abcdefgh' }, name: 'Ada Lovelace' }
+    expect(seats.homeFor(ada, 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd'))
+    expect(seats.homeFor(ada, 'codex')).toBe(join(root, 'seats', 'codex', 'ada-lovelace-u1abcd'))
     // A call that does not know the name finds the same folder.
-    await seats.storeToken(userSeat('u1'), 'claude-code', 'tok')
-    expect(readFileSync(join(root, 'seats', 'claude', 'ada-lovelace', 'solus-seat-token'), 'utf8')).toBe('tok\n')
-    expect(await seats.remove({ kind: 'account', accountId: 'u1' })).toBe(1)
-    expect(existsSync(join(root, 'seats', 'claude', 'ada-lovelace'))).toBe(false)
+    await seats.storeToken(userSeat('U1abcdefgh'), 'claude-code', 'tok')
+    expect(readFileSync(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd', 'solus-seat-token'), 'utf8')).toBe('tok\n')
+    expect(await seats.remove({ kind: 'account', accountId: 'U1abcdefgh' })).toBe(1)
+    expect(existsSync(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd'))).toBe(false)
   })
 })
 
