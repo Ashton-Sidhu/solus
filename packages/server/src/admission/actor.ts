@@ -96,8 +96,11 @@ export function attributionOf(actor: Actor, via?: { sessionId: string; provider?
 export function seatFor(actor: Actor): Seat {
   const principal = actor.principal
   switch (principal.kind) {
-    case 'org-member':
-      return { kind: 'user', userId: { kind: 'account', accountId: principal.userId } }
+    case 'org-member': {
+      const seat: Seat = { kind: 'user', userId: { kind: 'account', accountId: principal.userId } }
+      if (principal.displayName) seat.name = principal.displayName
+      return seat
+    }
     case 'guest': {
       const sharer = principal.share.sharedByUserId
       return isHostUserKey(sharer) ? HOST_LOGIN_SEAT : { kind: 'user', userId: parseUserKey(sharer) }

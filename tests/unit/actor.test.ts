@@ -54,7 +54,7 @@ describe('actorFor', () => {
   test('a member is their account, on their own seat, with their own connections', () => {
     const actor = actorFor(BOB)
     expect(actor.user).toEqual({ id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob', email: 'bob@example.com', avatarUrl: 'https://x/bob.png' })
-    expect(seatFor(actor)).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } })
+    expect(seatFor(actor)).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'bob' }, name: 'Bob' })
     expect(credentialUserFor(actor)).toEqual({ kind: 'account', accountId: 'bob' })
     expect(insightsAccountOf(actor)?.email).toBe('bob@example.com')
   })

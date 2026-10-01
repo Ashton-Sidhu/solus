@@ -168,7 +168,7 @@ describe('stop keeps the queue', () => {
     expect(interrupted).not.toHaveProperty('by')
 
     expect(backend.requests.map((request) => request.prompt)).toEqual(['start', 'then deploy'])
-    expect(backend.requests[1]?.seat?.seat).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'cara' } })
+    expect(backend.requests[1]?.seat?.seat).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'cara' }, name: 'Cara' })
     const dequeued = events.filter((event) => event.type === 'prompt_dequeued')
     expect(dequeued).toHaveLength(1)
   })

@@ -14,7 +14,14 @@ import type { UserId } from './user'
  * machine's own provider login, or one user's seat. The host login is a kind of
  * seat, not a user.
  */
-export type Seat = { kind: 'host-login' } | { kind: 'user'; userId: UserId }
+export type Seat =
+  | { kind: 'host-login' }
+  | {
+      kind: 'user'
+      userId: UserId
+      /** The person's name when the caller knows it: it names their seat's folder on the host. Never part of the seat's identity. */
+      name?: string
+    }
 
 export const HOST_LOGIN_SEAT: Seat = { kind: 'host-login' }
 

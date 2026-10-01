@@ -59,7 +59,7 @@ describe('whose seat a prompt runs on', () => {
     expect(seatOf(OWNER)).toEqual(HOST_LOGIN_SEAT)
     expect(seatOf(REMOTE_OWNER)).toEqual(HOST_LOGIN_SEAT)
     expect(seatOf({ kind: 'system' })).toEqual(HOST_LOGIN_SEAT)
-    expect(seatOf(BOB)).toEqual(BOB_SEAT)
+    expect(seatOf(BOB)).toEqual({ ...BOB_SEAT, name: 'Bob' })
     expect(seatOf(GUEST_OF_BOB)).toEqual(BOB_SEAT)
   })
 
@@ -73,7 +73,7 @@ describe('whose seat a prompt runs on', () => {
       expect(seatOf(guestOf(hostUserKey()))).toEqual(HOST_LOGIN_SEAT)
       // A link shared before the host had a user still names the old owner key.
       expect(seatOf(guestOf(LEGACY_HOST_OWNER_KEY))).toEqual(HOST_LOGIN_SEAT)
-      expect(seatOf(BOB)).toEqual(BOB_SEAT)
+      expect(seatOf(BOB)).toEqual({ ...BOB_SEAT, name: 'Bob' })
     }
   })
 })
@@ -130,6 +130,35 @@ describe('layout', () => {
     expect(() => seats.homeFor(userSeat('bob/../alice'), 'codex')).toThrow()
     // A `local` or guest key is never a seat directory.
     expect(() => seats.homeFor({ kind: 'user', userId: { kind: 'local', localId: 'mac-1' } }, 'codex')).toThrow()
+  })
+
+  test('a member\'s folder is named after them, unique on the host, and kept through a rename', async () => {
+    const { seats, root } = manager()
+    const named = (accountId: string, name: string): Seat => ({ kind: 'user', userId: { kind: 'account', accountId }, name })
+    expect(seats.homeFor(named('u1', 'Ada Lovelace'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
+    expect(seats.homeFor(named('u1', 'Ada Lovelace'), 'codex')).toBe(join(root, 'seats', 'codex', 'ada-lovelace'))
+    // Someone else with the same name gets the next free folder.
+    expect(seats.homeFor(named('u2', 'ada lovelace'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace-2'))
+    // A rename, or a call that does not know the name, keeps the folder.
+    expect(seats.homeFor(named('u1', 'Ada King'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
+    expect(seats.homeFor(userSeat('u1'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
+    expect(seats.homeFor(named('u3', 'José Ñúñez'), 'codex')).toBe(join(root, 'seats', 'codex', 'jose-nunez'))
+    expect(seats.homeFor(named('u4', '山田'), 'codex')).toBe(join(root, 'seats', 'codex', 'member'))
+  })
+
+  test('a folder made under the user id moves to the name once it is known', async () => {
+    const { seats, root, db } = manager()
+    await seats.storeToken(userSeat('u1'), 'claude-code', 'tok')
+    expect(existsSync(join(root, 'seats', 'claude', 'u1', 'solus-seat-token'))).toBe(true)
+    const home = seats.homeFor({ kind: 'user', userId: { kind: 'account', accountId: 'u1' }, name: 'Ada' }, 'claude-code')
+    expect(home).toBe(join(root, 'seats', 'claude', 'ada'))
+    expect(readFileSync(join(home, 'solus-seat-token'), 'utf8')).toBe('tok\n')
+    expect(existsSync(join(root, 'seats', 'claude', 'u1'))).toBe(false)
+    // A restart reads the folder back.
+    const again = new SeatManager({ db, seatsRoot: join(root, 'seats'), hostClaudeDir: join(root, 'home', '.claude'), hostCodexHome: join(root, 'home', '.codex') })
+    expect(again.homeFor(userSeat('u1'), 'claude-code')).toBe(home)
+    expect(await again.remove({ kind: 'account', accountId: 'u1' })).toBe(1)
+    expect(existsSync(home)).toBe(false)
   })
 })
 
