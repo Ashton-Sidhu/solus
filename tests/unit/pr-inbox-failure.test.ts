@@ -16,8 +16,9 @@ const noRemote = {
   serverId: 'local',
   label: 'My Workspace',
   error: {
-    kind: 'no-repository' as const,
-    message: 'This folder has no recognizable git remote to review PRs from.',
+    kind: 'unavailable' as const,
+    reason: 'no-remote' as const,
+    message: 'This repository has no git remote.',
   },
 }
 

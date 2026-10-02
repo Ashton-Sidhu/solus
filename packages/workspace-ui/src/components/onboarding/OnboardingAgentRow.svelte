@@ -37,8 +37,8 @@
     const openedForYou = store.surface === "pointer";
     if (verification?.requiresCodeInput) {
       return openedForYou
-        ? `${row.label} opened your browser. Finish signing in, then paste the returned code here.`
-        : `Open the ${row.label} sign-in page below, finish signing in, then paste the returned code here.`;
+        ? "Sign in on the page that opened, then paste the code it shows."
+        : "Open the sign-in page, sign in, then paste the code it shows.";
     }
     return openedForYou
       ? `Enter this code on the ${row.label} sign-in page in your browser.`

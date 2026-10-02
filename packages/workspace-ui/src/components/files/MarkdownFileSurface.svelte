@@ -6,6 +6,7 @@
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
+  import { createMermaidBlockExtension } from "../editor/mermaidBlockExtension";
   import { toasts } from "../../lib/toasts";
   import type { MarkdownFileViewMode } from "./lib/markdown-file";
 
@@ -46,6 +47,7 @@
   let saveQueue: Promise<void> = Promise.resolve();
   let hasMountedRendered = $state(untrack(() => mode === "rendered"));
   let hasMountedSource = $state(untrack(() => mode === "source"));
+  const diagramExtensions = [createMermaidBlockExtension({ isDark: () => isDark })];
 
   $effect(() => {
     renderedContents = contents;
@@ -139,6 +141,7 @@
         onInput={() => setSaveState("dirty")}
         onValueChange={(nextContents) => void handleRenderedChange(nextContents)}
         readOnly={isReadOnly}
+        extraExtensions={diagramExtensions}
         placeholder="Start writing…"
         class="markdown-file-document-editor h-full min-h-0 overflow-y-auto"
       />

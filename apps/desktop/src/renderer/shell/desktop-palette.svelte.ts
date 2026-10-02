@@ -1,3 +1,4 @@
+import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import { untrack } from "svelte";
 import {
@@ -12,10 +13,8 @@ import {
   Keyboard as KeyboardIcon,
   GitBranch as GitBranchIcon,
   GitFork as TreeStructureIcon,
-  SquareCheck as CheckSquareIcon,
   Folder as FolderIcon,
   FolderOpen as FolderOpenIcon,
-  ListChecks as ListChecksIcon,
   Unplug as PlugsIcon,
   Search as MagnifyingGlassIcon,
   FileText as FileTextIcon,
@@ -626,7 +625,7 @@ export function createDesktopPalette(
         id: "create-task",
         label: `Create task in ${taskProjectName}`,
         group: "Tasks",
-        icon: CheckSquareIcon,
+        icon: TaskIcon,
         hint: comboHint("global.new-task"),
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
         run: () => void session.startNewTask(taskContext.serverId, taskCwd, true),
@@ -648,7 +647,7 @@ export function createDesktopPalette(
       id: "create-task-in",
       label: "Create task in…",
       group: "Tasks",
-      icon: CheckSquareIcon,
+      icon: TaskIcon,
       keywords: ["task", "create", "new", "todo", "issue", "project"],
       children: createTaskInChildren,
     });
@@ -664,7 +663,7 @@ export function createDesktopPalette(
           id: `go-to-task:${t.id}`,
           label: t.title,
           group: "Tasks",
-          icon: ListChecksIcon,
+          icon: TaskIcon,
           keywords: ["task", t.id, t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
         }))
@@ -674,7 +673,7 @@ export function createDesktopPalette(
         id: "go-to-task",
         label: "Open task…",
         group: "View",
-        icon: ListChecksIcon,
+        icon: TaskIcon,
         keywords: ["task", "go", "open", "find", "jump", "issue", "ticket"],
         children: goToTaskChildren,
       });

@@ -2,7 +2,7 @@
 
 ## Status and execution rules
 
-- **Status:** PLAN — architecture accepted; implementation has not started.
+- **Status:** SOURCE IMPLEMENTED for stages 1–4 (uncommitted, 2026-10-01). Stage 5, the packaged-image gate, staging, and production cutover are not done. See §10.
 - **Date:** 2026-10-01.
 - **Baseline:** Solus `750983cd`; solus-cloud `df66c14`. Solus has substantial uncommitted work, including record operations, Insights, and client changes. That work is part of the baseline and must be preserved.
 - **Priority / effort / risk:** P1 / L / high. This changes cloud hosting, authentication hosting, and release composition. It does not change the product's record ownership model.
@@ -332,4 +332,92 @@ Reference: SvelteKit's Node adapter supports a custom server through its generat
 
 ## 10. Implementation record
 
-Not started. No source changes, tests, builds, or deployments were performed for this plan. Record stage results, exact commands, revision pairs, artifact digests, remaining gates, and approved cutover evidence here as work proceeds.
+### Decision 2026-10-01: no backwards compatibility
+
+Solus has no users yet, so the maintainer dropped every compatibility requirement in
+this plan. These parts no longer apply and were removed from the source:
+
+- §4 "retain the old API origin" and §5 stage 5.4 (previous client/host contract): there is
+  no API alias host. Routing is by path only; `SOLUS_API_URL` is the app's own origin.
+- Stage 3.3 scheduler handover and the `SOLUS_CLOUD_SCHEDULER` switch: the schedule
+  always runs; the advisory lock still keeps a deploy's two processes from both acting.
+- The transition Worker: `worker/`, `wrangler*.jsonc`, the Cloudflare adapter,
+  `scripts/deploy.ts`, `deploy.yml`, and the per-request database connection are gone.
+  `scripts/secrets.ts` now writes Fly secrets. `vite dev` opens its own small pool.
+- `SOLUS_CLOUD_ISSUER` and `SOLUS_CLOUD_JWKS_URL` are derived from `APP_ORIGIN` by the entry,
+  and `SOLUS_INTEGRATION_SERVICE_KEY` from `INTEGRATION_SERVICE_KEY`.
+- The old API deployment in Solus: `packaging/solus-api/`, the managed-host Docker image
+  (`Dockerfile`, `entrypoint.sh`), `scripts/release-api.ts`, `scripts/managed-image.ts`,
+  `release:api`, and `push:dev --api`. `packaging/managed-host/sprite-boot.sh` stays.
+- Cutover is a plain first deploy (solus-cloud `docs/deploy-node.md`); the release
+  workflow runs on every push to `main`.
+
+Kept: standalone `SOLUS_API=1` mode (`bootSolusApi`) for a self-hosted record API, and the
+single-collaboration-owner rule.
+
+### Statuses
+
+| Gate | Status |
+| --- | --- |
+| Source, stages 1–4 | Implemented 2026-10-01, uncommitted in both working trees |
+| Stage 5 cross-repository integration and compatibility proof | Not started |
+| Packaged image (`verify:cloud-artifact`) | Not run: no image built (forbidden locally; CI or authorized maintainer run) |
+| Staging | Not run |
+| Production cutover | Not run; not authorized |
+
+### Stage 0 baseline
+
+- Revisions: Solus `a29212bc` (the plan's uncommitted baseline is now committed as `84d871f7`); solus-cloud `54a4669`. Solus had uncommitted `.github/workflows/release.yml` and `packaging/solus-api/fly.toml` changes that are not part of this work and were not touched. During the work other agents changed `packages/workspace-ui/**` (Solus) and added `src/lib/server/route-access.ts` with a `hooks.server.ts` edit (solus-cloud); both were preserved.
+- Passing before any change: the nine Solus files in §7 and the eight cloud suites in §7 (100 tests).
+- Pre-existing failures, unchanged by this work: `bun run --cwd packages/server check` reports 149 errors (none in files this plan changed; the one in `transport/http.ts` is on the untouched `/artifact` route); `packages/client-core check` reports 3; `svelte-check` reports 153 in the linked Solus packages; cloud `oxlint` reports many findings across existing files and is not part of `check` or CI.
+- Import trace: `boot-solus-api.ts` bundles (esbuild, CommonJS, Node 24) into one self-contained file whose only externals are Node built-ins plus `ws`'s optional `bufferutil`/`utf-8-validate`. It reaches some execution helpers (GitHub provider, orchestration helpers, seat manager) through Data imports but never `session-runtime`, an agent backend registry, the automation scheduler, or a browser host. They load without starting anything, so no dependency edge was removed.
+- Route map (§4): no `/v1` collision between the record contract and the account site. One collision outside `/v1`: the record service's `/oauth/google/callback` and `/oauth/atlassian/callback` against the site's `/oauth/[provider]/callback`. The site owns them; the record service's copies answer only in standalone API mode (see the decision below).
+
+### What was built
+
+Solus:
+- `packages/contracts/src/solus-api/routes.ts` — `isRecordServicePath`: record `/v1` segments derived from `solusApiOperations`, plus `/ws`, `/auth/ws-ticket|refresh|revoke`, `/runner/*`, `/api/assets/*`, `/api/uploads/*`, `/health`; whole-segment matching.
+- `boot-solus-api.ts` — `createSolusApiService` (request listener, routes, `attachLiveTransport`, `closeLiveTransport`, idempotent `close`; owns subscriptions, live transport, and record database; caller owns the HTTP server), `bootSolusApi` on top of it, and `migrateSolusApiDatabase` for the release step. A failed boot closes the database it opened.
+- `transport/http.ts` — exports `HTTP_SERVER_TIMEOUTS` and the registered `routes`.
+- `work-live-manager.ts` — `flushAll`, which the service's `close` awaits before the database closes, so live rooms' bodies are written on shutdown.
+- `scripts/build-record-service.ts` (uses `bundleServerEntry` extracted from `scripts/package-server.ts`).
+- Tests: `solus-api-composition.test.ts` (injected listener, route-ownership guard over every registered route, failed-boot release, standalone listener and port release), `cloud-build-boundaries.test.ts` (record bundle graph and externals; standalone and desktop main graphs; import-specifier and manifest scan of clients and packages), a `flushAll` case in `work-live.test.ts`.
+
+solus-cloud:
+- `src/server/` — `routing.ts`, `application.ts` (one listener; `/readyz`; `/health` fails until ready; draining answers 503), `lifecycle.ts` (ordered shutdown with one 25 s deadline), `scheduler.ts` (wall-clock five-minute boundaries, no local overlap, Postgres advisory lock on a dedicated connection, `assertHeld` before each operation), `config.ts`, `release-inputs.ts`, `main.ts` (`serve` and `migrate`).
+- `src/lib/server/db/index.ts` — `openSharedDatabase` (bounded process pool that tracks response work) and the `globalThis` handoff to `hooks.server.ts`; `runtime.ts` borrows it without closing it; `scheduled.ts` takes the pool and a per-operation guard.
+- `vite.config.ts` — adapter-node.
+- `scripts/build-server.ts`, `scripts/verify-artifact.ts`, `scripts/sync-client.ts` (clears every earlier client file), `release-inputs.json` (Solus revision `null` until a maintainer pins the commit that contains this work), `packaging/Dockerfile`, `packaging/fly.toml`, `.github/workflows/release.yml` (manual; build → staging → promote one digest), `docs/deploy-node.md` (runbook).
+- Tests: `src/server/{routing,application,lifecycle,scheduler,config,release-inputs}.test.ts`, `src/lib/server/runtime.test.ts`. `application.test.ts` builds the real record service from the Solus checkout and runs it under Node behind the application.
+
+### Verification run
+
+```sh
+# Solus
+bun scripts/test-unit.ts solus-api-service.test.ts solus-api-auth.test.ts solus-api-records.test.ts api-mode.test.ts server-module-boundaries.test.ts solus-api-composition.test.ts cloud-build-boundaries.test.ts   # 7 passed
+bun scripts/test-unit.ts access-tokens.test.ts principal.test.ts work-live.test.ts work-live-doc.test.ts   # 4 passed
+bun run --cwd packages/contracts check   # passes
+bun run api:check                        # passes
+git diff --check                         # clean
+# solus-cloud
+bun run check   # 0 site errors
+bun run test    # 43 files, 279 passed, 1 skipped
+```
+
+The record bundle was also built to a temporary directory and booted under Node 25 on SQLite: `/health` answered 200 and shutdown completed.
+
+### Findings and open decisions
+
+1. **Local files the record service keeps (stop condition, §9).** In API mode the service writes uploaded work assets (`assets/`), attachments, and the asset signing secret and server keys (`state/`) under `SOLUS_DATA_DIR`. The old API deployment had no volume and lost them on a machine replacement. `packaging/fly.toml` mounts the volume `solus_cloud_data` at `/data`. Open: keep the volume (one machine, consistent with one collaboration owner), or move asset storage to object storage in a separate plan.
+2. **Polling.** The live transport offers only WebSocket (`transports: ['websocket']`); a polling request gets Engine.IO's own 400. The plan's "polling" case is covered as "reaches the live transport, never the site".
+3. **Real advisory-lock behavior** has a test that runs only when `POSTGRES_ADMIN_URL` names a disposable Postgres. None was available, so it was skipped.
+4. **Fly image promotion across apps.** The workflow pushes to the staging app's registry and deploys that digest to production. Confirm in staging that the production app can pull it, or push the same digest to both registries.
+
+### Remaining gates
+
+- Commit both repositories, pin the Solus SHA in `release-inputs.json`.
+- Stage 5: `test:cloud-integration` (Better Auth test authority, two organizations, a
+  guest, a mock runner), `local-without-cloud.test.ts`, restart proof.
+- First deploy per solus-cloud `docs/deploy-node.md`: Fly apps, volumes, secrets, the
+  workflow's settings; then `verify:cloud-artifact` with a disposable database, staging,
+  production, DNS, and deleting the Worker and `solus-sh-api`.

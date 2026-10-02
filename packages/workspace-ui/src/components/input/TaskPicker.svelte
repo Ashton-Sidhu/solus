@@ -6,11 +6,11 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as Command from "../ui/command";
   import { Button } from "../ui/button";
-  import { MenuFooter, MenuSearch } from "../ui/menu";
+  import { MenuSearch } from "../ui/menu";
   import * as Popover from "../ui/popover";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { taskPickerSections } from "../tasks/lib/task-picker-sections";
-  import RoundedTaskIcon from "./RoundedTaskIcon.svelte";
+  import TaskIcon from "../ui/TaskIcon.svelte";
 
   interface Props {
     /** Where the session this composer starts will be filed. */
@@ -128,24 +128,21 @@
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
               variant="ghost"
-              class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
- ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
- : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
-              style="max-width:12rem"
+              aria-label={selectedTask ? `Choose task: ${label}` : "Link to task"}
+              class="group flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground {open ? 'bg-accent text-foreground' : ''}"
             >
-              <RoundedTaskIcon
-                size={14}
+              <TaskIcon
+                size={16}
                 class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
               />
-              <span class="truncate">{label}</span>
             </Button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
           value={{
-            label: "Choose the task for this chat",
+            label: selectedTask ? `Choose task: ${label}` : "Link to task",
             shortcut: comboHint("global.session-task-picker"),
           }}
         />
@@ -156,8 +153,8 @@
   <Popover.Content
     data-solus-ui
     customAnchor={triggerEl}
-    side="top"
-    align="start"
+    side="bottom"
+    align="end"
     sideOffset={6}
     collisionPadding={8}
     onCloseAutoFocus={handleCloseAutoFocus}
@@ -198,7 +195,7 @@
                   : undefined}
                 class="menu-item-stagger"
               >
-                <RoundedTaskIcon
+                <TaskIcon
                   size={13}
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
@@ -215,6 +212,5 @@
         {/each}
       </Command.List>
     </Command.Root>
-    <MenuFooter hints={[["⏎", "select"]]} summary="{tasks.length} tasks" />
   </Popover.Content>
 </Popover.Root>

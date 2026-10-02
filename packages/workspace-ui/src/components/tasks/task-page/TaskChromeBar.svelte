@@ -128,7 +128,7 @@
       aria-label="Copy link to this task"
       data-testid="task-copy-link"
     >
-      <LinkIcon size={13} />
+      <LinkIcon size={15} strokeWidth={1.5} />
     </button>
   {/if}
 
@@ -140,7 +140,7 @@
       title="Open task page"
       aria-label="Open task page"
     >
-      <ArrowsOutSimpleIcon size={13} />
+      <ArrowsOutSimpleIcon size={15} strokeWidth={1.5} />
     </button>
   {/if}
 
@@ -152,7 +152,7 @@
       title={`Open in ${providerLabel}`}
       aria-label={`Open task in ${providerLabel}`}
     >
-      <ArrowSquareOutIcon size={13} />
+      <ArrowSquareOutIcon size={15} strokeWidth={1.5} />
     </button>
   {/if}
 {/snippet}

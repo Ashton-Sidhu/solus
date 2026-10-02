@@ -9,7 +9,7 @@
   import PageEmpty from "../ui/PageEmpty.svelte";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
   import type { PrInboxFailure } from "./lib/pr-inbox-failure";
-  import type { PrSurfaceError } from "./lib/pr-surface-error";
+  import { prUnavailableTitle, type PrSurfaceError } from "./lib/pr-surface-error";
 
   /** Empty and failed states for the list. Partial failures keep their rows
    *  visible and notify through a toast from the page. */
@@ -20,6 +20,8 @@
     hasScope: boolean;
     /** The one project's read failure. */
     scopeError: PrSurfaceError | null;
+    /** The one project's name, so a state says which project it is about. */
+    scopeLabel: string | null;
     /** The host the one project reads through. */
     serverId: string | null;
     /** Every project's read failures, folded into one statement. */
@@ -27,19 +29,26 @@
     /** Any row loaded at all — before the page's own filters. */
     hasItems: boolean;
     onRetry: () => void;
+    onShowAll: () => void;
     children: Snippet;
   }
   let {
     allProjects,
     hasScope,
     scopeError,
+    scopeLabel,
     serverId,
     projectsFailure,
     hasItems,
     onRetry,
+    onShowAll,
     children,
   }: Props = $props();
 </script>
+
+{#snippet showAll()}
+  <Button type="button" variant="outline" onclick={onShowAll}>Show all projects</Button>
+{/snippet}
 
 {#snippet retry()}
   <Button type="button" variant="outline" onclick={onRetry}>
@@ -62,11 +71,22 @@
   <PageEmpty icon={GitPullRequestIcon} tone="muted" title="Connect GitHub to load pull requests.">
     <GithubConnectionRequired serverId={projectsFailure.serverId} layout="stacked" />
   </PageEmpty>
-{:else if !allProjects && scopeError?.kind === "no-repository"}
-  <!-- A folder with no remote — Scratchpad, a plain directory. It has no
-       pull requests, which is a state to state, not a failure. -->
-  <PageEmpty icon={GitPullRequestIcon} tone="muted" title="This project has no git remote.">
-    Pull requests show up once this folder points at a repository on GitHub.
+{:else if !allProjects && scopeError?.kind === "unavailable"}
+  <!-- A project with no pull requests — Scratchpad, a plain directory, a
+       repository never pushed. A state to state, not a failure. The page
+       scope is shared with the other project pages, so it may have been
+       picked elsewhere: name the project and offer the way back out. -->
+  <PageEmpty
+    icon={GitPullRequestIcon}
+    tone="muted"
+    title={prUnavailableTitle(scopeError.reason, scopeLabel)}
+    actions={showAll}
+  >
+    {#if scopeError.reason === "unsupported-host"}
+      Pull requests show up for repositories on GitHub.
+    {:else}
+      Pull requests show up once this folder points at a repository on GitHub.
+    {/if}
   </PageEmpty>
 {:else if !allProjects && scopeError}
   <PageEmpty icon={WarningCircleIcon} tone="muted" title="Couldn’t load pull requests." actions={retry}>

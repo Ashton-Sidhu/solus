@@ -221,6 +221,15 @@ export class WorkLiveManager {
     }
   }
 
+  /**
+   * Shutdown: write every body with pushes it does not have yet, after each work's
+   * operations in flight (a leaving client's write among them). The pushes are stored
+   * already; this keeps the body current for the process that comes next.
+   */
+  async flushAll(): Promise<void> {
+    await Promise.all([...this.rooms.keys(), ...this.chains.keys()].map(workId => this.serial(workId, () => this.flush(workId))))
+  }
+
   // ── Writes from outside the live doc ──────────────────────────────────────
 
   private async write(workId: string, by: Attribution | null, run: () => Promise<string>): Promise<void> {

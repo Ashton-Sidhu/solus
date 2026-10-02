@@ -1,6 +1,6 @@
 import type { SessionSpec } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { type NavTarget, type PaneId } from './routing/location'
@@ -39,6 +39,10 @@ export class SessionDrafts {
    *  session, which is why nothing else ever lists one. */
   sessionDrafts = new SvelteMap<string, SessionDraft>()
 
+  /** Drafts a page's docked composer is writing: no pane shows them, but the
+   *  user is typing in them all the same. */
+  readonly dockedDraftIds = new SvelteSet<string>()
+
   /** The drafts a pane is composing right now. A draft on screen is where the
    *  user is typing, not something they have set aside, so nothing lists it —
    *  moving the pane off it is the moment it becomes a draft they *have*. */
@@ -50,6 +54,7 @@ export class SessionDrafts {
       // modal only to leave again when it closes is noise.
       if (pane.base?.name === 'draft') ids.add(pane.base.params.draftId)
     }
+    for (const draftId of this.dockedDraftIds) ids.add(draftId)
     return ids
   }
 
@@ -125,6 +130,22 @@ export class SessionDrafts {
     draft.boundWorkId = options.workId ?? null
     this.sessionDrafts.set(draft.id, draft)
     return draft
+  }
+
+  /** Mint a draft for a page's docked composer. It counts as composed while
+   *  docked, so no pane and no sidebar row claims it from under the page. */
+  openDockedDraft(options: CreateTabOptions, cwd?: string): SessionDraft {
+    const draft = this.createSessionDraft(options, cwd)
+    this.dockedDraftIds.add(draft.id)
+    return draft
+  }
+
+  /** The page let go of its docked composer. An empty draft goes; a written-in
+   *  one stays, and the sidebar lists it as the way back to the words. */
+  undockDraft(draftId: string): void {
+    this.dockedDraftIds.delete(draftId)
+    const draft = this.sessionDrafts.get(draftId)
+    if (draft?.isEmpty) this.dropDraft(draftId)
   }
 
   /** Go back to a draft that was written in and left — what its sidebar row
@@ -216,6 +237,7 @@ export class SessionDrafts {
    *  a draft's project rail owns Git action state the same way a tab's does. */
   private dropDraft(draftId: string): void {
     this.sessionDrafts.delete(draftId)
+    this.dockedDraftIds.delete(draftId)
     disposeGitActions(draftId)
   }
 

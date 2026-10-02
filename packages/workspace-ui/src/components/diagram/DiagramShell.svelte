@@ -7,7 +7,6 @@
   import "@xyflow/svelte/dist/style.css";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { downloadPayload, type WorkExportRequest } from "../work/lib/work-export";
-  import type { SessionMeta } from "@solus/contracts/types";
   import { getSurfaceContext, getSettingsContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
@@ -69,8 +68,6 @@
         Lets the host decide whether an agent update can safely refresh. */
     onDirtyChange?: (dirty: boolean) => void;
     /** Shared work actions (Chat / copy / overflow) — same contract as docs. */
-    onOpenChat?: (mode: "resume" | "new") => void;
-    originalSessionMeta?: SessionMeta | null;
     /** Work id — enables the header's History. */
     workId?: string;
     /** Delete the work (closes the pane + offers undo). */
@@ -94,8 +91,6 @@
     onSave,
     onClose,
     onDirtyChange,
-    onOpenChat,
-    originalSessionMeta,
     workId,
     onDelete,
     onDuplicate,
@@ -682,8 +677,6 @@
     {workId}
     {onRename}
     {onOpenWorkspace}
-    {onOpenChat}
-    {originalSessionMeta}
     {onDelete}
     {onDuplicate}
     {exportFormats}

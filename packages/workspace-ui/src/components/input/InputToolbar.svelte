@@ -129,7 +129,7 @@
 -->
 <div
   data-testid="input-toolbar"
-  class="flex flex-1 min-w-0 items-center gap-2 {spacious
+  class="flex flex-1 min-w-0 items-center gap-1 {spacious
     ? 'editor-input-toolbar text-workspace-chrome [&_button]:text-[length:inherit]'
     : ''} {readOnly ? 'opacity-50' : ''}"
   inert={readOnly}
@@ -142,8 +142,10 @@
     attachDisabled={!canAttachFiles}
     {attachTooltip}
   />
+  <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
-  <SessionChip {tabId} {isPrimary} bind:selection returnFocusOnClose />
+  <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
+  <SessionChip {tabId} {isPrimary} bind:selection returnFocusOnClose class="border-0" />
 
   <!-- Rungs 1 and 4 live inside StatusBarControls, which hides its own readouts and
        keeps `trailingActions` — connection retry, push bell, Switch server on

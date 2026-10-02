@@ -349,13 +349,12 @@ export class RouterStore {
     const browserHistory = new BrowserRouteHistory(window)
     this.attachHistory(browserHistory)
 
-    if (window.location.hash && browserHistory.current() !== '/') {
+    if (window.location.hash.startsWith('#/') || window.location.pathname !== '/') {
       this.applyHistoryLocation(browserHistory.current())
-      const canonical = serializeLocation(this.location)
-      if (canonical !== browserHistory.current()) browserHistory.replace(canonical)
-    } else {
-      browserHistory.replace(serializeLocation(this.location))
     }
+    // At the root, keep the restored workspace. A direct path takes priority.
+    // Always replace so a legacy hash link becomes a path without a new entry.
+    browserHistory.replace(serializeLocation(this.location))
   }
 
   destroy(): void {

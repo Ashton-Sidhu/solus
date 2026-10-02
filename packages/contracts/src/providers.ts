@@ -87,10 +87,14 @@ export interface PrListPage {
   hasMore: boolean
 }
 
+/** Why a project has no pull requests to read. A state, not a failure. */
+export type PrUnavailableReason = 'not-a-repository' | 'no-remote' | 'unsupported-host'
+
 /** One project's first page from a read that covered several projects on one
  *  host. A project that could not be read says why, and the others still answer. */
 export type PrProjectListing =
   | { projectRoot: string; page: PrListPage }
+  | { projectRoot: string; unavailable: PrUnavailableReason }
   | { projectRoot: string; error: string }
 
 /**

@@ -25,13 +25,13 @@
       <Button
         {...props}
         type="button"
-        variant="outline"
+        variant="ghost"
         size="xs"
-        class="h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
+        class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
         aria-label={draftCount > 0 ? `Review, ${draftCount} pending comments` : "Review"}
         title={hint ? `Submit a review (${hint} to approve)` : "Submit a review"}
       >
-        <ReviewIcon class="size-3" aria-hidden="true" />
+        <ReviewIcon class="size-[15px]" strokeWidth={1.5} aria-hidden="true" />
         <span class="@max-[40rem]/band:hidden">Review</span>
         {#if draftCount > 0}
           <span class="tabular-nums text-muted-foreground">{draftCount}</span>

@@ -141,4 +141,5 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   readonly prReview: Pick<PrReviewActions, 'openReviewMode'>
 }
 
-export const [getSurfaceContext, setSurfaceContext] = createAppContext<SurfaceContext>('surface')
+export const [getSurfaceContext, setSurfaceContext, hasSurfaceContext] =
+  createAppContext<SurfaceContext>('surface')

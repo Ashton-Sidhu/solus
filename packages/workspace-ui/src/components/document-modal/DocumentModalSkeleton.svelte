@@ -58,15 +58,14 @@
       {/if}
       <div class="min-w-4 flex-auto"></div>
       <!-- One ghost per real control, in row order and at its real width and
-           radius: the Markdown verb, the Share glyph, Ask Solus (a glyph plus
-           its mode caret), and the ⋯ menu that closes the row. -->
+           radius: the Markdown verb, the Share glyph, and the ⋯ menu that
+           closes the row. -->
       <div
         class="flex shrink-0 items-center gap-1.5 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
         <Skeleton class="h-6 w-[4.625rem] rounded-[0.375rem]" />
         <Skeleton class="size-6 rounded-[0.375rem]" />
-        <Skeleton class="h-6 w-[2.375rem] rounded-[0.375rem]" />
         <Skeleton class="size-6 rounded-[0.375rem]" />
       </div>
     </header>

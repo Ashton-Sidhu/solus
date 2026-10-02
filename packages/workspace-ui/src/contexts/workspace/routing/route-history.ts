@@ -89,8 +89,8 @@ interface BrowserHistoryLike {
 
 interface BrowserLocationLike {
   hash: string
-  pathname?: string
-  search?: string
+  pathname: string
+  search: string
 }
 
 interface BrowserWindowLike {
@@ -118,18 +118,20 @@ export class BrowserRouteHistory implements RouteHistory {
   }
 
   current(): string {
-    return this.browserWindow.location.hash.replace(/^#/, '') || '/chat'
+    const { hash, pathname, search } = this.browserWindow.location
+    // Old workspace links still open. Share and pairing secrets are not routes.
+    return hash.startsWith('#/') ? hash.slice(1) : `${pathname}${search}`
   }
 
   push(location: string): void {
     if (this.current() === location) return
-    this.browserWindow.history.pushState(null, '', `#${location.replace(/^#/, '')}`)
+    this.browserWindow.history.pushState(null, '', location.replace(/^#/, ''))
     this.emit()
   }
 
   replace(location: string): void {
-    if (this.current() === location) return
-    this.browserWindow.history.replaceState(null, '', `#${location.replace(/^#/, '')}`)
+    // Replace even when the route matches: boot converts old hash links in place.
+    this.browserWindow.history.replaceState(null, '', location.replace(/^#/, ''))
     this.emit()
   }
 

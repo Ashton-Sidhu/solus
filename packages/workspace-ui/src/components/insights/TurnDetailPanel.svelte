@@ -1,10 +1,10 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import { getWorkspaceContext, serversStore, sharesStore } from "../../contexts";
   import type { MetricsSpan, TurnFlagKind } from "@solus/contracts/observability-types";
   import {
     Download as ExportIcon,
     Ellipsis as MoreIcon,
-    ListChecks as TaskIcon,
     MessageSquare as SessionIcon,
     PenLine as ComposeIcon,
     Rows3 as SessionPageIcon,
@@ -317,23 +317,23 @@
   <Button
     variant="ghost"
     size="sm"
-    class="h-8 gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] pointer-coarse:h-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10"
     disabled={!sessionId}
     title="Open the conversation this turn belongs to"
     onclick={() => void revealSession()}
   >
-    <SessionIcon class="size-3.5" aria-hidden="true" />
+    <SessionIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
     Open session
   </Button>
   <Button
     variant="ghost"
     size="sm"
-    class="h-8 gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] pointer-coarse:h-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10"
     disabled={!sessionId}
     title={taskTitle ? `Open task: ${taskTitle}` : "Open the task this turn ran under"}
     onclick={() => void openSessionTask()}
   >
-    <TaskIcon class="size-3.5" aria-hidden="true" />
+    <TaskIcon size={16} aria-hidden="true" />
     Open task
   </Button>
   <!-- Sharing a turn shares a report of it: a work captured now, which
@@ -343,13 +343,13 @@
     <Button
       variant="ghost"
       size="icon"
-      class="size-8 shrink-0 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] pointer-coarse:size-10"
+      class="size-6.5 shrink-0 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:size-10"
       title="Share a report of this turn"
       aria-label="Share a report of this turn"
       disabled={sharesStore.busy}
       onclick={shareReport}
     >
-      <ShareIcon size={14} aria-hidden="true" />
+      <ShareIcon size={16} strokeWidth={1.5} aria-hidden="true" />
     </Button>
   {/if}
   <DropdownMenu.Root bind:open={moreOpen}>
@@ -359,11 +359,11 @@
           {...props}
           variant="ghost"
           size="icon"
-          class="size-8 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:size-10"
+          class="size-6.5 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:size-10"
           title="More actions"
           aria-label="More actions"
         >
-          <MoreIcon size={15} aria-hidden="true" />
+          <MoreIcon size={16} strokeWidth={1.5} aria-hidden="true" />
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>

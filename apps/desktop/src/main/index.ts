@@ -1,4 +1,5 @@
 import { DesktopActivityBadges } from './activity-badges'
+import { selectedConversationLinkAction } from './conversation-link-action'
 // Electron's bundled Node.js doesn't use the macOS system keychain for TLS.
 // Point it at the macOS root CA bundle so the Anthropic SDK can verify certs.
 if (!process.env.NODE_EXTRA_CA_CERTS) {
@@ -550,6 +551,14 @@ function isSafeExternalUrl(url: string): boolean {
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = []
+
+    const openLink = selectedConversationLinkAction(
+      params.selectionText,
+      quoteContextTabId,
+      params.isEditable,
+      (url, sourceTabId) => win.webContents.send('solus:open-selected-link', url, sourceTabId),
+    )
+    if (openLink) menuItems.push(openLink, { type: 'separator' })
 
     // Corrections come first — a right-click on a red-underlined word is asking
     // for the suggestion, not for the clipboard.

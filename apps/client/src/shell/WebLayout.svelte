@@ -230,11 +230,11 @@ import {
   </div>
 {/snippet}
 
-{#snippet draftComposerActions()}
+{#snippet draftComposerActions(draftId: string)}
   <!-- A draft on a phone gets the phone's controls, not the desktop editor
        toolbar: the same `+` and model pair the started-session dock renders,
        addressed by the draft so the sheet edits the run about to start. -->
-  <MobileComposerActions sourceId={leadingDraftParams?.draftId} />
+  <MobileComposerActions sourceId={draftId} />
 {/snippet}
 
 {#snippet chatContent()}
@@ -265,7 +265,11 @@ import {
     {:then pageModule}
       {@const PageSurface = pageModule.default}
       <div class="mobile-surface mobile-page-pane flex min-h-0 flex-1 flex-col">
-        <PageSurface params={activePageRef.params} paneId={router.leadingPane.id} />
+        <PageSurface
+          params={activePageRef.params}
+          paneId={router.leadingPane.id}
+          composerActions={isMobile ? draftComposerActions : undefined}
+        />
       </div>
     {/await}
   {:else}
@@ -289,6 +293,7 @@ import {
             <WorkPane
               params={activeWorkRoute.params}
               paneId={activeWorkRoute.paneId}
+              composerActions={isMobile ? draftComposerActions : undefined}
             />
           </div>
         {/key}

@@ -46,15 +46,13 @@
         {...tooltipProps}
         bind:this={triggerEl}
         type="button"
-        class="no-drag flex h-[1.625rem] min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-2 overflow-hidden rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {open
-          ? 'bg-[var(--wash-2)]'
-          : 'bg-transparent hover:bg-[var(--wash-2)]'}"
+        class="no-drag flex min-w-0 max-w-[28rem] shrink cursor-pointer items-center gap-1.5 overflow-hidden border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 aria-expanded:bg-[var(--wash-1)]"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${branchLabel}: ${additions} additions, ${deletions} deletions. Show changed files`}
         onclick={() => (open = !open)}
       >
-        <GitBranchIcon class="size-3 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+        <GitBranchIcon class="size-[15px] shrink-0 text-(--solus-text-tertiary)" strokeWidth={1.5} aria-hidden="true" />
         <!-- The last thing to give, and the only thing that does: below a phone-width
              panel the two counts and the glyph carry the summary on their own. -->
         <MiddleTruncate

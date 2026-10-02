@@ -93,6 +93,7 @@ const CANONICAL: { [name: string]: string } = {
  *  normalize it, but it must keep the same content. */
 const NON_CANONICAL: { [name: string]: string } = {
   'star bullets': '* one\n* two',
+  'unlabelled Mermaid': '```\nflowchart LR\n  A[Desktop] --> B[Cloud]\n```',
   'unpadded aligned table': '| L | C | R |\n|:-|:-:|-:|\n| long cell | x | y |',
   'soft-wrapped prose': 'A paragraph that an agent\nwrapped at eighty columns.',
   'entities and escapes': '5 \\> 3 & 2 < 4, 1\\. not a list, and [^1].',
@@ -102,6 +103,18 @@ const NON_CANONICAL: { [name: string]: string } = {
 const ALL = { ...CANONICAL, ...NON_CANONICAL }
 
 describe('the document schema', () => {
+  test('Markdown files render labelled and detected Mermaid through their own editor schema', () => {
+    const extensions = [
+      ...editorSchemaExtensions(neverResolves),
+      createMermaidBlockExtension({ isDark: () => false }),
+    ]
+    const codec = new MarkdownManager({ marked: createMarkdownParser(), extensions })
+    for (const markdown of [CANONICAL.mermaid, NON_CANONICAL['unlabelled Mermaid']]) {
+      expect(codec.parse(markdown)).toEqual(parseDocumentMarkdown(markdown))
+    }
+    expect(codec.parse(CANONICAL['mermaid source stays code']).content?.[0].type).toBe('codeBlock')
+  })
+
   test('the editor and the host build the same schema', () => {
     // WHY: a node the host does not know is deleted from the shared document
     // for every reader. The editor adds views, never nodes, marks, or attrs.
@@ -211,6 +224,7 @@ describe('the markdown codec', () => {
     const blocks = (markdown: string) => (parseDocumentMarkdown(markdown).content ?? []).map((node: JSONContent) => [node.type, node.attrs ?? {}])
     expect(blocks(CANONICAL['front matter'])[0]).toEqual(['frontMatter', { yaml: 'name: visual-artifacts\ndescription: "Say \\"hi\\""\ntags:\n  - one' }])
     expect(blocks(CANONICAL.mermaid)).toEqual([['mermaidBlock', { source: 'graph TD\n  A-->B' }]])
+    expect(blocks(NON_CANONICAL['unlabelled Mermaid'])).toEqual([['mermaidBlock', { source: 'flowchart LR\n  A[Desktop] --> B[Cloud]' }]])
     expect(blocks(CANONICAL['mermaid source stays code'])[0][0]).toBe('codeBlock')
     expect(blocks(CANONICAL.html)).toEqual([
       ['htmlBlock', { html: '<style>b{color:red}</style>\n<b>Hi</b>', explicit: false }],

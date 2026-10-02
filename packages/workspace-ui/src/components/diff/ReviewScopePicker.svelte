@@ -73,15 +73,13 @@
       <button
         {...props}
         type="button"
-        class="no-drag flex h-[1.625rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-workspace-chrome transition-[background-color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {open
-          ? 'bg-[var(--wash-2)]'
-          : 'bg-transparent hover:bg-[var(--wash-2)]'}"
+        class="no-drag flex shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 aria-expanded:bg-[var(--wash-1)]"
         aria-label={`Diff scope: ${label}`}
         data-testid="review-scope-picker"
       >
-        <TriggerIcon class="size-3 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+        <TriggerIcon class="size-[15px] shrink-0 text-(--solus-text-tertiary)" strokeWidth={1.5} aria-hidden="true" />
         <span class="whitespace-nowrap tabular-nums text-(--solus-text-primary)">{label}</span>
-        <CaretDownIcon class="size-2.5 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+        <CaretDownIcon class="size-3.5 shrink-0 text-(--solus-text-tertiary)" strokeWidth={1.5} aria-hidden="true" />
       </button>
     {/snippet}
   </DropdownMenu.Trigger>

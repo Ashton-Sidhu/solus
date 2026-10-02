@@ -128,8 +128,13 @@ async function installNodeRuntime(target: Target, staging: string): Promise<void
 export async function buildServerBundle(staging: string): Promise<void> {
   const outdir = join(staging, 'libexec', 'server')
   mkdirSync(outdir, { recursive: true })
+  await bundleServerEntry(join(repoRoot, 'apps', 'standalone-server', 'src', 'index.ts'), join(outdir, 'standalone.js'))
+}
+
+/** One self-contained CommonJS file for Node; the cloud application bundles the record service the same way (scripts/build-record-service.ts). */
+export async function bundleServerEntry(entry: string, outfile: string): Promise<void> {
   await run(esbuildBin(), [
-    join(repoRoot, 'apps', 'standalone-server', 'src', 'index.ts'),
+    entry,
     '--bundle',
     '--platform=node',
     '--target=node24',
@@ -141,7 +146,7 @@ export async function buildServerBundle(staging: string): Promise<void> {
     `--define:process.env.SOLUS_GITHUB_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GITHUB_CLIENT_ID ?? '')}`,
     `--define:process.env.SOLUS_ATLASSIAN_CLIENT_ID=${JSON.stringify(process.env.SOLUS_ATLASSIAN_CLIENT_ID ?? '')}`,
     `--define:process.env.SOLUS_ATLASSIAN_CLIENT_SECRET=${JSON.stringify(process.env.SOLUS_ATLASSIAN_CLIENT_SECRET ?? '')}`,
-    `--outfile=${join(outdir, 'standalone.js')}`,
+    `--outfile=${outfile}`,
     '--external:electron',
     '--external:electron-updater',
     '--external:@ff-labs/fff-node',

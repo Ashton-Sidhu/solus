@@ -15,7 +15,7 @@ import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage, PrProjectListing } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
-import { prSurfaceError, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
+import { prSurfaceError, prUnavailable, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { PrMirrors } from './pr-mirror'
 import { PullRequest } from './pull-request.svelte'
 
@@ -289,6 +289,10 @@ export class ProjectPrs {
   acceptListing(token: number, filter: PrFilter, listing: PrProjectListing): void {
     if (token !== this.listingToken || this.listKey(this.filter) !== this.listKey(filter)) return
     if (this.revision !== this.listingRevision) return
+    if ('unavailable' in listing) {
+      this.error = prUnavailable(listing.unavailable)
+      return
+    }
     if ('error' in listing) {
       this.error = prSurfaceError(listing.error)
       return

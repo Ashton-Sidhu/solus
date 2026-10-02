@@ -102,7 +102,7 @@
   // does not, and home sits between them.
   const panelWidth = $derived.by(() => {
     if (store.step === "home") return "42rem";
-    if (isNewProject) return "32rem";
+    if (isNewProject) return "42rem";
     return isGithub ? "45rem" : "39rem";
   });
   const tailLogLine = $derived(store.logLines[store.logLines.length - 1] ?? "");
@@ -342,8 +342,7 @@
       bind:this={dialogEl}
       id="open-project"
       class="flex max-h-[min(85dvh,44rem)] w-full origin-top flex-col overflow-hidden overscroll-contain
-        rounded-2xl text-foreground
-        {isNewProject && store.step === 'destination' ? 'bg-[color-mix(in_oklch,var(--muted)_40%,var(--popover))]' : 'bg-popover'}
+        rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
         [transition:max-width_var(--duration-modal)_var(--ease-premium)] motion-reduce:transition-none
@@ -561,19 +560,16 @@
       {/if}
 
       {#if store.step === "destination"}
-        <!-- A new project is one field and one button, so the whole panel is one
-             tinted surface with only the name card raised on it: the footer has
-             no rule or band, and its edges line up with the card. -->
-        <footer class="flex h-14 shrink-0 items-center gap-3 border-t
-          {isNewProject ? 'border-transparent px-5 -mt-1' : 'border-border px-4'}
+        <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
           max-md:h-auto max-md:flex-wrap max-md:py-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom,0))]">
           <!-- Where the primary button commits, spelled out — the clone lands
                under the host's projects root unless a folder was chosen. -->
           {#if isNewProject}
-            <!-- The path is under the field and any error is there too; this
-                 says only what Create makes, and where. -->
-            <span class="min-w-0 flex-1 truncate text-muted-foreground">
-              Empty folder with Git · {store.hostLabel || "this machine"}
+            <span
+              class="min-w-0 flex-1 truncate text-muted-foreground"
+              title={store.newProjectPath ?? undefined}
+            >
+              {abbreviateHome(store.newProjectPath ?? store.newProjectParent ?? store.projectsRoot)}
             </span>
           {:else if store.cloneFailure}
             {@const failure = store.cloneFailure}
@@ -632,7 +628,7 @@
           {/if}
           <Button
             variant="ghost"
-            class="shrink-0 text-sm max-md:h-11 max-md:flex-1 {isNewProject ? 'font-normal text-muted-foreground hover:text-foreground' : ''}"
+            class="shrink-0 text-sm max-md:h-11 max-md:flex-1"
             onclick={goBack}
           >
             Cancel

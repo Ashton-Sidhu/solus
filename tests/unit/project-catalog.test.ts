@@ -3,6 +3,7 @@ import {
   groupLogicalProjects,
   normalizeProjectRoot,
   projectRefKey,
+  projectScopeOptions,
 } from '@solus/workspace-ui/contexts/projects/project-catalog'
 import { ProjectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import { SOLUS_WORKTREE_PATH_MARKER } from '@solus/contracts/types'
@@ -191,5 +192,27 @@ describe('groupLogicalProjects', () => {
       ['github.com/acme/web', 'p1', 1],
       ['github.com/acme/docs', 'p2', 0],
     ])
+  })
+})
+
+describe('projectScopeOptions', () => {
+  const checkout = (projectRoot: string, repositoryKey: string | null | undefined) =>
+    ({ serverId: 'laptop', projectRoot, label: projectRoot.slice(1), lastSeenAt: 1, repositoryKey })
+
+  test('a project is local-only once its host says it has no remote, and not before', () => {
+    // WHY: the pull request page keeps a local-only project out of its reads.
+    // A checkout its host has not yet named is not known to lack a remote;
+    // treating it as local-only would drop a real repository from the list.
+    const options = projectScopeOptions(
+      groupLogicalProjects([checkout('/projects', null), checkout('/fresh', undefined), checkout('/web', 'github.com/acme/web')], []),
+      () => true,
+      () => 'laptop',
+      null,
+    )
+    expect(Object.fromEntries(options.map((option) => [option.label, option.localOnly]))).toEqual({
+      projects: true,
+      fresh: false,
+      web: false,
+    })
   })
 })

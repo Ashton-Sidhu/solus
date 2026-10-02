@@ -29,9 +29,8 @@
   <!-- The de-chromed control strip, at the real one's height, gap and insets —
        centred in the chrome row so its ghosts land on the same optical line as
        the pane's floating chrome cluster. One ghost per control the strip opens
-       with, in row order — the Share glyph, Ask Solus (a glyph plus its mode
-       caret), and the ⋯ menu. The save status is not one of them: nothing has
-       saved yet, so the real strip is empty there. -->
+       with, in row order — the Share glyph and the ⋯ menu. The save status is
+       not one of them: nothing has saved yet, so the real strip is empty there. -->
   <div
     class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5"
     style="padding-left:max(1rem, var(--solus-chrome-lead-inset, 0px));padding-right:max(1rem, var(--solus-pane-chrome-inset, 0px))"
@@ -39,7 +38,6 @@
   >
     <div class="min-w-2 flex-auto"></div>
     <Skeleton class="size-6 rounded-[0.375rem]" />
-    <Skeleton class="h-6 w-[2.375rem] rounded-[0.375rem]" />
     <Skeleton class="size-6 rounded-[0.375rem]" />
   </div>
 

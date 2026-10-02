@@ -36,7 +36,7 @@
             aria-pressed={diffStyle === option.style}
             aria-label={option.label}
           >
-            <option.icon size={14} aria-hidden="true" />
+            <option.icon size={15} strokeWidth={1.5} aria-hidden="true" />
           </button>
         {/snippet}
       </TooltipUI.Trigger>
@@ -46,36 +46,42 @@
 </div>
 
 <style>
+  /* No track behind the pair: the raised active pill carries the cue. */
   .view-toggle {
     display: flex;
     align-items: center;
-    height: 1.75rem;
-    padding: 0.125rem;
-    border-radius: 0.5rem;
-    background: var(--solus-surface-hover);
+    gap: 0.125rem;
+    height: 1.625rem;
     flex-shrink: 0;
   }
   .view-toggle-btn {
     display: inline-flex;
     align-items: center;
     height: 100%;
-    padding: 0 0.4375rem;
+    padding: 0 0.5rem;
     border: 0;
-    border-radius: 0.375rem;
+    border-radius: 9999px;
     background: transparent;
-    color: var(--solus-text-tertiary);
+    color: var(--muted-foreground);
     cursor: pointer;
     transition:
       color 120ms ease,
       background-color 120ms ease;
   }
   .view-toggle-btn:hover {
-    color: var(--solus-text-secondary);
+    background: var(--wash-1);
+    color: var(--foreground);
   }
   .view-toggle-btn.is-active {
-    background: var(--solus-container-bg);
-    color: var(--solus-text-primary);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.07);
+    background: var(--background);
+    color: var(--foreground);
+    font-weight: 500;
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 1px 6px color-mix(in oklch, var(--foreground) 6%, transparent);
+  }
+  .view-toggle-btn.is-active:hover {
+    background: var(--wash-1);
   }
   .view-toggle-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);

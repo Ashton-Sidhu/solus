@@ -64,7 +64,7 @@
      the whole cue. A track would draw a second object into a band whose point is
      that it holds still. -->
 <div
-  class="no-drag flex shrink-0 items-center gap-0.5"
+  class="no-drag flex shrink-0 items-center gap-1"
   role="tablist"
   aria-label="Review views"
 >
@@ -77,11 +77,11 @@
       role="tab"
       aria-selected={isActive}
       title={tab.id === "guide" ? guideHint : tab.id === "lens" ? lensHint : undefined}
-      class="relative flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
-        ? 'bg-[var(--wash-2)] font-medium text-foreground'
+      class="relative flex h-6.5 cursor-pointer items-center gap-1 rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
+        ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
         : isUnread
-          ? 'bg-transparent font-medium text-(--success)'
-          : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+          ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'
+          : 'bg-transparent font-normal text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
       onclick={() => onSelect(tab.id)}
     >
       {tab.label}

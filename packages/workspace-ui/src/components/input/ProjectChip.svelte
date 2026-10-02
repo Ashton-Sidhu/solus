@@ -1,14 +1,10 @@
 <script lang="ts">
   import {
-    ArrowLeft as ArrowLeftIcon,
     Check as CheckIcon,
-    CircleAlert as CircleAlertIcon,
     FolderOpen as FolderOpenIcon,
-    LoaderCircle as LoaderIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import {
     connectionsStore,
     serversStore,
@@ -17,10 +13,6 @@
   } from "../../contexts";
   import { isChatFolder, SCRATCHPAD_LABEL } from "../../lib/paths";
   import { projectHostId } from "../servers/run-on";
-  import NewProjectNameField from "../servers/NewProjectNameField.svelte";
-  import { newProjectPath } from "../servers/lib/open-project-flow";
-  import { messageFor } from "../servers/lib/setup-rpc";
-  import { toasts } from "../../lib/toasts";
   import type { RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -47,7 +39,7 @@
     onSelect: (checkout: ProjectRef) => void;
     /** Open the full project browser: remote hosts and folders not in the catalog. */
     onBrowse: () => void;
-    /** Create a project from nothing on the run's host, then open it here. */
+    /** Open the project dialog, which also offers project creation. */
     onNewProject: () => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
@@ -107,32 +99,12 @@
   let query = $state("");
   let commandEl = $state<HTMLDivElement | null>(null);
 
-  // "New project…" is a step inside this menu rather than a dialog over it:
-  // the name is typed where the list was, and Escape goes back to the list.
-  let view = $state<"list" | "new">("list");
-  let newProjectName = $state("");
-  let creatingProject = $state(false);
-  // The failure is told once as a toast; the icon marks the field only until
-  // the name that failed is edited.
-  let createFailure = $state<{ name: string; message: string } | null>(null);
-  const failure = $derived(createFailure?.name === newProjectName ? createFailure : null);
-  let nameInputEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
-
-  const capabilities = $derived(connectionsStore.capabilitiesFor(hostId));
-  const projectsRoot = $derived(capabilities?.projectsBaseDirectory ?? "~/projects");
-  const canCreate = $derived(
-    !creatingProject && !!newProjectPath(projectsRoot, newProjectName, capabilities?.platform),
-  );
-
   // The chip is no longer the only way in, so the list loads off the open state
   // itself rather than off this trigger's click.
   $effect(() => {
     if (!open) return;
     tooltipOpen = false;
     query = "";
-    view = "list";
-    newProjectName = "";
-    createFailure = null;
     void projectsStore.loadRecentProjects(hostId);
   });
 
@@ -161,49 +133,7 @@
     commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
   }
 
-  function showNewProject() {
-    view = "new";
-    // The name field needs the host's projects folder, which may not be read yet.
-    if (!capabilities) void connectionsStore.refreshCapabilities({ serverId: hostId });
-    requestAnimationFrame(() => nameInputEl?.focus());
-  }
-
-  function showList() {
-    view = "list";
-    createFailure = null;
-    requestAnimationFrame(() =>
-      commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus(),
-    );
-  }
-
-  /** Escape steps back to the list before it closes the menu. */
-  function handleEscape(event: KeyboardEvent) {
-    if (view !== "new") return;
-    event.preventDefault();
-    showList();
-  }
-
-  async function createProject() {
-    if (!canCreate) return;
-    const name = newProjectName;
-    creatingProject = true;
-    createFailure = null;
-    try {
-      const api = serverConnections.apiFor(hostId);
-      const result = await api.setupCreateProject({ name: name.trim() });
-      projectsStore.addProject(hostId, api, result.path);
-      activate({ serverId: hostId, projectRoot: result.path });
-    } catch (err) {
-      const message = messageFor(err);
-      createFailure = { name, message };
-      toasts.error("Could not create project", { description: message });
-      nameInputEl?.focus();
-    } finally {
-      creatingProject = false;
-    }
-  }
-
-  /** The full flow, for a location other than the host's projects folder. */
+  /** Open the shared project dialog on its home screen. */
   function openNewProjectFlow() {
     open = false;
     onNewProject();
@@ -266,53 +196,8 @@
     sideOffset={6}
     collisionPadding={8}
     onCloseAutoFocus={handleCloseAutoFocus}
-    onEscapeKeydown={handleEscape}
     class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
-    {#if view === "new"}
-      <!-- The name takes the place of the search field in the same header
-           row, so the step reads as this menu. -->
-      <div
-        class="flex items-center gap-2 px-3 py-2.5 text-(--solus-text-tertiary)"
-      >
-        <button
-          type="button"
-          class="-m-1 flex size-5 shrink-0 items-center justify-center rounded-md hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
-          aria-label="Back to projects"
-          onclick={showList}
-        >
-          <ArrowLeftIcon size={13} />
-        </button>
-        <NewProjectNameField
-          bind:value={newProjectName}
-          bind:inputEl={nameInputEl}
-          parent={projectsRoot}
-          platform={capabilities?.platform}
-          disabled={creatingProject}
-          onsubmit={() => void createProject()}
-          showsParent={false}
-          class="h-4 leading-4"
-        />
-        {#if creatingProject}
-          <LoaderIcon size={13} class="shrink-0 animate-spin" aria-label="Creating" />
-        {:else if failure}
-          <span class="shrink-0 text-(--solus-status-error)" title={failure.message}>
-            <CircleAlertIcon size={13} aria-label="Could not create project" />
-          </span>
-        {/if}
-        <!-- The menu is too narrow for the folder path, so the location is a
-             tooltip on the control that changes it. -->
-        <button
-          type="button"
-          class="-m-1 flex size-5 shrink-0 items-center justify-center rounded-md hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
-          title="Change location — {projectsRoot}"
-          aria-label="Change location, now {projectsRoot}"
-          onclick={openNewProjectFlow}
-        >
-          <FolderOpenIcon size={13} />
-        </button>
-      </div>
-    {:else}
     <Command.Root bind:ref={commandEl}>
       <MenuSearch bind:value={query} placeholder="Search projects" />
       <Command.List class="max-h-[256px] overflow-y-auto p-1.5">
@@ -371,7 +256,7 @@
 
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
-        <Command.Item value="new project create" onSelect={showNewProject}>
+        <Command.Item value="new project create" onSelect={openNewProjectFlow}>
           <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">New project…</span>
         </Command.Item>
@@ -381,6 +266,5 @@
         </Command.Item>
       </Command.List>
     </Command.Root>
-    {/if}
   </Popover.Content>
 </Popover.Root>

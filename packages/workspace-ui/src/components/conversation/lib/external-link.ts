@@ -10,6 +10,15 @@ export function isWebUrl(href: string): boolean {
   }
 }
 
+/** Selected text must be one complete web address, not prose containing one. */
+export function selectedWebUrl(text: string): string | null {
+  const selected = text.trim();
+  if (!selected || /\s/.test(selected)) return null;
+  const href = /^www\./i.test(selected) ? `https://${selected}` : selected;
+  if (!/^https?:\/\//i.test(href)) return null;
+  return isWebUrl(href) ? href : null;
+}
+
 export function faviconUrlForHref(href: string): string | null {
   try {
     const url = new URL(href);

@@ -1,14 +1,21 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
-  import { Search as MagnifyingGlassIcon, ChevronRight as CaretRightIcon, ChevronLeft as CaretLeftIcon } from "@lucide/svelte";
-  import Kbd from '../ui/Kbd.svelte'
-  import { menuRowVariants } from '../ui/menu/menu-row'
-  import { useScope, useKeybinding } from '../../lib/keybindings/use-keybinding.svelte'
-  import { comboHint } from '../../lib/keybindings/manifest'
-  import { requestInputFocus } from '../../lib/inputFocus'
-  import { track } from '../../lib/analytics'
-  import { sanitizeCommandId } from '@solus/contracts/analytics-events'
-  import { cn } from '../../lib/utils'
+  import { tick, untrack } from "svelte";
+  import {
+    Search as MagnifyingGlassIcon,
+    ChevronRight as CaretRightIcon,
+    ChevronLeft as CaretLeftIcon,
+  } from "@lucide/svelte";
+  import Kbd from "../ui/Kbd.svelte";
+  import { menuRowVariants } from "../ui/menu/menu-row";
+  import {
+    useScope,
+    useKeybinding,
+  } from "../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { track } from "../../lib/analytics";
+  import { sanitizeCommandId } from "@solus/contracts/analytics-events";
+  import { cn } from "../../lib/utils";
   import {
     filterCommands,
     groupCommands,
@@ -16,137 +23,148 @@
     retainCommandSelection,
     type Command,
     type CommandSelectionMove,
-  } from './lib/commands'
+  } from "./lib/commands";
 
   interface Props {
-    open: boolean
-    commands: Command[]
+    open: boolean;
+    commands: Command[];
     /**
      * When set, the palette opens drilled straight into this sub-page instead of
      * the root list. Consumed (and cleared) the moment the palette opens.
      */
-    initialPage?: { id: string; title: string } | null
+    initialPage?: { id: string; title: string } | null;
   }
 
-  let { open = $bindable(), commands, initialPage = $bindable(null) }: Props = $props()
+  let {
+    open = $bindable(),
+    commands,
+    initialPage = $bindable(null),
+  }: Props = $props();
 
-  let query = $state('')
-  let selectedValue = $state('')
-  let searchEl: HTMLInputElement | null = $state(null)
-  let commandRootEl: HTMLDivElement | null = $state(null)
-  let previousQuery = ''
-  let previousPageId: string | null = null
+  let query = $state("");
+  let selectedValue = $state("");
+  let searchEl: HTMLInputElement | null = $state(null);
+  let commandRootEl: HTMLDivElement | null = $state(null);
+  let previousQuery = "";
+  let previousPageId: string | null = null;
   // When set, we're drilled into a parent command's children sub-page. We hold
   // the parent's id (not a snapshot of its children) so the sub-page re-derives
   // its list from the live `commands` prop — children that load in the
   // background after drilling in show up without re-entering the page.
-  let page = $state<{ id: string; title: string } | null>(null)
+  let page = $state<{ id: string; title: string } | null>(null);
 
   const activeCommands = $derived.by(() => {
-    if (!page) return commands
-    return commands.find((c) => c.id === page!.id)?.children ?? []
-  })
-  const filtered = $derived(filterCommands(activeCommands, query))
-  const groups = $derived(groupCommands(filtered))
-  const ordered = $derived(groups.flatMap((group) => group.items))
-  const orderedCommandIds = $derived(ordered.map((command) => command.id).join('\u0000'))
-  const hasResults = $derived(filtered.length > 0)
+    if (!page) return commands;
+    return commands.find((c) => c.id === page!.id)?.children ?? [];
+  });
+  const filtered = $derived(filterCommands(activeCommands, query));
+  const groups = $derived(groupCommands(filtered));
+  const ordered = $derived(groups.flatMap((group) => group.items));
+  const orderedCommandIds = $derived(
+    ordered.map((command) => command.id).join("\u0000"),
+  );
+  const hasResults = $derived(filtered.length > 0);
 
-  useScope('command-palette', { exclusive: true, active: () => open })
-  useKeybinding('command-palette.close', () => close())
+  useScope("command-palette", { exclusive: true, active: () => open });
+  useKeybinding("command-palette.close", () => close());
 
   function keyboardMove(e: KeyboardEvent): CommandSelectionMove | null {
-    if (e.key === 'Home') return 'first'
-    if (e.key === 'End') return 'last'
+    if (e.key === "Home") return "first";
+    if (e.key === "End") return "last";
 
     const isNext =
-      e.key === 'ArrowDown' ||
-      (e.ctrlKey && ['n', 'j'].includes(e.key.toLowerCase()))
+      e.key === "ArrowDown" ||
+      (e.ctrlKey && ["n", "j"].includes(e.key.toLowerCase()));
     if (isNext) {
-      if (e.metaKey) return 'last'
-      if (e.altKey) return 'next-group'
-      return 'next'
+      if (e.metaKey) return "last";
+      if (e.altKey) return "next-group";
+      return "next";
     }
 
     const isPrevious =
-      e.key === 'ArrowUp' ||
-      (e.ctrlKey && ['p', 'k'].includes(e.key.toLowerCase()))
+      e.key === "ArrowUp" ||
+      (e.ctrlKey && ["p", "k"].includes(e.key.toLowerCase()));
     if (isPrevious) {
-      if (e.metaKey) return 'first'
-      if (e.altKey) return 'previous-group'
-      return 'previous'
+      if (e.metaKey) return "first";
+      if (e.altKey) return "previous-group";
+      return "previous";
     }
 
-    return null
+    return null;
   }
 
   function onPaletteKeydown(e: KeyboardEvent) {
-    const move = keyboardMove(e)
+    const move = keyboardMove(e);
     if (move) {
-      e.preventDefault()
-      selectedValue = moveCommandSelection(ordered, selectedValue, move, true)
-      void tick().then(() => scrollCommandIntoView(selectedValue))
-      return
+      e.preventDefault();
+      selectedValue = moveCommandSelection(ordered, selectedValue, move, true);
+      void tick().then(() => scrollCommandIntoView(selectedValue));
+      return;
     }
 
-    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return
-    const selectedCommand = ordered.find((command) => command.id === selectedValue)
-    if (!selectedCommand) return
-    e.preventDefault()
-    run(selectedCommand)
+    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+    const selectedCommand = ordered.find(
+      (command) => command.id === selectedValue,
+    );
+    if (!selectedCommand) return;
+    e.preventDefault();
+    run(selectedCommand);
   }
 
   function scrollCommandIntoView(commandId: string) {
-    const items = commandRootEl?.querySelectorAll<HTMLElement>('[data-command-item]')
-    if (!items) return
+    const items = commandRootEl?.querySelectorAll<HTMLElement>(
+      "[data-command-item]",
+    );
+    if (!items) return;
     for (const item of items) {
-      if (item.dataset.value !== commandId) continue
-      item.scrollIntoView({ block: 'nearest' })
-      return
+      if (item.dataset.value !== commandId) continue;
+      item.scrollIntoView({ block: "nearest" });
+      return;
     }
   }
 
   function run(cmd: Command) {
     if (cmd.children) {
-      enterPage(cmd.id, cmd.label)
-      return
+      enterPage(cmd.id, cmd.label);
+      return;
     }
-    open = false
-    page = null
-    query = ''
-    track('palette_command_run', { command_id: sanitizeCommandId(cmd.id) })
-    cmd.run?.()
+    open = false;
+    page = null;
+    query = "";
+    track("palette_command_run", { command_id: sanitizeCommandId(cmd.id) });
+    cmd.run?.();
   }
 
   function enterPage(id: string, title: string) {
-    page = { id, title }
-    query = ''
-    selectedValue = commands.find((command) => command.id === id)?.children?.[0]?.id ?? ''
-    Promise.resolve().then(() => searchEl?.focus())
+    page = { id, title };
+    query = "";
+    selectedValue =
+      commands.find((command) => command.id === id)?.children?.[0]?.id ?? "";
+    Promise.resolve().then(() => searchEl?.focus());
   }
 
   function back() {
-    page = null
-    query = ''
-    selectedValue = commands[0]?.id ?? ''
-    Promise.resolve().then(() => searchEl?.focus())
+    page = null;
+    query = "";
+    selectedValue = commands[0]?.id ?? "";
+    Promise.resolve().then(() => searchEl?.focus());
   }
 
   // Esc / the close keybinding steps out of a sub-page first, then dismisses.
   function close() {
     if (page) {
-      back()
-      return
+      back();
+      return;
     }
-    open = false
-    requestInputFocus()
+    open = false;
+    requestInputFocus();
   }
 
   // Backspace on an empty query also steps back out of a sub-page.
   function onSearchKeydown(e: KeyboardEvent) {
-    if (e.key === 'Backspace' && query === '' && page) {
-      e.preventDefault()
-      back()
+    if (e.key === "Backspace" && query === "" && page) {
+      e.preventDefault();
+      back();
     }
   }
 
@@ -156,34 +174,37 @@
   // clearing it here doesn't re-run this effect and wipe the page back to root.
   $effect.pre(() => {
     if (open) {
-      query = ''
+      query = "";
       untrack(() => {
-        page = initialPage
+        page = initialPage;
         const initialCommands = page
-          ? commands.find((command) => command.id === page!.id)?.children ?? []
-          : commands
-        selectedValue = initialCommands[0]?.id ?? ''
-        if (initialPage) initialPage = null
-      })
-      Promise.resolve().then(() => searchEl?.focus())
+          ? (commands.find((command) => command.id === page!.id)?.children ??
+            [])
+          : commands;
+        selectedValue = initialCommands[0]?.id ?? "";
+        if (initialPage) initialPage = null;
+      });
+      Promise.resolve().then(() => searchEl?.focus());
     }
-  })
+  });
 
   $effect(() => {
-    if (!open) return
-    void orderedCommandIds
-    const pageId = page?.id ?? null
-    const contextChanged = query !== previousQuery || pageId !== previousPageId
-    previousQuery = query
-    previousPageId = pageId
+    if (!open) return;
+    void orderedCommandIds;
+    const pageId = page?.id ?? null;
+    const contextChanged = query !== previousQuery || pageId !== previousPageId;
+    previousQuery = query;
+    previousPageId = pageId;
 
-    const selectionBeforeListChange = untrack(() => selectedValue)
-    const retainedSelection = retainCommandSelection(ordered, selectionBeforeListChange)
+    const selectionBeforeListChange = untrack(() => selectedValue);
+    const retainedSelection = retainCommandSelection(
+      ordered,
+      selectionBeforeListChange,
+    );
     if (contextChanged || retainedSelection !== selectionBeforeListChange) {
-      selectedValue = ordered[0]?.id ?? ''
+      selectedValue = ordered[0]?.id ?? "";
     }
-  })
-
+  });
 </script>
 
 {#snippet commandContent(cmd: Command)}
@@ -219,7 +240,9 @@
   aria-hidden={!open}
   inert={!open}
   role="presentation"
-  onclick={(e) => { if (e.target === e.currentTarget) close() }}
+  onclick={(e) => {
+    if (e.target === e.currentTarget) close();
+  }}
 >
   <!-- `text-menu`, not the chrome rung: the palette is a decision surface like a
        menu. -->
@@ -249,9 +272,14 @@
           >
             <CaretLeftIcon size={14} weight="bold" />
           </button>
-          <span class="flex-shrink-0 font-medium text-(--solus-text-primary)">{page.title}</span>
+          <span class="flex-shrink-0 font-medium text-(--solus-text-primary)"
+            >{page.title}</span
+          >
         {:else}
-          <MagnifyingGlassIcon size={14} class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65" />
+          <MagnifyingGlassIcon
+            size={14}
+            class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65"
+          />
         {/if}
         <input
           bind:this={searchEl}
@@ -259,33 +287,46 @@
           onkeydown={onSearchKeydown}
           type="search"
           name="command-palette-search"
-          aria-label={page ? `Search ${page.title}` : 'Search commands'}
+          aria-label={page ? `Search ${page.title}` : "Search commands"}
           aria-controls="command-palette-results"
           aria-expanded="true"
-          aria-activedescendant={selectedValue ? `command-palette-option-${selectedValue}` : undefined}
+          aria-activedescendant={selectedValue
+            ? `command-palette-option-${selectedValue}`
+            : undefined}
           role="combobox"
-          placeholder={page ? `Search ${page.title.toLowerCase()}…` : 'Type a command or search…'}
+          placeholder={page
+            ? `Search ${page.title.toLowerCase()}…`
+            : "Type a command or search…"}
           class="flex-1 min-w-0 h-auto bg-transparent border-none outline-none text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
           autocomplete="off"
           spellcheck="false"
         />
         {#if !page}
-          <Kbd variant="keycap" class="flex-shrink-0">{comboHint('global.command-palette')}</Kbd>
+          <Kbd variant="keycap" class="flex-shrink-0"
+            >{comboHint("global.command-palette")}</Kbd
+          >
         {/if}
       </div>
 
       <div
         id="command-palette-results"
         role="listbox"
-        aria-label={page ? page.title : 'Commands'}
+        aria-label={page ? page.title : "Commands"}
         class="flex-1 max-h-[26rem] overflow-hidden"
       >
         <div
           class="max-h-[26rem] overflow-x-hidden overflow-y-auto overscroll-y-contain p-2"
         >
           {#if !hasResults}
-            <div role="status" class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-(--solus-text-tertiary)">
-              <MagnifyingGlassIcon size={14} weight="light" class="text-(--solus-text-tertiary)" />
+            <div
+              role="status"
+              class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-(--solus-text-tertiary)"
+            >
+              <MagnifyingGlassIcon
+                size={14}
+                weight="light"
+                class="text-(--solus-text-tertiary)"
+              />
               <span>
                 {#if activeCommands.length === 0}
                   {page ? "Nothing here yet" : "No commands available yet"}
@@ -316,10 +357,10 @@
                     data-command-item
                     data-slot="command-item"
                     data-value={cmd.id}
-                    data-selected={selectedValue === cmd.id ? '' : undefined}
+                    data-selected={selectedValue === cmd.id ? "" : undefined}
                     class={cn(
                       menuRowVariants({ stagger: false }),
-                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!',
+                      "group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!",
                     )}
                     onpointermove={() => (selectedValue = cmd.id)}
                     onclick={() => run(cmd)}
@@ -331,25 +372,6 @@
             {/each}
           {/if}
         </div>
-      </div>
-
-      <div class="flex items-center gap-5 px-4 h-10 flex-shrink-0 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) text-chrome-shelf text-(--solus-text-tertiary)">
-        <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="keycap">↑</Kbd>
-          <Kbd variant="keycap">↓</Kbd>
-          navigate
-        </span>
-        <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="keycap">↵</Kbd>
-          run
-        </span>
-        <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="keycap">esc</Kbd>
-          {page ? 'back' : 'close'}
-        </span>
-        <span class="ml-auto tabular-nums">
-          {filtered.length === 1 ? '1 command' : `${filtered.length} commands`}
-        </span>
       </div>
     </div>
   </div>

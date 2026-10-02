@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
   import {
     Check as CheckIcon,
     ChevronRight as CaretRightIcon,
@@ -7,7 +8,6 @@
     GitCompareArrows as GitDiffIcon,
     GitPullRequest as GitPullRequestIcon,
     Globe as GlobeIcon,
-    ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Plus as PlusIcon,
     Share as ShareIcon,
@@ -289,7 +289,7 @@
           class="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-transparent font-semibold text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.99] [-webkit-tap-highlight-color:transparent]"
           onclick={openTaskPage}
         >
-          <ListChecksIcon size={16} />Open task page
+          <TaskIcon size={16} />Open task page
         </button>
       {/if}
       <div class="flex gap-2">
@@ -332,7 +332,7 @@
             else session.ui.linkPrompt = { kind: "session-task", tabId };
           }}
         >
-          <ListChecksIcon size={15} class="shrink-0 text-(--muted-foreground)" />
+          <TaskIcon size={15} class="shrink-0 text-(--muted-foreground)" />
           <span class="min-w-0 flex-1 truncate {SHEET_ROW_LABEL}">
             {linkedTask ? "Unlink from task" : "Link to task"}
           </span>

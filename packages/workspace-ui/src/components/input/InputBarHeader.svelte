@@ -36,7 +36,6 @@
   import { Button } from "../ui/button";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import ProjectChip from "./ProjectChip.svelte";
-  import TaskPicker from "./TaskPicker.svelte";
   import {
     shouldResetTaskForProjectChange,
     type TaskProjectScope,
@@ -76,11 +75,6 @@
   const sess = $derived(session.sessionFor(source));
   const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
-  // The task the started session will file under, held by whichever this source
-  // is; neither, before a project is chosen, files under none.
-  const taskTarget = $derived<TaskTarget>(
-    sess?.task ?? draft?.task ?? { kind: "none" },
-  );
   // Focus routes to a tab by id; a draft's composer claims bare focus as the
   // primary bar, so it takes no target.
   const focusTarget = $derived(sess ? { tabId: source } : undefined);
@@ -334,11 +328,11 @@
     );
   }
 
-  /** The Open project flow on its New project screen, bound to this run's host.
+  /** The Open project home screen, bound to this run's project host.
    *  A draft is re-aimed at the new folder, so a prompt already typed stays. */
   function newProject() {
     window.dispatchEvent(
-      new CustomEvent("solus:open-project", { detail: { tabId: source, source: "new" } }),
+      new CustomEvent("solus:open-project", { detail: { tabId: source, serverId: projectHost } }),
     );
   }
 
@@ -447,18 +441,7 @@
       <TooltipUI.Content value={branchTooltip} />
     </TooltipUI.Root>
   {/if}
-  <!-- The chip names the task this session files under, so a session with no
-       task shows no chip. -->
-  {#if taskTarget.kind === "existing"}
-    <TaskPicker
-      task={taskTarget}
-      projectKey={gitHome.projectRoot ?? projectDir}
-      serverId={gitServerId}
-      onSelect={selectTask}
-      onDismiss={() => requestInputFocus(focusTarget)}
-      {paneId}
-    />
-  {/if}
+
 </div>
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->

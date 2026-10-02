@@ -12,6 +12,7 @@
   } from "@lucide/svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import type { GuideHeaderActions } from "./lib/review-header";
 
@@ -87,16 +88,14 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="no-drag relative inline-flex size-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-11 {open
-      ? 'bg-[var(--wash-3)] text-foreground'
-      : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-3)] hover:text-foreground'}"
+    class="{PAGE_SOFT_ICON_BTN} relative {open ? 'bg-[var(--wash-1)]! text-foreground!' : ''}"
     aria-label={flagsStale ? "More review options — new commits since guide" : "More review options"}
     aria-haspopup="menu"
     aria-expanded={open}
     title={flagsStale ? "New commits since guide" : "More options"}
     onclick={() => (open = !open)}
   >
-    <DotsThreeIcon size={15} />
+    <DotsThreeIcon size={15} strokeWidth={1.5} />
     {#if flagsStale}
       <span
         class="absolute top-[0.1875rem] right-[0.1875rem] size-[0.3125rem] rounded-full bg-primary"

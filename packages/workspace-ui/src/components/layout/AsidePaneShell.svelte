@@ -86,6 +86,7 @@
     >
       <SessionBreadcrumb
         tabId={tabId ?? ""}
+        {paneId}
         {draft}
         variant="inline"
         showNewSessionAction={false}

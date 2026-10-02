@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** The sidebar footer: one row. Settings, keyboard shortcuts, and Docs sit on
+  /** The sidebar footer: one row. Settings and keyboard shortcuts sit on
    *  the left as icon buttons; the account sits on the right. Signed in, that is
    *  a quiet user icon that matches the row (the avatar waits in the menu, so a
    *  bright profile picture does not pull the eye), and its menu holds the
@@ -14,7 +14,6 @@
     Keyboard as KeyboardIcon,
     UserRound as UserIcon,
     Building2 as OrganizationIcon,
-    LibraryBig as BooksIcon,
     ArrowUpRight as ExternalIcon,
     Check as CheckIcon,
     LogIn as LogInIcon,
@@ -29,8 +28,6 @@
   import * as TooltipUI from "../ui/tooltip";
   import { Button } from "../ui/button";
   import { accountInitial, consolePageUrl } from "./lib/account-menu";
-
-  const DOCS_URL = "https://solus.sh/docs";
 
   const session = getWorkspaceContext();
   const account = $derived(accountStore.state);
@@ -90,13 +87,6 @@
     settingsOpen && session.settingsTab === "keybindings",
     () => session.showSettings("keybindings"),
     KeyboardIcon,
-  )}
-  {@render utilityButton(
-    "Docs",
-    undefined,
-    false,
-    () => void localApi.openExternal(DOCS_URL),
-    BooksIcon,
   )}
 
   <div class="ml-auto flex min-w-0 items-center">

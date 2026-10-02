@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const { resolveRepositoryKey } = await import('@solus/server/git/git-helpers')
+const { resolvePrimaryRepoRef, resolveRepositoryKey } = await import('@solus/server/git/git-helpers')
 
 const roots: string[] = []
 
@@ -50,5 +50,21 @@ describe('resolveRepositoryKey', () => {
     expect(await resolveRepositoryKey(root)).toBeNull()
     execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/web.git'], { cwd: root })
     expect(await resolveRepositoryKey(root)).toBe('github.com/acme/web')
+  })
+})
+
+describe('resolvePrimaryRepoRef', () => {
+  test('reads pull requests from the repository the project key names', async () => {
+    // WHY: the catalog names a fork by its upstream. Reading pull requests from
+    // origin alone listed a fork's project with the fork's pull requests, and
+    // a checkout with only an upstream remote as having none.
+    const root = repoWithRemotes({ origin: 'git@github.com:me/web.git', upstream: 'https://github.com/Acme/web.git' })
+    expect(await resolvePrimaryRepoRef(root)).toEqual({ host: 'github.com', owner: 'Acme', repo: 'web' })
+    expect(await resolvePrimaryRepoRef(repoWithRemotes({ upstream: 'git@github.com:acme/api.git' })))
+      .toEqual({ host: 'github.com', owner: 'acme', repo: 'api' })
+  })
+
+  test('a repository with no remote has none', async () => {
+    expect(await resolvePrimaryRepoRef(repoWithRemotes({}))).toBeNull()
   })
 })

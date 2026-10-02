@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     Minimize2 as ArrowsInSimpleIcon,
     Maximize2 as ArrowsOutSimpleIcon,
@@ -110,7 +111,7 @@
      own underneath, where four of them fit. -->
 <div class="@container/band workspace-titlebar shrink-0" data-testid="pr-panel-header">
 <div
-  class="flex h-(--solus-chrome-row-h,2.75rem) items-center gap-1.5 pr-3 @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5 @max-[30rem]/band:h-auto @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:pr-0"
+  class="flex h-(--solus-chrome-row-h,2.75rem) items-center gap-1.5 pr-3 @max-[30rem]/band:h-auto @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:pr-0"
   style={fullScreen
     ? "padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px))"
     : "padding-left: 0.75rem"}
@@ -146,7 +147,7 @@
        it takes the slack instead of the spacer above, so the number sits in the
        middle of the band the way every other phone title does. -->
   <span
-    class="flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
+    class="mr-1.5 flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
   >
     <GitPullRequestIcon size={12} aria-hidden="true" />
     <span>#{number}</span>
@@ -169,44 +170,43 @@
        swap to, full screen is the only state, and the ✕ would be a second way
        out beside the chevron that leads this row. -->
   <div
-    class="flex shrink-0 items-center gap-0.5 pl-1.5 @min-[53.75rem]/band:pl-2.5 @max-[30rem]/band:hidden"
+    class="flex shrink-0 items-center gap-1.5 @max-[30rem]/band:hidden"
   >
     {#if onMoveAcross}
       <PaneSwapButton
         {isLeading}
         onMove={onMoveAcross}
-        iconSize={13}
-        class="no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        iconSize={15}
+        iconStroke={1.5}
+        class={PAGE_SOFT_ICON_BTN}
       />
     {/if}
 
     {#if onToggleFullScreen}
       <button
         type="button"
-        class="no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {fullScreen
-          ? 'bg-[var(--wash-3)] text-foreground'
-          : ''}"
+        class="{PAGE_SOFT_ICON_BTN} {fullScreen ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
         title={fullScreen ? "Back to split" : "Expand to full screen"}
         aria-label={fullScreen ? "Back to split view" : "Expand to full screen"}
         aria-pressed={fullScreen}
         onclick={onToggleFullScreen}
       >
         {#if fullScreen}
-          <ArrowsInSimpleIcon size={13} />
+          <ArrowsInSimpleIcon size={15} strokeWidth={1.5} />
         {:else}
-          <ArrowsOutSimpleIcon size={13} />
+          <ArrowsOutSimpleIcon size={15} strokeWidth={1.5} />
         {/if}
       </button>
     {/if}
 
     <button
       type="button"
-      class="no-drag pointer-events-auto flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+      class={PAGE_SOFT_ICON_BTN}
       title="Close (Esc)"
       aria-label="Close pull request"
       onclick={onClose}
     >
-      <XIcon size={13} />
+      <XIcon size={16} strokeWidth={1.5} />
     </button>
   </div>
   </span>

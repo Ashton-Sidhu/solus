@@ -15,7 +15,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 /** Each project root is its own repository, named after the root. */
 function repoOf(scope: string): RepoRef | null {
-  if (scope === '/plain-folder') return null
+  if (scope === '/plain-folder' || scope === '/unpushed') return null
   return { host: 'github.com', owner: 'acme', repo: scope.slice(scope.lastIndexOf('/') + 1) }
 }
 
@@ -53,8 +53,10 @@ mock.module('@solus/server/prs/pr-index', () => ({
 }))
 mock.module('@solus/server/git/git-helpers', () => ({
   resolveRepoRef: async (scope: string) => repoOf(scope),
-  // No local checkout, so no guide warming is scheduled from a list read.
-  resolveRepoRoot: async () => null,
+  resolvePrimaryRepoRef: async (scope: string) => repoOf(scope),
+  // Only `/unpushed` is a checkout, so no guide warming is scheduled from a
+  // list read that answers.
+  resolveRepoRoot: async (scope: string) => (scope === '/unpushed' ? scope : null),
   computeGitState: async () => null,
 }))
 const provider = { review: { getViewer: async () => 'octocat' } } as unknown as Provider
@@ -110,17 +112,21 @@ describe('listing every project on one host', () => {
   })
 
   // WHY: one project the host cannot read — a plain folder, a lapsed token —
-  // must not cost the reader every other project's rows.
+  // must not cost the reader every other project's rows. A project with no
+  // pull requests says why as a reason, not a message: the client once told
+  // "not a repository" from a failure by matching text, and told a plain
+  // folder it had no git remote.
   test('reports a failing project by itself and still answers for the rest', async () => {
     const listings = await server().handle(
       'prListProjects',
-      [ctx, ['/repos/a', '/plain-folder', '/repos/broken'], undefined],
+      [ctx, ['/repos/a', '/plain-folder', '/unpushed', '/repos/broken'], undefined],
       TEST_HANDLER_CTX,
     )
 
     expect(listings).toEqual([
       expect.objectContaining({ projectRoot: '/repos/a', page: expect.objectContaining({ page: 1 }) }),
-      { projectRoot: '/plain-folder', error: 'This folder has no recognizable git remote to review PRs from.' },
+      { projectRoot: '/plain-folder', unavailable: 'not-a-repository' },
+      { projectRoot: '/unpushed', unavailable: 'no-remote' },
       { projectRoot: '/repos/broken', error: 'GitHub is not connected' },
     ])
   })

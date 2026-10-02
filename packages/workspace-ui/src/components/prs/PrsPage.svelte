@@ -973,10 +973,12 @@
           allProjects={pageScope.allProjects}
           hasScope={!!pageScope.projectPath}
           scopeError={shown?.error ?? null}
+          scopeLabel={pageScope.projectLabel}
           serverId={pageScope.serverId}
           {projectsFailure}
           hasItems={activeItems.length > 0}
           onRetry={() => readList(true)}
+          onShowAll={() => session.setProjectPageScope({ kind: "all" })}
         >
         {#if groups.length === 0}
           <ListEmpty title="Nothing matches">

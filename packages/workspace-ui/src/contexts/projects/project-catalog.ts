@@ -114,6 +114,7 @@ export function projectScopeOptions(
       label: project.label,
       available: !!project.cloudProject || project.checkouts.some((entry) => isConnected(entry.serverId)),
       historyOnly: !project.cloudProject,
+      localOnly: !project.cloudProject && project.checkouts.every((entry) => entry.repositoryKey === null),
     }]
   })
   const labelCounts = new Map<string, number>()

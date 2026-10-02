@@ -31,6 +31,23 @@ describe('what a mermaid fence is', () => {
 })
 
 describe('a mermaid block in a document', () => {
+  test('unlabelled diagrams render without a language selection', () => {
+    for (const declaration of ['flowchart LR', 'graph TD', 'sequenceDiagram', 'classDiagram', 'stateDiagram-v2', 'erDiagram']) {
+      const source = `\n%% A diagram\n${declaration}\n  A --> B`
+      expect(mermaidBlockFence(`\`\`\`\n${source}\n\`\`\``)?.source).toBe(source)
+    }
+  })
+
+  test('detection respects explicit languages and does not guess from code or prose', () => {
+    for (const info of ['text', 'plain', 'ts', 'mermaid source']) {
+      expect(mermaidBlockFence(`\`\`\`${info}\n${FLOWCHART}\n\`\`\``)).toBeNull()
+    }
+    for (const source of ['A --> B', 'const graph = "TD"', 'graph theory', 'flowchart LR explains the connections']) {
+      expect(mermaidBlockFence(`\`\`\`\n${source}\n\`\`\``)).toBeNull()
+    }
+    expect(mermaidBlockFence(`\`\`\`\n${FLOWCHART}\n`)).toBeNull()
+  })
+
   test('round-trips byte for byte', () => {
     // WHY: the document's markdown is the file. A round trip that adds or drops
     // a newline rewrites every document containing a diagram the moment it is

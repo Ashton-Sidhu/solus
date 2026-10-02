@@ -16,6 +16,7 @@
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
+  import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
   import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
@@ -55,8 +56,6 @@
   type WorkspaceLayoutModule =
     typeof import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte");
   type WorkspaceLayoutComponent = WorkspaceLayoutModule["default"];
-  const commandPaletteModulePromise =
-    afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   interface Props {
     initialWorkspaceLayout?: WorkspaceLayoutComponent;
   }
@@ -100,38 +99,18 @@
       : null,
   );
 
-  // These components previously stayed mounted and managed their own open
-  // guards. Keep that lifetime after the first lazy load so local draft/focus
-  // state is not reset on every close.
   $effect(() => {
-    if (ui.directoryPickerOpen) ui.hasMountedDirectoryPicker = true;
-    if (ui.shortcutsModalOpen) ui.hasMountedShortcuts = true;
-    if (ui.commandPaletteOpen) ui.hasMountedCommandPalette = true;
-    if (ui.projectSearchOpen) ui.hasMountedProjectSearch = true;
-    if (ui.goToFileOpen) ui.hasMountedGoToFile = true;
-    if (serversStore.addServerOpen) ui.hasMountedAddServer = true;
-    if (openProjectStore.isOpen) ui.hasMountedOpenProject = true;
-    if (hostOnboardingStore.isOpen) ui.hasMountedHostOnboarding = true;
     if (sharesStore.dialog) ui.hasMountedShareDialog = true;
   });
 
-  // Warm the components a keystroke can summon, so the first ⌘K / Open project
-  // only opens them. Mounting is what pulls the lazy chunk in; doing it on the
-  // click meant paying a fetch-and-parse behind a "Loading…" placeholder every
-  // first time. Their data stays deferred until the store actually opens.
+  // Warm the dialogs a keystroke can summon (go to file, find in files, open
+  // project), so their first open only shows them. Mounting is what pulls the
+  // lazy chunk in; doing it on the keystroke meant paying a fetch-and-parse
+  // behind a skeleton every first time. Their data stays deferred until they
+  // open. Home hands straight off to the folder picker, so it is warmed too.
   $effect(() => {
-    if (
-      ui.hasMountedCommandPalette &&
-      ui.hasMountedOpenProject &&
-      ui.hasMountedDirectoryPicker
-    )
-      return;
-    const warm = () => {
-      ui.hasMountedCommandPalette = true;
-      ui.hasMountedOpenProject = true;
-      // Home hands straight off to the picker, so it is on the same hot path.
-      ui.hasMountedDirectoryPicker = true;
-    };
+    if (ui.hasWarmedDialogs) return;
+    const warm = () => (ui.hasWarmedDialogs = true);
     if ("requestIdleCallback" in window) {
       const idleId = window.requestIdleCallback(warm, { timeout: 1_500 });
       return () => window.cancelIdleCallback(idleId);
@@ -464,13 +443,16 @@
       {/await}
     {/if}
 
-    {#if ui.hasMountedDirectoryPicker}
-      {#await import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
-        {#if ui.directoryPickerOpen}
-          <div class="lazy-modal-loading" role="status">Loading folders…</div>
-        {/if}
-      {:then directoryPickerModule}
-        {@const DirectoryPicker = directoryPickerModule.default}
+    <LazyDialog
+      open={ui.directoryPickerOpen}
+      warm={ui.hasWarmedDialogs}
+      load={() => import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
+      placeholder="Filter folders"
+      centered
+      class="h-[clamp(28rem,65vh,43rem)] max-h-none w-[clamp(42rem,72vw,64rem)]"
+      onclose={handleDirectoryPickerClose}
+    >
+      {#snippet children(DirectoryPicker)}
         <DirectoryPicker
           bind:open={ui.directoryPickerOpen}
           onClose={handleDirectoryPickerClose}
@@ -482,63 +464,73 @@
           hostLabel={directoryPickerHostLabel}
           serverId={directoryPickerServerId}
         />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
-    {#if ui.hasMountedShortcuts}
-      {#await import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
-        {#if ui.shortcutsModalOpen}
-          <div class="lazy-modal-loading" role="status">Loading shortcuts…</div>
-        {/if}
-      {:then shortcutsModule}
-        {@const KeyboardShortcutsModal = shortcutsModule.default}
+    <LazyDialog
+      open={ui.shortcutsModalOpen}
+      load={() => import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
+      placeholder="Search shortcuts…"
+      centered
+      class="max-h-[70vh] w-[41.25rem]"
+      onclose={() => (ui.shortcutsModalOpen = false)}
+    >
+      {#snippet children(KeyboardShortcutsModal)}
         <KeyboardShortcutsModal
           bind:open={ui.shortcutsModalOpen}
           activeScopes={ui.shortcutsActiveScopes}
         />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
-    {#if ui.hasMountedGoToFile}
-      {#await import("@solus/workspace-ui/components/search/FilePickerOverlay.svelte")}
-        {#if ui.goToFileOpen}
-          <div class="lazy-modal-loading" role="status">Loading files…</div>
-        {/if}
-      {:then filePickerModule}
-        {@const FilePickerOverlay = filePickerModule.default}
+    <LazyDialog
+      open={ui.goToFileOpen}
+      warm={ui.hasWarmedDialogs}
+      load={() => import("@solus/workspace-ui/components/search/FilePickerOverlay.svelte")}
+      placeholder="Go to file…"
+      onclose={() => (ui.goToFileOpen = false)}
+    >
+      {#snippet children(FilePickerOverlay)}
         <FilePickerOverlay bind:open={ui.goToFileOpen} tabId={keyboardTabId} />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
-    {#if ui.hasMountedProjectSearch}
-      {#await import("@solus/workspace-ui/components/search/ProjectSearchOverlay.svelte")}
-        {#if ui.projectSearchOpen}
-          <div class="lazy-modal-loading" role="status">Loading search…</div>
-        {/if}
-      {:then projectSearchModule}
-        {@const ProjectSearchOverlay = projectSearchModule.default}
+    <LazyDialog
+      open={ui.projectSearchOpen}
+      warm={ui.hasWarmedDialogs}
+      load={() => import("@solus/workspace-ui/components/search/ProjectSearchOverlay.svelte")}
+      placeholder="Search in files…"
+      class="h-[min(34rem,70vh)] max-h-none w-[clamp(22rem,64vw,46rem)]"
+      onclose={() => (ui.projectSearchOpen = false)}
+    >
+      {#snippet children(ProjectSearchOverlay)}
         <ProjectSearchOverlay
           bind:open={ui.projectSearchOpen}
           isDark={settings.isDark}
           tabId={keyboardTabId}
         />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
-    {#if ui.hasMountedCommandPalette}
-      {#await commandPaletteModulePromise}
-        {#if ui.commandPaletteOpen}
-          <div class="lazy-modal-loading" role="status">Loading commands…</div>
-        {/if}
-      {:then commandPaletteModule}
-        {@const CommandPalette = commandPaletteModule.default}
+    <!-- The command palette is keyboard-critical and cheap while hidden. It mounts
+         with the app, after first paint, so the first shortcut only opens it. -->
+    <LazyDialog
+      open={ui.commandPaletteOpen}
+      warm
+      load={() =>
+        afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"))}
+      placeholder="Type a command or search…"
+      class="max-h-[60vh]"
+      onclose={() => (ui.commandPaletteOpen = false)}
+    >
+      {#snippet children(CommandPalette)}
         <CommandPalette
           bind:open={ui.commandPaletteOpen}
           bind:initialPage={ui.paletteInitialPage}
           commands={palette.commands}
         />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
     <!-- Paste-a-link import. Lazy like the other dialogs — most sessions never
      open it, and it pulls the works store's upstream path with it. -->
@@ -554,18 +546,17 @@
 
     <ConnectionStatusOverlay dimBackdrop />
 
-    {#if ui.hasMountedAddServer}
-      {#await import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
-        {#if serversStore.addServerOpen}
-          <div class="lazy-modal-loading" role="status">
-            Loading server setup…
-          </div>
-        {/if}
-      {:then addServerModule}
-        {@const AddServerModal = addServerModule.default}
+    <LazyDialog
+      open={serversStore.addServerOpen}
+      load={() => import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
+      title="Add server"
+      class="w-[28rem]"
+      onclose={() => serversStore.closeAddServer()}
+    >
+      {#snippet children(AddServerModal)}
         <AddServerModal />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
     <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
@@ -584,13 +575,15 @@
       {/await}
     {/if}
 
-    {#if ui.hasMountedOpenProject}
-      {#await import("@solus/workspace-ui/components/servers/OpenProjectDialog.svelte")}
-        {#if openProjectStore.isOpen}
-          <div class="lazy-modal-loading" role="status">Loading projects…</div>
-        {/if}
-      {:then openProjectModule}
-        {@const OpenProjectDialog = openProjectModule.default}
+    <LazyDialog
+      open={openProjectStore.isOpen}
+      warm={ui.hasWarmedDialogs}
+      load={() => import("@solus/workspace-ui/components/servers/OpenProjectDialog.svelte")}
+      title="Open project"
+      class="w-[42rem]"
+      onclose={() => openProjectStore.close()}
+    >
+      {#snippet children(OpenProjectDialog)}
         <OpenProjectDialog
           onOpenProject={(path) =>
             void openProjectAtPath(path, openProjectStore.source)}
@@ -599,21 +592,21 @@
             toasts.error(failure.title, { description: failure.detail })}
           localIdentity={ui.localGitIdentity}
         />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
-    {#if ui.hasMountedHostOnboarding}
-      {#await import("@solus/workspace-ui/components/servers/HostOnboarding.svelte")}
-        {#if hostOnboardingStore.isOpen}
-          <div class="lazy-modal-loading" role="status">
-            Loading host setup…
-          </div>
-        {/if}
-      {:then hostOnboardingModule}
-        {@const HostOnboarding = hostOnboardingModule.default}
+    <LazyDialog
+      open={hostOnboardingStore.isOpen}
+      load={() => import("@solus/workspace-ui/components/servers/HostOnboarding.svelte")}
+      title="Set up host"
+      centered
+      class="min-h-[26rem] w-[58.75rem]"
+      onclose={() => hostOnboardingStore.close()}
+    >
+      {#snippet children(HostOnboarding)}
         <HostOnboarding />
-      {/await}
-    {/if}
+      {/snippet}
+    </LazyDialog>
 
     <BusyTreeConfirm />
 
@@ -686,17 +679,6 @@
     display: block;
   }
 
-  .lazy-modal-loading {
-    position: fixed;
-    inset: 0;
-    z-index: 10024;
-    display: grid;
-    place-items: center;
-    background: color-mix(in oklab, var(--solus-container-bg) 72%, transparent);
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
-    pointer-events: auto;
-  }
 
   .drop-overlay {
     position: fixed;

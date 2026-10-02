@@ -1,3 +1,4 @@
+import type { Snippet } from 'svelte'
 import type { PaneId } from '../../../contexts/workspace/routing/location'
 import type { RouteParams } from '../../../contexts/workspace/routing/route-registry'
 
@@ -12,6 +13,10 @@ export interface PaneSurfaceProps {
   onAttachFile?: (tabId?: string) => void | Promise<void>
   onScreenshot?: ((tabId?: string) => void | Promise<void>) | null
   onDesignMode?: ((tabId?: string) => void | Promise<void>) | null
+  /** The shell's own controls for a draft's composer, addressed by the draft.
+   *  A phone supplies them: its `+` opens the Add-to-chat sheet, where the
+   *  editor toolbar's `+` attaches files. */
+  composerActions?: Snippet<[draftId: string]>
 }
 
 export type RouteSurfaceProps<K extends keyof RouteParams> = PaneSurfaceProps & {

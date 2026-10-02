@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
@@ -90,9 +91,7 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="no-drag pointer-events-auto relative flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {open
-      ? 'bg-[var(--wash-3)] text-foreground'
-      : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-3)] hover:text-foreground'}"
+    class="{PAGE_SOFT_ICON_BTN} relative {open ? 'bg-[var(--wash-1)]! text-foreground!' : ''}"
     aria-label={flagsStale
       ? "More pull request options — guide is outdated"
       : "More pull request options"}
@@ -101,7 +100,7 @@
     title={flagsStale ? "Guide is outdated" : "More options"}
     onclick={() => (open = !open)}
   >
-    <DotsThreeIcon class="size-[15px]" />
+    <DotsThreeIcon class="size-[15px]" strokeWidth={1.5} />
     {#if flagsStale}
       <span
         class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"

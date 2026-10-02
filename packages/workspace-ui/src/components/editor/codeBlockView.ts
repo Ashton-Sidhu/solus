@@ -2,12 +2,13 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { mount, unmount } from "svelte";
 import CodeBlockLanguageSelect from "./CodeBlockLanguageSelect.svelte";
 import { codeBlockPickerLanguage } from "./lib/code-block-language";
+import { setCodeBlockLanguage } from "./lib/code-block-language-command";
 import { fenceLanguage } from "@solus/document-model/fences";
 import { z } from "zod";
 
 const codeBlockLanguageSchema = z.string().nullable().catch(null);
 
-/** The grammars registered in lowlight.ts, plus a "plain" escape hatch. Kept
+/** The grammars registered in lowlight.ts, plus Mermaid and a "plain" escape hatch. Kept
  *  here as a literal rather than read off lowlight so the picker shows stable
  *  labels rather than raw grammar aliases. */
 const LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
@@ -21,6 +22,7 @@ const LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "javascript", label: "js" },
   { value: "json", label: "json" },
   { value: "markdown", label: "md" },
+  { value: "mermaid", label: "mermaid" },
   { value: "python", label: "py" },
   { value: "rust", label: "rust" },
   { value: "shell", label: "shell" },
@@ -71,7 +73,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
       controls.className = "doc-code-block__controls";
 
       // Markdown carries no filename on a fence, so the language is both the
-      // resting caption and its picker. Mount the shared Select primitive here
+      // resting caption and its picker. Mount the shared dropdown primitive here
       // so it uses the same menu surface and rows as dropdowns elsewhere.
       const languageTarget = document.createElement("div");
       const languagePicker = mount(CodeBlockLanguageSelect, {
@@ -86,10 +88,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
             if (pos == null) return;
             editor
               .chain()
-              .command(({ tr }) => {
-                tr.setNodeAttribute(pos, "language", value || null);
-                return true;
-              })
+              .command(({ tr }) => setCodeBlockLanguage(tr, pos, value))
               .run();
             requestAnimationFrame(() => editor.commands.focus());
           },

@@ -34,6 +34,7 @@ mock.module('@solus/server/prs/pr-index', () => ({
 }))
 mock.module('@solus/server/git/git-helpers', () => ({
   resolveRepoRef: async () => repo,
+  resolvePrimaryRepoRef: async () => repo,
   resolveRepoRoot: async (cwd: string) => cwd,
   computeGitState: async () => null,
 }))

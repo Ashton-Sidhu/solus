@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     ExternalLink as ArrowSquareOutIcon,
     ChartBar as ChartBarIcon,
@@ -251,7 +252,7 @@
     <ContextMenu.Separator />
 
     <ContextMenu.Item onSelect={() => select(onOpenTask)}>
-      <ListChecksIcon />
+      <TaskIcon />
       Open task
     </ContextMenu.Item>
     {#if onOpenSource && task.url}

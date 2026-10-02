@@ -21,8 +21,8 @@
 </script>
 
 <!--
-  Same shell as the mode and model pickers — 30px, hairline, with a fill that
-  matches the composer — so the row reads as one set of controls. It is the
+  Same shell as the mode and model pickers — 30px, borderless, filled only on
+  hover — so the row reads as one quiet set of controls. It is the
   only one that grows: hovering or
   focusing it reveals the "Add files" label and the screenshot/design-mode
   actions inside that same outline, as a segmented group. Width, opacity and a
@@ -33,7 +33,7 @@
   the same row.
 -->
 <div
-  class="group/add flex h-[1.875rem] items-center rounded-lg border-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) px-1.5 font-secondary text-(--solus-text-tertiary) transition-[border-color] duration-[var(--duration-base)] ease-(--ease-premium)"
+  class="group/add flex hover:bg-(--solus-surface-hover) focus-within:bg-(--solus-surface-hover) h-[1.875rem] items-center rounded-lg px-1.5 font-secondary text-(--solus-text-tertiary) transition-[background-color] duration-[var(--duration-base)] ease-(--ease-premium)"
 >
   <TooltipUI.Root>
     <TooltipUI.Trigger>

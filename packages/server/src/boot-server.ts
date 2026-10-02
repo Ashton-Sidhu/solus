@@ -35,7 +35,7 @@ import { PublicationCoordinator } from './sync/publication'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
 import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
-import { SpriteActivity } from './host/sprite-activity'
+import { ManagedHostActivity } from './host/managed-host-activity'
 import { activityLeases } from './execution/activity-leases'
 import { adoptProvisionedLink, applyHostCategory, hostCategory } from './host/host-category'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
@@ -903,7 +903,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   hostOrganizationsDeps.link = () => uplinkManager.currentLink()
   hostOrganizationsDeps.hostToken = () => uplinkManager.hostToken()
   // A managed machine holds itself awake while it has work, and tells the control plane when to wake it (plan 004 item 3).
-  const spriteActivity = new SpriteActivity({
+  const managedHostActivity = new ManagedHostActivity({
     isBusy: () => opts.sessionRuntime.hasWorkToKeepAwake(),
     nextDueAt: nextAutomationDueAt,
     lastForegroundAt: () => activityLeases.lastForegroundAt(),
@@ -1223,7 +1223,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }).finally(() => {
       runnerDelivery?.start()
       hostOrganizations.start()
-      spriteActivity.start()
+      managedHostActivity.start()
       publications?.resume()
     })
   }
@@ -1351,7 +1351,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await lanDiscovery.close()
         transcriptMirror.dispose()
         hostOrganizations.stop()
-        await spriteActivity.stop()
+        await managedHostActivity.stop()
         await runnerDelivery?.stop()
         await uplinkConnector.stop()
         prSync.dropClients()

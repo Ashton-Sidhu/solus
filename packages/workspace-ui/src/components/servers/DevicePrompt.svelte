@@ -51,7 +51,7 @@
   }
 </script>
 
-<div class="text-xs mt-3.5 flex flex-col gap-3">
+<div class="text-xs mt-3 flex flex-col gap-2.5">
   <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">
     {submitState === "sent" ? `Code sent — finishing sign-in on the host…` : why}
   </p>
@@ -76,17 +76,20 @@
         <Input
           bind:value={returnedCode}
           class="h-8 min-w-0 flex-1"
-          placeholder="Paste the code from {label}"
+          placeholder="Paste code"
           autocomplete="one-time-code"
           aria-label="{label} sign-in code"
           dictation={false}
           disabled={submitState === "submitting"}
           autofocus
         />
+        <!-- Neutral until there is a code to send: a disabled accent button
+             reads as a washed-out block, not as the next step. -->
         <Button
           type="submit"
-          class="h-8"
+          class="h-8 px-3"
           size="sm"
+          variant={returnedCode.trim() ? "default" : "secondary"}
           disabled={!returnedCode.trim() || submitState === "submitting"}
         >
           {submitState === "submitting" ? "Sending…" : "Submit"}
@@ -95,18 +98,20 @@
     {/if}
   {/if}
   <!-- Where a code goes back, Submit is the step that finishes sign-in, so
-       Open steps down to a secondary action. Otherwise it is the only one. -->
-  <div class="flex items-center gap-2">
+       Open and Cancel step down to quiet text actions under it, aligned with
+       the field's edge. Otherwise Open is the one action. -->
+  <div class={requiresCodeInput ? "-mx-2.5 flex items-center justify-between" : "flex items-center gap-2"}>
     <Button
       size="sm"
-      variant={requiresCodeInput ? "outline" : "default"}
+      variant={requiresCodeInput ? "ghost" : "default"}
+      class={requiresCodeInput ? "text-muted-foreground" : undefined}
       onclick={() => void localApi.openExternal(url)}
     >
       Open sign-in page
       <ArrowSquareOutIcon data-icon="inline-end" />
     </Button>
     {#if oncancel}
-      <Button size="sm" variant="ghost" onclick={oncancel}>Cancel</Button>
+      <Button size="sm" variant="ghost" class="text-muted-foreground" onclick={oncancel}>Cancel</Button>
     {/if}
   </div>
 </div>

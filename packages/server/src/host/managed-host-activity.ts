@@ -1,27 +1,17 @@
+import { writeFile, rename } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import type { HostActivityReport, UplinkLinkConfig } from '@solus/contracts/uplink'
 import type { FetchLike } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { hostCategory } from './host-category'
 
-const log = createLogger('main', 'sprite-activity')
+const log = createLogger('main', 'managed-host-activity')
 
 /**
- * Keeps a managed machine awake while it has work or someone looks at it (plan 004
- * item 3). A Sprite pauses when no inbound request arrives, and neither an agent turn
- * (outbound calls only) nor an open socket counts, so a turn with no client connected,
- * or a tab left open on an idle host, would pause with it.
- *
- * - The hold. The Sprites Tasks API is served inside the Sprite on a management
- *   socket and needs no token, so the machine holds itself: one task, renewed while
- *   the host is busy, a client was foregrounded within the grace, or an automation
- *   is due soon, deleted when none holds. The Fly token stays in the control plane.
- * - The report. A paused machine cannot wake itself for a scheduled automation, so
- *   the host tells the control plane when the next one is due, and whether it is
- *   busy (the control plane puts off a restart for a new release while it is). Sent
- *   when either value changes and renewed every hour.
- *
- * Only on a managed host; every other machine is left to its owner.
+ * Keeps a managed host awake while work or a foreground client needs it.
+ * Cloudflare reads an atomic heartbeat file; Sprites uses its local Tasks API.
+ * Both report busy state and the next scheduled run to the control plane.
+ * Personal and self-hosted machines remain under their owner's control.
  */
 
 /** The Sprites management socket (docs.fly.io/sprites/keeping-sprites-running). */
@@ -46,14 +36,14 @@ export const DUE_HOLD_LEAD_MS = 15 * 60_000
  */
 export const FOREGROUND_HOLD_GRACE_MS = 15 * 60_000
 
-export interface SpriteActivityFacts {
+export interface ManagedHostActivityFacts {
   busy: boolean
   nextDueAt: number | null
   lastForegroundAt: number | null
 }
 
 /** Whether the machine must stay awake now: busy, a client foregrounded within the grace, or an automation due within the lead. */
-export function shouldHold(facts: SpriteActivityFacts, now: number): boolean {
+export function shouldHold(facts: ManagedHostActivityFacts, now: number): boolean {
   return facts.busy
     || (facts.lastForegroundAt !== null && now - facts.lastForegroundAt <= FOREGROUND_HOLD_GRACE_MS)
     || (facts.nextDueAt !== null && facts.nextDueAt - now <= DUE_HOLD_LEAD_MS)
@@ -62,7 +52,7 @@ export function shouldHold(facts: SpriteActivityFacts, now: number): boolean {
 /** One call to the Sprites Tasks API; answers the HTTP status. */
 export type SpriteTaskCall = (method: 'PUT' | 'DELETE', path: string, body?: string) => Promise<number>
 
-export interface SpriteActivityDeps {
+export interface ManagedHostActivityDeps {
   isBusy: () => boolean
   nextDueAt: () => number | null
   /** When a client last reported it was foregrounded (its activity lease). */
@@ -72,9 +62,11 @@ export interface SpriteActivityDeps {
   fetchImpl?: FetchLike
   spriteTask?: SpriteTaskCall
   now?: () => number
+  /** A Cloudflare container reports its hold through an ephemeral file read by its controller. */
+  activityFile?: string
 }
 
-export class SpriteActivity {
+export class ManagedHostActivity {
   private heldAt: number | null = null
   private holdFailed = false
   private reported: HostActivityReport | null = null
@@ -82,7 +74,7 @@ export class SpriteActivity {
   private timer: ReturnType<typeof setInterval> | null = null
   private checking: Promise<void> | null = null
 
-  constructor(private readonly deps: SpriteActivityDeps) {}
+  constructor(private readonly deps: ManagedHostActivityDeps) {}
 
   start(): void {
     if (this.timer) return
@@ -110,8 +102,17 @@ export class SpriteActivity {
       return
     }
     const now = this.now()
-    const facts: SpriteActivityFacts = { busy: this.deps.isBusy(), nextDueAt: this.deps.nextDueAt(), lastForegroundAt: this.deps.lastForegroundAt() }
-    if (shouldHold(facts, now)) await this.hold(now)
+    const facts: ManagedHostActivityFacts = { busy: this.deps.isBusy(), nextDueAt: this.deps.nextDueAt(), lastForegroundAt: this.deps.lastForegroundAt() }
+    const activityFile = this.deps.activityFile ?? (process.env.SOLUS_MANAGED_RUNTIME === 'cloudflare' ? '/run/solus-managed/activity.json' : null)
+    if (activityFile) {
+      try {
+        // Atomic rename prevents the controller from reading a partial heartbeat.
+        await writeFile(`${activityFile}.tmp`, JSON.stringify({ at: now, hold: shouldHold(facts, now), nextWakeAt: facts.nextDueAt }), { mode: 0o600 })
+        await rename(`${activityFile}.tmp`, activityFile)
+      } catch (error) {
+        log.warn('host_activity_file_failed', { error: error instanceof Error ? error.message : String(error) })
+      }
+    } else if (shouldHold(facts, now)) await this.hold(now)
     else await this.release()
     await this.report({ busy: facts.busy, nextWakeAt: facts.nextDueAt }, now)
   }

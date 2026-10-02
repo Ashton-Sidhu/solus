@@ -32,8 +32,17 @@ export class PrPageScope {
     return scope.kind === 'project' ? scope.checkout : null
   })
   readonly allProjects = $derived.by(() => !this.pageKey)
-  /** One row per project, never one per host. */
-  readonly projectOptions = $derived.by(() => this.session.projectScopeOptions)
+  /** One row per project, never one per host. A local-only project has no
+   *  pull requests, so it stays listed but inert and is never read. */
+  readonly projectOptions = $derived.by(() =>
+    this.session.projectScopeOptions.map((option) =>
+      option.localOnly ? { ...option, available: false, unavailableNote: 'no git remote' } : option,
+    ),
+  )
+  /** The one project's name, for a state that has to say which project. */
+  readonly projectLabel = $derived.by(
+    () => this.projectOptions.find((option) => option.key === this.pageKey)?.label ?? null,
+  )
 
   /** The one project's path on its checkout's host. */
   readonly projectPath = $derived.by(() => this.checkout?.projectRoot ?? null)
@@ -52,7 +61,7 @@ export class PrPageScope {
 
   /** Every project the every-project list can read right now. */
   readonly projectTargets = $derived.by<PrProject[]>(() =>
-    prProjectTargets(this.projectOptions, {
+    prProjectTargets(this.projectOptions.filter((option) => !option.localOnly), {
       isOnlineCheckout: (serverId) =>
         !isSolusApiId(serverId) && serversStore.statusFor(serverId) === 'online',
       apiFor: (serverId) => serverConnections.apiFor(serverId),

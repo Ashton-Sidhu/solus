@@ -25,11 +25,9 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import { comboHint } from "../../lib/keybindings/manifest";
   import { cn } from "@solus/workspace-ui/lib/tw";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Switch } from "../ui/switch";
-  import { MenuFooter } from "../ui/menu";
   import {
     clampReasoningEffort,
     defaultModelIdFor,
@@ -211,9 +209,6 @@
   // way a parent menu stays lit while the cursor is in its submenu.
   const previewedModelId = $derived(
     hoveredModelId ?? (hoveredLevel !== null ? currentModelId : null),
-  );
-  const previewedModelLabel = $derived(
-    models.find((m) => m.id === previewedModelId)?.label ?? modelLabel,
   );
   // The right column tracks whatever model is under the cursor — otherwise the
   // preview check can land on a level that model doesn't offer.
@@ -542,7 +537,7 @@
               onpointerenter={() => {
                 hoveredModelId = model.id;
                 // Back in the model column the level under the cursor is stale —
-                // the footer would advertise a pair that isn't on offer.
+                // the wash would advertise a pair that isn't on offer.
                 hoveredLevel = null;
               }}
               data-menu-preview={previewedModelId === model.id ? "" : undefined}
@@ -626,7 +621,7 @@
           <DropdownMenu.RadioGroup value={isAuto || previewReasoning ? "" : reasoningEffort}>
             <!-- Which model these levels belong to is said by the model row,
                  which keeps its wash (`data-menu-preview`) while its levels
-                 are on offer, and by the footer — not by the heading. -->
+                 are on offer — not by the heading. -->
             <DropdownMenu.GroupHeading>Reasoning</DropdownMenu.GroupHeading>
             <div style="min-height:{reservedLevelRows * 2}rem">
               {#each shownReasoningLevels as level (level)}
@@ -721,13 +716,5 @@
         </div>
       {/if}
     </div>
-    {#if !modelOnly}
-      <MenuFooter
-        hints={[["↑↓", "within"], ["←→", "columns"], [comboHint("global.cycle-model"), "cycle"]]}
-        summary={isAuto
-          ? "Auto"
-          : `${previewedModelLabel} · ${REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}`}
-      />
-    {/if}
   </DropdownMenu.Content>
 </DropdownMenu.Root>

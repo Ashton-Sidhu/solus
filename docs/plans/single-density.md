@@ -79,3 +79,10 @@ Rows in the project panel and controls in the input bar use 16px icons and a
 presence that the smaller type gives up. Body text, titles, and the transcript
 stay at the face's own weight. The branch name at the top of the project panel
 uses 600, so it stays one step heavier than the rows below it.
+
+## Task icon
+
+Use `packages/workspace-ui/src/components/ui/TaskIcon.svelte` for task
+navigation, task links, and task actions on desktop, web, and mobile. It is
+the rounded square with a checkmark used in the session breadcrumb. Review,
+checklist, and status icons keep their own meanings.

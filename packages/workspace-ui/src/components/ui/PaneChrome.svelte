@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { X as XIcon, Maximize as ArrowsOutIcon, Minimize as ArrowsInIcon } from "@lucide/svelte";
-  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import { PAGE_ICON_BTN, PAGE_RAISED_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import PaneSwapButton from "./PaneSwapButton.svelte";
@@ -35,6 +35,10 @@
     trailing?: Snippet;
     closeLabel?: string;
     closeTestId?: string;
+    /** Draw the controls as raised pills, so the cluster continues a header
+     *  row of pills instead of standing apart from it: `strong` beside a
+     *  work's full-ink pills, `soft` beside the quieter page-style pills. */
+    raised?: "strong" | "soft";
   }
 
   let {
@@ -47,7 +51,17 @@
     trailing,
     closeLabel = "Close pane",
     closeTestId,
+    raised,
   }: Props = $props();
+
+  const buttonClass = $derived(
+    raised === "strong"
+      ? PAGE_RAISED_ICON_BTN
+      : raised === "soft"
+        ? PAGE_SOFT_ICON_BTN
+        : PAGE_ICON_BTN,
+  );
+  const iconStroke = $derived(raised ? 1.5 : 2);
 
   const maximizeHint = $derived(comboHint(maximizeBinding));
   const maximizeTooltip = $derived(
@@ -61,7 +75,7 @@
      all --solus-chrome-row-h tall. A fixed top-2.5 put the 26px buttons' centre
      at 23px against the row's 20px. -->
 <div
-  class="no-drag pointer-events-auto absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1"
+  class="no-drag pointer-events-auto absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center {raised ? 'gap-1.5' : 'gap-1'}"
 >
   {#if trailing}{@render trailing()}{/if}
 
@@ -70,6 +84,8 @@
       {isLeading}
       onMove={onOpenInSplit}
       leadingDestination="pane"
+      iconStroke={iconStroke}
+      class={buttonClass}
     />
   {/if}
 
@@ -80,14 +96,14 @@
           <button
             {...props}
             type="button"
-            class={PAGE_ICON_BTN}
+            class={buttonClass}
             onclick={onToggleMaximize}
             aria-label={maximized ? "Restore panel size" : "Maximize panel"}
           >
             {#if maximized}
-              <ArrowsInIcon size={15} />
+              <ArrowsInIcon size={15} strokeWidth={iconStroke} />
             {:else}
-              <ArrowsOutIcon size={15} />
+              <ArrowsOutIcon size={15} strokeWidth={iconStroke} />
             {/if}
           </button>
         {/snippet}
@@ -98,11 +114,11 @@
 
   <button
     type="button"
-    class={PAGE_ICON_BTN}
+    class={buttonClass}
     onclick={onClose}
     aria-label={closeLabel}
     data-testid={closeTestId}
   >
-    <XIcon size={16} />
+    <XIcon size={16} strokeWidth={iconStroke} />
   </button>
 </div>

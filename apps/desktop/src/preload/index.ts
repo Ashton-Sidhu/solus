@@ -38,6 +38,7 @@ function channelFanOut<Args extends unknown[]>(channel: string): (cb: (...args: 
 const subscribeQuoteSelection = channelFanOut<[text: string, sourceTabId: string]>('solus:quote-selection')
 const subscribeAskSelectionInNewSession
   = channelFanOut<[text: string, sourceTabId: string]>('solus:ask-selection-in-new-session')
+const subscribeOpenSelectedLink = channelFanOut<[url: string, sourceTabId: string]>('solus:open-selected-link')
 const subscribeOpenRoute = channelFanOut<[route: string]>('solus:open-route')
 const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-changed')
 const subscribeWindowShown = channelFanOut<[]>('solus:window-shown')
@@ -69,6 +70,7 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.send('solus:set-quote-context', tabId),
   onQuoteSelection: subscribeQuoteSelection,
   onAskSelectionInNewSession: subscribeAskSelectionInNewSession,
+  onOpenSelectedLink: subscribeOpenSelectedLink,
   /** A location the app was asked to open from outside the renderer — today a
    *  notification click; the payload is a serialized route. */
   onOpenRoute: subscribeOpenRoute,

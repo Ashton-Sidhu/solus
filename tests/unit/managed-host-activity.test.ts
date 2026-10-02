@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionStatus } from '@solus/contracts/types'
 import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import { adoptProvisionedLink, resetHostCategoryForTests } from '@solus/server/host/host-category'
-import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, SpriteActivity } from '@solus/server/host/sprite-activity'
+import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, ManagedHostActivity } from '@solus/server/host/managed-host-activity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -16,7 +16,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // paused machine is woken in time. The report must be right, or the machine sleeps
 // through a waiting approval or a scheduled run.
 
-const directory = mkdtempSync(join(tmpdir(), 'solus-sprite-activity-'))
+const directory = mkdtempSync(join(tmpdir(), 'solus-managed-activity-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 process.env.SOLUS_DATA_DIR = directory
 let store: typeof import('@solus/server/data/automations/automations-store')
@@ -74,11 +74,12 @@ describe('what the host reports', () => {
   })
 })
 
-function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroundAt?: number | null }) {
+function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroundAt?: number | null }, activityFile?: string) {
   let now = 1_000_000_000
   const tasks: string[] = []
   const reports: unknown[] = []
-  const activity = new SpriteActivity({
+  const activity = new ManagedHostActivity({
+    activityFile,
     isBusy: () => facts.busy,
     nextDueAt: () => facts.nextDueAt,
     lastForegroundAt: () => facts.lastForegroundAt ?? null,
@@ -97,6 +98,22 @@ function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroun
 }
 
 describe('the hold and the report on a managed host', () => {
+  test('Cloudflare receives an atomic heartbeat without using the Sprite socket', async () => {
+    adoptProvisionedLink({ organizationId: 'org1' })
+    const activityFile = join(directory, 'activity.json')
+    const facts = { busy: true, nextDueAt: null as number | null }
+    const { activity, tasks, reports, now, advance } = harness(facts, activityFile)
+    await activity.check()
+    expect(JSON.parse(readFileSync(activityFile, 'utf8'))).toEqual({ at: now(), hold: true, nextWakeAt: null })
+    facts.busy = false
+    facts.nextDueAt = now() + 60 * 60_000
+    advance(30_000)
+    await activity.check()
+    expect(JSON.parse(readFileSync(activityFile, 'utf8'))).toEqual({ at: now(), hold: false, nextWakeAt: facts.nextDueAt })
+    await activity.stop()
+    expect(tasks).toEqual([])
+    expect(reports).toEqual([{ busy: true, nextWakeAt: null }, { busy: false, nextWakeAt: facts.nextDueAt }])
+  })
   test('holds while busy, renews the hold, releases when done, and reports each change once', async () => {
     adoptProvisionedLink({ organizationId: 'org1' })
     const facts = { busy: true, nextDueAt: null as number | null }

@@ -287,19 +287,45 @@ export function resolveRepositoryKey(cwd: string): Promise<string | null> {
   const cached = repositoryKeyCache.get(cwd)
   if (cached) return cached
   const pending = (async () => {
-    try {
-      const output = await runAsync('git', ['-c', 'safe.directory=*', 'config', '--get-regexp', '^remote\\..*\\.url$'], cwd)
-      const remoteUrl = primaryRemoteUrl(parseRemoteUrls(output))
-      const repositoryKey = remoteUrl ? repositoryKeyFromRemoteUrl(remoteUrl) : null
-      if (!repositoryKey) repositoryKeyCache.delete(cwd)
-      return repositoryKey
-    } catch {
-      // Exit 1: no remote, or not a repository.
-      repositoryKeyCache.delete(cwd)
-      return null
-    }
+    const remoteUrl = await primaryRemoteUrlOf(cwd)
+    const repositoryKey = remoteUrl ? repositoryKeyFromRemoteUrl(remoteUrl) : null
+    if (!repositoryKey) repositoryKeyCache.delete(cwd)
+    return repositoryKey
   })()
   repositoryKeyCache.set(cwd, pending)
+  return pending
+}
+
+async function primaryRemoteUrlOf(cwd: string): Promise<string | null> {
+  try {
+    const output = await runAsync('git', ['-c', 'safe.directory=*', 'config', '--get-regexp', '^remote\\..*\\.url$'], cwd)
+    return primaryRemoteUrl(parseRemoteUrls(output))
+  } catch {
+    // Exit 1: no remote, or not a repository.
+    return null
+  }
+}
+
+const primaryRepoRefCache = new Map<string, Promise<RepoRef | null>>()
+
+/**
+ * The `{ host, owner, repo }` of `cwd`'s project: the remote the repository
+ * key names — `upstream`, then `origin`, then the first by name. Pull requests
+ * are read through this, so the project a page lists and the repository its
+ * pull requests come from cannot disagree. Unlike the key, it keeps the
+ * remote's case, which persisted review targets compare against. Only an
+ * answer is cached, so a folder that gains a remote is read again.
+ */
+export function resolvePrimaryRepoRef(cwd: string): Promise<RepoRef | null> {
+  const cached = primaryRepoRefCache.get(cwd)
+  if (cached) return cached
+  const pending = (async () => {
+    const remoteUrl = await primaryRemoteUrlOf(cwd)
+    const repo = remoteUrl ? parseRemoteUrl(remoteUrl) : null
+    if (!repo) primaryRepoRefCache.delete(cwd)
+    return repo
+  })()
+  primaryRepoRefCache.set(cwd, pending)
   return pending
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ListChecks as ListChecksIcon, Sun as SunIcon } from "@lucide/svelte";
+  import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
+  import { Sun as SunIcon } from "@lucide/svelte";
   import ReviewGuideGlyph from "@solus/workspace-ui/components/review/ReviewGuideGlyph.svelte";
   import ProjectFavicon from "@solus/workspace-ui/components/ui/ProjectFavicon.svelte";
   import {
@@ -94,7 +95,7 @@
           class="flex min-w-0 items-center gap-1 text-[color-mix(in_oklch,var(--solus-art-5)_72%,var(--foreground))]"
           aria-label={`Task ${task.linkedTask.title}`}
         >
-          <ListChecksIcon size={12} class="shrink-0" />
+          <TaskIcon size={12} class="shrink-0" />
           <span class="min-w-0 truncate">{task.linkedTask.title}</span>
         </span>
       {/if}

@@ -4,6 +4,7 @@ import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type Session, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
+import { makePrompt } from './session.factories'
 import { existingTaskId, taskRoleOf } from './session-draft.svelte'
 import { firstActivityAt, lastActivityAt, turnStartedAt, withLazyActivity } from './session-activity'
 import {
@@ -30,7 +31,7 @@ import {
   type MountedPrObservation,
   type TaskPrChoice,
 } from '../../components/session/lib/task-list'
-import { draftTitle, type DraftRow } from '../../components/session/lib/draft-list'
+import { draftTitle, sessionDraftTitle, type DraftRow } from '../../components/session/lib/draft-list'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { connectionsStore } from '../connections/connections.store.svelte'
 import { isChatFolder, SCRATCHPAD_LABEL } from '../../lib/paths'
@@ -635,7 +636,12 @@ export class SessionSidebarStore {
 
   /** The Sessions section: active sessions that no task row stands for. A
    *  settled or snoozed session is on its shelf. */
-  sessionRows: SidebarTask[] = $derived(this.inFilter(this.activeTasks.filter((row) => !row.taskId)))
+  sessionRows: SidebarTask[] = $derived.by(() => {
+    const parked = this.parkedSessionTabIds
+    return this.inFilter(this.activeTasks.filter((row) =>
+      !row.taskId && !row.tabIds.some((tabId) => parked.has(tabId)),
+    ))
+  })
 
   /**
    * The one session the list shows under a task row: the session on screen,
@@ -696,6 +702,61 @@ export class SessionSidebarStore {
     return filter ? tasks.filter((task) => task.groupKey === filter) : tasks
   }
 
+  /** Open sessions with unsent work move to Drafts once no pane shows them.
+   * Task rows keep their task identity and are not moved by a session prompt. */
+  get parkedSessionTabIds(): Set<string> {
+    const composing = new Set<string>()
+    const panes = this.session.hasCompanionPanes
+      ? this.session.router.panes
+      : [this.session.router.leadingPane]
+    for (const pane of panes) {
+      const tabId = this.session.chatTabIn(pane.id)
+      if (tabId) composing.add(tabId)
+    }
+    const parked = new Set<string>()
+    for (const row of this.activeTasks) {
+      if (row.taskId) continue
+      for (const tabId of row.tabIds) {
+        if (composing.has(tabId)) continue
+        const prompt = this.session.sessionFor(tabId)?.prompt
+        if (prompt && (prompt.text.trim() || prompt.attachments.length > 0)) parked.add(tabId)
+      }
+    }
+    return parked
+  }
+
+  openDraftRow(row: DraftRow): void {
+    if (row.tabId) this.session.selectTab(row.tabId)
+    else this.session.drafts.openDraft(row.draftId)
+  }
+
+  /** Keep the discarded prompt for Undo. An existing conversation stays open;
+   * only its unsent prompt is cleared. */
+  discardDraftRow(row: DraftRow): (() => void) | null {
+    if (row.tabId) {
+      const session = this.session.sessionFor(row.tabId)
+      if (!session) return null
+      const prompt = $state.snapshot(session.prompt)
+      session.prompt = makePrompt()
+      const cleared = session.prompt
+      return () => {
+        // Undo must not replace words entered after the discard or target a
+        // closed conversation. The empty prompt is the discard's receipt.
+        const current = this.session.sessionFor(row.tabId!)
+        if (current === session && current.prompt === cleared
+          && !current.prompt.text.trim() && current.prompt.attachments.length === 0) {
+          current.prompt = prompt
+        }
+      }
+    }
+    const spec = this.session.drafts.discardSessionDraft(row.draftId)
+    if (!spec) return null
+    return () => this.session.drafts.restoreSessionDrafts({
+      order: [row.draftId],
+      drafts: { [row.draftId]: spec },
+    })
+  }
+
   /** Prompts written and set aside, in the order they were opened. Two things
    *  keep a draft out: nothing has been written in it — every ⌘N opens one and
    *  boot seeds one, so listing those would fill the section with rows nobody
@@ -722,6 +783,24 @@ export class SessionSidebarStore {
         projectLabel: projectLabel(projectKey, draft.run.serverId),
         serverId: draft.run.serverId,
         hasAttachments: draft.prompt.attachments.length > 0,
+      })
+    }
+    for (const tabId of this.parkedSessionTabIds) {
+      const session = this.session.sessionFor(tabId)
+      if (!session) continue
+      const projectKey = environmentProjectKey(
+        this.session.environment.environmentFor(session.run),
+        session.run.projectGroupPath,
+      )
+      if (filter && projectKey !== '~' && projectsStore.projectKeyFor(session.run.serverId, projectKey) !== filter) continue
+      rows.push({
+        draftId: `session:${tabId}`,
+        tabId,
+        title: sessionDraftTitle(session),
+        projectKey,
+        projectLabel: projectLabel(projectKey, session.run.serverId),
+        serverId: session.run.serverId,
+        hasAttachments: session.prompt.attachments.length > 0,
       })
     }
     return rows

@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import postgres from 'postgres'
-import { z } from 'zod'
 import type { LabIssuer } from './issuer'
 
 /**
@@ -35,8 +35,6 @@ export interface LabSolusApi {
   readonly logPath: string
   stop(): Promise<void>
 }
-
-const lockFileSchema = z.object({ port: z.number().int().positive(), host: z.string() })
 
 function assertTemporary(dir: string): void {
   const roots = [tmpdir(), resolve(process.cwd(), '.solus-local')]
@@ -70,6 +68,8 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
     SOLUS_CLOUD_ISSUER: options.issuer.issuer,
     SOLUS_CLOUD_JWKS_URL: options.issuer.jwksUrl,
     SOLUS_DB: options.engine,
+    // One service, one run: a fresh key is the replicas' shared one.
+    SOLUS_API_SIGNING_KEY: randomBytes(32).toString('base64'),
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
   }
   // No managed link, no host token: a workspace service is nobody's machine.
@@ -88,11 +88,11 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
   let exited = false
   child.once('exit', () => { exited = true })
 
-  const lockFile = join(dataDir, 'server.lock')
-  await waitFor(async () => exited || existsSync(lockFile), 30_000, 'the workspace service lock file')
+  // The workspace service takes no single-instance lock; it prints where it listens.
+  const reachable = () => /Solus API reachable at (http:\/\/[^\s]+)/.exec(readFileSync(logPath, 'utf8'))?.[1]
+  await waitFor(async () => exited || reachable() !== undefined, 30_000, 'the workspace service address')
   if (exited) throw new Error(`The workspace service exited at boot; see ${logPath}`)
-  const lock = lockFileSchema.parse(JSON.parse(readFileSync(lockFile, 'utf8')))
-  const url = `http://127.0.0.1:${lock.port}`
+  const url = reachable()!
   await waitFor(async () => {
     try { return (await fetch(`${url}/health`)).ok } catch { return false }
   }, 30_000, 'the workspace service to answer /health')

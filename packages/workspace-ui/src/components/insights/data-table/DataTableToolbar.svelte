@@ -32,12 +32,13 @@
     class="group relative w-44 min-w-0 transition-[width] duration-200 ease-out focus-within:w-60 motion-reduce:transition-none"
   >
     <MagnifyingGlassIcon
-      class="pointer-events-none absolute top-1/2 left-2.5 z-10 size-3.5 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-foreground"
+      strokeWidth={1.5}
+      class="pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-foreground"
       aria-hidden="true"
     />
     <Input
       aria-label="Filter table rows"
-      class="h-8 rounded-full border-0 bg-[var(--wash-1)] pr-7 pl-8 text-insights-chrome shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[background-color,box-shadow] placeholder:text-muted-foreground/70 hover:bg-[var(--wash-2)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10"
+      class="h-6.5 rounded-full border-0 bg-background pr-7 pl-9 text-insights-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,box-shadow] placeholder:text-muted-foreground hover:bg-[var(--wash-1)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10"
       placeholder={filterPlaceholder}
       value={filter}
       oninput={(event) =>
@@ -48,7 +49,7 @@
     {#if filter}
       <button
         type="button"
-        class="absolute top-1/2 right-0.5 z-10 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none transition-[color,background-color,scale] hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94]"
+        class="absolute top-1/2 right-0.5 z-10 flex size-5.5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none transition-[color,background-color,scale] hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94]"
         aria-label="Clear table filter"
         onclick={() => (onValueChange ? onValueChange('') : table.setGlobalFilter(''))}
       >

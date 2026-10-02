@@ -1,5 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     BAND_ACTION,
     CRUMB_BUTTON,
@@ -42,6 +43,11 @@
   import { MenuSearch } from "../ui/menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import LinkSessionTaskDialog from "../session/LinkSessionTaskDialog.svelte";
+  import TaskPicker from "../input/TaskPicker.svelte";
+  import type { PaneId } from "../../contexts/workspace/routing/location";
+  import TaskIcon from "../ui/TaskIcon.svelte";
+  import { taskOfTab } from "../../contexts/workspace/session-task-link";
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
@@ -66,6 +72,8 @@
     /** The session on screen — the last crumb. Empty for a draft, which has no
      *  tab until its first prompt is sent. */
     tabId: string;
+    /** The composer pane whose task shortcut this breadcrumb answers. */
+    paneId?: PaneId;
     /** The draft on screen, when the band names one that has yet to become a
      *  session. Its path is what the draft will create rather than where a
      *  conversation already is. */
@@ -87,6 +95,7 @@
   }
   let {
     tabId,
+    paneId,
     draft = null,
     showNewSessionAction = true,
     variant = "floating",
@@ -101,6 +110,25 @@
   const session = getWorkspaceContext();
   /** The band draws the leaf session; its share badge names it. */
   const bandSession = $derived(session.sessionFor(tabId));
+  const linkedTask = $derived(taskOfTab(session, tabId));
+  let taskLinkOpen = $state(false);
+  let taskLinkAnchor = $state<HTMLButtonElement | null>(null);
+  $effect(() => {
+    if (draft) return;
+    const handler = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
+      if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
+      if (!taskLinkAnchor || taskLinkAnchor.offsetParent === null) return;
+      if (linkedTask) {
+        session.goToTask(linkedTask.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+      } else {
+        menu = null;
+        taskLinkOpen = !taskLinkOpen;
+      }
+    };
+    window.addEventListener("solus:toggle-session-task-picker", handler);
+    return () => window.removeEventListener("solus:toggle-session-task-picker", handler);
+  });
   const sidebarStore = getSessionSidebarStore();
   let taskQuery = $state("");
 
@@ -929,6 +957,43 @@
         class="{BAND_ACTION} @max-[36rem]:hidden"
       />
     {/if}
+    {#if draft}
+      <TaskPicker
+        task={draft.task}
+        {projectKey}
+        serverId={draft.run.taskServerId ?? draft.run.serverId}
+        onSelect={(next) => { if (draft) draft.task = next; }}
+        onDismiss={() => requestInputFocus()}
+        {paneId}
+      />
+    {:else if bandSession}
+      <button
+        type="button"
+        class={BAND_ACTION}
+        bind:this={taskLinkAnchor}
+        aria-haspopup={linkedTask ? undefined : "dialog"}
+        aria-expanded={linkedTask ? undefined : taskLinkOpen}
+        title={linkedTask ? `Open task: ${linkedTask.title}` : "Link to task"}
+        aria-label={linkedTask ? `Open task: ${linkedTask.title}` : "Link to task"}
+        onclick={() => {
+          if (linkedTask) {
+            session.goToTask(linkedTask.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+          } else {
+            menu = null;
+            taskLinkOpen = !taskLinkOpen;
+          }
+        }}
+      >
+        <TaskIcon size={16} />
+      </button>
+      {#if taskLinkOpen && taskLinkAnchor}
+        <LinkSessionTaskDialog
+          {tabId}
+          anchor={taskLinkAnchor}
+          onClose={() => { taskLinkOpen = false; }}
+        />
+      {/if}
+    {/if}
 
     {#if (taskRecord || bandSession?.id) && hasTrailingActions}
       <span
@@ -940,12 +1005,12 @@
     {#if showNewSessionAction}
       <button
         type="button"
-        class={BAND_ACTION}
+        class={PAGE_SOFT_ICON_BTN}
         title="New session"
         aria-label="New session"
         onclick={newFreshSession}
       >
-        <PlusIcon size={14} />
+        <PlusIcon size={15} strokeWidth={1.5} />
       </button>
     {/if}
 

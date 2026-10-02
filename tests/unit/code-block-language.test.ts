@@ -13,6 +13,14 @@ describe("code block language picker", () => {
     expect(codeBlockPickerLanguage("yaml")).toBe("yaml");
   });
 
+  test("Mermaid source blocks keep a visible language after Show as code", () => {
+    // The source directive prevents automatic rendering on reopen, but the
+    // picker must still show Mermaid so the reader can render it again.
+    expect(codeBlockPickerLanguage("mermaid")).toBe("mermaid");
+    expect(codeBlockPickerLanguage("mermaid source")).toBe("mermaid");
+    expect(codeBlockPickerLanguage("MERMAID SOURCE")).toBe("mermaid");
+  });
+
   test("unsupported fences fall back to the visible plain option", () => {
     expect(codeBlockPickerLanguage("unknown-language")).toBe("");
     expect(codeBlockPickerLanguage(null)).toBe("");

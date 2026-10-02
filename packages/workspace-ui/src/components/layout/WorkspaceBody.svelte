@@ -745,6 +745,7 @@
                           <SessionBreadcrumb
                             tabId={leadingDraft ? "" : session.activeTabId}
                             draft={leadingDraft}
+                            paneId={leadingDraft ? session.router.leadingPane.id : undefined}
                             showNewSessionAction={bandOffersNewSession}
                           />
                         {/if}

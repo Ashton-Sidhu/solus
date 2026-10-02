@@ -85,7 +85,7 @@
             <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
         <span class="inline-flex size-4 shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">

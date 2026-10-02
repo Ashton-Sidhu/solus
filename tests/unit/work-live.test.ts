@@ -171,6 +171,22 @@ describe('the readable body', () => {
     expect(stored.content).toBe('Two')
   })
 
+  test('shutdown writes every unprojected body, after a leaving client\'s write in flight', async () => {
+    // WHY: a service that stops (plans/013) closes its database next; a projection left
+    // to a timer or a background leave would be lost or fail against a closed database.
+    const open = await works.createWork('local', 'Open', 'doc', 'One', '', undefined, 'claude-code')
+    const left = await works.createWork('local', 'Left', 'doc', 'One', '', undefined, 'claude-code')
+    const { live } = manager()
+    const alice = await openClient(live, 'alice', open.id)
+    const bob = await openClient(live, 'bob', left.id)
+    await live.push({ clientId: 'alice', author: null, request: { workId: open.id, clientKey: 'key-alice', seq: 1, update: editTo(alice.doc, 'Two') } })
+    await live.push({ clientId: 'bob', author: null, request: { workId: left.id, clientKey: 'key-bob', seq: 1, update: editTo(bob.doc, 'Three') } })
+    live.disconnected('bob')
+    await live.flushAll()
+    expect((await workModule.Work.byId('local', open.id)).content).toBe('Two')
+    expect((await workModule.Work.byId('local', left.id)).content).toBe('Three')
+  })
+
   test('a diagram is edited field by field and stored as its JSON', async () => {
     const work = await works.createWork('local', 'Map', 'diagram', JSON.stringify({ nodes: [{ id: 'a', label: 'A', position: { x: 0, y: 0 } }], edges: [] }), '', undefined, 'claude-code')
     const { live } = manager()

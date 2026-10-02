@@ -2,6 +2,8 @@
 
 The Pull Requests page shows one list for every scope. With one project chosen, the list shows the pull requests of that project. With **All projects**, the list shows the pull requests of every project that a connected host can read. The page reads at most four projects at the same time. Each row then shows the name of its project. The repository name is in the tooltip.
 
+A project has pull requests only when its repository has a remote on a code host. The project is the remote that names the repository: `upstream`, then `origin`, then the first remote by name. Thus the page reads a fork's pull requests from its upstream. A folder that is not a git repository, or a repository with no remote, is a local-only project. The project picker shows it, but you cannot select it, and **All projects** does not read it. The project scope is shared with the Tasks, Folio, and Automations pages, so you can choose a local-only project on one of them. When this occurs, the page names the project, tells you whether it is not a git repository or has no remote, and gives a **Show all projects** button.
+
 ## Sections
 
 The list has three sections, in this order:

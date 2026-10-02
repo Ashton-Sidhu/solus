@@ -6,12 +6,11 @@ const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /**
- * Phase 4 — diagrams get the same unified work-shell header as documents:
- * Chat menu, Open-in-split / Focus, and Copy. These mirror the document tests
- * to prove the shared WorkHeaderActions contract works for both work types.
+ * Diagrams carry the same docked composer as every work page: one glyph at
+ * rest, and Send pops a session bound to the diagram out beside it.
  */
 test.describe('Diagram chat workflow', () => {
-  test('diagram header exposes the shared Chat menu', async ({ page }) => {
+  test('starting a session from a diagram binds it and splits the layout', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
@@ -22,31 +21,12 @@ test.describe('Diagram chat workflow', () => {
     await card.waitFor({ state: 'visible', timeout: 10_000 })
     await card.click()
 
-    // The diagram shell renders inline in the pane with the shared header.
-    const chatBtn = page.locator(`${ACTIVE_SHELL} [data-testid="open-chat"]`)
-    await expect(chatBtn).toBeVisible({ timeout: 5_000 })
-    await chatBtn.click()
-
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-    await expect(chatMenu.locator('button')).toHaveCount(2)
-  })
-
-  test('opening a new chat from a diagram binds the session and splits the layout', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-    await app.waitForWorkspace()
-
-    await conversation.typeAndSend('__MOCK_DIAGRAM__ sketch the system')
-    const card = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)
-    await card.waitFor({ state: 'visible', timeout: 10_000 })
-    await card.click()
-
-    await page.locator(`${ACTIVE_SHELL} [data-testid="open-chat"]`).click()
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-    await chatMenu.locator('button').nth(1).click() // New chat
+    const glyph = page.locator(`${ACTIVE_SHELL} [data-testid="open-page-composer"]`)
+    await expect(glyph).toBeVisible({ timeout: 5_000 })
+    await glyph.click()
+    const input = page.getByTestId('page-composer').getByTestId('message-input')
+    await input.pressSequentially('add the cache tier')
+    await page.keyboard.press('Enter')
 
     // Session is bound to the diagram (chip shows). Scoped to the active mode
     // shell — the hidden mode keeps its own copy of the chip mounted.

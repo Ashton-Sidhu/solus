@@ -1,4 +1,5 @@
-import { Camera, GitPullRequest, ListChecks } from '@lucide/svelte'
+import TaskIcon from '../../ui/TaskIcon.svelte'
+import { Camera, GitPullRequest } from '@lucide/svelte'
 import type { BrowserEvidenceOptions, BrowserEvidenceTarget } from '@solus/contracts/browser-types'
 import type { Task } from '@solus/contracts/task-types'
 
@@ -11,7 +12,7 @@ import type { Task } from '@solus/contracts/task-types'
  * fails after it was offered is worse than an action that was never there.
  */
 
-/** Lucide icon component, typed off a real icon — same pattern as `page-nav.ts`. */
+/** SVG icon component, typed off a real icon. */
 type EvidenceIcon = typeof Camera
 
 export interface EvidenceChoice {
@@ -64,7 +65,7 @@ export function evidenceChoices(
       id: `task-${task.id}`,
       label: task.title,
       detail: task.status.replace('_', ' '),
-      icon: ListChecks,
+      icon: TaskIcon,
       target: { kind: 'task', taskId: task.id },
     })
   }

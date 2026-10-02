@@ -139,7 +139,7 @@
       <button
         {...props}
         type="button"
-        class="inline-flex h-[1.625rem] min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-workspace-chrome text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10 pointer-coarse:px-3"
+        class="inline-flex h-6.5 min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10 pointer-coarse:px-3"
         data-testid="work-review"
         data-state={review?.state ?? "draft"}
         title="Review"

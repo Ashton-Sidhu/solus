@@ -5,7 +5,7 @@
     RotateCw as ArrowClockwiseIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { PAGE_ICON_BTN } from "../../../lib/page-chrome";
+  import { PAGE_SOFT_ICON_BTN } from "../../../lib/page-chrome";
   import { navPageSpec, type NavPage } from "../../../lib/page-nav";
   import { frameChrome } from "../../layout/frame-chrome.store.svelte";
   import PaneSwapButton from "../PaneSwapButton.svelte";
@@ -184,7 +184,7 @@
        rung this control has nowhere to send the page. -->
   {#if onMoveAcross}
     <span class="contents @max-[30rem]/pane:hidden">
-      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={14} />
+      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={15} iconStroke={1.5} class={PAGE_SOFT_ICON_BTN} />
     </span>
   {/if}
 
@@ -196,11 +196,11 @@
     <span class="contents @max-[30rem]/pane:hidden">
       <button
         type="button"
-        class={PAGE_ICON_BTN}
+        class={PAGE_SOFT_ICON_BTN}
         onclick={onClose}
         aria-label="Close"
       >
-        <XIcon size={14} />
+        <XIcon size={16} strokeWidth={1.5} />
       </button>
     </span>
   {/if}

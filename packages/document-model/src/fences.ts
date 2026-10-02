@@ -24,7 +24,8 @@ export type FenceRenderMode = 'block' | 'snippet'
  * A Mermaid fence is a diagram to look at, so a settled fence renders on its
  * own. The one way out is the info string: ```mermaid source keeps it as code,
  * the same word an html fence uses. There is no content test, because Mermaid
- * text has no reading other than "draw this".
+ * text has no reading other than "draw this". In documents, an unlabelled
+ * fence with a recognised diagram declaration also draws.
  */
 export type MermaidRenderMode = 'diagram' | 'source'
 
@@ -108,11 +109,20 @@ export function htmlBlockFence(src: string): { raw: string; html: string; explic
   return { raw: fence.raw, html: fence.body, explicit }
 }
 
-/** A complete ```mermaid fence at the head of `src` that should draw. Null for
+/** Detect common Mermaid declarations only at the start of unlabelled source.
+ *  Ignore blank lines and Mermaid comments, but never guess from arrows alone. */
+function hasMermaidDeclaration(source: string): boolean {
+  const declaration = source.split('\n').find((line) => line.trim() && !line.trimStart().startsWith('%%'))?.trim() ?? ''
+  return /^(?:flowchart|graph)[ \t]+(?:TB|TD|BT|RL|LR)[ \t]*;?$/.test(declaration)
+    || /^(?:sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram)[ \t]*;?$/.test(declaration)
+}
+
+/** A complete Mermaid or recognised unlabelled fence that should draw. Null for
  *  an open fence, another language, or one the author marked `source`. */
 export function mermaidBlockFence(src: string): { raw: string; source: string } | null {
   const fence = parseFence(src)
-  if (!fence || !isMermaidFence(fence.info)) return null
+  if (!fence) return null
+  if (!isMermaidFence(fence.info) && (fence.info !== '' || !hasMermaidDeclaration(fence.body))) return null
   if (mermaidRenderMode(fence.info) !== 'diagram') return null
   return { raw: fence.raw, source: fence.body }
 }

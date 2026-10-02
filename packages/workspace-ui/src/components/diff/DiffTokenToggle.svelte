@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Highlighter as HighlighterIcon } from "@lucide/svelte";
   import * as TooltipUI from "../ui/tooltip";
-  import { Button } from "../ui/button";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
 
   /**
    * Word-level highlighting inside a changed line, on or off. The diff panel's
@@ -22,21 +22,16 @@
 <TooltipUI.Root>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
-      <span {...tooltipProps} class="inline-flex">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          type="button"
-          onclick={onToggle}
-          aria-label={tokenHighlight ? "Disable token highlighting" : "Enable token highlighting"}
-          aria-pressed={tokenHighlight}
-          class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {tokenHighlight
-            ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-            : 'text-(--solus-text-tertiary)'}"
-        >
-          <HighlighterIcon size={14} />
-        </Button>
-      </span>
+      <button
+        {...tooltipProps}
+        type="button"
+        onclick={onToggle}
+        aria-label={tokenHighlight ? "Disable token highlighting" : "Enable token highlighting"}
+        aria-pressed={tokenHighlight}
+        class="{PAGE_SOFT_ICON_BTN} {tokenHighlight ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
+      >
+        <HighlighterIcon size={15} strokeWidth={1.5} />
+      </button>
     {/snippet}
   </TooltipUI.Trigger>
   <TooltipUI.Content value={tokenHighlight ? `Token highlighting on${hint}` : `Token highlighting off${hint}`} />

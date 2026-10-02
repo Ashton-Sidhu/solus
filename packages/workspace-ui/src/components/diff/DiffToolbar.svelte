@@ -32,7 +32,7 @@
   import type { TurnSnapshot } from "@solus/contracts/types";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { Button } from "../ui/button";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { worktreeDisplayName } from "../../lib/git-context";
 
   interface Props {
@@ -163,19 +163,17 @@
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <Button
+            <button
               {...tooltipProps}
-              variant="ghost"
-              size="default"
               type="button"
               onclick={onClearCommitScope}
               disabled={!onClearCommitScope}
               aria-label={`Showing commit ${commitSha.slice(0, 7)}. View all changes`}
-              class="h-7 shrink-0 gap-1.5 rounded-lg px-1.5 font-mono  text-(--solus-accent) pointer-coarse:h-10"
+              class="no-drag inline-flex shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-mono text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-10"
             >
-              <GitCommitIcon size={14} weight="duotone" />
+              <GitCommitIcon size={15} strokeWidth={1.5} />
               <span>{commitSha.slice(0, 7)}</span>
-            </Button>
+            </button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={"View all changes"} />
@@ -381,17 +379,15 @@
 
   <div class="toolbar-section toolbar-right">
     {#if filesCount > 0}
-      <Button
-        variant="secondary"
-        size="default"
+      <button
         type="button"
         onclick={onOpenFiles}
-        class="hidden max-md:flex shrink-0 font-secondary text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+        class="no-drag hidden shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10 max-md:flex [-webkit-tap-highlight-color:transparent]"
         aria-label="Browse changed files"
       >
-        <SidebarSimpleIcon size={14} weight="bold" />
+        <SidebarSimpleIcon size={15} strokeWidth={1.5} />
         <span class="tabular-nums">{filesCount}</span>
-      </Button>
+      </button>
     {/if}
 
     <!-- Layout choice leads the control cluster: it is the one setting that
@@ -410,23 +406,17 @@
     </span>
 
     <span class="mobile-only">
-      <Button
-        variant="ghost"
-        size="icon-sm"
+      <button
         type="button"
         onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
         aria-label={diffStyle === "split"
           ? "Switch to unified view"
           : "Switch to split view"}
-        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {diffStyle === 'split'
-          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-          : 'text-(--solus-text-tertiary)'}"
+        aria-pressed={diffStyle === "split"}
+        class="{PAGE_SOFT_ICON_BTN} {diffStyle === 'split' ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
       >
-        <ColumnsIcon
-          size={14}
-          weight={diffStyle === "split" ? "fill" : "regular"}
-        />
-      </Button>
+        <ColumnsIcon size={15} strokeWidth={1.5} />
+      </button>
     </span>
     {/if}
 
@@ -434,19 +424,17 @@
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <span {...tooltipProps} class="inline-flex">
-      <Button
-        variant="ghost"
-        size="icon-sm"
+      <button
         type="button"
         onclick={onRefresh}
         disabled={refreshing}
         aria-label="Refresh diff"
-        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 text-(--solus-text-tertiary) pointer-coarse:size-10"
+        class="{PAGE_SOFT_ICON_BTN} disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span class="flex" class:refresh-spin={refreshing}>
-          <ArrowClockwiseIcon size={14} weight="bold" />
+          <ArrowClockwiseIcon size={15} strokeWidth={1.5} />
         </span>
-      </Button>
+      </button>
     </span>
         {/snippet}
       </TooltipUI.Trigger>
@@ -460,20 +448,18 @@
             <span {...tooltipProps}
         class="desktop-only"
       >
-        <Button
-          variant="ghost"
-          size="icon-sm"
+        <button
           type="button"
           onclick={onToggleCollapseAll}
           aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-          class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 text-(--solus-text-tertiary) pointer-coarse:size-10"
+          class={PAGE_SOFT_ICON_BTN}
         >
           {#if allCollapsed}
-            <ArrowsOutLineVerticalIcon size={14} weight="bold" />
+            <ArrowsOutLineVerticalIcon size={15} strokeWidth={1.5} />
           {:else}
-            <ArrowsInLineVerticalIcon size={14} weight="bold" />
+            <ArrowsInLineVerticalIcon size={15} strokeWidth={1.5} />
           {/if}
-        </Button>
+        </button>
       </span>
           {/snippet}
         </TooltipUI.Trigger>
@@ -488,18 +474,15 @@
             <span {...tooltipProps}
         class="desktop-only"
       >
-        <Button
-          variant="ghost"
-          size="icon-sm"
+        <button
           type="button"
           onclick={onToggleTree}
           aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-          class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {!treeCollapsed
-            ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-            : 'text-(--solus-text-tertiary)'}"
+          aria-pressed={!treeCollapsed}
+          class="{PAGE_SOFT_ICON_BTN} {treeCollapsed ? '' : 'bg-[var(--wash-3)]! text-foreground!'}"
         >
-          <FileTreeIcon size={14} weight="bold" />
-        </Button>
+          <FileTreeIcon size={15} strokeWidth={1.5} />
+        </button>
       </span>
           {/snippet}
         </TooltipUI.Trigger>
@@ -522,24 +505,22 @@
       >
         <!-- Pending comments are the one piece of unsent work in this pane, so the
              accent wash is persistent rather than hover/open-only. -->
-        <Button
-          bind:ref={commentsBtn}
-          variant="ghost"
-          size="default"
+        <button
+          bind:this={commentsBtn}
           type="button"
           onclick={onToggleComments}
-          class="h-7 rounded-lg [&_svg:not([class*='size-'])]:size-3.5 gap-1.5 px-2 bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent) pointer-coarse:h-10"
+          class="no-drag inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10"
           aria-haspopup="dialog"
           aria-expanded={commentsOpen}
         >
-          <ChatCircleTextIcon size={14} weight="fill" />
+          <ChatCircleTextIcon size={15} strokeWidth={1.5} />
           <span
             style="font-family:{MONO_FONT};font-size:var(--solus-font-ui-sm)"
             class="font-medium tabular-nums"
           >
             {commentsCount}
           </span>
-        </Button>
+        </button>
       </span>
           {/snippet}
         </TooltipUI.Trigger>
@@ -621,7 +602,7 @@
     flex: 1 1 0;
     min-width: 0;
     justify-content: flex-end;
-    gap: 0.125rem;
+    gap: 0.375rem;
   }
 
   .desktop-only {
@@ -650,7 +631,7 @@
     flex-shrink: 0;
   }
 
-  /* Segmented unified/split control. Sized to the icon actions beside it (1.75rem)
+  /* Segmented unified/split control. Sized to the icon actions beside it (1.625rem)
      so the whole right-hand cluster sits on one optical line. */
   /* The layout control reads as its own control, not the head of the icon
      run beside it. */

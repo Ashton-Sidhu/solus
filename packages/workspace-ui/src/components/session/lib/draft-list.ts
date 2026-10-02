@@ -1,12 +1,15 @@
-import type { Prompt } from '@solus/contracts/types'
+import { sessionTitle } from '../../../lib/sessionUtils'
+import type { Session, Prompt } from '@solus/contracts/types'
 
 /**
- * A prompt that was written but never sent, as the sidebar shows it. A draft has
- * no session, no tab and no task record, so a row here reports the two things it
- * does know: what it says, and where it would run.
+ * A prompt that was written but never sent, as the sidebar shows it. A row
+ * reports the prompt or session name and where it will run. A prompt for an
+ * existing session also carries its tab, so selecting it resumes that session.
  */
 export interface DraftRow {
   draftId: string
+  /** Present for an unsent prompt in an existing session. */
+  tabId?: string
   title: string
   projectKey: string
   projectLabel: string
@@ -37,4 +40,12 @@ export function draftTitle(prompt: Prompt): string {
   const head = prompt.text.slice(start, lineEnd < 0 ? undefined : lineEnd)
   const collapsed = head.slice(0, TITLE_LIMIT + 1).replace(/\s+/g, ' ').trimEnd()
   return collapsed.length > TITLE_LIMIT ? `${collapsed.slice(0, TITLE_LIMIT).trimEnd()}…` : collapsed
+}
+
+/** Keep an established conversation's name when its prompt is set aside. */
+export function sessionDraftTitle(session: Session): string {
+  const title = sessionTitle(session)
+  return !session.title || session.title === 'New Tab'
+    ? title === 'New session' ? 'Draft' : title
+    : title
 }

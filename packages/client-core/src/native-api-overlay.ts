@@ -16,6 +16,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'setQuoteContext',
   'onQuoteSelection',
   'onAskSelectionInNewSession',
+  'onOpenSelectedLink',
   'onThemeChange',
   'onWindowShown',
   'onWindowHidden',

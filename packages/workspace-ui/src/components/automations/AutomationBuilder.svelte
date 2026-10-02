@@ -577,6 +577,7 @@
     onOpenPage={inline ? paneBackToList : onDone}
     leaf={name || "Untitled automation"}
     actions={saveStatus}
+    divided={false}
   />
 {/snippet}
 

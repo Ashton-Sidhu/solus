@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
   import { SHEET_ROW_META, SHEET_SECTION_LABEL } from "./lib/sheet-styles";
   import {
     Plus as PlusIcon,
@@ -12,7 +13,6 @@
     Moon as MoonIcon,
     NotebookPen as NotePencilIcon,
     Paperclip as PaperclipIcon,
-    ListChecks as ListChecksIcon,
     GitPullRequest as PullRequestIcon,
     Search as MagnifyingGlassIcon,
   } from "@lucide/svelte";
@@ -221,26 +221,26 @@
 
   /** Same two actions the desktop drafts section has: go back to the composer,
    *  or discard with the words held in a toast until it is dismissed. */
-  function openDraft(draftId: string) {
-    session.drafts.openDraft(draftId);
+  function openDraft(row: (typeof store.draftRows)[number]) {
+    store.openDraftRow(row);
     requestInputFocus();
     onSessionSelect();
   }
 
   function discardDraft(row: (typeof store.draftRows)[number], e: Event) {
     e.stopPropagation();
-    const discarded = session.drafts.discardSessionDraft(row.draftId);
-    if (!discarded) return;
+    const undo = store.discardDraftRow(row);
+    requestInputFocus();
+    if (!undo) return;
     toasts.show({
       message: `Discarded “${row.title}”`,
       actions: [
         {
           label: "Undo",
-          onAction: () =>
-            session.drafts.restoreSessionDrafts({
-              order: [row.draftId],
-              drafts: { [row.draftId]: discarded },
-            }),
+          onAction: () => {
+            undo();
+            requestInputFocus();
+          },
         },
       ],
     });
@@ -377,7 +377,7 @@
         }}
         aria-label="Open a task from the board"
       >
-        <ListChecksIcon size={15} />
+        <TaskIcon size={15} />
       </button>
       <button
         type="button"
@@ -446,11 +446,11 @@
             class="flex h-[3.875rem] items-center gap-[0.6875rem] rounded-2xl px-3 active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
             role="button"
             tabindex="0"
-            onclick={() => openDraft(item.draft.draftId)}
+            onclick={() => openDraft(item.draft)}
             onkeydown={(e) => {
               if (e.key !== "Enter" && e.key !== " ") return;
               e.preventDefault();
-              openDraft(item.draft.draftId);
+              openDraft(item.draft);
             }}
           >
             <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) text-(--muted-foreground)">
@@ -608,7 +608,7 @@
       </button>
     {/snippet}
     {@render footBtn("workspace", "Workspace", BooksIcon, () => session.toggleFolio())}
-    {@render footBtn("tasks", "Tasks", ListChecksIcon, () => session.openTasks())}
+    {@render footBtn("tasks", "Tasks", TaskIcon, () => session.openTasks())}
     {@render footBtn("prs", "PRs", PullRequestIcon, () => session.openPrs())}
     {@render footBtn("history", "History", ClockIcon, () => window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")))}
     {@render footBtn("settings", "Settings", GearIcon, () => session.showSettings())}

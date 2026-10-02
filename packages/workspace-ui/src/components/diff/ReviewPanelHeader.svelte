@@ -11,6 +11,7 @@
   import type { TurnSnapshot } from "@solus/contracts/types";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
   import ReviewPanelOverflowMenu from "./ReviewPanelOverflowMenu.svelte";
@@ -152,7 +153,7 @@
      own underneath. The scope picker stays, so a phone can still pick a turn. -->
 <div class="@container/band workspace-titlebar shrink-0" data-testid="review-panel-header">
 <div
-  class="flex min-h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5 @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:p-0"
+  class="flex min-h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:p-0"
 >
   <!-- Above the rung these wrappers are not boxes at all, so the desktop band
        is the same single row of slots it has always been. -->
@@ -188,13 +189,13 @@
             {...tooltipProps}
             bind:this={commentsBtn}
             type="button"
-            class="no-drag flex h-[1.625rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-chrome-dense font-medium text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10"
+            class="no-drag flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-chrome-dense font-medium text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10"
             aria-haspopup="dialog"
             aria-expanded={commentsOpen}
             aria-label={`${commentsCount} pending comments`}
             onclick={onToggleComments}
           >
-            <ChatCircleTextIcon size={13} class="shrink-0" />
+            <ChatCircleTextIcon size={15} strokeWidth={1.5} class="shrink-0" />
             <span class="font-mono tabular-nums">{commentsCount}</span>
           </button>
         {/snippet}
@@ -231,14 +232,14 @@
           <button
             {...tooltipProps}
             type="button"
-            class="no-drag flex size-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-[background-color,color] duration-100 ease-in-out hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-11 @max-[30rem]/band:hidden {treeCollapsed
-              ? 'bg-transparent text-muted-foreground'
-              : 'bg-[var(--wash-3)] text-foreground'}"
+            class="{PAGE_SOFT_ICON_BTN} @max-[30rem]/band:hidden {treeCollapsed
+              ? ''
+              : 'bg-[var(--wash-3)]! text-foreground!'}"
             aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
             aria-pressed={!treeCollapsed}
             onclick={onToggleTree}
           >
-            <FileTreeIcon size={14} />
+            <FileTreeIcon size={15} strokeWidth={1.5} />
           </button>
         {/snippet}
       </TooltipUI.Trigger>
@@ -268,7 +269,7 @@
        restore to, and the ✕ would be a second way out beside the chevron that
        leads this row. -->
   <div
-    class="flex shrink-0 items-center gap-0.5 pl-1.5 @min-[53.75rem]/band:pl-2.5 @max-[30rem]/band:hidden"
+    class="flex shrink-0 items-center gap-1.5 @max-[30rem]/band:hidden"
   >
     {#if onToggleMaximize}
       <TooltipUI.Root>
@@ -277,14 +278,14 @@
             <button
               {...tooltipProps}
               type="button"
-              class="no-drag flex size-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-[background-color,color] duration-100 ease-in-out hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-11"
+              class={PAGE_SOFT_ICON_BTN}
               aria-label={maximized ? "Restore panel size" : "Maximize panel"}
               onclick={onToggleMaximize}
             >
               {#if maximized}
-                <ArrowsInIcon size={14} />
+                <ArrowsInIcon size={15} strokeWidth={1.5} />
               {:else}
-                <ArrowsOutIcon size={14} />
+                <ArrowsOutIcon size={15} strokeWidth={1.5} />
               {/if}
             </button>
           {/snippet}
@@ -301,12 +302,12 @@
           <button
             {...tooltipProps}
             type="button"
-            class="no-drag flex size-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-[background-color,color] duration-100 ease-in-out hover:bg-[var(--wash-3)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-11"
+            class={PAGE_SOFT_ICON_BTN}
             aria-label="Close review"
             data-testid="review-panel-close"
             onclick={onClose}
           >
-            <XIcon size={15} />
+            <XIcon size={16} strokeWidth={1.5} />
           </button>
         {/snippet}
       </TooltipUI.Trigger>

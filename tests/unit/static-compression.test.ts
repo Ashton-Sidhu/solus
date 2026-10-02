@@ -56,11 +56,23 @@ describe('stale build requests', () => {
     const staleChunk = await fetch(`${baseUrl}/assets/await-M_YOPC_y.js`)
     expect(staleChunk.status).toBe(404)
     expect(staleChunk.headers.get('content-type')).not.toContain('text/html')
+    const staleDocument = await fetch(`${baseUrl}/assets/missing.js`, {
+      headers: { accept: 'text/html' },
+    })
+    expect(staleDocument.status).toBe(404)
 
     // Client-side routes still resolve to the shell.
-    const route = await fetch(`${baseUrl}/pair`)
-    expect(route.status).toBe(200)
-    expect(route.headers.get('content-type')).toContain('text/html')
+    for (const path of ['/pair', '/tasks', '/settings/general', '/work/w_12?p=task%2Ft_1&f=1']) {
+      const route = await fetch(`${baseUrl}${path}`)
+      expect(route.status).toBe(200)
+      expect(route.headers.get('content-type')).toContain('text/html')
+      expect(await route.text()).toContain('<title>Solus</title>')
+    }
+    const projectRoute = await fetch(`${baseUrl}/settings/projects/Users/ada/project.name`, {
+      headers: { accept: 'text/html' },
+    })
+    expect(projectRoute.status).toBe(200)
+    expect(await projectRoute.text()).toContain('<title>Solus</title>')
   })
 
   test('revalidates the entry document while hashed assets stay immutable', async () => {

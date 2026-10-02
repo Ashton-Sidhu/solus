@@ -1,9 +1,9 @@
 <script lang="ts">
+  import TaskIcon from "../../ui/TaskIcon.svelte";
   import {
     ChevronDown as CaretDownIcon,
     Ellipsis as MoreIcon,
     ExternalLink as ArrowSquareOutIcon,
-    ListChecks as ListChecksIcon,
   } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../../contexts";
@@ -108,7 +108,7 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="top" align="start" sideOffset={6} class="min-w-40" portalProps={menuPortalProps}>
       <DropdownMenu.Item onSelect={() => onOpenTask(task)}>
-        <ListChecksIcon size={13} class="shrink-0 opacity-70" />
+        <TaskIcon size={13} class="shrink-0 opacity-70" />
         Open task
       </DropdownMenu.Item>
       {#if task.url}

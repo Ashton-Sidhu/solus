@@ -20,11 +20,11 @@
         {...props}
         variant="ghost"
         size="sm"
-        class="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:h-10"
+        class="h-6.5 shrink-0 gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-1)] pointer-coarse:h-10"
       >
-        <SlidersHorizontalIcon class="size-3.5" aria-hidden="true" />
+        <SlidersHorizontalIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
         <span class="hidden sm:inline">Columns</span>
-        <CaretDownIcon class="size-2.5 opacity-60" weight="bold" aria-hidden="true" />
+        <CaretDownIcon class="size-3.5 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
       </Button>
     {/snippet}
   </DropdownMenu.Trigger>

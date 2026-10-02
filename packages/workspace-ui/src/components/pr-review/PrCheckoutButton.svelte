@@ -11,7 +11,7 @@
   <Button
     type="button"
     size="xs"
-    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
+    class="h-6.5 shrink-0 gap-1.5 rounded-full px-3 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
     {onclick}
     disabled={preparingComposer || disabled}
     aria-label="Check out this pull request"
@@ -25,7 +25,7 @@
         aria-hidden="true"
       />
     {:else}
-      <GitPullRequestIcon class="size-3" aria-hidden="true" />
+      <GitPullRequestIcon class="size-[15px]" strokeWidth={1.5} aria-hidden="true" />
     {/if}
     <span class="@max-[40rem]/band:hidden">
       {preparingComposer ? "Preparing…" : "Check out"}

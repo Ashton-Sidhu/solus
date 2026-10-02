@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { SessionMeta } from "@solus/contracts/types";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
@@ -29,8 +28,6 @@
     title: string;
     workId: string;
     onClose: () => void;
-    onOpenChat?: (mode: "resume" | "new") => void;
-    originalSessionMeta?: SessionMeta | null;
     onRename?: (title: string) => void;
     onDelete?: () => void;
     onDuplicate?: () => void | Promise<void>;
@@ -47,8 +44,6 @@
     title,
     workId,
     onClose,
-    onOpenChat,
-    originalSessionMeta,
     onRename,
     onDelete,
     onDuplicate,
@@ -235,7 +230,7 @@
         data-testid="artifact-shell-save-html"
         onclick={saveAsHtml}
       >
-        <DownloadIcon size={14} />
+        <DownloadIcon size={15} strokeWidth={1.5} />
       </button>
     {/if}
     {#if !commentsReadOnly}
@@ -252,7 +247,7 @@
           if (pinArmed) draftPin = null;
         }}
       >
-        <PinIcon size={14} />
+        <PinIcon size={15} strokeWidth={1.5} />
       </button>
     {/if}
     {#if comments.length > 0}
@@ -266,7 +261,7 @@
         data-testid="artifact-shell-comments"
         onclick={() => (commentListOpen = !commentListOpen)}
       >
-        <CommentsIcon size={14} />
+        <CommentsIcon size={15} strokeWidth={1.5} />
         <span class="text-workspace-chrome tabular-nums">{openCommentCount}</span>
       </button>
     {/if}
@@ -293,12 +288,10 @@
       data-testid="artifact-shell-reload"
       onclick={() => (reloadKey += 1)}
     >
-      <ReloadIcon size={14} />
+      <ReloadIcon size={15} strokeWidth={1.5} />
     </button>
     <WorkHeaderActions
-      {onOpenChat}
       onStartRename={onRename ? startRename : undefined}
-      {originalSessionMeta}
       {copied}
       copy={copyHtml}
       {workId}
@@ -344,8 +337,8 @@
 </div>
 
 <style>
-  /* The same rungs as WorkHeaderActions' verbs and overflow: 1.625rem on a
-     desktop display, a 2.5rem touch target on mobile. `:global` because the Select trigger is a child component and a
+  /* The same raised pills as WorkHeaderActions' verbs and overflow: 1.625rem on
+     a desktop display, a 2.5rem touch target on mobile. `:global` because the Select trigger is a child component and a
      scoped class would not reach it; the titlebar ancestor keeps it local. */
   .workspace-titlebar :global(.artifact-tool) {
     display: inline-flex;
@@ -356,10 +349,13 @@
     width: 1.625rem;
     height: 1.625rem;
     padding: 0;
-    border-radius: 0.375rem;
+    border-radius: 9999px;
     border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -368,11 +364,10 @@
   }
   .workspace-titlebar :global(.artifact-tool--labelled) {
     width: auto;
-    padding: 0 0.4375rem;
+    padding: 0 0.625rem;
   }
   .workspace-titlebar :global(.artifact-tool:hover) {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
+    background: var(--wash-1);
   }
   /* An armed tool or an open list reads as pressed. */
   .workspace-titlebar :global(.artifact-tool.is-active) {
@@ -387,7 +382,6 @@
     .workspace-titlebar :global(.artifact-tool) {
       width: 2.5rem;
       height: 2.5rem;
-      border-radius: 0.5rem;
     }
     .workspace-titlebar :global(.artifact-tool--labelled) {
       width: auto;

@@ -13,7 +13,7 @@
 </script>
 
 <div
-  class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4.5 py-6"
+  class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4.5 pt-2 pb-6"
   role="status"
   aria-busy="true"
   aria-label="Loading the turn’s spans"

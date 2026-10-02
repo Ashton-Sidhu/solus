@@ -1,9 +1,9 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import { scaleBand } from "d3-scale";
   import { curveMonotoneX } from "d3-shape";
   import { Axis, Bars, Chart, Highlight, Spline, Svg, Tooltip } from "layerchart";
   import {
-    ListChecks as TaskIcon,
     MessageSquare as SessionIcon,
     Search as QueryIcon,
   } from "@lucide/svelte";

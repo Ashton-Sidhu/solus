@@ -114,7 +114,7 @@ function installServiceWorkerMessageBridge(): void {
     if (!route) return
     window.focus()
     if (solusApp) window.dispatchEvent(new CustomEvent('solus:open-route', { detail: route }))
-    else location.hash = route
+    else history.replaceState(null, '', route.replace(/^#/, ''))
   })
 }
 
@@ -155,7 +155,7 @@ async function connectToServer(
   setActiveServerId(target.id)
 
   if (pendingNotificationRoute) {
-    location.hash = pendingNotificationRoute
+    history.replaceState(null, '', pendingNotificationRoute.replace(/^#/, ''))
     pendingNotificationRoute = null
   }
 

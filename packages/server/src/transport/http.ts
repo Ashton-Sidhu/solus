@@ -112,7 +112,12 @@ export interface BuiltHttpServer {
   port: number
   /** The same routes, for a second listener that must share them (the tunnel's proxied port). */
   requestListener: RequestListener
+  /** Every route registered, so a server that shares an origin can check who owns each path. */
+  routes: readonly { method: string; path: string }[]
 }
+
+/** Slow clients cannot hold a request open: every listener of these routes uses the same limits. */
+export const HTTP_SERVER_TIMEOUTS = { requestTimeout: 30_000, headersTimeout: 15_000 } as const
 
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
@@ -485,13 +490,19 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     // reject HTML as a module ("'text/html' is not a valid JavaScript MIME
     // type") instead of reporting the chunk as gone, which hides an
     // out-of-date tab behind an unrecoverable parse error.
-    app.get('*', (c, next) => (hasFileExtension(c.req.path) ? c.notFound() : next()))
+    app.get('*', (c, next) => {
+      // A browser navigation can name a project or file with a dot in it.
+      // Missing build assets still 404, including requests that accept HTML.
+      const isDocument = c.req.header('accept')?.includes('text/html')
+        && !c.req.path.startsWith('/assets/')
+      return hasFileExtension(c.req.path) && !isDocument ? c.notFound() : next()
+    })
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }
 
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
-  const server = createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, requestListener)
-  return { server, host, port, requestListener }
+  const server = createServer(HTTP_SERVER_TIMEOUTS, requestListener)
+  return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })) }
 }
 
 const wsTicketRequestSchema = z.object({ shareSecret: z.string().min(1).max(256).optional() })

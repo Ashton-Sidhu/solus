@@ -17,6 +17,8 @@
     isLeading?: boolean;
     onMove: () => void;
     iconSize?: number;
+    /** Thinner for the raised pill rows, whose glyphs are drawn at 1.5. */
+    iconStroke?: number;
     /** What the surface becomes when it moves back to the leading pane. */
     leadingDestination?: "page" | "pane";
     /** Override the chrome when the host row has its own button recipe. */
@@ -27,6 +29,7 @@
     isLeading = true,
     onMove,
     iconSize = 15,
+    iconStroke = 2,
     leadingDestination = "page",
     class: className = PAGE_ICON_BTN,
   }: Props = $props();
@@ -56,9 +59,9 @@
         aria-label={label}
       >
         {#if isLeading}
-          <MoveRightIcon size={iconSize} />
+          <MoveRightIcon size={iconSize} strokeWidth={iconStroke} />
         {:else}
-          <MoveLeftIcon size={iconSize} />
+          <MoveLeftIcon size={iconSize} strokeWidth={iconStroke} />
         {/if}
       </button>
     {/snippet}

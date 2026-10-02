@@ -108,7 +108,7 @@
      40px band and overflowed it. Both insets are marked `!` so the desktop
      pair above cannot win them back on a phone. -->
 <div
-  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1 text-workspace-chrome @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
+  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 text-workspace-chrome @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
     ? `${divided ? 'border-b border-[var(--hairline)]' : ''} pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]`
     : 'pl-3'} {hasWindowControls
     ? 'pr-3.5'
@@ -156,7 +156,7 @@
        reaches the same rows — so the stepper stands down rather than pushing
        the controls after it off the edge. -->
   {#if stepper}
-    <div class="flex shrink-0 items-center gap-0.5 @max-[30rem]/pane:hidden">
+    <div class="flex shrink-0 items-center gap-1.5 @max-[30rem]/pane:hidden">
       <button
         type="button"
         class={SUB_PAGE_ROUND_BTN}
@@ -165,7 +165,7 @@
         title="Previous {stepper.itemLabel}{hint(stepper.previousHint)}"
         aria-label="Previous {stepper.itemLabel}"
       >
-        <CaretLeftIcon size={12} />
+        <CaretLeftIcon size={15} strokeWidth={1.5} />
       </button>
       {#if queueLabel}
         <span class="tabular-nums whitespace-nowrap text-muted-foreground">{queueLabel}</span>
@@ -178,7 +178,7 @@
         title="Next {stepper.itemLabel}{hint(stepper.nextHint)}"
         aria-label="Next {stepper.itemLabel}"
       >
-        <CaretRightIcon size={12} />
+        <CaretRightIcon size={15} strokeWidth={1.5} />
       </button>
     </div>
   {/if}
@@ -199,22 +199,22 @@
     <span class="contents @max-[30rem]/pane:hidden">
 
     {#if onMoveAcross}
-      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={13} class={SUB_PAGE_ROUND_BTN} />
+      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={15} iconStroke={1.5} class={SUB_PAGE_ROUND_BTN} />
     {/if}
 
     {#if onToggleMaximize}
       <button
         type="button"
-        class="{SUB_PAGE_ROUND_BTN} {maximized ? 'bg-[var(--wash-2)] text-foreground' : ''}"
+        class="{SUB_PAGE_ROUND_BTN} {maximized ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
         onclick={onToggleMaximize}
         title={maximized ? restoreLabel : maximizeLabel}
         aria-label={maximized ? restoreLabel : maximizeLabel}
         aria-pressed={maximized}
       >
         {#if maximized}
-          <ArrowsInIcon size={13} />
+          <ArrowsInIcon size={15} strokeWidth={1.5} />
         {:else}
-          <ArrowsOutIcon size={13} />
+          <ArrowsOutIcon size={15} strokeWidth={1.5} />
         {/if}
       </button>
     {/if}
@@ -227,7 +227,7 @@
         title={closeLabel}
         aria-label={closeLabel}
       >
-        <XIcon size={13} />
+        <XIcon size={16} strokeWidth={1.5} />
       </button>
     {/if}
     </span>

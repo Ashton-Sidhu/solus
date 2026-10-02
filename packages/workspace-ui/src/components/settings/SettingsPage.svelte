@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import { isSolusApiId } from "@solus/contracts/uplink";
   import type { Component } from "svelte";
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
@@ -14,7 +15,6 @@
     Cloud as CloudIcon,
     NotebookPen as NotePencilIcon,
     Folder as FolderIcon,
-    ListChecks as ListChecksIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -32,6 +32,7 @@
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
   import { Button } from "../ui/button";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { SearchField } from "../ui/search-field";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
@@ -106,7 +107,7 @@
       id: "tasks",
       label: "Tasks",
       description: "How agents work on tasks, and how a task's lead runs.",
-      icon: ListChecksIcon,
+      icon: TaskIcon,
       group: "Workspace",
     },
     {
@@ -314,19 +315,19 @@
   a responsive rule becomes a dead end.
 -->
 {#snippet tabChips(padding: string)}
-  <div class="shrink-0 flex flex-wrap gap-[0.4375rem] {padding}">
+  <div class="shrink-0 flex flex-wrap gap-1.5 {padding}">
     {#each tabs as tab (tab.id)}
       {@const Icon = tab.icon}
       <button
         type="button"
         onclick={() => selectTab(tab.id)}
         aria-current={session.settingsTab === tab.id ? "page" : undefined}
-        class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-[0.8125rem] text-sm [-webkit-tap-highlight-color:transparent] {session.settingsTab ===
+        class="inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-workspace-chrome transition-colors [-webkit-tap-highlight-color:transparent] pointer-coarse:h-8 {session.settingsTab ===
  tab.id
- ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
- : 'font-medium text-(--muted-foreground) shadow-[shadow:var(--elev-ring)] active:bg-(--wash-1)'}"
+ ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
+ : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground active:bg-[var(--wash-1)]'}"
       >
-        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
+        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
       </button>
     {/each}
   </div>
@@ -422,14 +423,14 @@
         {#snippet child({ props })}
           <Button
             {...props}
-            variant="outline"
+            variant="ghost"
             size="sm"
-            class="h-7 shrink-0 gap-1.5 text-xs font-normal text-muted-foreground shadow-xs"
+            class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] dark:hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] dark:aria-expanded:bg-[var(--wash-1)]"
             aria-label="Settings host"
           >
             On {selectedSettingsHost.label}
             {#if settingsHosts.length > 1}
-              <CaretDownIcon size={10} class="opacity-60" />
+              <CaretDownIcon size={15} strokeWidth={1.5} class="opacity-60" />
             {/if}
           </Button>
         {/snippet}
@@ -460,15 +461,14 @@
         >Settings</span
       >
       <SettingsUpdateButton />
-      <Button
-        variant="ghost"
-        size="icon"
+      <button
+        type="button"
         onclick={close}
         aria-label="Close settings"
-        class="-mr-1.5 rounded-full text-(--solus-text-tertiary) active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]"
+        class="{PAGE_SOFT_ICON_BTN} [-webkit-tap-highlight-color:transparent]"
       >
-        <XIcon size={18} />
-      </Button>
+        <XIcon size={16} strokeWidth={1.5} />
+      </button>
     </header>
 
     {@render tabChips('px-4 pt-1 pb-3')}
@@ -621,20 +621,19 @@
         {:else}
           <span></span>
         {/if}
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex shrink-0 items-center gap-1.5">
           <SettingsUpdateButton />
           {#if hostFramedTab}
             {@render hostFrame()}
           {/if}
-          <Button
-            variant="ghost"
-            size="icon-sm"
+          <button
+            type="button"
             onclick={close}
             aria-label="Close settings"
-            class="shrink-0 text-muted-foreground"
+            class={PAGE_SOFT_ICON_BTN}
           >
-            <XIcon size={14} />
-          </Button>
+            <XIcon size={16} strokeWidth={1.5} />
+          </button>
         </div>
       </header>
 

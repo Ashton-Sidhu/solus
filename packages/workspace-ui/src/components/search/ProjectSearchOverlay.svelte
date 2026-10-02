@@ -13,7 +13,6 @@
   import { useScope, useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { ensureIconCollections } from "../diagram/iconify";
-  import Kbd from "../ui/Kbd.svelte";
   import {
     distinctFileCount,
     groupMatches,
@@ -346,7 +345,7 @@
                 class={cn(
                   "flex h-6 w-full min-w-0 overflow-hidden cursor-pointer items-center gap-3 border-none bg-transparent px-5 text-left font-mono text-xs transition-colors duration-75",
                   match.index === selectedIndex
-                    ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]"
+                    ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]"
                     : "text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)",
                 )}
                 onpointermove={() => (selectedIndex = match.index)}
@@ -373,25 +372,6 @@
         {/if}
       </div>
     {/if}
-
-    <div
-      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
-    >
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">↑</Kbd>
-        <Kbd variant="keycap">↓</Kbd>
-        navigate
-      </span>
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">↵</Kbd>
-        open file
-      </span>
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">esc</Kbd>
-        close
-      </span>
-      <span class="ml-auto truncate" title={environment.cwd}>{scopeName}</span>
-    </div>
   </div>
 </div>
 

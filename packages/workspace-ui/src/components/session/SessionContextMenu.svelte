@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     ChartBar as ChartBarIcon,
     Check as CheckIcon,
@@ -8,7 +9,6 @@
     Copy as CopyIcon,
     GitPullRequest as GitPullRequestIcon,
     Link as LinkIcon,
-    ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Unlink as UnlinkIcon,
     Pen as PencilSimpleIcon,
@@ -333,7 +333,7 @@
     {#if tabId}
       {#if linkedTask}
         <ContextMenu.Item onSelect={openTask}>
-          <ListChecksIcon />
+          <TaskIcon />
           Open Task
         </ContextMenu.Item>
         <ContextMenu.Item onSelect={() => void unlinkFromTask()}>

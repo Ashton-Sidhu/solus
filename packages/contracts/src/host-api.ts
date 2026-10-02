@@ -759,6 +759,9 @@ export interface SolusAPI {
   /** Fires when selected conversation text should seed a forked split session. */
   onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
 
+  /** Native context-menu action for a URL selected in a conversation. */
+  onOpenSelectedLink(callback: (url: string, sourceTabId: string) => void): () => void
+
   /** Running dev servers this host can offer as browser targets. Discovery
    *  only: Solus does not own these processes. */
   browserRuntimeStatus(): Promise<BrowserRuntimeStatus>
@@ -869,6 +872,7 @@ export interface NativeSolusAPI {
   setQuoteContext(tabId: string | null): void
   onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
   onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
+  onOpenSelectedLink(callback: (url: string, sourceTabId: string) => void): () => void
   /** A location the app was asked to open from outside the renderer — today a
    *  notification click; the payload is a serialized route. */
   onOpenRoute(callback: (route: string) => void): () => void

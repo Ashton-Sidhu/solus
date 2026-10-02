@@ -437,6 +437,18 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     }),
   );
 
+  $effect(() =>
+    localApi.onOpenSelectedLink((url, sourceTabId) => {
+      const serverId = session.sessionFor(sourceTabId)?.run.serverId;
+      if (!serverId) return;
+      void session.openUrlInBrowser(url, serverId).catch((error) => {
+        toasts.error("Couldn't open the link", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }),
+  );
+
   $effect(() => {
     // Pre-listener for the voice shortcut: always claims the combo so the OS
     // never sees it

@@ -44,7 +44,7 @@
   <!-- Quiet until the table is hovered or focused; always shown on touch,
        where there is no hover. -->
   <div
-    class="mt-0.5 flex items-center justify-between opacity-0 transition-opacity duration-150 select-none group-hover/table:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+    class="my-2 flex items-center justify-between opacity-0 transition-opacity duration-150 select-none group-hover/table:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
   >
     <button
       type="button"

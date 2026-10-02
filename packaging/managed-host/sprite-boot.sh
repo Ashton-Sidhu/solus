@@ -3,9 +3,8 @@
 #
 # The control plane's bootstrap installs a verified server release, read-only, at the
 # directory given as $1 and runs this as the Sprite's `solus` service, with
-# SOLUS_HOST_LINK set when it has a new link to hand over. It is the Sprite
-# counterpart of Dockerfile + entrypoint.sh: a Sprite boots a standard Ubuntu image, so
-# what the image baked in is installed here once per release instead.
+# SOLUS_HOST_LINK set when it has a new link to hand over. A Sprite boots a standard
+# Ubuntu image, so what the host needs beyond it is installed here once per release.
 #
 # It runs as the Sprite's own user (passwordless sudo) only long enough to set the
 # machine up, then drops to the `solus` user, which has no sudo, and hands the process
@@ -47,7 +46,7 @@ if [ ! -f "$STAMP" ]; then
   sudo touch "$STAMP"
 fi
 
-# ── Every boot: the disk layout (entrypoint.sh) ─────────────────────────────
+# ── Every boot: the disk layout ─────────────────────────────────────────────
 # Gives one directory and its immediate children to `solus`, without walking the whole
 # tree: a boot must stay fast however many repositories have accumulated.
 own() {

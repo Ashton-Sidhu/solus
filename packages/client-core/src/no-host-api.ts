@@ -12,6 +12,7 @@ export function createNoHostSolusApi(): LocalApi {
     setQuoteContext: () => {},
     onQuoteSelection: () => () => {},
     onAskSelectionInNewSession: () => () => {},
+    onOpenSelectedLink: () => () => {},
     openExternal: (url: string): Promise<boolean> => {
       window.open(url, '_blank', 'noopener')
       return Promise.resolve(true)

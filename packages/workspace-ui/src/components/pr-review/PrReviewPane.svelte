@@ -20,6 +20,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@solus/client-core/host-api";
   import type { PaneId } from "../../contexts/workspace/routing/location";
+  import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
   import { localApi } from "@solus/client-core/local-api";
   import {
     useKeybinding,
@@ -45,6 +46,7 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import PageComposer from "../page-composer/PageComposer.svelte";
   import LensSurface from "../review/LensSurface.svelte";
   import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
   import { lensTabState } from "../review/lib/lens-surface";
@@ -83,7 +85,11 @@
     onExit,
     onUnresolvedCountChange,
     onRefreshTarget,
-  }: {
+    onAttachFile,
+    onScreenshot,
+    onDesignMode,
+    composerActions,
+  }: Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode" | "composerActions"> & {
     pr: PrReviewTarget | null;
     /** Present when the review is mounted in the workspace pane router. */
     paneId?: PaneId;
@@ -601,6 +607,17 @@
     requestInputFocus();
   }
 
+  /** The docked composer's session opens at once and waits on the PR checkout
+   *  behind a setup card in its own conversation; the prompt goes when the
+   *  worktree is ready. */
+  function sendAfterCheckout(tabId: string, text: string) {
+    void session.prReview.sendAfterPrCheckout(tabId, text, {
+      number: target.number,
+      serverId,
+      prepare: () => review.ensureCheckout(),
+    });
+  }
+
   async function openPrComposer(prompt?: string) {
     if (preparingComposer) return;
     preparingComposer = true;
@@ -982,6 +999,20 @@
         />
         {/key}
       </div>
+    {/if}
+    {#if pr && !headless}
+      <PageComposer
+        paneId={paneId ?? session.router.focusedPaneId}
+        aim={{ withoutTask: true, serverId }}
+        cwd={projectScopeOf(review.ctx.session) || undefined}
+        sendFirstPrompt={sendAfterCheckout}
+        destinationFixed
+        {onAttachFile}
+        {onScreenshot}
+        {onDesignMode}
+        {composerActions}
+        label="Work with this pull request"
+      />
     {/if}
   </div>
 

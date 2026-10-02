@@ -1,19 +1,15 @@
 <script lang="ts">
   import {
     Copy as CopyIcon,
-    ChevronDown as CaretDownIcon,
     CloudUpload as CloudUploadIcon,
     Download as DownloadSimpleIcon,
     FileOutput as FileOutputIcon,
     Folder as FolderIcon,
     Pen as PencilSimpleIcon,
-    MessageCircle as ChatCircleIcon,
     Trash2 as TrashIcon,
     Ellipsis as DotsThreeIcon,
     Users as UsersIcon,
   } from "@lucide/svelte";
-  import WorkChatMenu from "./WorkChatMenu.svelte";
-  import WorkPublishMenu from "./WorkPublishMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
   import WorkHistoryDialog from "./WorkHistoryDialog.svelte";
   import WorkReviewControl from "./WorkReviewControl.svelte";
@@ -21,7 +17,6 @@
   import { getWorkPaneContext } from "./lib/work-pane-context";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { getClientShellContext, getSurfaceContext, serversStore, sharesStore } from "../../contexts";
-  import type { SessionMeta } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
     downloadPayload,
@@ -32,10 +27,8 @@
   import { toasts } from "../../lib/toasts";
 
   interface Props {
-    onOpenChat?: (mode: "resume" | "new") => void;
     /** Flips the surface's toolbar row into its rename input. */
     onStartRename?: () => void;
-    originalSessionMeta?: SessionMeta | null;
     copied: boolean;
     copy: () => void;
     /** When set, the header offers the work's History. */
@@ -62,14 +55,10 @@
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
-    /** Flushes the editor before a publish reads its content. */
-    flushSave?: () => Promise<void>;
   }
 
   let {
-    onOpenChat,
     onStartRename,
-    originalSessionMeta,
     copied,
     copy,
     workId,
@@ -82,14 +71,10 @@
     hostIsRemote = false,
     onDelete,
     onDuplicate,
-    flushSave,
   }: Props = $props();
 
   const session = getSurfaceContext();
   const shell = getClientShellContext();
-
-  let chatMenuOpen = $state(false);
-  let chatButtonEl: HTMLDivElement | null = $state(null);
 
   // Overflow (⋯) menu holding the secondary / destructive actions.
   let overflowOpen = $state(false);
@@ -215,54 +200,11 @@
   <WorkReviewControl {workId} {title} type={workType} currentContent={resolvedContent} />
 {/if}
 
-<!-- The upstream mirror, inline rather than in the overflow: once a document is
-     linked, its sync state is something the reader has to be able to see, not
-     something to go looking for. Renders only for docs (2a scope). -->
 {#if workId && shell.canOpenResource("workspace")}
-  <WorkPublishMenu {workId} {getCurrentContent} {flushSave} />
   <!-- A glyph on the ⋯ trigger's square geometry, so the two quiet header
        controls read as one pair. A scoped class would not reach the child, so
        that geometry is restated as utilities. -->
-  <ShareButton serverId={shareServerId} resource={shareResource} {title} class="inline-flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:size-10" />
-{/if}
-
-<!-- How to reach Solus. The chat circle is the app's mark for a session
-     everywhere else it appears, so the button says what it opens; the tooltip
-     and the aria-label carry the name. It sits with the work's own actions,
-     ahead of ⋯ — "more actions" closes the row, it does not interrupt it. -->
-{#if onOpenChat}
-  <div class="relative wha-solus" bind:this={chatButtonEl}>
-    <button
-      type="button"
-      onclick={() => onOpenChat("resume")}
-      class="wha-solus-trigger"
-      data-testid="open-chat"
-      title="Ask Solus about this document"
-      aria-label="Ask Solus"
-    >
-      <ChatCircleIcon size={14} />
-    </button>
-    <button
-      type="button"
-      onclick={() => (chatMenuOpen = !chatMenuOpen)}
-      class="wha-solus-caret"
-      class:wha-solus-caret--open={chatMenuOpen}
-      data-testid="open-chat-menu"
-      title="Choose chat mode"
-      aria-label="Choose chat mode"
-      aria-haspopup="menu"
-      aria-expanded={chatMenuOpen}
-    >
-      <CaretDownIcon size={9} weight="bold" />
-    </button>
-    <WorkChatMenu
-      bind:open={chatMenuOpen}
-      triggerEl={chatButtonEl}
-      onResume={() => onOpenChat("resume")}
-      onNew={() => onOpenChat("new")}
-      {originalSessionMeta}
-    />
-  </div>
+  <ShareButton serverId={shareServerId} resource={shareResource} {title} class="inline-flex size-6.5 shrink-0 items-center justify-center rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] pointer-coarse:size-10 [&_svg]:size-[15px] [&_svg]:stroke-[1.5]" />
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
@@ -270,7 +212,7 @@
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button {...props} type="button" class="wha-overflow" class:wha-overflow--open={overflowOpen} data-testid="work-actions-menu" title="More actions" aria-label="More actions">
-          <DotsThreeIcon size={14} weight="bold" />
+          <DotsThreeIcon size={15} strokeWidth={1.5} />
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
@@ -351,22 +293,24 @@
 {/if}
 
 <style>
-  /* A header verb: unfilled type at the same metrics as the shell's own
-     (Markdown/Editor) buttons, so the whole cluster reads as one row of words
-     with a single filled surface at the end of it.
+  /* A header verb: a raised pill, the same as the shell's own
+     (Markdown/Editor) button, so the whole cluster reads as one row of pills.
 
      Use the shared workspace rung so these actions match the shell title
      and controls on desktop and touch clients. */
   .wha-verb {
     flex-shrink: 0;
     height: 1.625rem;
-    padding: 0 0.4375rem;
-    border-radius: 0.375rem;
+    padding: 0 0.625rem;
+    border-radius: 9999px;
     font-family: inherit;
     font-size: var(--text-workspace-chrome);
     font-weight: 400;
-    color: var(--solus-text-tertiary);
-    background: transparent;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
     border: none;
     cursor: pointer;
     white-space: nowrap;
@@ -375,78 +319,13 @@
       color var(--duration-quick) var(--ease-premium);
   }
   .wha-verb:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
+    background: var(--wash-1);
   }
   .wha-verb:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
   }
 
-  /* Reaching Solus is one of the work's actions, not a call to action, so it
-     takes the same quiet treatment as Share and ⋯ beside it: transparent at
-     rest, a hover wash, the row's shared height and radius. Its caret makes it
-     two boxes rather than one, so the wash is painted on the group and both
-     halves stay transparent — one control, not two abutting buttons. */
-  .wha-solus {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: stretch;
-    height: 1.625rem;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    overflow: hidden;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      transform 80ms var(--ease-premium);
-  }
-  .wha-solus:active {
-    transform: scale(0.96);
-  }
-  .wha-solus:hover,
-  .wha-solus:has(.wha-solus-caret--open) {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  /* The square half, on the same box Share and ⋯ take, so the three glyphs sit
-     on one rhythm across the row. */
-  .wha-solus-trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.625rem;
-    padding: 0;
-    background: transparent;
-    color: inherit;
-    border: none;
-    cursor: pointer;
-  }
-  /* Narrower than the glyph it hangs off: a mode chooser attached to the
-     action, not a second action of equal weight. No divider — unfilled, a rule
-     between the two halves reads heavier than either of them. */
-  .wha-solus-caret {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 0.875rem;
-    padding: 0;
-    background: transparent;
-    color: inherit;
-    border: none;
-    cursor: pointer;
-    transition: transform var(--duration-quick) var(--ease-premium);
-  }
-  .wha-solus-caret--open {
-    transform: rotate(180deg);
-  }
-  .wha-solus-trigger:focus-visible,
-  .wha-solus-caret:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: -0.125rem;
-  }
   /* Overflow (⋯) trigger — a verb like the rest, so it stays unfilled until hover. */
   .wha-overflow {
     display: inline-flex;
@@ -455,9 +334,12 @@
     justify-content: center;
     width: 1.625rem;
     height: 1.625rem;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
+    border-radius: 9999px;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
     border: none;
     cursor: pointer;
     transition:
@@ -467,8 +349,7 @@
   }
   .wha-overflow:hover,
   .wha-overflow--open {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
+    background: var(--wash-1);
   }
   .wha-overflow:active {
     transform: scale(0.96);
@@ -483,27 +364,15 @@
   /* Mobile: the header is the formatting strip, whose buttons are 40px touch
      targets — these have to match it or they read as a second, smaller row. */
   @media (max-width: 767px) {
-    .wha-verb,
-    .wha-solus {
+    .wha-verb {
       height: 2.5rem;
     }
     .wha-verb {
-      padding: 0 0.75rem;
-      border-radius: 0.5rem;
+      padding: 0 0.875rem;
     }
     .wha-overflow {
       width: 2.5rem;
       height: 2.5rem;
-      border-radius: 0.5rem;
-    }
-    .wha-solus {
-      border-radius: 0.5rem;
-    }
-    .wha-solus-trigger {
-      width: 2.5rem;
-    }
-    .wha-solus-caret {
-      width: 1.25rem;
     }
   }
 </style>

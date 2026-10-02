@@ -1,3 +1,5 @@
+import { fenceLanguage } from "@solus/document-model/fences";
+
 const CODE_BLOCK_LANGUAGE_ALIASES = {
   "c++": "cpp",
   html: "xml",
@@ -19,6 +21,7 @@ const CODE_BLOCK_LANGUAGES = new Set([
   "javascript",
   "json",
   "markdown",
+  "mermaid",
   "python",
   "rust",
   "shell",
@@ -31,7 +34,7 @@ const CODE_BLOCK_LANGUAGES = new Set([
 /** Resolve common Markdown fence aliases to the values offered by the picker. */
 export function codeBlockPickerLanguage(language: string | null | undefined): string {
   if (!language) return "";
-  const normalized = language.toLowerCase();
+  const normalized = fenceLanguage(language);
   if (CODE_BLOCK_LANGUAGES.has(normalized)) return normalized;
   return CODE_BLOCK_LANGUAGE_ALIASES[normalized] ?? "";
 }

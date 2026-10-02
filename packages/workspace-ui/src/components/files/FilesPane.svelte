@@ -18,7 +18,7 @@
   } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { Button } from "../ui/button";
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import type { IpcContext, ProjectFileMutation } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -664,32 +664,33 @@
 <!-- The three plain header controls differ only in label, icon, and handler.
      The tree toggle stays written out: it alone carries a pressed state and a
      label that changes with it. -->
-{#snippet newFileIcon()}<FilePlusIcon />{/snippet}
-{#snippet newFolderIcon()}<FolderPlusIcon />{/snippet}
-{#snippet refreshIcon()}<ArrowClockwiseIcon />{/snippet}
+{#snippet newFileIcon()}<FilePlusIcon size={15} strokeWidth={1.5} />{/snippet}
+{#snippet newFolderIcon()}<FolderPlusIcon size={15} strokeWidth={1.5} />{/snippet}
+{#snippet refreshIcon()}<ArrowClockwiseIcon size={15} strokeWidth={1.5} />{/snippet}
 
 {#snippet chromeAction(label: string, onclick: () => void, icon: Snippet)}
   <TooltipUI.Root>
     <TooltipUI.Trigger>
       {#snippet child({ props: tooltipProps })}
-        <Button
+        <button
           {...tooltipProps}
-          variant="ghost"
-          size="icon-xs"
-          class="size-(--solus-tap-target) pointer-fine:size-6 text-(--solus-text-tertiary)"
+          type="button"
+          class={PAGE_SOFT_ICON_BTN}
           aria-label={label}
           {onclick}
         >
           {@render icon()}
-        </Button>
+        </button>
       {/snippet}
     </TooltipUI.Trigger>
     <TooltipUI.Content value={label} />
   </TooltipUI.Root>
 {/snippet}
 
+<!-- The raised pane controls are wider than the flat ones the column
+     measured its inset for (three 1.625rem pills, 0.375rem apart). -->
 <div
-  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
+  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) pointer-fine:[--solus-pane-chrome-inset:6.625rem] ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   bind:clientWidth={panelWidth}
 >
   <!-- In-content path line on the shared chrome centreline: the tree/refresh
@@ -699,25 +700,21 @@
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <!-- One cluster so the four controls read as a toolbar; the row's own
-         `gap-2` then only separates them from the path line. The box shrinks to
-         the icon on a fine pointer and keeps the full tap target on a coarse one. -->
-    <div class="flex shrink-0 items-center gap-0.5">
+         `gap-2` then only separates them from the path line. -->
+    <div class="flex shrink-0 items-center gap-1.5">
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <Button
+            <button
               {...tooltipProps}
-              variant="ghost"
-              size="icon-xs"
-              class="size-(--solus-tap-target) pointer-fine:size-6 {treeCollapsed
-                ? 'text-(--solus-text-tertiary)'
-                : 'text-(--solus-text-primary)'}"
+              type="button"
+              class="{PAGE_SOFT_ICON_BTN} {treeCollapsed ? '' : 'bg-[var(--wash-3)]! text-foreground!'}"
               aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
               aria-pressed={!treeCollapsed}
               onclick={toggleTree}
             >
-              <FileTreeIcon weight="bold" />
-            </Button>
+              <FileTreeIcon size={15} strokeWidth={1.5} />
+            </button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
@@ -773,7 +770,7 @@
     {#if saveState === "conflict" && selectedPath}
       <button
         type="button"
-        class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) ring-1 ring-(--solus-container-border) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="inline-flex h-6.5 shrink-0 items-center rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-[background-color,scale] duration-150 hover:bg-[var(--wash-1)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) pointer-coarse:h-10"
         onclick={() => selectedPath && openFile(selectedPath)}
       >
         Reload

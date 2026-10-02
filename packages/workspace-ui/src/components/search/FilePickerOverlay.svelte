@@ -9,7 +9,7 @@
   import { cn } from "../../lib/utils";
   import { useScope, useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { ensureIconCollections } from "../diagram/iconify";
-  import Kbd from "../ui/Kbd.svelte";
+  import PickerSkeletonRows from "../pickers/PickerSkeletonRows.svelte";
   import { fuzzyIndices, highlightSegments, splitFilePath } from "./lib/file-picker";
 
   interface Props {
@@ -86,6 +86,9 @@
       isPending = false;
       return;
     }
+    // Pending from the keystroke, not from the debounced call: an empty list
+    // must not read "No files match" before the first search has even run.
+    isPending = true;
     debounceTimer = setTimeout(() => void runSearch(text, cwd), DEBOUNCE_MS);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -168,7 +171,9 @@
       />
     </div>
 
-    {#if files.length === 0}
+    {#if files.length === 0 && isPending && !loadError}
+      <PickerSkeletonRows />
+    {:else if files.length === 0}
       <div
         class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 py-11 text-center text-[length:calc(.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
         role="status"
@@ -200,7 +205,7 @@
             class={cn(
               "flex h-[2.25rem] w-full min-w-0 overflow-hidden cursor-pointer items-center gap-2.5 rounded-lg border-none bg-transparent px-3 text-left transition-colors duration-75",
               selected
-                ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]"
+                ? "text-(--solus-text-primary) shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]"
                 : "text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)",
             )}
             onpointermove={() => (selectedIndex = index)}
@@ -230,25 +235,6 @@
         {/each}
       </div>
     {/if}
-
-    <div
-      class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
-    >
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">↑</Kbd>
-        <Kbd variant="keycap">↓</Kbd>
-        navigate
-      </span>
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">↵</Kbd>
-        open file
-      </span>
-      <span class="inline-flex items-center gap-1.5">
-        <Kbd variant="keycap">esc</Kbd>
-        close
-      </span>
-      <span class="ml-auto truncate" title={searchCwd}>{scopeName}</span>
-    </div>
   </div>
 </div>
 

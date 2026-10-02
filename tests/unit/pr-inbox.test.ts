@@ -44,7 +44,7 @@ function page(items: PullRequest[], hasMore = false): PrListPage {
 
 /** A host that answers the every-project read from a page per project root. */
 function hostServing(
-  pages: Record<string, PrListPage | Error>,
+  pages: Record<string, PrListPage | Error | 'no-remote'>,
   calls: { roots: string[] }[] = [],
 ): Pick<HostApi, 'prListProjects'> {
   return {
@@ -52,6 +52,7 @@ function hostServing(
       calls.push({ roots: projectRoots })
       return projectRoots.map((projectRoot) => {
         const answer = pages[projectRoot]
+        if (answer === 'no-remote') return { projectRoot, unavailable: answer }
         return answer instanceof Error ? { projectRoot, error: answer.message } : { projectRoot, page: answer }
       })
     },
@@ -139,7 +140,7 @@ describe('PrsStore every-project read', () => {
     const calls: { roots: string[] }[] = []
     const api = asHostApi({
       ...hostServing({
-        '/workspace': new Error('This folder has no recognizable git remote to review PRs from.'),
+        '/workspace': 'no-remote',
         '/repos/a': page([pr(1)]),
       }, calls),
       prRefresh: async () => {},
@@ -147,7 +148,7 @@ describe('PrsStore every-project read', () => {
     const projects = [target('h', '/workspace', api), target('h', '/repos/a', api)]
 
     await store.listProjects(projects, { state: 'open' })
-    expect(store.at('h', '/workspace')?.error?.kind).toBe('no-repository')
+    expect(store.at('h', '/workspace')?.error?.kind).toBe('unavailable')
 
     await store.listProjects(projects, { state: 'open' })
     await store.listProjects(projects, { state: 'open' }, { force: true })

@@ -7,8 +7,9 @@
  * A GitHub authorization failure outranks a generic one; it is the cause a
  * person can act on.
  *
- * A project with no git remote is not one of these. It has no pull requests to
- * fail at, so announcing it would be noise on every refresh.
+ * A project with no pull requests to read — not a repository, no remote — is
+ * not one of these. It has nothing to fail at, so announcing it would be noise
+ * on every refresh.
  */
 import type { PrSurfaceError } from './pr-surface-error'
 
@@ -25,7 +26,7 @@ export type PrInboxFailure =
 
 export function prInboxFailure(projects: InboxProjectFailure[], hasItems: boolean): PrInboxFailure {
   const failed = projects.filter(
-    (project) => project.error !== null && project.error.kind !== 'no-repository',
+    (project) => project.error !== null && project.error.kind !== 'unavailable',
   )
   if (failed.length === 0) return { kind: 'none', placement: 'none' }
   const placement = hasItems ? 'toast' : 'page'

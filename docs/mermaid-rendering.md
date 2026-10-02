@@ -31,6 +31,18 @@ mermaid code block carries a `render` control that turns it back into a
 diagram. The markdown never changes shape: the file stays a plain fence and
 round-trips byte for byte.
 
+Unlabelled fences render automatically when the first line of content is a
+Mermaid declaration: `flowchart` or `graph` with a direction, `sequenceDiagram`,
+`classDiagram`, `stateDiagram`, `stateDiagram-v2`, or `erDiagram`. Blank lines
+and `%%` comments before the declaration are allowed. An explicit language
+label takes precedence. Saving a detected diagram adds the `mermaid` fence
+label and keeps its source text.
+
+For other code blocks, select **mermaid** in the language menu to render the
+diagram at once. Select **Show as code** to keep it as source; that choice
+survives save and reopen. The dropdown uses the shared workspace menu.
+Works, plans, and Markdown files support Mermaid on desktop, web, and mobile.
+
 ## Rendering
 
 Mermaid is a separate chunk of the client and desktop bundles, loaded with a

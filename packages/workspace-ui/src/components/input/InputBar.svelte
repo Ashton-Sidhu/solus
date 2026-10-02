@@ -131,6 +131,9 @@
      *  session's own reason (a worktree that is gone) still applies without it.
      *  The bar shows the reason as its placeholder and takes no input. */
     readOnlyReason?: string | null;
+    /** What the empty bar invites when no session state says otherwise. A
+     *  page's docked composer names the page it works with. */
+    idlePlaceholder?: string;
     /** The toolbar row under the text well: the pickers, seated beside the
      *  mic and send. */
     leadingActions?: Snippet;
@@ -155,6 +158,7 @@
     onUnbindWork,
     collapseWhenIdle = true,
     readOnlyReason: suppliedReadOnlyReason = null,
+    idlePlaceholder = "Plan, Build, Automate · @ for context",
     leadingActions,
   }: Props = $props();
 
@@ -466,7 +470,7 @@
                         ? // Only name the keys where there are keys to name.
                           steerPlaceholder(othersTurn, hasKeyboard)
                         : "Type to queue a message..."
-                    : "Plan, Build, Automate · @ for context",
+                    : idlePlaceholder,
   );
 
   // ─── Focus management ───
@@ -581,8 +585,8 @@
     },
     { enabled: () => ownsComposerShortcuts },
   );
-  // The task chip sits in the same strip and answers the same way: the shortcut
-  // names this composer's pane so only the picker beside this bar opens.
+  // The task picker sits in the session breadcrumb. The shortcut names this
+  // composer's pane so only its breadcrumb answers.
   useKeybinding(
     "global.session-task-picker",
     () => {

@@ -29,6 +29,11 @@ export interface ListProjectOption {
   /** False when no connected host holds a checkout and the organization has
    *  no cloud record of it. The option stays visible but inert. */
   available: boolean
+  /** Why an inert option is inert, when it is not that its host is away. */
+  unavailableNote?: string
+  /** Its hosts have said it has no hosted remote: a local-only project
+   *  (docs/plans/project-model.md §1). False while a host has yet to say. */
+  localOnly?: boolean
   /** True for a catalog-only entry (no live session/task on it right now) —
    *  the switcher offers "Remove from history" for these. */
   historyOnly?: boolean

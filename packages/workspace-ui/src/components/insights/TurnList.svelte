@@ -7,7 +7,9 @@
     type SortingState,
   } from "@tanstack/svelte-table";
   import {
+    ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
+    ListFilter as ListFilterIcon,
     Layers2 as StackSimpleIcon,
     MessageSquare as SessionIcon,
     CircleDashed as RunningIcon,
@@ -49,6 +51,7 @@
   import { modelName, providerMark } from "./lib/provider";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import { turnHostValue, type TurnHostChoice } from "./lib/turn-hosts";
+  import { TURN_STATUS_CHOICES, statusFilterFor } from "./lib/rail-filters";
   import type { TurnFlag } from "@solus/contracts/observability-types";
   import { flagChoice, flagColor, flagTitle } from "./lib/turn-flags";
   import {
@@ -179,11 +182,9 @@
     spansMultipleDays(rows.map((row) => row.startedAt)),
   );
 
-  const STATUS_FILTERS: { id: TurnStatusFilter; label: string }[] = [
-    { id: "ok", label: "Succeeded" },
-    { id: "error", label: "Failed" },
-    { id: "interrupted", label: "Interrupted" },
-  ];
+  const activeStatus = $derived(
+    TURN_STATUS_CHOICES.find((choice) => choice.value === statusFilter),
+  );
   const HEADS: { key: TurnSortKey; label: string; align: "start" | "end" }[] = [
     { key: "startedAt", label: "Time", align: "start" },
     { key: "prompt", label: "Prompt", align: "start" },
@@ -430,32 +431,42 @@
   }
 </script>
 
+<!-- One menu, the rail's Status menu in this band's pill: the three outcomes
+     and their counts, and a way back to every turn. -->
 {#snippet statusFilters()}
-  <div
-    class="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-1)] p-0.5 shadow-[inset_0_0_0_0.5px_var(--hairline)]"
-    role="group"
-    aria-label="Filter by status"
-  >
-    {#each STATUS_FILTERS as filter (filter.id)}
-      {@const active = statusFilter === filter.id}
-      <button
-        type="button"
-        class="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-9"
-        style="background:{active
-          ? 'var(--card)'
-          : 'transparent'};box-shadow:{active
-          ? 'var(--elev-ring), 0 1px 2px -1px rgba(0,0,0,0.08)'
-          : 'none'};color:{active
-          ? 'var(--foreground)'
-          : 'var(--muted-foreground)'}"
-        aria-pressed={active}
-        onclick={() => onStatusFilterChange(active ? null : filter.id)}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          aria-label={activeStatus ? `Filter by status: ${activeStatus.label}` : "Filter by status"}
+        >
+          <ListFilterIcon class="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          <span class="hidden sm:inline">{activeStatus?.label ?? "All statuses"}</span>
+          {#if activeStatus}
+            <span class="tabular-nums text-muted-foreground">{counts[activeStatus.value]}</span>
+          {/if}
+          <CaretDownIcon class="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-52">
+      <DropdownMenu.RadioGroup
+        value={statusFilter ?? "all"}
+        onValueChange={(value) => onStatusFilterChange(statusFilterFor(value))}
       >
-        {filter.label}
-        <span class="tabular-nums opacity-60">{counts[filter.id]}</span>
-      </button>
-    {/each}
-  </div>
+        <DropdownMenu.RadioItem value="all">All statuses</DropdownMenu.RadioItem>
+        {#each TURN_STATUS_CHOICES as status (status.value)}
+          <DropdownMenu.RadioItem value={status.value}>
+            <span class="min-w-0 flex-1 truncate">{status.label}</span>
+            <span class="text-muted-foreground tabular-nums">{counts[status.value]}</span>
+          </DropdownMenu.RadioItem>
+        {/each}
+      </DropdownMenu.RadioGroup>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 {/snippet}
 
 {#snippet hostMenu(change: (hostId: string | null | undefined) => void)}
@@ -465,10 +476,11 @@
         <button
           {...props}
           type="button"
-          class="flex h-8 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground outline-none transition-[background-color,color] shadow-[inset_0_0_0_0.5px_var(--hairline)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
           aria-label="Filter by host"
         >
-          <span class="truncate {hostFilter !== undefined ? 'text-foreground' : ''}">{activeHost?.label ?? "All hosts"}</span>
+          <span class="truncate">{activeHost?.label ?? "All hosts"}</span>
+          <CaretDownIcon class="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
@@ -491,16 +503,13 @@
 {#snippet groupToggle()}
   <button
     type="button"
-    class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10"
-    style="box-shadow:inset 0 0 0 0.5px var(--hairline);background:{grouped
-      ? 'var(--wash-3)'
-      : 'transparent'};color:{grouped
-      ? 'var(--foreground)'
-      : 'var(--muted-foreground)'}"
+    class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10 {grouped
+      ? 'bg-[var(--wash-3)]'
+      : 'bg-background hover:bg-[var(--wash-1)]'}"
     aria-pressed={grouped}
     onclick={() => onGroupedChange(!grouped)}
   >
-    <StackSimpleIcon class="size-3.5" aria-hidden="true" />
+    <StackSimpleIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
     <span class="hidden sm:inline">Group by session</span>
   </button>
 {/snippet}

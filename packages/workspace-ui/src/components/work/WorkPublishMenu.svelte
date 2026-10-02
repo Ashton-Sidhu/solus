@@ -445,17 +445,32 @@
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
+  /* In a work's header it is one of the row's raised pills. */
+  .wpm-verb:not(.wpm-verb--conversation-card) {
+    height: 1.625rem;
+    padding: 0 0.625rem;
+    font-size: var(--text-workspace-chrome);
+    border-radius: 9999px;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
+  }
+  .wpm-verb:not(.wpm-verb--conversation-card):hover {
+    background: var(--wash-1);
+  }
   .wpm-verb:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
   }
-  .wpm-verb--pending {
+  .wpm-verb.wpm-verb--pending {
     color: var(--solus-text-secondary);
   }
-  .wpm-verb--warning {
+  .wpm-verb.wpm-verb--warning {
     color: var(--solus-status-running);
   }
-  .wpm-verb--error {
+  .wpm-verb.wpm-verb--error {
     color: var(--solus-status-error);
   }
 

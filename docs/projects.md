@@ -35,7 +35,13 @@ opens in it. **Back** or Escape returns to the choices.
 desktop, the optional **Connect to Solus Cloud** step comes immediately before
 it.
 
-**Change** on the New project screen creates the project in another folder.
+**New project…** in the input header opens the main Open project screen,
+as `⌘⇧O` does. Select **New project…** in that dialog to create a project. It uses the current project host and keeps the prompt
+you have typed. The same dialog is used on desktop, web, and mobile.
+
+On the New project screen, type the name after the folder path. Select the
+folder path to choose another parent folder. Then select **Create project**
+to create the folder and its Git repository.
 A new project opens on the host the dialog is set to. Use the host chip in the
 dialog header to change it.
 

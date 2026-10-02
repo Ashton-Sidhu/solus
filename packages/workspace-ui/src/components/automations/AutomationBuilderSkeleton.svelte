@@ -21,7 +21,7 @@
   aria-label="Loading automation"
 >
   <div
-    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-[0.4375rem] border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-[0.4375rem] pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
     aria-hidden="true"
   >
     <Skeleton class="h-3 w-24 rounded-[0.1875rem] opacity-60" />

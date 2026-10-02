@@ -92,8 +92,12 @@ jobs:
           SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
           SOLUS_ATLASSIAN_CLIENT_ID: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}
           SOLUS_ATLASSIAN_CLIENT_SECRET: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}
+        # The desktop and web bundles run one after the other here, not through
+        # build-parallel.sh: together they exceed the runner's memory and the step
+        # swaps for minutes with no output. `time -l` logs each build's peak memory.
         run: |
-          bash scripts/build-parallel.sh --mode production
+          /usr/bin/time -l bun run electron-vite build --logLevel warn --mode production
+          (cd apps/client && /usr/bin/time -l bun run vite build --logLevel warn)
           bun run electron-builder --mac --publish never
 
       - name: Create GitHub Release

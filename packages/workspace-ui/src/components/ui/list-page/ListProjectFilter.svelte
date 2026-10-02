@@ -126,7 +126,7 @@
             data-menu-current={isActive ? "" : undefined}
             title={project.available
               ? abbreviateHome(project.projectKey)
-              : `${abbreviateHome(project.projectKey)} — host unavailable`}
+              : `${abbreviateHome(project.projectKey)} — ${project.unavailableNote ?? "host unavailable"}`}
             onSelect={() => onSelect?.(project)}
           >
             <ProjectFavicon

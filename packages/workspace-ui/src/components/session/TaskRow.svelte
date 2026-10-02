@@ -1,10 +1,10 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     Undo2 as ArrowUUpLeftIcon,
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
     Laptop as LaptopIcon,
-    ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Sun as SunIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -617,7 +617,7 @@
                 onOpenLinkedTask();
               }}
             >
-              <ListChecksIcon size={12.5} class="shrink-0" />
+              <TaskIcon size={12.5} class="shrink-0" />
               {#if !prChip}
                 <span class="min-w-0 truncate @max-[15rem]:hidden"
                   >{task.linkedTask.title}</span

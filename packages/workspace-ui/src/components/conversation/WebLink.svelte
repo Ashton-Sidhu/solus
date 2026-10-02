@@ -60,7 +60,7 @@
     onCloseAutoFocus={(event) => { event.preventDefault(); link.focus(); }}
   >
     {#if onOpenInSolus}
-      <ContextMenu.Item onSelect={onOpenInSolus}>Open in Solus</ContextMenu.Item>
+      <ContextMenu.Item onSelect={onOpenInSolus}>Open link</ContextMenu.Item>
     {/if}
     <ContextMenu.Item onSelect={() => localApi.openExternal(href)}>Open in default browser</ContextMenu.Item>
     <ContextMenu.Separator />

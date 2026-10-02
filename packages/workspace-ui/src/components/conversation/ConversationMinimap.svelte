@@ -208,7 +208,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 7px;
+    gap: 5px;
     max-height: 72%;
     padding: 6px;
     border-radius: 14px;
@@ -276,7 +276,7 @@
      is longer, fully opaque and accent-inked. Hidden once the rail expands. */
   .msg-nav-dash {
     display: block;
-    width: 17px;
+    width: 13px;
     height: 2px;
     flex-shrink: 0;
     border-radius: 2px;
@@ -292,7 +292,7 @@
     color: var(--solus-text-primary);
   }
   .msg-nav-row.active .msg-nav-dash {
-    width: 25px;
+    width: 19px;
     height: 2.5px;
     opacity: 1;
     background: var(--solus-accent);

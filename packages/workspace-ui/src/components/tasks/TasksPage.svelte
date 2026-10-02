@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { localApi } from "@solus/client-core/local-api";
   import { tick } from "svelte";
@@ -7,7 +8,6 @@
     RotateCw as ArrowClockwiseIcon,
     CalendarX as CalendarXIcon,
     Columns3Cog as KanbanIcon,
-    ListChecks as ListChecksIcon,
     List as ListIcon,
     Plus as PlusIcon,
     Activity as PulseIcon,
@@ -437,7 +437,7 @@
     {
       key: "assigned",
       label: "Assigned",
-      icon: ListChecksIcon,
+      icon: TaskIcon,
       count: searched.filter((task) => !!task.assignee).length,
       active: assignedOnly,
       toggle: () => (assignedOnly = !assignedOnly),
@@ -1104,7 +1104,7 @@
             {/snippet}
           </PageEmpty>
         {:else if projectTasks.length === 0}
-          <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
+          <PageEmpty icon={TaskIcon} title="No tasks yet.">
             {#if !pageKey}
               Tasks in the projects your session sidebar shows appear here.
             {:else if !hostCheckout}

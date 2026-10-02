@@ -6,38 +6,28 @@ import { join, resolve } from 'path'
 import { buildServerBundle } from './package-server'
 
 /**
- * Pushes the working tree's server and web client to the cloud in seconds,
- * without a release, an image build or a machine restart:
+ * Pushes the working tree's server and web client to the runner Sprite in seconds,
+ * without a release:
  *
- *   bun run push:dev                  # the runner Sprite and the Solus API
+ *   bun run push:dev                  # server and client
  *   bun run push:dev -- --no-client   # server only: skips the Vite build
- *   bun run push:dev -- --runner      # only the runner Sprite
- *   bun run push:dev -- --api         # only the Solus API
  *
  * It bundles only what changes between commits (libexec/server, its migrations,
- * libexec/client, the Sprite boot script) and extracts it over the installed release:
- *
- * - Runner: the Sprite's release under /opt/solus/releases, then a restart of its
- *   `solus` service. The Sprite's disk keeps the files until a new release installs.
- *   The Sprite is --sprite, $SOLUS_DEV_SPRITE, or the only one `sprite list` shows.
- * - Solus API (Fly app `solus-sh-api`): /opt/solus on the Fly machine, then a
- *   stop of the server, which entrypoint.sh starts again. That needs SOLUS_DEV_RELOAD=1 on the app
- *   (once: `fly secrets set SOLUS_DEV_RELOAD=1 -a solus-sh-api`). The next deploy
- *   or machine restart goes back to the image.
+ * libexec/client, the Sprite boot script), extracts it over the Sprite's release under
+ * /opt/solus/releases, and restarts its `solus` service. The Sprite's disk keeps the
+ * files until a new release installs. The Sprite is --sprite, $SOLUS_DEV_SPRITE, or the
+ * only one `sprite list` shows. The Solus API is part of the cloud application now
+ * (plans/013); it is released with solus-cloud.
  *
  * Development only: the release the machine reports is unchanged.
  */
 
 const repoRoot = resolve(import.meta.dir, '..')
-const API_APP = 'solus-sh-api'
 const REMOTE_ARCHIVE = '/tmp/solus-dev.tgz'
 
 interface Options {
-  runner: boolean
-  api: boolean
   client: boolean
   sprite: string | undefined
-  app: string
 }
 
 async function run(command: string, args: string[], options: { cwd?: string; quiet?: boolean } = {}): Promise<string> {
@@ -55,22 +45,15 @@ async function run(command: string, args: string[], options: { cwd?: string; qui
 }
 
 function parseOptions(args: string[]): Options {
-  let runner = false
-  let api = false
   let client = true
   let sprite = process.env.SOLUS_DEV_SPRITE
-  let app = API_APP
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
-    if (arg === '--runner') runner = true
-    else if (arg === '--api') api = true
-    else if (arg === '--no-client') client = false
+    if (arg === '--no-client') client = false
     else if (arg === '--sprite') sprite = args[++i]
-    else if (arg === '--app') app = args[++i]
     else throw new Error(`Unknown push-dev option: ${arg}`)
   }
-  if (!runner && !api) runner = api = true
-  return { runner, api, client, sprite, app }
+  return { client, sprite }
 }
 
 async function buildArchive(options: Options, workDir: string): Promise<string> {
@@ -121,20 +104,6 @@ echo "runner: updated $dir"`
   console.log(`runner: restarted the solus service on ${spriteName}`)
 }
 
-async function pushApi(archive: string, app: string): Promise<void> {
-  // A unique name: sftp does not overwrite a file that is already there.
-  const remote = `/tmp/solus-dev-${Date.now()}.tgz`
-  await run('fly', ['ssh', 'sftp', 'put', archive, remote, '-a', app], { quiet: true })
-  const install = `set -eu
-test -f /run/solus-server.pid || { rm -f ${remote}; echo "api: SOLUS_DEV_RELOAD is not on; run: fly secrets set SOLUS_DEV_RELOAD=1 -a ${app}" >&2; exit 1; }
-tar -xzf ${remote} -C /opt/solus --no-same-owner
-chmod -R a+rX,go-w /opt/solus/libexec
-rm -f ${remote}
-kill -TERM "$(cat /run/solus-server.pid)"
-echo "api: updated /opt/solus and restarted the server"`
-  await run('fly', ['ssh', 'console', '-a', app, '-C', `sh -c '${install.replaceAll("'", `'\\''`)}'`])
-}
-
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2))
   if (!existsSync(join(repoRoot, 'node_modules'))) throw new Error('Run bun install first')
@@ -144,19 +113,9 @@ async function main(): Promise<void> {
   mkdirSync(workDir, { recursive: true })
   const started = Date.now()
   try {
-    const [archive, spriteName] = await Promise.all([
-      buildArchive(options, workDir),
-      options.runner ? resolveSprite(options.sprite) : Promise.resolve(''),
-    ])
+    const [archive, spriteName] = await Promise.all([buildArchive(options, workDir), resolveSprite(options.sprite)])
     console.log(`Built in ${((Date.now() - started) / 1000).toFixed(1)}s`)
-
-    const pushes: Promise<void>[] = []
-    if (options.runner) pushes.push(pushRunner(archive, spriteName))
-    if (options.api) pushes.push(pushApi(archive, options.app))
-    const results = await Promise.allSettled(pushes)
-    const failures = results.filter((result) => result.status === 'rejected')
-    for (const failure of failures) console.error(failure.reason instanceof Error ? failure.reason.message : String(failure.reason))
-    if (failures.length > 0) process.exit(1)
+    await pushRunner(archive, spriteName)
     console.log(`Pushed in ${((Date.now() - started) / 1000).toFixed(1)}s`)
   } finally {
     rmSync(workDir, { recursive: true, force: true })

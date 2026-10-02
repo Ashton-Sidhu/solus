@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { prSurfaceError } from '@solus/workspace-ui/components/prs/lib/pr-surface-error'
+import { prSurfaceError, prUnavailableTitle } from '@solus/workspace-ui/components/prs/lib/pr-surface-error'
 
 describe('PR surface errors', () => {
   test('maps the existing missing-credential error to the GitHub connect action', () => {
@@ -22,5 +22,13 @@ describe('PR surface errors', () => {
       kind: 'generic',
       message: 'GitHub request failed: 502',
     })
+  })
+
+  test('names the project and tells a plain folder from a repository with no remote', () => {
+    // WHY: the page scope is shared by every project page, so the project may
+    // have been picked elsewhere. "This project has no git remote" about an
+    // unnamed plain folder read as a false claim about the repository in view.
+    expect(prUnavailableTitle('not-a-repository', 'projects')).toBe('projects is not a git repository.')
+    expect(prUnavailableTitle('no-remote', 'notes')).toBe('notes has no git remote.')
   })
 })

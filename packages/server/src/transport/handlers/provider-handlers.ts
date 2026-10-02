@@ -2,7 +2,7 @@ import { createLogger } from '../../logger'
 import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
 import { loadToken } from '../../providers/github/token-store'
-import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
+import { computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { repoRootOrScope } from '../../git/ctx-paths'
 import type { CheckoutService } from '../../git/checkout-service'
 import { computePrInterdiff } from '../../git/interdiff'
@@ -26,7 +26,7 @@ import { completeTasksForMergedPullRequest } from '../../data/tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
 import { prIndex, repoKeyOf } from '../../prs/pr-index'
-import { repoForScope } from '../../prs/code-host'
+import { noRemoteError, PrUnavailableError, repoForScope } from '../../prs/code-host'
 import type { PullRequest } from '../../prs/pull-request'
 import type { PrSync } from '../../prs/pr-sync'
 
@@ -45,7 +45,7 @@ const PROJECT_LIST_CONCURRENCY = 6
 async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
   const cwd = projectScopeOf(ctx.session)
   if (cwd) {
-    const repo = await resolveRepoRef(cwd)
+    const repo = await repoForScope(cwd)
     if (repo) {
       const provider = providerForRepo(repo)
       if (provider) return provider
@@ -59,9 +59,9 @@ async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
 export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
   const cwd = projectScopeOf(ctx.session)
   const repo = cwd ? await repoForScope(cwd) : null
-  if (!repo) throw new Error('This folder has no recognizable git remote to review PRs from.')
+  if (!repo) throw await noRemoteError(cwd)
   const provider = providerForRepo(repo)
-  if (!provider) throw new Error(`PR review isn't supported for ${repo.host} yet.`)
+  if (!provider) throw new PrUnavailableError('unsupported-host', `PR review isn't supported for ${repo.host} yet.`)
   return { repo, provider }
 }
 
@@ -401,7 +401,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
             page: await listPullRequests(projectCtx, filter, 1, handlerCtx, { withPriority: true }),
           }
         } catch (error) {
-          listings[index] = { projectRoot, error: error instanceof Error ? error.message : String(error) }
+          listings[index] = error instanceof PrUnavailableError
+            ? { projectRoot, unavailable: error.reason }
+            : { projectRoot, error: error instanceof Error ? error.message : String(error) }
         }
       }
     }

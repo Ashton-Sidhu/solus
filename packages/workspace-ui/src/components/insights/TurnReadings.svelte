@@ -144,7 +144,7 @@
   const sessionView = $derived(session ? sessionSummaryView(session, prompts, traceId, sessionName) : null);
 </script>
 
-<div class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4 py-6 pb-16">
+<div class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4 pt-2 pb-16">
   <!-- The title column grows from a zero basis: sized by its prompt, a
        long one claimed the whole line and pushed the actions under it
        while a short one did not. Now the actions wrap only when the
@@ -183,7 +183,7 @@
       </span>
     </div>
     {#if actions}
-      <div class="flex shrink-0 flex-wrap items-center gap-1.5 select-none" role="group" aria-label="Open elsewhere">
+      <div class="flex shrink-0 flex-wrap items-center gap-2 select-none" role="group" aria-label="Open elsewhere">
         {@render actions()}
       </div>
     {/if}

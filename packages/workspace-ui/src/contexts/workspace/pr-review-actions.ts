@@ -1,7 +1,8 @@
-import type { IpcContext, PrReviewContext } from '@solus/contracts/types'
+import type { IpcContext, PrReviewContext, RunConfig } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest } from '@solus/contracts/providers'
 import type { Via } from '@solus/contracts/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
+import { buildPrCheckoutCard } from '../../lib/pr-checkout-card'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { toasts } from '../../lib/toasts'
@@ -301,19 +302,72 @@ export class PrReviewActions {
       },
       workingDirectory,
     )
-    // `freshTask` starts from clean defaults before the explicit checkout is
-    // applied, while taskless drafts can inherit a source run. Set both here so
-    // the two PR composer kinds finish with the same prepared destination.
-    draft.run.workingDirectory = workingDirectory
-    draft.run.gitContext = gitContext
-    draft.run.serverId = serverId
-    draft.run.taskServerId = serverId
-    draft.run.projectGroupPath = null
-    draft.run.worktree = null
-    draft.run.permissionMode = 'full-access'
-    draft.prReview = pr
+    this.aimAtPrCheckout(draft, pr, serverId)
     if (opts.prompt) draft.prompt.text = opts.prompt
     return draft
+  }
+
+  /** Point a draft, or a session that has not sent yet, at the pull request's
+   *  prepared checkout. `freshTask` starts from clean defaults before the
+   *  checkout is applied, taskless drafts can inherit a source run, and a
+   *  session started from the PR page exists before its checkout does. Every
+   *  PR session starts from this same destination. */
+  aimAtPrCheckout(target: { run: RunConfig; prReview: PrReviewContext | null }, pr: PrReviewContext, serverId: string): void {
+    target.run.workingDirectory = worktreeProjectRoot(pr.worktreePath)
+    target.run.gitContext = prReviewGitCheckout(pr)
+    target.run.serverId = serverId
+    target.run.taskServerId = serverId
+    target.run.projectGroupPath = null
+    target.run.worktree = null
+    target.run.permissionMode = 'full-access'
+    target.prReview = pr
+  }
+
+  /**
+   * Send a session's first prompt once the pull request's worktree exists. The
+   * conversation is already on screen, so the checkout runs behind a setup card
+   * in it, and the prompt goes the moment the session points at the checkout.
+   * Stop withdraws the send; a failure stays on the card. Either way the words
+   * go back into the session's composer, so nothing typed is lost.
+   */
+  async sendAfterPrCheckout(
+    tabId: string,
+    prompt: string,
+    pr: { number: number; serverId: string; prepare: () => Promise<PrReviewContext> },
+  ): Promise<void> {
+    const session = this.workspace.sessionFor(tabId)
+    if (!session) return
+    session.status = 'connecting'
+    session.currentTurnStartedAt = Date.now()
+    session.statusCard = buildPrCheckoutCard(pr.number, 'checkout')
+    const returnPrompt = () => {
+      if (!session.prompt.text) session.prompt.text = prompt
+    }
+    try {
+      const review = await pr.prepare()
+      if (this.workspace.sessionFor(tabId) !== session) return
+      if (session.status !== 'connecting') {
+        session.statusCard = null
+        returnPrompt()
+        return
+      }
+      this.aimAtPrCheckout(session, review, pr.serverId)
+      session.statusCard = buildPrCheckoutCard(pr.number, 'ready')
+      // `sendMessage` refuses a connecting session; the wait is over.
+      session.status = 'idle'
+      if (!this.workspace.dispatch.sendMessage(prompt, undefined, tabId)) returnPrompt()
+    } catch (error) {
+      if (this.workspace.sessionFor(tabId) !== session) return
+      session.status = 'idle'
+      session.currentTurnStartedAt = null
+      session.statusCard = buildPrCheckoutCard(
+        pr.number,
+        'checkout',
+        error instanceof Error ? error.message : String(error),
+      )
+      returnPrompt()
+      requestInputFocus({ tabId })
+    }
   }
 
   /** Pop the open review's diff out beside it, so the activity feed and the

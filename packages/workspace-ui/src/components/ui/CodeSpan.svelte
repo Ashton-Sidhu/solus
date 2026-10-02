@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tokenClassName } from "../editor/tokenStyle";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
-  import { getSurfaceContext } from "../../contexts";
+  import { getSurfaceContext, hasSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { basename, leadingDirs, parentDir } from "./lib/code-span-path";
   import { boldTextInCodeSpan } from "@solus/document-model/markdown";
@@ -13,8 +13,8 @@
   let { raw = "", text }: Props = $props();
 
   // A file path opens a preview on the person's session; a client with no
-  // session (the cloud console) shows the path as code.
-  const workspace = getSurfaceContext().workspace;
+  // session (the cloud console, which sets no surface context) shows the path as code.
+  const workspace = hasSurfaceContext() ? getSurfaceContext().workspace : null;
 
   // No entity decoding here: marked ≥13 hands codespan token text through
   // literally, so `&amp;` in a code span is content the author typed and

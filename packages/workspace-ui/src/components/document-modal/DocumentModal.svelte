@@ -20,7 +20,7 @@
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { openThreads } from "../comments/lib/thread";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
-  import type { PlanComment, PlanCommentReply, SessionMeta } from "@solus/contracts/types";
+  import type { PlanComment, PlanCommentReply } from "@solus/contracts/types";
   import type { PersonMention } from "@solus/contracts/mentions";
   import { createPersonRefExtension } from "../editor/personRefExtension";
   import { personStanding } from "../mentions/lib/mentions";
@@ -41,8 +41,6 @@
     onClose?: () => void;
     inline?: boolean;
     minimizeOutline?: boolean;
-    onOpenChat?: (mode: 'resume' | 'new') => void;
-    originalSessionMeta?: SessionMeta | null;
     /** Delete the work (closes the pane + offers undo). */
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
@@ -58,7 +56,7 @@
     live?: LiveEditorBinding | null;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace, live = null }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace, live = null }: DocumentModalProps = $props();
   // Live: the agent edit lock, a reader's role, or an older schema stops typing.
   const liveLocked = $derived(!!live && !live.live.canEdit);
 
@@ -311,30 +309,26 @@
 >
   {#snippet documentMeta()}
     <!-- This snippet renders inside the shell's own verb cluster, so it wears
-         that cluster's type rung (`--text-chrome-dense`), ink and hover wash
-         rather than a rung of its own — `doc-shell-header-btn` is scoped to the
+         that cluster's raised pill, type rung and hover wash rather than a
+         look of its own — `doc-shell-header-btn` is scoped to the
          shell and cannot reach markup passed in from here. Mobile puts the same
          snippet in the compact toolbar row, whose buttons are 40px, and those
          are keyed to the shell's own 767px query, so this matches it. -->
     {#if readOnly}<span class="whitespace-nowrap text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary)" title={readOnlyReason}>Read-only</span>{/if}
-    <!-- One of the meta line's own words, not a chip on top of it: the glyph
-         says what the number counts, so the count needs no unit spelled out and
-         no surface of its own. The rail appearing beside the page is the state;
-         deepening the ink here as well only made the count look mis-set against
-         the verbs either side of it. The glyph is sized in `em` so it tracks
-         whichever rung the row is on, and lightened to the weight of the type
-         it sits in — lucide's default stroke reads bold at this size. -->
+    <!-- A pill like the verbs either side of it: the glyph says what the
+         number counts, so the count needs no unit spelled out. The rail
+         appearing beside the page is the state, so the pill does not change. -->
     {#if workId && (comments.length > 0 || externalThreads.length > 0)}
       <button
         type="button"
-        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.75 text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary) tabular-nums transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:rounded-lg max-md:px-2.5"
+        class="inline-flex h-6.5 shrink-0 items-center gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground tabular-nums shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:px-3.5"
         onclick={() => (railOpen = !railOpen)}
         data-testid="toggle-comments"
         title={railOpen ? "Hide comments" : "Show comments"}
         aria-label={`${openThreadCount} open comment${openThreadCount === 1 ? "" : "s"} — ${railOpen ? "hide" : "show"}`}
         aria-pressed={railOpen}
       >
-        <CommentIcon class="size-[0.9em]" strokeWidth={1.75} aria-hidden="true" />
+        <CommentIcon class="size-[15px]" strokeWidth={1.5} aria-hidden="true" />
         {openThreadCount}
       </button>
     {/if}
@@ -348,16 +342,13 @@
 
   {#snippet documentActions({ copied, copy, startRename })}
     <WorkHeaderActions
-      {onOpenChat}
       onStartRename={startRename}
-      {originalSessionMeta}
       {copied}
       {copy}
       {workId}
       title={doc.title}
       currentContent={doc.content}
       getCurrentContent={() => shell?.getCurrentMarkdown() ?? doc.content}
-      flushSave={() => shell?.flushSave() ?? Promise.resolve()}
       {onDelete}
       {onDuplicate}
       {exportFormats}
@@ -447,5 +438,5 @@
   }
 
   /* The narrow-pane rung that collapsed these actions to icon-only is gone: the
-     header's Share and Ask Solus are glyphs at every width now. */
+     header's Share is a glyph at every width now. */
 </style>

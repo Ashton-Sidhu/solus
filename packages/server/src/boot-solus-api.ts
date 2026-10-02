@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { createServer, type RequestListener, type Server as HttpServer } from 'node:http'
 import { workspacePresence } from './transport/solus-api/presence'
 import { SharedPromptRelay, sharedPromptRequestSchema } from './sharing/shared-prompt'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
@@ -25,19 +26,55 @@ import { getSessionRecord } from './data/sessions/session-records'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
-import { buildHttpServer } from './transport/http'
+import { buildHttpServer, HTTP_SERVER_TIMEOUTS } from './transport/http'
 import { attachWebSocketTransport } from './transport/websocket'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { registerSolusApiHandlers } from './transport/solus-api/service-handlers'
 
-/** Storage/API process. No SessionRuntime, agent backend, automation scheduler, or browser host is constructed. */
-export async function bootSolusApi(options: { host?: string; port?: number; staticDir?: string } = {}) {
+/**
+ * The record service without a listener: the request handler, the live transport,
+ * and every subscription that feeds it. No SessionRuntime, agent backend, automation
+ * scheduler, or browser host is constructed (plans/013-unified-cloud-application.md §4).
+ *
+ * Ownership: the service owns its subscriptions, the live transport, and the record
+ * database, and releases all three in `close`. The caller owns the HTTP server the
+ * transport is attached to. Shutdown runs in this order: the caller stops accepting
+ * requests, ends live connections (`closeLiveTransport`; an upgraded socket would
+ * otherwise hold the server open), waits for requests in flight, then calls `close`.
+ */
+export interface SolusApiService {
+  readonly server: SolusServer
+  /** Answers every record path (`isRecordServicePath`); the live transport answers `/ws` before it. */
+  readonly requestListener: RequestListener
+  /** The routes `requestListener` registers, for the route-ownership guard. */
+  readonly routes: readonly { method: string; path: string }[]
+  /** Attaches `/ws` (polling and upgrade) to the server that calls `requestListener`. Once only, before it accepts traffic. */
+  attachLiveTransport(http: HttpServer): void
+  /** Idempotent. Disconnects every live client; the record database stays open for requests in flight. */
+  closeLiveTransport(): void
+  /** Idempotent. Ends live connections and subscriptions, then closes the record database. */
+  close(): Promise<void>
+}
+
+export interface SolusApiServiceOptions {
+  /** The bind address the connection handlers advertise. */
+  host: string
+  /** The listener's port, read when a client asks; the caller knows it only after listening. */
+  port: () => number
+  staticDir?: string
+}
+
+export async function createSolusApiService(options: SolusApiServiceOptions): Promise<SolusApiService> {
   applyApiMode()
   const settings = solusApiSettings(true, getInstallationId())
   const tokens = new AccessTokenVerifier({ ...apiModeConfig(), audience: SOLUS_API_AUDIENCE })
   const db = getDatabase()
-  await db.get(sql`SELECT 1 AS ready`)
+  try {
+    await db.get(sql`SELECT 1 AS ready`)
+  } catch (error) {
+    await closeDatabase(); closeDb(); throw error
+  }
   const shares = new ShareManager({
     db, taskContents: taskShareContents, containingTasks: tasksContaining,
     organizationOfResource: async resource => {
@@ -58,16 +95,14 @@ export async function bootSolusApi(options: { host?: string; port?: number; stat
   // Organization works are edited live here, where they are stored (work review plan, phase 3b).
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
-  const host = options.host ?? '127.0.0.1'
-  let port = options.port ?? DEFAULT_SERVER_PORT
   const presence = workspacePresence(server, events)
-  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host, port: () => port })
+  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
   const sharedPrompts = new SharedPromptRelay(shares)
   server.register('sharedSessionAvailable', ([sessionId], ctx) => sharedPrompts.available(ctx.principal, sessionId))
   server.register('sharedSessionPrompt', ([request], ctx) => sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(request)))
-  const { server: http } = buildHttpServer({
+  const { requestListener, routes } = buildHttpServer({
     sharedPrompts,
-    host, port, getPort: () => port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
+    host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
@@ -76,11 +111,6 @@ export async function bootSolusApi(options: { host?: string; port?: number; stat
       applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
       applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }),
     },
-  })
-  socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true,
-    onClientConnected: ({ clientId }) => { const principal = socket?.principalOf(clientId); if (principal) presence.connected(clientId, principal) },
-    onClientDisconnected: ({ clientId }) => { presence.disconnected(clientId); workLive.disconnected(clientId) },
-    onClientExpired: ({ clientId }) => presence.expired(clientId),
   })
   const unsubscribeProjects = onWorkspaceProjectsChanged(() => { void events.broadcast('workspaceProjects.changed', {}) })
   const unsubscribeTasks = onTasksChanged(taskId => {
@@ -101,23 +131,68 @@ export async function bootSolusApi(options: { host?: string; port?: number; stat
     void events.broadcast('share.changed', payload)
     socket?.disconnectWhere(principal => principal.kind === 'guest' && principal.share.resource.kind === change.resource.kind && principal.share.resource.id === change.resource.id, 'Share access changed')
   })
+  let liveClosed = false
+  const closeLiveTransport = () => {
+    if (liveClosed) return
+    liveClosed = true
+    socket?.close()
+  }
+  let closing: Promise<void> | null = null
+  return {
+    server, requestListener, routes,
+    attachLiveTransport(http) {
+      if (socket || liveClosed) throw new Error('The live transport is already attached or closed.')
+      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true,
+        onClientConnected: ({ clientId }) => { const principal = socket?.principalOf(clientId); if (principal) presence.connected(clientId, principal) },
+        onClientDisconnected: ({ clientId }) => { presence.disconnected(clientId); workLive.disconnected(clientId) },
+        onClientExpired: ({ clientId }) => presence.expired(clientId),
+      })
+    },
+    closeLiveTransport,
+    close() {
+      return closing ??= (async () => {
+        unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
+        closeLiveTransport()
+        // Disconnected rooms write their bodies in the background; finish before the database closes.
+        await workLive.flushAll()
+        await closeDatabase(); closeDb()
+      })()
+    },
+  }
+}
+
+/** Storage/API process: the record service on a listener of its own. */
+export async function bootSolusApi(options: { host?: string; port?: number; staticDir?: string } = {}) {
+  const host = options.host ?? '127.0.0.1'
+  let port = options.port ?? DEFAULT_SERVER_PORT
+  const service = await createSolusApiService({ host, port: () => port, staticDir: options.staticDir })
+  const http = createServer(HTTP_SERVER_TIMEOUTS, service.requestListener)
+  service.attachLiveTransport(http)
+  const stopListening = () => new Promise<void>(resolve => http.close(() => resolve()))
   try {
     await new Promise<void>((resolve, reject) => {
       http.once('error', reject)
       http.listen(port, host, () => { http.off('error', reject); resolve() })
     })
-    const address = http.address()
-    port = z.object({ port: z.number() }).parse(address).port
+    port = z.object({ port: z.number() }).parse(http.address()).port
   } catch (error) {
-    unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares(); socket.close(); http.close()
-    await closeDatabase(); closeDb(); throw error
+    service.closeLiveTransport(); await stopListening(); await service.close(); throw error
   }
   let stopping: Promise<void> | null = null
-  return { host, port, server, shutdown(): Promise<void> {
+  return { host, port, server: service.server, shutdown(): Promise<void> {
     return stopping ??= (async () => {
-      unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares(); socket?.close()
-      await new Promise<void>(resolve => http.close(() => resolve()))
-      await closeDatabase(); closeDb()
+      service.closeLiveTransport()
+      await stopListening()
+      await service.close()
     })()
   } }
+}
+
+/** Applies the record migrations to the database the environment names, then closes it: the release step before a new service admits traffic. */
+export async function migrateSolusApiDatabase(): Promise<void> {
+  try {
+    await getDatabase().get(sql`SELECT 1 AS ready`)
+  } finally {
+    await closeDatabase(); closeDb()
+  }
 }

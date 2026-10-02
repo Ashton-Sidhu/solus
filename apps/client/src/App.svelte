@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
@@ -199,22 +200,10 @@
 
   let shortcutsModalOpen = $state(false);
   let commandPaletteOpen = $state(false);
-  let hasMountedDirectoryPicker = $state(false);
-  let hasMountedShortcuts = $state(false);
-  let hasMountedOpenProject = $state(false);
-  let hasMountedHostOnboarding = $state(false);
-  let hasMountedAddServer = $state(false);
-  let hasMountedServerSetup = $state(false);
   let hasMountedShareDialog = $state(false);
   let shortcutsActiveScopes = $state<import("@solus/workspace-ui/lib/keybindings/types").Scope[]>([]);
 
   $effect(() => {
-    if (projectPicker.directoryPickerOpen) hasMountedDirectoryPicker = true;
-    if (shortcutsModalOpen) hasMountedShortcuts = true;
-    if (openProjectStore.isOpen) hasMountedOpenProject = true;
-    if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
-    if (serversStore.addServerOpen) hasMountedAddServer = true;
-    if (webState.serverSetupOpen) hasMountedServerSetup = true;
     if (sharesStore.dialog) hasMountedShareDialog = true;
   });
 
@@ -768,48 +757,55 @@
   {/await}
 {/if}
 
-{#if hasMountedDirectoryPicker && projectPicker.directoryPickerApi}
-  {#await import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
-    {#if projectPicker.directoryPickerOpen}
-      <div class="lazy-modal-loading" role="status">Loading folders…</div>
-    {/if}
-  {:then directoryPickerModule}
-    {@const DirectoryPicker = directoryPickerModule.default}
-    <DirectoryPicker
-      bind:open={projectPicker.directoryPickerOpen}
-      onClose={projectPicker.handleDirectoryPickerClose}
-      onSelect={projectPicker.handleDirectorySelected}
-      initialPath={projectPicker.directoryPickerInitialPath}
-      title={projectPicker.directoryPickerTitle}
-      actionLabel={projectPicker.directoryPickerAction}
-      api={projectPicker.directoryPickerApi}
-      hostLabel={projectPicker.directoryPickerHostLabel}
-      serverId={projectPicker.directoryPickerServerId}
-    />
-  {/await}
+{#if projectPicker.directoryPickerApi}
+  {@const directoryPickerApi = projectPicker.directoryPickerApi}
+  <LazyDialog
+    open={projectPicker.directoryPickerOpen}
+    load={() => import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
+    placeholder="Filter folders"
+    centered
+    class="h-[clamp(28rem,65vh,43rem)] max-h-none w-[clamp(42rem,72vw,64rem)]"
+    onclose={projectPicker.handleDirectoryPickerClose}
+  >
+    {#snippet children(DirectoryPicker)}
+      <DirectoryPicker
+        bind:open={projectPicker.directoryPickerOpen}
+        onClose={projectPicker.handleDirectoryPickerClose}
+        onSelect={projectPicker.handleDirectorySelected}
+        initialPath={projectPicker.directoryPickerInitialPath}
+        title={projectPicker.directoryPickerTitle}
+        actionLabel={projectPicker.directoryPickerAction}
+        api={directoryPickerApi}
+        hostLabel={projectPicker.directoryPickerHostLabel}
+        serverId={projectPicker.directoryPickerServerId}
+      />
+    {/snippet}
+  </LazyDialog>
 {/if}
 
-{#if hasMountedAddServer}
-  {#await import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
-    {#if serversStore.addServerOpen}
-      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
-    {/if}
-  {:then addServerModule}
-    {@const AddServerModal = addServerModule.default}
+<LazyDialog
+  open={serversStore.addServerOpen}
+  load={() => import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
+  title="Add server"
+  class="w-[28rem]"
+  onclose={() => serversStore.closeAddServer()}
+>
+  {#snippet children(AddServerModal)}
     <AddServerModal />
-  {/await}
-{/if}
+  {/snippet}
+</LazyDialog>
 
-{#if hasMountedServerSetup}
-  {#await import("./components/ServerSetupSurface.svelte")}
-    {#if webState.serverSetupOpen}
-      <div class="lazy-modal-loading" role="status">Loading hosts…</div>
-    {/if}
-  {:then serverSetupModule}
-    {@const ServerSetupSurface = serverSetupModule.default}
+<LazyDialog
+  open={webState.serverSetupOpen}
+  load={() => import("./components/ServerSetupSurface.svelte")}
+  title="Hosts"
+  class="w-[26rem]"
+  onclose={() => webState.closeServerSetup()}
+>
+  {#snippet children(ServerSetupSurface)}
     <ServerSetupSurface />
-  {/await}
-{/if}
+  {/snippet}
+</LazyDialog>
 
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
@@ -836,13 +832,14 @@
   {/await}
 {/if}
 
-{#if hasMountedOpenProject}
-  {#await import("@solus/workspace-ui/components/servers/OpenProjectDialog.svelte")}
-    {#if openProjectStore.isOpen}
-      <div class="lazy-modal-loading" role="status">Loading projects…</div>
-    {/if}
-  {:then openProjectModule}
-    {@const OpenProjectDialog = openProjectModule.default}
+<LazyDialog
+  open={openProjectStore.isOpen}
+  load={() => import("@solus/workspace-ui/components/servers/OpenProjectDialog.svelte")}
+  title="Open project"
+  class="w-[42rem]"
+  onclose={() => openProjectStore.close()}
+>
+  {#snippet children(OpenProjectDialog)}
     <OpenProjectDialog
       onOpenProject={(path) =>
         void projectPicker.openProjectAtPath(path, openProjectStore.source)}
@@ -850,33 +847,37 @@
       onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
       localIdentity={projectPicker.localGitIdentity}
     />
-  {/await}
-{/if}
+  {/snippet}
+</LazyDialog>
 
-{#if hasMountedHostOnboarding}
-  {#await import("@solus/workspace-ui/components/servers/HostOnboarding.svelte")}
-    {#if hostOnboardingStore.isOpen}
-      <div class="lazy-modal-loading" role="status">Loading host setup…</div>
-    {/if}
-  {:then hostOnboardingModule}
-    {@const HostOnboarding = hostOnboardingModule.default}
+<LazyDialog
+  open={hostOnboardingStore.isOpen}
+  load={() => import("@solus/workspace-ui/components/servers/HostOnboarding.svelte")}
+  title="Set up host"
+  centered
+  class="min-h-[26rem] w-[58.75rem]"
+  onclose={() => hostOnboardingStore.close()}
+>
+  {#snippet children(HostOnboarding)}
     <HostOnboarding />
-  {/await}
-{/if}
+  {/snippet}
+</LazyDialog>
 
-{#if hasMountedShortcuts}
-  {#await import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
-    {#if shortcutsModalOpen}
-      <div class="lazy-modal-loading" role="status">Loading shortcuts…</div>
-    {/if}
-  {:then shortcutsModule}
-    {@const KeyboardShortcutsModal = shortcutsModule.default}
+<LazyDialog
+  open={shortcutsModalOpen}
+  load={() => import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
+  placeholder="Search shortcuts…"
+  centered
+  class="max-h-[70vh] w-[41.25rem]"
+  onclose={() => (shortcutsModalOpen = false)}
+>
+  {#snippet children(KeyboardShortcutsModal)}
     <KeyboardShortcutsModal
       bind:open={shortcutsModalOpen}
       activeScopes={shortcutsActiveScopes}
     />
-  {/await}
-{/if}
+  {/snippet}
+</LazyDialog>
 
 <SessionLinkPrompts />
 
@@ -891,16 +892,6 @@
 </Tooltip.Provider>
 
 <style>
-  .lazy-modal-loading {
-    position: fixed;
-    inset: 0;
-    z-index: 10024;
-    display: grid;
-    place-items: center;
-    background: color-mix(in oklab, var(--solus-container-bg) 72%, transparent);
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
-  }
 
   .drop-overlay {
     position: fixed;

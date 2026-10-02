@@ -1,7 +1,6 @@
 <script lang="ts">
   import { liveStatus, type LiveStatusInput } from "../work/lib/live-status";
   import { Check as CheckIcon } from "@lucide/svelte";
-  import type { SessionMeta } from "@solus/contracts/types";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
@@ -21,8 +20,6 @@
     workId?: string;
     onRename?: (title: string) => void;
     onOpenWorkspace?: () => void;
-    onOpenChat?: (mode: "resume" | "new") => void;
-    originalSessionMeta?: SessionMeta | null;
     onDelete?: () => void;
     onDuplicate?: () => void | Promise<void>;
     exportFormats: WorkExportFormat[];
@@ -40,8 +37,6 @@
     workId,
     onRename,
     onOpenWorkspace,
-    onOpenChat,
-    originalSessionMeta,
     onDelete,
     onDuplicate,
     exportFormats,
@@ -150,9 +145,7 @@
     {/if}
   </div>
   <WorkHeaderActions
-    {onOpenChat}
     onStartRename={onRename ? startRename : undefined}
-    {originalSessionMeta}
     {copied}
     copy={copyDiagram}
     {workId}

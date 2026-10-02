@@ -111,13 +111,17 @@ export class LabIssuer {
   /** Refresh token → whom it acts for. Rotated on every refresh. */
   private readonly refreshTokens = new Map<string, Delegation>()
   private workspaceUrl: string | null = null
+  private readonly origin: string | null
 
   /**
    * A fresh key and a free port by default. A proof that reboots a host against the
    * same persisted link record passes the key and port back in, because the real
-   * control plane's key and origin do not change between a host's boots.
+   * control plane's key and origin do not change between a host's boots. A host on
+   * another machine reaches the issuer through a public `origin` that forwards to
+   * this port.
    */
-  constructor(options: { privateKeyJwk?: JsonWebKey; port?: number } = {}) {
+  constructor(options: { privateKeyJwk?: JsonWebKey; port?: number; origin?: string } = {}) {
+    this.origin = options.origin ?? null
     if (options.privateKeyJwk) {
       this.privateKey = createPrivateKey({ key: options.privateKeyJwk, format: 'jwk' })
       const publicKey = createPublicKey(this.privateKey)
@@ -136,7 +140,7 @@ export class LabIssuer {
   }
 
   get issuer(): string {
-    return `http://127.0.0.1:${this.port}`
+    return this.origin ?? `http://127.0.0.1:${this.port}`
   }
 
   get jwksUrl(): string {

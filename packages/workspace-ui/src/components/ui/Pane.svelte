@@ -110,7 +110,13 @@
       {onDesignMode}
     />
   {:else if ref?.name === "work"}
-    <WorkPane params={ref.params} paneId={pane.id} />
+    <WorkPane
+      params={ref.params}
+      paneId={pane.id}
+      {onAttachFile}
+      {onScreenshot}
+      {onDesignMode}
+    />
   {:else if ref && descriptor?.component}
     <!-- An await block can keep its previous component until the next loader
          settles. Drop it before a different route supplies incompatible params.

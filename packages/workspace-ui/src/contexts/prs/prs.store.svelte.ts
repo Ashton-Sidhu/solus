@@ -226,11 +226,11 @@ export class PrsStore {
     const byHost = new Map<string, ProjectPrs[]>()
     for (const target of targets) {
       const project = this.get(target.api, target.serverId, target.ctx)
-      // A project the host has already said has no git remote — a plain folder
-      // — has nothing to list, and asking again on every refresh only spends a
-      // host read. An explicit refresh still retries it, so `git remote add` is
-      // one click from showing up.
-      if (!opts.force && project.error?.kind === 'no-repository') continue
+      // A project the host has already said has no pull requests — a plain
+      // folder, a repository with no remote — has nothing to list, and asking
+      // again on every refresh only spends a host read. An explicit refresh
+      // still retries it, so `git remote add` is one click from showing up.
+      if (!opts.force && project.error?.kind === 'unavailable') continue
       const projects = byHost.get(target.serverId) ?? []
       projects.push(project)
       byHost.set(target.serverId, projects)

@@ -35,190 +35,66 @@ test.describe('Work chat workflow', () => {
     await expect(inputBar).toBeVisible()
   })
 
-  test('open chat from the Workspace ledger with new chat option', async ({ page }) => {
+  test('a work page docks one chat glyph that opens into a composer', async ({ page }) => {
+    const app = new AppPage(page)
+    const conversation = new ConversationPage(page)
+    await app.waitForAppReady()
+
+    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
+    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
+    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
+    await documentCard.click()
+    await expect(page.getByTestId('document-modal')).toBeVisible({ timeout: 5_000 })
+
+    // At rest the page carries one glyph, not a composer over the document.
+    const glyph = page.getByTestId('open-page-composer')
+    await expect(glyph).toBeVisible()
+    await expect(page.getByTestId('page-composer')).toHaveCount(0)
+
+    await glyph.click()
+    const composer = page.getByTestId('page-composer')
+    await expect(composer).toBeVisible()
+    await expect(composer.getByTestId('message-input')).toBeFocused()
+
+    // Escape on an empty composer folds it back to the glyph.
+    await page.keyboard.press('Escape')
+    await expect(composer).toBeHidden({ timeout: 1_000 })
+    await expect(glyph).toBeVisible()
+  })
+
+  test('sending from the docked composer opens a bound session beside the work', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const workspace = new WorkspacePage(page)
     await app.waitForAppReady()
 
-    // Create a document
     await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
     const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
     await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
 
-    // Open the Workspace page and open the document from its ledger row
+    // Opened from the Workspace ledger, the document takes the leading pane.
     await workspace.open()
     await workspace.waitForOpen()
     const firstItem = workspace.items().first()
     await expect(firstItem).toBeVisible()
     await firstItem.click()
+    await expect(page.getByTestId('document-modal')).toBeVisible({ timeout: 5_000 })
 
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
+    await page.getByTestId('open-page-composer').click()
+    const input = page.getByTestId('page-composer').getByTestId('message-input')
+    await input.pressSequentially('tighten the intro')
+    await page.keyboard.press('Enter')
 
-    // Open the chat menu from the document shell
-    await modal.locator('button[data-testid="open-chat"]').click()
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-
-    // Click "New chat"
-    const newChatBtn = chatMenu.locator('button').nth(1) // Second button is "New chat"
-    await newChatBtn.click()
-
-    // A new tab should be created
+    // A new session starts and its conversation pops out beside the document,
+    // which stays where it was.
     await expect(async () => {
       expect(await app.getTabCount()).toBe(2)
     }).toPass({ timeout: 3_000 })
+    await expect(page.getByTestId('document-modal')).toBeVisible()
+    await expect(page.getByTestId('page-composer')).toHaveCount(0)
 
-    // The document should be in the secondary pane
-    const documentModal = page.getByTestId('document-modal')
-    await expect(documentModal).toBeVisible()
-
-    // The new tab shows the bound-work chip for the attached work
+    // The new session is bound to the work it was started from.
     await expect(page.getByTestId('bound-work-chip')).toBeVisible({ timeout: 5_000 })
     await expect(page.getByTestId('bound-work-chip')).toContainText('Mock Test Document')
-  })
-
-  test('document modal has chat button that opens menu', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    // Create a document
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-
-    // Click the card to open the modal
-    await documentCard.click()
-
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
-
-    // The chat button should be in the header
-    const chatBtn = modal.locator('button[data-testid="open-chat"]')
-    await expect(chatBtn).toBeVisible()
-
-    // Click the chat button
-    await chatBtn.click()
-
-    // The WorkChatMenu should appear
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-
-    // Menu should have two options
-    const menuItems = chatMenu.locator('button')
-    await expect(menuItems).toHaveCount(2)
-  })
-
-  test('work chat menu closes on selection', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    // Create a document
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-
-    // Open modal and menu
-    await documentCard.click()
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
-
-    const chatBtn = modal.locator('button[data-testid="open-chat"]')
-    await chatBtn.click()
-
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-
-    // Click "New chat"
-    const newChatBtn = chatMenu.locator('button').nth(1)
-    await newChatBtn.click()
-
-    // Menu should close
-    await expect(chatMenu).toBeHidden({ timeout: 1_000 })
-  })
-
-  test('opening a new chat for a work binds the session (chip visible)', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-    await documentCard.click()
-
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
-
-    await modal.locator('button[data-testid="open-chat"]').click()
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-    await chatMenu.locator('button').nth(1).click() // New chat
-
-    // The composer shows the bound-work indicator for the new session.
-    await expect(page.getByTestId('bound-work-chip')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByTestId('bound-work-chip')).toContainText('Mock Test Document')
-  })
-
-  test('work chat menu responds to keyboard navigation', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    // Create a document
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-
-    // Open modal and menu
-    await documentCard.click()
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
-
-    const chatBtn = modal.locator('button[data-testid="open-chat"]')
-    await chatBtn.click()
-
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible()
-
-    // Press down arrow to navigate to second option
-    await page.keyboard.press('ArrowDown')
-
-    // The second button should be focused
-    const buttons = chatMenu.locator('button')
-    const secondBtn = buttons.nth(1)
-    await expect(secondBtn).toBeFocused()
-
-    // Close the menu with Escape
-    await page.keyboard.press('Escape')
-    await expect(chatMenu).toBeHidden({ timeout: 1_000 })
-  })
-})
-
-test.describe('Work chat keyboard shortcuts', () => {
-  test('⌥C opens chat menu from document modal', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    // Create a document
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-
-    // Open modal
-    await documentCard.click()
-    const modal = page.getByTestId('document-modal')
-    await expect(modal).toBeVisible({ timeout: 5_000 })
-
-    // Press ⌥C to open the menu
-    await page.keyboard.press('Alt+c')
-
-    // The WorkChatMenu should appear
-    const chatMenu = page.locator('.work-chat-menu')
-    await expect(chatMenu).toBeVisible({ timeout: 1_000 })
   })
 })

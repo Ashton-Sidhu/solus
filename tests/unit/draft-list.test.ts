@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Prompt } from '@solus/contracts/types'
-import { draftTitle } from '@solus/workspace-ui/components/session/lib/draft-list'
+import type { Prompt, Session } from '@solus/contracts/types'
+import { draftTitle, sessionDraftTitle } from '@solus/workspace-ui/components/session/lib/draft-list'
 
 function promptWith(fields: Partial<Prompt>): Prompt {
   return {
@@ -47,5 +47,23 @@ describe('naming a draft in the sidebar', () => {
     // WHY: attachments make a draft worth keeping on their own, so it earns a
     // row — and a blank title on that row would read as a bug.
     expect(files).toBe('2 attachments')
+  })
+})
+
+describe('naming an existing session in Drafts', () => {
+  test('keeps its established name instead of the unsent text', () => {
+    const session = { title: 'Fix session switching', messages: [], prompt: promptWith({ text: 'Try another approach' }) } as unknown as Session
+    expect(sessionDraftTitle(session)).toBe('Fix session switching')
+    session.title = 'New session'
+    expect(sessionDraftTitle(session)).toBe('New session')
+  })
+
+  test('keeps the opening prompt name when no custom name exists', () => {
+    const session = { title: null, messages: [{ role: 'user', content: 'Fix the sidebar' }] } as unknown as Session
+    expect(sessionDraftTitle(session)).toBe('Fix the sidebar')
+  })
+
+  test('uses Draft when the session has no established name', () => {
+    expect(sessionDraftTitle({ title: null, messages: [] } as unknown as Session)).toBe('Draft')
   })
 })

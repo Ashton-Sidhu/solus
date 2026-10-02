@@ -13,7 +13,7 @@ export type { SessionRecords } from './workspace/session-records.svelte'
 /** What a record surface reads: stores, an RPC context, and the way to another
  *  resource — the workspace or the cloud console's `ConsoleWorkspace`
  *  (docs/plans/cloud-console-native-pages.md §4). */
-export { getSurfaceContext, setSurfaceContext, type SurfaceContext } from './app/surface-context.svelte'
+export { getSurfaceContext, hasSurfaceContext, setSurfaceContext, type SurfaceContext } from './app/surface-context.svelte'
 
 /** Where the workspace is. `routing/` internals stay private organs — surfaces
  *  reach the live location through `getWorkspaceContext().router`. */

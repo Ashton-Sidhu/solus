@@ -7,11 +7,6 @@ storage; the release installed on it is replaceable. The server knows it is a ma
 host from its link, which names the organization it was provisioned for; there is no
 managed-mode switch.
 
-This directory also holds the Docker image (`Dockerfile`, `entrypoint.sh`) that
-managed hosts used to run on Fly Machines. Managed hosts no longer use it; the
-Solus API does (`packaging/solus-api`), so it carries neither
-`cloudflared` nor Litestream and bakes no managed-host settings.
-
 ## How a Sprite boots
 
 The control plane creates the Sprite with a public URL and writes two files into it:
@@ -85,14 +80,3 @@ restore puts the whole disk back.
 - No setup wizard and no pairing. `/pair*` answers 404 on both listeners.
 - No host login. Every agent turn runs on a member's seat.
 - No per-member process isolation (§5).
-
-## The Docker image (Solus API)
-
-```
-bun scripts/managed-image.ts            # → registry.fly.io/solus-managed:<package.json version>
-bun scripts/managed-image.ts --tag x:y  # a disposable local tag
-fly auth docker && docker push registry.fly.io/solus-managed:<tag>
-```
-
-Tag every push; never move a tag. See `packaging/solus-api/README.md` and
-`scripts/release-api.ts`.

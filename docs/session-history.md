@@ -4,6 +4,14 @@ The shared desktop, web, and mobile workspace displays a loaded transcript befor
 git identity and task binding finish. Late metadata updates apply only while the
 tab still owns the session that requested them.
 
+On desktop, web, and mobile, an open session with unsent text or attachments
+moves from Sessions to Drafts when no pane shows that conversation. Its row
+keeps the established session name, or shows “Draft” if it has no name. Select
+the row to return to the same conversation and prompt. Discard clears only the
+unsent prompt; Undo restores it if no new prompt has replaced it. Task rows
+keep their task identity. The prompt remains owned by the session and uses the
+existing saved client state.
+
 `loadSessionPage` returns the newest `turnLimit` user turns before a cursor, each
 complete, and an opaque cursor for the next older page. A conversation opens with
 10 turns; each scroll back reads 20 more. The page size is counted in turns, not

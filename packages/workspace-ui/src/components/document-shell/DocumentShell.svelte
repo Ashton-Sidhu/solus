@@ -346,10 +346,13 @@
   });
 
   let tocHeadings = $state<PlanHeading[]>([]);
+  // Heading positions belong to the rich editor. The raw markdown view has no
+  // place for them to land, so every outline surface leaves with it.
+  const hasOutline = $derived(editorMode === "rich" && tocHeadings.length >= 2);
   // Presence only — the rail's width collapse is a container query on the pane,
   // so a narrow split pane on a wide monitor drops it too. A phone has no
   // margin for a rail at all: the outline becomes the section bar below.
-  const showTocRail = $derived(tocHeadings.length >= 2 && !isMobile);
+  const showTocRail = $derived(hasOutline && !isMobile);
   let activeHeadingPos = $state<number | null>(null);
   const threadCounts = $derived(
     countThreadsByHeading(threadAnchors, tocHeadings.map((h) => h.pos)),
@@ -358,7 +361,7 @@
   // It names the section you are reading, counts your place in the document,
   // and opens the full outline as a sheet. Only earns its height once there is
   // more than one section to be in.
-  const showSectionBar = $derived(isMobile && tocHeadings.length >= 2);
+  const showSectionBar = $derived(isMobile && hasOutline);
   const activeHeadingIndex = $derived(
     Math.max(
       0,
@@ -388,9 +391,7 @@
   // hovering one names that section alone. The header only takes the contents
   // back when only the compact overview fits, so every heading stays reachable.
   const contentsOpensFromHeader = $derived(
-    !isMobile &&
-      tocHeadings.length >= 2 &&
-      !outlineHasMarginRoom,
+    !isMobile && hasOutline && !outlineHasMarginRoom,
   );
   let contentsPopoverOpen = $state(false);
   $effect(() => {
@@ -445,7 +446,7 @@
    * scope would have given it.
    */
   function handleSectionJump(e: KeyboardEvent) {
-    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (!hasOutline || !e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
     const index = sectionJumpIndex(e.code, tocHeadings.length);
     if (index === null) return;
     e.preventDefault();
@@ -518,7 +519,7 @@
       if (contentsOpensFromHeader) contentsPopoverOpen = !contentsPopoverOpen;
       else outlinePinned = !outlinePinned;
     },
-    { enabled: () => !!bindings.pinOutline },
+    { enabled: () => !!bindings.pinOutline && hasOutline },
   );
 
   // P2: one batched bump per frame instead of a queueMicrotask bump per
@@ -726,11 +727,13 @@
 {/snippet}
 
 {#snippet voiceControl()}
-  <EditorVoiceControl
-    onTranscript={(transcript) => editorRef?.insertTranscript(transcript)}
-    focused={editorFocused}
-    disabled={readOnly || editorMode !== "rich"}
-  />
+  <span class="doc-shell-voice contents">
+    <EditorVoiceControl
+      onTranscript={(transcript) => editorRef?.insertTranscript(transcript)}
+      focused={editorFocused}
+      disabled={readOnly || editorMode !== "rich"}
+    />
+  </span>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1275,17 +1278,20 @@
     outline-offset: 0.125rem;
     border-radius: 0.25rem;
   }
-  /* The header's own verbs are unfilled type, like every action WorkHeaderActions
-     puts beside them — the cluster carries no filled surface. */
+  /* The header's own verbs are raised pills, like every action
+     WorkHeaderActions puts beside them. */
   .doc-shell-header-btn {
     flex-shrink: 0;
-    height: 1.5rem;
-    padding: 0 0.4375rem;
-    border-radius: 0.375rem;
-    font-size: var(--text-chrome-dense);
+    height: 1.625rem;
+    padding: 0 0.625rem;
+    border-radius: 9999px;
+    font-size: var(--text-workspace-chrome);
     font-weight: 400;
-    color: var(--solus-text-tertiary);
-    background: transparent;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
     border: none;
     cursor: pointer;
     transition:
@@ -1293,8 +1299,27 @@
       color var(--duration-quick) var(--ease-premium);
   }
   .doc-shell-header-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
+    background: var(--wash-1);
+  }
+  /* The microphone is the input bar's control, so the header gives it the
+     row's pill from here rather than changing it everywhere. */
+  .doc-shell-voice :global(.rc-bar-mic) {
+    width: 1.625rem;
+    height: 1.625rem;
+    border-radius: 9999px;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
+      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
+  }
+  .doc-shell-voice :global(.rc-bar-mic svg) {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.5;
+  }
+  .doc-shell-voice :global(.rc-bar-mic:enabled:hover) {
+    background: var(--wash-1);
   }
   .doc-shell-header-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);

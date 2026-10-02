@@ -51,12 +51,12 @@
   }
 </script>
 
-<!-- No track behind the group and no rule under it: the active tab's own wash is
-     the whole cue. Deliberately identical to the local review's tabs — reading a
+<!-- No track behind the group and no rule under it: the active tab, raised
+     as a pill like the header's actions, is the whole cue. Deliberately identical to the local review's tabs — reading a
      pull request and reading a branch are the same job, and the control that
      switches views should not change shape with where the change came from. -->
 <div
-  class="no-drag flex shrink-0 items-center gap-0.5"
+  class="no-drag flex shrink-0 items-center gap-1"
   role="tablist"
   aria-label="Pull request views"
 >
@@ -77,11 +77,11 @@
           : t.id === "diff"
             ? diffHint
             : undefined}
-      class="inline-flex items-center gap-1 h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
-        ? 'bg-[var(--wash-2)] font-medium text-foreground'
+      class="inline-flex items-center gap-1 h-6.5 cursor-pointer rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
+        ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
         : isUnread
-          ? 'bg-transparent font-medium text-(--success)'
-          : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+          ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'
+          : 'bg-transparent font-normal text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
       onclick={() => onSelect(t.id)}
     >
       {t.label}

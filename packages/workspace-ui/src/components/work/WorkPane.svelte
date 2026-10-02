@@ -8,6 +8,7 @@
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import { Button } from "../ui/button";
+  import PageComposer from "../page-composer/PageComposer.svelte";
   // Eager, unlike the shells they cover: these are what stand in for an async
   // boundary, so they cannot sit behind one themselves.
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
@@ -28,7 +29,7 @@
   import { isLiveEditable, type WorkLiveLease } from "../../contexts/works/work-live.store.svelte";
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
 
-  let { params, paneId }: RouteSurfaceProps<"work"> = $props();
+  let { params, paneId, onAttachFile, onScreenshot, onDesignMode, composerActions }: RouteSurfaceProps<"work"> = $props();
 
   const session = getSurfaceContext();
   const pane = paneActions(() => paneId);
@@ -142,27 +143,6 @@
     try { await tick(); } finally { discardingShell = false; }
   }
 
-  const originalSessionMeta = $derived.by(() => {
-    if (!work) return null;
-    // Candidate sessions, most-recent-linked first, then the legacy origin id.
-    const candidates = [
-      ...[...(work.sessionIds ?? [])].reverse(),
-      ...(work.sessionId ? [work.sessionId] : []),
-    ];
-    for (const sid of candidates) {
-      const sess = session.sessionForAgentSession(sid, session.worksStore.hostFor(work.id) ?? undefined);
-      if (sess) {
-        return {
-          sessionId: sess.agentSessionId || "",
-          title: sess.title || "Unnamed session",
-          provider: sess.run.provider || "claude-code",
-          cwd: sess.run.workingDirectory,
-        };
-      }
-    }
-    return null;
-  });
-
   // A clean editor takes each newer saved body through its `content` prop; a
   // remount (renderKey) happens only on an explicit reload, a restore, or a
   // retry after a failed shell load.
@@ -211,14 +191,12 @@
     session.closeWork(paneId);
   }
 
-  function handleOpenChat(mode: "resume" | "new") {
-    shell.openResource({ kind: "chat", workId: params.workId, mode });
-  }
-
   // A guest shell has nowhere for these to lead, so the surfaces offer no way there.
   // A duplicate lands in the sharer's Workspace, which a guest cannot open.
   const canOpenWorkspace = $derived(shell.canOpenResource("workspace"));
-  const canOpenChat = $derived(shell.canOpenResource("chat"));
+  // Starting an agent on the work is the workspace's: a client with no runner
+  // behind it has no session to start.
+  const canStartSession = $derived(!!session.workspace && shell.canOpenResource("chat"));
 
   function handleRename(newTitle: string) {
     void saveCopy({ title: newTitle }).catch((error) => toasts.error(error.message));
@@ -297,7 +275,9 @@
 {/snippet}
 
 {#if work && draft}
-  <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
+  <!-- The raised pane controls are wider than the flat ones the column
+       measured its inset for (three 1.625rem pills, 0.375rem apart). -->
+  <div class="flex h-full flex-col min-h-0 work-live-host pointer-fine:[--solus-pane-chrome-inset:6.625rem]" class:work-live-pulse={justUpdated}>
     {#if openWork?.status === "unavailable"}
       {@render savedCopyStatus(unavailableMessage(openWork.unavailableReason), { label: "Check again", testId: "work-check-again", run: () => openWork?.retry() })}
     {:else if draft.conflict}
@@ -335,8 +315,6 @@
               onDirtyChange={(d) => draft?.setDirty(d)}
               onClose={handleClose}
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-              onOpenChat={canOpenChat ? handleOpenChat : undefined}
-              {originalSessionMeta}
               onRename={viewerReadOnly ? undefined : handleRename}
               onDelete={canDelete ? handleDelete : undefined}
               onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
@@ -380,8 +358,6 @@
             workId={work.id}
             onClose={handleClose}
             onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-            onOpenChat={canOpenChat ? handleOpenChat : undefined}
-            {originalSessionMeta}
             onRename={viewerReadOnly ? undefined : handleRename}
             onDelete={canDelete ? handleDelete : undefined}
             onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
@@ -412,8 +388,6 @@
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
               inline
               minimizeOutline={!pane.isLeading}
-              onOpenChat={canOpenChat ? handleOpenChat : undefined}
-              {originalSessionMeta}
               onRename={viewerReadOnly ? undefined : handleRename}
               onDelete={canDelete ? handleDelete : undefined}
               onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
@@ -434,6 +408,23 @@
     <!-- After the content: the shell toolbars above are window drag regions,
          and a drag rect later in the DOM would re-cover this cluster's no-drag
          holes. A guest shell has no pane row to close into, so it gets none. -->
+    {#if canStartSession}
+      <PageComposer
+        {paneId}
+        aim={{ freshTask: true, workId: work.id }}
+        cwd={work.cwd}
+        destinationFixed={!!work.cwd && work.cwd !== "~"}
+        {onAttachFile}
+        {onScreenshot}
+        {onDesignMode}
+        {composerActions}
+        label={work.type === "diagram"
+          ? "Work with this diagram"
+          : work.type === "artifact"
+            ? "Work with this artifact"
+            : "Work with this document"}
+      />
+    {/if}
     {#if canOpenWorkspace}
       <PaneChrome
         onClose={handleClose}
@@ -449,6 +440,7 @@
               ? "Close report"
               : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
+        raised="strong"
       />
     {/if}
   </div>

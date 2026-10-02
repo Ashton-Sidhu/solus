@@ -10,6 +10,17 @@ export const PAGE_PRIMARY_BTN =
 export const PAGE_ICON_BTN =
   'no-drag pointer-events-auto relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out disabled:cursor-not-allowed disabled:opacity-35 [&:hover:not(:disabled)]:bg-(--solus-surface-hover) [&:hover:not(:disabled)]:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none [@media(pointer:coarse)]:size-11'
 
+/** A window control (open in split, maximize, close) as a raised pill — the
+ *  header row's own style, so the controls continue that row. */
+export const PAGE_RAISED_ICON_BTN =
+  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:size-10'
+
+/** The page header's window controls: the raised pill, quieter. The icon
+ *  rests a step below full ink and the lift is fainter, so the controls sit beside
+ *  the page's title instead of competing with its primary action. */
+export const PAGE_SOFT_ICON_BTN =
+  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:size-10'
+
 /** Outlined secondary action rendered beside PAGE_PRIMARY_BTN (Retry, Refresh…). */
 export const PAGE_SECONDARY_BTN =
   'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-transparent px-3 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-sm'

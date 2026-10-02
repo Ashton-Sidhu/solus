@@ -226,6 +226,7 @@ export class WsTransport {
       setQuoteContext: () => {},
       onQuoteSelection: () => () => {},
       onAskSelectionInNewSession: () => () => {},
+      onOpenSelectedLink: () => () => {},
     }
 
     for (const method of RPC_INVOKE_METHODS) {

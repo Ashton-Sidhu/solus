@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { BrowserRouteHistory } from '@solus/workspace-ui/contexts/workspace/routing/route-history'
 import {
   applyLocation,
@@ -229,12 +229,24 @@ describe('applying a location', () => {
 type EventName = 'popstate' | 'hashchange'
 
 class FakeBrowserWindow {
-  location = { hash: '#/chat/a' }
-  private entries = ['#/chat/a']
+  location = { hash: '', pathname: '/', search: '' }
+  private entries: string[]
   private index = 0
   private listeners: Record<EventName, Set<() => void>> = {
     popstate: new Set(),
     hashchange: new Set(),
+  }
+
+  constructor(initialUrl = '/chat/a') {
+    this.entries = [initialUrl]
+    this.setLocation(initialUrl)
+  }
+
+  private setLocation(path: string): void {
+    const url = new URL(path, 'https://app.solus.sh')
+    this.location.hash = url.hash
+    this.location.pathname = url.pathname
+    this.location.search = url.search
   }
 
   history = {
@@ -242,23 +254,23 @@ class FakeBrowserWindow {
       if (url == null) return
       this.entries.splice(this.index + 1, this.entries.length - this.index - 1, String(url))
       this.index = this.entries.length - 1
-      this.location.hash = this.entries[this.index]
+      this.setLocation(this.entries[this.index])
     },
     replaceState: (_data: unknown, _unused: string, url?: string | URL | null) => {
       if (url == null) return
       this.entries[this.index] = String(url)
-      this.location.hash = this.entries[this.index]
+      this.setLocation(this.entries[this.index])
     },
     back: () => {
       if (this.index <= 0) return
       this.index -= 1
-      this.location.hash = this.entries[this.index]
+      this.setLocation(this.entries[this.index])
       this.emit('popstate')
     },
     forward: () => {
       if (this.index >= this.entries.length - 1) return
       this.index += 1
-      this.location.hash = this.entries[this.index]
+      this.setLocation(this.entries[this.index])
       this.emit('popstate')
     },
   }
@@ -311,5 +323,81 @@ describe('route history adapters', () => {
     expect(history.current()).toBe('/settings/keybindings')
     browser.history.forward()
     expect(history.current()).toBe('/chat/c')
+  })
+})
+
+let RouterStore: typeof import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte').RouterStore
+
+beforeAll(async () => {
+  // These checks exercise route ownership, not Svelte reactivity.
+  Object.assign(globalThis, { $state: <T>(value: T) => value })
+  ;({ RouterStore } = await import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'))
+})
+
+describe('web address bar', () => {
+  function bind(browser: FakeBrowserWindow) {
+    const previousWindow = globalThis.window
+    Object.assign(globalThis, { window: browser })
+    const router = new RouterStore()
+    router.navigate(TASKS)
+    try {
+      router.bindAddressBar()
+    } finally {
+      Object.assign(globalThis, { window: previousWindow })
+    }
+    return router
+  }
+
+  test('a direct path takes priority over saved state and restores all panes on refresh', () => {
+    const browser = new FakeBrowserWindow('/settings/general?p=work%2Fw_12&f=1')
+    const router = bind(browser)
+    expect(router.at('settings')).toBe(true)
+    expect(router.at('work')).toBe(true)
+    expect(router.focused.base?.name).toBe('work')
+    expect(browser.location.hash).toBe('')
+    const reloaded = bind(new FakeBrowserWindow(browser.location.pathname + browser.location.search))
+    expect(reloaded.serialized).toBe(router.serialized)
+    router.destroy()
+    reloaded.destroy()
+  })
+
+  test('root restores the saved workspace', () => {
+    const browser = new FakeBrowserWindow('/')
+    const router = bind(browser)
+    expect(router.at('tasks')).toBe(true)
+    expect(browser.location.pathname).toBe('/tasks')
+    router.destroy()
+  })
+
+  test('old hash links become paths without adding a history entry', () => {
+    const browser = new FakeBrowserWindow('/#/settings/general?p=work%2Fw_12&f=1')
+    const router = bind(browser)
+    expect(router.at('settings')).toBe(true)
+    expect(browser.location.pathname).toBe('/settings/general')
+    expect(browser.location.hash).toBe('')
+    router.navigate(PRS)
+    browser.history.back()
+    expect(router.at('settings')).toBe(true)
+    browser.history.back()
+    expect(browser.location.pathname).toBe('/settings/general')
+    router.destroy()
+  })
+
+  test('native Back and Forward update the rendered route', () => {
+    const browser = new FakeBrowserWindow('/tasks')
+    const router = bind(browser)
+    router.navigate(PRS)
+    expect(browser.location.pathname).toBe('/prs')
+    expect(browser.location.hash).toBe('')
+    browser.history.back()
+    expect(router.at('tasks')).toBe(true)
+    browser.history.forward()
+    expect(router.at('prs')).toBe(true)
+    router.destroy()
+  })
+
+  test('secret fragments are not interpreted as workspace navigation', () => {
+    const browser = new FakeBrowserWindow('/w/resource#' + 's'.repeat(32))
+    expect(new BrowserRouteHistory(browser).current()).toBe('/w/resource')
   })
 })

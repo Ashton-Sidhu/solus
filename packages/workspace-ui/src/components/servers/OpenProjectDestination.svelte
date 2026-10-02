@@ -3,7 +3,6 @@
 import Icon from "@iconify/svelte";
   import { slide } from "svelte/transition";
   import {
-    FolderPlus as FolderPlusIcon,
     LoaderCircle as LoaderIcon,
     Search as MagnifyingGlassIcon,
   } from "@lucide/svelte";
@@ -65,19 +64,10 @@ import Icon from "@iconify/svelte";
 </script>
 
 {#if store.source === "new"}
-  <!-- The name is the whole step: typed as the end of its own path, in the same
-       card the onboarding "Name your project" stage uses. The folder in front
-       of it is where "Change location" lives. -->
-  <div class="text-xs flex flex-col gap-2 px-5 pb-5 pt-1">
+  <div class="flex flex-col gap-3 border-t border-border px-5 pb-5 pt-4 text-workspace-chrome">
     <label
-      class="flex min-h-[4.5rem] cursor-text items-center gap-3 rounded-2xl bg-[var(--solus-tx-card-bg)] py-3 pl-4 pr-4 shadow-[shadow:var(--solus-tx-card-shadow)] transition-shadow duration-150 focus-within:shadow-[shadow:var(--solus-tx-card-shadow-hover)] sm:gap-4 sm:pr-5"
+      class="flex min-w-0 cursor-text items-center gap-3 py-2"
     >
-      <span
-        class="flex size-10 shrink-0 items-center justify-center rounded-full"
-        style="background: color-mix(in oklch, var(--chart-2) 16%, transparent); color: color-mix(in oklch, var(--chart-2) 72%, var(--foreground))"
-      >
-        <FolderPlusIcon size={18} />
-      </span>
       <NewProjectNameField
         bind:value={store.newProjectName}
         bind:inputEl
@@ -95,7 +85,7 @@ import Icon from "@iconify/svelte";
     </label>
 
     {#if store.createError}
-      <p class="text-pretty leading-relaxed text-(--solus-status-error)" transition:slide={{ duration: 160 }}>
+      <p role="alert" class="text-pretty text-(--solus-status-error)" transition:slide={{ duration: 160 }}>
         {store.createError}
       </p>
     {/if}

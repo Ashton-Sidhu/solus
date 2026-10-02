@@ -6,14 +6,12 @@ import { tv } from '@solus/workspace-ui/lib/tw'
  * copies of this class list, so a metric change meant seven edits and the
  * copies drifted.
  *
- * A 32px row carrying the `--text-menu` label. Touch steps up to a 44px
- * *floor*: a 32px row is below the hit target a finger needs, and every menu in
+ * A row with a 32px minimum height carrying the `--text-menu` label. Touch
+ * steps up to a 44px *floor*: a 32px row is below the hit target a finger needs, and every menu in
  * the app is a menu on a phone too.
  *
- * A row whose description wraps — a publish destination explaining why it is
- * unavailable — has to grow instead of spilling its second line into the row
- * above it. The base `h-8` is a plain utility, so a call site's `h-auto` evicts
- * it through tailwind-merge.
+ * Rows grow when a label or description wraps, so text stays inside its
+ * hit target and does not overlap the next option.
  *
  * Selection state (spine, ink, hover wash) lives in the `menu-row` utility
  * in `index.css`, because it needs `::before` and state selectors that
@@ -23,7 +21,7 @@ import { tv } from '@solus/workspace-ui/lib/tw'
  * `group/*` names — stay at the call site; only what is genuinely shared is here.
  */
 export const menuRowVariants = tv({
-  base: 'menu-row flex cursor-default select-none items-center outline-hidden h-8 gap-2.5 rounded-lg text-menu text-(--solus-text-secondary) pointer-coarse:h-auto pointer-coarse:min-h-11 pointer-coarse:py-2 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  base: 'menu-row flex cursor-default select-none items-center outline-hidden min-h-8 py-1.5 gap-2.5 rounded-lg text-menu text-(--solus-text-secondary) pointer-coarse:min-h-11 pointer-coarse:py-2 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
   variants: {
     /** Rows with an absolutely-positioned check reserve the room for it. */
     indicator: {

@@ -2,7 +2,6 @@
   import {
     connectionsStore,
     getWorkspaceContext,
-    getSettingsContext,
     getSessionSidebarStore,
     runtime,
   } from "../../contexts";
@@ -11,22 +10,14 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
   import { isStackedPane } from "../../lib/pane-width";
-  import { startsWorktree } from "../../contexts/workspace/run-config";
-  import type { Snippet } from "svelte";
-  import type { PluginCommandsResult } from "@solus/contracts/types";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
+  import DraftComposer from "./DraftComposer.svelte";
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import InputBar from "../input/InputBar.svelte";
-  import InputBarHeader from "../input/InputBarHeader.svelte";
-  import InputToolbar from "../input/InputToolbar.svelte";
   import { projectHostId } from "../servers/run-on";
-  import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
-  import { draftPluginCommandScope } from "./lib/plugin-command-scope";
-  import { draftModelSelection } from "./lib/draft-selection";
 
   let {
     params,
@@ -36,16 +27,9 @@
     onScreenshot,
     onDesignMode,
     composerActions,
-  }: RouteSurfaceProps<"draft"> & {
-    /** The shell's own composer controls, when it has a set of its own. A phone
-     *  supplies them: the editor toolbar's `+` attaches files, while every other
-     *  `+` on that surface opens the Add-to-chat sheet, and a draft may not be
-     *  the one composer where the glyph means something else. */
-    composerActions?: Snippet;
-  } = $props();
+  }: RouteSurfaceProps<"draft"> = $props();
 
   const session = getWorkspaceContext();
-  const theme = getSettingsContext();
   const sidebar = getSessionSidebarStore();
 
   // A narrow pane reads top-down with the composer at the bottom, not as a
@@ -69,7 +53,7 @@
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
-  let composerInput = $state<ReturnType<typeof InputBar> | null>(null);
+  let composerInput = $state<ReturnType<typeof DraftComposer> | null>(null);
 
   // A draft is its own routed surface, so it owns the focus transition into its
   // own composer. Address the mounted InputBar directly rather than broadcasting
@@ -123,68 +107,6 @@
   let projectPickerOpen = $state(false);
   let projectPickerAnchor = $state<HTMLButtonElement | null>(null);
 
-  // A draft has no session command cache. Load against the run selected in its
-  // own model picker instead of borrowing commands from the active tab.
-  let pluginCommands = $state<PluginCommandsResult>({ global: [], project: [] });
-  let pluginCommandRequestSequence = 0;
-  $effect(() => {
-    const current = draft;
-    if (!current) return;
-    const scope = draftPluginCommandScope(
-      current.run,
-      theme.activeAgent,
-      current.id,
-      (workingDirectory, gitContext, sourceId) =>
-        session.ctxForEnvironment(workingDirectory, gitContext, sourceId),
-    );
-    // Reading both values makes a picker change invalidate this request even
-    // when two models belong to the same provider.
-    const requestIdentity =
-      `${scope.provider}\0${scope.modelId ?? ""}\0${scope.workingDirectory}`;
-    const requestSequence = ++pluginCommandRequestSequence;
-    pluginCommands = { global: [], project: [] };
-    void session
-      .apiForRun(current.run)
-      .getPluginCommands(scope.workingDirectory, scope.context)
-      .then((result) => {
-        if (requestSequence !== pluginCommandRequestSequence) return;
-        const latest = draft;
-        if (!latest) return;
-        const latestIdentity =
-          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ""}\0${latest.run.workingDirectory}`;
-        if (latestIdentity !== requestIdentity) return;
-        pluginCommands = result;
-      })
-      .catch((error) => {
-        if (requestSequence === pluginCommandRequestSequence)
-          console.error("getPluginCommands failed", error);
-      });
-    return () => {
-      if (requestSequence === pluginCommandRequestSequence)
-        pluginCommandRequestSequence++;
-    };
-  });
-
-  // A draft names a directory before anything has read it — and when the
-  // project was opened on another host, only that host can read it. Until it
-  // answers there is no checkout, so the chips that describe the destination
-  // have nothing to show. Same step a tab takes when it moves to a project, so
-  // it goes through the same call. Re-runs whenever the draft is pointed
-  // somewhere new, because choosing a project clears the checkout it had.
-  $effect(() => {
-    const current = draft;
-    const cwd = current?.run.workingDirectory;
-    if (!current || current.run.gitContext || !cwd || cwd === "~") return;
-    void session.refreshStartTarget(current.id, cwd, startsWorktree(current.run));
-  });
-
-  // The model chip's detached mode edits a plain selection rather than a
-  // session's config — which is exactly what a draft has.
-  const modelSelection = draftModelSelection(
-    () => draft ?? null,
-    () => session.defaultRunConfig.provider ?? theme.activeAgent,
-  );
-
   /**
    * Send is the moment a draft stops being one: the session is created, its tab
    * mounts, and this pane hands the pane back to the conversation pool. The
@@ -228,18 +150,6 @@
   function discard() {
     session.drafts.discardSessionDraft(params.draftId);
     requestInputFocus();
-  }
-
-  async function attachFile() {
-    if (onAttachFile) {
-      await onAttachFile(params.draftId);
-      return;
-    }
-    const files = await session.apiForRun(draft?.run).attachFiles(
-      draft ? session.ctxForDirectory(draft.run.workingDirectory) : undefined,
-    );
-    if (!files || files.length === 0 || !draft) return;
-    for (const file of files) draft.prompt.attachments.push(file);
   }
 </script>
 
@@ -341,12 +251,14 @@
     {/if}
 
     <div class={cn("w-full max-w-(--solus-reading-max)", isPhone && "mt-auto")}>
-      <!-- The same destination strip a pre-flight tab draws — project, where it
-           runs, branch, task — addressed by the draft's id. -->
-      <InputBarHeader
-        active={surfaceVisible}
-        sourceId={current.id}
+      <DraftComposer
+        bind:this={composerInput}
+        draft={current}
         {paneId}
+        active={surfaceVisible}
+        isPrimary={!isAside}
+        spacious
+        maxHeight={260}
         {projectPickerAnchor}
         bind:projectPickerOpen={
           () => projectPickerOpen,
@@ -355,66 +267,13 @@
             if (!open) projectPickerAnchor = null;
           }
         }
+        onDispatch={dispatch}
+        onDispatchInBackground={dispatchInBackground}
+        {onAttachFile}
+        {onScreenshot}
+        {onDesignMode}
+        {composerActions}
       />
-
-      {#if current.run.serverId}
-        <!-- Before the first send, on a host that runs turns on the member's
-             own seat: the seat this draft's agent still needs there. -->
-        <SeatNeededNotice
-          serverId={current.run.pendingHostDispatch?.serverId ?? current.run.serverId}
-          provider={current.run.provider ?? session.defaultRunConfig.provider ?? theme.activeAgent}
-        />
-      {/if}
-
-      <div
-        class={cn(
-          // The `composer` container — the draft pane's card is a composer like
-          // any other, so it runs the same disclosure ladder.
-          "@container/composer overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3",
-          "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
-        )}
-      >
-        <!-- No session and no tab: the bar composes for nothing that exists yet,
-             so Send goes through `dispatch`, which is what mints both. -->
-        <InputBar
-          bind:this={composerInput}
-          active={surfaceVisible}
-          spacious
-          maxHeight={260}
-          sessionId={null}
-          isPrimary={!isAside}
-          {paneId}
-          run={current.run}
-          onRun={(next) => (current.run = next)}
-          draftId={current.id}
-          {pluginCommands}
-          boundWorkId={current.boundWorkId}
-          onUnbindWork={() => (current.boundWorkId = null)}
-          collapseWhenIdle={false}
-          bind:prompt={current.prompt}
-          onDispatch={dispatch}
-          onDispatchInBackground={dispatchInBackground}
-        >
-          {#snippet leadingActions()}
-            {#if composerActions}
-              {@render composerActions()}
-            {:else}
-              <InputToolbar
-                active={surfaceVisible}
-                spacious
-                showDestination={false}
-                isPrimary={!isAside}
-                run={current.run}
-                onRun={(next) => (current.run = next)}
-                selection={modelSelection}
-                onAttachFile={attachFile}
-                {onScreenshot}
-                {onDesignMode}
-              />
-            {/if}
-          {/snippet}
-        </InputBar>
-      </div>
     </div>
 
     <!-- What cloud onboarding asked and was skipped. Cloud only; renders nothing

@@ -84,6 +84,13 @@ The Completed shelf is the name of the place in the list.
    and a pull request chip its own menu. The session menu links the session to
    a task and links a pull request to the session. The task menu has no session
    actions.
+   The conversation header also has a task icon beside Share. It opens the
+   searchable popover below the icon for a session with no task, or the task page for a linked
+   session. Drafts also show the task icon in the session breadcrumb, where it
+   opens the draft task picker. The input header has no task control. These
+   controls are shared by desktop, web, and mobile. The session
+   sidebar footer has Settings and Keyboard shortcuts icons; it has no Docs
+   icon.
 
 ## Who writes a session link
 

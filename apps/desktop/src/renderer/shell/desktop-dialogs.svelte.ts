@@ -32,24 +32,17 @@ export class DesktopDialogs {
   >([]);
   commandPaletteOpen = $state(false);
   projectSearchOpen = $state(false);
-  hasMountedProjectSearch = $state(false);
   goToFileOpen = $state(false);
-  hasMountedGoToFile = $state(false);
   paletteGitTarget = $state<{
     tabId: string;
     ctx: IpcContext;
     projectRoot: string | null;
   } | null>(null);
-  hasMountedDirectoryPicker = $state(false);
-  hasMountedShortcuts = $state(false);
-  // The command palette is keyboard-critical and cheap while hidden. Mount it
-  // with the app so the first shortcut never pays component setup work.
-  hasMountedCommandPalette = $state(true);
+  /** Set when the app is idle: mounts the dialogs a keystroke or Home can summon
+   *  (go to file, find in files, open project, folder picker) before their first open. */
+  hasWarmedDialogs = $state(false);
   /** The paste-a-link document importer, opened from the command palette. */
   importDocOpen = $state(false);
-  hasMountedAddServer = $state(false);
-  hasMountedOpenProject = $state(false);
-  hasMountedHostOnboarding = $state(false);
   hasMountedShareDialog = $state(false);
   /** Offered as the prefill when a remote host has no commit identity of its own. */
   localGitIdentity = $state<{ name: string; email: string } | null>(null);

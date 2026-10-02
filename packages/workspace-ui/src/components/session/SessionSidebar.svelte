@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIcon from "../ui/TaskIcon.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { onMount, tick } from "svelte";
@@ -11,7 +12,6 @@
     Pin as PushPinIcon,
     RefreshCw as ArrowsClockwiseIcon,
     ChartBar as ChartBarIcon,
-    ListChecks as ListChecksIcon,
     GitPullRequest as GitPullRequestIcon,
     Plus as PlusIcon,
     Search as MagnifyingGlassIcon,
@@ -310,7 +310,7 @@
   /** A draft row goes back to the composer it was left in, with the caret in it
    *  — the row is a way to resume typing, not a way to look at the text. */
   function openDraft(row: DraftRowModel) {
-    session.drafts.openDraft(row.draftId);
+    sidebarStore.openDraftRow(row);
     requestInputFocus();
     onSessionSelect?.();
   }
@@ -318,19 +318,16 @@
   /** Discarding loses words the user wrote, and it is one click away on a hover
    *  action, so the toast holds them until it is dismissed. */
   function discardDraft(row: DraftRowModel) {
-    const discarded = session.drafts.discardSessionDraft(row.draftId);
+    const undo = sidebarStore.discardDraftRow(row);
     requestInputFocus();
-    if (!discarded) return;
+    if (!undo) return;
     toasts.show({
       message: `Discarded “${row.title}”`,
       actions: [
         {
           label: "Undo",
           onAction: () => {
-            session.drafts.restoreSessionDrafts({
-              order: [row.draftId],
-              drafts: { [row.draftId]: discarded },
-            });
+            undo();
             requestInputFocus();
           },
         },
@@ -970,7 +967,7 @@
             oncontextmenu={(event) => openNavContextMenu(event, "tasks")}
           >
             <span class="flex shrink-0 items-center"
-              ><ListChecksIcon size={14} /></span
+              ><TaskIcon size={14} /></span
             >
             <span class="flex-1 text-left text-workspace-chrome">Tasks</span>
             <span
@@ -1053,14 +1050,16 @@
         {/if}
       </label>
     {/snippet}
-    {#snippet taskPicker()}
+    {#snippet newDraft()}
       <button
         type="button"
-        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
-        aria-label="Open picker"
-        title={`Open picker (${comboHint("global.task-picker")})`}
+        class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        aria-label="New draft"
+        title="New draft"
         onclick={() => {
-          session.ui.unifiedPickerOpen = true;
+          newSession();
+          requestInputFocus();
+          onSessionSelect?.();
         }}
       >
         <PlusIcon
@@ -1074,7 +1073,7 @@
       projectChoices={sidebarStore.projectFilterChoices}
       onFilter={filterToProject}
       leading={taskSearch}
-      trailing={taskPicker}
+      trailing={newDraft}
     />
   </div>
 
@@ -1244,8 +1243,11 @@
   </div>
 
   <!-- Separate the task list from saved sessions. -->
+  <div
+    class="mx-3.5 h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
+  ></div>
   <Sidebar.Footer
-    class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 py-2 @max-[15rem]:px-2.5"
+    class="relative flex-shrink-0 px-3.5 py-2 @max-[15rem]:px-2.5"
   >
     <Sidebar.Menu class="gap-0.5">
       {#if sidebarStore.pinnedSessions.length > 0}

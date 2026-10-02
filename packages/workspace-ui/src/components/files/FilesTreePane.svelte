@@ -37,4 +37,5 @@
   maximized={pane.maximized}
   isLeading={pane.isLeading}
   closeLabel="Close files"
+  raised="soft"
 />
