@@ -8,6 +8,7 @@ import { SEAT_IDLE_REMOVAL_MS, SeatManager, SeatRequiredError } from '@solus/ser
 import { actorFor, seatFor } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
 import { hostUserKey, useHostUser } from '@solus/server/host/host-user'
+import { MemberFolders, useMemberFolders } from '@solus/server/host/member-folders'
 import { HOST_LOGIN_SEAT, type Seat, type SeatChangedEvent } from '@solus/contracts/seats'
 
 /** The key a host wrote for its owner before plan 012 stage 1; old rows and links may still hold it. */
@@ -34,6 +35,7 @@ const roots: string[] = []
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   useHostUser(null)
+  useMemberFolders(null)
 })
 
 function manager(now = () => 1_000_000, hostLoginConnected = async () => true) {
@@ -132,33 +134,17 @@ describe('layout', () => {
     expect(() => seats.homeFor({ kind: 'user', userId: { kind: 'local', localId: 'mac-1' } }, 'codex')).toThrow()
   })
 
-  test('a member\'s folder is named after them, unique on the host, and kept through a rename', async () => {
-    const { seats, root } = manager()
-    const named = (accountId: string, name: string): Seat => ({ kind: 'user', userId: { kind: 'account', accountId }, name })
-    expect(seats.homeFor(named('u1', 'Ada Lovelace'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
-    expect(seats.homeFor(named('u1', 'Ada Lovelace'), 'codex')).toBe(join(root, 'seats', 'codex', 'ada-lovelace'))
-    // Someone else with the same name gets the next free folder.
-    expect(seats.homeFor(named('u2', 'ada lovelace'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace-2'))
-    // A rename, or a call that does not know the name, keeps the folder.
-    expect(seats.homeFor(named('u1', 'Ada King'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
-    expect(seats.homeFor(userSeat('u1'), 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace'))
-    expect(seats.homeFor(named('u3', 'José Ñúñez'), 'codex')).toBe(join(root, 'seats', 'codex', 'jose-nunez'))
-    expect(seats.homeFor(named('u4', '山田'), 'codex')).toBe(join(root, 'seats', 'codex', 'member'))
-  })
-
-  test('a folder made under the user id moves to the name once it is known', async () => {
+  test('a member\'s seats live in their named member folder', async () => {
     const { seats, root, db } = manager()
-    await seats.storeToken(userSeat('u1'), 'claude-code', 'tok')
-    expect(existsSync(join(root, 'seats', 'claude', 'u1', 'solus-seat-token'))).toBe(true)
-    const home = seats.homeFor({ kind: 'user', userId: { kind: 'account', accountId: 'u1' }, name: 'Ada' }, 'claude-code')
-    expect(home).toBe(join(root, 'seats', 'claude', 'ada'))
-    expect(readFileSync(join(home, 'solus-seat-token'), 'utf8')).toBe('tok\n')
-    expect(existsSync(join(root, 'seats', 'claude', 'u1'))).toBe(false)
-    // A restart reads the folder back.
-    const again = new SeatManager({ db, seatsRoot: join(root, 'seats'), hostClaudeDir: join(root, 'home', '.claude'), hostCodexHome: join(root, 'home', '.codex') })
-    expect(again.homeFor(userSeat('u1'), 'claude-code')).toBe(home)
-    expect(await again.remove({ kind: 'account', accountId: 'u1' })).toBe(1)
-    expect(existsSync(home)).toBe(false)
+    useMemberFolders(new MemberFolders({ db, roots: () => [join(root, 'seats', 'claude'), join(root, 'seats', 'codex')] }))
+    const ada: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'U1abcdefgh' }, name: 'Ada Lovelace' }
+    expect(seats.homeFor(ada, 'claude-code')).toBe(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd'))
+    expect(seats.homeFor(ada, 'codex')).toBe(join(root, 'seats', 'codex', 'ada-lovelace-u1abcd'))
+    // A call that does not know the name finds the same folder.
+    await seats.storeToken(userSeat('U1abcdefgh'), 'claude-code', 'tok')
+    expect(readFileSync(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd', 'solus-seat-token'), 'utf8')).toBe('tok\n')
+    expect(await seats.remove({ kind: 'account', accountId: 'U1abcdefgh' })).toBe(1)
+    expect(existsSync(join(root, 'seats', 'claude', 'ada-lovelace-u1abcd'))).toBe(false)
   })
 })
 

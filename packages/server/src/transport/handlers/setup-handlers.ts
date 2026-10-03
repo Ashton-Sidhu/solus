@@ -26,7 +26,8 @@ import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getHostConfig, getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
-import { MEMBER_CHAT_FOLDER_NAME, memberFolderUserIdSchema, setupProjectsRoot, WORKSPACE_DIR } from '../../workspace'
+import { MEMBER_CHAT_FOLDER_NAME, setupProjectsRoot, WORKSPACE_DIR } from '../../workspace'
+import { memberFolderFor } from '../../host/member-folders'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from '../../files/host-path'
@@ -288,7 +289,7 @@ export function coerceSetupAgent(value: string): SetupAgent {
 /**
  * The projects folder as this principal's pickers and Settings see it: the
  * folder in use, never the raw setting, so a cloud member reads their own
- * `/data/projects/<userId>` and an unset host reads `~/projects`. The folder is
+ * `/data/projects/<their name>` and an unset host reads `~/projects`. The folder is
  * created here because this is how a client first learns of it, and a picker
  * that opens on a missing folder shows an error instead of a place.
  */
@@ -307,14 +308,14 @@ export function projectsBaseDirectoryFor(
 /**
  * Where one person's projects land (managed-hosts.md §3). The host's root for its
  * owner and for the host's own work; a member of the organization gets a member
- * folder of their own beneath it, named by their account id, so each person clones
+ * folder of their own beneath it, named after them (`host/member-folders.ts`), so each person clones
  * into a folder that is theirs and two people never share one main checkout. It is
  * a default and the member's view (`projectsVisibleTo`), not a boundary: a member
  * may still open a path a shared session names.
  */
 export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
   if (principal?.kind !== 'org-member') return hostRoot
-  const memberFolder = join(hostRoot, memberFolderUserIdSchema.parse(principal.userId))
+  const memberFolder = join(hostRoot, memberFolderFor(principal.userId, principal.displayName))
   mkdirSync(memberFolder, { recursive: true })
   return memberFolder
 }

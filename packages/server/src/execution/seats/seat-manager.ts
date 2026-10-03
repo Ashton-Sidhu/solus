@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
@@ -7,6 +7,7 @@ import { HOST_LOGIN_SEAT, SEAT_PROVIDERS, SEAT_REQUIRED_CODE, seatProviderSchema
 import { parseUserKey, userKey, type UserId } from '@solus/contracts/user'
 import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
+import { memberFolderFor } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 import type { GitIdentityManager, ProcessGitIdentity } from '../../git/git-identity-manager'
 
@@ -30,10 +31,8 @@ const log = createLogger('main', 'seat-manager')
  *       codex/<folder>/            CODEX_HOME for that member
  *         sessions -> <host ~/.codex>/sessions
  *
- * A member's folder is named after them (`ada-lovelace`, then `ada-lovelace-2`),
- * fixed in `seat_folder` the first time their name is known and kept through a
- * rename, so a running CLI never loses its directory. Until a name arrives the
- * folder is their user id; the first named use moves it.
+ * `<folder>` is the member's folder name on this host (`host/member-folders.ts`):
+ * their name, the same folder their projects live in.
  *
  * The transcript directories are links into the host's own provider homes rather
  * than a separate shared tree: the session index reads the host's directories, so
@@ -55,10 +54,6 @@ CREATE TABLE IF NOT EXISTS provider_seat (
   last_used_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, provider)
-);
-CREATE TABLE IF NOT EXISTS seat_folder (
-  user_id TEXT PRIMARY KEY,
-  folder TEXT NOT NULL UNIQUE
 );
 `
 
@@ -91,23 +86,8 @@ function rowKey(seat: Seat, provider: SeatProvider): string {
   return `${seatKey(seat)}\u0000${provider}`
 }
 
-/** A user seat's key is a Better Auth user id, and its folder a name or that id; nothing that could walk the filesystem. */
+/** A user seat's key is a Better Auth user id; nothing that could walk the filesystem. */
 const seatUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
-
-const MAX_SEAT_FOLDER_LENGTH = 48
-
-/** `Ada Lovelace` → `ada-lovelace`: lowercase ASCII letters and digits, hyphens between words. Never empty. */
-export function seatFolderName(name: string): string {
-  const folder = name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, MAX_SEAT_FOLDER_LENGTH)
-    .replace(/-+$/, '')
-  return folder || 'member'
-}
 
 /** Seats of members who ran nothing for this long are removed by the sweep (plan §3.7). */
 export const SEAT_IDLE_REMOVAL_MS = 30 * 24 * 60 * 60 * 1000
@@ -202,8 +182,6 @@ export class SeatManager implements SeatStore {
    *  at least twice, and this manager is the table's only writer, so a row is
    *  read once until this manager changes it. */
   private readonly rows = new Map<string, SeatRow | null>()
-  /** User key → its fixed folder name, once `seat_folder` holds one. */
-  private readonly folders = new Map<string, string>()
   constructor(private readonly deps: SeatManagerDeps) {
     deps.db.exec(SCHEMA)
     // A pasted owner token was stored under the old owner sentinel; it is the host login's.
@@ -436,48 +414,9 @@ export class SeatManager implements SeatStore {
     return home
   }
 
-  /**
-   * The folder a user's seats live in. The first use that knows their name fixes
-   * it, moving any folder made under their id before; with no name yet it is the id.
-   */
+  /** The folder a user's seats live in: their member folder, named once their name is known. */
   private folderOf(seat: Extract<Seat, { kind: 'user' }>): string {
-    const userId = seatUserIdSchema.parse(seatKey(seat))
-    const cached = this.folders.get(userId)
-    if (cached) return cached
-    const stored = z.object({ folder: z.string() }).nullish().parse(
-      this.deps.db.prepare('SELECT folder FROM seat_folder WHERE user_id = ?').get(userId),
-    )?.folder
-    if (stored) {
-      this.folders.set(userId, stored)
-      return stored
-    }
-    if (!seat.name?.trim()) return userId
-    const folder = this.freeFolder(seatFolderName(seat.name), userId)
-    for (const level of this.levels()) {
-      const before = join(level, userId)
-      if (folder !== userId && existsSync(before)) renameSync(before, join(level, folder))
-    }
-    this.deps.db.prepare('INSERT INTO seat_folder (user_id, folder) VALUES (?, ?)').run(userId, folder)
-    this.folders.set(userId, folder)
-    log.info('seat_folder_named', { seat: userId, folder })
-    return folder
-  }
-
-  /** `base`, else `base-2`, `base-3`, …: the first no user holds and no other directory already uses. */
-  private freeFolder(base: string, userId: string): string {
-    const taken = (folder: string) => folder !== userId && (
-      !!this.deps.db.prepare('SELECT 1 FROM seat_folder WHERE folder = ?').get(folder)
-      || this.levels().some((level) => existsSync(join(level, folder))))
-    let candidate = base
-    for (let attempt = 2; taken(candidate); attempt++) {
-      const suffix = `-${attempt}`
-      candidate = `${base.slice(0, MAX_SEAT_FOLDER_LENGTH - suffix.length)}${suffix}`
-    }
-    return candidate
-  }
-
-  private levels(): string[] {
-    return [join(this.seatsRoot, 'claude'), join(this.seatsRoot, 'codex')]
+    return memberFolderFor(seatUserIdSchema.parse(seatKey(seat)), seat.name)
   }
 
   private row(seat: Seat, provider: SeatProvider): SeatRow | null {

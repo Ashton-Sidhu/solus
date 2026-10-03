@@ -55,8 +55,10 @@ import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-p
 import { registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, seatKey } from './execution/seats/seat-manager'
-import { actorFor, HOST_ACTOR, seatFor } from './admission/actor'
+import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { GitIdentityManager } from './git/git-identity-manager'
+import { MemberFolders, useMemberFolders } from './host/member-folders'
+import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
 import { loadToken } from './providers/github/token-store'
 import { withCredentialScope } from './vault/credential-scope'
@@ -460,6 +462,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     now: Date.now,
   })
   const seats = new SeatManager({ db: getDb(), gitIdentities })
+  // Every member folder on this host — projects, seats, dispatch checkouts, Git credentials — is named after its member.
+  useMemberFolders(new MemberFolders({ db: getDb(), roots: () => [setupProjectsRoot(), join(seats.seatsRoot, 'claude'), join(seats.seatsRoot, 'codex')] }))
   // A record this host left `running` names a turn the previous process never settled.
   const interruptSweep = markOwnRunningSessionRecordsInterrupted().catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
@@ -598,7 +602,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (!sharedPrompts) throw new Error('Shared prompts use Solus cloud.')
     return sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(args[0]))
   })
-  const profiles = new AgentProfileManager({ sourceHomes: hostProfileHomes, homeFor: (target, provider) => seats.homeFor(target.kind === 'owner' ? HOST_LOGIN_SEAT : { kind: 'user', userId: { kind: 'account', accountId: target.userId } }, provider), now: Date.now })
+  const profiles = new AgentProfileManager({ sourceHomes: hostProfileHomes, homeFor: (target, provider) => seats.homeFor(target.kind === 'owner' ? HOST_LOGIN_SEAT : memberSeat(target.userId, target.name), provider), now: Date.now })
   registerSeatHandlers(server, { seats, connector: seatConnector, profiles })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.sessionRuntime, events)
