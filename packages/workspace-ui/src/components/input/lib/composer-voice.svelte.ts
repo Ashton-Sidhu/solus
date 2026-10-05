@@ -241,7 +241,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
 
   useKeybinding(
     "voice.toggle-mode",
-    () => theme.update({ voiceModeEnabled: !theme.voiceModeEnabled }),
+    () => theme.setDevice("voiceModeEnabled", !theme.voiceModeEnabled),
     {
       enabled: () => options.active() && ownsVoice && !options.isReadOnly(),
     },

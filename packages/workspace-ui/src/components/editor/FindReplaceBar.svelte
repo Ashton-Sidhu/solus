@@ -3,15 +3,15 @@
   import { tick, untrack } from "svelte";
   import { FindBar } from "../ui/find-bar";
   import { getSearchState } from "./searchExtension";
+  import { scrollContainerOf } from "../../lib/scroll-container";
 
   interface Props {
     editor: Editor;
     readOnly?: boolean;
-    scrollContainer?: HTMLDivElement | null;
     onClose: () => void;
   }
 
-  let { editor, readOnly = false, scrollContainer = null, onClose }: Props = $props();
+  let { editor, readOnly = false, onClose }: Props = $props();
 
   const initialQuery = untrack(() => {
     const selection = editor.state.selection;
@@ -42,6 +42,9 @@
       .setTextSelection({ from: match.from, to: match.to })
       .run();
 
+    // Every host scrolls the editor in its own container, so find it here
+    // rather than trusting each host to pass it in.
+    const scrollContainer = scrollContainerOf(editor.view.dom);
     if (!scrollContainer) {
       editor.commands.scrollIntoView();
       return;

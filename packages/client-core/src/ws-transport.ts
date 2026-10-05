@@ -1,18 +1,14 @@
 import { SolusApiClient } from '@solus/contracts/solus-api/client'
 import { workspaceRecordMethods } from './workspace-records'
-import { activeOrganizationId } from './workspace-registry'
 import { io, type Socket } from 'socket.io-client'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
-import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
-import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { pickFiles } from './file-picker'
-import { uuid } from '@solus/contracts/uuid'
-import type { Attachment, IpcContext } from '@solus/contracts/types'
+import type { IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
-import { HostRpcError } from './rpc-error'
+import { HostRpcError, TransportDisconnectedError } from './rpc-error'
 import { BrowserFrameSubscriber } from './browser-frame-subscriber'
+import { DeviceFrameSubscriber } from './device-frame-subscriber'
 import { isHostEvent, type HostEvent } from '@solus/contracts/host-events'
 import {
   encodePcm16Wav,
@@ -22,18 +18,15 @@ import {
 import { z } from 'zod'
 import type { DialOutcome } from './host-supervisor'
 
-/** WebSocket transport shared by the browser client and Electron renderer. */
+/** WebSocket transport shared by the browser client, the Electron renderer,
+ *  and the native mobile client. It holds no DOM behavior: the browser
+ *  capabilities are added by `ws-browser-api.ts`. */
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked' | 'identity-mismatch'
 
-export class TransportDisconnectedError extends Error {
-  code = 'TRANSPORT_DISCONNECTED'
-
-  constructor() {
-    super('disconnected')
-    this.name = 'TransportDisconnectedError'
-  }
-}
+// The error lives beside HostRpcError so modules that classify a failure do
+// not load socket.io; existing importers keep this path.
+export { TransportDisconnectedError }
 
 export interface WsTransportOptions {
   /** Server URL like `http://host:port`. */
@@ -43,10 +36,11 @@ export interface WsTransportOptions {
   /** Session token returned from pairing or the desktop local bootstrap. Empty
    *  when the credential is minted per dial (an Uplink grant). */
   sessionToken: string
-  /** Mints one ≤10-minute Uplink grant for each dial; the host spends it on the
-   *  spot, so it is never kept. Null means no grant could be had right now
-   *  (signed out, or the website did not answer). */
-  acquireGrant?: () => Promise<string | null>
+  /** An Uplink grant for the next dial. The host accepts a grant at every ticket
+   *  exchange until it expires, so a source may hand back one it kept; `fresh`
+   *  asks for a new one after the host refused a kept one. Null means no grant
+   *  could be had right now (signed out, or the website did not answer). */
+  acquireGrant?: (options?: { fresh?: boolean }) => Promise<string | null>
   /** A guest's link secret, presented with every grant: the host admits the pair
    *  to one resource (docs/plans/multiplayer-sharing.md §3.4). */
   shareSecret?: string
@@ -62,9 +56,9 @@ export interface WsTransportOptions {
   onDialOutcome?: (outcome: DialOutcome) => void
   /** Overrides the default POST to `${serverUrl}/auth/refresh`. */
   refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
-  /** Keep the local desktop's native picker/path fast path. Browser clients and
-   *  remote desktop targets select File objects and upload bytes instead. */
-  useHostFileDialog?: boolean
+  /** The organization the client works in, named in the record API's context
+   *  key so a response for another organization is discarded. */
+  organizationId?: () => string | null
 }
 
 interface RequestEntry {
@@ -97,6 +91,22 @@ const rpcResponseEnvelopeSchema = z.object({
 
 type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
 
+/** How a dial's credential exchange ended. `unreachable` means the route did not
+ *  answer at all, which the socket on the same route would only confirm later. */
+interface TicketExchange {
+  ticket: string | null
+  unreachable: boolean
+  /** The host answered 401: it does not take this credential. */
+  refused: boolean
+}
+
+/** The work a dial needs besides the socket. It starts with the dial, so it runs
+ *  while the WebSocket opens: socket.io asks for `auth` only after the open. */
+interface DialPreparation {
+  exchange: Promise<TicketExchange>
+  identity: Promise<boolean>
+}
+
 const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
@@ -109,22 +119,13 @@ export function shouldRejectQueuedRequest(
   return !queuedBeforeFirstConnect && now - queuedAt > RECONNECT_QUEUE_MAX_AGE_MS
 }
 
-function readFileDataUrl(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => reader.result instanceof ArrayBuffer
-      ? reject(new Error('Unable to read attachment.'))
-      : resolve(reader.result ?? '')
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read attachment.'))
-    reader.readAsDataURL(file)
-  })
-}
-
 export class WsTransport {
   readonly events = new HostEventSubscriber()
   /** Streamed browser frames for this host, routed by page id. Separate from
    *  `events`: binary bytes, not a typed-event envelope. */
   readonly frames = new BrowserFrameSubscriber()
+  /** Native device video for this host, routed by device host and device. */
+  readonly deviceFrames = new DeviceFrameSubscriber()
   private socket: Socket
   private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
@@ -144,6 +145,7 @@ export class WsTransport {
   private connectedGeneration = 0
   private isAcceptedConnection = false
   private pendingHostEvents: HostEvent[] = []
+  private dialPreparation: DialPreparation | null = null
 
   constructor(private opts: WsTransportOptions) {
     this.socket = this.createSocket()
@@ -161,7 +163,7 @@ export class WsTransport {
       // exchange dials without a credential, so an authenticated host rejects
       // the socket and the normal refresh path decides whether to retry.
       auth: (cb) => {
-        void this.fetchWsTicket().then((ticket) => {
+        void (this.dialPreparation?.exchange ?? this.fetchWsTicket()).then(({ ticket }) => {
           cb(ticket
             ? { ticket, clientInstanceId: this.clientInstanceId }
             : { clientInstanceId: this.clientInstanceId })
@@ -186,6 +188,7 @@ export class WsTransport {
     this.socket.disconnect()
     this.connectedGeneration += 1
     this.isAcceptedConnection = false
+    this.dialPreparation = null
     this.requeueSentRequests()
     this.opts.serverUrl = serverUrl
     this.socket = this.createSocket()
@@ -201,8 +204,30 @@ export class WsTransport {
     }
     if (!this.socket.connected) {
       this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
-      this.socket.connect()
+      this.dialSocket()
     }
+  }
+
+  /** One dial: the credential exchange and the identity check start now, beside
+   *  the socket open, instead of one after the other once it is open. */
+  private dialSocket(): void {
+    const preparation: DialPreparation = {
+      exchange: this.fetchWsTicket(),
+      identity: this.opts.verifyConnectedHost?.().catch(() => false) ?? Promise.resolve(true),
+    }
+    this.dialPreparation = preparation
+    void preparation.exchange.then(({ unreachable }) => {
+      if (!unreachable || this.dialPreparation !== preparation) return
+      if (this.destroyed || this.blocked || this.socket.connected) return
+      // The route did not answer: the socket on it will not open either, and
+      // socket.io would wait out its 20s connect timeout to say so. Fail the dial
+      // now so the supervisor can move to the host's next route.
+      this.dialPreparation = null
+      this.socket.disconnect()
+      this.logConnection('route unreachable', { serverUrl: this.opts.serverUrl })
+      this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+    })
+    this.socket.connect()
   }
 
   destroy(finalStatus: ConnectionStatus = 'disconnected'): void {
@@ -218,25 +243,20 @@ export class WsTransport {
     this.setStatus(finalStatus)
   }
 
-  /** Builds a `window.solus`-compatible API surface backed by this transport. */
+  get serverId(): string | undefined {
+    return this.opts.serverId
+  }
+
+  /** Builds the host's RPC and record API on this transport. It has no client
+   *  window behavior; a browser adds that with `withBrowserCapabilities`. */
   buildSolusApi() {
-    const api = {
-      getPlatform: () => 'web',
-      getPathForFile: () => '',
-      setQuoteContext: () => {},
-      onQuoteSelection: () => () => {},
-      onAskSelectionInNewSession: () => () => {},
-      onOpenSelectedLink: () => () => {},
-    }
+    const api = {}
 
     for (const method of RPC_INVOKE_METHODS) {
-      Reflect.set(api, method, (...args: unknown[]) => this.invoke(method, args))
+      // SAFETY: each generated method forwards its caller's arguments verbatim;
+      // the caller typed them against this same method's SolusAPI signature.
+      Reflect.set(api, method, (...args: unknown[]) => this.invoke(method, args as Parameters<SolusAPI[typeof method]>))
     }
-
-    // Visibility belongs to the client window. Asking the selected host would
-    // fail for a remote web connection and would describe the wrong machine.
-    Reflect.set(api, 'isVisible', (): Promise<boolean> =>
-      Promise.resolve(document.visibilityState === 'visible'))
 
     // Encode PCM as compact WAV before transport. Direct connections upload
     // over HTTP; cloud connections use the host's base64 WAV RPC contract.
@@ -245,25 +265,9 @@ export class WsTransport {
         ? this.transcribeAudio(audio, ctx)
         : this.invoke('transcribeAudio', [audio, ctx]))
 
-    // A link must open on the device the user is holding — the RPC would open
-    // a browser on the host instead (e.g. provider sign-in verification URLs).
-    Reflect.set(api, 'openExternal', (url: string): Promise<boolean> => {
-      window.open(url, '_blank', 'noopener')
-      return Promise.resolve(true)
-    })
-
-    if (!this.opts.useHostFileDialog) {
-      Reflect.set(api, 'attachFiles', async (ctx?: IpcContext): Promise<Attachment[] | null> => {
-        if (!ctx) return null
-        const files = await pickFiles()
-        return files.length === 0 ? null : this.uploadFiles(files, ctx)
-      })
-    }
-    Reflect.set(api, 'uploadFiles', (files: File[], ctx: IpcContext): Promise<Attachment[] | null> => this.uploadFiles(files, ctx))
-
     const records = workspaceRecordMethods(new SolusApiClient({
       baseUrl: () => this.opts.serverUrl,
-      contextKey: () => JSON.stringify([this.opts.serverId, activeOrganizationId()]),
+      contextKey: () => JSON.stringify([this.opts.serverId, this.opts.organizationId?.() ?? null]),
       acquireSource: async () => {
         if (this.opts.acquireGrant) return this.opts.acquireGrant()
         await this.refreshToken()
@@ -287,12 +291,21 @@ export class WsTransport {
   /** Exchange the bearer credential for one dial's handshake ticket. Null
    *  means the handshake is credential-free; only a trusted requester or a
    *  host configured without auth can admit it. */
-  private async fetchWsTicket(): Promise<string | null> {
-    const credential = this.opts.acquireGrant
-      ? await this.opts.acquireGrant().catch(() => null)
-      : this.opts.sessionToken
+  private async fetchWsTicket(): Promise<TicketExchange> {
     this.grantRefusedByHost = false
-    if (!credential) return null
+    const { acquireGrant } = this.opts
+    if (!acquireGrant) return this.exchangeForTicket(this.opts.sessionToken)
+    const exchange = await this.exchangeForTicket(await acquireGrant().catch(() => null))
+    if (!exchange.refused) return exchange
+    // A kept grant can outlive the host's trust in it, as when the host was linked
+    // again since. Only a new grant the host refuses means this device is done here.
+    const retry = await this.exchangeForTicket(await acquireGrant({ fresh: true }).catch(() => null))
+    this.grantRefusedByHost = retry.refused
+    return retry
+  }
+
+  private async exchangeForTicket(credential: string | null): Promise<TicketExchange> {
+    if (!credential) return { ticket: null, unreachable: false, refused: false }
     try {
       const response = await fetch(`${this.opts.serverUrl}/auth/ws-ticket`, {
         method: 'POST',
@@ -302,17 +315,14 @@ export class WsTransport {
         body: this.opts.shareSecret ? JSON.stringify({ shareSecret: this.opts.shareSecret }) : undefined,
         signal: AbortSignal.timeout(3_000),
       })
-      if (!response.ok) {
-        // A fresh grant the host would not take: revoked here, or not this host's.
-        this.grantRefusedByHost = !!this.opts.acquireGrant && response.status === 401
-        return null
-      }
+      if (!response.ok) return { ticket: null, unreachable: false, refused: response.status === 401 }
       const body = z.object({ ticket: z.string().min(1).optional().catch(undefined) })
         .catch({})
         .parse(await response.json().catch(() => ({})))
-      return body.ticket ?? null
+      return { ticket: body.ticket ?? null, unreachable: false, refused: false }
     } catch {
-      return null
+      // The route allows any origin here, so a failed fetch is a route that did not answer.
+      return { ticket: null, unreachable: true, refused: false }
     }
   }
 
@@ -365,12 +375,17 @@ export class WsTransport {
     this.socket.on('browser-frame', (header, data) => {
       if (this.isAcceptedConnection) this.frames.receive(header, data)
     })
+    this.socket.on('device-frame', (header, data) => {
+      if (this.isAcceptedConnection) this.deviceFrames.receive(header, data)
+    })
   }
 
   private async acceptConnectedSocket(generation: number): Promise<void> {
-    const accepted = this.opts.verifyConnectedHost
-      ? await this.opts.verifyConnectedHost().catch(() => false)
-      : true
+    const identity = this.dialPreparation?.identity
+      ?? this.opts.verifyConnectedHost?.().catch(() => false)
+      ?? Promise.resolve(true)
+    this.dialPreparation = null
+    const accepted = await identity
     if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
     if (!accepted) {
       this.destroy('identity-mismatch')
@@ -406,63 +421,7 @@ export class WsTransport {
       return
     }
     this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
-    this.socket.connect()
-  }
-
-  private async uploadFiles(files: File[], ctx: IpcContext): Promise<Attachment[] | null> {
-    if (files.length > MAX_ATTACHMENT_UPLOAD_COUNT) return null
-    try {
-      const attachments: Attachment[] = []
-      for (const file of files) {
-        const videoMime = videoMimeType({ name: file.name, mimeType: file.type })
-        if (file.size > (videoMime ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES)) return null
-        const mime = videoMime ?? (file.type || 'application/octet-stream')
-        // The declared type and the bytes' type must agree for the host.
-        const body = file.type === mime ? file : new Blob([file], { type: mime })
-        const isImage = !videoMime && mime.startsWith('image/')
-        const dataUrl = videoMime ? null : await readFileDataUrl(body)
-        const hostPath = dataUrl === null
-          ? await this.streamUpload(file.name, body, ctx)
-          : await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])
-        // A phone reaches a LAN host over plain HTTP, where the browser withholds
-        // `crypto.randomUUID`; the shared helper falls back instead of throwing.
-        const attachment: Attachment = {
-          id: uuid(),
-          type: isImage ? 'image' : 'file',
-          name: file.name,
-          path: hostPath,
-          hostPath,
-          mimeType: mime,
-          size: file.size,
-        }
-        if (this.opts.serverId) attachment.hostServerId = this.opts.serverId
-        if (isImage && dataUrl) attachment.dataUrl = dataUrl
-        attachments.push(attachment)
-      }
-      return attachments
-    } catch {
-      return null
-    }
-  }
-
-  /** Send a video's raw bytes over HTTP. Base64 in a socket frame cannot carry
-   *  one. Signed upload URLs work through Uplink too. A host too old to mint
-   *  the URL still takes a video within the RPC limit. */
-  private async streamUpload(name: string, body: Blob, ctx: IpcContext): Promise<string> {
-    const sendByRpc = async () => this.invoke('attachUpload', [ctx, { name, mime: body.type, dataUrl: await readFileDataUrl(body) }])
-    let token: Awaited<ReturnType<SolusAPI['attachUploadToken']>>
-    try {
-      token = await this.invoke('attachUploadToken', [ctx, { name, mime: body.type, size: body.size }])
-    } catch (error) {
-      if (body.size > MAX_ATTACHMENT_UPLOAD_BYTES) throw error
-      return sendByRpc()
-    }
-    const response = await fetch(new URL(token.relativeUrl, `${this.opts.serverUrl.replace(/\/+$/, '')}/`), {
-      method: 'POST',
-      body,
-    })
-    if (!response.ok) throw new Error(`Upload failed (${response.status}).`)
-    return token.hostPath
+    this.dialSocket()
   }
 
   private async transcribeAudio(samples: Float32Array, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }> {
@@ -519,7 +478,8 @@ export class WsTransport {
     })
   }
 
-  private invoke<M extends RpcInvokeMethod>(method: M, args: Parameters<SolusAPI[M]>): Promise<Awaited<ReturnType<SolusAPI[M]>>> {
+  /** One typed RPC call, queued until the socket is accepted. */
+  invoke<M extends RpcInvokeMethod>(method: M, args: Parameters<SolusAPI[M]>): Promise<Awaited<ReturnType<SolusAPI[M]>>> {
     if (this.destroyed || this.blocked) return Promise.reject(new TransportDisconnectedError())
     const id = String(this.nextId++)
     return new Promise<Awaited<ReturnType<SolusAPI[M]>>>((resolve, reject) => {
@@ -620,7 +580,7 @@ export class WsTransport {
     if (this.destroyed || this.blocked) return
     this.socket.disconnect()
     this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
-    this.socket.connect()
+    this.dialSocket()
   }
 
   private setStatus(status: ConnectionStatus): void {

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { SessionSettledBy, SessionShelfEntry, SessionState } from '@solus/contracts/session-state'
+import { executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
@@ -133,6 +134,33 @@ export async function recordSessionPrompt(sessionId: string, at = Date.now()): P
     WHERE session_id = ${ownerId}
   `)
   if (before && (before.settled_at !== null || before.snoozed_until !== null)) emitChanged(ownerId)
+}
+
+/**
+ * Keeps the execution preferences a session's run carried (plans/018 §6), so a
+ * follow-up nobody typed — after the run ends, or after a host restart — runs
+ * with the preferences of the person the session works for. A run that carried
+ * none clears them.
+ */
+export async function recordSessionExecutionPreferences(sessionId: string, preferences: ExecutionPreferences | undefined): Promise<void> {
+  const ownerId = stateOwnerId(sessionId)
+  if (preferences) await ensureRow(ownerId)
+  await getDatabase().run(sql`
+    UPDATE ${sessionStates} SET execution_preferences = ${preferences ? JSON.stringify(preferences) : null}
+    WHERE session_id = ${ownerId}
+  `)
+}
+
+/** The execution preferences the session's last run carried; undefined when it carried none. */
+export async function sessionExecutionPreferences(sessionId: string): Promise<ExecutionPreferences | undefined> {
+  const row = z.object({ execution_preferences: z.string().nullable() }).nullish().parse(await getDatabase().get(sql`
+    SELECT execution_preferences FROM ${sessionStates} WHERE session_id = ${stateOwnerId(sessionId)}
+  `))
+  if (!row?.execution_preferences) return undefined
+  // Written by this host after the same strict parse; a value that no longer
+  // parses is no person's choice, so the run falls back to the defaults.
+  const parsed = executionPreferencesSchema.safeParse(JSON.parse(row.execution_preferences))
+  return parsed.success ? parsed.data : undefined
 }
 
 /** The sessions that are settled now, of the ones named. */

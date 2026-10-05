@@ -1,5 +1,5 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentTool, AgentToolContext } from '../tools/agent-tool'
+import type { AgentTool, AgentToolContext, AgentToolResult } from '../tools/agent-tool'
 import { assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
 import { z } from 'zod'
 import type { PermissionMode } from '@solus/contracts/types'
@@ -13,7 +13,7 @@ const claudeToolExtraSchema = z.object({
 })
 
 interface ClaudeToolResponse {
-  content: Array<{ type: 'text'; text: string }>
+  content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
   isError?: true
 }
 
@@ -31,6 +31,16 @@ export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchem
  */
 export function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'] {
   return Object.fromEntries(Object.entries(fields ?? {}).map(([name, field]) => [name, field instanceof z.ZodDefault ? field.optional() : field]))
+}
+
+/** A neutral tool result as an MCP response: text first, then any image. */
+export function claudeToolResponse(result: AgentToolResult): ClaudeToolResponse {
+  const response: ClaudeToolResponse = {
+    content: [{ type: 'text' as const, text: result.text }],
+  }
+  if (result.image) response.content.push({ type: 'image', data: result.image.data, mimeType: result.image.mimeType })
+  if (!result.ok) response.isError = true
+  return response
 }
 
 export function adaptClaudeTools(
@@ -55,11 +65,7 @@ export function adaptClaudeTools(
               ...context,
               parentToolUseId: () => parentToolUseId,
             })
-        const response: ClaudeToolResponse = {
-          content: [{ type: 'text' as const, text: result.text }],
-        }
-        if (!result.ok) response.isError = true
-        return response
+        return claudeToolResponse(result)
       }, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined),
     ),
   })

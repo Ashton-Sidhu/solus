@@ -16,10 +16,12 @@ import { SINGLE_READER, type CommentReader } from './thread'
  */
 export interface CommentViewer extends CommentReader {
   canModerate: boolean
+  /** May reply to and resolve threads: anyone but a viewer, who only reads. */
+  canReply: boolean
 }
 
 /** The one reader a plan has: no people to tell apart, every verb offered. */
-const PLAN_VIEWER: CommentViewer = { ...SINGLE_READER, canModerate: true }
+const PLAN_VIEWER: CommentViewer = { ...SINGLE_READER, canModerate: true, canReply: true }
 
 const KEY = Symbol('comment-viewer')
 
@@ -39,5 +41,5 @@ export function getCommentViewer(): () => CommentViewer {
 export function workCommentViewer(serverId: string | null, resource: ShareResource): CommentViewer {
   if (!serverId) return PLAN_VIEWER
   const role = sharesStore.listFor(serverId, resource)?.callerRole
-  return { userId: presenceStore.currentUserId(serverId), isSingleReader: false, canModerate: role === undefined || role === 'owner' }
+  return { userId: presenceStore.currentUserId(serverId), isSingleReader: false, canModerate: role === undefined || role === 'owner', canReply: role !== 'viewer' }
 }

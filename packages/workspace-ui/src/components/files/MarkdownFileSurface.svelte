@@ -6,6 +6,8 @@
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
+  import FindReplaceBar from "../editor/FindReplaceBar.svelte";
+  import { isFileFindShortcut } from "../artifact/lib/file-find";
   import { createMermaidBlockExtension } from "../editor/mermaidBlockExtension";
   import { toasts } from "../../lib/toasts";
   import type { MarkdownFileViewMode } from "./lib/markdown-file";
@@ -45,6 +47,7 @@
   let richEditorRef: DocumentEditor | null = $state(null);
   let sourceEditorRef: FilePreviewStream | null = $state(null);
   let saveQueue: Promise<void> = Promise.resolve();
+  let isFindOpen = $state(false);
   let hasMountedRendered = $state(untrack(() => mode === "rendered"));
   let hasMountedSource = $state(untrack(() => mode === "source"));
   const diagramExtensions = [createMermaidBlockExtension({ isDark: () => isDark })];
@@ -108,6 +111,15 @@
     }
   }
 
+  // The rendered editor has no find of its own, so without this ⌘F reaches the
+  // global dispatcher and opens find in the conversation instead.
+  function openFindOnShortcut(event: KeyboardEvent) {
+    if (!isFileFindShortcut(event) || !richEditorRef?.getEditor()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    isFindOpen = true;
+  }
+
   export async function prepareModeChange(nextMode: MarkdownFileViewMode) {
     if (nextMode === mode) return;
     if (nextMode === "source") {
@@ -131,10 +143,23 @@
 <div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
   {#if hasMountedRendered}
     <div
-      class="h-full min-h-0 min-w-0 flex-1"
+      class="relative h-full min-h-0 min-w-0 flex-1"
       style:display={mode === "rendered" ? undefined : "none"}
       aria-hidden={mode !== "rendered"}
+      onkeydown={openFindOnShortcut}
     >
+      {#if isFindOpen}
+        {@const findEditor = richEditorRef?.getEditor()}
+        {#if findEditor}
+          <div class="absolute top-3 right-3 z-30 max-w-[calc(100%-1.5rem)]">
+            <FindReplaceBar
+              editor={findEditor}
+              readOnly={isReadOnly}
+              onClose={() => (isFindOpen = false)}
+            />
+          </div>
+        {/if}
+      {/if}
       <DocumentEditor
         bind:this={richEditorRef}
         value={renderedContents}

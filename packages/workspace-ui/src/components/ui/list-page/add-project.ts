@@ -21,7 +21,7 @@ export function openAddProjectPicker(onAdded?: (option: ListProjectOption) => vo
             key: projectsStore.projectKeyFor(project.serverId, project.projectRoot),
             projectKey: project.projectRoot,
             serverId: project.serverId,
-            label: projectDirLabel(project.projectRoot, null),
+            label: projectDirLabel(project.projectRoot),
             available: true,
             historyOnly: true,
           })

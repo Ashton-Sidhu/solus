@@ -213,33 +213,39 @@ function statusOf(plane: Parked['plane'], clientId: string): string | null {
 }
 
 describe.serial('SessionRuntime rate-limit park teardown', () => {
-  test('user input uses the receiving host policy for both providers', async () => {
+  test("user input carries its sender's own policy for both providers, whatever the host config says", async () => {
+    // plans/018 §3.1: the response to a rate limit is the person's. A process-wide
+    // value would let a second client, or the host owner, change it mid-run.
     const settings = await import('@solus/server/host/settings')
     const { runInputFromContext } = await import('@solus/server/execution/agents/run-input')
     const snapshot = settings.getHostConfig()
     const config = spyOn(settings, 'getHostConfig')
-    for (const seeded of [false, true]) {
-      config.mockReturnValue({
-        ...snapshot, seeded, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
-      })
-      for (const provider of ['claude-code', 'codex'] as const) {
-        const context = ctx()
-        context.session.provider = provider
-        context.settings = {
-          ...snapshot.config, isDark: false, reviewWarmingEnabled: false,
-          rateLimitBehavior: 'continue',
+    try {
+      for (const seeded of [false, true]) {
+        config.mockReturnValue({
+          ...snapshot, seeded, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+        })
+        for (const provider of ['claude-code', 'codex'] as const) {
+          const context = ctx()
+          context.session.provider = provider
+          context.settings = {
+            ...snapshot.config, isDark: false, reviewWarmingEnabled: false,
+            rateLimitBehavior: 'continue',
+          }
+          context.statusBar = {
+            workingDirectory: dataDir, activeAgent: provider, permissionMode: 'supervised',
+            model: 'test-model', reasoningEffort: 'medium', defaultReasoningEffort: 'medium',
+            reasoningLevels: ['medium'], supportsFastMode: false, fastMode: false, contextWindows: [],
+          }
+          expect(runInputFromContext(context).rateLimitBehavior).toBe('continue')
         }
-        context.statusBar = {
-          workingDirectory: dataDir, activeAgent: provider, permissionMode: 'supervised',
-          model: 'test-model', reasoningEffort: 'medium', defaultReasoningEffort: 'medium',
-          reasoningLevels: ['medium'], supportsFastMode: false, fastMode: false, contextWindows: [],
-        }
-        expect(runInputFromContext(context).rateLimitBehavior).toBe('queue')
       }
+    } finally {
+      config.mockRestore()
     }
   })
 
-  test('the current host queue setting overrides a user run submitted with ask', async () => {
+  test('a run submitted with ask keeps ask though the host config says queue', async () => {
     const settings = await import('@solus/server/host/settings')
     const snapshot = settings.getHostConfig()
     const config = spyOn(settings, 'getHostConfig').mockReturnValue({
@@ -248,13 +254,10 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     try {
       const { plane, events } = await park(60_000, 'ask')
       try {
-        const queuedIndex = events.findIndex((event) => event.type === 'prompt_queued')
-        const limitedIndex = events.findIndex((event) => event.type === 'status_change' && event.status === 'rate_limited')
-        expect(queuedIndex).toBeGreaterThanOrEqual(0)
-        expect(queuedIndex).toBeLessThan(limitedIndex)
+        expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
         expect(plane.watchSession(
           { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
-        ).runtime?.queuedPrompts).toHaveLength(1)
+        ).runtime?.queuedPrompts).toHaveLength(0)
       } finally {
         plane.shutdown()
       }
@@ -263,23 +266,24 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     }
   })
 
-  for (const trigger of ['settings', 'reconnect'] as const) {
+  for (const trigger of ['decision', 'reconnect'] as const) {
     test(`Queue adopts an already held prompt on ${trigger} without duplicate retries`, async () => {
-      const settings = await import('@solus/server/host/settings')
-      const snapshot = settings.getHostConfig()
-      const config = spyOn(settings, 'getHostConfig').mockReturnValue({
-        ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
-      })
       const { plane, backend, events } = await park(60_000)
       try {
         expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
-        config.mockReturnValue({ ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' } })
-        if (trigger === 'settings') plane.queueHeldRateLimitedPrompts()
         const watch = () => plane.watchSession(
           { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
         ).runtime!
+        // A client whose person chose Queue: explicitly, or by rejoining with that preference.
+        if (trigger === 'decision') plane.queueHeldRateLimitedPrompts('queue')
+        else {
+          const rejoining = ctx()
+          rejoining.session.agentSessionId = 'thread-1'
+          rejoining.settings = { rateLimitBehavior: 'queue' } as IpcContext['settings']
+          plane.bindRuntimeSession(rejoining, 'queue-client')
+        }
         expect(watch().queuedPrompts).toHaveLength(1)
-        plane.queueHeldRateLimitedPrompts()
+        plane.queueHeldRateLimitedPrompts('queue')
         expect(watch().queuedPrompts).toHaveLength(1)
         expect(new Set(events.flatMap((event) => event.type === 'prompt_queued' ? [event.queueId] : []))).toHaveLength(1)
         expect(backend.starts).toBe(1)
@@ -289,23 +293,24 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     })
   }
 
-  test('an unseeded host uses ask for user runs and preserves unattended queue policies', async () => {
-    const settings = await import('@solus/server/host/settings')
-    const snapshot = settings.getHostConfig()
-    const config = spyOn(settings, 'getHostConfig').mockReturnValue({
-      ...snapshot, seeded: false, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
-    })
+  test('a client whose person chose ask leaves a held prompt for the decision', async () => {
+    const { plane, events } = await park(60_000)
     try {
-      for (const source of ['typed', 'agent', 'automation'] as const) {
-        const { plane, events } = await park(60_000, 'queue', source)
-        try {
-          expect(events.some((event) => event.type === 'prompt_queued')).toBe(source !== 'typed')
-        } finally {
-          plane.shutdown()
-        }
-      }
+      plane.queueHeldRateLimitedPrompts('ask')
+      expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
     } finally {
-      config.mockRestore()
+      plane.shutdown()
+    }
+  })
+
+  test('each run keeps the queue policy it was built with', async () => {
+    for (const source of ['typed', 'agent', 'automation'] as const) {
+      const { plane, events } = await park(60_000, 'queue', source)
+      try {
+        expect(events.some((event) => event.type === 'prompt_queued')).toBe(true)
+      } finally {
+        plane.shutdown()
+      }
     }
   })
 

@@ -1,0 +1,1 @@
+ALTER TABLE "session_states" ADD COLUMN "execution_preferences" text;

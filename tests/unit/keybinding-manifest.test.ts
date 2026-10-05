@@ -27,6 +27,17 @@ describe('session task shortcuts', () => {
     })
   })
 
+  test('New chat sits beside the new-session family, on the same combo everywhere', () => {
+    // WHY: a chat is the plain way to start; it needs its own key, and the
+    // opt+shift letters are all taken. No browser claims ⌘⌥N, so web keeps it.
+    expect(KEYBINDINGS['global.new-chat']).toMatchObject({
+      combo: { mod: true, alt: true, code: 'KeyN' },
+      scope: 'global',
+      label: 'New chat',
+    })
+    expect(KEYBINDINGS['global.new-chat']).not.toHaveProperty('web')
+  })
+
   test('keeps browser-owned project and session shortcuts available on web', () => {
     // WHY: Chrome and Safari claim the primary-modifier O/N/T/W family before
     // a page can use it. Web defaults must stay in Solus's Alt+Shift layer.

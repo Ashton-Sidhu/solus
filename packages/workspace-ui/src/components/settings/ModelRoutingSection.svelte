@@ -7,13 +7,14 @@
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SessionChip from "../pickers/SessionChip.svelte";
   import { solusToolsStore } from "./solus-tools.store.svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import { Button } from "../ui/button";
 
   let { serverId, visible = true }: { serverId: string; visible?: boolean } = $props();
   const workspace = getWorkspaceContext();
+  const settings = getSettingsContext();
   const state = $derived(modelRoutingStore.states.get(serverId));
   const routingModels = $derived(routingModelsFor(state?.agents ?? []));
   const routingAgents = $derived(state?.agents.filter((agent) =>
@@ -42,8 +43,8 @@
   label="Model routing"
   {visible}
 >
-  {#if state?.config}
-    {@const config = state.config}
+  {#if state && (state.agents.length > 0 || (!state.loading && !state.error))}
+    {@const config = settings.modelRouting}
     {#if keyMissing}
       <SettingsRow
         label="TypeSafe key required"
@@ -73,9 +74,9 @@
             ariaLabel={`${ROUTING_LABELS[category]} model`}
             returnFocusOnClose
             class="w-full @min-[30rem]/pane:w-56"
-            disabled={state.saving || keyMissing || routingModels.length === 0}
+            disabled={keyMissing || routingModels.length === 0}
             onSelectionChange={(next) => {
-              if (next.modelId) void modelRoutingStore.save(serverId, { ...config, [category]: next.modelId });
+              if (next.modelId) settings.setPersonal("modelRouting", { ...config, [category]: next.modelId });
             }}
           />
         {/snippet}
@@ -92,6 +93,3 @@
     </div>
   {/if}
 </SettingsSection>
-{#if state?.config && state.error}
-  <p class="px-4 text-workspace-chrome text-destructive" role="alert">{state.error}</p>
-{/if}

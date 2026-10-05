@@ -22,5 +22,5 @@
     }
   },
   "include": ["apps/**/*.ts", "packages/**/*.ts"],
-  "exclude": ["node_modules", "dist", "packages/server/src/execution/agents/codex/generated/**"]
+  "exclude": ["node_modules", "dist", "packages/server/src/execution/agents/codex/generated/**", "apps/mobile/**"]
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sessionSettings } from '../../sessions/session-settings'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
@@ -275,7 +276,9 @@ export async function executeAutomationTool(
       const enabled = args.enabled ?? true
       const triggerResult = toTrigger(args.trigger)
       if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
-      const created = await createAutomation(name_, action, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger)
+      // The automation runs with the preferences of the person this session works for (plans/018 §6).
+      const preferences = sessionSettings(deps.ctx?.solusSessionId)?.preferences
+      const created = await createAutomation(name_, action, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger, preferences)
       const when =
         created.trigger.type === 'manual'
           ? 'Trigger it with run_automation.'

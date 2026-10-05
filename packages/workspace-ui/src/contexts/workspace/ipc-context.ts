@@ -30,7 +30,7 @@ export class IpcContextBuilder {
     const session = this.sessionCtx(tabId)
     return {
       session,
-      settings: this.deps.settings.ctxForProject?.(session.projectPath) ?? this.deps.settings.ctx,
+      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), session.projectPath) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctxFor(tabId),
     }
   }
@@ -39,7 +39,7 @@ export class IpcContextBuilder {
     const base = this.sessionCtx(tabId)
     return {
       session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
-      settings: this.deps.settings.ctxForProject?.(worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
+      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }
   }
@@ -74,6 +74,11 @@ export class IpcContextBuilder {
       settings: this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }
+  }
+
+  /** The host a source's run is on: review warming is that host's per-project setting. */
+  private serverIdOf(sourceId: string): string {
+    return (this.deps.runFor(sourceId) ?? this.deps.defaultRunConfig()).serverId
   }
 
   /** The window's organization rides every prompt (R11): the host assigns an

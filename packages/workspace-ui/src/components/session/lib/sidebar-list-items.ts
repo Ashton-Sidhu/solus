@@ -2,14 +2,14 @@ import type { DraftRow } from './draft-list'
 import type { SidebarTask } from './task-list'
 
 /** Where a row sits in the one list. */
-export type SidebarSection = 'tasks' | 'sessions' | 'snoozed' | 'completed'
+export type SidebarSection = 'tasks' | 'sessions' | 'working' | 'snoozed' | 'completed'
 
 /**
  * One entry of the sidebar's single list. Drafts, the Tasks section, the
- * Sessions section, and the Snoozed and Completed sections are one list with
- * section headers as entries (docs/plans/sidebar-motion.md, step 3), so a row
- * that changes section, and a draft that arrives or leaves, animate like any
- * other change of order.
+ * Sessions section, the Working section, and the Snoozed and Completed
+ * sections are one list with section headers as entries
+ * (docs/plans/sidebar-motion.md, step 3), so a row that changes section, and a
+ * draft that arrives or leaves, animate like any other change of order.
  */
 export type SidebarListItem =
   | { kind: 'draft'; key: string; draft: DraftRow }
@@ -25,10 +25,13 @@ export interface SidebarListInput {
   /** Open sessions that are not a task's own: a session with no task, and a
    *  session linked to a task that has no row in `tasks`. */
   sessions: readonly SidebarTask[]
+  /** Open tasks and sessions whose agent is busy without the user. */
+  working: readonly SidebarTask[]
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
   isTasksOpen: boolean
   isSessionsOpen: boolean
+  isWorkingOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
   /** The row a collapsed section still shows: the one holding the conversation
@@ -45,7 +48,9 @@ export interface SidebarListInput {
  * its element and slides.
  */
 function taskItem(task: SidebarTask, section: SidebarSection): SidebarListItem {
-  const variant = section === 'tasks' || section === 'sessions' ? 'card' : 'slim'
+  // A working row keeps the card it had, so a row that starts or finishes a
+  // turn slides between sections rather than changing shape.
+  const variant = section === 'tasks' || section === 'sessions' || section === 'working' ? 'card' : 'slim'
   return { kind: 'task', key: `${task.id}:${variant}`, section, task }
 }
 
@@ -78,6 +83,7 @@ export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[
     ...(input.tasks.length > 0
       ? section('sessions', input.sessions, input.isSessionsOpen, input.shelfRevealTaskId)
       : input.sessions.map((task) => taskItem(task, 'sessions'))),
+    ...section('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
     ...section('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...section('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
   ]

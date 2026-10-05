@@ -62,8 +62,8 @@ export const NOTIFICATION_CHANNEL_ROWS: NotificationChannelRow[] = [
     id: 'system',
     situation: 'in_background',
     label: 'System alert',
-    description: 'A desktop, browser, or push notification.',
-    keywords: ['system', 'native', 'alert', 'push', 'desktop', 'browser', 'os', 'background'],
+    description: 'A desktop or browser notification.',
+    keywords: ['system', 'native', 'alert', 'desktop', 'browser', 'os', 'background'],
   },
 ]
 
@@ -154,8 +154,8 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'teammate_presence',
     label: 'Teammates',
-    description: 'A teammate joins your host, or leaves while you follow them.',
-    keywords: ['teammate', 'presence', 'joined', 'left', 'follow', 'people'],
+    description: 'A teammate leaves while you follow them.',
+    keywords: ['teammate', 'presence', 'left', 'follow', 'people'],
   },
   {
     id: 'share_revoked',

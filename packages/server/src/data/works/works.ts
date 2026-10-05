@@ -63,7 +63,7 @@ async function insertNewWork(organizationId: string, id: string, meta: WorkMeta,
   await database().transaction(async (db) => {
     await insertWorkRow(db, organizationId, id, meta, body)
     await insertBaseline(db, organizationId, id, body, epochMs(meta.updatedAt))
-    await recordNewMentions(db, organizationId, { kind: 'work', id }, author ?? hostAttribution(), '', content)
+    await recordNewMentions(db, organizationId, { kind: 'work', id, title: meta.title }, author ?? hostAttribution(), '', content)
     emitWorkChanged({ workId: id, version: meta.updatedAt, contentVersion: body.contentVersion })
   })
   return { id, ...meta, ...body }

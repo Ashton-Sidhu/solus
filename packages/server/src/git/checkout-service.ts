@@ -9,7 +9,9 @@ import { createWorktree, ensureBranchWorktree, fetchAndCheckoutPr, renameWorktre
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
 import { generateWorktreeName } from './worktree-name'
-import { isTemporaryWorktreeBranch } from './worktree-branch-name'
+import { namesFromTitle, temporaryWorktreeBranchId } from '@solus/contracts/worktree-branch-naming'
+import { capturedWorktreeBranchNamer, resolveWorktreeBranchNamer } from './worktree-branch-name'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { GitWatcher } from './git-watcher'
 import { createLogger } from '../logger'
 
@@ -67,12 +69,16 @@ export class CheckoutService {
     return this.commit(checkout.worktreePath!, checkout, 'created').checkout!
   }
 
-  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher, seatFor?: SeatResolver): Promise<void> {
+  /** `preferences` are the person's: their writing model names the branch. */
+  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher, seatFor?: SeatResolver, preferences?: ExecutionPreferences): Promise<void> {
     cwd = resolveHomePath(cwd)
     const branch = this.get(cwd)?.checkout?.branch
-    if (!branch || !isTemporaryWorktreeBranch(branch)) return
+    if (!branch) return
+    // Ask the model only when the naming the worktree was created with will use its answer.
+    const namer = await capturedWorktreeBranchNamer(cwd, branch) ?? await resolveWorktreeBranchNamer(cwd, preferences?.worktreeBranchNaming)
+    if (!temporaryWorktreeBranchId(branch, namer)) return
     try {
-      const name = await generateWorktreeName(dispatcher, prompt, cwd, undefined, seatFor)
+      const name = await generateWorktreeName(dispatcher, prompt, cwd, undefined, seatFor, preferences)
       if (name) await this.rename(cwd, branch, name)
     } catch (error) {
       log.warn('worktree_branch_rename_failed', { cwd, branch, error: String(error) })
@@ -93,10 +99,11 @@ export class CheckoutService {
     return result
   }
 
-  async createNamed(projectRoot: string, prompt: string, dispatcher: AgentDispatcher, signal: AbortSignal): Promise<GitCheckout> {
+  async createNamed(projectRoot: string, prompt: string, dispatcher: AgentDispatcher, signal: AbortSignal, preferences?: ExecutionPreferences): Promise<GitCheckout> {
     projectRoot = resolveHomePath(projectRoot)
-    const generatedName = await generateWorktreeName(dispatcher, prompt, projectRoot, signal)
-    return this.create(projectRoot, undefined, { generatedName, signal })
+    const { naming } = await resolveWorktreeBranchNamer(projectRoot, preferences?.worktreeBranchNaming)
+    const generatedName = namesFromTitle(naming) ? await generateWorktreeName(dispatcher, prompt, projectRoot, signal, undefined, preferences) : null
+    return this.create(projectRoot, undefined, { generatedName, signal, naming: preferences?.worktreeBranchNaming })
   }
 
   async rename(cwd: string, previousBranch: string, name: string): Promise<CheckoutState | null> {

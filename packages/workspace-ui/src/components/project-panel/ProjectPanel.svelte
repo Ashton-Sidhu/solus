@@ -41,6 +41,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
 
   interface Props {
     /** The tab or draft this rail describes — it lives inside that view. The
@@ -143,10 +144,9 @@
       dragWidth = null;
       resizeCleanup = null;
       if (width === null) return;
-      settings.update(
-        isSplit
-          ? { splitProjectPanelWidth: projectRailWidth(workspaceWidth, containerWidth, width) }
-          : { projectPanelWidth: projectRailWidth(workspaceWidth, containerWidth, width) },
+      settings.setLayout(
+        isSplit ? "splitProjectPanelWidth" : "projectPanelWidth",
+        projectRailWidth(workspaceWidth, containerWidth, width),
       );
     };
 
@@ -170,6 +170,8 @@
   const panelServerId = $derived(
     panelRun?.serverId ? serverConnections.resolveId(panelRun.serverId) : null,
   );
+  // Linking a pull request is an editor's; a member who may only read sees the links.
+  const canDrive = $derived(canDriveSession(panelRun?.serverId, panelSession?.id));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
   // Where this session runs. Local is the unmarked case — the machine under the
@@ -246,10 +248,9 @@
 
   function toggleSection(id: ProjectPanelSectionId) {
     collapsedSections[id] = !collapsedSections[id];
-    settings.update(
-      isSplit
-        ? { splitProjectPanelCollapsed: collapsedSections }
-        : { projectPanelCollapsed: collapsedSections },
+    settings.setLayout(
+      isSplit ? "splitProjectPanelCollapsed" : "projectPanelCollapsed",
+      collapsedSections,
     );
   }
 
@@ -444,7 +445,7 @@
         headerDetail={`${panelLinks.length}`}
         collapsed={collapsedSections.linked}
         onToggle={() => toggleSection("linked")}
-        headerExtra={linkedHeaderExtra}
+        headerExtra={canDrive ? linkedHeaderExtra : undefined}
         onResizePointerDown={startResize}
       >
         <LinkedSection {sourceId} links={panelLinks} active={active && open} />
@@ -496,8 +497,16 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
-    font-size: var(--text-chrome-dense);
-    line-height: var(--text-chrome-dense--line-height);
+    /* Row labels: 13px with a precise pointer, 14px on touch. Supporting text
+       (counts, durations, reset times) steps down to the dense rung on its own
+       element. */
+    font-size: 0.8125rem;
+    line-height: 1.1875rem;
+  }
+  @media (pointer: coarse) {
+    .project-sections {
+      font-size: var(--text-workspace-chrome);
+    }
   }
 
   /* At the rail's narrow measure the fixed gutter is a large share of

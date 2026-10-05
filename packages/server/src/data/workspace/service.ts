@@ -5,6 +5,7 @@ import { WorkApiOperations } from '../works/api-operations'
 import { SessionApiOperations } from '../sessions/api-operations'
 import { readInsight, readInsightPage, readInsightTree } from '../insights/api-operations'
 import { ActivityApiOperations } from '../activity/api-operations'
+import { NotificationApiOperations } from '../notifications/api-operations'
 import type { WorkspaceOperations } from './operations'
 
 /** The same domain operations serve HTTP and admitted agent tools. No execution runtime is needed. */
@@ -13,6 +14,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
   const works = new WorkApiOperations(shares)
   const sessions = new SessionApiOperations(shares)
   const activity = new ActivityApiOperations(shares)
+  const notifications = new NotificationApiOperations(shares)
   return {
     listTasks: withWorkspaceBudget((context, query) => tasks.list(context, query)),
     getTask: withWorkspaceBudget((context, taskId) => tasks.get(context, taskId)),
@@ -42,5 +44,9 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     listWorkActivity: withWorkspaceBudget((context, workId, query) => activity.forRecord(context, { kind: 'work', id: workId }, query)),
     listSessionActivity: withWorkspaceBudget((context, sessionId, query) => activity.forRecord(context, { kind: 'session', id: sessionId }, query)),
     listMyActivity: withWorkspaceBudget((context, query) => activity.namingCaller(context, query)),
+    listMyNotifications: withWorkspaceBudget((context, query) => notifications.list(context, query)),
+    countMyNotifications: withWorkspaceBudget((context) => notifications.count(context)),
+    setMyNotificationRead: withWorkspaceBudget((context, notificationId, input) => notifications.setRead(context, notificationId, input)),
+    setMyNotificationArchived: withWorkspaceBudget((context, notificationId, input) => notifications.setArchived(context, notificationId, input)),
   }
 }

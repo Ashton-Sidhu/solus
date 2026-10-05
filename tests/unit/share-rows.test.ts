@@ -14,9 +14,12 @@ import {
   scopeOf,
   scopeOptions,
   shareSummary,
+  sharedWithMembers,
   withPersonRole,
   withoutPerson,
 } from '../../packages/workspace-ui/src/components/sharing/lib/share-rows'
+import { appLinkUrl } from '../../packages/workspace-ui/src/contexts/sharing/app-link'
+import { parseRoute } from '../../packages/workspace-ui/src/contexts/workspace/routing/codec'
 
 // docs/plans/multiplayer-sharing.md §4.1: the dialog is one choice — who can open
 // it — and the link. A scope stands for rows; rows stand for a scope; the two never
@@ -203,5 +206,32 @@ describe('the guest link', () => {
     expect(linkPresentation({ role: 'viewer' }, linked, true)).toEqual({ kind: 'unavailable' })
     expect(linkPresentation({ role: 'viewer' }, linked, false)).toEqual({ kind: 'hidden' })
     expect(linkPresentation(null, linked, true)).toBeNull()
+  })
+})
+
+describe('the member link', () => {
+  const grant = (subject: ShareList['grants'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'alice', createdAt: 1 })
+
+  test('a resource shared only with members copies their link, never a guest link', () => {
+    // WHY: a guest link asks every visitor who they are. People who were given
+    // access by name, team, or organization are signed in to Solus and must open
+    // the resource as themselves.
+    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'organization', id: 'org1' })] })).toBe(true)
+    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'team', id: 'team-a' })] })).toBe(true)
+    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'user', id: 'bob' })] })).toBe(true)
+    // The link is for people outside: it stays the guest link.
+    expect(sharedWithMembers({ ...base, link: { role: 'viewer', secret: 's3' }, grants: [grant({ kind: 'user', id: 'bob' })] })).toBe(false)
+    // Nobody else has access: Copy link still opens it to anyone with the link.
+    expect(sharedWithMembers(base)).toBe(false)
+  })
+
+  test('the member link opens the resource as a page of the app, with no secret', () => {
+    // WHY: it admits only the people the resource is shared with, so it must not
+    // carry the bearer secret, and it must land on the resource after sign-in.
+    const work = appLinkUrl('https://app.solus.sh/', { kind: 'work', id: 'w1' }, 'solus-api:org1')
+    expect(work.startsWith('https://app.solus.sh/#')).toBe(true)
+    expect(parseRoute(work.slice(work.indexOf('#') + 1))).toEqual({ name: 'work', params: { workId: 'w1', serverId: 'solus-api:org1' } })
+    const session = appLinkUrl('https://app.solus.sh', { kind: 'session', id: 's1' }, 'solus-api:org1')
+    expect(parseRoute(session.slice(session.indexOf('#') + 1))).toEqual({ name: 'sessionRecord', params: { sessionId: 's1', serverId: 'solus-api:org1' } })
   })
 })

@@ -61,7 +61,7 @@ class OnboardingStore {
    * The one host every stage asks about. The host flow asks the host this
    * client works against; the cloud flow asks the machine the person chose,
    * never the workspace service, which runs no agents. Empty when the cloud
-   * flow has no machine, and then the `agents` stage is not shown.
+   * flow has no machine; cloud agent connections still come from the account.
    */
   get serverId(): string {
     if (this.flow === 'cloud') return cloudOnboardingStore.chosenServerId ?? ''
@@ -74,12 +74,12 @@ class OnboardingStore {
   }
 
   /**
-   * The cloud flow passes over `agents` when there is no machine to ask, and
+   * Cloud agent connections belong to the account and need no machine.
    * `cloud-connect` shows only where the shell holds an account (desktop).
    */
   private get conditions(): StageConditions {
     return {
-      skipsAgents: this.flow === 'cloud' && !cloudOnboardingStore.chosenServerId,
+      skipsAgents: false,
       offersCloudConnect: accountStore.isAvailable,
     }
   }

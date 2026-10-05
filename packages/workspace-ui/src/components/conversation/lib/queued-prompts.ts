@@ -93,6 +93,7 @@ export function queuedCaption(
   { isRateLimited, resetsAt, rateLimitType, now }: QueuedCaptionInput,
 ): QueuedCaption | null {
   if (prompts.length === 0) return null
+  if (prompts.some((prompt) => prompt.held)) return { label: `${prompts.length} queued`, detail: 'held — resume to continue', clock: '', canSendNow: false }
 
   // A lone in-flight steer is not a queue — it is one message being delivered.
   if (prompts.length === 1 && prompts[0].state === 'steering') {

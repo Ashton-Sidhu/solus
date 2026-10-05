@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import { generateWorktreeNameWith } from '@solus/server/git/worktree-name'
-import { generatedWorktreeBranchName } from '@solus/server/git/worktree-branch-name'
+import { DEFAULT_WORKTREE_BRANCH_NAMING, generatedWorktreeBranchName } from '@solus/contracts/worktree-branch-naming'
 
 function dispatcherSubmitting(name?: string) {
   const requests: AgentRunRequest[] = []
@@ -34,7 +34,8 @@ describe('worktree name generation', () => {
   test('uses the generated name instead of the prompt for the Git branch', () => {
     // WHY: the text-generation round trip has no effect unless its semantic
     // answer, rather than the original prompt, becomes the branch slug.
-    expect(generatedWorktreeBranchName('Stable Session Reconnect')).toBe('solus/stable-session-reconnect')
+    expect(generatedWorktreeBranchName('Stable Session Reconnect', { naming: DEFAULT_WORKTREE_BRANCH_NAMING, user: null }, '0a1b2c3d'))
+      .toBe('solus/stable-session-reconnect')
   })
 
   test('waits for a structured semantic name from the selected text-generation model', async () => {

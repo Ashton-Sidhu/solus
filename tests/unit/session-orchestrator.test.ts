@@ -288,6 +288,19 @@ describe('session orchestration', () => {
     }
   })
 
+  test('retrying an accepted request uses the same exchange and does not queue more work', async () => {
+    const { plane, orchestrator, updates } = await sessions()
+    try {
+      const message = { prompt: 'implement once', delivery: 'queue' as const, notify: true, requestId: 'implementation-1' }
+      const first = await orchestrator.send('thread-2', 'thread-1', message)
+      const second = await orchestrator.send('thread-2', 'thread-1', message)
+      expect(second.exchangeId).toBe(first.exchangeId)
+      expect(updates.filter((update) => update.phase === 'dispatched')).toHaveLength(1)
+      await expect(orchestrator.send('thread-2', 'thread-1', { ...message, prompt: 'different work' })).rejects.toThrow('different work')
+      expect(orchestrator.readExchange('thread-1', first.exchangeId)).toBeUndefined()
+    } finally { plane.shutdown() }
+  })
+
   test('a message to a session that does not exist is refused before the card shows it', async () => {
     const { plane, orchestrator, updates } = await sessions()
     try {
@@ -321,7 +334,7 @@ describe('session orchestration', () => {
       expect(orchestrator.mayAnswer('solus-stranger', 'thread-1')).toBe(false)
 
       // The person's answer, from the sender's card or the target's own tab.
-      expect(plane.respondToQuestion('thread-1', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
       expect(updates.find((update) => update.phase === 'answered')).toEqual({
         phase: 'answered', agentSessionId: 'thread-1', messageId: sent.exchangeId, answerText: 'Which branch? → main',
       })
@@ -395,20 +408,52 @@ describe('session orchestration', () => {
   test("a session the target starts during the turn is one of the turn's outputs", async () => {
     const { backend, plane, orchestrator, updates } = await sessions()
     try {
-      await orchestrator.send('thread-2', 'thread-1', { prompt: 'split the work', delivery: 'queue', notify: true })
+      const parent = await orchestrator.send('thread-2', 'thread-1', { prompt: 'split the work', delivery: 'queue', notify: true })
       backend.complete('thread-1', 'first')
       await backend.started(3)
-      const grandchild = await orchestrator.spawn('thread-1', {
+      const attached = new Promise<string>((resolve) => {
+        const onAttached = (sessionId: string, event: NormalizedEvent) => {
+          if (sessionId !== 'solus-target' || event.type !== 'agent_conversation_update' || event.update.phase !== 'attached') return
+          plane.off('event', onAttached)
+          resolve(event.update.agentSessionId)
+        }
+        plane.on('event', onAttached)
+      })
+      await orchestrator.spawn('thread-1', {
         prompt: 'Write the tests', provider: 'codex', modelId: 'gpt-test', reasoningEffort: 'medium', contextWindow: null, cwd: process.cwd(),
       }, true)
+      const grandchildAgentSessionId = await attached
       backend.complete('thread-1', 'split')
+      await until(() => orchestrator.readExchange('thread-2', parent.exchangeId)?.state === 'waiting_for_children')
+      expect(updates.some((update) => update.phase === 'settled')).toBe(false)
+      backend.complete(grandchildAgentSessionId, 'tests passed')
+      await backend.run(isReportFor('thread-1'))
+      await until(() => orchestrator.readExchange('thread-2', parent.exchangeId)?.state === 'running')
+      backend.complete('thread-1', 'reviewed the test result')
       await until(() => updates.some((update) => update.phase === 'settled'))
       expect(updates.find((update) => update.phase === 'settled')).toMatchObject({
-        outputs: [{ kind: 'session', sessionId: grandchild.agentSessionId, title: 'Write the tests' }],
+        outputs: [{ kind: 'session', sessionId: grandchildAgentSessionId, title: 'Write the tests' }],
       })
     } finally {
       plane.shutdown()
     }
+  })
+
+  test('stopping a parent between child results ends its incoming request', async () => {
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      const parent = await orchestrator.send('thread-2', 'thread-1', { prompt: 'coordinate work', delivery: 'queue', notify: true })
+      backend.complete('thread-1', 'first')
+      await backend.started(3)
+      const child = await orchestrator.spawn('thread-1', {
+        prompt: 'Review', provider: 'codex', modelId: 'gpt-test', reasoningEffort: 'medium', contextWindow: null, cwd: process.cwd(),
+      }, true)
+      backend.complete('thread-1', 'waiting on review')
+      await until(() => orchestrator.readExchange('thread-2', parent.exchangeId)?.state === 'waiting_for_children')
+      expect(orchestrator.stop('thread-2', 'thread-1')).toBe(true)
+      expect(orchestrator.readExchange('thread-2', parent.exchangeId)).toMatchObject({ state: 'settled', outcome: 'interrupted' })
+      expect(orchestrator.readExchange('thread-1', child.exchangeId)?.deliveryState).toBe('disposed')
+    } finally { plane.shutdown() }
   })
 
   test('a turn that changed no files reports no changed-files output', async () => {
@@ -430,7 +475,7 @@ describe('session orchestration', () => {
   test('a long reply reaches the sender cut, pointing at the rest', async () => {
     const { backend, plane, orchestrator } = await sessions()
     try {
-      await orchestrator.send('thread-2', 'thread-1', { prompt: 'dump it', delivery: 'queue', notify: true })
+      const sent = await orchestrator.send('thread-2', 'thread-1', { prompt: 'dump it', delivery: 'queue', notify: true })
       backend.complete('thread-1', 'first')
       await backend.started(3)
       backend.complete('thread-1', 'y'.repeat(ORCHESTRATION_LIMITS.reply * 3))
@@ -438,7 +483,7 @@ describe('session orchestration', () => {
       await backend.run(isReportFor('thread-2'))
       const prompt = reportRuns(backend, 'thread-2')[0]!
       expect(prompt.length).toBeLessThan(ORCHESTRATION_LIMITS.reply + 1_000)
-      expect(reportsIn(prompt)[0]!.reply).toContain('read_session session_id=thread-1')
+      expect(reportsIn(prompt)[0]!.reply).toContain(`read_session_exchange exchange_id=${sent.exchangeId}`)
     } finally {
       plane.shutdown()
     }
@@ -732,7 +777,7 @@ describe("a task's lead", () => {
       await until(() => orchestrator.exchangesSentBy('solus-sender').some((message) => message.messageId === toFirst.exchangeId && message.state === 'reply_queued'))
 
       expect(orchestrator.cancelSentBy('solus-sender')).toBe(true)
-      await until(() => orchestrator.exchangesSentBy('solus-sender').length === 0)
+      await until(() => orchestrator.exchangesSentBy('solus-sender').every((message) => message.state === 'settled'))
       expect(orchestratorRuns(backend, 'thread-2')).toEqual([])
     } finally {
       plane.shutdown()
@@ -789,7 +834,7 @@ describe('notices to the parent', () => {
       backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
       await until(() => orchestrator.exchangesSentBy('solus-sender').some((message) => message.state === 'awaiting_input'))
       await until(() => senderQueue.size === 1)
-      expect(plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
       await until(() => senderQueue.size === 0)
 
       backend.complete('thread-1', 'using SQLite')
@@ -839,7 +884,7 @@ describe('notices to the parent', () => {
       backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
       // The card still shows it for a person.
       await until(() => updates.some((update) => update.phase === 'awaiting_input'))
-      expect(plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
       backend.complete('thread-1', 'done')
       await until(() => updates.some((update) => update.phase === 'settled'))
       expect(orchestratorRuns(backend, 'thread-2')).toEqual([])
@@ -907,7 +952,7 @@ describe('waiting for an outcome inside the call', () => {
       const sent = await sending
       expect(sent.waited).toEqual({ type: 'notice', notice: expect.objectContaining({ kind: 'question', questionId: 'q1' }) })
 
-      expect(plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { db: 'SQLite' }, HOST_ACTOR)).toBe(true)
       backend.complete('thread-1', 'using SQLite')
       backend.complete('thread-2', 'waiting')
       await orchestratorRun(backend, 'thread-2')
@@ -1094,14 +1139,14 @@ describe('answer routing', () => {
 
       // Named for a session that is not waiting on it: refused, nothing reaches a provider.
       expect(orchestrator.mayAnswer('solus-second', 'thread-3')).toBe(true)
-      expect(plane.respondToQuestion('thread-3', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(false)
+      expect(await plane.respondToQuestion('thread-3', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(false)
       expect(backend.permissions.questionAnswers).toEqual([])
 
-      expect(plane.respondToQuestion('thread-1', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
       expect(backend.permissions.questionAnswers).toEqual([{ questionId: 'q1', answers: { branch: 'main' } }])
 
       // The other surface answers second: refused, the first answer stands.
-      expect(plane.respondToQuestion('thread-1', 'q1', { branch: 'dev' }, HOST_ACTOR)).toBe(false)
+      expect(await plane.respondToQuestion('thread-1', 'q1', { branch: 'dev' }, HOST_ACTOR)).toBe(false)
       expect(backend.permissions.questionAnswers).toHaveLength(1)
     } finally {
       plane.shutdown()

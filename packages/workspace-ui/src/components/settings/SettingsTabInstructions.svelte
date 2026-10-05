@@ -90,14 +90,14 @@
            0.875rem). -->
       <PlainTextEditor
         value={theme.extraInstructions}
-        onValueChange={(md) => theme.update({ extraInstructions: md })}
+        onValueChange={(md) => theme.setPersonal("extraInstructions", md)}
         onBlur={() => requestInputFocus()}
         enterInsertsNewline
         hidePlaceholderOnFocus
         maxHeight={220}
         dictation
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
-        class="rounded-lg border border-border bg-background px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
+        class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>
@@ -148,14 +148,14 @@
     {#snippet body()}
       <PlainTextEditor
         value={theme.modelInstructions[selectedModelId] ?? ""}
-        onValueChange={(md) => theme.update({ modelInstructions: { ...theme.modelInstructions, [selectedModelId]: md } })}
+        onValueChange={(md) => theme.setPersonal("modelInstructions", { ...$state.snapshot(theme.modelInstructions), [selectedModelId]: md })}
         onBlur={() => requestInputFocus()}
         enterInsertsNewline
         hidePlaceholderOnFocus
         maxHeight={220}
         dictation
         placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
-        class="rounded-lg border border-border bg-background px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
+        class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>

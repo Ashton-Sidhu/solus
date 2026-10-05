@@ -7,7 +7,7 @@ import { withCheckoutOnHost } from '../../servers/run-on'
 type SelectionWorkspace = Pick<WorkspaceContext, 'runFor' | 'defaultRunConfig' | 'sessionFor' | 'drafts' | 'config'>
 
 /**
- * Open a project — or Scratchpad — in one checkout, for the tab or draft that
+ * Open a project — or a new chat — in one checkout, for the tab or draft that
  * `sourceId` names. A checkout on the run's own host is a folder change; one on
  * another host moves the run there too. Resolves once the run names the checkout; the caller returns focus.
  */

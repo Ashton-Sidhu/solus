@@ -4,80 +4,33 @@ import { join } from 'path'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { AGENT_BIN, MODEL_PROFILES } from '@solus/contracts/types'
-import type { TextGenerationModelSelection } from '@solus/contracts/types'
+import type { SourceControlWritingPreferences, TextGenerationModelSelection } from '@solus/contracts/types'
 import { findOnPath, getCliPath } from '../cli-env'
 import {
   DEFAULT_HOST_CONFIG,
-  DEFAULT_TEXT_GENERATION_MODELS,
-  hostConfigPatchSchema,
+  HOST_CONFIG_FIELDS,
+  isHostConfigKey,
   mergeHostConfig,
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
-import type { NotificationPreferencesPatch } from '@solus/contracts/notification-types'
 import { z } from 'zod'
+import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import { typeSafeKeyStatus } from '../typesafe/credentials'
+import { hostCategory } from './host-category'
 
 const log = createLogger('main', 'server-settings')
 
 const SOLUS_DIR = solusDir()
 const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 
-const legacyModelSelectionSchema = z.object({
-  provider: z.enum(['codex', 'claude-code']),
-  model: z.string(),
-}).strict()
-const legacySourceControlWritingSchema = z.object({
-  mode: z.enum(['repo_conventions', 'conventional_commits', 'custom']).optional(),
-  customInstructions: z.string().optional(),
-  followPullRequestTemplate: z.boolean().optional(),
-}).strict()
-/**
- * The two flags `notifications` replaced. `soundEnabled` gated the sound and
- * the system alert together; `backgroundActivityToasts` gated toasts. Read only
- * when a stored host config predates the structured key, so a user who turned
- * sound off keeps it off.
- */
-const legacyNotificationFlagsSchema = z.object({
-  hostConfig: z.object({
-    soundEnabled: z.boolean().optional(),
-    backgroundActivityToasts: z.boolean().optional(),
-    /** Presence is all that matters: a config that has the key is not legacy. */
-    notifications: z.object({}).optional(),
-  }).optional(),
-})
-type LegacyNotificationFlags = z.infer<typeof legacyNotificationFlagsSchema>
-
-function notificationsFromLegacyFlags(legacy: LegacyNotificationFlags): NotificationPreferencesPatch | null {
-  const flags = legacy.hostConfig
-  if (!flags || flags.notifications !== undefined) return null
-  if (flags.soundEnabled === undefined && flags.backgroundActivityToasts === undefined) return null
-  const channels: NonNullable<NotificationPreferencesPatch['channels']> = {}
-  if (flags.soundEnabled !== undefined) {
-    channels.sound = flags.soundEnabled
-    channels.system = flags.soundEnabled
-  }
-  if (flags.backgroundActivityToasts !== undefined) channels.toast = flags.backgroundActivityToasts
-  return { channels }
-}
-
-/**
- * The legacy keys are the pre-host-config shape of this file. They are still
- * read, because an installation that set analytics consent or a text-generation
- * model before the move must not silently lose it. They seed host config on the
- * first load and are no longer written.
- */
 const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
   metricsRetentionDays: z.number().optional(),
   trustLocalNetwork: z.boolean().optional(),
   insightsOptInOrganizationIds: z.array(z.string().min(1)).optional(),
   projectsBaseDirectory: z.string().optional(),
-  hostConfig: hostConfigPatchSchema.optional(),
-  analytics: z.boolean().optional(),
-  agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
-  textGenerationModel: legacyModelSelectionSchema.optional(),
-  sourceControlWriterModel: legacyModelSelectionSchema.nullable().optional(),
-  sourceControlWriting: legacySourceControlWritingSchema.optional(),
+  /** Read key by key in `storedHostConfig`, so one bad key does not cost the rest. */
+  hostConfig: z.looseObject({}).optional(),
   hostUser: z.object({
     localId: z.string().min(1),
     account: z.object({ accountId: z.string().min(1), displayName: z.string().optional(), email: z.string().optional() }).optional(),
@@ -109,12 +62,8 @@ export interface ServerSettings {
    * primary action puts a clone. Empty means the home folder.
    */
   projectsBaseDirectory?: string
-  /**
-   * The config this host serves to its clients. Absent until a client seeds it:
-   * the host cannot compute a platform-correct font default, so the first
-   * client to connect writes one rather than the host guessing.
-   */
-  hostConfig?: HostConfig
+  /** The config this host serves to the clients that administer it. */
+  hostConfig: HostConfig
   /** The host's own user (plans/012 §1). Minted once by `hostUserSettings`. */
   hostUser?: HostUserSettings
 }
@@ -134,6 +83,7 @@ const DEFAULT_SETTINGS: ServerSettings = {
   remoteAccess: true,
   metricsRetentionDays: 30,
   trustLocalNetwork: false,
+  hostConfig: DEFAULT_HOST_CONFIG,
 }
 
 let _settings: ServerSettings | null = null
@@ -146,10 +96,6 @@ export function getServerSettings(): ServerSettings {
     try {
       const raw: unknown = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
       const parsed = persistedServerSettingsSchema.parse(raw)
-      // `hostConfigPatchSchema` strips the flags `notifications` replaced, so
-      // they are read from the same file through their own schema.
-      const legacyNotifications = legacyNotificationFlagsSchema.safeParse(raw)
-      _legacySettings = parsed
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
@@ -157,10 +103,7 @@ export function getServerSettings(): ServerSettings {
         insightsOptInOrganizationIds: parsed?.insightsOptInOrganizationIds ?? [],
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
         hostUser: parsed?.hostUser,
-        hostConfig: loadHostConfig(
-          parsed,
-          legacyNotifications.success ? notificationsFromLegacyFlags(legacyNotifications.data) : null,
-        ),
+        hostConfig: storedHostConfig(parsed.hostConfig),
       }
       return _settings
     } catch (err) {
@@ -172,58 +115,34 @@ export function getServerSettings(): ServerSettings {
   return _settings
 }
 
-type PersistedSettings = z.infer<typeof persistedServerSettingsSchema>
-
 /**
- * The starting point for a host that has never been written to, built from the
- * keys this file used to hold at top level.
- *
- * Every one of these is a choice someone already made: an analytics opt-out or
- * a text-generation model. Falling back to the plain defaults would silently
- * reverse those choices.
+ * The stored config, read one key at a time. This file is local to the host, so
+ * a key that no longer validates falls back to its default and a key this host
+ * does not know is dropped; both leave the rest of the config as it was. The
+ * next write stores the healed config.
  */
-function seedHostConfig(legacy: PersistedSettings | undefined): HostConfig {
-  const patch: HostConfigPatch = { analyticsEnabled: legacy?.analytics !== false }
-  if (legacy?.agentTaskLifecyclePolicy) patch.agentTaskLifecyclePolicy = legacy.agentTaskLifecyclePolicy
-  if (legacy?.textGenerationModel) patch.textGenerationModel = legacy.textGenerationModel
-  // Null is a real choice here — "no separate source-control writer" — so it is
-  // carried forward, unlike the keys above where absence means "never set".
-  if (legacy?.sourceControlWriterModel !== undefined) {
-    patch.sourceControlWriterModel = legacy.sourceControlWriterModel
+function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>['hostConfig']): HostConfig {
+  if (!stored) return DEFAULT_HOST_CONFIG
+  const patch: HostConfigPatch = {}
+  const dropped: string[] = []
+  for (const [key, value] of Object.entries(stored)) {
+    const parsed = isHostConfigKey(key) ? HOST_CONFIG_FIELDS[key].patch.safeParse(value) : null
+    if (parsed?.success) Object.assign(patch, { [key]: parsed.data })
+    else dropped.push(key)
   }
-  if (legacy?.sourceControlWriting) patch.sourceControlWriting = legacy.sourceControlWriting
+  // Only key names are logged; a value may carry collector credentials.
+  if (dropped.length) log.warn('host_config_keys_dropped', { keys: dropped.sort() })
   return mergeHostConfig(DEFAULT_HOST_CONFIG, patch)
 }
 
-/** Undefined means no client has seeded this host yet — distinct from a config
- *  that exists and happens to match the defaults. */
-function loadHostConfig(
-  parsed: PersistedSettings,
-  legacyNotifications: NotificationPreferencesPatch | null,
-): HostConfig | undefined {
-  if (!parsed.hostConfig) return undefined
-  const hostConfig = mergeHostConfig(seedHostConfig(parsed), parsed.hostConfig)
-  if (!legacyNotifications) return hostConfig
-  return mergeHostConfig(hostConfig, { notifications: legacyNotifications })
-}
-
-/** The legacy top-level block, kept only to seed host config on first write. */
-let _legacySettings: PersistedSettings | undefined
-
 export function getHostConfig(): HostConfigSnapshot {
-  const settings = getServerSettings()
-  return settings.hostConfig
-    ? { config: settings.hostConfig, seeded: true, typeSafe: typeSafeKeyStatus() }
-    : { config: seedHostConfig(_legacySettings), seeded: false, typeSafe: typeSafeKeyStatus() }
+  const stored = getServerSettings().hostConfig
+  const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
+    ? { ...stored, continueSessionsAfterHostRestart: false }
+    : stored
+  return { config, typeSafe: typeSafeKeyStatus() }
 }
 
-/**
- * Patches host config and persists it. The first call also seeds it, so the
- * snapshot it returns always reports `seeded: true`.
- *
- * The patch is already validated: untrusted input is parsed at the RPC
- * boundary, and every internal caller passes a typed literal.
- */
 /** The organizations this machine's work is opted into for Insights while their policy is off (§6.1). */
 export function getInsightsOptIn(): string[] {
   return [...(getServerSettings().insightsOptInOrganizationIds ?? [])]
@@ -258,6 +177,7 @@ export function setHostUserSettings(hostUser: HostUserSettings): void {
 
 export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
   const hostConfig = mergeHostConfig(getHostConfig().config, patch)
+  if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
   _settings = { ...getServerSettings(), hostConfig }
   persistSettings(_settings)
   // The values are the user's; only which keys moved is logged.
@@ -291,14 +211,26 @@ export function setProjectsBaseDirectory(path: string): ServerSettings {
   return _settings
 }
 
-export function resolveTextGenerationModel(): TextGenerationModelSelection {
-  const { config } = getHostConfig()
-  return resolveAvailableModel(config.textGenerationModel)
+/**
+ * The model for writing done for a person — titles, worktree names — from their
+ * own preference (plans/018 §3.1), else the installed fallback. The host's config
+ * is not consulted: it is not the person's.
+ */
+export function resolveTextGenerationModel(preferences: Pick<ExecutionPreferences, 'textGenerationModel'> | undefined): TextGenerationModelSelection {
+  return resolveAvailableModel(preferences?.textGenerationModel ?? DEFAULT_EXECUTION_PREFERENCES.textGenerationModel)
 }
 
-export function resolveSourceControlWriterModel(): TextGenerationModelSelection {
-  const { config } = getHostConfig()
-  return resolveAvailableModel(config.sourceControlWriterModel, config.textGenerationModel)
+/** The person's commit and pull-request writing choices; the built-in ones when they sent none. */
+export function sourceControlWritingFor(preferences: Pick<ExecutionPreferences, 'sourceControlWriting'> | undefined): SourceControlWritingPreferences {
+  return preferences?.sourceControlWriting ?? DEFAULT_EXECUTION_PREFERENCES.sourceControlWriting
+}
+
+/** The person's commit and pull-request writer; null falls back to their own text-generation model. */
+export function resolveSourceControlWriterModel(preferences: Pick<ExecutionPreferences, 'textGenerationModel' | 'sourceControlWriterModel'> | undefined): TextGenerationModelSelection {
+  return resolveAvailableModel(
+    preferences?.sourceControlWriterModel ?? null,
+    preferences?.textGenerationModel ?? DEFAULT_EXECUTION_PREFERENCES.textGenerationModel,
+  )
 }
 
 function persistSettings(next: ServerSettings): void {
@@ -332,7 +264,7 @@ function automaticTextGenerationModel(): TextGenerationModelSelection {
     const selection = { provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider] }
     if (isAvailable(selection)) return selection
   }
-  return { ...DEFAULT_HOST_CONFIG.textGenerationModel }
+  return { ...DEFAULT_EXECUTION_PREFERENCES.textGenerationModel }
 }
 
 /** Candidates run in preference order; an absent one is simply skipped. */

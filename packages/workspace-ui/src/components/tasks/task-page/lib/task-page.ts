@@ -14,6 +14,7 @@ import type {
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { Work } from '@solus/contracts/types'
 import type { Activity } from '@solus/contracts/activity'
+import { sameUser, type UserId } from '@solus/contracts/user'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { dueDateMeta, PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
@@ -415,6 +416,20 @@ export function commentSessionName(
   return link
     ? sessionDisplayName({ link })
     : comment.originSessionId.slice(0, 8)
+}
+
+/**
+ * Whether the reader is offered Delete on a comment. Only an unpublished
+ * comment a person wrote here can go, and only by that person or by the task's
+ * moderator (its owner): the host refuses anyone else, so offering it would
+ * only end in an error.
+ */
+export function canDeleteTaskComment(
+  comment: Pick<TaskComment, 'author' | 'source' | 'externalId'>,
+  reader: { userId: UserId | null; canModerate: boolean },
+): boolean {
+  if (comment.source !== 'local' || comment.externalId || comment.author?.kind !== 'user') return false
+  return reader.canModerate || (!!reader.userId && sameUser(comment.author.user.id, reader.userId))
 }
 
 // ── Header ──

@@ -70,6 +70,11 @@ describe('the host user rows', () => {
   const MEMBER_PERSON = { userId: 'bob', displayName: 'Bob', colorIndex: 3 }
   const OLD_OWNER_PERSON = { userId: 'host-owner', displayName: 'Host owner', colorIndex: 1 }
 
+  async function notificationRows(): Promise<[string, string, number | null][]> {
+    const found = await database.getDatabase().all<{ id: string; recipient_key: string; read_at: number | null }>(sql`SELECT id, recipient_key, read_at FROM notifications ORDER BY id`)
+    return found.map((row) => [row.id, row.recipient_key, row.read_at === null ? null : Number(row.read_at)])
+  }
+
   async function seed(): Promise<void> {
     const db = database.getDatabase()
     await db.run(sql`INSERT INTO resource_owner (resource_kind, resource_id, owner_user_id, created_at, organization_id) VALUES
@@ -82,6 +87,10 @@ describe('the host user rows', () => {
       ('s-local', 'local', 'host-owner', 'codex', '/p', 1, 1)`)
     await db.run(sql`INSERT INTO session_admissions (organization_id, admission_id, host_id, owner_user_id, created_at) VALUES
       ('org1', 'a1', 'h1', 'host-owner', 1)`)
+    // The owner's notifications (plans/015): one Local, one of an organization, one read.
+    await db.run(sql`INSERT INTO notifications (id, organization_id, recipient_key, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
+      ('n-local', 'local', 'host-owner', 'e1', 'task.assigned', 'task:t1', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t1"}', '{"kind":"system"}', '{"title":"t"}', 1, 7),
+      ('n-org', 'org1', 'host-owner', 'e2', 'task.assigned', 'task:t2', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t2"}', '{"kind":"system"}', '{"title":"t"}', 1, NULL)`)
     // Stored the way hosts wrote them before users had ids.
     const workThreads = [
       { id: 'c-owner', selectedText: 'a', comment: 'mine', author: 'you', person: OLD_OWNER_PERSON, readBy: [{ userId: 'host-owner', readAt: 5 }] },
@@ -172,6 +181,7 @@ describe('the host user rows', () => {
     expect(stored[0]!.author).toEqual({ kind: 'user', user: { id: { kind: 'account', accountId: 'acc-1' }, displayName: 'Ashton', email: 'a@example.com' } })
     expect(stored[0]!.readBy).toEqual([{ userId: 'acc-1', readAt: 5 }])
     expect(settings.getServerSettings().hostUser?.account).toEqual({ accountId: 'acc-1', displayName: 'Ashton', email: 'a@example.com' })
+    expect(await notificationRows()).toEqual([['n-local', 'acc-1', 7], ['n-org', 'acc-1', null]])
   })
 
   test('unlinking moves the Local rows back; an organization keeps the account', async () => {
@@ -184,5 +194,6 @@ describe('the host user rows', () => {
     expect((await storedWorkThreads())[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
     expect(localOwnerKey()).toBe('local:L1')
     expect(settings.getServerSettings().hostUser?.account).toBeUndefined()
+    expect(await notificationRows()).toEqual([['n-local', 'local:L1', 7], ['n-org', 'acc-1', null]])
   })
 })

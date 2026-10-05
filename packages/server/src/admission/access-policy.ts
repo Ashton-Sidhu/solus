@@ -122,6 +122,8 @@ const resourceRpcRules = {
   rateLimitDecision: editor(ctxAt(0)),
   cancelQueuedPrompt: editor(ctxAt(0)),
   editQueuedPrompt: editor(ctxAt(0)),
+  sessionQueue: editor(ctxAt(0)),
+  sessionQueueChange: editor(ctxAt(0)),
   // Typing in a session is something only someone who may prompt it does.
   presenceSetComposing: editor(sessionFieldAt(0, 'sessionId')),
   presenceSetEditing: editor(workFieldAt(0)),
@@ -215,6 +217,10 @@ const resourceRpcRules = {
   workRemoveUploaded: owner(workIdAt(0)),
   taskExportForCloud: owner(taskIdAt(0)),
   taskRemoveUploaded: owner(taskIdAt(0)),
+  // Showing a device in a session changes that session's workspace. The device
+  // handler also refuses guests: a session share grants no host device access.
+  deviceOpen: editor(sessionFieldAt(0, 'sessionId')),
+  deviceClose: editor(sessionFieldAt(0, 'sessionId')),
 } satisfies Partial<Record<RpcMethod, ResourceRule>>
 
 export const RESOURCE_RPC_RULES: ReadonlyMap<RpcMethod, ResourceRule> = new Map(
@@ -274,7 +280,6 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'connectionsRevokeDevice',
   'typeSafeKeySet',
   'configUpdate',
-  'setAnalyticsConsent',
   'setProjectsBaseDirectory',
   'deleteProject',
   'hostCheckForUpdates',
@@ -307,6 +312,13 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'browserImportCookies',
   // Opting this machine's work into an organization's Insights is the machine's administrator's choice (§6.1).
   'hostSetInsightsOptIn',
+  // Native device setup administers the machine: tools, helpers, SSH device hosts.
+  'deviceConfigure',
+  'deviceHostSave',
+  'deviceHostRemove',
+  'deviceHostTest',
+  'deviceToolUpdate',
+  'deviceHostRetry',
 ])
 
 /**

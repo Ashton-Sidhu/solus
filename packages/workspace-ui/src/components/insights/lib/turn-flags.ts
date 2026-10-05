@@ -5,6 +5,7 @@ import {
   ThumbsUp as GoodIcon,
 } from '@lucide/svelte'
 import type { TurnFlagKind } from '@solus/contracts/observability-types'
+import type { WorkMark } from '@solus/contracts/types'
 
 // How a person's mark on a turn reads and is drawn. The kinds are the
 // contract's; the words, the glyph, and the ink are this surface's.
@@ -40,4 +41,21 @@ export function flagColor(kind: TurnFlagKind): string {
 export function flagTitle(kind: TurnFlagKind, note: string): string {
   const label = flagChoice(kind).label
   return note ? `${label}: ${note}` : label
+}
+
+export interface MarkGroup {
+  kind: TurnFlagKind
+  count: number
+  /** Who marked it so, and why when they said: one person per line. */
+  title: string
+}
+
+/** Readers' marks on a shared report, one group per kind in the menu's order. */
+export function markGroups(marks: readonly WorkMark[]): MarkGroup[] {
+  return TURN_FLAG_CHOICES.flatMap((choice) => {
+    const same = marks.filter((mark) => mark.kind === choice.kind)
+    if (same.length === 0) return []
+    const lines = same.map((mark) => (mark.note ? `${mark.by.displayName}: ${mark.note}` : mark.by.displayName))
+    return [{ kind: choice.kind, count: same.length, title: `${choice.label}\n${lines.join('\n')}` }]
+  })
 }

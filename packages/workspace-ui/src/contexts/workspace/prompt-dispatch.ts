@@ -1,4 +1,6 @@
+import { attachmentPromptPath, composeAttachmentContext } from './prompt-composer'
 import type { Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
+import type { QueueAttachment } from '@solus/contracts/session-queue'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from '@solus/contracts/review'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { projectsStore } from '../projects/projects.store.svelte'
@@ -15,6 +17,8 @@ import { uuid } from '@solus/contracts/uuid'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot, WORKING_TREE_BUSY_CODE } from '@solus/contracts/types'
 import { busyTreeQuestion } from '../git/busy-tree.store.svelte'
 import { requestConversationScrollToBottom } from './session-plan-operations'
+import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { connectionsStore } from '../connections/connections.store.svelte'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -153,7 +157,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; taskRole?: 'lead'; goalObjective?: string }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; taskRole?: 'lead'; goalObjective?: string }): void {
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -174,6 +178,8 @@ export class PromptDispatch {
           delivery: options.delivery,
           imageAttachments: options.imageAttachments,
           imageAttachmentRefs: options.imageAttachmentRefs,
+          queueAttachments: options.queueAttachments,
+          queueAttachmentContext: options.queueAttachmentContext,
         },
       })
     }
@@ -243,11 +249,11 @@ export class PromptDispatch {
           // so the draft goes back to the composer for the retry once the cause is fixed.
           // A cancelled start in a busy working tree ran nothing either.
           const code = rpcErrorCode(err)
-          if ((turnRefusalSchema.safeParse(code).success || code === WORKING_TREE_BUSY_CODE) && !session.prompt.text) {
+          const refusal = turnRefusalSchema.safeParse(code)
+          if ((refusal.success || code === WORKING_TREE_BUSY_CODE) && !session.prompt.text) {
             session.prompt.text = options.displayPrompt || options.prompt
           }
           // The card says which organization the turn needs and what to do; only this client sees it.
-          const refusal = turnRefusalSchema.safeParse(code)
           if (refusal.success) turnRefusalStore.note({ serverId: session.run.serverId, sessionId: session.id, code: refusal.data, message: err.message })
         }
       })
@@ -269,6 +275,8 @@ export class PromptDispatch {
       delivery: record.payload.delivery === 'steer' ? 'steer' : 'queue',
       imageAttachments: record.payload.imageAttachments,
       imageAttachmentRefs: record.payload.imageAttachmentRefs,
+      queueAttachments: record.payload.queueAttachments,
+      queueAttachmentContext: record.payload.queueAttachmentContext,
     })
     if (result.disposition === 'duplicate') return
   }
@@ -398,11 +406,11 @@ export class PromptDispatch {
       return false
     }
 
-    const resolvedPath = projectPath || session.run.workingDirectory
+    const resolvedPath = projectPath || chatFolderOnSend(session) || session.run.workingDirectory
     if (
       !session.run.pendingHostDispatch
       && session.run.serverId !== LOCAL_SERVER_ID
-      && (!resolvedPath || resolvedPath === '~')
+      && !resolvedPath
     ) {
       toasts.error('Choose a project on the remote host before sending')
       return false
@@ -421,7 +429,8 @@ export class PromptDispatch {
       return true
     }
 
-    const isBusy = isSessionBusyStatus(session.status)
+    if (session.outboundPrompts.some((entry) => entry.kind === 'provider_switch')) delivery = 'queue'
+    const isBusy = isSessionBusyStatus(session.status) || !!session.queueHeld || session.outboundPrompts.some((entry) => !!entry.queueId)
     const input = session.prompt
     const directReview = directReviewRequest(prompt)
     if (directReview) {
@@ -474,7 +483,7 @@ export class PromptDispatch {
     }
     // A session does not add its folder as a project: only opening, cloning,
     // or adding one does (`ProjectsStore.addProject`). It moves a known one up.
-    if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
+    if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~' && !isChat(resolvedPath)) {
       projectsStore.touch({
         serverId: session.run.serverId,
         projectRoot: session.run.gitContext?.repoRoot ?? resolvedPath,
@@ -543,6 +552,11 @@ export class PromptDispatch {
     this.promptTab(targetTabId, {
       prompt: fullPrompt,
       displayPrompt: prompt,
+      queueAttachments: attachments?.map((attachment) => ({ id: attachment.id, name: attachment.name, type: attachment.type,
+        hostPath: attachmentPromptPath(attachment, session.run.serverId) || undefined,
+        dataUrl: attachment.type === 'image' && !attachment.hostPath ? attachment.dataUrl : undefined, mimeType: attachment.mimeType, size: attachment.size,
+        context: attachment.type === 'image' ? undefined : composeAttachmentContext([attachment], session.run.serverId) })),
+      queueAttachmentContext: attachments ? composeAttachmentContext(attachments.filter((item) => item.type !== 'image'), session.run.serverId) : undefined,
       clientPromptId,
       delivery,
       imageAttachments: imagePayload.inline,
@@ -700,4 +714,18 @@ export class PromptDispatch {
       this.workspace.eventReducer.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
     })
   }
+}
+
+/**
+ * The folder a new chat runs in, named when its first prompt is sent: the chat's
+ * own folder in its host's projects root. Null when the session is not a new
+ * chat, or the host has not said where its projects are yet; the host then names
+ * the same folder itself, and the next send learns it.
+ */
+function chatFolderOnSend(session: Session): string | null {
+  if (session.run.workingDirectory !== NEW_CHAT_DIRECTORY) return null
+  const projectsRoot = connectionsStore.capabilitiesFor(session.run.serverId)?.projectsBaseDirectory
+  if (projectsRoot) return chatFolderIn(projectsRoot, session.id)
+  void connectionsStore.refreshCapabilities({ serverId: session.run.serverId })
+  return null
 }

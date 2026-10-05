@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NOTIFICATION_KINDS } from '../notification-hub'
 import { workspaceIdSchema } from './schemas'
 
 export const WORKSPACE_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -33,6 +34,8 @@ export const workspaceWorkSearchQuerySchema = z.strictObject({
 export const workspaceSessionQuerySchema = z.strictObject({
   projectPath: z.string().max(4096).optional(),
   includeWorktrees: z.enum(['true', 'false']).optional(),
+  /** Only chats, the sessions with no project, in every chat folder. */
+  chats: z.enum(['true', 'false']).optional(),
   ...page,
   projectId: workspaceIdSchema.optional(),
   provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
@@ -71,6 +74,14 @@ export const workspaceMyActivityQuerySchema = z.strictObject({
   since: z.iso.datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 })
+/** The caller's notifications (plans/015-notifications-hub.md): one view, optionally one kind. */
+export const workspaceNotificationQuerySchema = z.strictObject({
+  view: z.enum(['unread', 'all', 'archived']).default('all'),
+  kind: z.enum(NOTIFICATION_KINDS).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().min(1).max(2048).optional(),
+})
+export type WorkspaceNotificationQuery = z.input<typeof workspaceNotificationQuerySchema>
 export type WorkspacePageQuery = z.infer<typeof workspacePageQuerySchema>
 export type WorkspaceTaskQuery = z.infer<typeof workspaceTaskQuerySchema>
 export type WorkspaceWorkQuery = z.infer<typeof workspaceWorkQuerySchema>

@@ -21,7 +21,7 @@
   );
 
   function save(next: SavedLens[]) {
-    settings.update({ savedLenses: next });
+    settings.setPersonal("savedLenses", next);
   }
 
   function change(id: string, patch: Partial<Omit<SavedLens, "id">>) {
@@ -49,7 +49,7 @@
 <div class="flex flex-col gap-3" data-testid="saved-lenses">
   {#each lenses as lens, index (lens.id)}
     <div
-      class="flex flex-col overflow-hidden rounded-lg border border-border bg-background transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+      class="flex flex-col overflow-hidden rounded-lg border border-input bg-white dark:bg-input/30 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
     >
       <div class="flex items-center gap-0.5 pt-1 pr-1.5 pl-1">
         <Input

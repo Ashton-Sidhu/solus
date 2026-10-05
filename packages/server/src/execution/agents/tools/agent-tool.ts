@@ -7,6 +7,24 @@ import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 export interface AgentToolResult {
   ok: boolean
   text: string
+  /** One image the agent sees directly, not as a host file path. PNG only and
+   *  bounded (`MAX_AGENT_TOOL_IMAGE_BYTES`); both provider adapters send it. */
+  image?: AgentToolImage
+}
+
+export interface AgentToolImage {
+  mimeType: 'image/png'
+  /** Base64 of the PNG bytes. */
+  data: string
+}
+
+/** Larger images are refused: providers reject oversized tool results. */
+export const MAX_AGENT_TOOL_IMAGE_BYTES = 5 * 1024 * 1024
+
+/** A tool-result image, or null when the bytes are too large to send. */
+export function agentToolImage(png: Uint8Array): AgentToolImage | null {
+  if (png.byteLength > MAX_AGENT_TOOL_IMAGE_BYTES) return null
+  return { mimeType: 'image/png', data: Buffer.from(png).toString('base64') }
 }
 
 export interface AgentToolContext {
@@ -30,11 +48,11 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   description: string
   inputFields: TFields
   requiresApproval: boolean
-  /** Keep this tool's description in every prompt. Claude Code defers MCP tool
-   *  descriptions behind tool search by default, and a tool whose description
+  /** Keep this tool's description in every prompt. Both provider adapters defer
+   *  other tool descriptions behind tool search, and a tool whose description
    *  carries guidance the agent needs before it decides to call anything —
    *  render_artifact's fence rule, create_work's embed rule — is useless as a
-   *  bare name. Solus has no system prompt of its own to say it elsewhere. */
+   *  bare name. Tool-specific guidance must be available before that choice. */
   alwaysLoad?: boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,

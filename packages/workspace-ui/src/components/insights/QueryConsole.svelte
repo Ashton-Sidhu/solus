@@ -58,8 +58,6 @@
     onDeleteSaved: (id: string) => void;
     onSaveCurrent: () => void;
     onHistory: (run: QueryRunRecord) => void;
-    /** Mobile composes nothing in v1: presets and saved queries only. */
-    readOnly?: boolean;
   }
 
   let {
@@ -86,7 +84,6 @@
     onDeleteSaved,
     onSaveCurrent,
     onHistory,
-    readOnly = false,
   }: Props = $props();
 
   let focused = $state(false);
@@ -248,7 +245,6 @@
             class="h-auto rounded-none border-0 bg-transparent p-0 text-insights-query shadow-none focus-visible:ring-0 dark:bg-transparent"
             placeholder="Which sessions were slowest after 21:00?"
             value={question}
-            disabled={readOnly}
             oninput={(event) => onQuestionChange(event.currentTarget.value)}
             onkeydown={(event) => onKey(event, activeForm)}
             onfocus={() => (focused = true)}
@@ -290,7 +286,6 @@
             onRun={() => onRun(activeForm)}
             {sources}
             {schemaRevision}
-            readOnly={readOnly}
           />
         {/if}
       </div>
@@ -357,30 +352,26 @@
     >
       <span class="truncate" aria-live="polite">{resultNote}</span>
     </span>
-    {#if !readOnly}
-      <button
-        type="button"
-        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground active:scale-[0.96]"
-        onclick={isPopout ? closeEditorPopout : openEditorPopout}
-        title={isPopout ? "Return to Insights" : "Open the query console in a focused view"}
-        aria-label={isPopout ? "Close focused query console" : "Open query console"}
-      >
-        {#if isPopout}
-          <ArrowsInIcon size={12} aria-hidden="true" />
-        {:else}
-          <ArrowsOutIcon size={12} aria-hidden="true" />
-        {/if}
-      </button>
-    {/if}
-    {#if !readOnly}
-      <button
-        type="button"
-        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
-        onclick={onSaveCurrent}
-        title="Save this query"
-        aria-label="Save this query"><BookmarkSimpleIcon size={12} /></button
-      >
-    {/if}
+    <button
+      type="button"
+      class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground active:scale-[0.96]"
+      onclick={isPopout ? closeEditorPopout : openEditorPopout}
+      title={isPopout ? "Return to Insights" : "Open the query console in a focused view"}
+      aria-label={isPopout ? "Close focused query console" : "Open query console"}
+    >
+      {#if isPopout}
+        <ArrowsInIcon size={12} aria-hidden="true" />
+      {:else}
+        <ArrowsOutIcon size={12} aria-hidden="true" />
+      {/if}
+    </button>
+    <button
+      type="button"
+      class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
+      onclick={onSaveCurrent}
+      title="Save this query"
+      aria-label="Save this query"><BookmarkSimpleIcon size={12} /></button
+    >
     <button
       type="button"
       class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
@@ -473,7 +464,6 @@
     x={savedMenu.x}
     y={savedMenu.y}
     {query}
-    canDelete={!readOnly}
     onOpen={() => onSaved(query)}
     onDelete={() => onDeleteSaved(query.id)}
     onClose={() => (savedMenu = null)}

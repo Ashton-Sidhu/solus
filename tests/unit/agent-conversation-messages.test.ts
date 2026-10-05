@@ -3,6 +3,7 @@ import type { AgentConversationRef, AgentExchange, Message, SentSessionMessage, 
 import { formatParentPrompt, formatSessionNotice } from '@solus/contracts/session-exchange'
 import {
   agentConversationCardState,
+  agentConversationLink,
   agentMessages,
   pendingRequest,
   planAwaitingDecision,
@@ -249,4 +250,37 @@ describe('a plan the other agent brought back', () => {
     ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'running' })
     expect(planAwaitingDecision(ref)).toBeNull()
   })
+})
+
+describe("a card's status line", () => {
+  // WHY: the dot, the word, and the detail are the only things that say where
+  // the other session stands; a session that never started must not read as
+  // one that broke, and a reply shows its first words.
+  test('names the live state, tells a launch failure from a stop, and shows the reply', () => {
+    const live = restoredRef({ status: 'running' })
+    expect(agentConversationLink(live, 'replying', false)).toEqual({ tone: 'live', label: 'Running', detail: '' })
+    expect(agentConversationLink(live, 'dispatching', true)).toMatchObject({ tone: 'live', label: 'Starting' })
+    expect(agentConversationLink(live, 'failed', true)).toMatchObject({ tone: 'failed', detail: 'Never started' })
+    expect(agentConversationLink(live, 'failed', false)).toMatchObject({ detail: 'Stopped replying' })
+
+    const replied = restoredRef({ status: 'answered', reply: '- Moved the `diff` panel' })
+    expect(agentConversationLink(replied, 'replied', false)).toEqual({
+      tone: 'done',
+      label: 'Completed',
+      detail: 'Moved the diff panel',
+    })
+  })
+})
+
+
+test('all clients show nested waiting and recover a saved final outcome', () => {
+  const ref = restoredRef({})
+  const carried: SentSessionMessage = { messageId: 'm1', targetAgentSessionId: child, state: 'waiting_for_children' }
+  expect(agentConversationCardState(ref, carried)).toBe('children')
+  expect(agentConversationLink(ref, 'children', false)).toEqual({ tone: 'live', label: 'Waiting', detail: 'Waiting on agents' })
+  carried.state = 'settled'
+  carried.outcome = 'completed'
+  expect(agentConversationCardState(ref, carried)).toBe('replied')
+  carried.outcome = 'failed'
+  expect(agentConversationCardState(ref, carried)).toBe('failed')
 })

@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { ROUTING_PROVIDERS, type ModelRouting } from '@solus/contracts/model-routing'
+import { ROUTING_PROVIDERS } from '@solus/contracts/model-routing'
 import type { AgentMetadata } from '@solus/contracts/types'
 
 /** Every model Auto can route to: the installed routing providers' own models,
@@ -12,70 +12,43 @@ export function routingModelsFor(agents: AgentMetadata[]): { value: string, labe
   })
 }
 
-interface RoutingState {
-  config: ModelRouting | null
+interface RoutingModelsState {
   agents: AgentMetadata[]
   loading: boolean
-  saving: boolean
   error: string
-  revision: number
 }
 
+/**
+ * The models one host can route to: a host capability. The routing choices
+ * themselves are the person's (`modelRouting` in the personal settings), so
+ * changing hosts shows what this host offers without changing them.
+ */
 class ModelRoutingStore {
-  states = new SvelteMap<string, RoutingState>()
+  states = new SvelteMap<string, RoutingModelsState>()
   private loads = new Map<string, symbol>()
 
   watch(serverId: string): () => void {
-    const stopConfig = serverConnections.eventsFor(serverId).subscribe('config.changed', ({ config }) => {
-      const state = this.states.get(serverId)
-      if (state) this.states.set(serverId, { ...state, config: config.modelRouting, revision: state.revision + 1 })
-    })
     const stopStatus = serverConnections.onStatusChange((changedId, status) => {
       if (changedId === serverId && status === 'connected') void this.load(serverId)
     })
     void this.load(serverId)
-    return () => { stopConfig(); stopStatus() }
+    return stopStatus
   }
 
   async load(serverId: string): Promise<void> {
     const load = Symbol()
     this.loads.set(serverId, load)
     const previous = this.states.get(serverId)
-    const revision = (previous?.revision ?? 0) + 1
-    this.states.set(serverId, { config: null, agents: [], saving: false, ...previous, loading: true, error: '', revision })
-    const api = serverConnections.apiFor(serverId)
+    this.states.set(serverId, { agents: previous?.agents ?? [], loading: true, error: '' })
     try {
-      const [snapshot, models] = await Promise.all([api.configGet(), api.textGenerationSettingsGet()])
+      const models = await serverConnections.apiFor(serverId).textGenerationSettingsGet()
       if (this.loads.get(serverId) !== load) return
-      const current = this.states.get(serverId)!
-      this.states.set(serverId, { ...current,
-        config: current.revision === revision ? snapshot.config.modelRouting : current.config,
-        agents: models.agents, loading: false,
-        error: snapshot.config.modelRouting ? '' : 'Update this host to use model routing.',
-      })
+      this.states.set(serverId, { agents: models.agents, loading: false, error: '' })
     } catch {
       if (this.loads.get(serverId) !== load) return
-      const current = this.states.get(serverId)!
-      this.states.set(serverId, { ...current, loading: false, error: 'Could not load model routing.' })
+      this.states.set(serverId, { agents: previous?.agents ?? [], loading: false, error: 'Could not load this host’s models.' })
     } finally {
       if (this.loads.get(serverId) === load) this.loads.delete(serverId)
-    }
-  }
-
-  async save(serverId: string, config: ModelRouting): Promise<void> {
-    const state = this.states.get(serverId)
-    if (!state?.config || state.saving || state.loading) return
-    const revision = state.revision + 1
-    this.states.set(serverId, { ...state, saving: true, error: '', revision })
-    try {
-      const snapshot = await serverConnections.apiFor(serverId).configUpdate({ modelRouting: config })
-      const current = this.states.get(serverId)!
-      this.states.set(serverId, { ...current, saving: false,
-        config: current.revision === revision ? snapshot.config.modelRouting : current.config,
-      })
-    } catch {
-      const current = this.states.get(serverId)!
-      this.states.set(serverId, { ...current, saving: false, error: 'Could not save model routing. Try again.' })
     }
   }
 }

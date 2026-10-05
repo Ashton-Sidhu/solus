@@ -4,6 +4,7 @@ import { markedPassage, queryWords } from '@solus/contracts/word-match'
 import type { RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
+import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
 import { workspaceSessionAdmissionRequestSchema } from '@solus/contracts/solus-api'
 import type { WorkspaceSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
@@ -129,6 +130,8 @@ export class SessionApiOperations {
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
         : sql`project_path = ${encoded}`)
     }
+    // A chat's folder is `.solus-chats/<id>`, which the provider spells `--solus-chats-<id>`.
+    if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
     const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1)), query.limit, item => ({ time: Date.parse(item.createdAt), id: item.id }))
     return { ...page, indexing: sessionRecordsIndexing() }

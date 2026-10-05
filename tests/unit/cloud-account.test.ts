@@ -17,6 +17,23 @@ function recordingFetch(respond: (url: string, init: RequestInit) => Response) {
 const ORIGIN = 'https://app.solus.sh'
 
 describe('the cloud account source', () => {
+  test('cloud agent status reads the account database endpoint, never an execution host', async () => {
+    const seats = [
+      { provider: 'claude-code', connected: true, updatedAt: '2026-10-02T18:34:43.873Z' },
+      { provider: 'codex', connected: false, updatedAt: null },
+    ]
+    const good = recordingFetch((_url, init) => {
+      expect(init.credentials).toBe('same-origin')
+      expect(init.cache).toBe('no-store')
+      return Response.json({ seats })
+    })
+    expect(await cookieCloudAccount(ORIGIN, good.fetchImpl).readAgentSeats()).toEqual(seats)
+    expect(good.calls).toEqual([{ url: `${ORIGIN}/v1/account/agent-seats`, method: 'GET', body: null }])
+    for (const response of [Response.json({ seats: [{ provider: 'claude-code', connected: 'yes' }] }), new Response(null, { status: 503 })]) {
+      expect(await cookieCloudAccount(ORIGIN, recordingFetch(() => response).fetchImpl).readAgentSeats()).toBeNull()
+    }
+  })
+
   test('reads the account and treats a malformed answer as none', async () => {
     const account = { userId: 'ada', onboardingCompletedAt: null, activeOrganizationId: 'org', organizations: [] }
     const good = recordingFetch(() => Response.json(account))

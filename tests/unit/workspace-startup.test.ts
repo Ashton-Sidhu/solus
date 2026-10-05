@@ -43,7 +43,6 @@ for (const client of ['desktop', 'web'] as const) {
       requestAnimationFrame: (callback: FrameRequestCallback) => { frames.push(callback); return frames.length },
       globalThis: { setTimeout() {} },
       toasts: { dismiss() {}, error(message: string) { throw new Error(message) } },
-      webPushState: { init() {} },
       installServiceWorkerMessageBridge() {},
       touchLastConnected() {},
       setActiveServerId() {},

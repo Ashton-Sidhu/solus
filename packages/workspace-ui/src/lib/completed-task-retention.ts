@@ -1,4 +1,4 @@
-export { DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS } from '@solus/contracts/host-config'
+export { DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS } from '@solus/contracts/settings'
 
 export const SIDEBAR_COMPLETED_RETENTION_CHECK_MS = 60 * 60 * 1000
 

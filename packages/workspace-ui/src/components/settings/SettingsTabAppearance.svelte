@@ -1,15 +1,16 @@
 <script lang="ts">
-  /** Theme and type: device-local, so no host frame — the same choice follows
-   *  this client to every host it connects to. */
+  /** Theme and type are personal: no host frame, and they follow the person to
+   *  every host (and every client, with sync on). An installed font is this
+   *  device's override; This device shows it and turns it back. */
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,
     DOCUMENT_FONT_FAMILIES,
     PROMPT_FONT_FAMILIES,
     IS_MAC_OS,
-  } from "../../contexts/app/settings.context.svelte";
+  } from "../../contexts/app/settings-display";
   import { getSettingsContext } from "../../contexts";
-  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/host-config";
+  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/settings";
   import { Switch } from "../ui/switch";
   import FontFamilyPicker from "./FontFamilyPicker.svelte";
   import SettingsSection from "./SettingsSection.svelte";
@@ -150,7 +151,7 @@
 <SettingsSection label="Theme" visible={isVisible("theme")} plain>
   <ThemeModeTiles
     value={theme.themeMode}
-    onSelect={(mode) => theme.update({ themeMode: mode })}
+    onSelect={(mode) => theme.setPersonal("themeMode", mode)}
   />
 </SettingsSection>
 
@@ -176,7 +177,7 @@
       Advanced
       <Switch
         checked={theme.typographyAdvanced}
-        onCheckedChange={(next) => theme.update({ typographyAdvanced: next })}
+        onCheckedChange={(next) => theme.setLayout("typographyAdvanced", next)}
         size="sm"
         aria-label="Show advanced typography settings"
       />
@@ -192,7 +193,7 @@
       <FontFamilyPicker
         presets={appFontPresets}
         value={theme.fontFamily}
-        onSelect={(value) => theme.update({ fontFamily: value })}
+        onSelect={(value) => theme.setFont("fontFamily", value)}
         ariaLabel="Interface font"
       />
       <FontSizeSelect
@@ -200,7 +201,7 @@
         min={10}
         max={24}
         ariaLabel="Interface font size"
-        onChange={(fontSize) => theme.update({ fontSize })}
+        onChange={(fontSize) => theme.setPersonal("fontSize", fontSize)}
       />
     {/snippet}
     {#snippet body()}
@@ -217,7 +218,7 @@
       <FontFamilyPicker
         presets={PROMPT_FONT_FAMILIES}
         value={theme.promptFontFamily}
-        onSelect={(value) => theme.update({ promptFontFamily: value })}
+        onSelect={(value) => theme.setFont("promptFontFamily", value)}
         ariaLabel="Prompt font"
       />
       <FontSizeSelect
@@ -225,7 +226,7 @@
         min={10}
         max={24}
         ariaLabel="Prompt font size"
-        onChange={(promptFontSize) => theme.update({ promptFontSize })}
+        onChange={(promptFontSize) => theme.setPersonal("promptFontSize", promptFontSize)}
       />
     {/snippet}
     {#snippet body()}
@@ -243,7 +244,7 @@
       <FontFamilyPicker
         presets={DOCUMENT_FONT_FAMILIES}
         value={theme.documentFontFamily}
-        onSelect={(value) => theme.update({ documentFontFamily: value })}
+        onSelect={(value) => theme.setFont("documentFontFamily", value)}
         ariaLabel="Document font"
       />
       <FontSizeSelect
@@ -251,7 +252,7 @@
         min={12}
         max={28}
         ariaLabel="Document font size"
-        onChange={(documentFontSize) => theme.update({ documentFontSize })}
+        onChange={(documentFontSize) => theme.setPersonal("documentFontSize", documentFontSize)}
       />
     {/snippet}
     {#snippet body()}
@@ -268,7 +269,7 @@
       <FontFamilyPicker
         presets={codeFontPresets}
         value={theme.codeFontFamily}
-        onSelect={(value) => theme.update({ codeFontFamily: value })}
+        onSelect={(value) => theme.setFont("codeFontFamily", value)}
         ariaLabel="Code font"
         requireMonospace
       />
@@ -277,7 +278,7 @@
         min={8}
         max={20}
         ariaLabel="Code font size"
-        onChange={(codeFontSize) => theme.update({ codeFontSize })}
+        onChange={(codeFontSize) => theme.setPersonal("codeFontSize", codeFontSize)}
       />
     {/snippet}
     {#snippet body()}
@@ -297,7 +298,7 @@
         max={100}
         step={5}
         value={theme.assistantTextOpacity}
-        oninput={(event) => theme.update({ assistantTextOpacity: event.currentTarget.valueAsNumber })}
+        oninput={(event) => theme.setPersonal("assistantTextOpacity", event.currentTarget.valueAsNumber)}
         class="w-32 cursor-pointer accent-(--primary)"
         aria-label="Reply text opacity"
       />
@@ -315,7 +316,7 @@
     {#snippet control()}
       <Switch
         checked={theme.fontSmoothing}
-        onCheckedChange={(next) => theme.update({ fontSmoothing: next })}
+        onCheckedChange={(next) => theme.setDevice("fontSmoothing", next)}
         size="default"
         aria-label="Font smoothing"
       />

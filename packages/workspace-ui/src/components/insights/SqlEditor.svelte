@@ -37,7 +37,6 @@
     /** Rebuilds the language extensions; bump when the schema loads. */
     schemaRevision?: number;
     placeholder?: string;
-    readOnly?: boolean;
     /** The inline console shows seven rows.
      *  The pop-out takes the editor into a focused, viewport-bounded surface. */
     surface?: "inline" | "popout";
@@ -50,7 +49,6 @@
     sources,
     schemaRevision = 0,
     placeholder = "select tool, count(*) from events where kind = 'tool_call' group by 1",
-    readOnly = false,
     surface = "inline",
   }: Props = $props();
 
@@ -250,7 +248,6 @@
         keymap.of([...defaultKeymap, ...historyKeymap]),
         syntaxHighlighting(highlight),
         placeholderExtension(placeholder),
-        EditorState.readOnly.of(readOnly),
         EditorView.lineWrapping,
         theme,
         language.of(sqlEditorExtensions(sources)),
@@ -307,7 +304,7 @@
    */
   export function insertAtCursor(text: string): void {
     const current = view;
-    if (!current || readOnly) return;
+    if (!current) return;
     const { from, to } = current.state.selection.main;
     const before = from > 0 ? current.state.doc.sliceString(from - 1, from) : "";
     const insert = before && !/[\s(,.]/.test(before) ? ` ${text}` : text;

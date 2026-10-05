@@ -287,7 +287,9 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
     } else if (status.compact_result) {
       // The status carrying a result is the one that ends the compaction. The
       // boundary event settles it too; both land on an idempotent stop.
-      events.push({ type: 'context_compaction', state: 'stop', trigger: 'auto' })
+      const stop: Extract<NormalizedEvent, { type: 'context_compaction' }> = { type: 'context_compaction', state: 'stop', trigger: 'auto' }
+      if (status.compact_result === 'failed') stop.failed = true
+      events.push(stop)
     }
     const uiMode = SDK_TO_UI_PERMISSION_MODE[status.permissionMode]
     if (uiMode) events.push({ type: 'permission_mode_changed', permissionMode: uiMode })
@@ -302,6 +304,10 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
     }
     if (event.compact_metadata.duration_ms !== undefined) {
       compaction.durationMs = event.compact_metadata.duration_ms
+    }
+    compaction.preTokens = event.compact_metadata.pre_tokens
+    if (event.compact_metadata.post_tokens !== undefined) {
+      compaction.postTokens = event.compact_metadata.post_tokens
     }
     return [compaction]
   }

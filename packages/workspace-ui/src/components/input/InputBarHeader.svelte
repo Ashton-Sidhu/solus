@@ -5,7 +5,6 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
-    connectionsStore,
     getWorkspaceContext,
     getSessionEnvironmentStore,
     serversStore,
@@ -102,10 +101,7 @@
   // The project keeps its own name even when the session runs in a worktree of
   // it, so the label reads off the repo root rather than the checkout.
   const projectLabel = $derived(
-    projectDirLabel(
-      gitHome.projectRoot ?? projectDir,
-      connectionsStore.chatFolderFor(projectHostId(run ?? session.defaultRunConfig)),
-    ),
+    projectDirLabel(gitHome.projectRoot ?? projectDir),
   );
 
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);

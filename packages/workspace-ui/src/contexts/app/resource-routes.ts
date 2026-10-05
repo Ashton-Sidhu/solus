@@ -21,6 +21,8 @@ export type ResourceRoute =
   | { kind: 'task'; taskId: string; serverId?: string }
   | { kind: 'session'; sessionId: string; serverId: string }
   | { kind: 'pull-request'; target: PullRequestOpenTarget; serverId?: string; projectDirectory?: string; navTarget?: NavTarget }
+  /** One automation and its runs, on the host that stores it. */
+  | { kind: 'automation'; automationId: string; serverId: string }
   /** Where a code-host connection is made: the workspace's API access settings. */
   | { kind: 'connections'; serverId?: string }
 
@@ -28,7 +30,7 @@ export type ResourceRouteKind = ResourceRoute['kind']
 
 /** Every kind the workspace shells (desktop, web) open in place. */
 export const WORKSPACE_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<ResourceRouteKind>([
-  'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'connections',
+  'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'automation', 'connections',
 ])
 
 /** The guest shell (docs/plans/multiplayer-sharing.md §4.2): the shared resource and what it reaches, nothing host-wide. */
@@ -59,6 +61,9 @@ export function openResourceInWorkspace(session: WorkspaceContext, route: Resour
         serverId: route.serverId,
         target: route.navTarget,
       })
+      return
+    case 'automation':
+      session.openAutomations(route.automationId)
       return
     case 'connections':
       session.showSettings('api-access')

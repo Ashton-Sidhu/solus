@@ -32,7 +32,7 @@ export const STATUS_RANK = {
 export const ATTENTION_RANK = {
   awaiting: 6,
   awaiting_plan: 6,
-  queued: 5,
+  limited: 5,
   error: 4,
   running: 3,
   unread: 2,
@@ -149,7 +149,7 @@ export function taskStatusFor(attention: AttentionState, markedDone = false): Ta
       return 'error'
     case 'awaiting_plan':
       return 'plan'
-    case 'queued':
+    case 'limited':
       return 'limit'
     case 'running':
       return 'running'
@@ -349,6 +349,9 @@ export interface SidebarTask {
   createdAt: number
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
+  /** While a session of the row is rate limited: when its provider window
+   *  reopens, in epoch ms. Absent when nothing is limited or no reset is known. */
+  limitResetsAt?: number
   lifecycle: 'active' | 'snoozed' | 'completed'
   completedAt: number
   snoozedUntil: number
@@ -533,6 +536,7 @@ export function reconcileSidebarTasks(
       previous.unread === next.unread &&
       previous.createdAt === next.createdAt &&
       previous.runStartedAt === next.runStartedAt &&
+      previous.limitResetsAt === next.limitResetsAt &&
       previous.lifecycle === next.lifecycle &&
       previous.completedAt === next.completedAt &&
       previous.snoozedUntil === next.snoozedUntil &&
@@ -586,12 +590,30 @@ export function sortSidebarRowsByCreation(tasks: SidebarTask[]): SidebarTask[] {
  *  whole column rebuild on each one. */
 export type RowActivity = (task: SidebarTask) => number
 
+/** Statuses of an agent that is busy and does not need the user: a running
+ *  turn, background work after a finished turn, or a wait on a rate limit.
+ *  These rows fold into the Working section until they come back to the user
+ *  with a question, a plan, an error, or a finished turn. */
+export function isWorkingStatus(status: TaskStatus): boolean {
+  return status === 'running' || status === 'background' || status === 'limit'
+}
+
+/** Order the Tasks and Sessions sections newest first by when each row last
+ *  came back to the user, so a row that leaves the Working section lands on
+ *  top (`SidebarReturnOrder`). */
+export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowActivity): SidebarTask[] {
+  const returned = new Map(tasks.map((task) => [task, returnedAt(task)]))
+  return tasks.toSorted((a, b) =>
+    (returned.get(b) ?? 0) - (returned.get(a) ?? 0) || a.id.localeCompare(b.id),
+  )
+}
+
 /**
  * Rank tasks by urgency, then most recent activity. This is for the *pickers*,
  * which are read top-down in one glance and gain from putting the loudest task
- * first. The sidebar list itself never sorts: a row you learned the position of
- * has to still be there the next time you look, so open tasks keep the order
- * they arrived in and status is carried by the glyph alone.
+ * first. The sidebar list does not rank by status: the glyph carries it. Busy
+ * rows fold into the Working section, and the Tasks and Sessions sections are
+ * ordered by when each row came back to the user (`sortRowsByReturn`).
  */
 export function sortTasks(tasks: SidebarTask[], activityAt: RowActivity): SidebarTask[] {
   const activity = new Map(tasks.map((task) => [task, activityAt(task)]))

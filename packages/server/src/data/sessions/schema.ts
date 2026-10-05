@@ -1,4 +1,4 @@
-import { bigint, defineTable, integer, text } from '../../db/schema/define-table'
+import { bigint, defineTable, integer, json, text } from '../../db/schema/define-table'
 
 /**
  * The collaboration plane's session records
@@ -110,6 +110,12 @@ export const sessionStates = defineTable('session_states', {
   snooze_note: text(),
   /** The last prompt the session received. */
   last_prompt_at: bigint(),
+  /**
+   * The execution preferences the session's last run carried
+   * (`ExecutionPreferences`; plans/018 §6): what a follow-up nobody typed runs
+   * with after that run, or the host, is gone.
+   */
+  execution_preferences: json(),
   organization_id: text({ notNull: true, default: 'local' }),
 }, {
   indexes: [{ name: 'session_states_settled', columns: ['settled_at'] }],

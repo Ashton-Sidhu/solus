@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { activitySchema } from '../activity'
+import { hubNotificationSchema } from '../notification-hub'
 
 const datetime = z.iso.datetime({ offset: true })
 const nullableText = (max: number) => z.string().max(max).nullable()
@@ -82,7 +83,7 @@ export const workspaceCapabilitiesSchema = z.strictObject({
   serviceId: workspaceIdSchema,
   mode: z.enum(['combined-host', 'solus-api']),
   apiVersion: z.string().max(32),
-  capabilities: z.array(z.enum(['tasks', 'works', 'session-records', 'insights'])).max(4).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
+  capabilities: z.array(z.enum(['tasks', 'works', 'session-records', 'insights', 'notifications'])).max(5).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   events: z.strictObject({ transport: z.literal('socket.io'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
 }).meta({ description: 'Features supported by this deployment, not permission grants. Insights currently requires organization context. HTTP works without a connected event socket.' })
 export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
@@ -102,6 +103,8 @@ export const workspaceTaskSummarySchema = z.strictObject({
   projectId: workspaceIdSchema.nullable(),
   status: taskStatus,
   assignee: nullableText(256),
+  /** The Solus person assigned, by user id. `assignee` stays the display or provider name. */
+  assigneeUserId: workspaceIdSchema.nullable().optional(),
   priority: taskPriority.nullable(),
   labels: taskLabels,
   dueDate: z.iso.date().nullable(),
@@ -129,6 +132,7 @@ export const workspaceCreateTaskSchema = z.strictObject({
   projectId: workspaceIdSchema.nullable().optional(),
   status: taskStatus.optional(),
   assignee: nullableText(256).optional(),
+  assigneeUserId: workspaceIdSchema.nullable().optional(),
   priority: taskPriority.nullable().optional(),
   labels: taskLabels.optional(),
   dueDate: z.iso.date().nullable().optional(),
@@ -253,6 +257,7 @@ export const workspaceRequestWorkReviewSchema = z.strictObject({
   reviewerIds: z.array(workspaceIdSchema).min(1).max(50),
   message: z.string().max(2000).optional(),
   expectedContentVersion: z.number().int().min(0).meta({ description: 'The `contentVersion` of the body the reviewers are asked about. A request against a later body is refused with STALE_VERSION.' }),
+  requestId: z.string().min(1).max(128).optional().meta({ description: 'Names this request. A retry with the same id notifies no reviewer twice; omit it or send a new one to ask again.' }),
 }).meta({ description: 'Asks members to review the work as it is at `expectedContentVersion`. Review is information only: it blocks nothing.', examples: [{ reviewerIds: ['user_123'], message: 'Please check the rollout plan.', expectedContentVersion: 4 }] })
 export type WorkspaceRequestWorkReview = z.infer<typeof workspaceRequestWorkReviewSchema>
 
@@ -469,3 +474,26 @@ export const workspaceActivityListSchema = z.strictObject({
   items: z.array(activitySchema).max(200),
 }).meta({ description: 'What happened to records people read: a stop, a decision, a rename, a task change, a mention. Oldest first. Only records the caller may open are answered.', examples: [{ items: [{ id: '01J0000000000000000000000A', subject: { kind: 'work', id: 'work_example' }, at: 1759075200000, by: { kind: 'user', user: { id: { kind: 'account', accountId: 'user_example' }, displayName: 'Alice' } }, kind: 'mentioned', userId: { kind: 'account', accountId: 'user_other' } }] }] })
 export type WorkspaceActivityList = z.infer<typeof workspaceActivityListSchema>
+
+// Notifications (plans/015-notifications-hub.md §3)
+
+export const workspaceNotificationPageSchema = z.strictObject({
+  items: z.array(hubNotificationSchema).max(100),
+  nextCursor: z.string().max(2048).nullable(),
+}).meta({ description: "The caller's notifications at this home, newest first. Rows the caller may no longer open are left out before the page is cut." })
+export type WorkspaceNotificationPage = z.infer<typeof workspaceNotificationPageSchema>
+
+export const workspaceNotificationCountSchema = z.strictObject({
+  unread: z.number().int().min(0),
+  isCapped: z.boolean(),
+}).meta({ description: 'Unread, unarchived notifications the caller may open. The count stops at its cap.' })
+
+export const workspaceNotificationReadSchema = z.strictObject({ read: z.boolean() })
+  .meta({ description: 'Set the read fact. Setting it again keeps the same state; it never touches the archive fact.' })
+export type WorkspaceNotificationRead = z.infer<typeof workspaceNotificationReadSchema>
+
+export const workspaceNotificationArchivedSchema = z.strictObject({ archived: z.boolean() })
+  .meta({ description: 'Archive or restore. Setting it again keeps the same state; it never touches the read fact.' })
+export type WorkspaceNotificationArchived = z.infer<typeof workspaceNotificationArchivedSchema>
+
+export const workspaceNotificationSchema = hubNotificationSchema

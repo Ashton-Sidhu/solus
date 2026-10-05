@@ -5,7 +5,7 @@ import { join } from 'node:path'
 const root = join(import.meta.dir, '..', '..')
 const stylesheet = readFileSync(join(root, 'packages/workspace-ui/src/workspace.css'), 'utf8')
 const settings = readFileSync(
-  join(root, 'packages/workspace-ui/src/contexts/app/settings.context.svelte.ts'),
+  join(root, 'packages/workspace-ui/src/contexts/app/settings-display.ts'),
   'utf8',
 )
 

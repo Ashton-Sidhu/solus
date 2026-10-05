@@ -7,13 +7,18 @@ Sessions, tasks and pull requests belong to a project.
 
 There are three ways to start a project:
 
-- **New project…** An empty folder that has a Git repository. Use it when you
+- **Start a new project…** An empty folder that has a Git repository. Use it when you
   start from nothing, for example "make me a website". You type the name. The
   host makes the folder name safe (`My Website` becomes `My-Website`) and runs
   `git init`. The new session opens in the folder. If a folder with that name
   already exists, the host refuses, and you choose another name.
-- **Open a folder…** A folder that already exists on the host.
-- **Clone from GitHub…** or **Clone from a URL…** A copy of a repository.
+- **Open an existing folder…** A folder that already exists on the host. The
+  folder browser starts in the projects folder of that host, also for a remote
+  host.
+- **Get a project from GitHub…** or **Clone from a URL…** A copy of a
+  repository. A pasted SSH URL (`git@…`) clones over SSH. Other repositories
+  clone over HTTPS with the GitHub sign-in on the host. A line under the form
+  says which one, and **Use SSH instead** or **Use HTTPS instead** changes it.
 
 You can find these actions here:
 
@@ -22,6 +27,8 @@ You can find these actions here:
 | Open project dialog (`⌘⇧O`; `⌥⇧O` on the web) | first action | the other actions |
 | Project chip above the composer | **New project…** | **Open project…** |
 | Command palette | **New project…** | **Open project…** |
+| Project switcher on a list page | — | **Open project…** |
+| Mobile, a host's project list | **+** → **Start a new project** | **+** → the other actions |
 | First-run onboarding | **Start something new** | **Open existing code** |
 | Cloud onboarding, "Choose a project" | **Start a new project** | a repository in the list |
 
@@ -37,11 +44,15 @@ it.
 
 **New project…** in the input header opens the main Open project screen,
 as `⌘⇧O` does. Select **New project…** in that dialog to create a project. It uses the current project host and keeps the prompt
-you have typed. The same dialog is used on desktop, web, and mobile.
+you have typed. Desktop and web use the same dialog. Mobile has its own
+**Open project** screen with the same actions.
 
-On the New project screen, type the name after the folder path. Select the
-folder path to choose another parent folder. Then select **Create project**
-to create the folder and its Git repository.
+On the New project screen, type a name in **Project name**. The line below the
+field tells you the folder that the host makes, the folder it goes in, and the
+host, for example "Creates the folder My-Website in projects on Studio". The
+full path shows as a tooltip. Select **Change** to choose another parent
+folder (desktop and web only). Then select **Create project** to create the
+folder and its Git repository.
 A new project opens on the host the dialog is set to. Use the host chip in the
 dialog header to change it.
 
@@ -101,51 +112,62 @@ The project chip lists a project only when an online host has a copy of it.
 A project whose copies are all on offline hosts, for example a laptop that is
 asleep, is not in the list until that host is online again.
 
-## Scratchpad
+## Chats
 
-Scratchpad is the place where a session with no project runs. Use it to ask a
-question or sketch an approach when no repository is necessary. Scratchpad is
-not a project: it does not show in project lists, it has no branch or
-worktree, and it is on every host.
+A chat is a session with no project. Use a chat to ask a question or sketch an
+approach when no repository is necessary. A chat is not a project: it does not
+show in project lists, and it has no branch, worktree, Git panel, or pull
+requests.
 
-Each host keeps Scratchpad in a folder that the host names. The client does
-not build the path:
+Each chat runs in a folder of its own, so the files of two chats never mix. The
+folder is `.solus-chats/<session id>` in your projects folder on the host:
 
-| Host | Folder |
+| Host | Chat folder |
 |---|---|
-| Your own machine, or a host you own | `~/.solus/my-workspace` (in the data folder of the host) |
-| A shared or cloud host, as a member of the organization | `/data/projects/<user id>/.chat`, in your own member folder |
+| Your own machine, or a host you own | `<projects folder>/.solus-chats/<session id>`, for example `~/projects/.solus-chats/<session id>` |
+| A shared or cloud host, as a member of the organization | `/data/projects/<your folder>/.solus-chats/<session id>` |
 
-Each member has one Scratchpad on each host. All your chats on that host use
-the same folder. When the Scratchpad folder of a host is inside a Git work
-tree, the host does not offer Scratchpad, and Solus does not show it for that
-host. This can occur in development, when the Solus data folder is inside a
-checkout.
+Solus does not show this folder. Every client knows a chat from the folder name
+alone, so a chat reads **Chat** at once, before the host answers.
 
-When the client does not know the folder yet, it sends `~`. The host reads a
-bare `~` as the caller's Scratchpad folder, not the home folder. `~/x` is still
-a path in the home folder.
+A new chat has no folder until you send its first prompt. Then the client names
+the folder from the host's projects folder and the session id, and the host
+makes it. If the client does not know the projects folder yet, it sends the
+new-chat marker, and the host gives the chat the same folder. `~` is always the
+home folder. It never means a chat.
 
-To start a chat in Scratchpad:
+When the projects folder of a host is inside a Git work tree, the host refuses
+to start a chat and says why. An agent there would read and change that
+repository. This can occur in development.
 
-- **Project chip.** The **Scratchpad** row is at the top of the list. It opens
-  Scratchpad on the host the session will run on (the Run on host).
-- **Command palette.** **Just chat** opens a new session in Scratchpad. At a
-  Solus Cloud origin it uses the managed host of your organization. On desktop
-  it uses this computer. In all cases, it uses the host of your last
-  Scratchpad chat first, if that host is up.
-- **Onboarding.** **Just chat** and **Start without a project** end in
-  Scratchpad.
+To start a chat:
 
-To go back to a project before the first prompt, select the project in the
-project chip.
+- **Command palette or `⌘⌥N`.** **New chat** opens a new chat. It runs on the
+  host of the conversation in front of you, else on the default machine.
+- **Project chip.** When a draft has no project, the chip reads **Add project**.
+  When a draft has a project, the last item of its menu is **Switch to chat**,
+  which removes the project and keeps what you typed.
+- **Onboarding.** **New chat** ends the flow in a new chat.
+- **Mobile.** **Chats** on the host screen lists the chats of that host. **New
+  chat** starts one.
+
+A new session from a chat (⌘N) is a new chat, never the same chat folder. When
+nothing names a project, a new session starts in the last project you used, or
+in a new chat when there is none.
+
+To add a project before the first prompt, select it in the project chip.
 
 On a host that an organization uses (a managed host, or a personal host shared
-with the organization), a chat in Scratchpad starts **private**: only you see
-it until you share it. A project session on that host starts shared with the
-organization. Private means that Solus does not share the session with the
-organization. It is not a security boundary: the members of the organization
-use one host, and the host is a trusted team machine.
+with the organization), a chat starts **private**: only you see it until you
+share it. A project session on that host starts shared with the organization.
+Private means that Solus does not share the session with the organization. It
+is not a security boundary: the members of the organization use one host, and
+the host is a trusted team machine.
+
+The agent knows that it is in a chat. It does not name the chat folder or run
+Git there.
+
+An automation with no project runs each time in a new chat of its own.
 
 On a managed host, each turn runs on the seat of the member who sent it. If you
 have no seat for the agent that you chose, the new session shows **Connect

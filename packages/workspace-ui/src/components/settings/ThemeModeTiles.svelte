@@ -2,7 +2,7 @@
   /** The appearance picker: three tiles, each a miniature of the app painted
    *  in the mode it stands for. System shows both halves split down the
    *  middle. The selected tile carries a ring; the label does the rest. */
-  import type { ThemeMode } from "@solus/contracts/host-config";
+  import type { ThemeMode } from "@solus/contracts/settings";
   import {
     DARK_PREVIEW,
     LIGHT_PREVIEW,

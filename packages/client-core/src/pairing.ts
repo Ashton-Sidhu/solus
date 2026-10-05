@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { SavedServer } from './server-registry'
 import { DEFAULT_SERVER_PORT, type HostOperatingSystem, type SshBootstrapCredential } from '@solus/contracts/types'
-import { localApi } from './local-api'
 
 // Handshake decoding is forward-compatible: a field a newer server reshapes
 // (an unknown `os`, a structured error) degrades to "absent" instead of
@@ -23,6 +22,8 @@ export interface ParsedPairLink {
 export interface PairServerInput {
   url: string
   pairToken: string
+  /** What this device calls itself. Each client names itself: a browser with
+   *  `defaultDeviceLabel()` (`device-label.ts`), the native app by its device. */
   deviceLabel: string
   /** Only what the user typed. The caller must not pre-fill a fallback here:
    *  a derived name saved as the user's would then outrank the name the host
@@ -31,6 +32,8 @@ export interface PairServerInput {
   /** What the host called itself on the probe that preceded pairing, used when
    *  the user named nothing. Absent when the host was never asked. */
   reportedName?: string
+  /** The client's own fetch; the global one when absent. */
+  fetchImpl?: typeof fetch
 }
 
 export interface PairServerResult {
@@ -79,36 +82,14 @@ export function urlHost(url: string): string {
   }
 }
 
-/**
- * What this device calls itself when it pairs. The desktop app is always
- * "Solus desktop"; a browser names itself by browser and OS so the server's
- * device list distinguishes a phone from the desktop that paired it.
- */
-export function defaultDeviceLabel(): string {
-  if (localApi.getPlatform() !== 'web') return 'Solus desktop'
-  const ua = navigator.userAgent
-  const os = /iPhone|iPad/.test(ua) ? 'iOS'
-    : /Android/.test(ua) ? 'Android'
-    : /Mac OS/.test(ua) ? 'macOS'
-    : /Windows/.test(ua) ? 'Windows'
-    : /Linux/.test(ua) ? 'Linux'
-    : 'device'
-  const browser = /Edg\//.test(ua) ? 'Edge'
-    : /Chrome/.test(ua) ? 'Chrome'
-    : /Firefox/.test(ua) ? 'Firefox'
-    : /Safari/.test(ua) ? 'Safari'
-    : 'Browser'
-  return `${browser} on ${os}`
-}
-
 export async function pairServer(input: PairServerInput): Promise<PairServerResult> {
   const url = normalizeServerUrl(input.url)
-  const res = await fetch(`${url}/pair`, {
+  const res = await (input.fetchImpl ?? fetch)(`${url}/pair`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       pairToken: input.pairToken,
-      deviceLabel: input.deviceLabel || defaultDeviceLabel(),
+      deviceLabel: input.deviceLabel,
     }),
   })
   if (!res.ok) {

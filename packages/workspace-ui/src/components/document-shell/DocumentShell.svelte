@@ -3,6 +3,7 @@
   import type { Snippet } from "svelte";
   import { getAllContexts, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
+  import SessionNameInput from "../session/SessionNameInput.svelte";
   import {
     X as XIcon,
     Bold as TextBIcon,
@@ -21,7 +22,6 @@
     Redo2 as ArrowUUpRightIcon,
     Search as MagnifyingGlassIcon,
     Ellipsis as DotsThreeIcon,
-    AlignLeft as ListIcon,
     ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
   import { runtime, getSettingsContext, getSurfaceContext } from "../../contexts";
@@ -38,6 +38,7 @@
   import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
   import { liveStatus } from "../work/lib/live-status";
+  import WorkSavedStatus from "../work/WorkSavedStatus.svelte";
   import type { LiveEditorBinding } from "../editor/lib/live-editor";
   import { isActive, cmd } from "./toolbar";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
@@ -187,7 +188,6 @@
     overlays,
   }: Props = $props();
 
-  const isMobile = $derived(runtime.isMobileViewport);
   const session = getSurfaceContext();
   const theme = getSettingsContext();
   const embedOptions = {
@@ -235,9 +235,7 @@
   // right edge — which is how a published document's wider chip ("Update",
   // "Upstream changed") ended up under the maximize and close buttons. Below the
   // rung the compact row takes over, which scrolls instead of overflowing.
-  const compactToolbar = $derived(
-    isMobile || (shellWidth > 0 && shellWidth < 48 * 16),
-  );
+  const compactToolbar = $derived(shellWidth > 0 && shellWidth < 48 * 16);
   const railFolded = $derived(
     railWidth !== "0px" && shellWidth > 0 && shellWidth < railFoldBelow,
   );
@@ -292,28 +290,12 @@
     }
   }
 
-  // Click-to-rename (works only). Commits on Enter/blur, reverts on Escape.
+  // Double-click to rename, like the session crumb. The field commits on
+  // Enter or blur and cancels on Escape (`SessionNameInput`).
   let renaming = $state(false);
-  let renameValue = $state("");
   function startRename() {
     if (!onRenameTitle) return;
-    renameValue = title;
     renaming = true;
-  }
-  function commitRename() {
-    if (!renaming) return;
-    renaming = false;
-    const next = renameValue.trim();
-    if (next && next !== title) onRenameTitle?.(next);
-  }
-  function renameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.currentTarget instanceof HTMLInputElement) e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      renaming = false;
-    }
   }
 
   let copied = $state(false);
@@ -350,26 +332,12 @@
   // place for them to land, so every outline surface leaves with it.
   const hasOutline = $derived(editorMode === "rich" && tocHeadings.length >= 2);
   // Presence only — the rail's width collapse is a container query on the pane,
-  // so a narrow split pane on a wide monitor drops it too. A phone has no
-  // margin for a rail at all: the outline becomes the section bar below.
-  const showTocRail = $derived(hasOutline && !isMobile);
+  // so a narrow split pane on a wide monitor drops it too.
+  const showTocRail = $derived(hasOutline);
   let activeHeadingPos = $state<number | null>(null);
   const threadCounts = $derived(
     countThreadsByHeading(threadAnchors, tocHeadings.map((h) => h.pos)),
   );
-  // ── The 42px section bar, which is what the TOC rail becomes on a phone.
-  // It names the section you are reading, counts your place in the document,
-  // and opens the full outline as a sheet. Only earns its height once there is
-  // more than one section to be in.
-  const showSectionBar = $derived(isMobile && hasOutline);
-  const activeHeadingIndex = $derived(
-    Math.max(
-      0,
-      tocHeadings.findIndex((heading) => heading.pos === activeHeadingPos),
-    ),
-  );
-  const activeHeading = $derived(tocHeadings[activeHeadingIndex]);
-  let outlineSheetOpen = $state(false);
 
   // Held open by the reader; released only by the same shortcut.
   let outlinePinned = $state(false);
@@ -391,7 +359,7 @@
   // hovering one names that section alone. The header only takes the contents
   // back when only the compact overview fits, so every heading stays reachable.
   const contentsOpensFromHeader = $derived(
-    !isMobile && hasOutline && !outlineHasMarginRoom,
+    hasOutline && !outlineHasMarginRoom,
   );
   let contentsPopoverOpen = $state(false);
   $effect(() => {
@@ -663,24 +631,30 @@
 </script>
 
 {#snippet renameField()}
-  <!-- svelte-ignore a11y_autofocus -->
-  <input
-    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-workspace-chrome font-medium text-(--solus-text-primary) outline-none"
-    bind:value={renameValue}
-    onblur={commitRename}
-    onkeydown={renameKeydown}
-    autofocus
-    aria-label="Rename document"
-    data-testid="rename-work-input"
-  />
+  <span class="flex h-[1.875rem] w-80 min-w-24 max-w-full shrink items-center">
+    <SessionNameInput
+      value={title}
+      variant="row"
+      class="text-workspace-chrome font-medium"
+      onCommit={(next) => {
+        renaming = false;
+        onRenameTitle?.(next);
+      }}
+      onCancel={() => (renaming = false)}
+    />
+  </span>
 {/snippet}
 
 {#snippet saveStatusChip()}
-  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
+  <div class="doc-shell-save-status inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
     {#if live}
       {@const status = liveStatus(live.live)}
-      <span class="size-[0.3125rem] shrink-0 rounded-full {status.tone === 'ok' ? 'bg-(--solus-art-3)' : status.tone === 'busy' ? 'bg-(--solus-accent)' : 'bg-(--solus-status-error)'}" aria-hidden="true"></span>
-      <span data-testid="live-status">{status.label}</span>
+      {#if status.label === "Saved"}
+        <WorkSavedStatus />
+      {:else}
+        <span class="size-[0.3125rem] shrink-0 rounded-full {status.tone === 'ok' ? 'bg-(--solus-art-3)' : status.tone === 'busy' ? 'bg-(--solus-accent)' : 'bg-(--solus-status-error)'}" aria-hidden="true"></span>
+        <span data-testid="live-status">{status.label}</span>
+      {/if}
     {:else if showSaving}
       <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
       <span>Saving…</span>
@@ -694,10 +668,7 @@
         Retry save
       </button>
     {:else if lastSavedAt !== null}
-      <!-- Sage, the one hue that means "saved / resolved" everywhere in the
-           document — a dot rather than a tick, so the header stays type. -->
-      <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-art-3)" aria-hidden="true"></span>
-      <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
+      <WorkSavedStatus label={formatSavedAgo(lastSavedAt, savedStatusNow)} />
     {/if}
   </div>
 {/snippet}
@@ -793,7 +764,7 @@
         {#if renaming}
           {@render renameField()}
         {:else if onRenameTitle}
-          <button type="button" class="doc-shell-title" onclick={startRename} title="{title} — click to rename">{title}</button>
+          <button type="button" class="doc-shell-title" ondblclick={startRename} title="{title} — double-click to rename">{title}</button>
         {:else}
           <span class="doc-shell-title" title={title}>{title}</span>
         {/if}
@@ -901,53 +872,10 @@
       {/if}
     </header>
 
-    {#if showSectionBar}
-      <!-- Where you are, how far in, and the way to the rest. The rail's three
-           jobs in 42px, because a 393px measure has no margin to give it. -->
-      <div class="doc-section-bar">
-        <span class="doc-section-count">{activeHeadingIndex + 1} / {tocHeadings.length}</span>
-        <span class="doc-section-title">{activeHeading?.text ?? title}</span>
-        <button
-          type="button"
-          class="doc-section-outline-btn"
-          aria-haspopup="dialog"
-          aria-expanded={outlineSheetOpen}
-          onclick={() => (outlineSheetOpen = !outlineSheetOpen)}
-        >
-          <ListIcon size={12} />Outline
-        </button>
-      </div>
-    {/if}
-
-    {#if outlineSheetOpen}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="doc-outline-scrim"
-        onclick={() => (outlineSheetOpen = false)}
-        onkeydown={(e) => e.key === "Escape" && (outlineSheetOpen = false)}
-      ></div>
-      <div class="doc-outline-sheet" role="dialog" aria-label="Outline">
-        <div class="doc-outline-grabber" aria-hidden="true"></div>
-        <DocumentOutline
-          standalone
-          headings={tocHeadings}
-          activePos={activeHeadingPos}
-          {threadCounts}
-          pinned
-          jumping={false}
-          atTop={false}
-          onScrollTo={(pos) => {
-            outlineSheetOpen = false;
-            scrollToHeading(pos);
-          }}
-        />
-      </div>
-    {/if}
-
     <div class="relative flex flex-1 min-h-0">
       {#if findOpen && tiptapEditor}
         <div class="doc-find-sleeve" transition:fly={{ y: -6, duration: 140, opacity: 0 }}>
-          <FindReplaceBar {readOnly} editor={tiptapEditor} {scrollContainer} onClose={() => (findOpen = false)} />
+          <FindReplaceBar {readOnly} editor={tiptapEditor} onClose={() => (findOpen = false)} />
         </div>
       {/if}
       {#if showTocRail}
@@ -1019,17 +947,15 @@
       </div>
     </div>
 
-    <!-- Comment surfaces need selection actions on touch too. The bubble uses
-         its compact touch controls instead of desktop formatting actions. -->
-    {#if !isMobile || onCommentSelection}
-      <SelectionBubble
-        editor={tiptapEditor}
-        {readOnly}
-        onLink={() => editorRef?.openLinkPopover()}
-        onComment={onCommentSelection && canCommentSelection ? onCommentSelection : undefined}
-        onAskSolus={onAskSolus ? handleAskSolus : undefined}
-      />
-    {/if}
+    <!-- On a touch device the bubble uses its compact touch controls instead
+         of desktop formatting actions. -->
+    <SelectionBubble
+      editor={tiptapEditor}
+      {readOnly}
+      onLink={() => editorRef?.openLinkPopover()}
+      onComment={onCommentSelection && canCommentSelection ? onCommentSelection : undefined}
+      onAskSolus={onAskSolus ? handleAskSolus : undefined}
+    />
   </div>
 {/snippet}
 
@@ -1051,60 +977,6 @@
 {@render overlays?.()}
 
 <style>
-  /* ── Section bar (phone). The TOC rail's three jobs in one 42px row. */
-  .doc-section-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5625rem;
-    flex-shrink: 0;
-    height: 2.625rem;
-    padding: 0 0.5rem 0 1.125rem;
-    background: var(--wash-1);
-    border-bottom: 0.0625rem solid var(--hairline);
-  }
-
-  /* The bar carries three things in 42px, so each one is sized by its job: the
-     count is a numeral you glance at, the title is the thing you read, and the
-     button is a verb. None of them is chrome-rung type — the bar sits against
-     the document, not the workspace. */
-  .doc-section-count {
-    flex-shrink: 0;
-    font-family: var(--font-mono);
-    font-size: 0.65625rem;
-    color: var(--muted-foreground);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .doc-section-title {
-    flex: 1;
-    min-width: 0;
-    font-size: 0.78125rem;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--solus-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .doc-section-outline-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.3125rem;
-    flex-shrink: 0;
-    height: 1.875rem;
-    padding: 0 0.6875rem;
-    border: 0;
-    border-radius: 624.9375rem;
-    background: var(--card);
-    box-shadow: var(--elev-ring);
-    color: var(--solus-text-primary);
-    font-size: 0.71875rem;
-    font-weight: 500;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-
   /* The caret that turns the document's name into the contents trigger. It
      borrows the header button's own geometry so it reads as part of the title
      cluster rather than as another action. */
@@ -1149,38 +1021,6 @@
        No height: the outline declares its own, and a wrapper taller than its
        card would swallow clicks meant for the document under it. */
     width: min(20rem, calc(100% - 1.5rem));
-  }
-
-  .doc-outline-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 42;
-    background: rgba(0, 0, 0, 0.42);
-  }
-
-  .doc-outline-sheet {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 43;
-    max-height: 70%;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 0.75rem max(0.875rem, env(safe-area-inset-bottom, 0));
-    border-top-left-radius: 1.625rem;
-    border-top-right-radius: 1.625rem;
-    background: var(--popover);
-    box-shadow: var(--solus-popover-shadow);
-  }
-
-  .doc-outline-grabber {
-    width: 2.375rem;
-    height: 0.25rem;
-    margin: 0.5rem auto 0.75rem;
-    border-radius: 624.9375rem;
-    background: var(--foreground);
-    opacity: 0.22;
   }
 
   .doc-shell-backdrop {

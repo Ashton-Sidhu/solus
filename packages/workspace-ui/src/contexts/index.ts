@@ -26,7 +26,7 @@ export { getSettingsContext } from './app/settings.context.svelte'
 export { getClientShellContext } from './app/client-shell.svelte'
 export { getAgentContext } from './app/agent.context.svelte'
 export { getStatusBarContext } from './app/status-bar.context.svelte'
-export { getVoiceModelStore } from './app/voice-model.store.svelte'
+export { getVoiceModelStore, hasVoiceModelStore } from './app/voice-model.store.svelte'
 export { runtime } from './app/runtime.svelte'
 export { toolsStore } from './app/tools.store.svelte'
 
@@ -98,6 +98,7 @@ export {
 
 /** The Solus account this client shell is signed in to (desktop only today). */
 export { accountStore } from './account/account.store.svelte'
+export { notificationHubStore } from './notifications/notification-hub.store.svelte'
 /** The desktop app's own update status (desktop only; web and mobile see no updates). */
 export { updatesStore } from './updates/updates.store.svelte'
 

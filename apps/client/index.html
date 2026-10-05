@@ -17,7 +17,9 @@
       (function () {
         try {
           var mode = 'system'
-          var raw = localStorage.getItem('solus-settings')
+          var profile = 'solus.personal-settings.v1:'
+          var account = localStorage.getItem('solus.personal-settings.active')
+          var raw = (account && localStorage.getItem(profile + account)) || localStorage.getItem(profile + 'anonymous')
           if (raw) {
             var parsed = JSON.parse(raw)
             if (

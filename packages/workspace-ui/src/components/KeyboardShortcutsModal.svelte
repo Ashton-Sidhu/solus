@@ -113,7 +113,7 @@
       return
     }
     bindingCapture.start(id, (combo) => {
-      settings.update({ keybindings: withBinding(id, combo, settings.keybindings) })
+      settings.setLayout("keybindings", withBinding(id, combo, settings.keybindings))
     })
   }
 

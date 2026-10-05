@@ -61,13 +61,19 @@ describe('session report v2', () => {
     expect(text).not.toContain('a.ts')
   })
 
-  test('a long reply is cut and points at read_session for the rest', () => {
+  test('a long reply is cut and points at its saved exchange rather than later session turns', () => {
     const long = 'x'.repeat(ORCHESTRATION_LIMITS.reply + 500)
     const [item] = round([{ type: 'report', report: { ...report, outputs: [], reply: long } }])!
     const reply = item!.type === 'report' ? item!.report.reply : ''
     expect(reply.startsWith('x'.repeat(ORCHESTRATION_LIMITS.reply))).toBe(true)
-    expect(reply).toContain(`read_session session_id=${child}`)
-    expect(reply.length).toBeLessThan(ORCHESTRATION_LIMITS.reply + 100)
+    expect(reply).toContain(`read_session_exchange exchange_id=${report.messageId} reply_offset=0`)
+    expect(reply.length).toBeLessThan(ORCHESTRATION_LIMITS.reply + 200)
+  })
+
+  test('older reports without an exchange ID retain a usable transcript hint', () => {
+    const text = formatSessionReport({ agentSessionId: child, status: 'completed', outputs: [], reply: 'x'.repeat(ORCHESTRATION_LIMITS.reply + 1) })
+    expect(text).toContain('read_session for the full reply')
+    expect(text).not.toContain('exchange_id=undefined')
   })
 
   test('outputs past the limit are counted, and long titles and questions are cut', () => {

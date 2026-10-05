@@ -16,10 +16,12 @@
   }
   let { onContinue }: Props = $props();
 
-  let nameInput = $state(guestBoot.displayName);
+  let nameInput = $state(guestBoot.signedInAs ?? guestBoot.displayName);
   let nameInputEl: HTMLInputElement | null = $state(null);
   const busy = $derived(guestBoot.phase === "connecting");
   const name = $derived(nameInput.trim());
+  /** A signed-in visitor connects at once with their account; the form is only the fallback when that fails. */
+  const openingAsAccount = $derived(!!guestBoot.signedInAs && guestBoot.phase !== "failed");
 
   onMount(() => {
     if (!window.matchMedia("(max-width: 767px)").matches) nameInputEl?.focus();
@@ -55,13 +57,15 @@
     <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">
       {#if guestBoot.phase === "revoked"}
         The person who shared it turned the link off or made a new one. Ask them for the current link.
+      {:else if openingAsAccount}
+        Opening what was shared with you as {guestBoot.signedInAs}…
       {:else}
         Someone shared their work with you. Pick the name they will see, and you are in. No account needed.
       {/if}
     </p>
   </header>
 
-  {#if guestBoot.phase !== "revoked"}
+  {#if guestBoot.phase !== "revoked" && !openingAsAccount}
     <main class="flex w-full max-w-[24rem] flex-col gap-4">
       <form
         class="flex flex-col gap-4 rounded-2xl border border-(--solus-container-border) bg-(--solus-popover-bg) p-5 shadow-[shadow:var(--solus-popover-shadow)]"

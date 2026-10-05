@@ -34,6 +34,9 @@
   } from "@solus/workspace-ui/contexts";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+  import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
+  import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+  import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
   import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import {
@@ -44,13 +47,13 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
+  import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications/notification-hub.store.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
   import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
   import { cloudOnboardingStore } from "@solus/workspace-ui/components/onboarding/cloud-onboarding.store.svelte";
   import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
   import { webState } from "./lib/web-state.svelte";
-  import { webPushState } from "./lib/web-push.svelte";
   import {
     useKeybinding,
     installGlobalDispatcher,
@@ -67,11 +70,13 @@
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
-  import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
+  import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
+  import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
   import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
-  import { createWebProjectPicker } from "./components/projects/lib/project-picker.svelte";
+  import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
+  import { hostSetupStore } from "@solus/workspace-ui/components/servers/host-setup.store.svelte";
   import WebLayout from "./shell/WebLayout.svelte";
   import BusyTreeConfirm from "@solus/workspace-ui/components/busy-tree/BusyTreeConfirm.svelte";
   import { WebShell } from "./shell/web-shell.svelte";
@@ -88,25 +93,32 @@
     keybindings,
   } = createAppCore(shell);
 
-  const projectPicker = createWebProjectPicker(session);
-  const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
+  const projectPicker = createProjectPicker(session);
 
-  const initialLayout = shell.layout;
-
-  initAnalytics({
-    enabled: settings.analyticsEnabled,
-    platform: initialLayout === "mobile" ? "web-mobile" : "web-desktop",
-    viewMode: initialLayout,
-  });
-  track("app_opened", {});
-
+  // A bare host has no commit identity; this client's default machine has the
+  // obvious prefill, so it is read once the Open project flow is on screen.
+  const identityServerId = $derived(
+    openProjectStore.isOpen ? serverConnections.defaultMachineId() : null,
+  );
+  const localGitIdentity = $derived(
+    identityServerId ? hostSetupStore.readinessByHost[identityServerId]?.git.identity ?? null : null,
+  );
   $effect(() => {
-    const layout = shell.layout;
-    registerSuperProps({
-      view_mode: layout,
-      platform: layout === "mobile" ? "web-mobile" : "web-desktop",
+    const serverId = identityServerId;
+    if (!serverId) return;
+    untrack(() => {
+      if (!hostSetupStore.hasProbed(serverId)) void hostSetupStore.probeHost(serverId);
     });
   });
+  const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
+
+  initAnalytics({
+    // Undecided consent stays off until the person chooses (plans/018 §3.1).
+    enabled: settings.clientAnalyticsEnabled === true,
+    platform: "web-desktop",
+    viewMode: "wide",
+  });
+  track("app_opened", {});
 
   $effect(() => {
     const appVersion = session.staticInfo?.version;
@@ -244,10 +256,6 @@
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
       const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
-      // The promoted settings tier lives on the host so it follows the user
-      // between desktop, web, and mobile, exactly as the desktop boot does.
-      if (defaultServerId) void settings.hydrateFromHost(defaultServerId);
-      const unsubHostConfig = settings.listenForHostConfigChanges();
       const unsubProjectDirectory = listenForProjectDirectory();
       const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
         session.automationsStore.applyChange(serverId, event);
@@ -281,10 +289,11 @@
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
+      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
+      const unsubDevices = devicesStore.subscribe();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
-        unsubHostConfig();
         unsubProjectDirectory();
         unsubAutomations();
         unsubWatches();
@@ -295,6 +304,7 @@
         unsubUplink();
         browserStore.onRecordingSaved = null;
         unsubBrowser();
+        unsubDevices();
       };
     }),
   );
@@ -305,14 +315,8 @@
   // And go along with a followed teammate when they move.
   $effect(() => presenceStore.syncFollow(session));
 
-  // Web push is the system channel for a device that is away, so the
-  // subscription follows that one switch.
-  $effect(() => {
-    const enabled = settings.notifications.channels.system;
-    untrack(() => void webPushState.syncEnabled(enabled).catch((error) =>
-      toasts.error(error instanceof Error ? error.message : "Notifications could not be updated"),
-    ));
-  });
+  // The notifications hub reads every source once for the page and the badge (plan 015).
+  $effect(() => untrack(() => notificationHubStore.start()));
 
   $effect(() => {
     return untrack(() => notificationsStore.start({
@@ -351,6 +355,14 @@
     };
     window.addEventListener("solus:open-route", handler);
     return () => window.removeEventListener("solus:open-route", handler);
+  });
+
+  // The nearby-host discovery toast fires from a store, which has no way to
+  // reach the settings pane on its own.
+  onMount(() => {
+    const showConnections = () => session.showSettings("api-access");
+    window.addEventListener("solus:show-connections", showConnections);
+    return () => window.removeEventListener("solus:show-connections", showConnections);
   });
 
   onMount(() => initializeRuntime(session, sessionSidebarStore));
@@ -419,6 +431,7 @@
   useKeybinding("global.new-session-without-task", () => {
     session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
+  useKeybinding("global.new-chat", () => openChatDraft(session, "keybinding"));
   useKeybinding("global.new-session-in-task", () =>
     void session.drafts.openSessionDraft({ via: "keybinding" }),
   );
@@ -512,6 +525,7 @@
     void window.dispatchEvent(new CustomEvent("solus:toggle-diff-panel")),
   );
   useKeybinding("global.toggle-workspace", () => session.toggleFolio("keybinding"));
+  useKeybinding("global.toggle-notifications", () => session.toggleNotifications("keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
   useKeybinding("global.toggle-worktree", () =>
     session.toggleWorktreeMode(session.focusedSourceId ?? undefined, "keybinding"),
@@ -607,7 +621,7 @@
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
-    justChatCommand(session),
+    newChatCommand(session),
     {
       id: "workspace",
       label: "Open workspace",
@@ -631,6 +645,14 @@
       run: () => session.openPrs(),
     },
     {
+      id: "notifications",
+      label: "Open notifications",
+      group: "View",
+      hint: comboHint("global.toggle-notifications"),
+      keywords: ["inbox", "assigned", "review request", "mentions", "alerts"],
+      run: () => session.openNotifications("palette"),
+    },
+    {
       id: "automations",
       label: "Open automations",
       group: "View",
@@ -645,6 +667,8 @@
       run: () => session.openBrowser(),
     },
     ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
+    ...deviceCommands(session),
+    ...settingsOwnerCommands(session),
     {
       id: "settings",
       label: "Settings",
@@ -736,7 +760,7 @@
 ></div>
 
 <div class="flex h-full w-full" style="background:var(--solus-container-bg);">
-  <WebLayout onAttachFile={handleAttachFile} onAttachFiles={handleAttachFiles} />
+  <WebLayout onAttachFile={handleAttachFile} />
 </div>
 
 {#await commandPaletteComponent then module}
@@ -845,7 +869,7 @@
         void projectPicker.openProjectAtPath(path, openProjectStore.source)}
       onBrowse={projectPicker.browseForOpenProject}
       onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
-      localIdentity={projectPicker.localGitIdentity}
+      localIdentity={localGitIdentity}
     />
   {/snippet}
 </LazyDialog>

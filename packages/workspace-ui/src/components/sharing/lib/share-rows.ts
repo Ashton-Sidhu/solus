@@ -53,6 +53,17 @@ export function scopeOf(list: ShareList): ShareScope {
   return { kind: 'private' }
 }
 
+/**
+ * Whether the people who may open the resource are all signed-in members: a
+ * team, the organization, or people invited by name, and no link. Their link
+ * is the app's own address, not a guest link that asks for a name.
+ */
+export function sharedWithMembers(list: ShareList): boolean {
+  const scope = scopeOf(list)
+  if (scope.kind === 'link') return false
+  return scope.kind !== 'private' || list.grants.some((grant) => grant.subject.kind === 'user')
+}
+
 /** One row of the dialog's choice. `role` is the row's current role when it is on, else the role it would start with. */
 export interface ScopeOption {
   key: string

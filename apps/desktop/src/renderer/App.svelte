@@ -4,7 +4,6 @@
   import { installDesktopRuntime } from "./shell/desktop-runtime.svelte";
   import { installDesktopUpdates } from "./shell/desktop-updates.svelte";
   import { installDesktopKeybindings } from "./shell/desktop-keybindings.svelte";
-  import { createDesktopProjectPicker } from "./shell/desktop-project-picker.svelte";
   import { createDesktopPalette } from "./shell/desktop-palette.svelte";
   import {
     attachmentTarget,
@@ -18,8 +17,7 @@
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
-  import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
-  import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
+  import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
   import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
 
@@ -37,7 +35,6 @@
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import type { GitCheckout } from "@solus/contracts/types";
 
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
@@ -75,13 +72,8 @@
     handleDesignConfirm,
     handleDesignCancel,
   } = createDesktopAttachments(core, ui);
-  const {
-    handleDirectorySelected,
-    handleDirectoryPickerClose,
-    startOpenProject,
-    openProjectAtPath,
-    browseForOpenProject,
-  } = createDesktopProjectPicker(core, ui, () => directoryPickerServerId);
+  const projectPicker = createProjectPicker(session);
+  const { startOpenProject } = projectPicker;
   const palette = createDesktopPalette(core, ui, startOpenProject);
 
   let overlayEl: HTMLElement | null = $state(null);
@@ -134,61 +126,6 @@
   const desktopHandlersAvailable = $derived(
     connectionsStore.desktopHandlersAvailable,
   );
-  const directoryPickerCreatesTab = $derived(
-    ui.directoryPickerNewTab ||
-      (!ui.directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
-  );
-  // Borrowed by the Open project flow, where the folder being chosen may be a
-  // place to put a clone or a new project — so the flow supplies the wording.
-  const directoryPickerTitle = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) return openProjectStore.browseTitle;
-    if (ui.directoryPickerForAddProject) return "Add a project";
-    return directoryPickerCreatesTab
-      ? "Open project in a new tab"
-      : "Change project folder";
-  });
-  const directoryPickerAction = $derived.by(() => {
-    if (ui.directoryPickerForOpenProject) return openProjectStore.browseAction;
-    if (ui.directoryPickerForAddProject) return "Add project";
-    return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
-  });
-  // Browse the host the tab actually runs on — a new tab inherits the active
-  // session's host, so both flows resolve to the same place the commit lands.
-  // An explicit override wins: it names a host before any tab points at it.
-  const directoryPickerServerId = $derived(
-    ui.directoryPickerServerIdOverride ??
-      (ui.directoryPickerTargetTabId
-        ? session.sessionFor(ui.directoryPickerTargetTabId)?.run.serverId
-        : session.activeSession?.run.serverId) ??
-      serverConnections.defaultMachineId() ??
-      LOCAL_SERVER_ID,
-  );
-  // apiFor() opens the connection as a side effect, so only reach for the
-  // chosen host's api while the picker is actually on screen.
-  const directoryPickerApi = $derived(
-    ui.directoryPickerOpen
-      ? serverConnections.apiFor(directoryPickerServerId)
-      : serverConnections.apiFor(
-          serverConnections.defaultMachineId() ?? LOCAL_SERVER_ID,
-        ),
-  );
-  const directoryPickerHostLabel = $derived(
-    directoryPickerServerId === serversStore.activeServerId
-      ? undefined
-      : serversStore.servers.find((s) => s.id === directoryPickerServerId)?.label,
-  );
-  // Changing an existing tab's folder starts where that tab already is. Every
-  // other entry point lets the picker resolve the selected host's projects root.
-  const directoryPickerInitialPath = $derived.by(() => {
-    const targetSession = ui.directoryPickerTargetTabId
-      ? session.sessionFor(ui.directoryPickerTargetTabId)
-      : null;
-    if (targetSession?.run.serverId === directoryPickerServerId) {
-      return targetSession.run.workingDirectory;
-    }
-    return undefined;
-  });
-
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);
   installDesktopKeybindings(core, ui, {
@@ -199,48 +136,6 @@
   });
 
   $effect(() => {
-    const handler = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const detail:
-        | {
-            tabId?: string;
-            draftId?: string;
-            /** A tab id or a draft id — the surface that asked, when the emitter
-             *  (RunOnPicker) does not know which kind it is scoped to. */
-            requesterId?: string;
-            serverId?: string;
-            intent?: "dispatch" | "open-project" | "add-project";
-            onProjectAdded?: (project: ProjectRef) => void;
-          }
-        | undefined = event.detail;
-      const requesterId = detail?.requesterId;
-      const requesterDraftId =
-        requesterId && session.drafts.sessionDrafts.has(requesterId)
-          ? requesterId
-          : undefined;
-      ui.directoryPickerDraftId = detail?.draftId ?? requesterDraftId;
-      const targetTabId =
-        detail?.tabId ?? (requesterDraftId ? undefined : requesterId);
-      const tab = targetTabId ? session.tabs[targetTabId] : null;
-      const opensInNewTab = tab?.sessionId != null;
-      ui.directoryPickerNewTab = opensInNewTab;
-      ui.directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
-      ui.directoryPickerServerIdOverride = detail?.serverId;
-      // Adding a project retargets nothing, so it keeps the plain open-project
-      // run intent and states itself with its own flag.
-      const requestedIntent = detail?.intent ?? "open-project";
-      ui.directoryPickerForAddProject = requestedIntent === "add-project";
-      ui.directoryPickerOnProjectAdded = detail?.onProjectAdded;
-      ui.directoryPickerIntent =
-        requestedIntent === "add-project" ? "open-project" : requestedIntent;
-      ui.directoryPickerForOpenProject = false;
-      ui.directoryPickerOpen = true;
-    };
-    const openProjectHandler = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const detail: { tabId?: string; source?: ProjectSource; serverId?: string } | undefined = event.detail;
-      startOpenProject({ sourceId: detail?.tabId, source: detail?.source, serverId: detail?.serverId });
-    };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
     const reviewPrHandler = (event: Event) => {
@@ -275,13 +170,9 @@
     // The nearby-host discovery toast fires from a store, which has no way to
     // reach the settings pane on its own.
     const showConnectionsHandler = () => session.showSettings("api-access");
-    window.addEventListener("solus:open-directory-picker", handler);
-    window.addEventListener("solus:open-project", openProjectHandler);
     window.addEventListener("solus:review-pr", reviewPrHandler);
     window.addEventListener("solus:show-connections", showConnectionsHandler);
     return () => {
-      window.removeEventListener("solus:open-directory-picker", handler);
-      window.removeEventListener("solus:open-project", openProjectHandler);
       window.removeEventListener("solus:review-pr", reviewPrHandler);
       window.removeEventListener(
         "solus:show-connections",
@@ -443,29 +334,32 @@
       {/await}
     {/if}
 
+    {#if projectPicker.directoryPickerApi}
+    {@const directoryPickerApi = projectPicker.directoryPickerApi}
     <LazyDialog
-      open={ui.directoryPickerOpen}
+      open={projectPicker.directoryPickerOpen}
       warm={ui.hasWarmedDialogs}
       load={() => import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}
       placeholder="Filter folders"
       centered
       class="h-[clamp(28rem,65vh,43rem)] max-h-none w-[clamp(42rem,72vw,64rem)]"
-      onclose={handleDirectoryPickerClose}
+      onclose={projectPicker.handleDirectoryPickerClose}
     >
       {#snippet children(DirectoryPicker)}
         <DirectoryPicker
-          bind:open={ui.directoryPickerOpen}
-          onClose={handleDirectoryPickerClose}
-          onSelect={handleDirectorySelected}
-          initialPath={directoryPickerInitialPath}
-          title={directoryPickerTitle}
-          actionLabel={directoryPickerAction}
+          bind:open={projectPicker.directoryPickerOpen}
+          onClose={projectPicker.handleDirectoryPickerClose}
+          onSelect={projectPicker.handleDirectorySelected}
+          initialPath={projectPicker.directoryPickerInitialPath}
+          title={projectPicker.directoryPickerTitle}
+          actionLabel={projectPicker.directoryPickerAction}
           api={directoryPickerApi}
-          hostLabel={directoryPickerHostLabel}
-          serverId={directoryPickerServerId}
+          hostLabel={projectPicker.directoryPickerHostLabel}
+          serverId={projectPicker.directoryPickerServerId}
         />
       {/snippet}
     </LazyDialog>
+    {/if}
 
     <LazyDialog
       open={ui.shortcutsModalOpen}
@@ -586,8 +480,8 @@
       {#snippet children(OpenProjectDialog)}
         <OpenProjectDialog
           onOpenProject={(path) =>
-            void openProjectAtPath(path, openProjectStore.source)}
-          onBrowse={browseForOpenProject}
+            void projectPicker.openProjectAtPath(path, openProjectStore.source)}
+          onBrowse={projectPicker.browseForOpenProject}
           onBackgroundCloneFailure={(failure) =>
             toasts.error(failure.title, { description: failure.detail })}
           localIdentity={ui.localGitIdentity}

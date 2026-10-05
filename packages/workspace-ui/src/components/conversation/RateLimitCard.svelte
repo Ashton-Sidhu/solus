@@ -1,11 +1,15 @@
 <script lang="ts">
   import {
     Clock as ClockIcon,
+    Moon as MoonIcon,
     Square as StopIcon,
     ArrowUp as ArrowUpIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { formatResetClock } from "../../lib/sessionUtils";
+  import { toasts } from "../../lib/toasts";
+  import { limitResetSnoozeUntil } from "../session/lib/task-snooze";
   import {
     sendRateLimitedNow,
     cancelRateLimitedMessages,
@@ -21,6 +25,7 @@
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
   import { limitTitle } from "../presence/lib/actor-name";
 
   interface Props {
@@ -36,6 +41,8 @@
   const limitWindow = $derived(formatLimitWindow(rateLimitInfo?.rateLimitType));
 
   const isVisible = $derived(needsRateLimitDecision(sess));
+  // The decision is an editor's; a member who may only read sees the limit.
+  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
   let now = $state(Date.now());
   const secondsLeft = $derived(
     resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0,
@@ -48,6 +55,16 @@
   // the held prompt stays held. Saying 00:00 would report a countdown still
   // running, so the clock face states the fact it arrived at instead.
   const hasReopened = $derived(!!resetsAt && secondsLeft <= 0);
+
+  const sidebarStore = getSessionSidebarStore();
+  // Only a session's own row can be snoozed; a task's session never is alone.
+  const sessionRow = $derived(sidebarStore.allTasks.find((row) => row.key === tabId));
+  // Offered only when the provider said when the window reopens.
+  const snoozeUntil = $derived(
+    sessionRow && sidebarStore.canShelve(sessionRow) && resetsAt
+      ? limitResetSnoozeUntil(resetsAt * 1000, now)
+      : null,
+  );
 
   $effect(() => {
     if (!isVisible || !resetsAt || secondsLeft <= 0) return;
@@ -72,6 +89,15 @@
       session.ctxFor(tabId),
       sess?.status === "rate_limited",
       (err) => session.eventReducer.handleError(sess!.id, err),
+    );
+    requestInputFocus();
+  }
+
+  function handleSnooze() {
+    if (!snoozeUntil) return;
+    sidebarStore.snoozeRow(tabId, snoozeUntil);
+    toasts.undo(`Session snoozed until ${formatResetClock(snoozeUntil)}`, () =>
+      sidebarStore.snoozeRow(tabId, null),
     );
     requestInputFocus();
   }
@@ -107,12 +133,21 @@
     {/snippet}
 
     {#snippet actions()}
+      {#if !canDrive}
+        <span class="text-transcript-meta text-(--muted-foreground)">Waiting for an editor</span>
+      {:else}
       <TranscriptCardAction kind="ghost" onclick={handleStop}>
         <StopIcon size={13} />
         Stop &amp; discard
       </TranscriptCardAction>
       <!-- Queuing means "send it when the window opens". Once it has, the
            button would be a second Send now under a waiting label. -->
+      {#if snoozeUntil}
+        <TranscriptCardAction kind="ghost" onclick={handleSnooze}>
+          <MoonIcon size={13} />
+          Snooze until limit resets
+        </TranscriptCardAction>
+      {/if}
       {#if !hasReopened}
         <TranscriptCardAction kind="ghost" onclick={handleQueueIt}>Queue prompt</TranscriptCardAction>
       {/if}
@@ -120,6 +155,7 @@
         <ArrowUpIcon size={13} />
         Send now
       </TranscriptCardAction>
+      {/if}
     {/snippet}
 
     <p class="m-0 text-(--muted-foreground)">

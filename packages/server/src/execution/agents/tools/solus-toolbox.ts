@@ -1,3 +1,5 @@
+import { readQueueAgentTool, changeQueueAgentTool } from './queue-tools'
+import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import { readExternalDocCommentsAgentTool, writeExternalDocCommentAgentTool } from '../../../docs/comment-tools'
 import {
   createWorkAgentTool,
@@ -21,6 +23,7 @@ import { cancelWatchAgentTool, listWatchesAgentTool, watchAgentTool } from '../.
 import {
   listAgentTargetsAgentTool,
   readSessionAgentTool,
+  readSessionExchangeAgentTool,
   readTaskSessionsAgentTool,
   searchSessionsAgentTool,
   sendSessionAgentTool,
@@ -140,10 +143,20 @@ export const solusToolbox = {
     evaluate: browserEvaluateAgentTool,
     waitFor: browserWaitForAgentTool,
   },
+  devices: {
+    list: deviceListAgentTool,
+    open: deviceOpenAgentTool,
+    screenshot: deviceScreenshotAgentTool,
+    close: deviceCloseAgentTool,
+    install: deviceInstallAgentTool,
+  },
   sessions: {
+    readQueue: readQueueAgentTool,
+    changeQueue: changeQueueAgentTool,
     targets: listAgentTargetsAgentTool,
     search: searchSessionsAgentTool,
     read: readSessionAgentTool,
+    exchange: readSessionExchangeAgentTool,
     readTask: readTaskSessionsAgentTool,
     start: startSessionAgentTool,
     send: sendSessionAgentTool,

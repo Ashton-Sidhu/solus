@@ -6,6 +6,7 @@ import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './ledger'
 import { runReviewAgent } from './review-agent'
+import { contextPreferences } from '../execution/agents/run-input'
 import { normalizeGuide } from './review-guide-tool'
 import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget } from './review-target'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
@@ -501,6 +502,7 @@ async function produceGuide(
       seat: await seatFor?.(agent) ?? undefined,
       reasoningEffort: opts.reasoningEffort ?? null,
       reviewGuideInstructions: ctx.settings.reviewGuideInstructions,
+      executionPreferences: contextPreferences(ctx),
       requestInstructions: opts.instructions,
       inlineDiff,
       onProgress: emit,

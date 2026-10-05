@@ -107,9 +107,10 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       },
       appendGlobalInstructions: (text) => {
         const existing = theme.extraInstructions.trim();
-        theme.update({
-          extraInstructions: existing ? `${existing}\n\n${text}` : text,
-        });
+        theme.setPersonal(
+          "extraInstructions",
+          existing ? `${existing}\n\n${text}` : text,
+        );
       },
       requestInputFocus: refocusComposer,
     });

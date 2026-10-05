@@ -2,7 +2,8 @@ import { serverConnections } from '@solus/client-core/server-connections'
 
 /** Retain the draft on refusal or an uncertain receipt. Never retry a prompt automatically. */
 export class SharedPromptStore {
-  available = $state(false)
+  /** Whether the session's runner takes prompts now; null until the first check answers. */
+  available = $state<boolean | null>(null)
   text = $state('')
   sending = $state(false)
   error = $state<string | null>(null)

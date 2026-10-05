@@ -19,8 +19,11 @@
    * and the transcript the cloud mirrors. The composer is present and inert:
    * a prompt goes to the runner that holds the session, so it can be sent
    * once that runner is back. The chip and the composer say so.
+   *
+   * `live` is whether the session's runner is online. A page that cannot tell
+   * leaves it out; null is a check still in flight, which shows no chip.
    */
-  let { params, paneId, composer }: RouteSurfaceProps<"sessionRecord"> & { composer?: Snippet } = $props();
+  let { params, paneId, composer, live }: RouteSurfaceProps<"sessionRecord"> & { composer?: Snippet; live?: boolean | null } = $props();
 
   const workspace = getSurfaceContext();
   const shell = getClientShellContext();
@@ -37,10 +40,15 @@
   const loading = $derived(record?.loading ?? true);
   const loadError = $derived(record?.error ?? null);
   const transcriptError = $derived(record?.transcriptError ?? null);
+  const showsRecordState = $derived(live !== true && live !== null);
+  const openWork = $derived(workspace.workspace ? (workId: string) => workspace.openWork(workId, "aside") : undefined);
 
   const header = $derived(meta ? sessionRecordHeader(meta) : null);
   const home = $derived(serversStore.hostFor(params.serverId));
   const homeLabel = $derived(serversStore.cloudHomeLabel(params.serverId) ?? home?.label ?? "this host");
+
+  const planFor = (planId: string) => workspace.planStore.get(planId);
+  const workFor = (workId: string) => workspace.worksStore.get(workId);
 
   function close() {
     workspace.workspace?.router.closeGroup("page");
@@ -56,10 +64,12 @@
       <Skeleton class="h-3.5 w-40" />
       <span class="flex-1"></span>
     {/if}
+    {#if showsRecordState}
     <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON} data-testid="session-record-state">
       <CloudOffIcon size={12} />
       {composer ? "Cloud transcript" : "Runner offline"}
     </span>
+    {/if}
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
@@ -97,8 +107,24 @@
           </div>
         {:else if messages.length === 0}
           <p class="text-(--solus-text-tertiary)" data-testid="session-record-transcript-empty">No transcript yet.</p>
-        {:else}
-          <RecordTranscript {messages} />
+        {:else if record}
+          <div class="flex flex-col" data-testid="session-record-transcript">
+            {#if record.olderCursor !== null}
+              <!-- Older turns load above, one page a click; the newest stay where they are. -->
+              <div class="flex flex-col items-center gap-1 pb-2" data-testid="session-record-older">
+                {#if record.olderError}
+                  <p class="text-[0.875em] text-(--solus-text-tertiary)" role="alert">Couldn’t read earlier turns: {record.olderError}</p>
+                {/if}
+                <Button variant="ghost" size="sm" disabled={record.loadingOlder} aria-busy={record.loadingOlder} onclick={() => void record?.loadOlder()}>
+                  {record.loadingOlder ? "Reading earlier turns…" : record.olderError ? "Try again" : "Show earlier turns"}
+                </Button>
+              </div>
+            {/if}
+            {#each record.olderPages as page (page.key)}
+              <RecordTranscript messages={page.messages} serverId={params.serverId} {planFor} {workFor} {openWork} />
+            {/each}
+            <RecordTranscript {messages} serverId={params.serverId} {planFor} {workFor} {openWork} />
+          </div>
         {/if}
       {/if}
     </div>

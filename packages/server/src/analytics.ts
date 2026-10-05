@@ -27,6 +27,7 @@ function getClient(): PostHog | null {
 
 export function captureServerEvent<E extends keyof ServerEventMap>(event: E, props: ServerEventMap[E]): void {
   if (!process.env.SOLUS_POSTHOG_KEY) return
+  // The host emitter's own consent, apart from any client's (plans/018 §3.1).
   if (!getHostConfig().config.analyticsEnabled) return
 
   const posthog = getClient()

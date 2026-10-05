@@ -1,8 +1,9 @@
+import { setAgentQueueController } from './execution/agents/tools/queue-tools'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { heldPersonToken, useDelegatedTokens, useIntegrationExecutor } from './vault/account-integrations'
-import { ANY_ORGANIZATION, recordScopeOf, scopeAdmits } from './admission/principal'
+import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
@@ -52,7 +53,7 @@ import { ShareManager } from './sharing/share-manager'
 import { taskShareContents, tasksContaining } from './data/tasks/task-sharing'
 import { registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-profile'
-import { registerPresenceHandlers } from './transport/handlers/presence-handlers'
+import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, seatKey } from './execution/seats/seat-manager'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
@@ -73,8 +74,7 @@ import { LOCAL_ORGANIZATION_ID } from './admission/principal'
 import { resolveRoles, type SolusRole } from './host/roles'
 import { hostOperatingSystem } from './platform/host-operating-system'
 import { hostDisplayName } from './platform/host-display-name'
-import { getHostConfig, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host/settings'
-import { notificationEventForAttentionKind } from '@solus/contracts/notification-types'
+import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host/settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-policy'
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { readHostLinkEnv } from './host/host-link-env'
@@ -83,6 +83,11 @@ import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { BrowserFrameChannel } from './browser/browser-frame-channel'
+import { initDeviceDomain } from './devices/device-domain'
+import { runDeviceCommand } from './devices/device-process'
+import { spawnHelper } from './devices/device-helpers'
+import { SshDeviceHost, isLocalSshTarget } from './devices/ssh-device-host'
+import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
@@ -111,6 +116,9 @@ import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
 import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
+import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
+import { publishNotificationChanges } from './notifications/hub-events'
+import { hostPrObserver } from './notifications/pr-observer'
 import { registerWorkLiveHandlers } from './transport/handlers/work-live-handlers'
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
@@ -136,7 +144,6 @@ import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
-import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from './notifications/push-service'
 import { getInstallationId } from './admission/auth'
 import { probeServerCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
 import packageJson from '../../../package.json'
@@ -494,13 +501,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // client, named from its principal at admission. The host room is one
   // organization's — the whole host, or each organization of the workspace
   // service — and goes to the admitted clients in it (the audience filter keeps
-  // it from guests); a session's room goes to that session's watchers, who are the room.
+  // it from guests, and a guest on a work's link gets that work's people); a
+  // session's room goes to that session's watchers, who are the room.
   const presence = new PresenceManager({ describeSession: (sessionId) => opts.sessionRuntime.sessionActivityFor(sessionId) })
   const publishHostPresence = (organizationId?: string): void => {
     const rooms = organizationId ? [organizationId] : presence.organizations()
-    for (const room of rooms) {
-      void presence.hostSnapshot(room).then((snapshot) => events.publish(presence.clientsIn(room), 'host.presenceChanged', snapshot))
-    }
+    for (const room of rooms) void publishPresenceRoom(presence, events, room)
   }
   const publishSessionPresence = (sessionId: string): void => {
     const watchers = opts.sessionRuntime.clientsWatching(sessionId)
@@ -511,6 +517,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // registers a per-client binary delivery here, the browser registry publishes
   // only to the clients watching each page.
   const browserFrames = new BrowserFrameChannel()
+  // Native devices: one manager owns inventory, previews and control; video
+  // rides its own binary channel to subscribed clients only (plan 016, D2).
+  const devices = initDeviceDomain({
+    publish: (state) => events.broadcast('device.stateChanged', { state }),
+    surfaceRequested: (payload) => events.broadcast('device.surfaceRequested', payload),
+    makeSshHost: (config) => new SshDeviceHost(config, { run: runDeviceCommand, spawn: spawnHelper }),
+    isLocalSshTarget: (config) => isLocalSshTarget(config, runDeviceCommand),
+  })
+  void devices.manager.start().catch((err) => log.warn('device_domain_start_failed', { error: err instanceof Error ? err.message : String(err) }))
   const codeIntel = new CodeIntelManager()
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
@@ -520,6 +535,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorksChanged((change) => events.broadcast('works.changed', change)),
     onWorkDeleted((change) => events.prepareBroadcast('works.changed', change)),
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
+    // A client with no socket principal is the desktop's own IPC connection: the local owner.
+    publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -547,12 +564,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A pull request changed on the code host announces nothing to Solus, so PR
   // sync asks on the workspace's behalf and turns what it finds into the same
   // event an in-Solus write sends (docs/plans/pr-sync.md).
+  // Pull request assignments and review requests reach the host user's hub from
+  // PR sync's own needs-review read; no second poller asks the code host.
+  const prObserver = hostPrObserver()
   const prSync = new PrSync({
     publish: (change) => events.broadcast('pr.changed', change),
     isSessionBusy: (sessionId) => opts.sessionRuntime.isSessionBusy(sessionId),
+    observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
   })
   prSync.start()
-  const pushNotifications = new PushNotificationService()
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.registerHostHandlers
 
   // Register handlers. Each group only registers what its deps support — the
@@ -593,6 +613,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   phaseDone('host_handlers_registered')
   registerFolioHandlers(server, { shares })
   registerWorkReviewHandlers(server, { shares })
+  registerNotificationHubHandlers(server, { shares })
   registerWorkLiveHandlers(server, { live: workLive, shares })
   registerSharingHandlers(server, { shares })
   registerCloudUploadHandlers(server, { shares })
@@ -613,12 +634,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
   setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.startAutomationSession(o))
-  setAutomationWorktreeCreator((prompt, cwd, abortSignal) => (
-    opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal)
+  setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
+    opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
   ))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setSessionOrchestration(orchestrator)
+  setAgentQueueController({
+    read: (id) => opts.sessionRuntime.agentQueue(id),
+    change: (id, mutation) => opts.sessionRuntime.changeAgentQueue(id, mutation),
+  })
   setSessionController({
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -723,13 +748,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (message.type === 'solus:stop-for-update' && remoteUpdates.canStop(message.operationId)) supervisor.shutdown()
   })
   phaseDone('update_services_ready')
+  // Restore receipts before scheduled work or client admission can add requests.
+  const interruptedSessions = await interruptSweep
+  orchestrator.recover()
+  if (interruptedSessions) orchestrator.reportChildrenInterruptedByRestart(interruptedSessions)
   startAutomationScheduler()
   watches.start()
-  // A parent that delegated to a child the previous process was running is
-  // told the child's turn is gone, rather than waiting for a reply forever.
-  void interruptSweep.then((interrupted) => {
-    if (interrupted) orchestrator.reportChildrenInterruptedByRestart(interrupted)
-  })
   server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
@@ -748,6 +772,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
     onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
     seats,
+  })
+  registerDeviceHandlers(server, {
+    domain: devices,
+    testSshHost: async (config) => (await isLocalSshTarget(config, runDeviceCommand)
+      ? { ok: false, isLocal: true, checks: [{ name: 'ssh', ok: false, detail: 'This target is this Solus host. Its devices already appear under This machine.' }] }
+      : new SshDeviceHost(config, { run: runDeviceCommand, spawn: spawnHelper }).test()),
   })
   // Browser pages are server-owned so an agent addresses the same page the user
   // sees, and keeps addressing it after the pane closes. A headless host still
@@ -769,19 +799,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Attention: expose the active per-session entries and push every change. Each
   // client receives the full list of the sessions it can open (plan 004 item 5).
   server.register('listAttention', async (_args, ctx) => attentionVisibleTo(ctx.principal, opts.sessionRuntime.attention.list(), shares))
-  server.register('pushGetPublicKey', async () => pushNotifications.getPublicKey())
-  server.register('pushSubscribe', (args, ctx) => {
-    const [subscription] = args
-    pushNotifications.subscribe(ctx.deviceId ?? '', ctx.deviceLabel ?? 'Web', subscription)
-    return { ok: true }
-  })
-  server.register('pushUnsubscribe', (_args, ctx) => {
-    if (!ctx.deviceId) throw new Error('Push subscriptions require a paired web device')
-    return { ok: pushNotifications.unsubscribe(ctx.deviceId) }
-  })
 
-  let isDeviceOnline = (_deviceId: string) => false
-  let lastAttentionKeys = new Set(opts.sessionRuntime.attention.list().map(attentionEntryKey))
   // Filtering is async; the chain keeps each client's snapshots in the order the changes happened.
   let attentionDelivery = Promise.resolve()
   opts.sessionRuntime.attention.onChange((entries) => {
@@ -790,20 +808,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       const visible = principal ? await attentionVisibleTo(principal, entries, shares) : entries
       await events.publish(clientId, 'attention.snapshotChanged', { entries: visible })
     }))).then(() => {}, (error) => { log.warn('attention_publish_failed', { error: String(error) }) })
-
-    const { created, nextKeys } = diffNewPushAttentionEntries(lastAttentionKeys, entries)
-    lastAttentionKeys = nextKeys
-    if (created.length === 0 || !pushNotifications.hasOfflineSubscription(isDeviceOnline)) return
-
-    // A device subscribes only while the system channel is on, so the host
-    // applies the event switches; the channel switch is applied by the device.
-    const { notifications } = getHostConfig().config
-    for (const entry of created) {
-      if (!notifications.events[notificationEventForAttentionKind(entry.kind)]) continue
-      void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline, getInstallationId()).catch((err) => {
-        log.warn('web_push_fanout_failed', { error: err instanceof Error ? err.message : String(err) })
-      })
-    }
   })
   setVoiceModelStatusListener((status) => events.broadcast('voice.modelStatusChanged', status))
 
@@ -970,13 +974,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       interruptSweep,
     })
     domainEventUnsubscribes.push(startSharedPromptRunner(runnerDelivery, opts.sessionRuntime, () => uplinkManager.currentLink()?.hostId ?? null))
-    // Publication (organization-scope §7): started from Share or Move, resumed after every delivery pass and at boot.
+    // Publication (organization-scope §7): started from Share or Move; each delivery pass ends in `resume`, which commits what the service received.
     const coordinator = new PublicationCoordinator({
       delivery: runnerDelivery,
       transcriptMirror,
       // A publication names the record (the provider thread id); the runtime's live session is found through it.
       transcriptSource: (recordId) => opts.sessionRuntime.sessionTranscriptSource(opts.sessionRuntime.sessionIdForRecord(recordId)),
-      isTurnRunning: (recordId) => opts.sessionRuntime.activeTurnFor(opts.sessionRuntime.sessionIdForRecord(recordId)) !== null,
       hostId: () => uplinkManager.currentLink()?.hostId ?? null,
       onChanged: (publication) => events.broadcast('publication.changed', publication),
     })
@@ -1075,6 +1078,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
     browserFrames,
+    deviceFrames: devices.frames,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
@@ -1086,10 +1090,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       prSync.dropConnection(clientId)
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
+      void devices.manager.cancelInput(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.sessionRuntime.handleClientExpired(clientId)
       void browserRegistry.dropClient(clientId)
+      void devices.manager.dropClient(clientId)
     },
   })
   // A member the organization standing no longer lists loses their seats and sockets (plan 004 item 10).
@@ -1111,7 +1117,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // its copy. Everyone else hears only about a new face.
     const room = presence.organizationOf(clientId)
     if (joined) publishHostPresence(room)
-    else if (room !== undefined) void presence.hostSnapshot(room).then((snapshot) => events.publish(clientId, 'host.presenceChanged', snapshot))
+    else if (room !== undefined) void publishPresenceRoom(presence, events, room, [clientId])
     for (const sessionId of opts.sessionRuntime.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
   }
   function handlePresenceDisconnected(clientId: string): void {
@@ -1157,12 +1163,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   scheduleSessionIndexPoll()
-  isDeviceOnline = (deviceId: string) => {
-    for (const session of ws.sessions.values()) {
-      if (session.deviceId === deviceId) return true
-    }
-    return false
-  }
 
   // Walk forward from the requested port if it's taken — keeps the picked port
   // close to the deterministic default so the chance a saved web-client URL
@@ -1271,6 +1271,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ws = attachWebSocketTransport(http, server, {
       clientEvents,
       browserFrames,
+      deviceFrames: devices.frames,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
       isTunnelRequest,
@@ -1282,10 +1283,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         prSync.dropConnection(clientId)
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
+        void devices.manager.cancelInput(clientId)
       },
       onClientExpired: ({ clientId }) => {
         opts.sessionRuntime.handleClientExpired(clientId)
         void browserRegistry.dropClient(clientId)
+        void devices.manager.dropClient(clientId)
       },
     })
     lock = acquireLock(host, actualPort)
@@ -1347,6 +1350,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         remoteUpdates.stop()
         stopSupervisor?.()
         codeIntel.dispose()
+        await devices.manager.dispose()
+        await devices.bridge.stop()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null

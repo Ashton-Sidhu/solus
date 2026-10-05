@@ -3,7 +3,7 @@
   import { onDestroy, tick } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getWorkspaceContext, runtime, serversStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     useKeybinding,
@@ -116,9 +116,6 @@
   const hostLabel = (turn: { hostId: string | null; hostname: string | null }): string =>
     turnHostLabel(turn, serversStore.servers, store.serverId);
   const hostChoices = $derived(turnHostChoices(store.turnListingSummary?.hosts ?? [], hostLabel));
-  /** Composing a query on a phone is not a workflow worth its cost: mobile gets
-   *  presets and saved queries, read-only (approved exception, docs/plans). */
-  const readOnly = $derived(runtime.isMobileViewport);
 
   let selection = $state<TimeSelection | null>(null);
   /** The measure the reader charted, where they overrode the one the answer's
@@ -541,9 +538,9 @@
             {current}
             <CaretDownIcon size={10} weight="bold" class="opacity-50" />
           </DropdownMenu.Trigger>
-          <DropdownMenu.Content align="start" class="min-w-40">
+          <DropdownMenu.Content align="start" class="w-max min-w-40 max-w-[calc(100vw-2rem)] overflow-x-auto">
             {#each measures as name (name)}
-              <DropdownMenu.Item onSelect={() => (measure = name)}>
+              <DropdownMenu.Item class="whitespace-nowrap" onSelect={() => (measure = name)}>
                 <span class:font-semibold={name === current}>{name}</span>
               </DropdownMenu.Item>
             {/each}
@@ -698,7 +695,6 @@
       onDeleteSaved={(id) => void store.deleteSaved(id)}
       onSaveCurrent={() => (saveQueryOpen = true)}
       onHistory={applyHistory}
-      {readOnly}
     />
 
     {#if store.error}
@@ -901,7 +897,6 @@
       schema={store.schema}
       onClose={() => (schemaOpen = false)}
       onInsertColumn={(name) => void insertColumn(name)}
-      {readOnly}
     />
   {/if}
 

@@ -110,20 +110,23 @@
   oncontextmenu={handleContextMenu}
 >
   <div class="diagram-group__head">
-    <button
-      type="button"
-      class="diagram-group__collapse"
-      onclick={handleCollapseClick}
-      aria-expanded={!data.collapsed}
-      title={data.collapsed ? 'Expand group' : 'Collapse group'}
-      aria-label={data.collapsed ? 'Expand group' : 'Collapse group'}
-    >
-      <!-- One down-chevron rotated to point right while collapsed, so the fold
-           toggle animates instead of hard-swapping between two paths. -->
-      <svg class="diagram-group__collapse-icon" class:diagram-group__collapse-icon--collapsed={data.collapsed} viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 6l4 4 4-4" />
-      </svg>
-    </button>
+    <!-- Folding writes the saved diagram, so a reader gets no toggle. -->
+    {#if data.onToggleCollapse}
+      <button
+        type="button"
+        class="diagram-group__collapse"
+        onclick={handleCollapseClick}
+        aria-expanded={!data.collapsed}
+        title={data.collapsed ? 'Expand group' : 'Collapse group'}
+        aria-label={data.collapsed ? 'Expand group' : 'Collapse group'}
+      >
+        <!-- One down-chevron rotated to point right while collapsed, so the fold
+             toggle animates instead of hard-swapping between two paths. -->
+        <svg class="diagram-group__collapse-icon" class:diagram-group__collapse-icon--collapsed={data.collapsed} viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+    {/if}
     <span class="diagram-group__icon" aria-hidden="true">
       {#if resolved.iconify}
         <Icon icon={resolved.iconify} width="18" height="18" />

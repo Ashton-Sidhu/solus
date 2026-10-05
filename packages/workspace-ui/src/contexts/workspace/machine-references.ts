@@ -18,7 +18,7 @@ export const GONE_MACHINE_READ_ONLY_REASON = 'This machine was removed. Its conv
 
 /** What the pass reads and writes on the workspace. */
 export interface MachineReferenceOwner {
-  settings: { lastProject: ProjectLocation | null; update(patch: { lastProject: null }): void }
+  settings: { lastProject: ProjectLocation | null; setLayout(key: 'lastProject', value: null): void }
   unstartedRuns(): RunConfig[]
   /** Sessions something has happened in: their machine is where their conversation lives. */
   startedSessions(): Pick<Session, 'run' | 'readOnlyReason'>[]
@@ -52,7 +52,7 @@ export function reconcileMachineReferences(
   hasMachine: () => boolean,
 ): void {
   const lastProject = owner.settings.lastProject
-  if (lastProject && !isKnown(lastProject.serverId)) owner.settings.update({ lastProject: null })
+  if (lastProject && !isKnown(lastProject.serverId)) owner.settings.setLayout('lastProject', null)
 
   for (const session of owner.startedSessions()) {
     if (!session.readOnlyReason && !isKnown(session.run.serverId)) session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON

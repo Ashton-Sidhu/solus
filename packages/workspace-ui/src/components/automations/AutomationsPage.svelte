@@ -4,7 +4,6 @@
   import { Star as StarIcon } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import {
-    connectionsStore,
     getWorkspaceContext,
     getClientShellContext,
     runtime,
@@ -89,7 +88,6 @@
     const base = automationProjects(
       hostItems,
       session.openProjects,
-      (serverId) => connectionsStore.chatFolderFor(serverId),
       (automation) => store.hostFor(automation.id),
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
     );

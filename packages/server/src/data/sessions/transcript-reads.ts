@@ -37,6 +37,11 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   planToolUseId: z.string().optional(),
   parentToolUseId: z.string().optional(),
   activity: activitySchema.optional(),
+  compaction: z.object({
+    trigger: z.enum(['manual', 'auto']).optional(),
+    preTokens: z.number().optional(),
+    postTokens: z.number().optional(),
+  }).optional(),
   timestamp: z.number(),
   questionAnswer: z.object({
     questionId: z.string(),

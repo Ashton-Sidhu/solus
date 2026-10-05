@@ -22,10 +22,12 @@ function list(overrides: Partial<SidebarListInput> = {}) {
     drafts: [],
     tasks: [],
     sessions: [],
+    working: [],
     snoozed: [],
     completed: [],
     isTasksOpen: true,
     isSessionsOpen: true,
+    isWorkingOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
     shelfRevealTaskId: null,
@@ -34,6 +36,48 @@ function list(overrides: Partial<SidebarListInput> = {}) {
 }
 
 describe('the sidebar as one list', () => {
+  test('busy rows sit in a Working section between Sessions and the shelves', () => {
+    // WHY: a row whose agent is busy without you does not ask for anything, so
+    // it leaves the live sections until it comes back with a question, a plan,
+    // an error, or a finished turn.
+    const items = list({
+      tasks: [row('t1')],
+      sessions: [row('a1')],
+      working: [row('w1'), row('w2')],
+      snoozed: [row('s1', 'snoozed')],
+    })
+    expect(items.map((item) => item.key)).toEqual([
+      'header:tasks',
+      't1:card',
+      'header:sessions',
+      'a1:card',
+      'header:working',
+      'w1:card',
+      'w2:card',
+      'header:snoozed',
+      's1:slim',
+    ])
+    expect(items[4]).toMatchObject({ section: 'working', count: 2, isOpen: true })
+  })
+
+  test('a closed Working section still shows the row on screen', () => {
+    // WHY: sending a prompt makes the row you are reading busy. It must not
+    // disappear into a closed section while you watch its turn run.
+    expect(list({ working: [row('w1'), row('w2')], isWorkingOpen: false, shelfRevealTaskId: 'w2' })
+      .map((item) => item.key)).toEqual(['header:working', 'w2:card'])
+    expect(list({ working: [row('w1')], isWorkingOpen: false }).map((item) => item.key))
+      .toEqual(['header:working'])
+  })
+
+  test('a row that starts or finishes a turn keeps its card, so it slides between sections', () => {
+    // WHY: a remount would fade the row out and in instead of moving it.
+    const idle = list({ tasks: [row('t1')], sessions: [row('a1')] })
+    const busy = list({ tasks: [row('t1')], working: [row('a1')] })
+    expect(idle.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
+      .toBe(busy.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
+    expect(sidebarListOrderKey(idle)).not.toBe(sidebarListOrderKey(busy))
+  })
+
   test('drafts lead, then Tasks, Sessions and each shelf under its header', () => {
     // WHY: a task is talked to through its lead with its page beside it; a
     // session is a conversation on its own. The column keeps the two apart

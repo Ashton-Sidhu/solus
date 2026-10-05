@@ -2,6 +2,7 @@ import { cloudAccount, startupAccountRead } from '@solus/client-core/cloud-accou
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { ProviderRepository } from '@solus/contracts/providers'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type {
   AccountOrganization,
   AccountResponse,
@@ -9,7 +10,7 @@ import type {
   ManagedHostSpecRequest,
   UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
-import { connectionsStore, serversStore, workspaceProjectsStore } from '../../contexts'
+import { serversStore, workspaceProjectsStore } from '../../contexts'
 import {
   computeChoices,
   createHostFailureMessage,
@@ -21,7 +22,7 @@ import type { ServerItem } from '../../contexts/connections/servers.store.svelte
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
 import type { OnboardingStage } from './lib/onboarding-model'
 import type { GetStartedFacts } from './lib/get-started'
-import { hostSetupStore } from '../servers/host-setup.store.svelte'
+import { cloudAgentSeatsStore } from '../../contexts/seats/cloud-agent-seats.store.svelte'
 import { ensureRepositoryCheckout, type CheckoutStep } from '../../contexts/workspace/repository-checkout'
 
 /** How often the directory is read while a link code waits for its machine. */
@@ -81,13 +82,11 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Opens the flow again at the stage that sets one "Get started" item. The
-   * agents stage needs a machine to ask; with none chosen and none to choose,
-   * the flow opens where a machine is chosen instead.
+   * Opens the flow again at the stage that sets one "Get started" item.
+   * Agent connections can be checked before a machine is chosen.
    */
   reopenAt(stage: OnboardingStage): void {
-    if (stage === 'agents') this.chooseDefaultHost()
-    this.reopenedAt = stage === 'agents' && !this.chosenServerId ? 'compute' : stage
+    this.reopenedAt = stage
   }
 
   get organization(): AccountOrganization | null {
@@ -125,15 +124,13 @@ class CloudOnboardingStore {
 
   /** The live facts behind the "Get started" list; unknown stays null until its store answers. */
   get getStartedFacts(): GetStartedFacts {
-    const machines = this.machines
-    const readiness = machines.map((server) => hostSetupStore.readinessByHost[server.id]).filter((answer) => !!answer)
     const workspaceServerId = this.workspaceServerId
     const github = this.account?.github
     return {
-      hasMachine: machines.length > 0,
-      hasSignedInAgent: readiness.length === 0
+      hasMachine: this.machines.length > 0,
+      hasSignedInAgent: cloudAgentSeatsStore.seats === null
         ? null
-        : readiness.some((answer) => Object.values(answer.agents).some((agent) => agent.signedIn)),
+        : cloudAgentSeatsStore.seats.some((seat) => seat.connected),
       githubConnected: github === undefined ? null : github !== null,
       hasProject: workspaceProjectsStore.hasLoaded(workspaceServerId)
         ? workspaceProjectsStore.projectsFor(workspaceServerId).length > 0
@@ -146,7 +143,7 @@ class CloudOnboardingStore {
     const workspaceServerId = this.workspaceServerId
     if (workspaceServerId) void workspaceProjectsStore.load(workspaceServerId)
     void this.refreshGithub()
-    void hostSetupStore.probeUnprobedOnline(this.machines)
+    void cloudAgentSeatsStore.refresh()
   }
 
   /** The first load takes the read web boot already started; later loads read again. */
@@ -375,18 +372,13 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Where the workspace opens when the flow ends without a repository: the
-   * person's Scratchpad (their chat folder) on the chosen machine. With no
-   * machine, the new-tab home stays.
+   * Where the workspace opens when the flow ends without a repository: a new
+   * chat on the chosen machine. With no machine, the new-tab home stays.
    */
-  async landInScratchpad(workspace: Pick<WorkspaceContext, 'drafts' | 'router'>): Promise<void> {
+  landInChat(workspace: Pick<WorkspaceContext, 'drafts' | 'router'>): void {
     const serverId = this.chosenServerId
     if (!serverId) return
-    if (!connectionsStore.capabilitiesFor(serverId)) await connectionsStore.refreshCapabilities({ serverId })
-    // The host names the member's own workspace; a managed host's home folder is shared.
-    const directory = connectionsStore.capabilitiesFor(serverId)?.workspacePath
-    if (!directory) return
-    workspace.drafts.openSessionDraft({ serverId, target: workspace.router.leadingPane.id }, directory)
+    workspace.drafts.openSessionDraft({ serverId, target: workspace.router.leadingPane.id }, NEW_CHAT_DIRECTORY)
   }
 
   /** Finishing and skipping both end onboarding for the account, on every

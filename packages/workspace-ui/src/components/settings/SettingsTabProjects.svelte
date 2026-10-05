@@ -10,6 +10,7 @@
   import { projectsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsSection from "./SettingsSection.svelte";
+  import ProjectBranchNamingSetting from "./ProjectBranchNamingSetting.svelte";
   import type { HostApi } from "@solus/client-core/host-api";
 
   interface Props {
@@ -76,8 +77,8 @@
 </script>
 
 <SettingsSection>
-<div class="flex min-h-[18rem] gap-4 p-3">
-  <nav class="flex flex-col gap-0.5 w-60 shrink-0 border-r border-r-border pr-3" aria-label="Projects">
+<div class="flex min-h-[18rem] flex-col gap-4 p-3 @min-[48rem]/pane:flex-row">
+  <nav class="flex flex-col gap-0.5 shrink-0 border-b border-b-border pb-3 @min-[48rem]/pane:w-60 @min-[48rem]/pane:border-b-0 @min-[48rem]/pane:border-r @min-[48rem]/pane:border-r-border @min-[48rem]/pane:pb-0 @min-[48rem]/pane:pr-3" aria-label="Projects">
     {#if loaded && projects.length === 0}
       <p class="text-xs text-(--solus-text-tertiary) py-2">No projects yet. Open a folder to get started.</p>
     {/if}
@@ -137,5 +138,12 @@
     {/each}
   </nav>
 
+  {#if selected}
+    <section class="min-w-0 flex-1" aria-label="Project settings">
+      {#key selected}
+        <ProjectBranchNamingSetting {serverId} {api} cwd={selected} />
+      {/key}
+    </section>
+  {/if}
 </div>
 </SettingsSection>

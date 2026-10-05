@@ -3,7 +3,7 @@ import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admiss
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { assignSessionOrganization, getSessionRecord, recordSessionId, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
 import { isOrganizationAttached } from '../../host/organization-attachment'
-import { isChatFolder } from '../../workspace'
+import { isChat } from '@solus/contracts/chat'
 import type { HostOrganizations } from '../../host/organizations'
 import { insightsEligible } from '../../sync/mirror/insight-mirror'
 import type { Actor } from '../../admission/actor'
@@ -103,7 +103,7 @@ async function admitOnAttachedMachine(ctx: IpcContext, principal: Principal, dep
   }
   const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true })
   // A chat is still organization work, but only its owner sees it until they share it (plan 004 D14).
-  await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isChatFolder(ctx.session.workingDirectory) })
+  await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isChat(ctx.session.workingDirectory) })
   const birth: SessionBirth = { organizationId, published: true, ownerUserId: userId, admissionId: sessionId }
   pendingAssignments.set(sessionId, birth)
   return organizationId
@@ -202,6 +202,23 @@ const pendingAssignments = new Map<string, SessionBirth>()
 /** The organization a session was admitted for before its record existed, if any. */
 export function pendingOrganizationFor(sessionId: string): string | null {
   return pendingAssignments.get(sessionId)?.organizationId ?? null
+}
+
+/**
+ * A child or a fork works for the organization of the session it came from
+ * (plans/018 §6). Its own record takes that organization once (R10), so a
+ * restart finds it there and not in memory. Before the record id is known the
+ * assignment waits for `applyPendingAssignment`, like an admission's; an
+ * admission already pending for the session is left as it is.
+ */
+export async function inheritSessionOrganization(sessionId: string, organizationId: string, recordId: string | null): Promise<void> {
+  if (!recordId) {
+    if (!pendingAssignments.has(sessionId)) pendingAssignments.set(sessionId, { organizationId })
+    return
+  }
+  // Whichever comes first: a record not written yet is born in it, a Local one is assigned it.
+  rememberSessionBirth(recordId, { organizationId })
+  await assignSessionOrganization(recordId, organizationId)
 }
 
 /** Listeners that learn which record a Solus session's run is keyed by: the run authority holder. */

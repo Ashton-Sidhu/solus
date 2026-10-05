@@ -68,6 +68,15 @@ export interface HostPresenceSnapshot {
   participants: HostParticipant[]
 }
 
+/**
+ * Everyone who has one work open. A guest on that work's link gets this instead
+ * of the host room: the people on the work it was let in to see, nothing more.
+ */
+export interface WorkPresenceSnapshot {
+  workId: string
+  participants: HostParticipant[]
+}
+
 /** `presenceSnapshot`: the host snapshot plus which participant the caller is. */
 export interface PresenceSnapshotResult {
   clientId: string

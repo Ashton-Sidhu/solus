@@ -45,17 +45,44 @@ Works, plans, and Markdown files support Mermaid on desktop, web, and mobile.
 
 ## Rendering
 
-Mermaid is a separate chunk of the client and desktop bundles, loaded with a
-dynamic import. The fetch starts while a mermaid fence is still streaming, so
-the chunk is warm when the fence closes. A block starts its render only when it
-comes within a screen of the viewport: every tab stays mounted, and diagrams in
-tabs the reader is not looking at must not queue ahead of the one they are.
-`initialize` runs once per theme, not per diagram. Renders run one at a time
-because Mermaid's configuration is global, and the result is cached by theme
-and source, so a re-mounted tab or a theme flip costs nothing the second time.
-The security level is `strict` and Mermaid's own error graphic is suppressed.
+Two renderers draw a diagram. `renderMermaid` in
+`conversation/lib/mermaid-block.ts` chooses one; replies and documents both
+call it.
 
-A Mermaid diagram is drawn to look like a Solus diagram work. The values come
+**beautiful-mermaid, in a worker.** Flowcharts, state, sequence, class, ER, and
+xy-chart diagrams go to beautiful-mermaid
+(`conversation/lib/mermaid-svg.worker.ts`). It needs no DOM, so layout and SVG
+assembly run off the main thread in a few milliseconds. Its colours are Solus
+theme variables, so the SVG follows a theme flip without a new render, and the
+result is cached by source alone. Before the SVG goes inline,
+`scopeDiagramSvg` (`conversation/lib/mermaid-svg.ts`) removes the library's web
+font import, wraps each style block in `@scope` so it styles only its own SVG,
+and prefixes every marker id so that two diagrams never share one. Every
+colour is set explicitly: the library falls back to `var(--accent)` and
+`var(--border)`, which would inherit shadcn's variables of the same names.
+The worker starts while a mermaid fence is still streaming, so the layout
+engine is warm when the fence closes. This renderer does not report most syntax
+errors: a malformed diagram of a supported type can draw in part rather than
+stay as source.
+
+**Mermaid, in a hidden frame.** Every other diagram (gantt, pie, mindmap, a
+diagram with frontmatter or a `%%{init}%%` directive), and any diagram the
+worker cannot parse, goes to Mermaid. Mermaid wraps a label by measuring it
+word by word, and each measurement forces a style recalculation of the whole
+document it is in. In the workspace that cost about 4 ms per measurement and
+half a second per diagram. Mermaid therefore runs in its own realm, in a hidden
+same-origin frame (`conversation/lib/mermaid-frame.ts`) whose document holds
+only the diagram, and returns the SVG string. It loads only when a diagram
+needs it. `initialize` runs once per theme, not per diagram. Renders run one at
+a time because Mermaid's configuration is global, and the result is cached by
+theme and source. The security level is `strict` and Mermaid's own error
+graphic is suppressed.
+
+Either way, a block starts its render only when it comes within a screen of the
+viewport: every tab stays mounted, and diagrams in tabs the reader is not
+looking at must not queue ahead of the one they are.
+
+A diagram that Mermaid draws is made to look like a Solus diagram work. The values come
 from the diagram canvas (`DiagramNode`, `DiagramGroupNode`, `DiagramEdge`,
 `DiagramShell.css`): a node is a container-coloured card with a hairline
 `--solus-tool-border`, 10px radius and the faint ambient lift; a subgraph is

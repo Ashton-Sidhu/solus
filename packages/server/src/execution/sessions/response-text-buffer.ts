@@ -1,4 +1,4 @@
-import type { ResponseStreamingMode } from '@solus/contracts/host-config'
+import type { ResponseStreamingMode } from '@solus/contracts/settings'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 const DELIVERY_INTERVAL_MS = 400

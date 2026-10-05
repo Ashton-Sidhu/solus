@@ -4,7 +4,7 @@
   import { fly } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import VirtualList from "../../ui/list-page/VirtualList.svelte";
-  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
+  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
@@ -30,7 +30,6 @@
   import SessionPreview from "../SessionPreview.svelte";
   import TaskContextMenu from "../TaskContextMenu.svelte";
   import PickerActionBar from "./PickerActionBar.svelte";
-  import PickerPeekSheet from "./PickerPeekSheet.svelte";
   import PickerResultMenu from "./PickerResultMenu.svelte";
   import { PICKER_RESULT_LABELS } from "./lib/picker-preferences";
   import PickerSearchOptions from "./PickerSearchOptions.svelte";
@@ -52,15 +51,13 @@
     expandTarget,
     pickerRowHeight,
     previewHitTarget,
-    projectLabel,
     pickerSessionActivity,
     selectedRowIndex,
     isTaskGroup,
-    type ConversationHit,
     type PickerEntry,
   } from "./lib/picker-rows";
   import { openPickerLinkedItem } from "./lib/picker-linked-actions";
-  import { hasLeftPress, type PressPoint } from "./lib/picker-long-press";
+  import { ownsTask } from "../../tasks/lib/task-ownership";
 
   interface Props {
     open: boolean;
@@ -80,7 +77,6 @@
   const searches = new PickerSearches();
   let query = $state("");
   let selectedKey = $state<string | null>(null);
-  let revealedTaskId = $state<string | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
   let pickerEl = $state<HTMLDivElement | null>(null);
   let listHeight = $state(0);
@@ -95,13 +91,6 @@
     x: number;
     y: number;
   } | null>(null);
-  /** The long-pressed row, raised as a sheet over the list on a phone. */
-  let peekTarget = $state<
-    | { kind: "task"; task: Task }
-    | { kind: "session"; session: SidebarSessionChild; task: Task }
-    | { kind: "conversation"; meta: SessionMeta; hit?: ConversationHit }
-    | null
-  >(null);
   /** Which tasks the reader opened. A search opens its own hits on top of
    *  these without touching them, so clearing the query restores the tree. */
   const expandedTaskIds = new SvelteSet<string>();
@@ -196,10 +185,8 @@
     selectedEntry?.kind === "session" ? selectedEntry.session : null,
   );
 
-  // The virtual list needs every row height before paint, at the row's window-width rung.
-  const rowSizes = $derived(
-    list.rows.map((row) => pickerRowHeight(row, runtime.isMobileViewport)),
-  );
+  // The virtual list needs every row height before paint.
+  const rowSizes = $derived(list.rows.map(pickerRowHeight));
   // A persistent target snaps back on later row-size updates.
   let scrollTargetIndex = $state<number | undefined>(undefined);
   let scrollRequestId = 0;
@@ -290,7 +277,6 @@
     void query;
     void session.ui.pickerResultType;
     selectedKey = null;
-    revealedTaskId = null;
     if (open) void scrollSelectionIntoView();
   });
 
@@ -335,11 +321,9 @@
   function close(): void {
     taskContextMenu = null;
     sessionContextMenu = null;
-    peekTarget = null;
     scopeMenuOpen = false;
     searchOptionsOpen = false;
     resultMenuOpen = false;
-    revealedTaskId = null;
     open = false;
     preview.reset();
     searches.reset();
@@ -513,7 +497,12 @@
     }
   }
 
-  function deleteTask(task: Task): void {
+  async function deleteTask(task: Task): Promise<void> {
+    // The host deletes a task for its owner alone.
+    if (!(await ownsTask(session.tasksStore, task.id))) {
+      toasts.error("Couldn't delete task", { description: "Only the owner can delete a task." });
+      return;
+    }
     const pending = sidebarStore.deleteTasks([task.id]);
     if (!pending.length) return;
     toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
@@ -524,14 +513,6 @@
           })),
     });
   }
-
-  // Touch has no right click, and on a phone the preview column is hidden.
-  // A tap raises that preview as a sheet; a long press raises the same sheet
-  // without committing to the row when the timer fires.
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Where the finger landed, so a move can be measured against it. */
-  let longPressOrigin: PressPoint | null = null;
-  let suppressNextClick = false;
 
   function openContextMenu(event: MouseEvent, entry: PickerEntry): void {
     event.preventDefault();
@@ -546,88 +527,22 @@
     }
   }
 
-  // Every row raises the same sheet, a conversation hit included: its row
-  // shows one line of the passage, and the sheet is where the passage sits in
-  // its transcript, which the preview column a phone hides would have shown.
-  function openPeek(entry: PickerEntry): void {
-    selectIndex(entry.entryIndex);
-    if (entry.kind === "conversation") {
-      peekTarget = { kind: "conversation", meta: entry.meta, hit: entry.hit };
-    } else if (entry.kind === "task") {
-      peekTarget = { kind: "task", task: entry.task };
-    } else {
-      peekTarget = { kind: "session", session: entry.session, task: entry.task };
-    }
-  }
-
-  function startLongPress(event: PointerEvent, entry: PickerEntry): void {
-    if (event.pointerType !== "touch") return;
-    longPressOrigin = { x: event.clientX, y: event.clientY };
-    longPressTimer = setTimeout(() => {
-      suppressNextClick = true;
-      openPeek(entry);
-    }, 500);
-  }
-
-  function cancelLongPress(): void {
-    if (longPressTimer) clearTimeout(longPressTimer);
-    longPressTimer = null;
-    longPressOrigin = null;
-  }
-
-  /** The finger left the glass. */
-  function endPress(): void {
-    cancelLongPress();
-    if (!suppressNextClick) return;
-    // A press that raised the sheet still emits the click of its own lift, and
-    // that is the one click to swallow. Release the guard on the next frame,
-    // once that click has been and gone — held open, it ate the reader's next
-    // real tap instead, minutes later and on a different row.
-    requestAnimationFrame(() => {
-      suppressNextClick = false;
-    });
-  }
-
   // Selection follows a pointer that *moves*, not one a row scrolls under:
   // `pointerenter` fires when the keyboard scrolls the list beneath a resting
   // mouse and would steal the selection from the key that caused it.
   function hoverEntry(event: PointerEvent, entry: PickerEntry): void {
-    if (event.pointerType === "touch") {
-      // A held finger is never still, so only travel far enough to be a scroll
-      // ends the press. Cancelling on the first move cancelled every press.
-      if (longPressOrigin && hasLeftPress(longPressOrigin, event.clientX, event.clientY)) {
-        cancelLongPress();
-      }
-      return;
-    }
-    cancelLongPress();
+    if (event.pointerType === "touch") return;
     if (selectedIndex !== entry.entryIndex) selectIndex(entry.entryIndex);
   }
 
   function activate(entry: PickerEntry): void {
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      return;
-    }
-    // A phone has no preview column, so a tap raises the same detail and action
-    // surface that desktop keeps beside the list, whatever kind of row it is.
-    // The sheet owns the explicit Open or Resume action; desktop keeps the
-    // direct row activation promised by its preview pane.
-    if (runtime.isMobileViewport) openPeek(entry);
-    else if (entry.kind === "conversation") resumeConversation(entry.meta);
+    if (entry.kind === "conversation") resumeConversation(entry.meta);
     else if (entry.kind === "session") selectSession(entry.session);
     else select(entry.task);
   }
 
   function clickEntry(entry: PickerEntry): void {
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      return;
-    }
-    // A phone's task with one session is that session: its tap resumes it,
-    // as a sidebar click does, and skips the group it is not. The task's own
-    // sheet stays one long press away.
-    if (entry.kind === "task" && !isTaskGroup(entry, runtime.isMobileViewport) && entry.sessions[0]) {
+    if (entry.kind === "task" && !isTaskGroup(entry) && entry.sessions[0]) {
       selectSession(entry.sessions[0]);
       return;
     }
@@ -652,10 +567,10 @@
   }
 
   function handleKeyDown(event: KeyboardEvent): void {
-    // While the row menu or the sheet is up it owns the keyboard, including
-    // the Escape that dismisses it — arrowing the list underneath would move
-    // the selection away from the row the open surface is acting on.
-    if (taskContextMenu || sessionContextMenu || peekTarget || scopeMenuOpen || searchOptionsOpen || resultMenuOpen) return;
+    // While a row menu is up it owns the keyboard, including the Escape that
+    // dismisses it — arrowing the list underneath would move the selection
+    // away from the row the open surface is acting on.
+    if (taskContextMenu || sessionContextMenu || scopeMenuOpen || searchOptionsOpen || resultMenuOpen) return;
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -742,7 +657,7 @@
   <!-- The same band the command palette opens with: one 53px line, the field
        leading, the one control that acts on it at the far end. -->
   <div
-    class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5 max-md:h-auto max-md:flex-wrap max-md:border-0 max-md:px-4 max-md:pt-2 max-md:pb-1"
+    class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5"
   >
     <!-- The scope leads the search the way a project crumb leads a page title:
          `<project> | search`. The same control every list page scopes with,
@@ -754,7 +669,7 @@
            every pixel it is offered, so unboxed the label shrank to two letters.
            A box that will not shrink gives the name its full width, capped so
            a long folder name cannot push the search field off the row. -->
-      <div class="max-w-56 shrink-0 max-md:max-w-36">
+      <div class="max-w-56 shrink-0">
         <ListProjectSwitcher
           projects={projectOptions}
           activeKey={scopeProjectKey ?? undefined}
@@ -765,26 +680,17 @@
           bind:menuOpen={scopeMenuOpen}
         />
       </div>
-      <span class="h-4 w-px shrink-0 bg-[var(--hairline-strong)] max-md:hidden" aria-hidden="true"></span>
+      <span class="h-4 w-px shrink-0 bg-[var(--hairline-strong)]" aria-hidden="true"></span>
     {/if}
-    <!-- The same search shape the phone uses everywhere else: a 44px card, not
-         a bare rule. `display: contents` above the rung leaves the desktop row
-         exactly as it was. -->
-    <div
-      class="contents max-md:flex max-md:h-11 max-md:flex-1 max-md:items-center max-md:gap-2.5 max-md:rounded-lg max-md:bg-card max-md:px-3 max-md:shadow-[shadow:var(--elev-ring)]"
-    >
-      <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary) opacity-65" />
-      <!-- The field inherits the surface's `text-menu` rung. The one deliberate
-           size override: iOS Safari zooms the page whenever a focused field is
-           under 16px, and no chrome rung is that large. -->
-      <Input
-        bind:ref={searchEl}
-        bind:value={query}
-        type="text"
-        placeholder={session.ui.pickerResultType === "sessions" ? "Search sessions…" : session.ui.pickerResultType === "tasks" ? "Search tasks…" : "Search work in solus…"}
-        class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-(--solus-accent) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent max-md:text-base"
-      />
-    </div>
+    <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary) opacity-65" />
+    <!-- The field inherits the surface's `text-menu` rung. -->
+    <Input
+      bind:ref={searchEl}
+      bind:value={query}
+      type="text"
+      placeholder={session.ui.pickerResultType === "sessions" ? "Search sessions…" : session.ui.pickerResultType === "tasks" ? "Search tasks…" : "Search work in solus…"}
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-(--solus-accent) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
+    />
     <!-- The order and the mode, last on the row, at the far end of the box
          they act on. The counts live under the list alone. -->
     <PickerResultMenu
@@ -803,20 +709,12 @@
       portalTarget={layer.el}
       bind:open={searchOptionsOpen}
     />
-    <button
-      type="button"
-      class="hidden size-9 shrink-0 cursor-pointer items-center justify-center rounded-[0.625rem] text-muted-foreground max-md:flex"
-      onclick={close}
-      aria-label="Close picker"
-    >
-      <XIcon size={16} />
-    </button>
   </div>
 
   <div class="flex min-h-0 flex-1 overflow-hidden">
     <!-- Half the card each: the list and the preview of the row it is on. -->
     <div
-      class="flex w-1/2 shrink-0 flex-col overflow-hidden border-r border-(--solus-menu-hairline) px-2 pt-2 max-md:w-full max-md:border-0 max-md:px-3 max-md:pt-1"
+      class="flex w-1/2 shrink-0 flex-col overflow-hidden border-r border-(--solus-menu-hairline) px-2 pt-2"
     >
       <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label={PICKER_RESULT_LABELS[session.ui.pickerResultType]}>
         {#if list.entries.length === 0}
@@ -842,12 +740,6 @@
                 onHover={hoverEntry}
                 onToggle={toggleTask}
                 onContextMenu={openContextMenu}
-                onPressStart={startLongPress}
-                onPressEnd={endPress}
-                mobile={runtime.isMobileViewport}
-                {revealedTaskId}
-                onRevealChange={(taskId) => (revealedTaskId = taskId)}
-                onSetStatus={(task, status) => void setStatus(task, status)}
                 onReachEnd={() => void searches.sessions.loadMore()}
               />
             {/snippet}
@@ -876,7 +768,7 @@
 
     <!-- The preview scrolls; the action bar under it does not, so what you can
          do to the row is always one reach away however long its body runs. -->
-    <div class="flex min-w-0 flex-1 flex-col max-md:hidden">
+    <div class="flex min-w-0 flex-1 flex-col">
       <div class="min-h-0 flex-1 overflow-hidden">
         {#if selectedConversation}
           {@const conversation = selectedConversation}
@@ -966,7 +858,7 @@
     onOpenSource={menuTask.url ? () => openSourceTicket(menuTask) : undefined}
     onSetStatus={(status) => void setStatus(menuTask, status)}
     onMarkUnread={() => void sidebarStore.markTaskUnread(menuTask.id)}
-    onDelete={menuTask.providerId === "local" ? () => deleteTask(menuTask) : undefined}
+    onDelete={menuTask.providerId === "local" ? () => void deleteTask(menuTask) : undefined}
     portalTarget={layer.el}
     onClose={() => (taskContextMenu = null)}
   />
@@ -990,32 +882,6 @@
   />
 {/if}
 
-{#if open && peekTarget}
-  <PickerPeekSheet
-    target={peekTarget}
-    sessions={peekTarget.kind === "conversation" ? [] : sessionsFor(peekTarget.task)}
-    sessionPreview={preview.snapshot}
-    sessionHitWindow={previewHitWindow}
-    additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
-    {previewLoading}
-    messageCount={preview.messageCount}
-    {query}
-    projectLabel={peekTarget.kind === "conversation"
-      ? conversationProjectLabel(peekTarget.meta)
-      : projectLabel(peekTarget.task)}
-    portalTarget={layer.el}
-    onClose={() => (peekTarget = null)}
-    onResumeConversation={resumeConversation}
-    onStartDraft={startDraft}
-    onOpenTask={openTaskPage}
-    onOpenSource={openSourceTicket}
-    onSelectSession={selectSession}
-    onOpenLink={openLinkedItem}
-    onOpenExternal={openLinkedExternal}
-    onUnlink={(link) => void unlinkItem(link)}
-  />
-{/if}
-
 {#if open && inline}
   <div bind:this={pickerEl} class="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent text-menu outline-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown} transition:fly={{ y: 8, duration: 160 }}>
     {@render pickerContent()}
@@ -1024,7 +890,7 @@
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
     <!-- `text-menu`, not the chrome rung, for the same reason the command
          palette holds it: this is a decision surface. -->
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards]" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

@@ -80,6 +80,8 @@ describe('ClaudeTurnNormalizer', () => {
       state: 'stop',
       trigger: 'auto',
       durationMs: 4_250,
+      preTokens: 180_000,
+      postTokens: 12_000,
     }])
   })
 

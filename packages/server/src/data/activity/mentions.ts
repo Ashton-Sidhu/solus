@@ -5,6 +5,7 @@ import { parseUserKey, type Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { appendActivity, newActivity } from './activity'
+import { recordNotification } from '../notifications/store'
 
 /**
  * A mention is recorded once, when it is first saved (plans/012 §5, plan 004
@@ -15,7 +16,8 @@ import { appendActivity, newActivity } from './activity'
 export async function recordNewMentions(
   db: Db,
   organizationId: string,
-  subject: ActivitySubject,
+  /** `title` names the record in the mentioned person's notification. */
+  subject: ActivitySubject & { title?: string },
   by: Attribution,
   previous: string,
   text: string,
@@ -25,8 +27,16 @@ export async function recordNewMentions(
   const before = new Set(mentionedPeople(previous).map((mention) => mention.userId))
   for (const mention of mentionedPeople(text)) {
     if (before.has(mention.userId)) continue
-    const activity = newActivity(subject, by, threadId ? { kind: 'mentioned', userId: parseUserKey(mention.userId), threadId } : { kind: 'mentioned', userId: parseUserKey(mention.userId) })
+    const activity = newActivity({ kind: subject.kind, id: subject.id }, by, threadId ? { kind: 'mentioned', userId: parseUserKey(mention.userId), threadId } : { kind: 'mentioned', userId: parseUserKey(mention.userId) })
     await appendActivity(organizationId, activity, db)
+    // The hub projects the mention for the person it names (plans/015 §5), with the activity's id.
+    if (subject.kind === 'session') continue
+    await recordNotification(db, {
+      organizationId, eventId: `mention:${activity.id}`, activityId: activity.id, recipients: [mention.userId],
+      resource: subject.kind === 'work' ? { kind: 'work', workId: subject.id } : { kind: 'task', taskId: subject.id },
+      by, facts: threadId ? { kind: 'mention', threadId } : { kind: 'mention' },
+      summary: { title: subject.title?.slice(0, 300) || (threadId ? 'Mentioned you in a comment' : 'Mentioned you') },
+    })
   }
 }
 

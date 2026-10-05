@@ -1,5 +1,6 @@
 import { isSolusApiId, organizationIdOfSolusApiId, solusApiId } from '@solus/contracts/uplink'
 import type { AgentId } from '@solus/contracts/types'
+import type { TurnFlagKind } from '@solus/contracts/observability-types'
 import type { WorksStore } from '../works/works.store.svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -18,8 +19,9 @@ import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { grantsFor, guestLinkContext, linkPresentation, linkRoleFor, sameScope, scopeOf, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
 import { publishProblemMessage } from '../../components/sharing/lib/publish-copy'
+import { provideShareRoles } from './session-drive'
 import { accountStore } from '../account/account.store.svelte'
-import { taskLinkUrl } from './task-link'
+import { appLinkUrl } from './app-link'
 import { uplinkStore } from '../connections/uplink.store.svelte'
 import { organizationPeople, type OrganizationPeople } from '../../components/users/lib/organization-people'
 
@@ -264,10 +266,13 @@ export class SharesStore {
    * Local work on the computer the readings came from, and Share uploads it like
    * any work. Each Share captures a new report, labelled with when it was taken.
    */
-  async shareReport(serverId: string, report: { title: string; content: string; agentProvider: AgentId }): Promise<void> {
-    if (this.busy) return
+  async shareReport(serverId: string, report: { title: string; content: string; agentProvider: AgentId; mark: { kind: TurnFlagKind; note: string } | null }): Promise<void> {
+    if (accountStore.state.kind !== 'signed-in' || this.busy) return
     try {
-      const work = await serverConnections.apiFor(serverId).createWork(report.title, 'insights-report', report.content, undefined, undefined, report.agentProvider)
+      const api = serverConnections.apiFor(serverId)
+      const work = await api.createWork(report.title, 'insights-report', report.content, undefined, undefined, report.agentProvider)
+      // Set before the dialog uploads the work, so the copy carries it.
+      if (report.mark) await api.applyWorkComment(work.id, { kind: 'mark', mark: report.mark })
       await this.open({ serverId, resource: { kind: 'work', id: work.id }, title: report.title })
     } catch (error) {
       toasts.error('Could not share this report', { description: error instanceof Error ? error.message : undefined })
@@ -276,7 +281,7 @@ export class SharesStore {
 
   /** Opens the dialog; resolves once it is on screen or the attempt was explained. */
   open(target: ShareDialogTarget): Promise<void> {
-    if (this.busy) return Promise.resolve()
+    if (accountStore.state.kind !== 'signed-in' || this.busy) return Promise.resolve()
     this.busy = true
     return this.openTarget(target)
       .catch((error) => { toasts.error(error instanceof Error ? error.message : 'Could not open cloud sharing') })
@@ -323,15 +328,22 @@ export class SharesStore {
     void this.publishDialog(this.dialog)
   }
 
-  /** The dialog on a resource that lives on the workspace service: its list, then its people. */
+  /** The dialog on a resource that lives on the workspace service: it opens on its list; its people load beside it. */
   private async openCloud(cloudServerId: string, target: ShareDialogTarget): Promise<void> {
-    await serversStore.refreshDirectory()
+    await this.reachCloud(cloudServerId)
+    this.identities.delete(cloudServerId)
+    this.directories.delete(cloudServerId)
+    void this.directoryFor(cloudServerId).catch(() => {
+      // No people to invite; the list still opens.
+    })
     const list = await this.load(cloudServerId, target.resource, { force: true })
     if (!list) throw new Error('This resource has not reached Solus Cloud yet. Open its cloud copy before sharing.')
     this.dialog = { serverId: cloudServerId, resource: target.resource, title: target.title }
-    this.identities.delete(cloudServerId)
-    this.directories.delete(cloudServerId)
-    await this.directoryFor(cloudServerId)
+  }
+
+  /** The organization's workspace service is reached through the account's directory; read it only when this client does not know the service yet. */
+  private async reachCloud(cloudServerId: string): Promise<void> {
+    if (!savedWorkspaceFor(cloudServerId)) await serversStore.refreshDirectory()
   }
 
   /** A publication of this resource the machine already committed, if any; an older host that cannot say has none. */
@@ -451,11 +463,23 @@ export class SharesStore {
       cloudServerId = outcome.cloudServerId
     }
     try {
-      await navigator.clipboard.writeText(taskLinkUrl(accountOrigin, taskId, cloudServerId))
+      await navigator.clipboard.writeText(appLinkUrl(accountOrigin, { kind: 'task', id: taskId }, cloudServerId))
       toasts.success('Link copied', { description: 'Anyone in your organization can open this task.' })
     } catch {
       toasts.error("Couldn't copy the link")
     }
+  }
+
+  /**
+   * The link for people the resource is shared with by name, team, or
+   * organization: the app's own address on the account origin, opened with each
+   * person's sign-in. Null when this client has no account origin or the
+   * resource is not on a workspace service.
+   */
+  memberLinkUrl(serverId: string, resource: ShareResource): string | null {
+    const account = accountStore.state
+    if (account.kind !== 'signed-in' || !isSolusApiId(serverId)) return null
+    return appLinkUrl(account.consoleUrl, resource, serverId)
   }
 
   publishResource(request: PublishRequest): Promise<PublishOutcome> {
@@ -503,9 +527,8 @@ export class SharesStore {
   private async uploadWork(serverId: string, workId: string, organizationId: string): Promise<PublishOutcome> {
     const host = serverConnections.apiFor(serverId)
     const transfer = await host.workExportForCloud(workId)
-    // The organization's workspace service is reached through the account's directory.
-    await serversStore.refreshDirectory()
     const cloudServerId = solusApiId(organizationId)
+    await this.reachCloud(cloudServerId)
     await serverConnections.apiFor(cloudServerId).workUpload(transfer)
     await host.workRemoveUploaded(workId, transfer.fingerprint, organizationId)
     this.works?.markPublished(workId, organizationId, cloudServerId)
@@ -521,8 +544,8 @@ export class SharesStore {
   private async uploadTask(serverId: string, taskId: string, organizationId: string): Promise<PublishOutcome> {
     const host = serverConnections.apiFor(serverId)
     const { task, works } = await host.taskExportForCloud(taskId)
-    await serversStore.refreshDirectory()
     const cloudServerId = solusApiId(organizationId)
+    await this.reachCloud(cloudServerId)
     const cloud = serverConnections.apiFor(cloudServerId)
     for (const work of works) await cloud.workUpload(work)
     await cloud.taskUpload(task)
@@ -629,7 +652,9 @@ export class SharesStore {
     let link: ShareLink | null = null
     await this.run(serverId, resource, async () => {
       link = await serverConnections.apiFor(serverId).shareSetLink({ resource, role, regenerate })
-      return null
+      // The answer is the whole change: the list is kept with its new link, not read again.
+      const list = this.listFor(serverId, resource)
+      return list ? { ...list, link } : null
     })
     return link
   }
@@ -650,3 +675,4 @@ export class SharesStore {
 }
 
 export const sharesStore = new SharesStore()
+provideShareRoles(sharesStore)

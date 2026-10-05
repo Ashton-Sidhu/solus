@@ -20,6 +20,7 @@ import { onTasksChanged, taskOrganizationId } from './data/tasks/task-store'
 import { workOrganizationId } from './data/works/works'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
 import { onWorkReviewsChanged } from './data/works/work-reviews'
+import { publishNotificationChanges } from './notifications/hub-events'
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { getSessionRecord } from './data/sessions/session-records'
@@ -121,6 +122,7 @@ export async function createSolusApiService(options: SolusApiServiceOptions): Pr
   const unsubscribeWorks = onWorksChanged(change => { void events.broadcast('works.changed', change) })
   const unsubscribeWorkDeletes = onWorkDeleted(change => events.prepareBroadcast('works.changed', change))
   const unsubscribeWorkReviews = onWorkReviewsChanged(change => { void events.broadcast('workReviews.changed', change) })
+  const unsubscribeNotifications = publishNotificationChanges(events, () => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
   const unsubscribeLiveDeletes = onWorkDeleted(async change => async () => { workLive.forget(change.workId); return 0 })
   const unsubscribeShares = shares.onChanged(change => {
     // Room members are checked again on their next event; live rooms drop or downgrade who lost access.
@@ -151,7 +153,7 @@ export async function createSolusApiService(options: SolusApiServiceOptions): Pr
     closeLiveTransport,
     close() {
       return closing ??= (async () => {
-        unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
+        unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()

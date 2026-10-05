@@ -1,3 +1,5 @@
+import { isChat } from '@solus/contracts/chat'
+import { CHAT_LABEL } from '../../../../lib/paths'
 import type { PickerResultType } from './picker-preferences'
 import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
@@ -116,18 +118,17 @@ export type PickerRow =
 export type PickerEntry = Exclude<PickerRow, { kind: 'header' | 'more' }>
 
 /**
- * Whether a task row is a group the reader opens. On a phone a task with one
- * session is that session: opening it revealed one child named after the
- * task, a row that said nothing and cost a tap. Desktop keeps the group at
- * any count, because its preview column reads the two rows differently.
+ * Whether a task row is a group the reader opens: any task with a session,
+ * unless the query matched the task itself.
  */
-export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>, touch: boolean): boolean {
-  return !row.matchedIn && row.sessions.length > (touch ? 1 : 0)
+export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>): boolean {
+  return !row.matchedIn && row.sessions.length > 0
 }
 
 /** The last path segment of the task's project, or "Inbox" when it has none. */
 export function projectLabel(task: Task): string {
   if (!task.projectKey) return 'Inbox'
+  if (isChat(task.projectKey)) return CHAT_LABEL
   return task.projectKey.replace(/\/$/, '').split('/').at(-1) || task.projectKey
 }
 
@@ -161,11 +162,14 @@ export function conversationProjectLabel(meta: SessionMeta): string {
  * project can hold plenty of work and still have no sidebar row on this
  * client, and a scope you cannot reach is not a scope. The composer's own
  * project leads and is always offered — a fresh project with no task yet must
- * still be nameable, which is the case that sent the user looking here.
+ * still be nameable, which is the case that sent the user looking here. Every
+ * known project follows, task or not: a project whose work is all sessions
+ * must still be a scope.
  */
 export function pickerProjectChoices(
   tasks: readonly Task[],
   current: { projectKey: string; label: string } | null,
+  knownProjects: readonly { projectKey: string; label: string }[] = [],
 ): ProjectFilterChoice[] {
   const choices = new Map<string, ProjectFilterChoice>()
   if (current) choices.set(current.projectKey, { ...current, count: 0 })
@@ -177,6 +181,9 @@ export function pickerProjectChoices(
     const existing = choices.get(projectKey)
     if (existing) existing.count += 1
     else choices.set(projectKey, { projectKey, label: projectLabel(task), count: 1 })
+  }
+  for (const project of knownProjects) {
+    if (!choices.has(project.projectKey)) choices.set(project.projectKey, { ...project, count: 0 })
   }
   return [...choices.values()]
 }
@@ -285,16 +292,14 @@ export interface PickerList {
  *
  * The list is virtualised, so a row's height has to be known before it is
  * painted; these are the same numbers the row markup sets, and a change to one
- * has to move with the other. The touch column is the phone's 44px-target
- * geometry; the pointer column is the desktop overlay's. The last session under
- * a task carries the nest's bottom padding so the spine can stop short of the
- * next task. A flat session row is a two-line row like a task's.
+ * has to move with the other. The last session under a task carries the nest's
+ * bottom padding so the spine can stop short of the next task. A flat session
+ * row is a two-line row like a task's.
  */
-export function pickerRowHeight(row: PickerRow, touch: boolean): number {
-  if (row.kind === 'header' || row.kind === 'more') return touch ? 34 : 32
-  if (row.kind === 'task' || row.kind === 'conversation') return touch ? 58 : 44
-  if (!row.nested) return touch ? 58 : 44
-  if (touch) return 50
+export function pickerRowHeight(row: PickerRow): number {
+  if (row.kind === 'header' || row.kind === 'more') return 32
+  if (row.kind === 'task' || row.kind === 'conversation') return 44
+  if (!row.nested) return 44
   return row.isLast ? 36 : 32
 }
 
@@ -654,7 +659,7 @@ export function selectedRowIndex(rows: readonly PickerRow[], selectedIndex: numb
 export function expandTarget(
   entry: PickerEntry | undefined,
 ): { action: 'expand'; taskId: string } | { action: 'step' } | null {
-  if (entry?.kind !== 'task' || !isTaskGroup(entry, false)) return null
+  if (entry?.kind !== 'task' || !isTaskGroup(entry)) return null
   return entry.expanded ? { action: 'step' } : { action: 'expand', taskId: entry.task.id }
 }
 

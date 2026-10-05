@@ -2,7 +2,7 @@
   import EditorInputCard from "@solus/workspace-ui/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@solus/workspace-ui/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@solus/client-core/connection-display";
-  import { runtime, serversStore } from "@solus/workspace-ui/contexts";
+  import { serversStore } from "@solus/workspace-ui/contexts";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { webState } from "../../lib/web-state.svelte";
 
@@ -11,7 +11,6 @@
   }
   let { onAttachFile }: Props = $props();
 
-  const isMobile = $derived(runtime.isMobileViewport);
   const connectionLabel = $derived(
     connectionStatusLabel(webState.connectionStatus, {
       attempt: webState.connectionAttempt,
@@ -24,13 +23,13 @@
 <div class="web-frame">
   <div class="workspace" data-solus-ui>
     <WorkspaceBody
-      active={!isMobile}
+      active
       enableProjectPanel
       {onAttachFile}
     >
     {#snippet inputRow()}
       <EditorInputCard
-        active={!runtime.isMobileViewport}
+        active
         class="mx-auto max-w-(--solus-reading-max)"
         onAttachFile={() => onAttachFile()}
       >

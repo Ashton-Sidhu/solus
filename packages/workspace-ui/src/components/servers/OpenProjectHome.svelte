@@ -38,9 +38,9 @@
   const firstActionIndex = $derived(rows.findIndex((row) => row.kind === "action"));
 
   const ACTION_LABELS = {
-    new: "New project…",
-    browse: "Open a folder…",
-    github: "Clone from GitHub…",
+    new: "Start a new project…",
+    browse: "Open an existing folder…",
+    github: "Get a project from GitHub…",
     "clone-url": "Clone from a URL…",
   } satisfies Record<HomeAction, string>;
 </script>
@@ -126,7 +126,7 @@
                 </div>
               {:else}
                 <div class="text-sm font-medium">No projects on {store.hostLabel || "this machine"} yet</div>
-                <div class="text-muted-foreground">Start a new project, or open a folder or a repository.</div>
+                <div class="text-muted-foreground">Start a new project, or open one you already have.</div>
               {/if}
             </div>
           {/if}

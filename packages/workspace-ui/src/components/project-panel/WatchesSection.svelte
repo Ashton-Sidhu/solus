@@ -47,8 +47,8 @@
         <EyeIcon size={16} />
       </span>
       <span class="flex min-w-0 flex-1 flex-col" title={watch.probe?.command ?? watch.reason}>
-        <span class="min-w-0 truncate font-medium text-(--solus-text-secondary)">{watch.reason}</span>
-        <span class="min-w-0 truncate text-xs tabular-nums text-(--solus-text-tertiary)">{watchRail(watch, now)}</span>
+        <span class="min-w-0 truncate text-(--solus-text-secondary)">{watch.reason}</span>
+        <span class="min-w-0 truncate text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{watchRail(watch, now)}</span>
       </span>
       {#if canPauseWatch(watch)}
         <Button

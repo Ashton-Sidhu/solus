@@ -1,8 +1,7 @@
 <script lang="ts">
   /**
-   * "Two agents, one step each." Every row is read off the bound host's
-   * readiness through the same setup session Settings uses, so an agent that was
-   * already installed and signed in arrives here as done without being touched.
+   * Cloud rows read the account vault. Personal-host rows read that host's
+   * readiness through the same setup session Settings uses.
    */
   import { onMount } from "svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
@@ -10,16 +9,21 @@
   import OnboardingAgentRow from "./OnboardingAgentRow.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
-  import { serversStore } from "../../contexts";
-  import { hostIsManaged } from "../servers/lib/managed-host";
   import type { SetupAgent } from "@solus/contracts/types";
+  import { cloudAgentSeatsStore as cloudSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
+  import { SETUP_PROVIDERS, type ProviderRow } from "../servers/lib/host-onboarding";
+  import { seatProviderFor } from "../servers/host-setup.store.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
 
   const setup = $derived(store.setup);
-  /** The cloud flow names the machine it chose, since it is not this device. */
-  const host = $derived(store.flow === "cloud" ? serversStore.hostFor(store.serverId) : null);
-  const onCloudHost = $derived(hostIsManaged(host));
   const rows = $derived(
-    codingProviderRows({
+    store.flow === "cloud" ? SETUP_PROVIDERS.map(({ id, label }): ProviderRow => ({
+      id, label,
+      detail: cloudSeats.connected(seatProviderFor(id)) ? "Connected to your Solus Cloud account" : "Connect on your account’s Connections page",
+      state: cloudSeats.connected(seatProviderFor(id)) ? "done" : "available",
+      actionLabel: "Connect",
+      run: () => cloudSeats.connect(),
+    })) : codingProviderRows({
       readiness: setup.readiness,
       stages: setup.providerStages,
       add: (agent, opts) => void setup.addProvider(agent, opts),
@@ -28,8 +32,9 @@
   const readyCount = $derived(rows.filter((row) => row.state === "done").length);
   /** Nothing has been heard from the host yet, so the rows are placeholders. */
   const probing = $derived(
-    !setup.readiness && !setup.readinessError,
+    store.flow === "cloud" ? cloudSeats.seats === null && !cloudSeats.error : !setup.readiness && !setup.readinessError,
   );
+  const checkError = $derived(store.flow === "cloud" ? cloudSeats.error : setup.readinessError);
 
   const title = $derived(
     probing
@@ -42,6 +47,7 @@
   );
 
   onMount(() => {
+    if (store.flow === "cloud") return cloudSeats.watch();
     setup.retain();
     // The intro starts a probe early, but a remote client's active host can
     // settle after that request starts. Probe the host this stage actually
@@ -61,14 +67,9 @@
   >
     {title}
   </h1>
-  {#if host}
-    <p
-      class="onboarding-title mt-3 max-w-[40ch] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
-      style="animation-delay: 0.06s"
-    >
-      {onCloudHost
-        ? "On the cloud host, you sign in with your own account. Other members cannot use your sign-in."
-        : `On ${host.label}.`}
+  {#if store.flow === "cloud"}
+    <p class="onboarding-title mt-3 max-w-[40ch] text-center text-sm leading-[1.6] text-muted-foreground">
+      Your agent connections belong to your Solus Cloud account and work across your cloud hosts.
     </p>
   {/if}
 
@@ -85,22 +86,28 @@
           </span>
         </div>
       {/each}
-    {:else if setup.readinessError}
+    {:else if checkError}
       <OnboardingRow
-        name="Could not check this host"
-        detail={setup.readinessError}
+        name={store.flow === "cloud" ? "Could not check your connections" : "Could not check this host"}
+        detail={checkError}
         tint="var(--solus-status-error)"
         state="available"
         actionLabel="Retry"
-        onaction={() => void setup.refreshReadiness()}
+        onaction={() => void (store.flow === "cloud" ? cloudSeats.refresh() : setup.refreshReadiness())}
       />
     {:else}
       {#each rows as row, index (row.id)}
+        {#if store.flow === "cloud"}
+          <OnboardingRow name={row.label} detail={row.detail} delay={index * 0.07} state={row.state} actionLabel={row.actionLabel} onaction={row.run}>
+            {#snippet mark()}<ProviderMark mark={row.id as SetupAgent} size={24} transparent />{/snippet}
+          </OnboardingRow>
+        {:else}
         <OnboardingAgentRow
           agent={row.id as SetupAgent}
           {row}
           delay={index * 0.07}
         />
+        {/if}
       {/each}
     {/if}
   </div>

@@ -123,7 +123,7 @@ describe('the push queue', () => {
     await flush()
     expect(text(fake.hostDoc)).toBe('Hello world')
     expect(live.unsent).toBe(0)
-    expect(liveStatus(live).label).toBe('Live')
+    expect(liveStatus(live).label).toBe('Saved')
   })
 
   test('a push refused while the agent holds the work is kept, and sent when the lock ends', async () => {

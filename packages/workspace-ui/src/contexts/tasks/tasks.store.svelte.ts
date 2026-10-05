@@ -2,6 +2,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import type { SessionStatus } from '@solus/contracts/types'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
 import { visibleInWindow } from '../../lib/organization-filter'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
@@ -77,6 +78,8 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
  * `Task` for that id, and the task takes the row and files itself.
  */
 export class TasksStore {
+  /** The person's execution preferences for task work (plans/018 §6); the workspace supplies them. */
+  executionPreferences: () => ExecutionPreferences = () => ({})
   loading = $state(false)
   loaded = $state(false)
   error = $state<string | null>(null)

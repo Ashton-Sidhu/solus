@@ -8,7 +8,8 @@
  */
 
 import { z } from 'zod'
-import type { PlanComment, PlanCommentReply } from './types'
+import type { PlanComment, PlanCommentReply, WorkAnnotations, WorkMark } from './types'
+import { TURN_FLAG_KINDS } from './observability-types'
 import { sameUser, userKey, type Attribution } from './user'
 
 const commentIdSchema = z.string().min(1)
@@ -38,8 +39,14 @@ export const workCommentCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('read'), commentId: commentIdSchema }),
   /** Every open thread at once, as when a round of feedback is handed to an agent. */
   z.object({ kind: z.literal('resolve-open') }),
+  /** The caller's own mark on an Insights report; it replaces their last one.
+   *  A mark is a reaction like a comment, so a commenter may set it. */
+  z.object({ kind: z.literal('mark'), mark: z.object({ kind: z.enum(TURN_FLAG_KINDS), note: z.string() }) }),
+  /** Clear the caller's own mark. */
+  z.object({ kind: z.literal('unmark') }),
 ])
 export type WorkCommentCommand = z.infer<typeof workCommentCommandSchema>
+type ThreadCommand = Exclude<WorkCommentCommand, { kind: 'mark' | 'unmark' }>
 
 /** Who is applying a command, as the host knows them. */
 export interface CommentActor {
@@ -79,11 +86,29 @@ function readerKey(actor: CommentActor): string | null {
 }
 
 /**
+ * Apply one command to a work's annotations: a mark command changes the
+ * caller's mark, any other command the threads. The host, the Lab, and the
+ * demo backend all apply commands through this one function.
+ */
+export function applyWorkCommand(annotations: WorkAnnotations, command: WorkCommentCommand, actor: CommentActor): WorkAnnotations {
+  if (command.kind === 'mark' || command.kind === 'unmark') {
+    if (actor.by.kind !== 'user') throw new CommentCommandError('FORBIDDEN', 'Only a person may mark a report.')
+    const by = actor.by.user
+    const others = (annotations.marks ?? []).filter((mark) => !sameUser(mark.by.id, by.id))
+    const marks: WorkMark[] = command.kind === 'mark'
+      ? [...others, { by, kind: command.mark.kind, note: command.mark.note.trim(), updatedAt: actor.now }]
+      : others
+    return { ...annotations, marks }
+  }
+  return { ...annotations, comments: applyCommentCommand(annotations.comments, command, actor) }
+}
+
+/**
  * Apply one command to a work's threads and return the new list. Threads that
  * the command does not touch are returned as the same objects, so a client that
  * reconciles by identity moves nothing it does not have to.
  */
-export function applyCommentCommand(comments: readonly PlanComment[], command: WorkCommentCommand, actor: CommentActor): PlanComment[] {
+export function applyCommentCommand(comments: readonly PlanComment[], command: ThreadCommand, actor: CommentActor): PlanComment[] {
   if (command.kind === 'add') {
     if (comments.some((c) => c.id === command.comment.id)) throw new CommentCommandError('CONFLICT', `Thread ${command.comment.id} already exists.`)
     const created: PlanComment = { ...command.comment, author: actor.by, createdAt: actor.now }

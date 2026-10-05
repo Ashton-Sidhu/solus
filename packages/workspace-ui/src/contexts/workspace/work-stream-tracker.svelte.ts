@@ -137,6 +137,7 @@ export class WorkStreamTracker {
         msg.workRef.workId = event.workId
         msg.workRef.title = event.title
         msg.workRef.workType = event.docType
+        msg.workRef.contentVersion = 1
       }
     } else {
       // No streamed provisional (Codex/mock emit work_created directly).
@@ -145,7 +146,7 @@ export class WorkStreamTracker {
         id: nextMsgId(),
         role: 'assistant' as const,
         content: '',
-        workRef: { workId: event.workId, title: event.title, workType: event.docType },
+        workRef: { workId: event.workId, title: event.title, workType: event.docType, contentVersion: 1 },
         timestamp: Date.now(),
       })
     }
@@ -155,7 +156,7 @@ export class WorkStreamTracker {
     // An HTML artifact was persisted as an `artifact` work: place it in the
     // store so the gallery, task links, and the pane can open it by id.
     const workRef = event.workId
-      ? { workId: event.workId, title: event.title ?? '', workType: 'artifact' as const }
+      ? { workId: event.workId, title: event.title ?? '', workType: 'artifact' as const, contentVersion: 1 }
       : undefined
     if (workRef && event.html !== undefined) {
       this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, session.run.serverId)
@@ -203,7 +204,7 @@ export class WorkStreamTracker {
     if (index !== -1) session.messages.splice(index, 1)
   }
 
-  updateArtifact(session: Session, event: Extract<NormalizedEvent, { type: 'work_updated' }>): void {
+  updateWork(session: Session, event: Extract<NormalizedEvent, { type: 'work_updated' }>): void {
     // An update never changes a work's type, and a cloud-owned save cannot read
     // the row it updates: it reports `doc` and no title. The saved record or
     // this call's own update card is the authority on what the work is.
@@ -211,7 +212,6 @@ export class WorkStreamTracker {
     const updateCard = event.toolId
       ? session.messages.find((message) => message.artifact?.toolId === event.toolId && message.workRef?.workId === event.workId)
       : undefined
-    if (event.docType !== 'artifact' && saved?.type !== 'artifact' && !updateCard) return
     const title = event.title || saved?.title || updateCard?.workRef?.title || ''
     const isStale = session.messages.some((message) => message.workRef?.workId === event.workId
       && message.artifact?.updatedAt && message.artifact.updatedAt >= event.updatedAt)
@@ -219,12 +219,20 @@ export class WorkStreamTracker {
       if (event.toolId) this.failArtifact(session, event.toolId)
       return
     }
+    if (event.docType !== 'artifact' && saved?.type !== 'artifact' && !updateCard) {
+      session.messages.push({
+        id: nextMsgId(), role: 'assistant', content: '',
+        workRef: { workId: event.workId, title, workType: saved?.type ?? event.docType, contentVersion: event.contentVersion },
+        timestamp: Date.now(),
+      })
+      return
+    }
     // The reducer applies the authoritative update to WorksStore. Completing
     // the inline preview must not replace that record or its saved metadata.
     const completed = this.completeArtifactPreview(session, {
       type: 'artifact_created', kind: 'html', html: event.content,
       workId: event.workId, title, toolId: event.toolId,
-    }, { workId: event.workId, title, workType: 'artifact' })
+    }, { workId: event.workId, title, workType: 'artifact', contentVersion: event.contentVersion })
     if (completed.artifact) completed.artifact.updatedAt = event.updatedAt
   }
 

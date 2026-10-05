@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
-import { codexCollaborationInstructions } from '@solus/server/execution/agents/codex/codex-collaboration-instructions'
 import { runtimeInstructions } from '@solus/server/execution/agents/runtime-instructions'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -37,21 +36,22 @@ function tool(name: string): AgentTool {
   return {
     name,
     description: name,
-    inputSchema: {},
+    inputFields: {},
+    requiresApproval: false,
     execute: async () => ({ ok: true, text: '' }),
-  } as unknown as AgentTool
+  }
 }
 const browserStatusTool = tool('browser_status')
 const linkTool = tool('link')
 const codexRuntime = { model: 'gpt-5.6-sol', reasoningEffort: 'high' }
 
 /** The system prompt append Claude receives for one run with these tools. */
-async function claudeAppend(tools: AgentTool[], systemPrompt?: string): Promise<string> {
+async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp'): Promise<string> {
   capturedOptions = null
   const backend = new ClaudeBackend()
   backend.on('error', () => {})
   const handle = backend.startRun({
-    provider: 'claude-code', prompt: 'hello', cwd: '/tmp', tools, systemPrompt,
+    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt,
     model: 'claude-opus-4-7', reasoningEffort: 'high',
     permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
     conversation: { kind: 'new' },
@@ -67,8 +67,8 @@ describe('runtime instructions', () => {
   // none of them, so it never knew Solus renders media or shares a browser.
   test('Claude and Codex receive the same runtime block', async () => {
     const shared = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])
-    expect(codexCollaborationInstructions('default', codexRuntime, [browserStatusTool])).toContain(shared)
-    expect(codexCollaborationInstructions('plan', { model: 'gpt-5.6-sol', reasoningEffort: 'medium' }, [browserStatusTool])).toContain(MEDIA_LINE)
+    expect(shared).toContain(MEDIA_LINE)
+    expect(runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'medium' }, [browserStatusTool])).toContain(MEDIA_LINE)
 
     const claude = await claudeAppend([browserStatusTool])
     expect(claude).toContain('<runtime_info>')
@@ -84,7 +84,7 @@ describe('runtime instructions', () => {
   })
 
   test('the browser block is absent when the Browser tool group is off', async () => {
-    expect(codexCollaborationInstructions('default', codexRuntime, [])).not.toContain(BROWSER_HEADING)
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain(BROWSER_HEADING)
     const claude = await claudeAppend([])
     expect(claude).toContain(MEDIA_LINE)
     expect(claude).not.toContain(BROWSER_HEADING)
@@ -95,7 +95,7 @@ describe('runtime instructions', () => {
   // stack layer stays unlinked unless the agent calls link. Every session needs
   // that rule, not only a session that works on a task.
   test('both providers are told to link each pull request when link is available', async () => {
-    const codex = codexCollaborationInstructions('default', codexRuntime, [linkTool])
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [linkTool])
     const claude = await claudeAppend([linkTool])
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain(PR_LINKING_HEADING)
@@ -111,8 +111,43 @@ describe('runtime instructions', () => {
   })
 
   test('the pull request block is absent when the Tasks tool group is off', async () => {
-    expect(codexCollaborationInstructions('default', codexRuntime, [browserStatusTool])).not.toContain(PR_LINKING_HEADING)
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])).not.toContain(PR_LINKING_HEADING)
     expect(await claudeAppend([browserStatusTool])).not.toContain(PR_LINKING_HEADING)
+  })
+
+  test('shared orchestration guidance is present for both providers only with session tools', async () => {
+    const tools = ['start_session', 'send_session', 'list_agent_targets', 'read_session_exchange'].map(tool)
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools)
+    const claude = await claudeAppend(tools)
+    for (const prompt of [codex, claude]) {
+      expect(prompt).toContain('## Solus orchestration')
+      expect(prompt).toContain('A native subagent tool may support fewer models than the host.')
+      expect(prompt).toContain('An ended provider turn with open child work is not a final result.')
+      expect(prompt).toContain('Use send_session to continue an existing session')
+      expect(prompt).toContain('reuse it only when retrying that same work')
+      expect(prompt).toContain('Do not poll in a loop')
+    }
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Solus orchestration')
+    expect(await claudeAppend([])).not.toContain('## Solus orchestration')
+    const partial = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
+    expect(partial).not.toContain('call list_agent_targets')
+    expect(partial).not.toContain('Use send_session')
+    expect(partial).not.toContain('Use read_session_exchange')
+  })
+
+  // WHY: a chat's folder is a scratch folder the person never sees. An agent
+  // that names its path or runs Git there turns a plain chat back into a
+  // technical tool (docs/plans/projectless-chat.md).
+  test('both providers learn a chat is a chat, and a project session does not', async () => {
+    const chatFolder = '/Users/me/projects/.solus-chats/session-1'
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime, workingDirectory: chatFolder }, [])
+    const claude = await claudeAppend([], undefined, chatFolder)
+    for (const prompt of [codex, claude]) {
+      expect(prompt).toContain('## Chat')
+      expect(prompt).toContain('Do not mention its path')
+    }
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime, workingDirectory: '/Users/me/projects/solus' }, [])).not.toContain('## Chat')
+    expect(await claudeAppend([])).not.toContain('## Chat')
   })
 
   test('collaboration-mode text stays Codex-only', async () => {

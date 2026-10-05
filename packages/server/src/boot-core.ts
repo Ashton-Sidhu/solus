@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+import { dataDir } from './platform/paths'
 import { SessionRuntime } from './execution/session-runtime'
 import { createBackends } from './execution/agents/backend-registry'
 import { syncBundledPlugins } from './execution/agents/plugins'
@@ -70,7 +72,7 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
   // so neither can end up exporting on a different rule from the other.
   await configureOtel(getHostConfig().config.otel)
   phaseDone('otel_configured')
-  const sessionRuntime = new SessionRuntime(createBackends())
+  const sessionRuntime = new SessionRuntime(createBackends(), { queueDirectory: join(dataDir(), 'session-queues') })
   phaseDone('control_plane_ready')
   const booted = await bootServer({
     ...opts,
@@ -78,6 +80,11 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
     agentIdFromContext,
   })
   phaseDone('server_booted')
+  // Recovery belongs to the execution host, after tools and seats are ready.
+  // Do not make client connection or first paint wait on provider setup.
+  void sessionRuntime.recoverSessionsAfterRestart().catch((error) => {
+    log.error('restart_recovery_failed', { error: String(error) })
+  })
 
   // Session lists and search are answered from the index, so every machine
   // keeps one. A host's first sweep reads its transcripts into it.

@@ -687,10 +687,10 @@
   </TooltipUI.Root>
 {/snippet}
 
-<!-- The raised pane controls are wider than the flat ones the column
-     measured its inset for (three 1.625rem pills, 0.375rem apart). -->
+<!-- The raised pane cluster here is two 1.625rem pills (maximize, close),
+     0.375rem apart, plus the 0.625rem right inset and one more gap. -->
 <div
-  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) pointer-fine:[--solus-pane-chrome-inset:6.625rem] ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
+  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) pointer-fine:[--solus-pane-chrome-inset:4.625rem] ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   bind:clientWidth={panelWidth}
 >
   <!-- In-content path line on the shared chrome centreline: the tree/refresh
@@ -699,9 +699,9 @@
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <!-- One cluster so the four controls read as a toolbar; the row's own
-         `gap-2` then only separates them from the path line. -->
-    <div class="flex shrink-0 items-center gap-1.5">
+    <!-- One cluster so the four controls read as a toolbar; its margin and the
+         row's `gap-2` set it apart from the path line. -->
+    <div class="mr-2 flex shrink-0 items-center gap-1.5">
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
@@ -735,8 +735,7 @@
         </span>
       {/if}
       <div class="min-w-0 flex-1 truncate text-sm">
-        <span class="text-(--solus-text-tertiary)">{parentDirectoryOf(selectedPath)}</span>
-        <span class="text-(--solus-text-primary)">{entryDisplayName(selectedPath)}</span>
+        <span class="text-(--solus-text-tertiary)">{parentDirectoryOf(selectedPath)}</span><span class="text-(--solus-text-primary)">{entryDisplayName(selectedPath)}</span>
       </div>
     {:else}
       <FolderIcon size={13} weight="duotone" class="shrink-0 text-(--solus-text-tertiary)" />

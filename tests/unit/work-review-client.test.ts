@@ -3,8 +3,8 @@ import type { PlanComment } from '@solus/contracts/types'
 import type { User } from '@solus/contracts/user'
 import { deriveWorkReviewState, type WorkReview, type WorkReviewer } from '@solus/contracts/work-review'
 import { workReviewNotice } from '@solus/workspace-ui/contexts/works/work-review-notice'
-import { openThreadsPrompt, reviewCandidates, reviewerStatus } from '@solus/workspace-ui/components/work/lib/work-review'
-import { DEFAULT_FILTER, applyFilter, parseToken, rowStatusLabel, type WorkspaceItem } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
+import { openThreadsPrompt, reviewCandidates, reviewerActivity, reviewerStatus } from '@solus/workspace-ui/components/work/lib/work-review'
+import { DEFAULT_FILTER, applyFilter, parseToken, rowStatus, type WorkspaceItem } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
 
 /**
  * The client half of work review (docs/plans/work-review-and-live-editing.md,
@@ -60,6 +60,13 @@ describe('reviewer rows', () => {
     expect(reviewerStatus(reviewer({ decision: 'changes_requested', isStale: true, isAwaiting: true }))).toBe('Requested changes on an earlier version · review requested again')
   })
 
+  test('the hover text says what the icon shows, and when it happened', () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    expect(reviewerActivity(reviewer({ decision: 'approved', isAwaiting: false, decidedAt: twoHoursAgo }))).toBe('Approved · 2h ago')
+    expect(reviewerActivity(reviewer({ requestedAt: twoHoursAgo }))).toBe('Waiting for review · 2h ago')
+    expect(reviewerActivity(reviewer({ requestedAt: null }))).toBe('Waiting for review')
+  })
+
   test('the picker offers members who are not the reader and not already waiting', () => {
     const carol: User = { id: { kind: 'account', accountId: 'carol' }, displayName: 'Carol' }
     const people = { organizationId: 'A', name: 'Acme', members: [alice, bob, carol], teams: [] }
@@ -81,7 +88,7 @@ describe('reviewer rows', () => {
 describe('the gallery', () => {
   const item = (over: Partial<WorkspaceItem>): WorkspaceItem => ({
     id: 'w', rowKey: 'work:w', type: 'doc', glyph: 'doc', title: 'Spec', snippet: '', timestamp: Date.now(), createdAt: 0, sessionId: null,
-    pinned: false, pinnedAt: 0, cwd: '/repo', projectKey: '/repo', projectLabel: 'repo', status: null, reviewState: null, awaitingMyReview: false,
+    pinned: false, pinnedAt: 0, cwd: '/repo', projectKey: '/repo', projectLabel: 'repo', status: null, reviewState: null, reviewers: [], awaitingMyReview: false,
     source: { kind: 'work', work: {} as never }, ...over,
   })
 
@@ -92,8 +99,14 @@ describe('the gallery', () => {
   })
 
   test('a row says the work waits on the reader before it says its state', () => {
-    expect(rowStatusLabel(item({ awaitingMyReview: true, reviewState: 'approved' }))).toBe('Review')
-    expect(rowStatusLabel(item({ reviewState: 'changes_requested' }))).toBe('Changes')
-    expect(rowStatusLabel(item({}))).toBe('')
+    expect(rowStatus(item({ awaitingMyReview: true, reviewState: 'approved' }))?.kind).toBe('review_requested')
+    expect(rowStatus(item({ reviewState: 'changes_requested' }))?.kind).toBe('changes_requested')
+    expect(rowStatus(item({}))).toBeNull()
+  })
+
+  test('a pending plan shows no status, and a decided plan shows its decision', () => {
+    expect(rowStatus(item({ status: 'pending' }))).toBeNull()
+    expect(rowStatus(item({ status: 'accepted' }))).toEqual({ kind: 'approved', label: 'Accepted' })
+    expect(rowStatus(item({ status: 'rejected' }))?.kind).toBe('rejected')
   })
 })

@@ -1,5 +1,4 @@
 import type { DirectoryListResult } from '@solus/contracts/types'
-import { SCRATCHPAD_LABEL } from '../../../lib/paths'
 import {
   appendPathSegment,
   breadcrumbTrail,
@@ -8,7 +7,7 @@ import {
 } from './browse-path'
 
 /** Glyph a Places row carries — what kind of location it is, not its label. */
-export type PlaceIcon = 'workspace' | 'home' | 'folder' | 'recent'
+export type PlaceIcon = 'home' | 'folder' | 'recent'
 
 export interface Place {
   label: string
@@ -21,7 +20,7 @@ const STANDARD_HOME_FOLDERS = ['Desktop', 'Documents', 'Downloads']
 /** The fixed Places a host offers, from its capabilities and a listing of `~`. */
 export function placesFor(
   platform: BrowsePathPlatform,
-  capabilities: { projectsBaseDirectory?: string; workspacePath?: string } | null,
+  capabilities: { projectsBaseDirectory?: string } | null,
   home: DirectoryListResult | null,
 ): Place[] {
   const homePath = ensureDirectoryPath('~', platform)
@@ -33,15 +32,6 @@ export function placesFor(
     : homePath
   const filesystemRoot = breadcrumbTrail(resolvedHomePath, platform)[0]?.path
   const places: Place[] = []
-  // Scratchpad pins to the top: the host's chat folder, always present
-  // there, and never surfaces in recents.
-  if (capabilities?.workspacePath) {
-    places.push({
-      label: SCRATCHPAD_LABEL,
-      path: ensureDirectoryPath(capabilities.workspacePath, platform),
-      icon: 'workspace',
-    })
-  }
   if (projectsPath && projectsPath !== homePath && projectsPath !== resolvedHomePath) {
     places.push({ label: 'Projects', path: projectsPath, icon: 'folder' })
   }

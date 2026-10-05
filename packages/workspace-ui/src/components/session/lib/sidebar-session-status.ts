@@ -12,7 +12,7 @@ export interface SidebarLiveSessionState {
 function attentionForStatus(status: SessionStatus): AttentionState {
   if (status === 'awaiting_input') return 'awaiting'
   if (status === 'awaiting_plan') return 'awaiting_plan'
-  if (status === 'rate_limited') return 'queued'
+  if (status === 'rate_limited') return 'limited'
   if (status === 'failed' || status === 'dead') return 'error'
   if (status === 'connecting' || status === 'running') return 'running'
   if (status === 'background') return 'background'

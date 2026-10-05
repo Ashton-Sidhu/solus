@@ -1,6 +1,7 @@
 import { restoreAsyncQuestionAnswers } from '../../../data/sessions/async-questions'
 import { loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
+import type { AgentToolImage } from '../tools/agent-tool'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
@@ -55,6 +56,8 @@ import {
   normalizeThreadGoal,
 } from './codex-event-normalizer'
 import { codexCollaborationInstructions } from './codex-collaboration-instructions'
+import { runtimeInstructions } from '../runtime-instructions'
+import { enabledAgentTools } from '../tools/agent-tool'
 import type {
   CodexThreadGoalClearResponse,
   CodexThreadGoalResponse,
@@ -103,7 +106,7 @@ import {
   type ScannedCodexPlan,
   codexBackgroundCommandWake,
 } from './codex-utils'
-import { adaptCodexTools, bareAgentToolName, CodexToolDispatcher } from './codex-tool-adapter'
+import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
 import { z } from 'zod'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
@@ -428,9 +431,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const conversation = request.conversation ?? { kind: 'start' }
       let threadId = handle.threadId
       const model = this.resolveModel(request.model ?? null)
-      const developerInstructions = request.systemPrompt?.trim()
-        ? request.systemPrompt
-        : undefined
+      const reasoningEffort = request.reasoningEffort ?? 'high'
+      const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
+      const developerInstructions = [
+        request.systemPrompt?.trim(),
+        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools),
+      ].filter(Boolean).join('\n\n')
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,
@@ -441,7 +447,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
       }
-      if (developerInstructions) threadConfig.developerInstructions = developerInstructions
+      threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
@@ -452,8 +458,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
               ...adaptCodexTools(request.tools),
             ],
           }
-
-      const reasoningEffort = request.reasoningEffort ?? 'high'
 
       let response: CodexThreadStartResponse
       if (conversation.kind === 'fork' && threadId) {
@@ -470,6 +474,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         response = await handle.client.request<CodexThreadStartResponse>('thread/fork', {
           threadId,
           lastTurnId,
+          developerInstructions,
         })
         threadId = response.thread.id
       } else if (!threadId) {
@@ -480,6 +485,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           // Retry once without dynamicTools — the agent loses work tools this run.
           log.warn('thread_start_dynamic_tools_rejected', { error: err?.message ?? String(err) })
           this.dynamicToolsUnavailable = true
+          threadConfig.developerInstructions = [
+            request.systemPrompt?.trim(),
+            runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, []),
+          ].filter(Boolean).join('\n\n')
           response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
         }
         threadId = response.thread.id
@@ -523,12 +532,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         collaborationMode: { mode: collaborationMode, settings: {
           model,
           reasoning_effort: collaborationReasoningEffort,
-          // Collaboration behavior is provider-specific. User-configured
-          // instructions stay in the separate thread developer message.
-          developer_instructions: codexCollaborationInstructions(collaborationMode, {
-            model,
-            reasoningEffort: collaborationReasoningEffort,
-          }, request.tools),
+          // User instructions and shared host guidance stay in the thread
+          // developer message, outside native collaboration-mode prompts.
+          developer_instructions: codexCollaborationInstructions(collaborationMode),
         }}
       }
       const turn = await handle.client.request<CodexTurnStartResponse>('turn/start', turnParams)
@@ -1096,8 +1102,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         ?? optionalString(params?.name)
         ?? optionalString(params?.toolName)
         ?? ''
-      const respondWithToolText = (text: string, success: boolean) => {
-        client.respond(msg.id, { success, contentItems: [{ type: 'inputText', text }] })
+      const respondWithToolText = (text: string, success: boolean, image?: AgentToolImage) => {
+        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, image) })
       }
       let args = params?.arguments ?? params?.input ?? params?.args ?? {}
       const serializedArgs = optionalString(args)
@@ -1116,7 +1122,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }
         const parentToolUseId = optionalString(params?.callId) || String(msg.id)
         const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
-        respondWithToolText(result.text, result.ok)
+        respondWithToolText(result.text, result.ok, result.image)
       }
       if (!selectedTool.requiresApproval) { void respondWithResult(true); return }
       if (handle.permissionMode === 'plan') {

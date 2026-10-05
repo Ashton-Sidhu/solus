@@ -1,5 +1,5 @@
 import { questionKey } from '@solus/contracts/question-answer'
-import type { NormalizedEvent, PermissionOption } from '@solus/contracts/types'
+import { REQUEST_NOT_ANSWERABLE_CODE, type NormalizedEvent, type PermissionOption } from '@solus/contracts/types'
 
 /**
  * The single structural read of a peer session's pause, built from its
@@ -129,4 +129,16 @@ export function formatPendingInputReport(events: readonly NormalizedEvent[]): st
   })
 
   return reports.length ? reports.join('\n\n') : null
+}
+
+/** An answer to a permission or question the host does not hold now: its run
+ *  ended, another client answered it, or it was never this session's. The
+ *  transport sends the code, so the client can say so and close the card. */
+export class RequestNotAnswerableError extends Error {
+  readonly code = REQUEST_NOT_ANSWERABLE_CODE
+
+  constructor() {
+    super('This request can no longer be answered.')
+    this.name = 'RequestNotAnswerableError'
+  }
 }

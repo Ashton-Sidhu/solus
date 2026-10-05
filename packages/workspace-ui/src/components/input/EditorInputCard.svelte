@@ -6,6 +6,7 @@
   import InputBar from "./InputBar.svelte";
   import InputBarHeader from "./InputBarHeader.svelte";
   import InputToolbar from "./InputToolbar.svelte";
+  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/session-drive";
 
   interface Props {
     active: boolean;
@@ -43,6 +44,12 @@
   const targetTabId = $derived(tabId ?? session.activeTabId);
   const sess = $derived(session.sessionFor(targetTabId));
   const started = $derived(hasSessionStarted(sess));
+  // A member who may only read a shared session gets an inert toolbar too: the
+  // host refuses an attachment, a screenshot, or a run change from them.
+  const effectiveReadOnlyReason = $derived(
+    readOnlyReason ??
+      (sess && !canDriveSession(sess.run.serverId, sess.id) ? VIEW_ONLY_REASON : null),
+  );
   let prompt = $derived(session.inputFor(targetTabId));
 
   // The workspace dock (no tab of its own) steps aside while a draft holds the
@@ -99,7 +106,7 @@
       {isPrimary}
       {paneId}
       run={sess?.run}
-      {readOnlyReason}
+      readOnlyReason={effectiveReadOnlyReason}
       bind:prompt
     >
       {#snippet leadingActions()}
@@ -109,7 +116,7 @@
           showDestination={false}
           tabId={targetTabId}
           {isPrimary}
-          readOnly={!!readOnlyReason}
+          readOnly={!!effectiveReadOnlyReason}
           {onAttachFile}
           {onScreenshot}
           {onDesignMode}

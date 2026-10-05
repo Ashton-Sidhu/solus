@@ -44,25 +44,25 @@
 
   function startBindingCapture(id: BindingId): void {
     bindingCapture.start(id, (combo) => {
-      settings.update({ keybindings: withBinding(id, combo, settings.keybindings) });
+      settings.setLayout("keybindings", withBinding(id, combo, settings.keybindings));
       requestInputFocus();
     });
   }
 
   function resetBinding(id: BindingId): void {
     if (!isOverridden(id, settings.keybindings)) return;
-    settings.update({ keybindings: withoutBinding(id, settings.keybindings) });
+    settings.setLayout("keybindings", withoutBinding(id, settings.keybindings));
     requestInputFocus();
   }
 
   function removeBinding(id: BindingId): void {
-    settings.update({ keybindings: withBindingRemoved(id, settings.keybindings) });
+    settings.setLayout("keybindings", withBindingRemoved(id, settings.keybindings));
     requestInputFocus();
   }
 
   function resetAll(): void {
     bindingCapture.cancel();
-    settings.update({ keybindings: {} });
+    settings.setLayout("keybindings", {});
     requestInputFocus();
   }
 

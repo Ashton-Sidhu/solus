@@ -1,4 +1,5 @@
 import type { Mermaid } from "mermaid";
+import { drawsNatively, type NativeDiagramReply, type NativeDiagramRequest } from "./mermaid-svg";
 
 /** How a fenced ```mermaid block reads is the document model's rule, so a
  *  reply and a document make the same choice. */
@@ -102,17 +103,105 @@ function solusMermaidCss(isDark: boolean): string {
   `;
 }
 
+// Mermaid wraps a label by measuring it word by word: it inserts a test
+// <text>, reads its length, and removes it, over a hundred times for a small
+// flowchart. Each read forces a style recalculation of the document it is in,
+// and in the workspace that is the whole visible page — about 4 ms each, so
+// half a second per diagram on the main thread. Mermaid looks its diagram up
+// through the global `document`, so it cannot simply draw into another one.
+// Instead it runs in its own realm, in a hidden same-origin frame whose
+// document holds only the diagram, and hands back the SVG string.
+async function loadFrameMermaid(): Promise<Mermaid> {
+  const { default: entryUrl } = await import("./mermaid-frame?worker&url");
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // Laid out but never seen: Mermaid measures text, so the frame cannot be
+  // `display: none`.
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:1200px;height:800px;border:0;visibility:hidden;pointer-events:none";
+  document.body.append(frame);
+  const frameWindow = frame.contentWindow;
+  const frameDocument = frame.contentDocument;
+  if (!frameWindow || !frameDocument) throw new Error("Mermaid could not start.");
+  const script = frameDocument.createElement("script");
+  script.type = "module";
+  script.src = new URL(entryUrl, document.baseURI).href;
+  await new Promise<void>((resolve, reject) => {
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Mermaid could not load."));
+    frameDocument.head.append(script);
+  });
+  // A module script's load event fires after the module has run.
+  const mermaid = frameWindow.solusMermaid;
+  if (!mermaid) throw new Error("Mermaid could not load.");
+  return mermaid;
+}
+
 // Mermaid is a large chunk. It loads on the first diagram and never before.
 let mermaidLoader: Promise<Mermaid> | null = null;
 function loadMermaid(): Promise<Mermaid> {
-  mermaidLoader ??= import("mermaid").then((module) => module.default);
+  mermaidLoader ??= loadFrameMermaid();
   return mermaidLoader;
 }
 
-/** Start fetching Mermaid before it is needed: a fence that is still
- *  streaming will close in a moment, and the chunk should be warm by then. */
+// Most diagrams an agent writes — flowcharts, sequence, state, class, ER, and
+// xy charts — are drawn by beautiful-mermaid in a worker: no DOM, a few
+// milliseconds each, and nothing on the main thread. Mermaid in the frame
+// draws the rest, and anything the worker cannot parse.
+let nativeWorker: Worker | null = null;
+let nativeWorkerFailed = false;
+let nativeRequestSequence = 0;
+const nativeRequests = new Map<number, (svg: string | null) => void>();
+
+function startNativeWorker(): Worker | null {
+  if (nativeWorker || nativeWorkerFailed) return nativeWorker;
+  try {
+    nativeWorker = new Worker(new URL("./mermaid-svg.worker.ts", import.meta.url), { type: "module" });
+  } catch {
+    nativeWorkerFailed = true;
+    return null;
+  }
+  nativeWorker.onmessage = (event: MessageEvent<NativeDiagramReply>) => {
+    const reply = event.data;
+    nativeRequests.get(reply.requestId)?.("svg" in reply ? reply.svg : null);
+    nativeRequests.delete(reply.requestId);
+  };
+  // A worker that cannot load hands every diagram, now and later, to Mermaid.
+  nativeWorker.onerror = () => {
+    nativeWorkerFailed = true;
+    nativeWorker?.terminate();
+    nativeWorker = null;
+    for (const settle of nativeRequests.values()) settle(null);
+    nativeRequests.clear();
+  };
+  return nativeWorker;
+}
+
+// Keyed by source alone: the SVG draws in theme variables, so one drawing
+// serves both themes.
+const nativeResults = new Map<string, Promise<string | null>>();
+
+/** The diagram drawn by beautiful-mermaid, or null when Mermaid must draw it. */
+function drawNatively(source: string): Promise<string | null> {
+  if (!drawsNatively(source)) return Promise.resolve(null);
+  const cached = nativeResults.get(source);
+  if (cached) return cached;
+  const worker = startNativeWorker();
+  if (!worker) return Promise.resolve(null);
+  const requestId = ++nativeRequestSequence;
+  const pending = new Promise<string | null>((resolve) => {
+    nativeRequests.set(requestId, resolve);
+    worker.postMessage({ requestId, source } satisfies NativeDiagramRequest);
+  });
+  nativeResults.set(source, pending);
+  return pending;
+}
+
+/** Start the diagram worker before it is needed: a fence that is still
+ *  streaming will close in a moment, and the layout engine should be warm by
+ *  then. Mermaid itself loads only for a diagram the worker cannot draw. */
 export function preloadMermaid(): void {
-  void loadMermaid().catch(() => { /* The render path reports the failure. */ });
+  startNativeWorker();
 }
 
 // `initialize` re-reads the palette and re-parses the theme CSS, so it runs
@@ -170,7 +259,12 @@ function describeError(message: string): string {
 
 /** Render Mermaid text to SVG for the current theme. Never throws: a diagram
  *  that does not parse resolves to its error so the block can stay as source. */
-export function renderMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
+export async function renderMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
+  const svg = await drawNatively(source);
+  return svg ? { svg } : renderWithMermaid(source, isDark);
+}
+
+function renderWithMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
   const key = `${isDark ? "dark" : "light"}\n${source}`;
   const cached = results.get(key);
   if (cached) return cached;
@@ -182,7 +276,9 @@ export function renderMermaid(source: string, isDark: boolean): Promise<MermaidR
       const { svg } = await mermaid.render(`solus-mermaid-${++renderSequence}`, source);
       return { svg };
     } catch (error) {
-      return { error: describeError(error instanceof Error ? error.message : String(error)) };
+      // An error from the frame is the frame's `Error`, not this realm's.
+      const message = (error as { message?: unknown } | null)?.message;
+      return { error: describeError(typeof message === "string" ? message : String(error)) };
     }
   });
   queue = pending;

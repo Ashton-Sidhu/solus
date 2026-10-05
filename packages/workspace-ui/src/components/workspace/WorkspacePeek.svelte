@@ -3,7 +3,7 @@
   import { untrack } from "svelte";
   import { Pin as PushPinIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import type { WorkspaceItem } from "./lib/workspace-items";
-  import { formatPeekAge } from "./lib/workspace-items";
+  import { formatPeekAge, rowStatus } from "./lib/workspace-items";
   import { highlightRuns } from "../../lib/searchHighlight";
   import { peekBody, peekBox, peekOutline } from "./lib/workspace-peek";
   import { parseDiagram, summarizeDiagram } from "@solus/contracts/diagram-types";
@@ -111,9 +111,7 @@
       return "";
     }
   });
-  const statusLabel = $derived(
-    item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "",
-  );
+  const statusLabel = $derived(rowStatus(item)?.label ?? "");
 
   function projectShort(cwd: string): string {
     const dir = cwd?.replace(/\/$/, "");
@@ -157,13 +155,7 @@
     <span class="shrink-0">{formatPeekAge(item.timestamp)}</span>
     {#if statusLabel}
       <span class="opacity-35" aria-hidden="true">·</span>
-      <span
-        class="shrink-0 {item.status === 'pending'
- ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
- : ''}"
-      >
-        {statusLabel}
-      </span>
+      <span class="shrink-0">{statusLabel}</span>
     {/if}
     {#if diagramCounts}
       <span class="opacity-35" aria-hidden="true">·</span>

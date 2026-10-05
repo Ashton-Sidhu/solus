@@ -321,18 +321,44 @@ describe('native task CRUD', () => {
     ])
 
     const commentId = detailed.comments[0]!.id
-    const withoutComment = await (await tasks.Task.byId('local', inbox.id)).deleteComment(commentId)
+    const withoutComment = await (await tasks.Task.byId('local', inbox.id)).deleteComment(commentId, { by: BY, canModerate: false })
     // WHY: removing a task-page comment must remove only that first-class row;
     // reloading the task must not bring the comment back into Activity.
     expect(withoutComment.comments).toEqual([])
     expect((await (await tasks.Task.byId('local', inbox.id)).details()).comments).toEqual([])
-    await expect((await tasks.Task.byId('local', inbox.id)).deleteComment(commentId)).rejects.toThrow(
+    await expect((await tasks.Task.byId('local', inbox.id)).deleteComment(commentId, { by: BY, canModerate: true })).rejects.toThrow(
       'no longer exists',
     )
 
     const inboxTask = await tasks.Task.byId('local', inbox.id)
     expect(await inboxTask.delete()).toBe(true)
     expect(await inboxTask.delete()).toBe(false)
+  })
+
+  test('a person may delete their own comment, an editor may not delete another person\'s, the owner may', async () => {
+    // WHY: any editor may comment on a task, but a comment is its author's
+    // words. The host must refuse an editor deleting someone else's comment
+    // (the client hiding the button is not enough), while the task's owner or
+    // a host admin still moderates, as a work's threads do (mayChangeThread).
+    const OTHER = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-2' }, displayName: 'Other User' } }
+    const task = await taskStore.createTask('local', { title: 'Shared task' })
+    const commentBy = async (by: typeof BY) => {
+      const details = await (await tasks.Task.byId('local', task.id)).comment(`by ${by.user.id.accountId}`, { by })
+      return details.comments.at(-1)!.id
+    }
+    const remaining = async () => (await (await tasks.Task.byId('local', task.id)).details()).comments.map((comment) => comment.body)
+
+    const mine = await commentBy(BY)
+    const theirs = await commentBy(OTHER)
+
+    await expect((await tasks.Task.byId('local', task.id)).deleteComment(theirs, { by: BY, canModerate: false })).rejects.toThrow('Only the person who wrote a comment')
+    expect(await remaining()).toEqual(['by user-1', 'by user-2'])
+
+    await (await tasks.Task.byId('local', task.id)).deleteComment(mine, { by: BY, canModerate: false })
+    expect(await remaining()).toEqual(['by user-2'])
+
+    await (await tasks.Task.byId('local', task.id)).deleteComment(theirs, { by: BY, canModerate: true })
+    expect(await remaining()).toEqual([])
   })
 
   test('an upstream epic is a snapshot only a provider read writes', async () => {

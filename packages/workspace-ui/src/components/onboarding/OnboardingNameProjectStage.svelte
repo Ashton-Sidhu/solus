@@ -94,8 +94,7 @@
     class="onboarding-title mt-3 max-w-[40ch] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
     style="animation-delay: 0.06s"
   >
-    Solus makes an empty folder on {hostLabel}. Then tell an agent what to
-    build!
+    Give it a name, then tell an agent what to build!
   </p>
 
   <div
@@ -116,6 +115,7 @@
         bind:inputEl
         parent={projectsRoot}
         platform={capabilities?.platform}
+        {hostLabel}
         disabled={creating}
         onsubmit={() => void create()}
         class="text-base"
@@ -142,6 +142,6 @@
     oncontinue={() => void create()}
     onback={() => store.back()}
     {onskip}
-    skipLabel="Just chat"
+    skipLabel="New chat"
   />
 </div>

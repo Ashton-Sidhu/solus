@@ -12,7 +12,8 @@
     /** Label of the node the composer is anchored to; null = whole diagram. */
     draftAnchorLabel: string | null;
     onClearAnchor: () => void;
-    onAdd: (text: string) => void;
+    /** Absent for a viewer, who reads the threads and writes none. */
+    onAdd?: (text: string) => void;
     onEdit: (id: string, text: string) => void;
     onDelete: (id: string) => void;
     /** Center the canvas on the comment's node. */
@@ -52,11 +53,63 @@
   });
 
   function submit(text: string) {
-    onAdd(text);
+    onAdd?.(text);
     draft = "";
     composerEl?.focusInput();
   }
 </script>
+
+<!-- The composer, and "Send to agent" in it, are a commenter's: a viewer
+     gets the threads alone. -->
+{#snippet composerFooter()}
+  <CommentComposer
+    bind:this={composerEl}
+    surface="embedded"
+    {autoFocus}
+    class="flex flex-col gap-1.5 px-3 pt-2.5 pb-3"
+    editorClass="rounded-lg border border-(--solus-tool-border) bg-(--solus-surface-primary) px-2 text-xs focus-within:border-(--solus-accent-border) focus-within:ring-2 focus-within:ring-(--solus-accent-soft)"
+    initialValue={draft}
+    onFormValueChange={(value) => (draft = value)}
+    onSave={submit}
+    onCancel={onClose}
+    submitOn="enter"
+    placeholder="Add a comment…"
+  >
+    {#snippet leading()}
+      {#if draftAnchorLabel}
+        <span class="diagram-comments__anchor" title="The comment will be anchored to this node">
+          {draftAnchorLabel}
+          <button
+            type="button"
+            class="diagram-comments__anchor-clear"
+            onclick={onClearAnchor}
+            title="Comment on the whole diagram instead"
+            aria-label="Comment on the whole diagram instead"
+          >
+            <XIcon size={9} />
+          </button>
+        </span>
+      {:else}
+        <span class="diagram-comments__anchor diagram-comments__anchor--whole">Whole diagram</span>
+      {/if}
+    {/snippet}
+    {#snippet secondaryActions()}
+      {#if comments.length > 0 && onSendToAgent}
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          class="inline-flex items-center gap-1.5 text-(--solus-text-tertiary)"
+          onclick={onSendToAgent}
+          title="Send all comments to the agent and clear them"
+        >
+          <PaperPlaneTiltIcon size={11} />
+          Send to agent
+        </Button>
+      {/if}
+    {/snippet}
+  </CommentComposer>
+{/snippet}
 
 <!-- Same overlay geometry + enter/exit as the node/edge drawers so the three
      right-side panels read as one family. -->
@@ -71,7 +124,7 @@
     {comments}
     {activeCommentId}
     {editingCommentId}
-    emptyHint="Right-click a node and choose “Add comment”, or write one below."
+    emptyHint={onAdd ? "Right-click a node and choose “Add comment”, or write one below." : "No comments yet."}
     onScrollTo={(id) => {
       activeCommentId = id;
       onScrollTo(id);
@@ -84,57 +137,8 @@
     }}
     onCancelEdit={() => (editingCommentId = null)}
     {onDelete}
-  >
-    {#snippet footer()}
-      <CommentComposer
-        bind:this={composerEl}
-        surface="embedded"
-        {autoFocus}
-        class="flex flex-col gap-1.5 px-3 pt-2.5 pb-3"
-        editorClass="rounded-lg border border-(--solus-tool-border) bg-(--solus-surface-primary) px-2 text-xs focus-within:border-(--solus-accent-border) focus-within:ring-2 focus-within:ring-(--solus-accent-soft)"
-        initialValue={draft}
-        onFormValueChange={(value) => (draft = value)}
-        onSave={submit}
-        onCancel={onClose}
-        submitOn="enter"
-        placeholder="Add a comment…"
-      >
-        {#snippet leading()}
-          {#if draftAnchorLabel}
-            <span class="diagram-comments__anchor" title="The comment will be anchored to this node">
-              {draftAnchorLabel}
-              <button
-                type="button"
-                class="diagram-comments__anchor-clear"
-                onclick={onClearAnchor}
-                title="Comment on the whole diagram instead"
-                aria-label="Comment on the whole diagram instead"
-              >
-                <XIcon size={9} />
-              </button>
-            </span>
-          {:else}
-            <span class="diagram-comments__anchor diagram-comments__anchor--whole">Whole diagram</span>
-          {/if}
-        {/snippet}
-        {#snippet secondaryActions()}
-          {#if comments.length > 0 && onSendToAgent}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              class="inline-flex items-center gap-1.5 text-(--solus-text-tertiary)"
-              onclick={onSendToAgent}
-              title="Send all comments to the agent and clear them"
-            >
-              <PaperPlaneTiltIcon size={11} />
-              Send to agent
-            </Button>
-          {/if}
-        {/snippet}
-      </CommentComposer>
-    {/snippet}
-  </PlanCommentsRail>
+    footer={onAdd ? composerFooter : undefined}
+  />
 </div>
 
 <style>

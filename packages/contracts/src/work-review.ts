@@ -53,6 +53,9 @@ export const workReviewRequestSchema = z.object({
   message: z.string().max(2000).optional(),
   /** The `contentVersion` of the body the requester is asking about. */
   expectedContentVersion: z.number().int().min(0),
+  /** Names this request: a retry sends the same id and notifies nobody twice; a
+   *  deliberate re-request sends a new one. The host makes one when it is absent. */
+  requestId: z.string().min(1).max(128).optional(),
 })
 export type WorkReviewRequest = z.infer<typeof workReviewRequestSchema>
 
@@ -87,10 +90,14 @@ export interface WorkReviewInboxItem {
   lastDecidedRevisionId: number | null
 }
 
-/** The review state of each work in the caller's scope that has reviewers. */
+/** A reviewer as a list of works shows them: who, and what they decided when. */
+export type WorkReviewerSummary = Pick<WorkReviewer, 'reviewerId' | 'displayName' | 'colorIndex' | 'requestedAt' | 'decision' | 'decidedAt' | 'isStale' | 'isAwaiting'>
+
+/** The review state and reviewers of each work in the caller's scope that has reviewers. */
 export interface WorkReviewStateEntry {
   workId: string
   state: WorkReviewState
+  reviewers: WorkReviewerSummary[]
 }
 
 /** `workReviews.changed`: one work's reviewers changed. Read the review again by id. */

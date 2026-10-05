@@ -1,7 +1,10 @@
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { makeChatFolder, setupProjectsRoot } from '../../workspace'
 import { expandHome } from '../../files/host-path'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { startRun, attachRunSession, finishRun } from '../../data/automations/automations-store'
+import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { composeAutomationPrompt } from './compose-prompt'
 import type { Automation, AutomationRun, AgentId, GitCheckout, ReasoningEffort } from '@solus/contracts/types'
 
@@ -20,6 +23,7 @@ export type AutomationBackgroundSessionDispatcher = (opts: {
   cwd: string
   gitContext?: GitCheckout | null
   abortSignal?: AbortSignal
+  executionPreferences?: ExecutionPreferences
 }) => Promise<{ agentSessionId: string; done: Promise<{ output?: string }> }>
 
 let backgroundSessionDispatcher: AutomationBackgroundSessionDispatcher | null = null
@@ -27,7 +31,7 @@ export function setAutomationBackgroundSessionDispatcher(dispatcher: AutomationB
   backgroundSessionDispatcher = dispatcher
 }
 
-export type AutomationWorktreeCreator = (prompt: string, cwd: string, signal: AbortSignal) => Promise<GitCheckout>
+export type AutomationWorktreeCreator = (prompt: string, cwd: string, signal: AbortSignal, preferences: ExecutionPreferences) => Promise<GitCheckout>
 let worktreeCreator: AutomationWorktreeCreator | null = null
 export function setAutomationWorktreeCreator(creator: AutomationWorktreeCreator): void {
   worktreeCreator = creator
@@ -129,6 +133,15 @@ export async function cancelAutomationRun(automationId: string): Promise<boolean
   return true
 }
 
+/**
+ * The preferences an automation runs with (plans/018 §6): the snapshot captured
+ * when it was saved or last edited. Without one, no person's preferences
+ * describe it, so it runs with the built-in defaults.
+ */
+function automationPreferences(automation: Automation): ExecutionPreferences {
+  return automation.executionPreferences?.preferences ?? DEFAULT_EXECUTION_PREFERENCES
+}
+
 async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
   const { action } = automation
   const runId = run.id
@@ -141,11 +154,13 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // directory. A failure here surfaces as a failed run rather than silently
     // mutating the user's tree. Nobody waits on an unattended run, so the
     // name is generated first; without one the branch keeps its temporary name.
-    const cwd = expandHome(action.cwd)
+    // An automation with no project runs each time in a new chat of its own.
+    const cwd = action.cwd === NEW_CHAT_DIRECTORY ? makeChatFolder(setupProjectsRoot(), runId) : expandHome(action.cwd)
+    const preferences = automationPreferences(automation)
     let gitContext: GitCheckout | null = null
     if (action.useWorktree) {
       if (!worktreeCreator) throw new Error('The checkout service is not available')
-      gitContext = await worktreeCreator(action.prompt, cwd, entry.abort.signal)
+      gitContext = await worktreeCreator(action.prompt, cwd, entry.abort.signal, preferences)
       if (!gitContext.branch) throw new Error('Created automation worktree has no branch')
       branch = gitContext.branch
     }
@@ -167,6 +182,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       cwd,
       gitContext,
       abortSignal: entry.abort.signal,
+      executionPreferences: preferences,
     })
     agentSessionId = session.agentSessionId
     await attachRunSession(automation.id, runId, agentSessionId, branch, gitContext?.worktreePath)

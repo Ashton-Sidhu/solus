@@ -127,15 +127,6 @@ class NotificationsStore {
       this.activity.dropHost(server.id)
       this.updateBadge(this.activity.sessionKeys)
     })
-    const pushDelivered = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return
-      const detail: { serverId?: string; entryKey?: string } | undefined = event.detail
-      if (detail?.serverId && detail.entryKey) {
-        this.tracker.markPushDelivered(detail.serverId, detail.entryKey)
-      }
-    }
-    window.addEventListener('solus:push-received', pushDelivered)
-
     for (const serverId of serverConnections.connectedServerIds()) void this.seedHost(serverId, deps)
 
     const stop = () => {
@@ -148,7 +139,6 @@ class NotificationsStore {
       stopEvents()
       stopStatus()
       stopRemoval()
-      window.removeEventListener('solus:push-received', pushDelivered)
       this.tracker = new AttentionNotificationTracker()
       if (this.deps === deps) this.deps = null
       if (this.stopCurrent === stop) this.stopCurrent = null
@@ -227,13 +217,8 @@ class NotificationsStore {
       dedupKey: attentionNotificationDedupKey(hostId, entry),
     }
 
-    let displayed = false
-    if (localApi.showNotification !== undefined) {
-      displayed = await localApi.showNotification(request)
-    } else {
-      displayed = await showBrowserNotification(request, () => deps.openRoute(route))
-    }
-    if (displayed) await markSeenByServiceWorkers(request.dedupKey)
+    if (localApi.showNotification !== undefined) await localApi.showNotification(request)
+    else await showBrowserNotification(request, () => deps.openRoute(route))
   }
 }
 
@@ -242,16 +227,6 @@ class NotificationsStore {
 function attentionToastIcon(kind: AttentionKind): Component {
   const attention = attentionStateForKind(kind)
   return (internals) => SessionStatusGlyph(internals, { attention })
-}
-
-async function markSeenByServiceWorkers(dedupKey: string): Promise<void> {
-  if (!('serviceWorker' in navigator)) return
-  try {
-    const registrations = await navigator.serviceWorker.getRegistrations()
-    for (const registration of registrations) {
-      registration.active?.postMessage({ type: 'solus:attention-seen', dedupKey })
-    }
-  } catch {}
 }
 
 async function showBrowserNotification(

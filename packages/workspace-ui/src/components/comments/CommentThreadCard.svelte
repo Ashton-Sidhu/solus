@@ -174,12 +174,14 @@
           <button type="button" class="ctc-text-btn" onclick={onStartEdit}>Edit</button>
           <button type="button" class="ctc-text-btn" onclick={onDelete}>Delete</button>
         {/if}
-        <button
-          type="button"
-          class="ctc-text-btn"
-          data-testid="resolve-comment"
-          onclick={handleResolve}>{resolved ? 'Reopen' : 'Resolve'}</button
-        >
+        {#if reader.canReply}
+          <button
+            type="button"
+            class="ctc-text-btn"
+            data-testid="resolve-comment"
+            onclick={handleResolve}>{resolved ? 'Reopen' : 'Resolve'}</button
+          >
+        {/if}
       </div>
     </div>
 
@@ -248,6 +250,8 @@
       {/each}
     </div>
 
+    <!-- A viewer reads the thread; the host takes replies from a commenter up. -->
+    {#if reader.canReply}
     <div class="ctc__footer">
       {#if replying}
         <div class="w-full" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
@@ -269,6 +273,7 @@
         <span class="ctc__hint">↵</span>
       {/if}
     </div>
+    {/if}
   </div>
 {/if}
 

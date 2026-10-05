@@ -29,6 +29,14 @@ mock.module('@solus/workspace-ui/lib/toasts', () => ({
   },
 }))
 
+/** The workspace services this client already knows from an earlier directory read. */
+const knownWorkspaces = new Set<string>()
+const realWorkspaceRegistry = { ...(await import('@solus/client-core/workspace-registry')) }
+mock.module('@solus/client-core/workspace-registry', () => ({
+  ...realWorkspaceRegistry,
+  savedWorkspaceFor: (serviceId: string) => (knownWorkspaces.has(serviceId) ? { organizationId: 'org-1' } : null),
+}))
+
 let directoryReads = 0
 const window = { activeOrganizationId: 'org-1' as string | null, activeOrganizationName: 'Acme' as string | null }
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
@@ -55,9 +63,11 @@ const previousState = runeHost.$state
 
 beforeEach(() => {
   connections.reset()
+  account.state.kind = 'signed-in'
   offlineServerIds.clear()
   toastCalls.length = 0
   directoryReads = 0
+  knownWorkspaces.clear()
   window.activeOrganizationId = 'org-1'
   window.activeOrganizationName = 'Acme'
   runeHost.$state = stateShim
@@ -98,6 +108,31 @@ async function newStore() {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('sharing while signed out', () => {
+  test('does not read or publish a resource, open a dialog, or create a report', async () => {
+    const calls: string[] = []
+    connections.registerPrimary('local', {
+      publicationList: async () => { calls.push('read'); return [] },
+      publicationStart: async () => { calls.push('publish'); return publication('pending') },
+      createWork: async () => { calls.push('create'); return { id: 'report-1' } },
+    })
+    connections.registerHost(CLOUD, {
+      shareGet: async () => { calls.push('share'); return cloudList },
+    })
+    const { store } = await newStore()
+    account.state.kind = 'signed-out'
+
+    await store.open(target)
+    await store.open({ ...target, serverId: CLOUD })
+    await store.shareReport('local', { title: 'Turn report', content: '# Turn report', agentProvider: 'claude-code' })
+
+    expect(calls).toEqual([])
+    expect(store.dialog).toBeNull()
+    expect(store.busy).toBe(false)
+    expect(toastCalls).toEqual([])
+  })
+})
 
 describe('sharing a Local resource', () => {
   test('opening Share publishes on the source machine, waits for committed, then loads the organization\'s share list', async () => {
@@ -312,6 +347,21 @@ describe('sharing a Local work', () => {
     expect(store.dialog).toEqual({ serverId: CLOUD, resource: work, title: 'Release plan' })
   })
 
+  test('Share does not read the account directory for an organization this client already knows', async () => {
+    // WHY: each directory read is a round trip to the account plane before the
+    // upload can start. The directory is read only to find a service not known yet.
+    const calls = machineAndCloud()
+    knownWorkspaces.add(CLOUD)
+    const { store } = await newStore()
+
+    await store.open(workTarget)
+    await settle()
+
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(store.dialog).toEqual({ serverId: CLOUD, resource: work, title: 'Release plan' })
+    expect(directoryReads).toBe(0)
+  })
+
   test('a refused upload keeps the local copy and shows the reason with Retry', async () => {
     // WHY: the local copy goes only after the cloud has it.
     const calls = machineAndCloud({ upload: async () => { throw new Error('This work already belongs to another organization.') } })
@@ -457,6 +507,49 @@ describe('sharing an Insights report', () => {
 
     expect(calls).toEqual(['create:insights-report:Turn report:# Turn report', 'export:report-1', 'upload', 'remove:report-1'])
     expect(store.dialog).toEqual({ serverId: CLOUD, resource: { kind: 'work', id: 'report-1' }, title: 'Turn report' })
+  })
+})
+
+describe('the share dialog on Solus Cloud', () => {
+  afterEach(() => configureUplinkAccountSource(null))
+
+  test('opens on the share list without waiting for the organization\'s people', async () => {
+    // WHY: the list and the link are what a person opens Share for; the people
+    // to invite load beside them, so a slow member list never holds the dialog.
+    const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
+    configureUplinkAccountSource({
+      listDirectory: unavailable,
+      acquireHostAccessToken: unavailable,
+      issueEnrollmentTicket: unavailable,
+      startManagedHost: unavailable,
+      loadOrganizationDirectory: () => new Promise(() => {}),
+    })
+    registerCloud()
+    knownWorkspaces.add(CLOUD)
+    const { store } = await newStore()
+
+    await store.open({ ...target, serverId: CLOUD })
+
+    expect(store.dialog).toEqual({ serverId: CLOUD, resource, title: 'Release plan' })
+    expect(store.listFor(CLOUD, resource)).toEqual(cloudList)
+    expect(store.busy).toBe(false)
+    expect(directoryReads).toBe(0)
+  })
+
+  test('a new link is kept from the answer, not read again', async () => {
+    // WHY: Copy link waits on every call in its chain; the host's answer is the new link.
+    let reads = 0
+    const link = { role: 'viewer' as const, secret: 'secret-1' }
+    connections.registerHost(CLOUD, {
+      shareGet: async () => { reads++; return cloudList },
+      shareSetLink: async () => link,
+    })
+    const { store } = await newStore()
+    await store.load(CLOUD, resource)
+
+    expect(await store.setLink(CLOUD, resource, 'viewer')).toEqual(link)
+    expect(store.listFor(CLOUD, resource)).toEqual({ ...cloudList, link })
+    expect(reads).toBe(1)
   })
 })
 

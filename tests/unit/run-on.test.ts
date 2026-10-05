@@ -11,7 +11,8 @@ import {
   withRemoteDispatch,
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig } from '@solus/contracts/types'
-import { listRunOnHosts, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { listRunOnHosts, runHasProject, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
 import { projectChipOptions } from '@solus/workspace-ui/components/input/lib/project-chip-options'
 import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
@@ -173,6 +174,25 @@ describe('what each Run on row does for the project', () => {
     // WHY: the host is chosen first, and the project chip then picks a folder there.
     const hosts = ['mini', 'studio', 'local']
     expect(listRunOnHosts(hosts, (hostId) => action(hostId, { cloneRepoKey: null }), false)).toEqual(['local', 'studio', 'mini'])
+  })
+
+  test('a folder on the workspace service is no project, so it hides no host', () => {
+    // WHY: the workspace service runs no sessions and holds no folder. A draft saved
+    // before its host was replaced can still name one; counting it as a project hid
+    // every host, and the picker offered only "Add a host".
+    expect(runHasProject('/data/home/solus', false)).toBe(false)
+    expect(runHasProject('/home/dev/solus', true)).toBe(true)
+    expect(runHasProject('~', true)).toBe(false)
+  })
+
+  test('a chat is no project: every host can run it, in a new chat there', () => {
+    // WHY: a chat has no checkout to find or copy. Asking for a folder, or hiding
+    // hosts, would turn a plain chat back into a project choice.
+    const chat = { ...run, workingDirectory: '/home/dev/projects/.solus-chats/abc', projectGroupPath: null } as RunConfig
+    expect(runHasProject(chat.workingDirectory, true)).toBe(false)
+    expect(runHasProject(NEW_CHAT_DIRECTORY, true)).toBe(false)
+    expect(action('studio', { run: chat })).toEqual({ kind: 'chat' })
+    expect(action('local', { run: chat })).toEqual({ kind: 'current' })
   })
 })
 

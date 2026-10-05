@@ -102,6 +102,8 @@ export const RPC_INVOKE_METHODS = [
   'rateLimitDecision',
   'cancelQueuedPrompt',
   'editQueuedPrompt',
+  'sessionQueue',
+  'sessionQueueChange',
   'writePlanFile',
 
   // Files / media
@@ -287,7 +289,6 @@ export const RPC_INVOKE_METHODS = [
   'presenceSetFocus',
   'presenceSetComposing',
   'presenceSetEditing',
-  'setAnalyticsConsent',
 
   // Host config — the tier that follows a user between clients
   'typeSafeKeySet',
@@ -328,10 +329,12 @@ export const RPC_INVOKE_METHODS = [
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',
 
-  // Web Push notifications for paired web devices
-  'pushGetPublicKey',
-  'pushSubscribe',
-  'pushUnsubscribe',
+  // Notifications hub: the caller's own notifications at this home (plans/015)
+  'notificationsCapability',
+  'notificationsList',
+  'notificationsCount',
+  'notificationsSetRead',
+  'notificationsSetArchived',
 
   // Folio / works
   'duplicateWork',
@@ -560,6 +563,31 @@ export const RPC_INVOKE_METHODS = [
   'browserListCookieSources',
   'browserRequestCookieAccess',
   'browserImportCookies',
+
+  // Native devices (docs/plans/native-devices.md): simulators and emulators on this host or its SSH device hosts
+  'deviceState',
+  'deviceList',
+  'deviceToolInspect',
+  'deviceDetail',
+  'deviceConfigure',
+  'deviceHostSave',
+  'deviceHostRemove',
+  'deviceHostTest',
+  'deviceToolUpdate',
+  'deviceHostRetry',
+  'deviceOpen',
+  'deviceClose',
+  'deviceShutdown',
+  'deviceInput',
+  'deviceAction',
+  'deviceSubscribeFrames',
+  'deviceUnsubscribeFrames',
+  'deviceScreenshot',
+  'deviceControlAcquire',
+  'deviceControlRelease',
+  'deviceControlResume',
+  'deviceInstall',
+  'deviceProjectDetect',
 
   // Observability / Insights (metrics.db query engine)
   'metricsQuery',

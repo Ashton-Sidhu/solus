@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { getDatabase, type Db } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ulid } from '@solus/contracts/ulid'
-import { legacyTaskActor, taskChanged } from './task-activity'
+import { assertTaskAssignee, legacyTaskActor, notifyTaskAssignment, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
@@ -44,6 +44,7 @@ const taskRowSchema = z.object({
   body: z.string(),
   status: taskStatusSchema,
   assignee: z.string().nullable(),
+  assignee_user_id: z.string().nullable(),
   due_date: z.string().nullable(),
   priority: taskPrioritySchema.nullable(),
   labels: z.string(),
@@ -154,6 +155,7 @@ export function taskFromRow(row: TaskRow): Task {
     }
   }
   if (row.assignee !== null) task.assignee = row.assignee
+  if (row.assignee_user_id !== null) task.assigneeUserId = row.assignee_user_id
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
   const pr = jsonValue(row.pr, taskPrSchema)
@@ -302,6 +304,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   if (!title) throw new Error('Task title cannot be empty.')
 
   const projectKey = normalizedOptional(input.projectKey)
+  assertTaskAssignee(organizationId, normalizedOptional(input.assigneeUserId))
 
   const id = input.id ?? ulid(input.now)
   const triagedAt = input.status === 'inbox' ? null : input.now
@@ -309,19 +312,21 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   await db.run(sql`
     INSERT INTO ${tasks}(
       id, short_id, project_key, title, title_source, body, status,
-      assignee, due_date, priority, labels,
+      assignee, assignee_user_id, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
       triaged_at, done_at, organization_id
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status},
-      ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
+      ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.assigneeUserId)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
       ${JSON.stringify(input.labels ?? [])}, ${input.source}, ${normalizedOptional(input.originSessionId)},
       ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt},
       ${organizationId}
     )
   `)
-  await appendActivity(organizationId, taskChanged(id, input.by ?? creatorBySource(input), 'created', { to: input.status }, input.now), db)
+  const by = input.by ?? creatorBySource(input)
+  await appendActivity(organizationId, taskChanged(id, by, 'created', { to: input.status }, input.now), db)
+  await notifyTaskAssignment(db, organizationId, { id, title }, null, normalizedOptional(input.assigneeUserId), by, input.now)
   return taskFromRow(await requireTask(organizationId, id, db))
 }
 

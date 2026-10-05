@@ -67,6 +67,7 @@
   import { toasts } from "../../lib/toasts";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";
@@ -604,7 +605,8 @@
     {
       enabled: () =>
         tabId === session.focusedChatTabId &&
-        (sess?.status === "running" || sess?.status === "connecting"),
+        (sess?.status === "running" || sess?.status === "connecting") &&
+        canDriveSession(sess.run.serverId, sess.id),
     },
   );
 

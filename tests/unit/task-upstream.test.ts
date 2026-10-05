@@ -76,6 +76,8 @@ mock.module('@solus/server/logger', () => ({
 mock.module('@solus/server/db/database', () => ({
   getDatabase: () => db,
   closeDatabase: async () => {},
+  // Outside a transaction a commit callback runs at once, as the real one does.
+  afterDatabaseCommit: async (callback: () => Promise<void>) => { await callback() },
 }))
 mock.module('@solus/server/project-config/project-config', () => ({
   loadProjectConfig: async () => config,

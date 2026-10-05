@@ -7,7 +7,7 @@
 </script>
 
 <div
-  class="rounded-lg border border-border bg-card px-3.5 py-3 select-text"
+  class="rounded-lg border border-input bg-background px-3.5 py-3 select-text"
   aria-label="Interface font preview"
 >
   <p class="text-sm font-medium text-foreground">{INTERFACE_PREVIEW.title}</p>

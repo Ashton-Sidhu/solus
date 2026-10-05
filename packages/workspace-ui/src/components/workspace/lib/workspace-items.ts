@@ -1,7 +1,7 @@
 import type { PlanDescriptor } from '@solus/contracts/types'
 import type { WorkListing } from '../../../contexts/works/works.store.svelte'
 import type { DocProviderId } from '@solus/contracts/docs'
-import type { WorkReviewState } from '@solus/contracts/work-review'
+import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from '@solus/contracts/work-review'
 import { planKey } from '@solus/contracts/types'
 import { hostKey } from '@solus/client-core/host-key'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
@@ -55,6 +55,8 @@ export type WorkspaceItem = {
   status: PlanStatus | null
   /** Works only: the review state, when the work has reviewers. */
   reviewState: WorkReviewState | null
+  /** Works only: who reviews it and what they decided. */
+  reviewers: WorkReviewerSummary[]
   /** Works only: a review request waits for the reader. */
   awaitingMyReview: boolean
   source:
@@ -123,6 +125,7 @@ export function planItem(d: PlanDescriptor, project: WorkspaceProject): Workspac
     cwd: d.cwd,
     status: d.status,
     reviewState: null,
+    reviewers: [],
     awaitingMyReview: false,
     source: { kind: 'plan', descriptor: d },
   }
@@ -130,17 +133,18 @@ export function planItem(d: PlanDescriptor, project: WorkspaceProject): Workspac
 
 /** What the ledger knows about each work's review, from the review store. */
 export interface WorkReviewLookup {
-  stateOf(workId: string): WorkReviewState | undefined
+  summaryOf(workId: string): WorkReviewStateEntry | undefined
   awaitsMe(workId: string): boolean
 }
 
-const NO_REVIEWS: WorkReviewLookup = { stateOf: () => undefined, awaitsMe: () => false }
+const NO_REVIEWS: WorkReviewLookup = { summaryOf: () => undefined, awaitsMe: () => false }
 
 export function workItem(w: WorkListing, project: WorkspaceProject, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
   const updated = new Date(w.updatedAt).getTime() || 0
   // The newest collaborator is the session a reader wants to land in; the
   // legacy single `sessionId` covers works written before that list existed.
   const origin = w.sessionIds?.at(-1) ?? w.sessionId ?? null
+  const review = reviews.summaryOf(w.id)
   return {
     projectKey: project.key,
     projectLabel: project.label,
@@ -157,22 +161,32 @@ export function workItem(w: WorkListing, project: WorkspaceProject, reviews: Wor
     pinnedAt: updated,
     cwd: w.cwd,
     status: null,
-    reviewState: reviews.stateOf(w.id) ?? null,
+    reviewState: review?.state ?? null,
+    reviewers: review?.reviewers ?? [],
     awaitingMyReview: reviews.awaitsMe(w.id),
     source: { kind: 'work', work: w },
   }
 }
 
-/** The status column: a plan's lifecycle, or a work's review state in a word
- *  that fits the column. A work the reader must review says so first. */
-export function rowStatusLabel(item: Pick<WorkspaceItem, 'status' | 'reviewState' | 'awaitingMyReview'>): string {
-  if (item.status) return item.status.charAt(0).toUpperCase() + item.status.slice(1)
-  if (item.awaitingMyReview) return 'Review'
+/** What the status icon shows. */
+export type RowStatusKind = 'approved' | 'rejected' | 'changes_requested' | 'in_review' | 'review_requested'
+
+/**
+ * The status column: a plan's decision, or a work's review state, as an icon
+ * with its word for hover and screen readers. A pending plan shows nothing: it
+ * is the usual state, so marking it would only add noise. A work the reader
+ * must review says so first.
+ */
+export function rowStatus(item: Pick<WorkspaceItem, 'status' | 'reviewState' | 'awaitingMyReview'>): { kind: RowStatusKind; label: string } | null {
+  if (item.status === 'accepted') return { kind: 'approved', label: 'Accepted' }
+  if (item.status === 'rejected') return { kind: 'rejected', label: 'Rejected' }
+  if (item.status) return null
+  if (item.awaitingMyReview) return { kind: 'review_requested', label: 'Your review is requested' }
   switch (item.reviewState) {
-    case 'in_review': return 'In review'
-    case 'approved': return 'Approved'
-    case 'changes_requested': return 'Changes'
-    default: return ''
+    case 'in_review': return { kind: 'in_review', label: 'In review' }
+    case 'approved': return { kind: 'approved', label: 'Approved' }
+    case 'changes_requested': return { kind: 'changes_requested', label: 'Changes requested' }
+    default: return null
   }
 }
 

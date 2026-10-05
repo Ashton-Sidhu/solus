@@ -110,7 +110,7 @@ describe('ownership', () => {
   })
 
   test('a chat starts private on a managed host; only its owner can give the organization its default grant later', async () => {
-    // WHY: Scratchpad decision S5 — a chat runs in its owner's own chat folder,
+    // WHY: decision S5 — a chat is its owner's own,
     // so the team does not see it until the owner shares it. A session watched
     // before its folder is known gets the grant only when its owner's prompt
     // names a project folder.

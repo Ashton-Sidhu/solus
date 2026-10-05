@@ -1,6 +1,6 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'crypto'
 import { z } from 'zod'
-import { GUEST_GRANT_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS, GUEST_GRANT_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'access-tokens')
@@ -11,9 +11,10 @@ const log = createLogger('main', 'access-tokens')
  * one key set, both named in its link config, and accepts a token for one resource:
  * its own (`hostAudience(hostId)`), or `SOLUS_API_AUDIENCE` on the Solus API.
  *
- * A token is a bearer credential for its short life, as OAuth access tokens are: it
- * is not spent, and an access token lives five minutes. Removal reaches a host when the
- * token runs out and the next one is refused.
+ * A token is a bearer credential for its life, as OAuth access tokens are: it is not
+ * spent. A first-party token lives eight hours, a guest grant ten minutes, and a
+ * delegated token five minutes. Removal reaches a host when the token runs out and
+ * the next one is refused.
  *
  * JWKS is cached and survives an account-plane outage: keys already seen keep
  * verifying. An unknown `kid` triggers one refresh, rate-limited, so a key rotation is
@@ -115,7 +116,8 @@ export class AccessTokenVerifier {
     if (!tokenAudiences(claims).includes(this.options.audience)) return { ok: false, reason: 'wrong-audience' }
     if (claims.exp * 1000 <= now) return { ok: false, reason: 'expired' }
     if (claims.iat * 1000 > now + IAT_SKEW_MS) return { ok: false, reason: 'not-yet-valid' }
-    if (claims.exp - claims.iat > GUEST_GRANT_TTL_SECONDS) return { ok: false, reason: 'too-long-lived' }
+    const maxLifeSeconds = claims.access === 'guest' ? GUEST_GRANT_TTL_SECONDS : FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS
+    if (claims.exp - claims.iat > maxLifeSeconds) return { ok: false, reason: 'too-long-lived' }
     return { ok: true, claims }
   }
 

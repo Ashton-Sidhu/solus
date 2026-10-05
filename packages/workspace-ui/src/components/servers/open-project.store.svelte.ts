@@ -14,6 +14,7 @@ import type { ProjectsStore } from '../../contexts/projects/projects.store.svelt
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import {
   classifyCloneInput,
+  cloneProtocolFor,
   cloneUrlForIntent,
   cloneUrlForProtocol,
   matchesRepoQuery,
@@ -79,7 +80,8 @@ export class OpenProjectStore {
 
   /** The clone URL for `clone`, or the filter for `github`. */
   query = $state('')
-  protocol = $state<CloneProtocol>('https')
+  /** The protocol the person picked; null lets the URL decide (see `protocol`). */
+  chosenProtocol = $state<CloneProtocol | null>(null)
 
   /** Home's one box: it filters recents, and recognises a pasted clone URL. */
   homeQuery = $state('')
@@ -181,6 +183,12 @@ export class OpenProjectStore {
     return visible.find((repo) => repo.fullName === this.selectedRepoFullName) ?? visible[0] ?? null
   }
 
+  /** How the clone reaches the code host. */
+  get protocol(): CloneProtocol {
+    const intent: CloneIntent = this.source === 'clone' ? classifyCloneInput(this.query) : { kind: 'empty' }
+    return cloneProtocolFor(intent, this.chosenProtocol)
+  }
+
   /** The clone URL this step would run, or null when there is nothing to clone. */
   get cloneUrl(): string | null {
     if (this.source === 'github') {
@@ -223,7 +231,7 @@ export class OpenProjectStore {
 
   /** The folder browser's heading and button while this flow owns it. */
   get browseTitle(): string {
-    if (this.source === 'local') return 'Open a folder'
+    if (this.source === 'local') return 'Open an existing folder'
     return this.source === 'new' ? 'Choose where to create it' : 'Choose where to clone'
   }
 
@@ -543,6 +551,12 @@ export class OpenProjectStore {
     }
   }
 
+  /** Overrides the protocol the URL implies; SSH is checked against the host at once. */
+  chooseProtocol(protocol: CloneProtocol): void {
+    this.chosenProtocol = protocol
+    if (protocol === 'ssh') void this.checkSshAccess()
+  }
+
   async checkSshAccess(): Promise<void> {
     const api = this.api()
     if (!api) return
@@ -605,7 +619,7 @@ export class OpenProjectStore {
 
   private reset(): void {
     this.resetHostData()
-    this.protocol = 'https'
+    this.chosenProtocol = null
     this.homeQuery = ''
     this.onProjectOpened = null
   }

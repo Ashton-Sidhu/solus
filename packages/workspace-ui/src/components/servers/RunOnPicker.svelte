@@ -7,18 +7,17 @@
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import type { RunConfig } from "@solus/contracts/types";
+  import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import {
-    connectionsStore,
     getClientShellContext,
     hostAffinityGlyph,
+    hostRolesStore,
     projectsStore,
   } from "../../contexts";
-  import { isChatFolder } from "../../lib/paths";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
-  import { MenuFooter } from "../ui/menu";
   import {
     serversStore,
     type ServerItem,
@@ -35,6 +34,7 @@
   import { withPendingHost } from "../../contexts/workspace/run-config";
   import {
     listRunOnHosts,
+    runHasProject,
     runOnHostAction,
     runOnHostNote,
     type RunOnHostAction,
@@ -134,7 +134,9 @@
   );
   const checkouts = $derived(
     projectDir && projectDir !== "~"
-      ? projectsStore.checkoutsOf(projectsStore.projectKeyFor(projectHost, projectDir))
+      ? projectsStore.checkoutsOf(
+          projectsStore.projectKeyFor(projectHost, projectDir),
+        )
       : [],
   );
   // The repo is resolved against the host the session is already on — a
@@ -159,11 +161,8 @@
       checkouts,
       cloneRepoKey: sourceRepoKey,
     });
-  // Scratchpad is no project: any host can take the chat.
   const hasProject = $derived(
-    !!projectDir &&
-      projectDir !== "~" &&
-      !isChatFolder(projectDir, connectionsStore.chatFolderFor(projectHost)),
+    runHasProject(projectDir, hostRolesStore.hasExecution(projectHost)),
   );
   const hosts = $derived(
     listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
@@ -219,11 +218,14 @@
    * that list it beside other people's machines. A managed host's row already
    * reads its own name (`hostRowLabel`) and never names its organization.
    */
-  function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
+  function hostLabel(
+    server: ServerItem | UnknownRemoteHost | null | undefined,
+  ) {
     if (!server || server.local) return stayLabel;
     // A run that has not started on a host that was deleted (or never listed
     // here) still has a choice to make (docs/plans/workspace-and-machines.md §6).
-    if ("unknown" in server && !locked) return "Host removed — choose a machine";
+    if ("unknown" in server && !locked)
+      return "Host removed — choose a machine";
     return server.label;
   }
 
@@ -254,9 +256,22 @@
           }),
         );
         return;
+      case "chat":
+        onRun(
+          withCheckoutOnHost(run, server.id, NEW_CHAT_DIRECTORY, {
+            immediate: true,
+          }),
+        );
+        return;
       case "choose-folder":
         if (onChooseFolder) onChooseFolder(server.id);
-        else onRun(withPendingHost(run, { serverId: server.id, intent: "open-project" }));
+        else
+          onRun(
+            withPendingHost(run, {
+              serverId: server.id,
+              intent: "open-project",
+            }),
+          );
         return;
     }
   }
@@ -296,7 +311,8 @@
   {@const affinity = hostAffinityGlyph(server, server.status)}
   <!-- A managed host that is not ready says its state and takes no work;
        every other row says what that host will use for this project. -->
-  {@const subtitle = managedHostStateLabel(server.uplink) ?? runOnHostNote(action)}
+  {@const subtitle =
+    managedHostStateLabel(server.uplink) ?? runOnHostNote(action)}
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
     disabled={!canRunOnHost(server.uplink)}
@@ -314,12 +330,17 @@
         class="shrink-0 text-(--solus-text-tertiary)"
       />
     {:else}
-      <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+      <DesktopTowerIcon
+        size={14}
+        class="shrink-0 text-(--solus-text-tertiary)"
+      />
     {/if}
     {#if subtitle}
       <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
         <span class="truncate">{hostLabel(server)}</span>
-        <span class="truncate text-[0.875em] text-(--solus-text-tertiary)">{subtitle}</span>
+        <span class="truncate text-[0.875em] text-(--solus-text-tertiary)"
+          >{subtitle}</span
+        >
       </span>
     {:else}
       <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
@@ -329,7 +350,9 @@
     {:else if affinity && server.status !== "saved" && server.status !== "online"}
       <!-- Online is the unmarked case; the glyph already reads it. Only a
            state worth stopping for is printed. -->
-      <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
+      <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)"
+        >{affinity.statusLabel}</span
+      >
     {/if}
   </DropdownMenu.Item>
 {/snippet}
@@ -355,7 +378,8 @@
               />
             {:else if selectedHostOs || selectedHostManaged}
               <HostOperatingSystemIcon
-                os={selectedHostOs} managed={selectedHostManaged}
+                os={selectedHostOs}
+                managed={selectedHostManaged}
                 size={14}
                 class="shrink-0"
               />
@@ -389,31 +413,32 @@
                     {...mergeProps(tooltipProps, props)}
                     variant="ghost"
                     class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome pointer-coarse:max-w-32 font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
- ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
- : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+                      ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                      : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
                   >
                     {#if onRemoteHost && selectedAffinity}
                       {@const HostIcon = selectedAffinity.icon}
                       <HostIcon
                         size={14}
                         class="shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
- ? 'opacity-100'
- : 'opacity-70'} {selectedAffinity.className}"
+                          ? 'opacity-100'
+                          : 'opacity-70'} {selectedAffinity.className}"
                       />
                     {:else if selectedHostOs || selectedHostManaged}
                       <HostOperatingSystemIcon
-                        os={selectedHostOs} managed={selectedHostManaged}
+                        os={selectedHostOs}
+                        managed={selectedHostManaged}
                         size={14}
                         class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
- ? 'opacity-100'
- : 'opacity-70'}"
+                          ? 'opacity-100'
+                          : 'opacity-70'}"
                       />
                     {:else}
                       <DesktopTowerIcon
                         size={14}
                         class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
- ? 'opacity-100'
- : 'opacity-70'}"
+                          ? 'opacity-100'
+                          : 'opacity-70'}"
                       />
                     {/if}
                     <span class="truncate">{hostLabel(selectedServer)}</span>
@@ -445,7 +470,8 @@
                       />
                     {:else if selectedHostOs || selectedHostManaged}
                       <HostOperatingSystemIcon
-                        os={selectedHostOs} managed={selectedHostManaged}
+                        os={selectedHostOs}
+                        managed={selectedHostManaged}
                         size={14}
                         class="shrink-0"
                       />
@@ -485,7 +511,6 @@
             <span class="min-w-0 flex-1 truncate">Add a host…</span>
           </DropdownMenu.Item>
         </div>
-        <MenuFooter hints={[["⏎", "select"]]} summary={hostLabel(selectedServer)} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   {/if}

@@ -18,7 +18,7 @@ import {
 } from './outbox/outbox-store'
 import { ackMirrorThrough, listMirror, mirrorDestinations, onMirrorChanged } from './mirror/mirror-log'
 import { admissionIdFor, onSessionRecordChanged } from '../data/sessions/session-records'
-import { isChatFolder } from '../workspace'
+import { isChat } from '@solus/contracts/chat'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
 import { DelegationError } from './delegations'
@@ -235,7 +235,7 @@ export class RunnerDelivery {
     const admissionId = admissionIdFor(record.sessionId)
     if (admissionId) report.admissionId = admissionId
     // A chat is organization work, but not the organization's to open until its owner shares it (plan 004 D14).
-    if (isChatFolder(record.cwd)) report.privateToOwner = true
+    if (isChat(record.cwd)) report.privateToOwner = true
     queueSessionReport({ organizationId: record.organizationId, actorUserId: record.ownerUserId ?? '' }, report)
     this.kick()
   }

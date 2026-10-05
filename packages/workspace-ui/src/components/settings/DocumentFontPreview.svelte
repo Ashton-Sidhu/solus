@@ -6,7 +6,7 @@
 </script>
 
 <div
-  class="rounded-lg border border-border bg-card px-3.5 py-3 select-text [font-family:var(--solus-document-font-family)] [font-size:calc(1rem*var(--solus-document-font-scale,1))]"
+  class="rounded-lg border border-input bg-background px-3.5 py-3 select-text [font-family:var(--solus-document-font-family)] [font-size:calc(1rem*var(--solus-document-font-scale,1))]"
   aria-label="Document font preview"
 >
   <h3

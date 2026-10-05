@@ -12,11 +12,12 @@ import {
   savedServerRoutes,
   stampHostOperatingSystem,
 } from './server-registry'
-import { activeWorkspace, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
+import { activeWorkspace, ambiguousOrganizationIds, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
 import { solusApiId } from '@solus/contracts/uplink'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { BrowserFrameSubscriber } from './browser-frame-subscriber'
+import type { DeviceFrameSubscriber } from './device-frame-subscriber'
 import { HostSupervisor, type HostPhase } from './host-supervisor'
 import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
@@ -204,8 +205,9 @@ export class ServerConnections {
     // The window's organization's workspace service is held too: it is where
     // that organization's records live, though it is not a host. Another
     // organization's service is dialed only when the window selects it (§7).
-    const active = activeWorkspace(loadWorkspaces())
-    if (active) ids.add(solusApiId(active.organizationId))
+    const workspaces = loadWorkspaces()
+    const active = activeWorkspace(workspaces)
+    if (active && !ambiguousOrganizationIds(workspaces).has(active.organizationId)) ids.add(solusApiId(active.organizationId))
     return [...ids]
   }
 
@@ -233,12 +235,12 @@ export class ServerConnections {
       },
       // Decorate the legacy status stream with the supervisor's attempt count,
       // which the transport no longer knows.
-      onRetryScheduled: (attempt) => {
+      onDialFailed: (attempt) => {
         const connection = this.connections.get(serverId)
-        if (!connection || connection.status === 'connected') return
+        if (!connection || connection.status === 'connected') return false
         this.updateStatus(serverId, connection.status, attempt)
         // A failed dial on one route is the cue to try the host's next one (C3).
-        this.advanceRoute(serverId)
+        return this.advanceRoute(serverId, attempt)
       },
     })
     transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
@@ -249,18 +251,22 @@ export class ServerConnections {
    * Direct-first dialing (docs/plans/personal-uplink.md, C3): a host is dialed on its
    * direct route first and the tunnel is the fallback. The dial is the probe: after a
    * failed one the standing socket is re-aimed at the next route, round-robin, so the
-   * supervisor's next scheduled dial goes out there — and a host that comes back on
-   * the local network is found again on the next miss.
+   * supervisor's next dial goes out there — and a host that comes back on the local
+   * network is found again on the next miss. Returns true while the run of failed
+   * dials has not yet tried every route, so the new one is dialed without waiting:
+   * a host away from its LAN reaches its tunnel at once.
    */
-  private advanceRoute(serverId: string): void {
+  private advanceRoute(serverId: string, attempt: number): boolean {
     const connection = this.connections.get(serverId)
     const routes = connection?.target.routes
-    if (!connection || !routes) return
-    const next = nextRouteUrl(routes, connection.target.url, globalThis.location?.origin ?? '')
-    if (!next) return
+    if (!connection || !routes) return false
+    const clientOrigin = globalThis.location?.origin ?? ''
+    const next = nextRouteUrl(routes, connection.target.url, clientOrigin)
+    if (!next) return false
     connection.target.url = next
     connection.transport.switchServerUrl(next)
     this.healthCache.delete(serverId)
+    return attempt < dialableRoutes(routes, clientOrigin).length
   }
 
   /**
@@ -380,6 +386,12 @@ export class ServerConnections {
    *  API to make the host start producing them. */
   framesFor(serverId: string): BrowserFrameSubscriber {
     return this.ensure(serverId).transport.frames
+  }
+
+  /** This host's native device video. A visible device surface subscribes
+   *  here and calls `deviceSubscribeFrames` so the host starts sending. */
+  deviceFramesFor(serverId: string): DeviceFrameSubscriber {
+    return this.ensure(serverId).transport.deviceFrames
   }
 
   eventsForApi(api: SolusAPI): HostEventSubscriber {

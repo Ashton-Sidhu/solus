@@ -53,6 +53,19 @@ function entry(clientPromptId: string): Omit<OutboxRecord, 'attempts' | 'lastErr
 }
 
 describe('durable send outbox', () => {
+  test('queue file metadata survives a disconnected client without changing the prompt', () => {
+    const outbox = new SendOutbox()
+    outbox.enqueue('host', { ...entry('file'), payload: {
+      prompt: '[Attached file: /host/notes.md]\n\nRead it', displayPrompt: 'Read it',
+      queueAttachments: [{ id: 'notes', type: 'file', name: 'notes.md', hostPath: '/host/notes.md' }],
+      queueAttachmentContext: '[Attached file: /host/notes.md]',
+    } })
+    expect(new SendOutbox().entriesFor('host')[0]?.payload).toEqual({
+      prompt: '[Attached file: /host/notes.md]\n\nRead it', displayPrompt: 'Read it',
+      queueAttachments: [{ id: 'notes', type: 'file', name: 'notes.md', hostPath: '/host/notes.md' }],
+      queueAttachmentContext: '[Attached file: /host/notes.md]',
+    })
+  })
   test('queued work survives a dead client and drains in arrival order', async () => {
     // WHY: dispatch-client step 6 — the queue is durable, and a fresh outbox
     // instance (an app restart) reads the same records.

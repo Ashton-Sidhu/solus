@@ -92,4 +92,4 @@ export function formatVoiceModelBytes(bytes: number | undefined): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
-export const [getVoiceModelStore, setVoiceModelStore] = createAppContext<VoiceModelStore>('voice-model')
+export const [getVoiceModelStore, setVoiceModelStore, hasVoiceModelStore] = createAppContext<VoiceModelStore>('voice-model')

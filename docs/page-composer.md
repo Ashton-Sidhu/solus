@@ -12,8 +12,7 @@ it to start an agent on the page you are reading.
 - Press Escape, or click the page, to fold an empty composer back to the glyph.
   A folded composer that still has text shows a dot on the glyph.
 - Press Enter to start a new session. The conversation opens in the companion
-  pane beside the page, and the page stays where it was. On a phone there is no
-  companion pane, so the conversation replaces the page.
+  pane beside the page, and the page stays where it was.
 - A session started from a work is bound to that work. It runs in the work's
   project folder, so the composer shows no project or host choice; a work with
   no project folder lets you choose one.
@@ -32,8 +31,8 @@ it to start an agent on the page you are reading.
 - The composer is `session-draft/DraftComposer.svelte`, the same block the
   draft pane renders: the project and host strip, the seat notice, the input
   bar, and the toolbar. The shell's attach, screenshot, and design-mode
-  handlers, and the phone's `composerActions`, reach it through the pane
-  surface props, as they reach the draft pane.
+  handlers reach it through the pane surface props, as they reach the draft
+  pane.
 - `DraftComposer`'s `floating` mode is for a composer over a page: the strip
   has no background of its own, and the card casts a shadow.
 - `destinationFixed` hides the project and host strip when the page decides

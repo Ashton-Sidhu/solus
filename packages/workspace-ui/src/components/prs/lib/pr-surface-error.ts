@@ -2,7 +2,7 @@ import type { PrUnavailableReason } from '@solus/contracts/providers'
 
 export type PrSurfaceError =
   | { kind: 'github-auth' | 'generic'; message: string }
-  /** A project with no pull requests to read — Scratchpad, a plain folder, a
+  /** A project with no pull requests to read — a chat, a plain folder, a
    *  repository that was never pushed. Not a failure, so no surface reports it
    *  as one. The host names the reason; nothing parses it out of a message. */
   | { kind: 'unavailable'; reason: PrUnavailableReason; message: string }

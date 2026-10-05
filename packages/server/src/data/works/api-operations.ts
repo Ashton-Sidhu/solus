@@ -223,6 +223,7 @@ export class WorkApiOperations {
         reviewers: input.reviewerIds.map((userId) => ({ userId, displayName: userId })),
         message: input.message,
         expectedContentVersion: input.expectedContentVersion,
+        ...(input.requestId ? { requestId: input.requestId } : {}),
       }, actorFor(context.principal).user))
       await shareWithReviewers(this.shares, context.principal, workId, input.reviewerIds)
       return requested

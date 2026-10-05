@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
-  AGENT_WRITABLE_HOST_CONFIG_KEYS,
   HOST_CONFIG_AGENT_HIDDEN_KEYS,
+  HOST_CONFIG_KEYS,
   hostConfigPatchSchema,
   isAgentWritableHostConfigKey,
 } from '@solus/contracts/host-config'
@@ -10,13 +10,14 @@ import type { AgentTool } from './agent-tool'
 import { getHostConfig, setHostConfig } from '../../../host/settings'
 
 /**
- * The agent's view of host config: read anything, write only what the key
- * policy opens. See `HOST_CONFIG_AGENT_WRITABLE` for why four keys are closed.
- *
- * Host config holds no credentials, so `read_config` has nothing to redact —
- * connections live in the encrypted secret store and are reached through their
- * own status tools.
+ * The agent's view of this host's own settings (plans/018 §3.5): the keys the
+ * host owns, never a person's preferences. A person's settings live with their
+ * clients and account, not on a host an agent of another person can read.
+ * `otel` is withheld whole: its headers are the collector's credentials. An
+ * agent may write only a host-owned key the key policy opens.
  */
+const AGENT_VISIBLE_KEYS = HOST_CONFIG_KEYS.filter((key) => !HOST_CONFIG_AGENT_HIDDEN_KEYS.includes(key))
+const AGENT_WRITABLE_KEYS: readonly string[] = AGENT_VISIBLE_KEYS.filter((key) => isAgentWritableHostConfigKey(key)).sort()
 
 let notifyChanged: ((snapshot: HostConfigSnapshot) => void) | null = null
 
@@ -31,20 +32,17 @@ export function setHostConfigChangedListener(
 export const readConfigAgentTool: AgentTool = {
   name: 'read_config',
   description:
-    "Read this host's Solus configuration — theme, fonts, default agent and models, editor, review companion, and other settings that follow the user between their devices. Reports which keys update_config accepts.",
+    "Read this host's own Solus settings — tool availability, restart continuation, review warming, and automation retention. A person's preferences (theme, models, instructions) are not host settings and are not shown. Reports which keys update_config accepts.",
   inputFields: {} as const,
   requiresApproval: false,
   execute: async () => {
-    const { config, seeded } = getHostConfig()
-    const visible = { ...config }
-    for (const key of HOST_CONFIG_AGENT_HIDDEN_KEYS) delete visible[key]
+    const { config } = getHostConfig()
+    const visible = Object.fromEntries(AGENT_VISIBLE_KEYS.map((key) => [key, config[key]]))
     return {
       ok: true,
       text: JSON.stringify({
         config: visible,
-        // Reported so an agent does not read defaults as the user's choices.
-        seeded,
-        writableKeys: AGENT_WRITABLE_HOST_CONFIG_KEYS,
+        writableKeys: AGENT_WRITABLE_KEYS,
         withheldKeys: HOST_CONFIG_AGENT_HIDDEN_KEYS,
       }),
     }
@@ -60,9 +58,9 @@ const patchObjectSchema = z.looseObject({})
 export const updateConfigAgentTool: AgentTool = {
   name: 'update_config',
   description:
-    "Change this host's Solus configuration. `patch` is a JSON object of the keys to change; keys not named keep their current value. Only the keys read_config reports as writable are accepted — instructions and analytics consent are the user's to set, not yours.",
+    "Change this host's own Solus settings. `patch` is a JSON object of the keys to change; keys not named keep their current value. Only the keys read_config reports as writable are accepted — a person's preferences and instructions are theirs to set, not yours.",
   inputFields: {
-    patch: z.string().describe('JSON object of host config keys to change, e.g. {"themeMode":"light","fontSize":14}'),
+    patch: z.string().describe('JSON object of host setting keys to change, e.g. {"continueSessionsAfterHostRestart":false}'),
   } as const,
   requiresApproval: true,
   execute: async (input) => {
@@ -72,25 +70,26 @@ export const updateConfigAgentTool: AgentTool = {
     const candidate = readJsonObject(args.data.patch)
     if (!candidate.ok) return { ok: false, text: candidate.error }
 
-    const refused = candidate.keys.filter((key) => !isAgentWritableHostConfigKey(key))
+    const refused = candidate.keys.filter((key) => !AGENT_WRITABLE_KEYS.includes(key))
     if (refused.length > 0) {
       // Named rather than silently dropped: an agent that believes it applied a
       // setting will tell the user it did.
       return {
         ok: false,
-        text: `These keys cannot be set by an agent: ${refused.join(', ')}. Writable keys are: ${AGENT_WRITABLE_HOST_CONFIG_KEYS.join(', ')}.`,
+        text: `These keys cannot be set by an agent: ${refused.join(', ')}. Writable keys are: ${AGENT_WRITABLE_KEYS.join(', ') || 'none'}.`,
       }
     }
 
     const patch = hostConfigPatchSchema.parse(candidate.value)
     const changed = Object.keys(patch)
     if (changed.length === 0) {
-      return { ok: false, text: 'No recognized host config keys in the patch.' }
+      return { ok: false, text: 'No recognized host setting keys in the patch.' }
     }
 
     const snapshot = setHostConfig(patch)
     notifyChanged?.(snapshot)
-    return { ok: true, text: JSON.stringify({ changed, config: snapshot.config }) }
+    const config = Object.fromEntries(AGENT_VISIBLE_KEYS.map((key) => [key, snapshot.config[key]]))
+    return { ok: true, text: JSON.stringify({ changed, config }) }
   },
 }
 
@@ -105,7 +104,7 @@ function readJsonObject(raw: string): JsonObjectRead {
   try {
     decoded = JSON.parse(raw)
   } catch {
-    return { ok: false, error: '`patch` must be valid JSON, e.g. {"themeMode":"light"}.' }
+    return { ok: false, error: '`patch` must be valid JSON, e.g. {"continueSessionsAfterHostRestart":false}.' }
   }
   const parsed = patchObjectSchema.safeParse(decoded)
   if (!parsed.success) {

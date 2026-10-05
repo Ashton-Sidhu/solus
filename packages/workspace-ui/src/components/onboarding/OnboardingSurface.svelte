@@ -18,6 +18,7 @@
     projectsStore,
   } from "../../contexts";
   import { withProjectHost } from "../../contexts/workspace/run-config";
+  import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import OnboardingMark from "./OnboardingMark.svelte";
@@ -51,23 +52,19 @@
     };
   });
 
-  /**
-   * Ends the flow with a chat, which is also what Skip setup does. It lands on
-   * the workspace's new-tab home — what an unstarted tab already renders — so
-   * there is nothing to open.
-   */
+  /** Ends the flow with a new chat, which is also what Skip setup does. */
   function finishWithChat() {
     if (store.flow === "cloud") {
       void finishCloud(false);
       return;
     }
     store.chooseMode("chat");
-    settings.update({ onboardingCompleted: true });
+    settings.setLayout("onboardingCompleted", true);
     // The boot-time start() probed agent binaries before onboarding had a
     // chance to install or repair anything, and a stale "Not installed" would
     // otherwise survive into the agent picker until the next launch.
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    requestInputFocus();
+    openChatDraft(workspace, "click");
   }
 
   /**
@@ -83,7 +80,7 @@
     const wasReopened = cloud.reopenedAt !== null;
     void cloud.complete();
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    if (!withProject && !wasReopened) await cloud.landInScratchpad(workspace);
+    if (!withProject && !wasReopened) cloud.landInChat(workspace);
     requestInputFocus();
   }
 
@@ -100,7 +97,7 @@
       void cloud.complete();
     } else {
       store.chooseMode(mode);
-      settings.update({ onboardingCompleted: true });
+      settings.setLayout("onboardingCompleted", true);
     }
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
     projectsStore.addProject(project.serverId, serverConnections.apiFor(project.serverId), project.path);
@@ -168,7 +165,7 @@
       class="no-drag flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
       title="Toggle appearance"
       onclick={() =>
-        settings.update({ themeMode: settings.isDark ? "light" : "dark" })}
+        settings.setPersonal("themeMode", settings.isDark ? "light" : "dark")}
     >
       {#if settings.isDark}
         <MoonIcon size={13} />

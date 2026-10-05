@@ -33,6 +33,8 @@ import {
   projectFilterChoices,
   resolveProjectFilter,
   sortTasks,
+  isWorkingStatus,
+  sortRowsByReturn,
   taskRowBranchName,
   taskStatusFor,
   type SidebarTask,
@@ -690,7 +692,7 @@ describe('taskStatusFor', () => {
     expect(taskStatusFor('awaiting')).toBe('question')
     expect(taskStatusFor('awaiting_plan')).toBe('plan')
     expect(taskStatusFor('error')).toBe('error')
-    expect(taskStatusFor('queued')).toBe('limit')
+    expect(taskStatusFor('limited')).toBe('limit')
     expect(taskStatusFor('running')).toBe('running')
   })
 
@@ -1080,5 +1082,40 @@ describe('shouldRecedeRow', () => {
   it('never recedes the row you are reading', () => {
     expect(shouldRecedeRow('idle', false, false, true)).toBe(false)
     expect(shouldRecedeRow('running', false, false, true)).toBe(false)
+  })
+})
+
+describe('isWorkingStatus', () => {
+  it('folds a row whose agent is busy without the user, and keeps a row that needs the user', () => {
+    // WHY: the Working section hides work that does not need you. A rate-limit
+    // wait resumes without the user, so it folds too; a question, a plan, or an
+    // error asks for the user and must stay in sight.
+    const statuses: TaskStatus[] = ['question', 'error', 'plan', 'limit', 'running', 'background', 'idle', 'done']
+    expect(statuses.filter(isWorkingStatus)).toEqual(['limit', 'running', 'background'])
+  })
+})
+
+describe('sortRowsByReturn', () => {
+  it('puts the row that most recently came back to the user on top', () => {
+    // WHY: a row that leaves the Working section has something new for you, so
+    // it lands on top of its section instead of in its old place.
+    const older = task('older', 'idle', { createdAt: 1_000 })
+    const newer = task('newer', 'idle', { createdAt: 2_000 })
+    const returned = task('returned', 'question', { createdAt: 500 })
+    const returnedAt = new Map([['returned', 3_000]])
+
+    expect(
+      sortRowsByReturn([older, newer, returned], (row) => returnedAt.get(row.id) ?? row.createdAt)
+        .map((row) => row.id),
+    ).toEqual(['returned', 'newer', 'older'])
+  })
+
+  it('keeps rows that never ran in creation order, newest first', () => {
+    const rows = [
+      task('a', 'idle', { createdAt: 1_000 }),
+      task('b', 'idle', { createdAt: 3_000 }),
+      task('c', 'idle', { createdAt: 2_000 }),
+    ]
+    expect(sortRowsByReturn(rows, (row) => row.createdAt).map((row) => row.id)).toEqual(['b', 'c', 'a'])
   })
 })

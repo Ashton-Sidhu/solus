@@ -73,7 +73,7 @@
     {#snippet control()}
       <Switch
         checked={settings.autoSendVoiceTranscripts}
-        onCheckedChange={(enabled) => settings.update({ autoSendVoiceTranscripts: enabled })}
+        onCheckedChange={(enabled) => settings.setDevice("autoSendVoiceTranscripts", enabled)}
         size="default"
         aria-label="Toggle auto-send for voice transcripts"
       />
@@ -88,7 +88,7 @@
       <SettingsSelect
         options={silenceOptions}
         value={String(settings.vadSilenceMs)}
-        onSelect={(value) => settings.update({ vadSilenceMs: Number(value) })}
+        onSelect={(value) => settings.setDevice("vadSilenceMs", Number(value))}
         ariaLabel="Silence threshold"
       />
     {/snippet}

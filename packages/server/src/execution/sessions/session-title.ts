@@ -10,6 +10,7 @@ import {
   type SessionMetadataGenerationContext,
 } from '@solus/contracts/types'
 import { resolveTextGenerationModel } from '../../host/settings'
+import { parseExecutionPreferences } from '../agents/run-input'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
 import type { SeatResolver, TurnSeat } from '../seats/seat-manager'
 import { writingBackendFor } from '../agents/writing-backend'
@@ -149,7 +150,32 @@ export type MetadataBackend = keyof typeof METADATA_MODELS
  * when no backend is available or the model omits either required field;
  * callers keep the prompt-derived title and empty task description.
  */
-export async function generateSessionMetadata(
+export function generateSessionMetadata(
+  dispatcher: AgentDispatcher,
+  promptText: string,
+  cwd: string,
+  context?: SessionMetadataGenerationContext,
+  seatFor?: SeatResolver,
+): Promise<SessionGeneratedMetadata | null> {
+  const sessionId = context?.sessionId
+  if (!sessionId) return runSessionMetadata(dispatcher, promptText, cwd, context, seatFor)
+  // The first-turn name and a regenerate, or two clients, can ask at the same
+  // time. Two runs cost twice and the last to finish wins, so a second request
+  // joins the run in flight and every caller gets the same answer.
+  const running = metadataRunsBySession.get(sessionId)
+  if (running) {
+    log.info('session_metadata_joined_inflight', { sessionId })
+    return running
+  }
+  const run = runSessionMetadata(dispatcher, promptText, cwd, context, seatFor)
+    .finally(() => metadataRunsBySession.delete(sessionId))
+  metadataRunsBySession.set(sessionId, run)
+  return run
+}
+
+const metadataRunsBySession = new Map<string, Promise<SessionGeneratedMetadata | null>>()
+
+async function runSessionMetadata(
   dispatcher: AgentDispatcher,
   promptText: string,
   cwd: string,
@@ -158,7 +184,9 @@ export async function generateSessionMetadata(
 ): Promise<SessionGeneratedMetadata | null> {
   const trimmed = promptText.trim()
   if (!trimmed) return null
-  const backend = await writingBackendFor(resolveTextGenerationModel(), seatFor)
+  // The requester's own writing model (plans/018 §3.3); the built-in default when the client sent none.
+  const preferences = parseExecutionPreferences(context?.executionPreferences)
+  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor)
   if (!backend) return null
   return generateMetadataWith(dispatcher, backend.provider, trimmed, cwd, backend.model, context, backend.seat)
 }

@@ -33,6 +33,7 @@ const log = createLogger('folio', 'work-tools.ts')
  * can recover from a bad call without terminating its run. */
 
 export interface WorkUpdatedPayload {
+  contentVersion: number
   workId: string
   title: string
   docType: WorkType
@@ -394,6 +395,7 @@ export async function executeWorkTool(
             docType: foreign.workType,
             content,
             updatedAt: new Date().toISOString(),
+            contentVersion: foreign.contentVersion,
           })
           return { ok: true, text: `Updated "${title ?? foreign.title}"${foreign.workType === 'artifact' ? ` (artifact, id: ${workId})` : ''}. New content_version: ${foreign.contentVersion}. The change syncs to the task's host.` }
         }
@@ -420,6 +422,7 @@ export async function executeWorkTool(
         docType: saved.type,
         content: saved.content,
         updatedAt: saved.updatedAt,
+        contentVersion: saved.contentVersion,
       })
       // The result text starts as it always has: transcripts project the artifact id from it.
       return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
@@ -471,6 +474,7 @@ function workAgentTool(
         docType: work.docType,
         content: work.content,
         updatedAt: work.updatedAt,
+        contentVersion: work.contentVersion,
       }),
     }),
   }

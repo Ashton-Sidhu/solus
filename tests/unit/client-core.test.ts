@@ -2,14 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { localApi } from '@solus/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
-import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
-import { base64UrlToUint8Array } from '@solus/client-core/push'
+import { normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
+import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
   shouldRejectQueuedRequest,
   TransportDisconnectedError,
   WsTransport,
 } from '@solus/client-core/ws-transport'
+import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
 
 describe('client core transport helpers', () => {
   test('loads before the client bridge and follows the bridge installed later', () => {
@@ -144,6 +145,17 @@ describe('client core transport helpers', () => {
     }
   })
 
+  test('keeps client window behavior out of the transport API', () => {
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    try {
+      const api = transport.buildSolusApi()
+      // A native client must not inherit DOM behavior: these come only from the browser layer.
+      for (const name of ['getPlatform', 'uploadFiles']) expect(Reflect.has(api, name)).toBe(false)
+    } finally {
+      transport.destroy()
+    }
+  })
+
   test('answers web visibility on the client without sending a host RPC', async () => {
     const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
     Object.defineProperty(globalThis, 'document', {
@@ -152,7 +164,7 @@ describe('client core transport helpers', () => {
     })
     const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
     try {
-      const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
+      const api = withBrowserCapabilities(transport.buildSolusApi(), transport) as Record<string, (...args: unknown[]) => Promise<unknown>>
       expect(await api.isVisible()).toBe(false)
       expect((transport as unknown as { requests: Map<string, unknown> }).requests.size).toBe(0)
     } finally {
@@ -304,13 +316,6 @@ describe('client core transport helpers', () => {
     expectFinderPattern(qr.modules, 0, 0)
     expectFinderPattern(qr.modules, qr.size - 7, 0)
     expectFinderPattern(qr.modules, 0, qr.size - 7)
-  })
-
-  test('decodes VAPID base64url applicationServerKey values into bytes', () => {
-    expect(Array.from(base64UrlToUint8Array('SGVsbG8td29ybGQ_'))).toEqual(
-      Array.from(new TextEncoder().encode('Hello-world?')),
-    )
-    expect(Array.from(base64UrlToUint8Array('AQID-__6'))).toEqual([1, 2, 3, 251, 255, 250])
   })
 })
 

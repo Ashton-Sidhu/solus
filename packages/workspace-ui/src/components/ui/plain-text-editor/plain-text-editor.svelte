@@ -161,6 +161,7 @@
     },
     ".cm-scroller": {
       maxHeight: "var(--plain-editor-max-height, 8.75rem)",
+      overflowX: "hidden",
       overflowY: "auto",
       fontFamily: "inherit",
       // Most compact editors use the font's own leading. Reading surfaces can

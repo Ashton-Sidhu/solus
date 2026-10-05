@@ -1,7 +1,7 @@
 import { clip } from '@solus/contracts/session-exchange'
 import type { TaskEpic, TaskLink, TaskSessionRole } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
-import type { HostConfig } from '@solus/contracts/host-config'
+import type { PersonalSettings } from '@solus/contracts/settings'
 
 /** Characters of the epic's description read_task returns. The epic is
  *  context for this task, not the work itself; the agent can open the url. */
@@ -27,7 +27,7 @@ const LEAD_CONTRACT = [
 
 /** The user's settings for a task's lead (Settings → Tasks). They extend the
  *  lead contract; they never replace it. */
-export type LeadSettings = Pick<HostConfig, 'leadInstructions' | 'workerModel'>
+export type LeadSettings = Pick<PersonalSettings, 'leadInstructions' | 'workerModel'>
 
 const NO_LEAD_SETTINGS: LeadSettings = { leadInstructions: '', workerModel: null }
 

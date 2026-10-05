@@ -7,6 +7,7 @@ import type {
   SessionActiveTurn,
   SessionActivity,
   SessionPresenceSnapshot,
+  WorkPresenceSnapshot,
 } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../admission/principal'
@@ -49,6 +50,8 @@ interface PresenceEntry {
   /** The work this client is editing, if any; the same expiry rule as typing. */
   editingWorkId: string | null
   cancelEditingExpiry: (() => void) | null
+  /** The work a guest's link opens; it sees that work's people instead of the host room. */
+  guestWorkId: string | null
 }
 
 /**
@@ -108,7 +111,7 @@ export class PresenceManager {
     const user = actorFor(principal).user
     if (!user) return false
     const participant: PresenceParticipant = { user, clientId, deviceLabel, access: presenceAccessFor(principal), joinedAt: this.now() }
-    this.entries.set(clientId, { participant, organizationId: presenceRoomOf(principal), focus: PRESENCE_NO_FOCUS, composingSessionId: null, cancelComposingExpiry: null, editingWorkId: null, cancelEditingExpiry: null })
+    this.entries.set(clientId, { participant, organizationId: presenceRoomOf(principal), focus: PRESENCE_NO_FOCUS, composingSessionId: null, cancelComposingExpiry: null, editingWorkId: null, cancelEditingExpiry: null, guestWorkId: guestWorkOf(principal) })
     return true
   }
 
@@ -243,6 +246,16 @@ export class PresenceManager {
     return { participants }
   }
 
+  /** The guests in one organization's room whose link is a work, by that work. */
+  workGuestsIn(organizationId: string): Map<string, string[]> {
+    const guests = new Map<string, string[]>()
+    for (const [clientId, entry] of this.entries) {
+      if (entry.organizationId !== organizationId || !entry.guestWorkId) continue
+      guests.set(entry.guestWorkId, [...guests.get(entry.guestWorkId) ?? [], clientId])
+    }
+    return guests
+  }
+
   /** True when any connected client has the session focused, so a change to it is worth a host republish. */
   isSessionFocused(sessionId: string): boolean {
     for (const entry of this.entries.values()) {
@@ -265,6 +278,15 @@ export class PresenceManager {
     }
     return { sessionId, participants, activeTurn }
   }
+}
+
+function guestWorkOf(principal: Principal): string | null {
+  return principal.kind === 'guest' && principal.share.resource.kind === 'work' ? principal.share.resource.id : null
+}
+
+/** The people in a host room who have one work open: the room a guest on that work's link sees. */
+export function workPresence(host: HostPresenceSnapshot, workId: string): WorkPresenceSnapshot {
+  return { workId, participants: host.participants.filter((participant) => participant.focus.kind === 'work' && participant.focus.workId === workId) }
 }
 
 function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {

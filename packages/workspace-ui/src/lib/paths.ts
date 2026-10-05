@@ -1,3 +1,5 @@
+import { isChat } from '@solus/contracts/chat'
+
 export function abbreviateHome(path: string | null | undefined): string {
   if (!path) return '~'
   return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
@@ -16,31 +18,12 @@ export function truncateMiddle(value: string, maxLength = 48): string {
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`
 }
 
-/** What every client calls the place a session with no project runs. */
-export const SCRATCHPAD_LABEL = 'Scratchpad'
+/** What every client calls a session with no project, where a name must show. */
+export const CHAT_LABEL = 'Chat'
 
-/**
- * True when a working directory is the chat folder behind Scratchpad. Pass the
- * chat folder of the host that owns the path: each host, and each member on a
- * shared host, has its own.
- */
-export function isChatFolder(
-  path: string | null | undefined,
-  chatFolder: string | null | undefined,
-): boolean {
-  if (!path || !chatFolder) return false
-  return path.replace(/\/+$/, '') === chatFolder.replace(/\/+$/, '')
-}
-
-/**
- * Display name for a working directory: "Scratchpad" when the path is the
- * host's chat folder, otherwise the home-abbreviated path.
- */
-export function displayDirName(
-  path: string | null | undefined,
-  chatFolder: string | null | undefined,
-): string {
-  if (isChatFolder(path, chatFolder)) return SCRATCHPAD_LABEL
+/** Display name for a working directory: the home-abbreviated path, or "Chat". */
+export function displayDirName(path: string | null | undefined): string {
+  if (isChat(path)) return CHAT_LABEL
   return abbreviateHome(path)
 }
 
@@ -49,11 +32,8 @@ export function displayDirName(
  * `displayDirName` for rows too narrow for a path, where the folder name is
  * the only part a reader identifies the project by.
  */
-export function projectDirLabel(
-  path: string | null | undefined,
-  chatFolder: string | null | undefined,
-): string {
-  if (isChatFolder(path, chatFolder)) return SCRATCHPAD_LABEL
+export function projectDirLabel(path: string | null | undefined): string {
+  if (isChat(path)) return CHAT_LABEL
   const dir = path?.replace(/\/+$/, '')
   if (!dir || dir === '~') return '~'
   return dir.split('/').pop() || abbreviateHome(dir)

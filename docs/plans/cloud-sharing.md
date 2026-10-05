@@ -39,6 +39,10 @@ computer after they are shared.
 
 ## 2. Rule
 
+Sharing requires the client to be signed in. The shared Share button and other
+Share controls stay disabled while signed out, with “Sign in to share” as the
+tooltip. This applies to desktop, web, and mobile.
+
 There are two kinds of share.
 
 | Kind | Resources | Needs the host link | Path |
@@ -124,16 +128,35 @@ and then travels as a work.
 The Insights turn panel shares a report, not the session it came from. To
 share the session itself, the person uses the session's own Share. Each Share
 captures a new report, labelled with its capture time. The Share dialog sets
-who may comment on it or rename it.
+who may comment on it, mark it, or rename it.
 
 A report holds what the turn panel reads: the trace, the session rollup, the
 session and task names, the comparison against the window's other turns
 (`baselines`, not the rows), the session's prompts, and the turn's patch
-(`components/insights/lib/turn-report.ts`). `InsightsReportShell` draws it with
-the same `TurnReadings` body as the live panel, under the works header, so the
-person it was shared with reads the page its sharer did. Nothing on it leads to
-another turn, the session, or the task: those stayed on the computer. Comments
-pin to points on the page, as on an artifact.
+(`components/insights/lib/turn-report.ts`). Share waits for git's
+answer about the change, so the diff is in the report even when the person
+shares before the Result card has loaded. `InsightsReportShell` draws it with
+the same `TurnReadings` body as the live panel, under the same crumb band as
+the turn page (no separate works header), so the person it was shared with
+reads the page its sharer did. Nothing on it leads to another turn, the
+session, or the task: those stayed on the computer. Comments pin to points on
+the page, as on an artifact.
+
+What each role may do on a report:
+
+| Role | Read | Comment | Mark (Good example, Too slow, …) | Rename |
+|---|---|---|---|---|
+| Viewer | Yes | No | Sees the marks; control disabled | No |
+| Commenter | Yes | Yes | Yes, their own | No |
+| Editor, owner | Yes | Yes | Yes, their own | Yes |
+
+Each reader has their own mark, kept beside the comments (`WorkAnnotations.marks`)
+and set with the `mark` and `unmark` comment commands, so whoever may comment
+may mark and nobody overwrites another person's mark
+(`applyWorkCommand` in `packages/contracts/src/comment-commands.ts`). The Mark
+control shows the reader's own mark; the others' marks follow it, grouped by
+kind. Share sets the sharer's mark on the turn as their mark on the report. A
+mark on a report does not go back to the turn on its computer.
 
 ## 4a. The share page
 
@@ -147,6 +170,31 @@ The pages offer only what the guest's role may do, by the host's rules
 comments and reviews, an editor changes. Controls that lead into a workspace
 (the Workspace page, chat, duplicating) are absent, because a guest shell has
 none.
+
+A member who opens a shared session in the app follows the same rule. Only an
+editor or the owner drives a session; on a session a commenter is a viewer.
+The client asks one question, `canDriveSession`
+(`contexts/sharing/session-drive.ts`), which reads the caller's role from the
+session's share list. A session with no share list is the client's own. For a
+viewer, the composer says "Shared with you to view." and takes no prompt,
+attachment, paste, or screenshot. Stop, the answers on permission, question,
+and rate-limit cards ("Waiting for an editor" in their place), plan decisions,
+plan edits, plan comments, plan bookmarks and publishing, rename, regenerate
+title, task and pull request links, settle, and snooze are absent. The client
+also sends no typing presence, automatic title, or branch for that session.
+
+Only a guest link asks the visitor for a name. A visitor who is signed in to
+Solus on the account origin opens a guest link as their account at once
+(`bootGuest` in `apps/client/src/main.ts`). If that account is a member of
+the resource's organization with at least the link's role, the page opens the
+member link in its place, so the member keeps their own role and the whole app
+(`apps/client/src/lib/guest-member.ts`). A member with a lower role than the
+link stays on the guest page, which gives the link's role.
+
+A resource shared only with members (a team, the organization, or people by
+name, with no link) copies the app's own address on the account origin
+(`contexts/sharing/app-link.ts`), not a guest link. A signed-in member opens it
+with their own sign-in; anyone else signs in first and returns to it.
 
 ## 4b. A task is not shared
 
@@ -219,3 +267,12 @@ host keeps a local copy that changed after it was read.
 5. **2026-10-01:** a shared work keeps its row with a location (§3a), so a
    reference to the work on this host finds the work. A separate table of
    moved records was rejected as more than the need.
+6. **2026-10-02:** Copy link on a resource shared only with members copies
+   the app's address, not a guest link; a signed-in visitor of a guest link is
+   not asked for a name.
+
+## Shared work header spacing
+
+The guest shell measures its access badge and reserves that width in the work
+header. Work panes keep this inherited space on mouse and touch clients. Only
+workspace panes set a fixed space for their close and pane controls.

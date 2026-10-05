@@ -148,22 +148,6 @@ export function optionLabelParts(label: string): OptionLabelParts {
   return { text: label.slice(0, match.index).trim(), note: 'recommended' }
 }
 
-/** "2nd question" reads better than "question 2" in a meta line. */
-export function ordinal(n: number): string {
-  const rem100 = n % 100
-  if (rem100 >= 11 && rem100 <= 13) return `${n}th`
-  switch (n % 10) {
-    case 1:
-      return `${n}st`
-    case 2:
-      return `${n}nd`
-    case 3:
-      return `${n}rd`
-    default:
-      return `${n}th`
-  }
-}
-
 export interface PermissionFooterOrder {
   escape: PermissionOption | null
   middle: PermissionOption[]

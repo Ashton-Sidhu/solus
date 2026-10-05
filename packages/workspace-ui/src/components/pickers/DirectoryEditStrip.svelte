@@ -61,19 +61,18 @@
     aria-label={edit.kind === "create" ? "New folder" : edit.kind === "rename" ? "Rename folder" : "Remove folder"}
     onkeydown={handleKeyDown}
   >
-    <div class="flex min-w-0 items-center gap-2 max-md:flex-wrap">
+    <div class="flex min-w-0 items-center gap-2">
       {#if edit.kind === "create" || edit.kind === "rename"}
         {#if edit.kind === "create"}
           <FolderPlusIcon size={14} class="shrink-0 text-primary" />
         {:else}
           <PencilSimpleIcon size={14} class="shrink-0 text-muted-foreground" />
         {/if}
-        <!-- 16px on a phone: iOS zooms into any smaller input and stays zoomed. -->
         <Input
           bind:ref={nameInputEl}
           value={edit.name}
           type="text"
-          class="h-7 min-w-0 flex-1 text-[0.8125rem] max-md:h-10 max-md:basis-full max-md:text-base"
+          class="h-7 min-w-0 flex-1 text-[0.8125rem]"
           spellcheck={false}
           autocomplete="off"
           autocapitalize="off"
@@ -84,7 +83,7 @@
         />
       {:else}
         <TrashIcon size={14} class="shrink-0 text-destructive" />
-        <span class="min-w-0 flex-1 text-pretty text-xs max-md:basis-full max-md:text-[0.8125rem]">
+        <span class="min-w-0 flex-1 text-pretty text-xs">
           {#if edit.kind === "trash"}
             Move “{edit.entry.name}” to the Trash?
           {:else}
@@ -92,7 +91,7 @@
           {/if}
         </span>
       {/if}
-      <div class="flex shrink-0 items-center gap-1.5 max-md:ml-auto">
+      <div class="flex shrink-0 items-center gap-1.5">
         <Button variant="ghost" size="sm" class="text-[0.8125rem]" onclick={cancel}>Cancel</Button>
         <Button
           bind:ref={confirmEl}

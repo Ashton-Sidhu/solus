@@ -12,24 +12,21 @@
     discoveredServerUrl,
     hostStatusDotClass,
     hostStatusLabel,
-    runtime,
     serversStore,
     type NearbyHost,
     type ServerItem,
   } from "@solus/workspace-ui/contexts";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
-  import { defaultDeviceLabel, urlHost } from "@solus/client-core/pairing";
+  import { urlHost } from "@solus/client-core/pairing";
+  import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
-  import { registerBackOverlay } from "../lib/back-stack.svelte";
   import { addHostFromInput } from "../lib/add-host";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { classifyConnectInput } from "../lib/connect";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
-  import MobileSheet from "../shell/mobile/MobileSheet.svelte";
 
   const open = $derived(webState.serverSetupOpen);
-  const isMobile = $derived(runtime.isMobileViewport);
 
   const savedHosts = $derived(serversStore.servers);
 
@@ -49,19 +46,12 @@
     if (open) untrack(() => void serversStore.scanForServers());
   });
 
-  // Desktop opens with the field ready for a pasted link. A phone would only
-  // get its keyboard thrown up over the list of hosts.
+  // The surface opens with the field ready for a pasted link.
   $effect(() => {
-    if (!open || isMobile) return;
+    if (!open) return;
     const timer = setTimeout(() => smartInputEl?.focus(), 60);
     return () => clearTimeout(timer);
   });
-
-  registerBackOverlay(
-    "server-setup",
-    () => isMobile && webState.serverSetupOpen,
-    () => close(),
-  );
 
   function close() {
     webState.closeServerSetup();
@@ -282,11 +272,7 @@
   </div>
 {/snippet}
 
-{#if isMobile}
-  <MobileSheet {open} onClose={close} title="Connect a host">
-    <div class="px-4 pb-2">{@render body()}</div>
-  </MobileSheet>
-{:else if open}
+{#if open}
   <!-- Backdrop click dismisses; the dialog itself stops the bubble. -->
   <div
     class="fixed inset-0 z-[10025] flex items-start justify-center bg-black/[0.05] px-4 pt-[10vh] [.dark_&]:bg-black/35"

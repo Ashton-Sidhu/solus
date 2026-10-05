@@ -50,7 +50,7 @@
       {@render children()}
     {:else}
       <div
-        class="overflow-hidden rounded-xl border border-border/50 bg-card text-foreground [&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-4 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/40"
+        class="overflow-hidden rounded-xl border border-border/50 bg-background text-foreground [&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-4 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/40"
       >
         {@render children()}
       </div>

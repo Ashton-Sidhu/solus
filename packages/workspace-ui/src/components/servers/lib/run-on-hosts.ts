@@ -1,5 +1,6 @@
 import type { RunConfig } from '@solus/contracts/types'
 import type { ProjectRef } from '../../../contexts/projects/project-catalog'
+import { isChat } from '@solus/contracts/chat'
 
 /**
  * What choosing a host in the Run on picker does for the run's project. The
@@ -15,6 +16,8 @@ export type RunOnHostAction =
   | { kind: 'clone' }
   /** The project has no remote to copy, so the person picks a folder there. */
   | { kind: 'choose-folder' }
+  /** A chat has no project: any host can run it, in a new chat folder there. */
+  | { kind: 'chat' }
 
 export interface RunOnHostInput {
   hostId: string
@@ -30,6 +33,7 @@ export interface RunOnHostInput {
 
 export function runOnHostAction(input: RunOnHostInput): RunOnHostAction {
   if (input.hostId === input.selectedHostId) return { kind: 'current' }
+  if (isChat(input.run.workingDirectory)) return { kind: 'chat' }
   const path = checkoutPathOn(input.run, input.hostId, input.checkouts)
   if (path) return { kind: 'checkout', path }
   return input.cloneRepoKey ? { kind: 'clone' } : { kind: 'choose-folder' }
@@ -48,8 +52,23 @@ export function runOnHostNote(action: RunOnHostAction): string | null {
     case 'checkout': return 'Uses its checkout'
     case 'clone': return 'Copies the repository'
     case 'choose-folder': return 'Choose a folder'
+    case 'chat': return null
     case 'current': return null
   }
+}
+
+/**
+ * Whether the run names a project that limits where it can run. A chat is no
+ * project: any host can take it. Neither is a folder on a host that runs no
+ * sessions (the workspace service): no host has it, so it must not hide every host
+ * that would need a folder picked. A draft saved before its host was replaced can
+ * name one.
+ */
+export function runHasProject(
+  projectDir: string | null | undefined,
+  runsSessions: boolean,
+): boolean {
+  return !!projectDir && projectDir !== '~' && runsSessions && !isChat(projectDir)
 }
 
 /** The hosts the picker lists, in the order a person decides: where the run

@@ -10,6 +10,7 @@
   } from "@solus/contracts/types";
   import {
     accountStore,
+    getSettingsContext,
     getTextGenerationSettingsStore,
     serversStore,
     sharesStore,
@@ -25,6 +26,8 @@
   import * as TooltipUI from "../ui/tooltip";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSection from "./SettingsSection.svelte";
+  import WorktreeBranchNamingRow from "./WorktreeBranchNamingRow.svelte";
+  import { isModelOffered } from "./lib/text-generation-models";
 
   interface Props {
     serverId: string;
@@ -55,9 +58,12 @@
     }),
   );
 
+  // The writing choices are the person's; the host only says which models it offers.
+  const settings = getSettingsContext();
   const settingsStore = getTextGenerationSettingsStore();
   const snapshot = $derived(settingsStore.snapshotFor(serverId));
-  const style = $derived(snapshot?.sourceControlWriting ?? DEFAULT_SOURCE_CONTROL_WRITING);
+  const style = $derived(settings.sourceControlWriting ?? DEFAULT_SOURCE_CONTROL_WRITING);
+  const writerModel = $derived(settings.sourceControlWriterModel);
   const error = $derived(settingsStore.errorFor(serverId));
   const modelOptions = $derived.by((): ModelOption[] => {
     if (!snapshot) return [];
@@ -112,52 +118,36 @@
     return `${agent?.label ?? selection.provider} · ${model?.label ?? selection.model}`;
   }
 
-  function isSameModel(
-    left: TextGenerationModelSelection | null | undefined,
-    right: TextGenerationModelSelection | null | undefined,
-  ): boolean {
-    return !!left && !!right && left.provider === right.provider && left.model === right.model;
-  }
-
-  async function update(
-    patch: Parameters<HostApi["textGenerationSettingsUpdate"]>[0],
-  ): Promise<void> {
-    await settingsStore.update({ serverId, api }, patch).catch(() => {});
+  function saveStyle(next: SourceControlWritingPreferences): void {
+    settings.setPersonal("sourceControlWriting", next);
     requestInputFocus();
   }
 
-  function saveStyle(next: SourceControlWritingPreferences): Promise<void> {
-    return update({ sourceControlWriting: next });
-  }
-
   async function selectStyle(mode: SourceControlWritingMode): Promise<void> {
-    await saveStyle({ ...style, mode });
+    saveStyle({ ...style, mode });
     if (mode !== "custom") return;
     await tick();
     customInstructionsElement?.focus({ preventScroll: true });
   }
 
   function setFollowTemplates(enabled: boolean): void {
-    void saveStyle({ ...style, followPullRequestTemplate: enabled });
+    saveStyle({ ...style, followPullRequestTemplate: enabled });
   }
 
   function saveCustomInstructions(): void {
     const value = customInstructionsDraft.trim();
     if (value === style.customInstructions) return;
-    void saveStyle({ ...style, customInstructions: value });
+    saveStyle({ ...style, customInstructions: value });
   }
 
-  async function setDedicatedWriter(enabled: boolean): Promise<void> {
-    if (!snapshot) return;
-    await update({
-      sourceControlWriterModel: enabled ? snapshot.effectiveTextGenerationModel : null,
-    });
+  function setDedicatedWriter(enabled: boolean): void {
+    settings.setPersonal("sourceControlWriterModel", enabled ? { ...settings.textGenerationModel } : null);
+    requestInputFocus();
   }
 
   function selectWriterModel(option: ModelOption): void {
-    void update({
-      sourceControlWriterModel: { provider: option.provider, model: option.model },
-    });
+    settings.setPersonal("sourceControlWriterModel", { provider: option.provider, model: option.model });
+    requestInputFocus();
   }
 </script>
 
@@ -182,7 +172,7 @@
   >
     {#snippet control()}
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
-        <DropdownMenu.Trigger disabled={!snapshot}>
+        <DropdownMenu.Trigger>
           {#snippet child({ props })}
             <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Source control writing style">
               <span class="truncate">{styleOptions[style.mode].label}</span>
@@ -222,14 +212,15 @@
           autofocus
           placeholder="Keep titles concise. Use short bullet points in descriptions."
           aria-label="Custom source-control writing instructions"
+          class="bg-white! disabled:bg-white! dark:bg-input/30! dark:disabled:bg-input/30!"
         />
         <div class="flex flex-wrap items-center justify-between gap-3">
           <p class="min-w-52 flex-1 text-pretty text-xs text-muted-foreground">
-            These instructions apply to every project on this host and stay saved if you change styles.
+            These instructions apply to your work in every project and stay saved if you change styles.
           </p>
           <Button
             size="sm"
-            disabled={!snapshot || customInstructionsDraft.trim() === style.customInstructions}
+            disabled={customInstructionsDraft.trim() === style.customInstructions}
             onclick={saveCustomInstructions}
           >
             Save instructions
@@ -246,7 +237,6 @@
     {#snippet control()}
       <Switch
         checked={style.followPullRequestTemplate}
-        disabled={!snapshot}
         onCheckedChange={setFollowTemplates}
         aria-label="Follow pull-request templates"
       />
@@ -255,22 +245,23 @@
 
   <SettingsRow
     label="Source-control writer model"
+    bodyVisible={!!writerModel && !!snapshot && !isModelOffered(snapshot.agents, writerModel)}
     description="Model for commits, PRs, and branch names. Off uses the text-generation model."
   >
     {#snippet control()}
       <div class="flex flex-wrap items-center justify-end gap-2">
-        {#if snapshot?.sourceControlWriterModel}
+        {#if writerModel}
           <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
             <DropdownMenu.Trigger disabled={modelOptions.length === 0}>
               {#snippet child({ props })}
                 <Button {...props} variant="outline" size="sm" class="max-w-64 min-w-32 justify-between text-xs font-normal shadow-xs" aria-label="Source-control writer model">
-                  <span class="truncate">{modelLabel(snapshot.sourceControlWriterModel)}</span>
+                  <span class="truncate">{modelLabel(writerModel)}</span>
                   <CaretDownIcon size={11} class="opacity-60" />
                 </Button>
               {/snippet}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[240px]">
-              <DropdownMenu.RadioGroup value={`${snapshot.sourceControlWriterModel.provider}:${snapshot.sourceControlWriterModel.model}`}>
+              <DropdownMenu.RadioGroup value={`${writerModel.provider}:${writerModel.model}`}>
                 {#each modelOptions as option (option.key)}
                   <DropdownMenu.RadioItem value={option.key} onSelect={() => selectWriterModel(option)}>
                     <span class="truncate">{option.label}</span>
@@ -281,21 +272,31 @@
           </DropdownMenu.Root>
         {/if}
         <Switch
-          checked={snapshot?.sourceControlWriterModel !== null && snapshot?.sourceControlWriterModel !== undefined}
-          disabled={!snapshot}
+          checked={writerModel !== null}
           onCheckedChange={setDedicatedWriter}
           aria-label="Use a separate source-control writer model"
         />
       </div>
     {/snippet}
-    {#if snapshot?.sourceControlWriterModel && !isSameModel(snapshot.sourceControlWriterModel, snapshot.effectiveSourceControlWriterModel)}
-      {#snippet body()}
+    {#snippet body()}
+      {#if writerModel && snapshot}
         <p class="text-xs text-muted-foreground">
-          The saved writer is unavailable. Solus currently uses {modelLabel(snapshot.effectiveSourceControlWriterModel)}.
+          This host does not offer {modelLabel(writerModel)}. Your choice stays saved; this host uses {modelLabel(snapshot.effectiveSourceControlWriterModel)}.
         </p>
-      {/snippet}
-    {/if}
+      {/if}
+    {/snippet}
   </SettingsRow>
+</SettingsSection>
+
+<SettingsSection label="Worktrees">
+  <WorktreeBranchNamingRow
+    label="Branch names"
+    naming={settings.worktreeBranchNaming}
+    onSave={(naming) => settings.setPersonal("worktreeBranchNaming", naming)}
+  />
+  <p class="px-4 pb-3.5 text-xs text-muted-foreground">
+    A project can override this in Settings, Projects.
+  </p>
 </SettingsSection>
 
 {#if error}

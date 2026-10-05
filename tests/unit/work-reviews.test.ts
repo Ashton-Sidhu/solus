@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { WorkReview, WorkReviewInboxItem, WorkReviewsChanged } from '@solus/contracts/work-review'
+import type { WorkReview, WorkReviewInboxItem, WorkReviewStateEntry, WorkReviewsChanged } from '@solus/contracts/work-review'
 import type { ResourceRole, ShareResource } from '@solus/contracts/sharing'
 import type { Principal } from '@solus/server/admission/principal'
 import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
@@ -168,6 +168,20 @@ describe('decisions', () => {
     const work = await newWork()
     const review = await call<WorkReview>('workReviewDecide', GUEST, work.id, { target: { kind: 'current', contentVersion: work.contentVersion }, decision: 'approved' })
     expect(reviewerOf(review, 'guest:g1')).toMatchObject({ displayName: 'Maya (typed)', requestedBy: null, isAwaiting: false })
+  })
+})
+
+describe('the workspace list', () => {
+  test('each work lists who reviews it and what they decided, without the summaries', async () => {
+    // WHY: the Workspace page shows who approved a work without opening it, so the
+    // list must name each reviewer and decision, and stay small for many works.
+    const work = await newWork()
+    await call('workReviewRequest', ALICE, work.id, { reviewers: [{ userId: 'bob', displayName: 'Bob' }, { userId: 'carol', displayName: 'Carol' }], expectedContentVersion: work.contentVersion })
+    await call('workReviewDecide', BOB, work.id, { target: { kind: 'current', contentVersion: work.contentVersion }, decision: 'approved', summary: 'Ship it' })
+    const [entry] = await call<WorkReviewStateEntry[]>('workReviewStates', ALICE)
+    expect(entry!.state).toBe('approved')
+    expect(entry!.reviewers.map((reviewer) => [reviewer.displayName, reviewer.decision, reviewer.isAwaiting])).toEqual([['Bob Reviewer', 'approved', false], ['Carol', null, true]])
+    expect(entry!.reviewers[0]).not.toHaveProperty('decisionSummary')
   })
 })
 

@@ -39,9 +39,9 @@ export interface GetStartedFacts {
 export function getStartedItems(facts: GetStartedFacts): GetStartedItem[] {
   const items: GetStartedItem[] = []
   if (!facts.hasMachine) {
-    items.push({ id: 'machine', label: 'Choose where agents run', detail: 'The cloud host or your own computer', stage: 'compute' })
+    items.push({ id: 'machine', label: 'Choose a computer', detail: 'The cloud host or your own computer', stage: 'compute' })
   } else if (facts.hasSignedInAgent === false) {
-    items.push({ id: 'agents', label: 'Sign in Claude Code or Codex', detail: 'On the machine your agents run on', stage: 'agents' })
+    items.push({ id: 'agents', label: 'Connect an agent', detail: 'On the machine your agents run on', stage: 'agents' })
   }
   if (facts.githubConnected === false) {
     items.push({ id: 'github', label: 'Connect GitHub', detail: 'Repositories and pull requests', stage: 'github' })

@@ -1,4 +1,5 @@
 import type { SolusServer } from '../server'
+import { parseExecutionPreferences } from '../../execution/agents/run-input'
 import { recordScopeOf, type RecordScope } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import {
@@ -39,9 +40,11 @@ async function linkAutomationToSessionTask(
  *  agent tools expose. Phase 1: run-now only (no scheduling). */
 export function registerAutomationHandlers(server: SolusServer): void {
   server.register('automationCreate', async (args, ctx) => {
-    const [name, action, enabled, trigger] = args
-    // The creator comes from the verified caller, never from the request.
-    const automation = await createAutomation(name, action, attributionOf(ctx.actor), enabled ?? true, trigger ?? { type: 'manual' })
+    const [name, action, enabled, trigger, executionPreferences] = args
+    // The creator comes from the verified caller, never from the request. Their
+    // preferences choose behaviour, never authority.
+    const preferences = parseExecutionPreferences(executionPreferences)
+    const automation = await createAutomation(name, action, attributionOf(ctx.actor), enabled ?? true, trigger ?? { type: 'manual' }, preferences)
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
     return automation
   })
@@ -55,7 +58,8 @@ export function registerAutomationHandlers(server: SolusServer): void {
 
   server.register('automationUpdate', async (args, ctx) => {
     const [id, patch] = args
-    const automation = await updateAutomation(id, patch)
+    const { executionPreferences, ...rest } = patch
+    const automation = await updateAutomation(id, executionPreferences === undefined ? rest : { ...rest, executionPreferences: parseExecutionPreferences(executionPreferences) })
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
     return automation
   })

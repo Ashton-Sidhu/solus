@@ -3,9 +3,9 @@
   import type { Snippet } from "svelte";
   import * as Command from "../command";
 
-  /** The filter header every list menu opens with. Its rule spans the full
-   *  surface, so it sits as a sibling of the padded body inside a `p-0` menu
-   *  rather than inside the body itself.
+  /** The filter header every list menu opens with. Its rule is inset to the
+   *  field's edges, so it sits as a sibling of the padded body inside a `p-0`
+   *  menu rather than inside the body itself.
    *
    *  The field takes the rung its surface declares rather than pinning one, so
    *  it reads at the same size as the rows it filters — the menu rung on a stock
@@ -23,7 +23,7 @@
 </script>
 
 <div
-  class="flex items-center gap-2 border-b border-(--solus-menu-hairline) px-3 pb-2 pt-2.5 text-(--solus-text-tertiary)"
+  class="relative flex items-center gap-2 px-3 pb-2 pt-2.5 text-(--solus-text-tertiary) before:pointer-events-none before:absolute before:inset-x-3 before:bottom-0 before:h-px before:bg-(--solus-menu-hairline)"
 >
   {#if leading}
     {@render leading()}

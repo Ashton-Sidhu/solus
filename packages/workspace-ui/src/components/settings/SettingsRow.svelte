@@ -79,7 +79,7 @@
       </div>
       {#if control}
         <div
-          class="flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
+          class="settings-controls flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
           inert={isInert}
         >
           {@render control()}

@@ -7,6 +7,7 @@ import {
   ACCOUNT_AUDIENCE,
   accessTokenClaimsSchema,
   DEFAULT_ORGANIZATION_POLICY,
+  FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS,
   GUEST_GRANT_TTL_SECONDS,
   hostAudience,
   type HostOrganizationsResponse,
@@ -370,7 +371,7 @@ export class LabIssuer {
       aud: options.hostId === SOLUS_API_AUDIENCE ? SOLUS_API_AUDIENCE : hostAudience(options.hostId),
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
-      exp: nowSeconds + (options.ttlSeconds ?? (persona.kind === 'guest' ? GUEST_GRANT_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS)),
+      exp: nowSeconds + (options.ttlSeconds ?? (persona.kind === 'guest' ? GUEST_GRANT_TTL_SECONDS : FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS)),
       hostKind: options.hostKind,
       displayName: persona.displayName,
     }

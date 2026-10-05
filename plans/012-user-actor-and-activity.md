@@ -61,7 +61,7 @@ problems.
 | U5 | Linking a host moves the `local` user's rows to their account id, once. Unlinking is the reverse step. |
 | U6 | One `Attribution` union names every kind of doer. It replaces `TaskActor`, `WorkContentAuthor`, `CommentAuthor`, `CommentAgentAuthor`, `AutomationCreator` and string authors. |
 | U7 | Admission resolves the actor once and puts it on every request, for every domain: sessions, works, tasks, comments, sharing. Handlers and runtime methods take it. They do not convert the principal. |
-| U8 | One activity record for sessions, tasks and works. Task events move onto it. The notifications hub (D15) reads it. |
+| U8 | One activity record for sessions, tasks and works. Task events move onto it. The notifications hub (D15, [plan 015](015-notifications-hub.md)) projects mention activity into its own recipient rows, keeping the activity id. |
 | U9 | One user chip and one avatar component draw a user everywhere on the client. |
 | O1 | `local` stays (decided 2026-09-29): Solus works without an account, so a host owner who never signs in is a `local` user. |
 

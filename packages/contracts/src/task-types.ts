@@ -217,6 +217,10 @@ export interface Task {
   assignee?: string
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
+  /** The Solus person assigned, by user key (plans/015-notifications-hub.md §5).
+   *  Set only by a Solus assignee choice; a provider login in `assignee` is never
+   *  read as an account. */
+  assigneeUserId?: string
   labels: string[]
   /** The upstream epic this ticket belongs to. Set only from a provider read. */
   epic?: TaskEpic
@@ -256,6 +260,7 @@ export interface TaskCreateInput {
   body?: string
   status?: TaskStatus
   assignee?: string | null
+  assigneeUserId?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]
@@ -270,6 +275,7 @@ export interface TaskUpdatePatch {
   body?: string
   status?: TaskStatus
   assignee?: string | null
+  assigneeUserId?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]

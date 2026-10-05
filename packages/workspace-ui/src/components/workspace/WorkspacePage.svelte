@@ -51,6 +51,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import WorkspaceRow from "./WorkspaceRow.svelte";
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
   import ImportDocDialog from "../work/ImportDocDialog.svelte";
@@ -152,7 +153,7 @@
   );
   const allItems: WorkspaceItem[] = $derived(
     buildWorkspaceItems(descriptors, worksList, workspaceProjects, {
-      stateOf: (workId) => session.worksStore.reviews.states.get(workId),
+      summaryOf: (workId) => session.worksStore.reviews.summaries.get(workId),
       awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
     }),
   );
@@ -712,7 +713,7 @@
   /** Works only: the Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
   function canShare(item: WorkspaceItem): boolean {
     const serverId = session.worksStore.hostFor(item.id);
-    return item.source.kind === "work" && !!serverId && sharesStore.canShareFrom(serverId, "work");
+    return item.source.kind === "work" && !!serverId && (!accountStore.isSignedIn || sharesStore.canShareFrom(serverId, "work"));
   }
   function shareItem(item: WorkspaceItem) {
     const serverId = session.worksStore.hostFor(item.id);

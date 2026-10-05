@@ -55,10 +55,10 @@ test('saved updates append snapshots and ignore repeated or stale delivery', asy
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', title: 'Original', html: '<p>One</p>' })
   const original = messages[0]
   const update = { type: 'work_updated' as const, workId: 'work', title: 'Renamed', docType: 'artifact' as const, content: '<p>Two</p>', updatedAt: '2026-09-18T10:00:00Z' }
-  tracker.updateArtifact(session, update)
-  tracker.updateArtifact(session, update)
-  tracker.updateArtifact(session, { ...update, updatedAt: '2026-09-18T09:00:00Z' })
-  tracker.updateArtifact(session, { ...update, docType: 'doc' })
+  tracker.updateWork(session, update)
+  tracker.updateWork(session, update)
+  tracker.updateWork(session, { ...update, updatedAt: '2026-09-18T09:00:00Z' })
+  tracker.updateWork(session, { ...update, docType: 'doc' })
   tracker.sweep(session)
   expect(messages).toHaveLength(2)
   expect(messages[0]).toBe(original)
@@ -78,7 +78,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
     tracker.updateStreamingArtifact(session, tool, '{"work_id":"work","content":"<body>First', 'first')
     tracker.updateStreamingArtifact(session, tool, '{"work_id":"work","content":"<body>Second', 'second')
     expect(messages[1].artifact?.streaming).toBe(true)
-    tracker.updateArtifact(session, { type: 'work_updated', toolId: 'second', workId: 'work', title: 'Updated', docType: 'artifact', content: '<body>Second done</body>', updatedAt: '2026-09-22T00:00:00Z' })
+    tracker.updateWork(session, { type: 'work_updated', toolId: 'second', workId: 'work', title: 'Updated', docType: 'artifact', content: '<body>Second done</body>', updatedAt: '2026-09-22T00:00:00Z' })
     expect(messages[1].artifact?.streaming).toBe(true)
     expect(messages[2].artifact?.html).toBe('<body>Second done</body>')
     expect(messages[2].artifact?.streaming).toBe(false)
@@ -98,7 +98,7 @@ test('touch clients keep an update skeleton until its own save completes', async
     tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>New', 'update')
     expect(messages[1].artifact?.pending).toBe(true)
     expect(messages[1].artifact?.html).toBeUndefined()
-    tracker.updateArtifact(session, { type: 'work_updated', toolId: 'update', workId: 'work', title: 'New', docType: 'artifact', content: '<p>New</p>', updatedAt: '2026-09-22T00:00:00Z' })
+    tracker.updateWork(session, { type: 'work_updated', toolId: 'update', workId: 'work', title: 'New', docType: 'artifact', content: '<p>New</p>', updatedAt: '2026-09-22T00:00:00Z' })
     expect(messages).toHaveLength(2)
     expect(messages[1].artifact?.pending).toBe(false)
     expect(messages[1].artifact?.html).toBe('<p>New</p>')
@@ -116,13 +116,13 @@ test('update lifecycle preserves the revision index and leaves saved work metada
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>Two', 'update')
   expect(index(artifactRevisions(messages))).toBe(first)
   const event = { type: 'work_updated' as const, toolId: 'update', workId: 'work', title: 'V2', docType: 'artifact' as const, content: '<p>Two</p>', updatedAt: '2026-09-22T00:00:00Z' }
-  tracker.updateArtifact(session, event)
+  tracker.updateWork(session, event)
   expect(replacements()).toBe(1)
   const revisions = index(artifactRevisions(messages)).get('work:work')!
   expect(revisions.map(entry => entry.html)).toEqual(['<p>One</p>', '<p>Two</p>'])
   expect(revisions[0]).toEqual(original)
   expect(revisions.at(-1)?.messageId).toBe(messages[1].id)
-  tracker.updateArtifact(session, event)
+  tracker.updateWork(session, event)
   expect(messages).toHaveLength(2)
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>Failed', 'failed')
   tracker.failArtifact(session, 'failed')
@@ -136,14 +136,15 @@ test('a cloud-owned save completes its artifact update card although it reports 
   const { tracker, session, messages } = await fixture()
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', title: 'Chart', html: '<p>One</p>' })
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work"', 'cloud')
-  tracker.updateArtifact(session, { type: 'work_updated', toolId: 'cloud', workId: 'work', title: '', docType: 'doc', content: '<p>Two</p>', updatedAt: '2026-09-22T00:00:00Z' })
+  tracker.updateWork(session, { type: 'work_updated', toolId: 'cloud', workId: 'work', title: '', docType: 'doc', content: '<p>Two</p>', updatedAt: '2026-09-22T00:00:00Z' })
   expect(messages).toHaveLength(2)
   expect(messages[1].artifact?.pending).toBe(false)
   expect(messages[1].artifact?.html).toBe('<p>Two</p>')
-  expect(messages[1].workRef).toEqual({ workId: 'work', title: 'Chart', workType: 'artifact' })
+  expect(messages[1].workRef).toEqual({ workId: 'work', title: 'Chart', workType: 'artifact', contentVersion: undefined })
   // Without an update card or a saved artifact, a `doc` update is a document's.
-  tracker.updateArtifact(session, { type: 'work_updated', workId: 'other', title: 'Notes', docType: 'doc', content: '# Notes', updatedAt: '2026-09-22T00:00:01Z' })
-  expect(messages).toHaveLength(2)
+  tracker.updateWork(session, { type: 'work_updated', workId: 'other', title: 'Notes', docType: 'doc', content: '# Notes', updatedAt: '2026-09-22T00:00:01Z' })
+  expect(messages).toHaveLength(3)
+  expect(messages[2].workRef).toEqual({ workId: 'other', title: 'Notes', workType: 'doc', contentVersion: undefined })
 })
 
 test('stale completions remove only their pending card and cannot add revisions', async () => {
@@ -152,8 +153,27 @@ test('stale completions remove only their pending card and cannot add revisions'
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work"}', 'old')
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work"}', 'new')
   const update = { type: 'work_updated' as const, workId: 'work', title: 'New', docType: 'artifact' as const, content: '<p>New</p>', updatedAt: '2026-09-22T00:00:02Z' }
-  tracker.updateArtifact(session, { ...update, toolId: 'new' })
-  tracker.updateArtifact(session, { ...update, toolId: 'old', updatedAt: '2026-09-22T00:00:01Z' })
+  tracker.updateWork(session, { ...update, toolId: 'new' })
+  tracker.updateWork(session, { ...update, toolId: 'old', updatedAt: '2026-09-22T00:00:01Z' })
   expect(messages).toHaveLength(2)
   expect(messages[1].artifact?.updatedAt).toBe(update.updatedAt)
+})
+
+for (const workType of ['doc', 'slides', 'diagram'] as const) {
+  test(`${workType} updates add a card that opens the saved work`, async () => {
+    const { tracker, session, messages } = await fixture()
+    tracker.updateWork(session, { type: 'work_updated', workId: 'existing', title: 'Revised work', docType: workType, contentVersion: 2, content: 'Saved content', updatedAt: '2026-10-02T00:00:00Z' })
+    expect(messages).toHaveLength(1)
+    expect(messages[0].workRef).toEqual({ workId: 'existing', title: 'Revised work', workType, contentVersion: 2 })
+    expect(messages[0].artifact).toBeUndefined()
+    tracker.sweep(session)
+    expect(messages).toHaveLength(1)
+  })
+}
+
+test('each work card keeps the version saved by its call', async () => {
+  const { tracker, session, messages } = await fixture()
+  tracker.finalizeWork(session, { type: 'work_created', workId: 'work', title: 'Notes', docType: 'doc', content: 'First' })
+  tracker.updateWork(session, { type: 'work_updated', workId: 'work', title: 'Notes', docType: 'doc', content: 'Second', contentVersion: 2, updatedAt: '2026-10-02T00:00:00Z' })
+  expect(messages.map((message) => message.workRef?.contentVersion)).toEqual([1, 2])
 })

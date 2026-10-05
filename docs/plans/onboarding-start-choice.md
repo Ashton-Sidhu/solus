@@ -10,7 +10,7 @@ The start choice uses the same component on every client.
   Cloud users can also choose a GitHub repository. Repository selection is a step
   inside this choice, rather than the last required setup stage. Back returns to
   existing code, then to the start choice.
-- **Just chat** opens the workspace without a repository.
+- **New chat** opens a new chat, with no project ([Projects → Chats](../projects.md#chats)).
 
 Continue and Skip on the cloud GitHub step both lead to the start choice. GitHub
 is optional for a new project, a host folder, or chat. A user who later chooses a
@@ -25,3 +25,10 @@ Cloud completion remains an account setting, shared across devices. Host
 completion remains a client setting. Repository drafts use the existing machine
 selection rule; folder drafts remain bound to their host. Both Claude and Codex
 use the same start choices, with no change to their setup or run contracts.
+
+Skipped cloud setup appears below the composer as a collapsed **Finish setup**
+row with a step count. Opening it shows small actions that return to the required
+setup stage. Completed steps disappear. The composer keeps a small **Connect
+Claude** or **Connect Codex** action when a connection is required to send a
+message. Token entry is available under **More options**. This applies to
+desktop, web, and mobile.

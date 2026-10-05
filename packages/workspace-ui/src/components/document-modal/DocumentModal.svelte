@@ -406,7 +406,7 @@
         bind:canComment
         bind:railOpen
         bind:threadAnchors
-        footer={workspace ? sendBar : undefined}
+        footer={workspace && !viewerReadOnly ? sendBar : undefined}
       />
     {/if}
   {/snippet}

@@ -20,6 +20,7 @@
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
   import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
+  import DeviceBuildCard from "../devices/DeviceBuildCard.svelte";
   import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
@@ -39,6 +40,7 @@
   import HtmlBlock from "./HtmlBlock.svelte";
   import { assistantMarkdownOptions, assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import { noticeText } from "./lib/transient";
+  import { compactionDividerText } from "./lib/compaction-divider";
   import type { DocumentStackEntry } from "../work/lib/document-stack";
 
   let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
@@ -74,6 +76,7 @@
       entries.push({
         workId: ref.workId,
         title: work?.title ?? ref.title ?? "Untitled document",
+        contentVersion: ref.contentVersion,
         workType: work?.type ?? ref.workType,
         updatedAt: work?.updatedAt,
         streaming: session.worksStore.streaming[ref.workId] ?? false,
@@ -148,6 +151,11 @@
       targetModel={item.message === activeHandoffDivider ? activeHandoffTargetModel : null}
       {navigateToSourceSession}
     />
+  {:else if item.message.compaction}
+    {@const compaction = compactionDividerText(item.message.compaction)}
+    <TranscriptDivider timestamp={item.message.timestamp} testid="context-compaction-message" {skipMotion}>
+      {compaction.label}{#if compaction.detail}{` · ${compaction.detail}`}{/if}
+    </TranscriptDivider>
   {:else}
     <!-- Cancellations, interrupts and errors alike: centred between
            hairlines, never a bubble and never tinted. A transient
@@ -193,6 +201,7 @@
         kind: "document",
         id: workMessage.workRef?.workId,
         title: work?.title ?? workMessage.workRef?.title,
+        contentVersion: workMessage.workRef?.contentVersion,
         content: session.worksStore.savedWork(workMessage.workRef?.workId ?? "")?.content,
         updatedAt: work?.updatedAt,
         workType: work?.type ?? workMessage.workRef?.workType,
@@ -251,6 +260,13 @@
   <BrowserRecordingCard
     recording={item.message.browserRecording}
     serverId={sess?.run.serverId}
+    {skipMotion}
+  />
+{:else if item.kind === "device-build" && item.message.deviceBuild}
+  <DeviceBuildCard
+    buildRef={item.message.deviceBuild}
+    serverId={sess?.run.serverId}
+    sessionId={sess?.id}
     {skipMotion}
   />
 {:else if item.kind === "agent-conversation-group"}

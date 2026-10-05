@@ -6,6 +6,7 @@
    */
   import type { SeatProvider } from "@solus/contracts/seats";
   import { seatsStore } from "../../contexts/seats/seats.store.svelte";
+  import { cloudAgentSeatsStore as cloudSeats, usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import DevicePrompt from "../servers/DevicePrompt.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -16,11 +17,14 @@
     provider: SeatProvider;
     /** The card focuses its field; a settings row does not steal focus. */
     autofocus?: boolean;
+    /** A small connection action beside the composer. */
+    compact?: boolean;
   }
 
-  let { serverId, provider, autofocus = false }: Props = $props();
+  let { serverId, provider, autofocus = false, compact = false }: Props = $props();
 
   const label = $derived(seatLabel(provider));
+  const cloud = $derived(usesCloudAgentSeats(serverId));
   const status = $derived(seatsStore.statusFor(serverId, provider));
   const verification = $derived(seatsStore.verificationFor(serverId, provider));
   const busy = $derived(seatsStore.isBusy(serverId, provider));
@@ -28,6 +32,9 @@
 
   let showToken = $state(false);
   let token = $state("");
+  $effect(() => {
+    if (cloud) return cloudSeats.watch();
+  });
 
   async function submitToken(event: SubmitEvent) {
     event.preventDefault();
@@ -39,7 +46,11 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  {#if status?.state === "connecting" && verification}
+  {#if cloud}
+    <Button size="sm" variant={compact ? "ghost" : "outline"} onclick={() => cloudSeats.connect()}>
+      {cloudSeats.connected(provider) ? "Manage cloud connection" : `Connect ${label}`}
+    </Button>
+  {:else if status?.state === "connecting" && verification}
     <DevicePrompt
       url={verification.verificationUrl}
       code={verification.userCode}
@@ -51,15 +62,16 @@
     />
   {:else if action !== "disconnect"}
     <div class="flex flex-wrap items-center gap-2">
-      <Button size="sm" variant={action === "switch" ? "outline" : "default"} disabled={busy} onclick={() => void seatsStore.connect(serverId, provider)}>
+      <Button size="sm" variant={compact ? "ghost" : action === "switch" ? "outline" : "default"} class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void seatsStore.connect(serverId, provider)}>
         {busy ? "Starting…" : action === "switch" ? "Switch account" : action === "reconnect" ? `Reconnect ${label}` : `Connect ${label}`}
       </Button>
       <button
         type="button"
-        class="text-xs text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+        class="rounded-md text-xs text-(--solus-text-tertiary) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+        aria-expanded={showToken}
         onclick={() => (showToken = !showToken)}
       >
-        {showToken ? "Sign in with the browser instead" : "Paste a token instead"}
+        {showToken ? "Use browser sign-in" : compact ? "More options" : "Paste a token instead"}
       </button>
     </div>
     {#if showToken}

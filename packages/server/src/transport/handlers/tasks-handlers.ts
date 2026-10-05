@@ -34,7 +34,7 @@ import {
   syncTasksNow,
 } from '../../data/tasks/sync-engine'
 import type { HandlerCtx, SolusServer } from '../server'
-import { organizationForNew, recordScopeOf } from '../../admission/principal'
+import { isHostAdmin, organizationForNew, recordScopeOf } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import type { ShareManager } from '../../sharing/share-manager'
 import { listInboxUpstream } from '../../data/tasks/inbox'
@@ -183,7 +183,9 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
 
   server.register('tasksDeleteComment', async (args, ctx) => {
     const [id, commentId] = args
-    return (await Task.byId(recordScopeOf(ctx.principal), id)).deleteComment(commentId)
+    // The access policy admits any editor; the task's owner or a host admin also moderates other people's comments.
+    const canModerate = isHostAdmin(ctx.principal) || (await deps.shares?.roleFor(ctx.principal, { kind: 'task', id }) ?? 'owner') === 'owner'
+    return (await Task.byId(recordScopeOf(ctx.principal), id)).deleteComment(commentId, { by: attributionOf(ctx.actor), canModerate })
   })
 
   server.register('tasksPublishComments', async (args, ctx) => {

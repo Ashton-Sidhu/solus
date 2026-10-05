@@ -8,6 +8,7 @@ import {
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
 import type { AccountProfile } from '@solus/contracts/account-types'
+import { seatProviderSchema } from '@solus/contracts/seats'
 import { z } from 'zod'
 
 /**
@@ -22,6 +23,8 @@ export interface CloudAccount {
   readAccount(): Promise<AccountResponse | null>
   /** Who the cookie belongs to; null when signed out or the account origin could not be reached. */
   readProfile(): Promise<AccountProfile | null>
+  /** Account logins stored in the cloud vault; null means the check failed. */
+  readAgentSeats(): Promise<CloudAgentSeat[] | null>
   /** Ends the cookie session; false when the account origin did not confirm it. */
   signOut(): Promise<boolean>
   /** Records that the account finished or skipped onboarding; false when the call failed. */
@@ -51,6 +54,15 @@ export type CreateManagedHostOutcome =
   | { ok: true; hostId: string }
   | { ok: false; code: string | null; message: string | null }
 
+const agentSeatsResponseSchema = z.object({
+  seats: z.array(z.object({
+    provider: seatProviderSchema,
+    connected: z.boolean(),
+    updatedAt: z.string().nullable(),
+  })),
+})
+export type CloudAgentSeat = z.infer<typeof agentSeatsResponseSchema>['seats'][number]
+
 export function cookieCloudAccount(origin: string, fetchImpl: typeof fetch = fetch): CloudAccount {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
     const headers = new Headers({ accept: 'application/json' })
@@ -78,6 +90,12 @@ export function cookieCloudAccount(origin: string, fetchImpl: typeof fetch = fet
     async readProfile() {
       const response = await call('/api/account/me')
       return response?.ok ? profileFromResponse(response) : null
+    },
+    async readAgentSeats() {
+      const response = await call('/v1/account/agent-seats', { cache: 'no-store' })
+      if (!response?.ok) return null
+      const parsed = agentSeatsResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data.seats : null
     },
     async signOut() {
       const response = await call('/api/auth/sign-out', { method: 'POST' })

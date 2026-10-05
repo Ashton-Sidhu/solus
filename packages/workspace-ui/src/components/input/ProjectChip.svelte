@@ -1,17 +1,16 @@
 <script lang="ts">
   import {
-    Check as CheckIcon,
     FolderOpen as FolderOpenIcon,
+    MessageCircle as ChatIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
-    connectionsStore,
     serversStore,
     projectsStore,
     type ProjectRef,
   } from "../../contexts";
-  import { isChatFolder, SCRATCHPAD_LABEL } from "../../lib/paths";
+  import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { projectHostId } from "../servers/run-on";
   import type { RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -24,7 +23,6 @@
   import { MenuSearch } from "../ui/menu";
   import {
     projectChipOptions,
-    scratchpadCheckout,
     type ProjectChipOption,
   } from "./lib/project-chip-options";
 
@@ -65,14 +63,9 @@
   // differ for a dispatch, whose project stays home while the agent moves.
   const hostId = $derived(projectHostId(run));
   const selectedHostId = $derived(run.pendingHostDispatch?.serverId ?? run.serverId);
-  // Scratchpad on the host the run is headed for, on every client; absent
-  // when that host offers none.
-  const scratchpad = $derived(
-    scratchpadCheckout(run, (serverId) => connectionsStore.chatFolderFor(serverId)),
-  );
-  const inScratchpad = $derived(
-    isChatFolder(projectDir, connectionsStore.chatFolderFor(hostId)),
-  );
+  // A chat has no project: the chip offers to add one, and a project offers
+  // the way back to a chat.
+  const inChat = $derived(isChat(projectDir));
   const currentKey = $derived(projectsStore.projectKeyFor(hostId, projectDir));
   // One row per project across every host. The current folder is offered even
   // before the catalog knows it, unless a person removed it from the list.
@@ -86,7 +79,7 @@
     const offersCurrent =
       !!projectDir &&
       projectDir !== "~" &&
-      !inScratchpad &&
+      !inChat &&
       !options.some((option) => option.key === currentKey) &&
       !projectsStore.isRemoved({ serverId: hostId, projectRoot: projectDir });
     return offersCurrent
@@ -143,6 +136,12 @@
     open = false;
     onBrowse();
   }
+
+  /** Drop the project: the draft becomes a new chat on the host it is headed for. */
+  function switchToChat() {
+    open = false;
+    onSelect({ serverId: selectedHostId, projectRoot: NEW_CHAT_DIRECTORY });
+  }
 </script>
 
 <Popover.Root bind:open>
@@ -163,20 +162,30 @@
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
             >
-              <ProjectFavicon
-                projectRoot={projectDir}
-                serverId={hostId}
-                class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+              {#if inChat}
+                <PlusIcon
+                  size={16}
+                  class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
-              />
-              <span class="truncate">{label}</span>
+                />
+                <span class="truncate">Add project</span>
+              {:else}
+                <ProjectFavicon
+                  projectRoot={projectDir}
+                  serverId={hostId}
+                  class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+ ? 'opacity-100'
+ : 'opacity-70'}"
+                />
+                <span class="truncate">{label}</span>
+              {/if}
             </Button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
           value={{
-            label: "Change the project for this chat",
+            label: inChat ? "Add a project to this chat" : "Change the project for this chat",
             shortcut: comboHint("global.select-project"),
           }}
         />
@@ -206,25 +215,6 @@
         >
           No projects match
         </Command.Empty>
-        <!-- Scratchpad leads: the one place that needs no project. -->
-        {#if scratchpad}
-          <Command.Item
-            value="scratchpad just chat"
-            onSelect={() => activate(scratchpad)}
-            data-menu-current={inScratchpad ? "" : undefined}
-          >
-            <ProjectFavicon
-              projectRoot={scratchpad.projectRoot}
-              serverId={scratchpad.serverId}
-              class="size-[13px]"
-            />
-            <span class="min-w-0 flex-1 truncate">{SCRATCHPAD_LABEL}</span>
-            {#if inScratchpad}
-              <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-            {/if}
-          </Command.Item>
-          <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
-        {/if}
         <Command.Group heading="Projects">
           {#each projects as project (project.key)}
             {@const isCurrent = project.key === currentKey}
@@ -264,6 +254,13 @@
           <FolderOpenIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">Open project…</span>
         </Command.Item>
+        {#if !inChat}
+          <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
+          <Command.Item value="switch to chat no project" onSelect={switchToChat}>
+            <ChatIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+            <span class="min-w-0 flex-1 truncate">Switch to chat</span>
+          </Command.Item>
+        {/if}
       </Command.List>
     </Command.Root>
   </Popover.Content>

@@ -6,7 +6,7 @@
   /**
    * The attention shell for a moment the turn stops until the user acts
    * (docs/transcript-cards.md): a rate limit or a connection. Permission and
-   * question cards keep their own layout in `InterruptCard`. When the user has
+   * question cards use the same shell through `InterruptCard`. When the user has
    * acted, the card collapses to a quiet header-only line with a check glyph
    * and the outcome as its type word.
    */

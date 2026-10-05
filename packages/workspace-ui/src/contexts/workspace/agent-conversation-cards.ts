@@ -29,7 +29,7 @@ const SETTLED_STATUS = {
   failed: 'failed',
 } satisfies Record<ExchangeOutcome, AgentExchangeStatus>
 
-const OPEN_STATUSES: ReadonlySet<AgentExchangeStatus> = new Set(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'answered'])
+const OPEN_STATUSES: ReadonlySet<AgentExchangeStatus> = new Set(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'answered'])
 
 interface ExchangeOpening {
   /** The id the host gave the exchange, when known. */

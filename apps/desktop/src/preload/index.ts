@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { AccountState } from '@solus/contracts/account-types'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
+import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -86,6 +87,12 @@ const nativeApi: NativeSolusAPI = {
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
   uplinkAcquireHostAccessToken: (hostId: string, organizationId?: string) => ipcRenderer.invoke('solus:uplink-access-token', hostId, organizationId),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
+  accountSettingsGet: () => ipcRenderer.invoke('solus:account-settings-get'),
+  accountSettingsPatch: (request: AccountSettingsPatchRequest) => ipcRenderer.invoke('solus:account-settings-patch', request),
+  accountSettingsDelete: () => ipcRenderer.invoke('solus:account-settings-delete'),
+  organizationSettingsGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-settings-get', organizationId),
+  organizationSettingsPatch: (organizationId: string, request: OrganizationSettingsPatchRequest) =>
+    ipcRenderer.invoke('solus:organization-settings-patch', organizationId, request),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
   uplinkOrganizationDirectory: (organizationId: string) => ipcRenderer.invoke('solus:uplink-organization-directory', organizationId),
   updateStatus: () => ipcRenderer.invoke('solus:update-status'),

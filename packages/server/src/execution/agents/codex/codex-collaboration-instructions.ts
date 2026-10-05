@@ -1,6 +1,3 @@
-import type { AgentTool } from '../tools/agent-tool'
-import { runtimeInstructions } from '../runtime-instructions'
-
 function planModeInstructions(): string {
   return `<collaboration_mode># Plan Mode (Conversational)
 
@@ -104,13 +101,8 @@ Prefer reasonable assumptions and execution instead of stopping to ask questions
 </collaboration_mode>`
 }
 
-/** The Plan and Default collaboration modes are Codex's own feature, so their
- *  text is Codex-only. The host facts after them are shared with Claude. */
-export function codexCollaborationInstructions(
-  mode: 'default' | 'plan',
-  runtime: { model: string; reasoningEffort: string },
-  tools: readonly AgentTool[] = [],
-): string {
-  const instructions = mode === 'plan' ? planModeInstructions() : defaultModeInstructions()
-  return `${instructions}\n\n${runtimeInstructions({ harness: 'Codex', ...runtime }, tools)}`
+/** Mode text is Codex-only. Shared host guidance belongs in the thread's
+ *  developer instructions so a native mode prompt cannot replace it. */
+export function codexCollaborationInstructions(mode: 'default' | 'plan'): string {
+  return mode === 'plan' ? planModeInstructions() : defaultModeInstructions()
 }

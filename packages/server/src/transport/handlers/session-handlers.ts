@@ -1,6 +1,7 @@
+import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { z } from 'zod'
@@ -22,8 +23,10 @@ import { admitTurnOrganization, mayAnswerFor, type DelegationPort } from '../../
 import type { HostOrganizations } from '../../host/organizations'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
 import { WorkingTreeBusyError } from '../../execution/sessions/working-tree-busy'
-import { chatFolderFor, projectsRootFor, resolveUnknownFolder } from './setup-handlers'
-import { isChatFolder } from '../../workspace'
+import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
+import { chatFolderFor, projectsRootFor } from './setup-handlers'
+import { parseExecutionPreferences } from '../../execution/agents/run-input'
+import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { recordingRetention } from '../../browser/recording-retention'
 
 const log = createLogger('main', 'session-handlers')
@@ -197,8 +200,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // that bootstrap — doubling the WS calls and flickering the "Syncing…" badge.
     // Genuine reconnect gaps are still covered by the WS resume protocol
     // (handleResume → seq-reset) in transports/websocket.ts.
-    // Creates the caller's chat folder before any session points its cwd at it.
-    const workspacePath = chatFolderFor(handlerCtx.principal)
     const agents = await Promise.all(
       sessionRuntime
         .getBackendIds()
@@ -209,7 +210,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // A member's home on a shared host is their member folder (managed-hosts.md §3).
     const projectPath = projectsRootFor(handlerCtx.principal)
     const homePath = handlerCtx.principal.kind === 'org-member' ? projectPath : homedir()
-    return { projectPath, homePath, workspacePath, version: appVersion(), agents }
+    return { projectPath, homePath, version: appVersion(), agents }
   })
 
   function requireClientId(handlerCtx: HandlerCtx): string {
@@ -217,10 +218,21 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return handlerCtx.clientId
   }
 
-  /** A bare `~` in a session context is the caller's chat folder, not the host's home folder. */
-  function resolveUnknownFolders(ctx: IpcContext, principal: Principal): void {
-    ctx.session.workingDirectory = resolveUnknownFolder(ctx.session.workingDirectory, principal)
-    ctx.session.projectPath = resolveUnknownFolder(ctx.session.projectPath, principal)
+  /**
+   * A chat runs in its own folder in the caller's projects root. The client names
+   * it when it sends the first prompt (`chatFolderIn`); the folder is made here.
+   * A new chat that has no folder yet gets one named by its session.
+   */
+  function resolveChat(ctx: IpcContext, principal: Principal): void {
+    const { session } = ctx
+    if (!isChat(session.workingDirectory)) return
+    if (session.workingDirectory === NEW_CHAT_DIRECTORY) {
+      if (!session.sessionId) throw new Error('A new chat has no folder until its session starts')
+      session.workingDirectory = chatFolderFor(session.sessionId, principal)
+    } else if (!existsSync(session.workingDirectory)) {
+      session.workingDirectory = chatFolderFor(basename(session.workingDirectory), principal)
+    }
+    session.projectPath = session.workingDirectory
   }
 
   /**
@@ -232,7 +244,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (ctx.session.agentSessionId) return
     if (ctx.session.worktreeBaseBranch && !ctx.session.gitContext?.worktreePath) return
     const tree = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory
-    if (isChatFolder(tree)) return
+    if (isChat(tree)) return
     const busy = sessionRuntime.busyWorkingTree(tree, {
       sessionId: ctx.session.sessionId,
       clientId: handlerCtx.clientId,
@@ -253,13 +265,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   /**
    * The person who started the session owns it (docs/plans/multiplayer-sharing.md §3.4).
    * A session in a chat folder starts private; a project session starts shared
-   * with the organization in an organization space (Scratchpad decision S5).
+   * with the organization in an organization space (docs/projects.md, "Chats").
    */
   async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx, workingDirectory: string): Promise<void> {
     const shares = deps.shares
     if (!sessionId || !shares) return
     const resource = { kind: 'session', id: sessionId } as const
-    const shareWithOrganization = !isChatFolder(workingDirectory)
+    const shareWithOrganization = !isChat(workingDirectory)
     if (!sessionsAwaitingFolder.delete(sessionId)) {
       await shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization })
     } else if (shareWithOrganization) {
@@ -297,7 +309,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('createHeadlessSession', async (args, handlerCtx) => {
     const [request] = args
     log.info('rpc_create_headless_session', { provider: request.provider })
-    request.cwd = resolveUnknownFolder(request.cwd, handlerCtx.principal)
+    if (request.cwd === NEW_CHAT_DIRECTORY) request.cwd = chatFolderFor(randomUUID(), handlerCtx.principal)
+    request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     const created = await sessionRuntime.createSession(request, handlerCtx.actor)
     await claimSession(created.agentSessionId, handlerCtx, request.cwd)
     return created
@@ -309,7 +322,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       sessionId: ctx.session.sessionId,
       agentSessionId: ctx.session.agentSessionId,
     })
-    resolveUnknownFolders(ctx, handlerCtx.principal)
+    resolveChat(ctx, handlerCtx.principal)
     await claimSession(ctx.session.sessionId, handlerCtx, ctx.session.workingDirectory)
     return sessionRuntime.bindRuntimeSession(ctx, requireClientId(handlerCtx))
   })
@@ -344,7 +357,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
-    resolveUnknownFolders(ctx, handlerCtx.principal)
+    resolveChat(ctx, handlerCtx.principal)
     if (!options.allowBusyWorkingTree) refuseBusyStart(ctx, handlerCtx)
     await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
     await admitTurn(ctx, handlerCtx.actor)
@@ -380,7 +393,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
-    resolveUnknownFolders(ctx, handlerCtx.principal)
+    resolveChat(ctx, handlerCtx.principal)
     await admitTurn(ctx, handlerCtx.actor)
     return sessionRuntime.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor)
   })
@@ -393,7 +406,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, askingSessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
-    return sessionRuntime.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor)
+    // A caller may not answer: false. The host does not hold the request now: a typed refusal.
+    if (!sessionRuntime.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor)) throw new RequestNotAnswerableError()
+    return true
   })
 
   server.register('respondQuestion', async (args, handlerCtx) => {
@@ -401,13 +416,20 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, askingSessionId, questionId })
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
-    return sessionRuntime.respondToQuestion(askingSessionId, questionId, answers, handlerCtx.actor)
+    if (!await sessionRuntime.respondToQuestion(askingSessionId, questionId, answers, handlerCtx.actor)) throw new RequestNotAnswerableError()
+    return true
   })
 
   server.register('rateLimitDecision', (args, handlerCtx) => {
     const [ctx, action] = args
     log.info('rpc_rate_limit_decision', { sessionId: ctx.session.sessionId, action })
     return sessionRuntime.resolveRateLimit(ctx, action, handlerCtx.actor)
+  })
+
+  server.register('sessionQueue', ([ctx]) => sessionRuntime.sessionQueue(ctx))
+  server.register('sessionQueueChange', async ([ctx, mutation], handlerCtx) => {
+    await admitTurn(ctx, handlerCtx.actor)
+    return sessionRuntime.sessionQueueChange(ctx, mutation, handlerCtx.actor)
   })
 
   server.register('cancelQueuedPrompt', (args, handlerCtx) => {

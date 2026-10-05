@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Task, TaskAssigneeCandidate, TaskStatus, TaskUpdatePatch } from "@solus/contracts/task-types";
-  import { group, row, rowLabel, valueButton } from "./lib/sidebar-styles";
+  import { GROUP, ROW, ROW_LABEL, VALUE, VALUE_BUTTON } from "./lib/sidebar-styles";
   import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { SourceLogo } from "../../ui/list-page";
@@ -20,11 +20,10 @@
 
   interface Props {
     task: Task;
-    /** Which of the sidebar's homes this is: the rail beside the task, a
-     *  panel opened under the task's title where the rail has folded, or the
-     *  phone's sheet. The sheet is portalled to the body, so it cannot be told
-     *  apart by a container query. The panel takes the column's rhythm. */
-    variant?: "column" | "panel" | "sheet";
+    /** Which of the sidebar's homes this is: the rail beside the task, or a
+     *  panel opened under the task's title where the rail has folded. The panel
+     *  takes the column's rhythm. */
+    variant?: "column" | "panel";
     projectLabel: string;
     projectRoot?: string;
     serverId?: string | null;
@@ -86,11 +85,6 @@
     onOpenAssigneeMenu,
   }: Props = $props();
 
-  const sheet = $derived(variant === "sheet");
-  const GROUP = $derived(group(sheet));
-  const ROW = $derived(row(sheet));
-  const ROW_LABEL = $derived(rowLabel(sheet));
-  const VALUE_BUTTON = $derived(valueButton(sheet));
   // The panel spans the task's column, which can be three rails wide. One list
   // of 34px rows there leaves every value against the left edge and the rest
   // of the card empty, so where a row still gets a rail's width the rows pair
@@ -100,13 +94,6 @@
     panel
       ? "grid grid-cols-1 gap-x-8 gap-y-1 @[40rem]:grid-cols-2"
       : "flex flex-col gap-1",
-  );
-  // The static twin of VALUE_BUTTON. In the column it takes the row's remaining
-  // width; in the sheet the label already has it, so the value sizes to itself.
-  const VALUE = $derived(
-    sheet
-      ? "flex h-[34px] items-center gap-2 font-medium"
-      : "flex h-[34px] flex-1 items-center gap-2 px-2",
   );
 
   const status = $derived(STATUS_META[task.status]);
@@ -119,9 +106,7 @@
 
 
 <div
-  class={sheet
-    ? "flex w-full flex-col gap-3.5"
-    : variant === "panel"
+  class={panel
     ? "@container flex w-full flex-col rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
     : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"}
 >
@@ -132,7 +117,7 @@
         status={task.status}
         options={editableStatuses}
         onSelect={(next) => onSave({ status: next })}
-        align={sheet ? "end" : "start"}
+        align="start"
         triggerClass={VALUE_BUTTON}
       >
         {#snippet trigger()}
@@ -160,7 +145,7 @@
         priority={task.priority}
         disabled={!canEditPriority}
         onSelect={(next) => onSave({ priority: next })}
-        align={sheet ? "end" : "start"}
+        align="start"
         triggerClass={VALUE_BUTTON}
       >
         {#snippet trigger()}
@@ -186,7 +171,7 @@
         loading={assigneeCandidatesLoading}
         error={assigneeCandidatesError}
         disabled={!canEditAssignee}
-        align={sheet ? "end" : "start"}
+        align="start"
         triggerClass={canEditAssignee ? VALUE_BUTTON : VALUE}
         onOpen={onOpenAssigneeMenu}
         onSelect={(assignee) => onSave({ assignee })}
@@ -227,18 +212,14 @@
       </div>
     {/if}
 
-    <div
-      class="flex min-h-[34px] items-center {sheet
-        ? 'min-h-[54px] gap-[11px] px-3.5 py-2.5'
-        : ''}"
-    >
-      <span class="{ROW_LABEL} {sheet ? 'flex-none' : ''}">Labels</span>
-      <span class="flex min-w-0 flex-1 items-center {sheet ? '' : 'pl-2'}">
+    <div class="flex min-h-[34px] items-center">
+      <span class={ROW_LABEL}>Labels</span>
+      <span class="flex min-w-0 flex-1 items-center pl-2">
         <LabelPicker
           labels={taskLabels}
           candidates={labelCandidateOptions}
           allowCreate
-          align={sheet ? "end" : "start"}
+          align="start"
           menuLabel="Edit task labels"
           onSet={canEditLabels ? (labels) => onSave({ labels }) : undefined}
         />
@@ -250,9 +231,7 @@
       {#if canEditPlanningFields}
         <input
           type="date"
-          class="h-[34px] cursor-pointer rounded-md bg-transparent text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground {sheet
-            ? 'text-right font-medium text-foreground'
-            : 'flex-1 px-2'}"
+          class="h-[34px] cursor-pointer rounded-md bg-transparent text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground flex-1 px-2"
           value={task.dueDate ?? ""}
           onchange={(e) => onSave({ dueDate: e.currentTarget.value || null })}
           aria-label="Target date"
@@ -268,16 +247,10 @@
   {#if upstream}
     {@const tone = syncToneColor(upstream.tone)}
     <div
-      class={sheet
-        ? "flex flex-col gap-[7px]"
-        : "flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"}
+      class="flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"
     >
-      <span
-        class="font-normal text-muted-foreground uppercase {sheet
-          ? 'pl-1'
-          : 'pl-0.5'}">Upstream</span
-      >
-      <div class={sheet ? GROUP : ROWS}>
+      <span class="pl-0.5 font-normal text-muted-foreground uppercase">Upstream</span>
+      <div class={ROWS}>
         <div class={ROW}>
           <span class={ROW_LABEL}>Provider</span>
           {#if upstream.url}
@@ -388,16 +361,10 @@
          would go and offers to put it there, rather than leaving the provider
          reachable only from the Tasks list. -->
     <div
-      class={sheet
-        ? "flex flex-col gap-[7px]"
-        : "flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"}
+      class="flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"
     >
-      <span
-        class="font-normal text-muted-foreground uppercase {sheet
-          ? 'pl-1'
-          : 'pl-0.5'}">Upstream</span
-      >
-      <div class={sheet ? GROUP : ROWS}>
+      <span class="pl-0.5 font-normal text-muted-foreground uppercase">Upstream</span>
+      <div class={ROWS}>
         <div class={ROW}>
           <span class={ROW_LABEL}>Provider</span>
           <!-- Only the provider: the repository is the project this page is
@@ -442,9 +409,7 @@
   {/if}
 
   <div
-    class={sheet
-      ? "flex items-center gap-2 px-1 pt-0.5 font-mono text-xs"
-      : "flex items-center gap-2 border-t-[.5px] border-[var(--hairline)] px-4 pt-[13px] pb-3.5"}
+    class="flex items-center gap-2 border-t-[.5px] border-[var(--hairline)] px-4 pt-[13px] pb-3.5"
   >
     <span class="text-muted-foreground opacity-80">Created</span>
     <span class="text-muted-foreground opacity-65">

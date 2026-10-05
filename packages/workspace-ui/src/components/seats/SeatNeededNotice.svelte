@@ -8,12 +8,12 @@
    * before they send; it steps aside while a turn runs (a steer needs no seat).
    */
   import type { AgentId } from "@solus/contracts/types";
+  import { cloudAgentSeatsStore as cloudSeats, usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import { seatProviderOf, seatsStore } from "../../contexts/seats/seats.store.svelte";
   import { seatNoticeShown } from "../../contexts/seats/seat-need";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import SeatConnectPanel from "./SeatConnectPanel.svelte";
-  import { seatLabel } from "./lib/seat-copy";
 
   interface Props {
     /** The host the draft will run on. */
@@ -27,15 +27,18 @@
   let { serverId, provider, turnRunning = false }: Props = $props();
 
   const seatProvider = $derived(seatProviderOf(provider));
-  const needed = $derived(!!seatProvider && seatsStore.needsSeat(serverId, seatProvider));
+  const cloud = $derived(usesCloudAgentSeats(serverId));
+  const needed = $derived(!!seatProvider && (cloud ? cloudSeats.connected(seatProvider) === false : seatsStore.needsSeat(serverId, seatProvider)));
   const shown = $derived(
     !!seatProvider &&
-      seatNoticeShown(seatsStore.hasSeats.get(serverId), seatsStore.seats.get(serverId), seatProvider, turnRunning),
+      (cloud ? !turnRunning && needed : seatNoticeShown(seatsStore.hasSeats.get(serverId), seatsStore.seats.get(serverId), seatProvider, turnRunning)),
   );
 
-  // A new host or agent is a new question for the host; nothing polls.
+  // Cloud connections come from the account; personal-host seats come from the host.
   $effect(() => {
-    if (seatProvider) void seatsStore.refreshFor(serverId);
+    if (!seatProvider) return;
+    if (cloud) return cloudSeats.watch();
+    void seatsStore.refreshFor(serverId);
   });
 
   // Connected: the notice goes, and with it the control that held focus.
@@ -53,15 +56,15 @@
 
 {#if shown && seatProvider}
   <div
-    class="mx-1 mb-2 flex flex-col gap-2 rounded-xl bg-(--card) px-3 py-2.5 shadow-[shadow:var(--elev-ring)]"
+    class="mx-1 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1"
     data-testid="seat-needed-notice"
   >
     <div class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-secondary)">
       <ProviderMark mark={seatProvider === "claude-code" ? "claude" : "codex"} transparent />
       <span class="min-w-0 text-pretty">
-        Connect your {seatLabel(seatProvider)} seat to run turns on this host.
+        Connect to start chatting.
       </span>
     </div>
-    <SeatConnectPanel {serverId} provider={seatProvider} />
+    <SeatConnectPanel {serverId} provider={seatProvider} compact />
   </div>
 {/if}

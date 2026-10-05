@@ -11,13 +11,17 @@ mock.module('@solus/client-core/server-connections', () => ({
 
 type TurnsChanged = HostEventMap['metrics.turnsChanged']
 type TitleChanged = HostEventMap['session.titleChanged']
+type InsightPullChanged = HostEventMap['metrics.insightPullChanged']
 const turnsChangedHandlers = new Set<(serverId: string, change: TurnsChanged) => void>()
 const titleChangedHandlers = new Set<(serverId: string, change: TitleChanged) => void>()
+const insightPullChangedHandlers = new Set<(serverId: string, change: InsightPullChanged) => void>()
 mock.module('@solus/client-core/host-events', () => ({
   subscribeAllHosts: (topic: string, handler: (serverId: string, change: never) => void) => {
     const handlers: Set<(serverId: string, change: never) => void> = topic === 'metrics.turnsChanged'
       ? turnsChangedHandlers
-      : titleChangedHandlers
+      : topic === 'metrics.insightPullChanged'
+        ? insightPullChangedHandlers
+        : titleChangedHandlers
     handlers.add(handler)
     return () => handlers.delete(handler)
   },
@@ -279,6 +283,38 @@ describe('Insights window refresh', () => {
 
     expect(store.bootstrapping).toBe(false)
     expect(store.result?.rows.length).toBe(1)
+  })
+
+  test('an empty listing keeps a pull completion newer than its summary response', async () => {
+    // WHY: the host answers from local rows while fetching other hosts. The
+    // completion event can arrive before that answer; its older pull snapshot
+    // must not restore a loading indicator after the fetch has finished.
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    available = []
+    const solus = (globalThis.window as unknown as {
+      solus: { metricsTurnListingSummary: (filter: MetricsTurnFilter) => Promise<MetricsTurnListingSummary> }
+    }).solus
+    const answerSummary = solus.metricsTurnListingSummary
+    solus.metricsTurnListingSummary = async (filter) => {
+      const summary = await answerSummary(filter)
+      for (const handler of insightPullChangedHandlers) {
+        handler('local', { pulling: false, error: null })
+      }
+      return { ...summary, pull: { pulling: true, error: null } }
+    }
+    const stop = store.watchTurns()
+    try {
+      await store.load()
+      expect(store.result?.rows).toEqual([])
+      expect(store.hasPagedTurnListing).toBe(true)
+      expect(store.running).toBe(false)
+      expect(store.bootstrapping).toBe(false)
+      expect(store.insightPull).toEqual({ pulling: false, error: null })
+    } finally {
+      stop()
+    }
   })
 
   test('leaving the page drops the visit, so the next entry asks the default question', async () => {

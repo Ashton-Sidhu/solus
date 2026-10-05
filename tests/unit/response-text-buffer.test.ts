@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { ResponseTextBuffer, splitResponseText } from '@solus/server/execution/sessions/response-text-buffer'
-import { DEFAULT_HOST_CONFIG, mergeHostConfig } from '@solus/contracts/host-config'
+import { DEFAULT_PERSONAL_SETTINGS, executionPreferencesSchema } from '@solus/contracts/settings'
 
 const chunk = (text: string, parentToolUseId?: string) => ({ type: 'text_chunk' as const, text, ...(parentToolUseId ? { parentToolUseId } : {}) })
 
 describe('response delivery', () => {
-  test('defaults to paragraphs and lets a host retain buffered delivery', () => {
-    expect(DEFAULT_HOST_CONFIG.responseStreamingMode).toBe('paragraph')
-    expect(mergeHostConfig(DEFAULT_HOST_CONFIG, { responseStreamingMode: 'buffered' }).responseStreamingMode).toBe('buffered')
+  test('defaults to paragraphs and lets a person keep buffered delivery', () => {
+    expect(DEFAULT_PERSONAL_SETTINGS.responseStreamingMode).toBe('paragraph')
+    expect(executionPreferencesSchema.parse({ responseStreamingMode: 'buffered' }).responseStreamingMode).toBe('buffered')
   })
   test('delivers completed paragraphs and groups fast updates without losing their tail', () => {
     const buffer = new ResponseTextBuffer()

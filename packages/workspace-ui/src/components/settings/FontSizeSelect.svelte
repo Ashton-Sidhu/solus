@@ -28,7 +28,7 @@
   <Select.Trigger
     size="sm"
     aria-label={ariaLabel}
-    class="w-20 rounded-[min(var(--radius-md),12px)] text-xs tabular-nums shadow-xs"
+    class="w-20 rounded-[min(var(--radius-md),12px)] bg-white text-xs tabular-nums shadow-xs/5 dark:hover:bg-input/30"
   >
     {value} px
   </Select.Trigger>

@@ -31,6 +31,7 @@
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import {
     activityFeed,
+    canDeleteTaskComment,
     commentSessionName,
     linkedArtifactForActivity,
   } from "./lib/task-page";
@@ -56,6 +57,9 @@
     /** Queue this comment for the ticket. Resolves once the host has taken it;
      *  the engine posts it on its next pass. */
     onPublish: (commentId: string) => Promise<void>;
+    /** The reader moderates the task (its owner): they may delete anyone's
+     *  comment, where others may delete only their own. */
+    canModerate: boolean;
     onDelete: (commentId: string) => Promise<void>;
     /** True where the section is a tab of its own. The strip above already says
      *  "Activity", so the band states the one thing it does not — which end of
@@ -73,6 +77,7 @@
     currentUserId,
     provider,
     onPublish,
+    canModerate,
     onDelete,
     stacked = false,
   }: Props = $props();
@@ -334,7 +339,7 @@
                   <span class="max-w-48 truncate">{originSessionName}</span>
                 </button>
               {/if}
-              {#if user && comment.source === "local" && !comment.externalId}
+              {#if canDeleteTaskComment(comment, { userId: currentUserId, canModerate })}
                 <button
                   type="button"
                   class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color] hover:text-destructive focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100"

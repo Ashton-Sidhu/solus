@@ -1,3 +1,12 @@
+import { SessionPermissionStore } from '../data/sessions/session-permission-store'
+import { SessionRestartStore, type RestartRun } from '../data/sessions/session-restart-store'
+import { restartAuthority, restartContinuationError, restartContinuationPrompt, restartRecoveryEnabled } from './sessions/restart-continuation'
+import { hostUser } from '../host/host-user'
+import { HandoffCarryStore } from '../data/sessions/handoff-carry-store'
+import { childPermissionMode } from './sessions/child-permissions'
+import { SessionRequestQueue, type QueuedRequest } from './sessions/session-request-queue'
+import { SessionQueueStore } from '../data/sessions/session-queue-store'
+import { sessionQueueMutationSchema, type SessionQueueMutation, type SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { withWorkspaceToolAuthority } from '../admission/workspace-tool-authority'
 import { questionReply } from '@solus/contracts/question-history'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -24,7 +33,7 @@ import { createClaudeSubagentAgentTool } from './agents/claude/claude-subagent-t
 import { createCodexSubagentAgentTool } from './agents/codex/codex-subagent-tool'
 import { resolvePromptImages } from './agents/prompt-image-refs'
 import { isRawReviewSkill } from './agents/review-command'
-import { hostInstructionsFor, hostModelInputFor, providerConversationFor, runInputFromContext } from './agents/run-input'
+import { contextPreferences, instructionsFor, unattendedModelInputFor, providerConversationFor, runInputFromContext } from './agents/run-input'
 import { buildHandoff, composeHandoffSeed } from './agents/session-handoff'
 import { buildSystemPrompt } from './agents/system-hint'
 import { isWindowClosed, RateLimitState } from './rate-limits'
@@ -33,17 +42,19 @@ import { AttentionService, attentionActionForStatus } from '../attention/attenti
 import { finishedSummary } from '../attention/finished-summary'
 import type { AttentionKind } from '@solus/contracts/attention-types'
 import { prepareSessionTask, rekeyTaskSessionLinks, taskIdForSession, tasksForSession, taskWithAttempts } from '../data/tasks/task-sessions'
+import { captureTaskLeadPreferences, taskLeadPreferences, taskLeadPreferencesOfSession, withTaskLeadPreferences } from '../data/tasks/task-lead-preferences'
 import { rekeySessionPullRequests } from '../data/sessions/session-pull-requests'
-import { recordSessionPrompt, rekeySessionState } from '../data/sessions/session-states'
+import { recordSessionExecutionPreferences, recordSessionPrompt, rekeySessionState, sessionExecutionPreferences, settledSessionIds } from '../data/sessions/session-states'
 import { Task } from '../data/tasks/task'
 import { formatTaskContext } from '../data/tasks/task-context'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { busyTurnFor, type RunningTurnInTree, type WorkingTreeAsker } from './sessions/working-tree-busy'
 import { claimAsyncQuestion, pendingAsyncQuestions, saveAsyncQuestion, saveAsyncAnswer, settleAsyncQuestion } from '../data/sessions/async-questions'
-import { getHostConfig } from '../host/settings'
+import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
+import { inheritedOrganizationOf, parentRecordIdOf, recordSessionSettings, sessionSettings } from './sessions/session-settings'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { organizationOfSession, sessionRecordStatusOf, setSessionRecordStatus } from '../data/sessions/session-records'
-import { applyPendingAssignment, pendingOrganizationFor } from './sessions/turn-organization'
+import { organizationOfSession, recordSessionId, sessionRecordStatusOf, setSessionRecordStatus } from '../data/sessions/session-records'
+import { applyPendingAssignment, inheritSessionOrganization, pendingOrganizationFor } from './sessions/turn-organization'
 import { clearForeignTaskSnapshot, setForeignTaskSnapshot } from '../data/tasks/foreign-tasks'
 import type { TaskSessionLink, TaskSessionRole, TaskSnapshot } from '@solus/contracts/task-types'
 import { getIndexedSession, persistIndexedSessionStart, setSessionBranch } from '../db/session-indexer'
@@ -96,7 +107,7 @@ import type {
   WatchSessionInput,
   WatchSessionResult,
 } from '@solus/contracts/types'
-import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, projectScopeOf } from '@solus/contracts/types'
+import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, projectScopeOf, MODEL_PROFILES } from '@solus/contracts/types'
 import { solusDir } from '../platform/paths'
 import { indexLivePlan } from '../plans/plan-index'
 import { activityLeases } from './activity-leases'
@@ -144,23 +155,6 @@ function selectAgentTools(...groups: Array<Record<string, AgentTool>>): AgentToo
   return groups.flatMap((group) => Object.values(group))
 }
 
-interface QueuedRequest {
-  queueId: string
-  prompt: string
-  /** The session this prompt is queued against — also the `requestQueue` key. */
-  sessionId: string
-  deviceId?: string
-  run: SessionRunRequest
-  reason: QueuedPromptReason
-  resolve: (value: void) => void
-  reject: (reason: Error) => void
-  enqueuedAt: number
-  sourceSessionId?: string
-  rateLimitSessionId?: string
-  releaseAt?: number
-  rateLimitType?: string
-}
-
 interface PendingStart {
   run: SessionRunRequest
   resolve: (value: { agentSessionId: string; taskId?: string }) => void
@@ -176,12 +170,14 @@ interface AgentTransportInfo {
 interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'> {
   /** Null for a headless session a client starts on the provider's default. */
   modelId: string | null
+  /** The requester's preferences; a child session takes its parent's when absent. */
+  executionPreferences?: ExecutionPreferences
 }
 
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
-  | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'>
+  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'>
 
 function startedSession(agentSessionId: string, taskId?: string): Parameters<PendingStart['resolve']>[0] {
   const result: Parameters<PendingStart['resolve']>[0] = { agentSessionId }
@@ -266,6 +262,8 @@ export interface SessionRunRequest {
    *  with the prompt, move with a queued retry or a steer, and are reported
    *  once when the run settles. Every copy of a run shares this one array. */
   exchangeIds?: string[]
+  /** Stored report receipts accepted by this follow-up. */
+  reportExchangeIds?: string[]
   /** The session that created this one, recorded with the new thread's first
    *  index row so the child is never indexed without its parent. */
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
@@ -299,6 +297,7 @@ interface PendingSessionHandoff {
 interface SessionRuntimeOptions {
   buildHandoff?: typeof buildHandoff
   prepareSessionTask?: typeof prepareSessionTask
+  queueDirectory?: string
 }
 
 /**
@@ -347,7 +346,13 @@ export class SessionRuntime extends EventEmitter {
   /** Sessions whose durable lineage showed no provisional handoff. Only this plane begins one, and it records it in `pendingHandoffs` first. */
   private sessionsWithoutPendingHandoff = new Set<string>()
   private hadActiveWork = false
-  private requestQueue = new Map<string, QueuedRequest[]>()
+  private readonly requestQueue: SessionRequestQueue
+  private readonly applyingQueuedSwitch = new Set<string>()
+  private readonly sessionPermissionModes: SessionPermissionStore
+  private readonly handoffCarry: HandoffCarryStore
+  private readonly reservedQueueEntries = new Set<string>()
+  private readonly restartRuns: SessionRestartStore | undefined
+  private isShuttingDown = false
   private activeRunRequests = new Map<string, SessionRunRequest>()
   private pendingStarts = new Map<RunHandle, PendingStart>()
   /** Worktree setup begins before an agent RunHandle exists, so it needs its
@@ -395,12 +400,21 @@ export class SessionRuntime extends EventEmitter {
   /** Sessions attach to a checkout path; the Git service owns its identity. */
   private sessionCheckoutPaths = new Map<string, string>()
   private readonly handoffBuilder: typeof buildHandoff
+  readonly orchestrationDirectory?: string
   private readonly sessionTaskPreparer: typeof prepareSessionTask
   /** Provider seats, once the host has opened its database. */
   private seats: SeatStore | null = null
 
   constructor(backends: Map<AgentId, AgentBackend>, opts: SessionRuntimeOptions = {}) {
     super()
+    this.orchestrationDirectory = opts.queueDirectory ? join(opts.queueDirectory, 'exchanges') : undefined
+    this.sessionPermissionModes = new SessionPermissionStore(opts.queueDirectory ? join(opts.queueDirectory, 'policies', 'permissions.json') : undefined)
+    this.handoffCarry = new HandoffCarryStore(opts.queueDirectory ? join(opts.queueDirectory, 'handoff-carry') : undefined)
+    this.requestQueue = new SessionRequestQueue(opts.queueDirectory ? new SessionQueueStore(opts.queueDirectory) : undefined)
+    this.restartRuns = opts.queueDirectory ? new SessionRestartStore() : undefined
+    for (const saved of this.restartRuns?.list() ?? []) {
+      if (saved.clientPromptId) this.acceptedClientPromptIds.add(`${saved.sessionId}:${saved.clientPromptId}`)
+    }
     this.backends = backends
     this.agentRunner = new AgentRunner(backends)
     this.handoffBuilder = opts.buildHandoff ?? buildHandoff
@@ -474,6 +488,46 @@ export class SessionRuntime extends EventEmitter {
     if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
     // A new session has no record yet; the admission already decided its organization.
     return pendingOrganizationFor(sessionId) ?? undefined
+  }
+
+  /**
+   * Settles the organization a run's work belongs to from the organization its
+   * record names — a child or fork inherits its origin's — and records it with
+   * the run's captured preferences for the tools the turn calls.
+   */
+  private async _settleRunOrganization(request: SessionRunRequest): Promise<void> {
+    // A fork belongs to the session it branches from until its own record says otherwise.
+    const forkSource = request.input.forked && request.input.agentSessionId ? await organizationOfSession(request.input.agentSessionId) : undefined
+    const ownOrganization = await this._turnOrganization(request.sessionId) ?? LOCAL_ORGANIZATION_ID
+    const recordOrganization = [ownOrganization, forkSource]
+      .find((candidate) => candidate !== undefined && candidate !== LOCAL_ORGANIZATION_ID) ?? LOCAL_ORGANIZATION_ID
+    const recordId = this._agentSessionIdFor(request.sessionId) ?? (request.input.forked ? null : request.input.agentSessionId)
+    // The session a child came from: named by the request that starts it, and by its record's parent link after that.
+    const originRecordId = recordOrganization !== LOCAL_ORGANIZATION_ID ? null
+      : request.delegation?.parentSessionId ?? await parentRecordIdOf(recordSessionId(recordId ?? request.sessionId))
+    const organizationId = await inheritedOrganizationOf(request.sessionId, recordOrganization, originRecordId, (id) => this._sessionIdFor(id))
+    // A child or fork records the organization it inherits, so a restart finds it in its record.
+    if (organizationId !== LOCAL_ORGANIZATION_ID && ownOrganization === LOCAL_ORGANIZATION_ID) {
+      await inheritSessionOrganization(request.sessionId, organizationId, recordId)
+    }
+    recordSessionSettings(request.sessionId, { organizationId, preferences: request.input.executionPreferences })
+  }
+
+  /**
+   * A task's runs use the lead preferences the task captured when it was first
+   * led (plans/018 §3.1), not the current ones of whoever sent the turn; the
+   * first lead dispatch captures them from its sender. A client names the task
+   * on every typed turn of a task session, so only a run nobody typed (a lead
+   * woken in the background) looks its task up through its link.
+   */
+  private async _useTaskLeadPreferences(request: SessionRunRequest): Promise<void> {
+    const { taskId, taskRole, taskSnapshot, promptSource = 'typed' } = request.options
+    // A foreign task's row, and its capture, live on another host.
+    if (taskSnapshot || (!taskId && promptSource === 'typed')) return
+    const preferences = request.input.executionPreferences
+    let captured = taskId ? await taskLeadPreferences(taskId) : await taskLeadPreferencesOfSession(request.sessionId)
+    if (!captured && taskId && taskRole === 'lead' && preferences) captured = await captureTaskLeadPreferences(taskId, preferences)
+    if (captured) request.input.executionPreferences = withTaskLeadPreferences(preferences, captured)
   }
 
   /** The Solus session a record (a provider thread id) belongs to while it is live; the id itself otherwise. */
@@ -641,6 +695,10 @@ export class SessionRuntime extends EventEmitter {
         // no runInput and bind returns null, leaving the session stuck at idle.
         const existingSession = this.activeSessions.get(initSessionId)
         const runReqInput = this.activeRunRequests.get(initSessionId)?.input ?? initializedRun?.input
+        const restartRun = this.restartRuns?.get(initSessionId)
+        if (restartRun && !this.isShuttingDown) {
+          this.restartRuns?.save({ ...restartRun, input: { ...restartRun.input, agentSessionId: event.sessionId }, state: 'running' })
+        }
         // Every column the index row fills is COALESCE-guarded, and status has its
         // own writer, so a later init of the same thread only matters when the
         // model or effort the record shows has changed.
@@ -648,6 +706,10 @@ export class SessionRuntime extends EventEmitter {
         if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
           this.indexedThreadStarts.set(event.sessionId, indexedStart)
           this.recordStatusWritten.set(event.sessionId, 'running')
+          // The record id is known now. The status write below is skipped as
+          // already written, so an admitted or inherited organization lands here,
+          // before the record is born, not at the turn's end.
+          applyPendingAssignment(initSessionId, event.sessionId)
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,
@@ -842,15 +904,9 @@ export class SessionRuntime extends EventEmitter {
           }
 
           this.sessionEmitter.acceptRateLimit(session.sessionId, event.rateLimitType)
-          // A run that answers another session's message has nobody at its
-          // keyboard, even after the queue relabelled it `queued`: it keeps the
-          // queue behaviour it was built with and resumes on its own.
-          const answersASession = !!run?.exchangeIds?.length
-          if (run && !answersASession && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation' && run.options.promptSource !== 'watch') {
-            // Host settings can change while a user turn is running. Read the
-            // current preference here; an old client snapshot is not the policy.
-            run.input.rateLimitBehavior = getHostConfig().config.rateLimitBehavior
-          }
+          // The run keeps the behaviour its sender chose (plans/018 §3.1): it is
+          // carried with the run and its queue entry, so another client's later
+          // edit does not change it.
           if (run?.input.rateLimitBehavior === 'queue') {
             this._queueActiveRateLimitedRequest(session.sessionId)
           }
@@ -884,7 +940,10 @@ export class SessionRuntime extends EventEmitter {
       // still have to happen so a client that joins later sees the turn.
 
       if (event.type === 'text_chunk') {
-        for (const delivered of this.responseText.append(sessionId, event, getHostConfig().config.responseStreamingMode, Date.now())) {
+        // The delivery the run was dispatched with, so a second client's setting cannot change it mid-stream.
+        const streamingMode = this.activeRunRequests.get(sessionId)?.input.executionPreferences?.responseStreamingMode
+          ?? DEFAULT_EXECUTION_PREFERENCES.responseStreamingMode
+        for (const delivered of this.responseText.append(sessionId, event, streamingMode, Date.now())) {
           this._emit(sessionId, delivered)
         }
         return
@@ -900,9 +959,7 @@ export class SessionRuntime extends EventEmitter {
     })
 
     backend.on('exit', (agentSessionId: string | null, code: number | null, signal: string | null) => {
-      if (agentSessionId) {
-        backend.permissions.clearPendingForSession(agentSessionId)
-      }
+      if (agentSessionId) this._expirePendingInput(backend, agentSessionId)
 
       // The sessions this exit settles: the one the provider named, or — when it
       // died before ever issuing a thread — whatever runs are still pending on
@@ -935,7 +992,6 @@ export class SessionRuntime extends EventEmitter {
         // The turn is over, so its replay log has done its job — durable history
         // covers it from here. Cleared after the flush so the final text is logged
         // for anyone binding in the same tick.
-        this.turnLog.delete(sessionId)
         this.missingRunCounts.delete(sessionId)
 
         const rateLimitEvent = this._currentRateLimitEvent(sessionId)
@@ -970,6 +1026,11 @@ export class SessionRuntime extends EventEmitter {
         // status — asked, not dispatched, because the drain must happen after
         // the teardown below or it would delete the record its own run creates.
         const status = this.activeSessions.get(sessionId)?.status
+        if (agentSessionId) {
+          try { this.handoffCarry.settle(agentSessionId, newStatus, this.turnLog.get(sessionId) ?? [], Date.now()) }
+          catch (error) { log.error('handoff_carry_save_failed', { sessionId, error: String(error) }) }
+        }
+        this.turnLog.delete(sessionId)
         const queueWillTakeOver = newStatus === 'interrupted' && this._hasReadyQueuedRequest(sessionId)
         const wasStarting = status === 'connecting' || (newStatus === 'interrupted' && status === 'running')
         if (!queueWillTakeOver && !wasStarting) this._setStatus(sessionId, newStatus)
@@ -994,7 +1055,7 @@ export class SessionRuntime extends EventEmitter {
     })
 
     backend.on('error', (agentSessionId: string | null, err: Error) => {
-      if (agentSessionId) backend.permissions.clearPendingForSession(agentSessionId)
+      if (agentSessionId) this._expirePendingInput(backend, agentSessionId)
 
       const namedSessionId = agentSessionId ? this.agentSessionToSession.get(agentSessionId) : undefined
       const failedSessionIds = namedSessionId
@@ -1162,6 +1223,10 @@ export class SessionRuntime extends EventEmitter {
 
   bindRuntimeSession(ctx: IpcContext, clientId: string): RuntimeSessionInfo | null {
     const agentSessionId = ctx.session.agentSessionId
+    const restoredQueue = this._queuedPromptsForSession(ctx.session.sessionId)
+    if (restoredQueue.length && !this.activeSessions.has(ctx.session.sessionId)) {
+      return { modelConfig: null, permissionMode: null, status: 'idle', queuedPrompts: restoredQueue, rateLimitInfo: null }
+    }
     if (!agentSessionId) return null
 
     // Whoever is resuming may not know Solus's id for this provider thread yet;
@@ -1175,17 +1240,17 @@ export class SessionRuntime extends EventEmitter {
     if (!this.watches.get(sessionId)?.has(clientId)) {
       this.watchSession({ sessionId, agentSessionId }, clientId)
     }
-    return this._attachRuntime(sessionId, agentSessionId, clientId)
+    return this._attachRuntime(sessionId, agentSessionId, clientId, contextPreferences(ctx).rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior)
   }
 
   /** Join a watching client to a session's live runtime: replay the turn so far
    *  to that client alone and read the run config back. Null when nothing is
    *  running for the session any more. */
-  private _attachRuntime(sessionId: string, agentSessionId: string, clientId: string): RuntimeSessionInfo | null {
+  private _attachRuntime(sessionId: string, agentSessionId: string, clientId: string, rateLimitBehavior?: SessionRunInput['rateLimitBehavior']): RuntimeSessionInfo | null {
     const session = this.activeSessions.get(sessionId)
     if (!session) return null
 
-    this.queueHeldRateLimitedPrompts(sessionId)
+    if (rateLimitBehavior) this.queueHeldRateLimitedPrompts(rateLimitBehavior, sessionId)
 
     const backend = this._backendFor(session.backendId)
     const pendingRateLimitEvent = this._currentRateLimitEvent(sessionId)
@@ -1220,6 +1285,9 @@ export class SessionRuntime extends EventEmitter {
       if (replayed.has(event)) continue
       this._emit(sessionId, event, { only: clientId })
     }
+    // The host's list then replaces the client's: a card this client kept from
+    // before it reconnected, answered or closed meanwhile, leaves.
+    this._emit(sessionId, { type: 'pending_input_sync', pendingInputEvents: [...session.pendingInputEvents] }, { only: clientId })
 
     const status = pendingRateLimitEvent
       ? 'rate_limited'
@@ -1350,7 +1418,7 @@ export class SessionRuntime extends EventEmitter {
 
   async loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     let handoff = resolveSessionLineage(agentId, sessionId) ?? resolveSessionLineageById(sessionId)
-    if (!handoff) return this._backendFor(agentId).loadSession(sessionId, projectPath, limit)
+    if (!handoff) return this.handoffCarry.merge(sessionId, await this._backendFor(agentId).loadSession(sessionId, projectPath, limit))
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const loaded: SessionLoadMessage[][] = []
@@ -1360,11 +1428,11 @@ export class SessionRuntime extends EventEmitter {
           continue
         }
         try {
-          loaded.push(await this._backendFor(member.provider).loadSession(
+          loaded.push(this.handoffCarry.merge(member.providerSessionId, await this._backendFor(member.provider).loadSession(
             member.providerSessionId,
             member.cwd || projectPath,
             limit,
-          ))
+          )))
         } catch (error) {
           log.warn('session_handoff_segment_load_failed', {
             sessionId: handoff.sessionId,
@@ -1391,7 +1459,7 @@ export class SessionRuntime extends EventEmitter {
       for (let index = 0; index < handoff.members.length; index++) {
         const member = handoff.members[index]
         if (index > 0) composite.push(lineageSwitchDivider(handoff.sessionId, handoff.members[index - 1], member))
-        composite.push(...loaded[index])
+        composite.push(...loaded[index].map((message) => ({ ...message, sourceProvider: member.provider, sourceSessionId: member.providerSessionId ?? undefined })))
       }
       return limit && composite.length > limit ? composite.slice(-limit) : composite
     }
@@ -1454,7 +1522,7 @@ export class SessionRuntime extends EventEmitter {
     const hasNonRateLimitedQueue = queuedRequests.some(
       (request) => request.rateLimitSessionId !== sessionId,
     )
-    if (hasNonRateLimitedQueue || (!isRateLimited && queuedRequests.length > 0)) {
+    if (!this.applyingQueuedSwitch.has(sessionId) && (hasNonRateLimitedQueue || (!isRateLimited && queuedRequests.length > 0))) {
       throw new Error(`Session ${oldAgentSessionId} has queued prompts and cannot switch providers`)
     }
 
@@ -1464,7 +1532,18 @@ export class SessionRuntime extends EventEmitter {
       // so the renderer sees the card and queued prompt disappear.
       this._clearRateLimitTimer(sessionId)
       this.rateLimits.clear(sessionId)
-      this._rejectRateLimitQueue(sessionId, new Error('Provider switched'))
+      if (!this.applyingQueuedSwitch.has(sessionId)) this._rejectRateLimitQueue(sessionId, new Error('Provider switched'))
+      else {
+        for (const entry of this.requestQueue.get(sessionId) ?? []) {
+          if (entry.reason !== 'rate_limit') continue
+          entry.reason = 'busy'
+          entry.rateLimitSessionId = undefined
+          entry.releaseAt = undefined
+          entry.rateLimitType = undefined
+          entry.revision = (entry.revision ?? 0) + 1
+        }
+        this.requestQueue.save(sessionId)
+      }
       this.activeRunRequests.delete(sessionId)
       this._broadcastRateLimitResolved(sessionId, 'stop')
       this._setStatus(sessionId, 'idle')
@@ -1604,6 +1683,7 @@ export class SessionRuntime extends EventEmitter {
   /** A run that will never reach a turn: its exchanges end without a reply. */
   private _cancelRunExchanges(run: SessionRunRequest | undefined, outcome: 'interrupted' | 'failed' = 'interrupted'): void {
     const exchanges = run ? this._runExchanges(run) : null
+    if (run?.reportExchangeIds?.length) this.orchestration?.reportsDisposed(run.reportExchangeIds)
     if (!exchanges) return
     const cancelled = { ...exchanges, exchangeIds: run!.exchangeIds!.splice(0) }
     this.orchestration?.runCancelled(cancelled, outcome)
@@ -1637,6 +1717,17 @@ export class SessionRuntime extends EventEmitter {
     return this._sessionIdFor(id)
   }
 
+  activeExchangeIdsFor(sessionId: string): string[] {
+    return this.activeRunRequests.get(sessionId)?.exchangeIds ?? []
+  }
+
+  queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }> {
+    return [...this.requestQueue.values()].flatMap((entries) => entries.map((entry) => ({
+      sessionId: entry.sessionId, queueId: entry.queueId, exchangeIds: entry.run.exchangeIds ?? [],
+      reportExchangeIds: entry.run.reportExchangeIds ?? [], started: !!entry.started,
+    })))
+  }
+
   agentSessionIdFor(sessionId: string): string | undefined {
     return this._agentSessionIdFor(sessionId) ?? undefined
   }
@@ -1658,8 +1749,8 @@ export class SessionRuntime extends EventEmitter {
 
   /** Rewrite a queued prompt this host sent itself, such as a report that later
    *  reports merge into. Same effect as a person editing it in the queue. */
-  replaceQueuedPrompt(sessionId: string, queueId: string, text: string): boolean {
-    return this._editQueuedPrompt(sessionId, queueId, text)
+  replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean {
+    return this._editQueuedPrompt(sessionId, queueId, text, undefined, { reportExchangeIds, exchangeIds })
   }
 
   loadSessionPreview(agentId: AgentId, sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {
@@ -1838,10 +1929,24 @@ export class SessionRuntime extends EventEmitter {
   }
 
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
+    if (this.isShuttingDown) throw new Error('The host is shutting down')
     // Existing automation runs, watch wakes, and agent follow-ups drain with
     // their parent work. User submissions, new automation triggers, and new
     // watch probes are gated separately.
     if (request.options.promptSource !== 'automation' && request.options.promptSource !== 'watch' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
+    this.sessionPermissionModes.set(request.sessionId, request.input.permissionMode)
+    await recordSessionExecutionPreferences(request.sessionId, request.input.executionPreferences)
+    // New work wins over any continuation not yet delivered.
+    const previousRestart = this.restartRuns?.get(request.sessionId)
+    this.restartRuns?.remove(request.sessionId)
+    let removedRecovery = false
+    for (const entry of [...(this.requestQueue.get(request.sessionId) ?? [])]) {
+      if (entry.run.options.clientPromptId?.startsWith('restart:')) {
+        this.requestQueue.remove(request.sessionId, entry.queueId)
+        removedRecovery = true
+      }
+    }
+    if (removedRecovery) this._publishQueue(request.sessionId)
     request.runId ??= crypto.randomUUID()
     // Count before the first await: a concurrent update must see setup and
     // accepted queued work, not just an already-running provider process.
@@ -1852,11 +1957,19 @@ export class SessionRuntime extends EventEmitter {
       return lifecycle
     } catch (error) {
       this.updateWorkCount--
+      if (previousRestart && !this.isShuttingDown && previousRestart.input.agentSessionId
+        && this._backendFor(previousRestart.input.provider).isSessionRunning(previousRestart.input.agentSessionId)
+        && !this.restartRuns?.get(request.sessionId)) {
+        this.restartRuns?.save(previousRestart)
+      }
       throw error
     }
   }
 
   private async _acceptTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
+    if (this.applyingQueuedSwitch.has(request.sessionId)) {
+      return this._enqueueRequest(request, { sessionId: request.sessionId, reason: 'busy', deviceId })
+    }
     if (request.target.kind === 'session') {
       const sessionId = request.target.sessionId
       const session = this.activeSessions.get(sessionId)
@@ -1925,6 +2038,9 @@ export class SessionRuntime extends EventEmitter {
       }
     }
 
+    if ((this.requestQueue.get(request.sessionId)?.length ?? 0) > 0) {
+      return this._enqueueRequest(request, { sessionId: request.sessionId, reason: 'busy', deviceId })
+    }
     return this._startRunLifecycle(request)
   }
 
@@ -1976,6 +2092,7 @@ export class SessionRuntime extends EventEmitter {
     // turn now, in the same microtask the acceptance resolved in, before any
     // event of that turn's end can be handled, so they settle with it and hear
     // its questions.
+    if (request.reportExchangeIds?.length) this.orchestration?.reportsAccepted(request.reportExchangeIds)
     const steeredIds = request.exchangeIds?.splice(0) ?? []
     if (steeredIds.length) {
       const activeRun = this.activeRunRequests.get(request.sessionId)
@@ -1997,6 +2114,10 @@ export class SessionRuntime extends EventEmitter {
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
     const userMessage = this._userMessageEvent(request.options, 'steer', request.actor)
+    const organizationId = await this._turnOrganization(request.sessionId)
+    if (backend.isSessionRunning(agentSessionId)) {
+      this._saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, organizationId)
+    }
     this._emit(session.sessionId, userMessage)
 
     const done = handle.runPromise.then(() => (
@@ -2040,7 +2161,7 @@ export class SessionRuntime extends EventEmitter {
     }
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`
-      if (this.acceptedClientPromptIds.has(dedupeKey)) {
+      if (this.acceptedClientPromptIds.has(dedupeKey) || this.requestQueue.hasPrompt(proposedSessionId, options.clientPromptId)) {
         log.info('prompt_deduplicated', { sessionId: proposedSessionId, clientPromptId: options.clientPromptId })
         return { disposition: 'duplicate' }
       }
@@ -2068,32 +2189,41 @@ export class SessionRuntime extends EventEmitter {
     const target: DispatchTarget = !input.forked && agentSessionId
       ? { kind: 'session', sessionId }
       : { kind: 'new-session' }
-    const lifecycle = await this.runTurn({
-      input,
-      target,
-      sessionId,
-      sourceClientId: origin?.clientId,
-      actor: origin?.actor,
-      options: {
-        ...options,
-        promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
-      },
-      tools: selectAgentTools(
-        solusToolbox.works,
-        solusToolbox.docs,
-        solusToolbox.artifact,
-        solusToolbox.automations,
-        solusToolbox.watches,
-        solusToolbox.connections,
-        solusToolbox.insights,
-        solusToolbox.intelligence,
-        solusToolbox.browser,
-        solusToolbox.sessions,
-        solusToolbox.tasks,
-        solusToolbox.config,
-      ),
-    }, origin?.deviceId)
-    await lifecycle.agentSessionId
+    let lifecycle: SessionRunLifecycle
+    try {
+      lifecycle = await this.runTurn({
+        input,
+        target,
+        sessionId,
+        sourceClientId: origin?.clientId,
+        actor: origin?.actor,
+        options: {
+          ...options,
+          promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
+        },
+        tools: selectAgentTools(
+          solusToolbox.works,
+          solusToolbox.docs,
+          solusToolbox.artifact,
+          solusToolbox.automations,
+          solusToolbox.watches,
+          solusToolbox.connections,
+          solusToolbox.insights,
+          solusToolbox.intelligence,
+          solusToolbox.browser,
+          solusToolbox.devices,
+          solusToolbox.sessions,
+          solusToolbox.tasks,
+          solusToolbox.config,
+        ),
+      }, origin?.deviceId)
+      await lifecycle.agentSessionId
+    } catch (error) {
+      if (options.clientPromptId && !this.requestQueue.hasPrompt(sessionId, options.clientPromptId)) {
+        this.acceptedClientPromptIds.delete(`${proposedSessionId}:${options.clientPromptId}`)
+      }
+      throw error
+    }
     const dispatch: PromptDispatchResult = {
       disposition: lifecycle.disposition,
     }
@@ -2124,6 +2254,7 @@ export class SessionRuntime extends EventEmitter {
         solusToolbox.insights,
         solusToolbox.intelligence,
         solusToolbox.browser,
+        solusToolbox.devices,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.config,
@@ -2152,9 +2283,11 @@ export class SessionRuntime extends EventEmitter {
       : null)
     const agentSessionId = handoff?.active.providerSessionId ?? id
     // Keep the stable target for dispatch and pass only its thread to the backend.
-    const sessionId = handoff?.sessionId ?? this.agentSessionToSession.get(agentSessionId) ?? crypto.randomUUID()
+    const sessionId = handoff?.sessionId ?? this._sessionIdFor(agentSessionId) ?? crypto.randomUUID()
     const resident = this.activeSessions.get(sessionId)
     if (resident?.runInput) return { sessionId, input: { ...resident.runInput, agentSessionId, forked: false } }
+    // The preferences the session's last run carried, kept across idle release and host restart.
+    const preferences = sessionSettings(sessionId)?.preferences ?? await sessionExecutionPreferences(sessionId)
     const meta = await this.getSessionInfo(agentSessionId)
     if (!meta) throw new Error(`Session ${agentSessionId} not found`)
     if (!meta.model || !meta.reasoningEffort) {
@@ -2179,15 +2312,92 @@ export class SessionRuntime extends EventEmitter {
         preferredModel: meta.model,
         reasoningEffort: meta.reasoningEffort,
         fastMode: false,
-        // A turn settles and its run record — with the mode it started in — is
-        // dropped, so every later unattended prompt rebuilds the input from
-        // scratch. Nobody is at the keyboard of the session being prompted, and
-        // 'supervised' parked a session an agent created in full access on permission prompts
-        // it never asked for.
-        permissionMode: 'full-access',
+        // An unattended follow-up keeps the stored policy across idle release
+        // and host restart. Legacy sessions use the supervised policy.
+        permissionMode: this.sessionPermissionModes.get(sessionId) ?? 'supervised',
         rateLimitBehavior: 'queue',
-        ...hostInstructionsFor(meta.model),
+        ...instructionsFor(preferences, meta.model),
+        executionPreferences: preferences,
       },
+    }
+  }
+
+  private _saveRestartRun(request: SessionRunRequest, organizationId: string | undefined): void {
+    if (!this.restartRuns || this.isShuttingDown || !restartRecoveryEnabled()
+      || (organizationId !== undefined && organizationId !== LOCAL_ORGANIZATION_ID)
+      || request.delegation || request.options.automationId || request.options.watchId) return
+    const authority = restartAuthority(request.actor)
+    if (request.input.agentSessionId && getIndexedSession(request.input.agentSessionId)?.delegation) return
+    if (!authority) return
+    const clientPromptId = request.options.clientPromptId?.startsWith('restart:')
+      ? this.restartRuns.get(request.sessionId)?.clientPromptId : request.options.clientPromptId
+    this.restartRuns.save({
+      sessionId: request.sessionId, runId: request.runId!, input: request.input, state: 'starting',
+      author: request.actor?.user ?? null, authority,
+      prompt: request.options.displayPrompt ?? request.options.prompt,
+      taskId: request.options.taskId, queueId: request.servedQueueId, backgroundTools: [],
+      clientPromptId,
+    })
+  }
+
+  /** Called once after host admission, seats and tools are wired. Client
+   * reconnects never call this. Restored user queues stay held. */
+  async recoverSessionsAfterRestart(): Promise<void> {
+    if (!this.restartRuns || this.isShuttingDown) return
+    for (const saved of this.restartRuns.list()) {
+      if (!restartRecoveryEnabled()) {
+        this.restartRuns.remove(saved.sessionId, saved.runId)
+        continue
+      }
+      const clientPromptId = `restart:${saved.runId}`
+      if (this.requestQueue.hasPrompt(saved.sessionId, clientPromptId)) {
+        if (saved.queueId) this.requestQueue.remove(saved.sessionId, saved.queueId)
+        continue
+      }
+      const settled = await settledSessionIds([saved.sessionId])
+      if (settled.has(saved.sessionId) || this.isShuttingDown) {
+        this.restartRuns.remove(saved.sessionId, saved.runId)
+        continue
+      }
+      const sourceThread = saved.input.agentSessionId
+      if (await organizationOfSession(sourceThread ?? saved.sessionId) !== LOCAL_ORGANIZATION_ID) {
+        this.restartRuns.remove(saved.sessionId, saved.runId)
+        continue
+      }
+      const lineage = resolveSessionLineageById(saved.sessionId)?.active
+      const error = restartContinuationError(saved, hostUser(), lineage)
+      if (this.restartRuns.get(saved.sessionId)?.runId !== saved.runId) continue
+      if (saved.state !== 'delivering' && !this.restartRuns.claim(saved)) continue
+      this._queueRestartContinuation(saved, error)
+    }
+  }
+
+  private _queueRestartContinuation(saved: RestartRun, error?: string): void {
+    // A delivering receipt without a queue entry is uncertain, never resent
+    // automatically. The queue itself has its own durable start receipt.
+    const prompt = restartContinuationPrompt(saved)
+    const actor: Actor = saved.author === null ? HOST_ACTOR : {
+      principal: { kind: 'local-owner', deviceId: null, deviceLabel: 'Host restart recovery' }, user: saved.author,
+    }
+    const input: SessionRunInput = { ...saved.input, forked: false,
+      agentSessionId: saved.input.agentSessionId, permissionMode: this.sessionPermissionModes.get(saved.sessionId) ?? saved.input.permissionMode }
+    const entry: QueuedRequest = {
+      queueId: crypto.randomUUID(), sessionId: saved.sessionId, prompt, enqueuedAt: Date.now(), reason: 'busy',
+      held: !!error, error, author: saved.author ?? undefined, revision: 0,
+      run: { sessionId: saved.sessionId, target: { kind: 'session', sessionId: saved.sessionId }, input,
+        runId: crypto.randomUUID(), tools: [], actor,
+        options: { prompt, displayPrompt: prompt, clientPromptId: `restart:${saved.runId}`, promptSource: 'agent', taskId: saved.taskId } },
+      resolve() {}, reject() {},
+    }
+    try {
+      this.requestQueue.enqueue(entry, 'first')
+      if (saved.queueId) this.requestQueue.remove(saved.sessionId, saved.queueId)
+      this._publishQueue(saved.sessionId)
+      log.info('restart_continuation_queued', { sessionId: saved.sessionId, sourceRunId: saved.runId, held: !!error })
+      if (!error) this._processQueueForSession(saved.sessionId)
+    } catch (saveError) {
+      log.error('restart_continuation_save_failed', { sessionId: saved.sessionId, error: String(saveError) })
+      throw saveError
     }
   }
 
@@ -2206,9 +2416,10 @@ export class SessionRuntime extends EventEmitter {
       /** The orchestrator's exchanges this prompt answers. On the run before the
        *  run is accepted, so a reply that comes back at once is never lost. */
       exchangeIds?: string[]
+      reportExchangeIds?: string[]
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
-    const { permissionMode, actor, exchangeIds, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
     const { sessionId, input } = await this._unattendedRunInput(agentSessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.seatForTurn(actor, input.provider)
@@ -2218,6 +2429,7 @@ export class SessionRuntime extends EventEmitter {
       sessionId,
       actor,
       exchangeIds,
+      reportExchangeIds,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2228,6 +2440,7 @@ export class SessionRuntime extends EventEmitter {
         solusToolbox.insights,
         solusToolbox.intelligence,
         solusToolbox.browser,
+        solusToolbox.devices,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.config,
@@ -2253,6 +2466,7 @@ export class SessionRuntime extends EventEmitter {
     const stopBackgroundTask = backend.stopBackgroundTask?.bind(backend)
     if (!stopBackgroundTask) return false
     log.info('background_tasks_stop_requested', { sessionId, taskIds })
+    this.restartRuns?.remove(sessionId!)
     const stopped = await Promise.all(taskIds.map((taskId) => stopBackgroundTask(agentSessionId, taskId)))
     return stopped.some(Boolean)
   }
@@ -2267,6 +2481,11 @@ export class SessionRuntime extends EventEmitter {
   stopSession(id: string, actor: Actor): boolean {
     const sessionId = this._sessionIdFor(id)
     if (!sessionId) return false
+    this.restartRuns?.remove(sessionId)
+    for (const entry of [...(this.requestQueue.get(sessionId) ?? [])]) {
+      if (entry.run.options.clientPromptId?.startsWith('restart:')) this.requestQueue.remove(sessionId, entry.queueId)
+    }
+    this._publishQueue(sessionId)
     const stopped = (): void => {
       // Recorded before the status settles the turn, so it carries that turn's id.
       if (actor.user) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' })
@@ -2301,8 +2520,8 @@ export class SessionRuntime extends EventEmitter {
       if (cancelled) {
         this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
         stopped()
+        return true
       }
-      return cancelled
     }
 
     // Fall back to pre-session_init handles owned by any backend.
@@ -2335,6 +2554,14 @@ export class SessionRuntime extends EventEmitter {
   async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ agentSessionId: string; taskId?: string }> {
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
     await this.seatForTurn(actor, req.provider)
+    const parentId = req.delegation ? this._sessionIdFor(req.delegation.parentAgentSessionId) : undefined
+    const parentMode = parentId ? this.activeSessions.get(parentId)?.runInput?.permissionMode ?? this.sessionPermissionModes.get(parentId) : undefined
+    if (req.delegation && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
+    // A child works for the person its parent works for, with that person's preferences.
+    const preferences = req.executionPreferences ?? sessionSettings(parentId)?.preferences ?? (parentId ? await sessionExecutionPreferences(parentId) : undefined)
+    const permissionMode = parentMode
+      ? childPermissionMode(parentMode, req.permissionMode)
+      : req.permissionMode ?? preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -2351,11 +2578,12 @@ export class SessionRuntime extends EventEmitter {
       preferredModel: req.modelId,
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
-      permissionMode: 'full-access',
+      permissionMode,
       rateLimitBehavior: 'queue',
-      ...hostInstructionsFor(model),
+      ...instructionsFor(preferences, model),
+      executionPreferences: preferences,
     }
-    const sessionId = crypto.randomUUID()
+    const sessionId = req.sessionId ?? crypto.randomUUID()
     const delegation = req.delegation
       ? {
           // The index keys sessions by provider thread; so does the parent link.
@@ -2382,6 +2610,7 @@ export class SessionRuntime extends EventEmitter {
         solusToolbox.insights,
         solusToolbox.intelligence,
         solusToolbox.browser,
+        solusToolbox.devices,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.config,
@@ -2404,6 +2633,8 @@ export class SessionRuntime extends EventEmitter {
     cwd: string
     gitContext?: GitCheckout | null
     abortSignal?: AbortSignal
+    /** The automation's captured preferences (plans/018 §6); absent means the built-in defaults. */
+    executionPreferences?: ExecutionPreferences
   }): Promise<{ agentSessionId: string; done: Promise<{ output?: string }> }> {
     const input: SessionRunInput = {
       provider: req.provider,
@@ -2417,9 +2648,11 @@ export class SessionRuntime extends EventEmitter {
       sessionChangedFiles: [],
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
+      // The automation default.
       permissionMode: 'full-access',
       rateLimitBehavior: 'queue',
-      ...hostModelInputFor(req.provider, req.modelId),
+      ...unattendedModelInputFor(req.provider, req.modelId, req.executionPreferences),
+      executionPreferences: req.executionPreferences,
     }
     const lifecycle = await this.runTurn({
       input,
@@ -2434,6 +2667,7 @@ export class SessionRuntime extends EventEmitter {
         solusToolbox.insights,
         solusToolbox.intelligence,
         solusToolbox.browser,
+        solusToolbox.devices,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.config,
@@ -2477,10 +2711,13 @@ export class SessionRuntime extends EventEmitter {
   }
 
   private async _startRunLifecycle(request: SessionRunRequest): Promise<SessionRunLifecycle> {
+    await this._useTaskLeadPreferences(request)
+    await this._settleRunOrganization(request)
     // Every prepared/initialized view of a run shares this one exchange array.
     // The request is copied while setup resolves, but ownership must not be.
     request.exchangeIds ??= []
     request.runId ??= crypto.randomUUID()
+    if (request.reportExchangeIds?.length) this.orchestration?.reportsAccepted(request.reportExchangeIds)
     // Before launch: the provider can report this turn's own plan before the
     // launch step returns, and that plan must survive.
     this.orchestration?.sessionTurnStarted(request.sessionId)
@@ -2496,6 +2733,7 @@ export class SessionRuntime extends EventEmitter {
     // turn (organization-scope §6.1); the organization is the record's, read
     // once here, never a window's later choice.
     const organizationId = await this._turnOrganization(request.sessionId)
+    this._saveRestartRun(request, organizationId)
     const account = insightsAccountOf(request.actor)
     let actor: { userId: string; email?: string } | undefined
     if (account) {
@@ -2525,6 +2763,7 @@ export class SessionRuntime extends EventEmitter {
         () => this._launchRun(request, turnTraceId),
       )
     } catch (error) {
+      if (!this.isShuttingDown) this.restartRuns?.remove(request.sessionId, request.runId)
       const interrupted = error instanceof Error && error.message === 'Interrupted'
       this.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)
       this._cancelRunExchanges(request, interrupted ? 'interrupted' : 'failed')
@@ -2703,6 +2942,13 @@ export class SessionRuntime extends EventEmitter {
       rateLimitType?: string
     },
   ): SessionRunLifecycle {
+    const requestedInput = { ...run.input }
+    const target = this.requestQueue.lastSwitchInput(metadata.sessionId)
+    if (target) {
+      run.input = { ...run.input, provider: target.provider, agentSessionId: null, model: target.model,
+        preferredModel: target.preferredModel, reasoningEffort: target.reasoningEffort,
+        contextWindow: target.contextWindow, fastMode: target.fastMode }
+    }
     const { options } = run
     const queueKey = metadata.sessionId
 
@@ -2732,7 +2978,6 @@ export class SessionRuntime extends EventEmitter {
     // A held prompt names its author like a sent one: the queue is read by
     // everyone in the room, and a drained turn runs under this person's seat.
     if (run.actor?.user) queuedEvent.author = run.actor.user
-    this._emit(queueKey, queuedEvent)
 
     let resolveDone!: () => void
     let rejectDone!: (reason: Error) => void
@@ -2740,14 +2985,13 @@ export class SessionRuntime extends EventEmitter {
       resolveDone = resolve
       rejectDone = reject
     })
-    let queue = this.requestQueue.get(queueKey)
-    if (!queue) { queue = []; this.requestQueue.set(queueKey, queue) }
-    queue.push({
+    this.requestQueue.enqueue({
       queueId,
       prompt,
       sessionId: queueKey,
       deviceId: metadata.deviceId,
       run,
+      requestedInput,
       reason: metadata.reason,
       sourceSessionId: metadata.sourceSessionId,
       rateLimitSessionId: metadata.rateLimitSessionId,
@@ -2758,6 +3002,8 @@ export class SessionRuntime extends EventEmitter {
       enqueuedAt,
     })
 
+    this._emit(queueKey, queuedEvent)
+    this._publishQueue(queueKey)
     const queuedExchanges = this._runExchanges(run)
     if (queuedExchanges) this.orchestration?.runQueued(queuedExchanges)
 
@@ -2802,14 +3048,16 @@ export class SessionRuntime extends EventEmitter {
             // A preferred provider with no quota left cannot answer this turn,
             // so the category's other model takes it instead of a run that
             // fails on arrival.
-            const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, getHostConfig().config.modelRouting, available, controller.signal, {
+            const routing = input.executionPreferences?.modelRouting ?? DEFAULT_EXECUTION_PREFERENCES.modelRouting
+            const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, routing, available, controller.signal, {
               spent: provider => this.usageLimits.isSpent(provider),
             })
             annotate({ provider: route.provider, modelId: route.modelId, category: route.category, usedFallback: route.usedFallback })
             return route
           },
         )
-        Object.assign(input, hostModelInputFor(route.provider, route.modelId), {
+        // The sender's instructions stay; only the routed model's own ones change.
+        Object.assign(input, unattendedModelInputFor(route.provider, route.modelId, input.executionPreferences ?? { extraInstructions: input.extraInstructions }), {
           provider: route.provider,
           reasoningEffort: 'medium',
           fastMode: false,
@@ -2933,6 +3181,7 @@ export class SessionRuntime extends EventEmitter {
             // while the agent works, so the prompt never waits on a model.
             const created = await this.checkouts.create(resolvedProjectPath, worktreeBaseBranch, {
               signal: setupController.signal,
+              naming: input.executionPreferences?.worktreeBranchNaming,
             })
             annotate({ branch: created.branch ?? '', targetBranch: created.targetBranch, worktreePath: created.worktreePath ?? '' })
             return created
@@ -2943,7 +3192,7 @@ export class SessionRuntime extends EventEmitter {
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
         captureServerEvent('worktree_created', {})
         this._emit(sessionId, { type: 'git_context', gitContext })
-        void this.nameWorktreeBranch(sessionId, gitContext, options.prompt, request.actor)
+        void this.nameWorktreeBranch(sessionId, gitContext, options.prompt, request.actor, input.executionPreferences)
         // Worktree done → advance to "Linking thread workspace".
         this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(1) })
       } catch (e) {
@@ -3014,11 +3263,12 @@ export class SessionRuntime extends EventEmitter {
         },
         async (annotate) => {
           const handoff = await this.handoffBuilder(pendingHandoff.fromSessionId, resolvedProjectPath, {
-            loadSession: (threadId, loadProjectPath) => this.loadSession(
-              pendingHandoff.fromProvider,
-              threadId,
-              loadProjectPath,
-            ),
+            fromProvider: pendingHandoff.fromProvider, targetProvider: input.provider, targetModel: input.model,
+            contextWindow: input.contextWindow, nextPrompt: options.prompt + input.extraInstructions,
+            historyTokens: input.executionPreferences?.handoffHistoryTokens ?? DEFAULT_EXECUTION_PREFERENCES.handoffHistoryTokens,
+            sourceStatus: this.handoffCarry.get(pendingHandoff.fromSessionId)?.status ?? this.activeSessions.get(sessionId)?.status,
+            loadSession: async (threadId, loadProjectPath) => this.handoffCarry.merge(threadId, await this.loadSession(
+              pendingHandoff.fromProvider, threadId, loadProjectPath)),
           })
           const seedSystemAppend = composeHandoffSeed({ fromProvider: pendingHandoff.fromProvider, ...handoff })
           annotate({ seedChars: seedSystemAppend.length })
@@ -3140,7 +3390,7 @@ export class SessionRuntime extends EventEmitter {
         fn: '_taskSystemContext',
         file: 'session-runtime.ts',
       }, async (annotate) => {
-        const composed = await this._taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, options.taskRole)
+        const composed = await this._taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, options.taskRole, effectiveInput.executionPreferences)
         annotate({ contextChars: composed.length })
         return composed
       })
@@ -3195,6 +3445,11 @@ export class SessionRuntime extends EventEmitter {
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
       const seat = await this.seatForTurn(request.actor, provider)
+      if (this.isShuttingDown) throw new Error('Interrupted')
+      const savedRestart = this.restartRuns?.get(sessionId)
+      if (savedRestart && savedRestart.runId === request.runId) {
+        this.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running' })
+      }
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops
       // being Solus's time and starts being the agent's. Timed without an
@@ -3248,6 +3503,10 @@ export class SessionRuntime extends EventEmitter {
       }))
       handle = agentRun.handle
       handle.sessionId = sessionId
+      const launchedRestart = this.restartRuns?.get(sessionId)
+      if (launchedRestart && launchedRestart.runId === request.runId && handle.agentSessionId) {
+        this.restartRuns?.save({ ...launchedRestart, input: { ...launchedRestart.input, agentSessionId: handle.agentSessionId }, state: 'running' })
+      }
     } catch (err) {
       this.activeRunRequests.delete(sessionId)
       this._setStatus(sessionId, 'failed')
@@ -3333,9 +3592,14 @@ export class SessionRuntime extends EventEmitter {
     shipped: TaskSnapshot | null,
     sessionId: string,
     promptRole: 'lead' | undefined,
+    preferences: ExecutionPreferences | undefined,
   ): Promise<string> {
-    const { agentTaskLifecyclePolicy: lifecyclePolicy, leadInstructions, workerModel } = getHostConfig().config
-    const lead = { leadInstructions, workerModel }
+    // The person's lead and lifecycle preferences.
+    const lifecyclePolicy = preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
+    const lead = {
+      leadInstructions: preferences?.leadInstructions ?? DEFAULT_EXECUTION_PREFERENCES.leadInstructions,
+      workerModel: preferences?.workerModel ?? DEFAULT_EXECUTION_PREFERENCES.workerModel,
+    }
     const roleOf = (sessions: readonly TaskSessionLink[]): TaskSessionRole =>
       promptRole ?? sessions.find((link) => link.sessionId === sessionId)?.role ?? 'working'
     if (shipped && shipped.details.task.id === taskId) {
@@ -3394,7 +3658,7 @@ export class SessionRuntime extends EventEmitter {
     if (!queue) return
     for (let i = queue.length - 1; i >= 0; i--) {
       const req = queue[i]
-      queue.splice(i, 1)
+      this.requestQueue.remove(sessionId, req.queueId)
       // A queued prompt never reaches the normal settlement path when Stop
       // drains it, so its sender would otherwise stay held forever.
       this._cancelRunExchanges(req.run)
@@ -3403,7 +3667,203 @@ export class SessionRuntime extends EventEmitter {
       if (req.rateLimitSessionId) this._cleanupRateLimitTimerIfUnused(req.rateLimitSessionId)
       log.info('queued_request_drained', { queueId: req.queueId, sessionId })
     }
-    if (queue.length === 0) this.requestQueue.delete(sessionId)
+    this.requestQueue.save(sessionId)
+  }
+
+  agentQueue(providerSessionId: string): SessionQueueSnapshot {
+    const sessionId = this._sessionIdFor(providerSessionId)
+    if (!sessionId) throw new Error('The calling session is unavailable.')
+    return { held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this._queuedPromptsForSession(sessionId) }
+  }
+
+  async changeAgentQueue(providerSessionId: string, mutation: SessionQueueMutation): Promise<SessionQueueSnapshot> {
+    if (mutation.kind === 'resume') throw new Error('Only the user can resume a held queue.')
+    const { sessionId, input } = await this._unattendedRunInput(providerSessionId)
+    const actor = this.activeRunRequests.get(sessionId)?.actor ?? HOST_ACTOR
+    return this._changeSessionQueue(sessionId, input, sessionQueueMutationSchema.parse(mutation), actor)
+  }
+
+  sessionQueue(ctx: IpcContext): SessionQueueSnapshot {
+    const sessionId = this._sessionIdForCtx(ctx)
+    if (!sessionId) throw new Error('A session is required to read its queue.')
+    return { held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this._queuedPromptsForSession(sessionId) }
+  }
+
+  private _publishQueue(sessionId: string): void {
+    this._emit(sessionId, { type: 'session_queue', held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this._queuedPromptsForSession(sessionId) })
+  }
+
+  async sessionQueueChange(ctx: IpcContext, input: SessionQueueMutation, actor: Actor): Promise<SessionQueueSnapshot> {
+    const sessionId = this._sessionIdForCtx(ctx)
+    if (!sessionId) throw new Error('A session is required to change its queue.')
+    return this._changeSessionQueue(sessionId, runInputFromContext(ctx), sessionQueueMutationSchema.parse(input), actor)
+  }
+
+  private async _changeSessionQueue(sessionId: string, sourceInput: SessionRunInput, mutation: SessionQueueMutation, actor: Actor): Promise<SessionQueueSnapshot> {
+    if (mutation.kind === 'switch') {
+      await this._queueProviderSwitch(sessionId, sourceInput, mutation, actor)
+    } else if (mutation.kind === 'resume') {
+      const entries = this.requestQueue.get(sessionId) ?? []
+      if (entries.some((entry) => this.reservedQueueEntries.has(entry.queueId))) throw new Error('A queue change is still being applied. Try Resume after it finishes.')
+      const resumable = entries.filter((entry) => {
+        if (!entry.held) return false
+        const author = entry.run.actor?.user ?? entry.author
+        return author ? !!actor.user && sameUser(author.id, actor.user.id) : ['local-owner', 'remote-owner', 'system'].includes(actor.principal.kind)
+      })
+      if (!resumable.length && entries.some((entry) => entry.held)) throw new Error('Each author must resume their own queued work.')
+      for (const entry of resumable) {
+        entry.held = false
+        entry.error = undefined
+        entry.run.actor = actor
+        entry.revision = (entry.revision ?? 0) + 1
+      }
+      this.requestQueue.save(sessionId)
+      this._processQueueForSession(sessionId)
+    } else {
+      const entry = this.requestQueue.get(sessionId)?.find((item) => item.queueId === mutation.queueId)
+      if (!entry || (entry.revision ?? 0) !== mutation.revision) {
+        throw new Error('This queue entry changed or started. Refresh the queue before editing it.')
+      }
+      if (this.reservedQueueEntries.has(entry.queueId)) throw new Error('This queue entry is being delivered. Wait for the provider to answer.')
+      await this._changeQueueEntry(entry, mutation, actor)
+    }
+    this._publishQueue(sessionId)
+    return { held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this._queuedPromptsForSession(sessionId) }
+  }
+
+  private async _changeQueueEntry(entry: QueuedRequest,
+    mutation: Exclude<SessionQueueMutation, { kind: 'switch' | 'resume' }>, actor: Actor): Promise<void> {
+    if (mutation.kind === 'remove') {
+      this._cancelQueuedPrompt(entry.sessionId, entry.queueId, actor)
+      this._processQueueForSession(entry.sessionId)
+    } else if (mutation.kind === 'move') {
+      this.requestQueue.move(entry.sessionId, entry.queueId, mutation.beforeQueueId)
+      this._rebindQueue(entry.sessionId)
+    } else if (mutation.kind === 'edit') {
+      this.requestQueue.edit(entry, mutation)
+      this._recordHeldPromptChange(entry, actor, 'edited')
+    } else {
+      if (entry.kind === 'provider_switch' || entry.held) throw new Error('Resume the queue before steering a prompt.')
+      const active = this.activeSessions.get(entry.sessionId)
+      if (!active?.agentSessionId || !isSteerableStatus(active.status)) throw new Error('There is no active turn to steer.')
+      if (entry.run.input.provider !== active.backendId) throw new Error('A prompt cannot steer across a queued provider switch.')
+      const author = entry.run.actor?.user ?? entry.author
+      if (author && (!actor.user || !sameUser(author.id, actor.user.id))) throw new Error('Only its author can promote a prompt to steering.')
+      // Reserve the entry while the provider answers. A concurrent edit cannot
+      // change the text after it was sent, and a completed turn cannot drain it.
+      entry.held = true
+      entry.revision = (entry.revision ?? 0) + 1
+      this.requestQueue.save(entry.sessionId)
+      this._publishQueue(entry.sessionId)
+      this.reservedQueueEntries.add(entry.queueId)
+      let accepted: SessionRunLifecycle | null
+      try {
+        accepted = await this._steerActiveTurn({ ...entry.run, actor, options: { ...entry.run.options, delivery: 'steer' } }, active.agentSessionId, active)
+        if (!accepted) throw new Error('The turn ended before steering was accepted. The prompt remains queued.')
+      } catch (error) {
+        entry.held = false
+        this.requestQueue.save(entry.sessionId)
+        this._publishQueue(entry.sessionId)
+        throw error
+      } finally { this.reservedQueueEntries.delete(entry.queueId) }
+      this.requestQueue.remove(entry.sessionId, entry.queueId)
+      this._emit(entry.sessionId, { type: 'prompt_dequeued', queueId: entry.queueId })
+      void accepted.done.then(() => entry.resolve(), (error) => entry.reject(error))
+    }
+  }
+
+  private async _queueProviderSwitch(sessionId: string, sourceInput: SessionRunInput, mutation: Extract<SessionQueueMutation, { kind: 'switch' }>, actor: Actor): Promise<void> {
+    this.assertNewWorkAllowed()
+    const backend = this._backendFor(mutation.provider)
+    if (backend.metadata.available === false) throw new Error(backend.metadata.unavailableReason ?? 'This provider is unavailable on the host.')
+    if (mutation.modelConfig.modelId === AUTO_MODEL_ID) throw new Error('Choose a specific model for a provider switch.')
+    const modelId = mutation.modelConfig.modelId ?? backend.metadata.defaultModel
+    const profile = MODEL_PROFILES[mutation.provider]?.[modelId]
+    if (modelId && !profile && !backend.metadata.models.some((model) => model.id === modelId)) throw new Error('This model is unavailable for the selected provider.')
+    if (profile && (!profile.reasoningLevels.includes(mutation.modelConfig.reasoningEffort)
+      || mutation.modelConfig.fastMode && !profile.supportsFastMode
+      || mutation.modelConfig.contextWindow !== null && !profile.contextWindows.includes(mutation.modelConfig.contextWindow))) {
+      throw new Error('These options are unavailable for the selected model.')
+    }
+    let depth = 0
+    for (const queue of this.requestQueue.values()) depth += queue.length
+    if (depth >= MAX_QUEUE_DEPTH) throw new Error('Request queue full — back-pressure')
+    const config = mutation.modelConfig
+    const input = { ...sourceInput }
+    input.provider = mutation.provider
+    input.model = modelId
+    input.preferredModel = modelId || null
+    input.reasoningEffort = config.reasoningEffort
+    input.contextWindow = config.contextWindow
+    input.fastMode = config.fastMode
+    const text = `Switch to ${mutation.provider}${config.modelId ? ` · ${config.modelId}` : ''}`
+    const entry: QueuedRequest = {
+      queueId: crypto.randomUUID(), sessionId, kind: 'provider_switch', prompt: text,
+      enqueuedAt: Date.now(), reason: 'busy', held: true, resolve: () => {}, reject: () => {},
+      run: { sessionId, target: { kind: 'session', sessionId }, input, tools: [], actor,
+        options: { prompt: '', displayPrompt: text } },
+    }
+    // Reserve delivery order before the asynchronous seat check.
+    this.requestQueue.enqueue(entry)
+    this.reservedQueueEntries.add(entry.queueId)
+    try { await this.seatForTurn(actor, mutation.provider) } catch (error) {
+      entry.error = error instanceof Error ? error.message : String(error)
+      this.requestQueue.save(sessionId)
+      this._publishQueue(sessionId)
+      throw error
+    } finally { this.reservedQueueEntries.delete(entry.queueId) }
+    entry.held = false
+    this.requestQueue.save(sessionId)
+    this._publishQueue(sessionId)
+    this._processQueueForSession(sessionId)
+  }
+
+  private _rebindQueue(sessionId: string): void {
+    const active = this.activeSessions.get(sessionId)
+    const first = this.requestQueue.get(sessionId)?.[0]
+    const lineage = resolveSessionLineageById(sessionId)?.active
+    const provider = active?.backendId ?? lineage?.provider
+    const current = active?.runInput ?? (first && first.run.input.provider === provider ? first.run.input : first?.requestedInput ?? first?.run.input)
+    if (current) this.requestQueue.rebind(sessionId, { ...current, provider: provider ?? current.provider,
+      agentSessionId: active?.agentSessionId ?? lineage?.providerSessionId ?? current.agentSessionId })
+  }
+
+  private async _applyQueuedProviderSwitch(entry: QueuedRequest): Promise<void> {
+    const sessionId = entry.sessionId
+    this.applyingQueuedSwitch.add(sessionId)
+    try {
+      const target = entry.run.input
+      const session = this.activeSessions.get(sessionId)
+      const current = resolveSessionLineageById(sessionId)?.active
+      const threadId = session?.agentSessionId ?? current?.providerSessionId ?? target.agentSessionId
+      const sourceProvider = session?.backendId ?? current?.provider ?? getIndexedSession(threadId ?? '')?.provider
+      if (sourceProvider && threadId && sourceProvider !== target.provider) {
+        // Check the incoming budget before committing a provider change.
+        await this.handoffBuilder(threadId, target.projectPath, {
+          loadSession: async (id, path) => this.handoffCarry.merge(id, await this.loadSession(sourceProvider, id, path)),
+          fromProvider: sourceProvider, targetProvider: target.provider, targetModel: target.model,
+          contextWindow: target.contextWindow, nextPrompt: (this.requestQueue.get(sessionId)?.[0]?.run.options.prompt ?? '') + target.extraInstructions,
+          historyTokens: target.executionPreferences?.handoffHistoryTokens ?? DEFAULT_EXECUTION_PREFERENCES.handoffHistoryTokens,
+          sourceStatus: this.handoffCarry.get(threadId)?.status ?? session?.status,
+        })
+      }
+      const result = sourceProvider === target.provider
+        ? null : await this.switchSessionProvider(sessionId, target.provider, threadId, entry.run.actor ?? HOST_ACTOR)
+      if (session) session.runInput = { ...target, agentSessionId: result ? result.restoredSessionId ?? null : threadId ?? null }
+      this.requestQueue.settle(entry)
+      this.requestQueue.rebind(sessionId, { ...target, agentSessionId: result ? result.restoredSessionId ?? null : threadId ?? null })
+      this._emit(sessionId, { type: 'provider_switch_applied', provider: target.provider,
+        modelConfig: { modelId: target.preferredModel, reasoningEffort: target.reasoningEffort, contextWindow: target.contextWindow, fastMode: target.fastMode }, result })
+    } catch (error) {
+      try { this.requestQueue.settle(entry, error instanceof Error ? error.message : String(error)) } catch (saveError) {
+        this.requestQueue.holdUncertain(entry, `The host could not save the result. Check its history before resuming: ${String(saveError)}`)
+        log.error('queue_settlement_save_failed', { sessionId, queueId: entry.queueId, error: String(saveError) })
+      }
+    } finally {
+      this.applyingQueuedSwitch.delete(sessionId)
+      this._publishQueue(sessionId)
+      this._processQueueForSession(sessionId)
+    }
   }
 
   cancelQueuedPrompt(ctx: IpcContext, queueId: string, actor: Actor): boolean {
@@ -3425,12 +3885,14 @@ export class SessionRuntime extends EventEmitter {
     const idx = queue.findIndex((r) => r.queueId === queueId)
     if (idx === -1) return false
     this._cancelRunExchanges(queue[idx]!.run)
-    const [req] = queue.splice(idx, 1)
+    const req = this.requestQueue.remove(sessionId, queueId)!
+    this._rebindQueue(sessionId)
     req.reject(new Error('Cancelled by user'))
     this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
     this._recordHeldPromptChange(req, actor, 'removed')
     if (req.rateLimitSessionId) this._cleanupRateLimitTimerIfUnused(req.rateLimitSessionId)
-    if (queue.length === 0) this.requestQueue.delete(sessionId)
+    this.requestQueue.save(sessionId)
+    this._publishQueue(sessionId)
     log.info('queued_request_cancelled', { queueId, sessionId })
     return true
   }
@@ -3442,17 +3904,17 @@ export class SessionRuntime extends EventEmitter {
     return sessionId ? this._editQueuedPrompt(sessionId, queueId, text, actor) : false
   }
 
-  private _editQueuedPrompt(sessionId: string, queueId: string, text: string, actor?: Actor): boolean {
+  private _editQueuedPrompt(sessionId: string, queueId: string, text: string, actor?: Actor, reports?: { reportExchangeIds?: string[]; exchangeIds?: string[] }): boolean {
     const trimmed = text.trim()
     if (!trimmed) return false
     const req = this.requestQueue.get(sessionId)?.find((r) => r.queueId === queueId)
     if (!req) return false
 
-    req.prompt = trimmed
-    req.run.options.prompt = trimmed
-    req.run.options.displayPrompt = trimmed
+    if (this.reservedQueueEntries.has(req.queueId)) return false
+    this.requestQueue.edit(req, { kind: 'edit', queueId, revision: req.revision ?? 0, text: trimmed }, reports)
     this._emit(req.sessionId, { type: 'prompt_queue_updated', queueId, text: trimmed })
     this._recordHeldPromptChange(req, actor, 'edited')
+    this._publishQueue(sessionId)
     log.info('queued_request_edited', { queueId, sessionId })
     return true
   }
@@ -3497,6 +3959,7 @@ export class SessionRuntime extends EventEmitter {
       solusToolbox.insights,
       solusToolbox.intelligence,
       solusToolbox.browser,
+      solusToolbox.devices,
       solusToolbox.sessions,
       solusToolbox.tasks,
       solusToolbox.config,
@@ -3655,10 +4118,10 @@ export class SessionRuntime extends EventEmitter {
     return { sessionId, backend, event }
   }
 
-  /** Apply Queue to prompts already held when settings change or a client rejoins.
-   * Unattended runs keep the policy supplied by their owner. */
-  queueHeldRateLimitedPrompts(onlySessionId?: string): void {
-    if (getHostConfig().config.rateLimitBehavior !== 'queue') return
+  /** Apply Queue to prompts already held when a client whose person chose Queue
+   * rejoins. Unattended runs keep the policy supplied by their owner. */
+  queueHeldRateLimitedPrompts(behavior: SessionRunInput['rateLimitBehavior'], onlySessionId?: string): void {
+    if (behavior !== 'queue') return
     for (const [sessionId, run] of this.activeRunRequests) {
       if (onlySessionId && sessionId !== onlySessionId) continue
       if (run.exchangeIds?.length || run.options.promptSource === 'agent' || run.options.promptSource === 'automation' || run.options.promptSource === 'watch') continue
@@ -3762,10 +4225,10 @@ export class SessionRuntime extends EventEmitter {
    * prompt. It runs beside the agent's first turn and only logs a failure:
    * the temporary branch is a correct branch, only a less readable one.
    */
-  async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined): Promise<void> {
+  async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined, preferences?: ExecutionPreferences): Promise<void> {
     if (!checkout.worktreePath) return
     this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
-    await this.checkouts.name(checkout.worktreePath, prompt, this, (provider) => this.seatForTurn(actor, provider))
+    await this.checkouts.name(checkout.worktreePath, prompt, this, (provider) => this.seatForTurn(actor, provider), preferences)
   }
 
   setSessionGitCheckout(sessionId: string, gitContext: GitCheckout | undefined): void {
@@ -3833,6 +4296,11 @@ export class SessionRuntime extends EventEmitter {
   }
 
   private _isQueuedRequestReady(req: QueuedRequest): boolean {
+    if (req.held || this.applyingQueuedSwitch.has(req.sessionId)) return false
+    if (req.kind === 'provider_switch') {
+      const session = this.activeSessions.get(req.sessionId)
+      if (session && (isSessionBusyStatus(session.status) || (!!session.agentSessionId && this._backendFor(session.backendId).isSessionRunning(session.agentSessionId)))) return false
+    }
     if (req.reason !== 'rate_limit') return true
     if (!req.rateLimitSessionId) return true
     const event = this.rateLimits.current(req.rateLimitSessionId, Date.now() / 1000)
@@ -3934,7 +4402,9 @@ export class SessionRuntime extends EventEmitter {
     const hasQueued = (this.requestQueue.get(sessionId) ?? []).some((req) => req.rateLimitSessionId === sessionId)
     const session = this.activeSessions.get(sessionId)
     if (hasQueued || session?.status !== 'running') {
-      this._setStatus(sessionId, hasQueued ? 'running' : 'idle')
+      // Releasing a limit does not start work. Dispatch sets the next turn's
+      // status; a restored or failed entry can still be held for Resume.
+      this._setStatus(sessionId, 'idle')
     }
     this._broadcastRateLimitResolved(sessionId, action)
     if (!hasQueued) this._dropParkedSession(sessionId)
@@ -3968,12 +4438,12 @@ export class SessionRuntime extends EventEmitter {
     for (let i = queue.length - 1; i >= 0; i--) {
       const req = queue[i]
       if (req.rateLimitSessionId !== sessionId) continue
-      queue.splice(i, 1)
+      this.requestQueue.remove(sessionId, req.queueId)
       this._cancelRunExchanges(req.run)
       req.reject(reason)
       this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
     }
-    if (queue.length === 0) this.requestQueue.delete(sessionId)
+    this.requestQueue.save(sessionId)
   }
 
   private _broadcastRateLimitResolved(sessionId: string, action: RateLimitDecisionAction): void {
@@ -3989,27 +4459,40 @@ export class SessionRuntime extends EventEmitter {
   }
 
   private _processQueueForSession(sessionId: string): boolean {
+    if (this.isShuttingDown) return false
     const queue = sessionId ? this.requestQueue.get(sessionId) : undefined
     if (!queue?.length) return false
+    const resident = this.activeSessions.get(sessionId)
+    if (resident && isSessionBusyStatus(resident.status) && resident.status !== 'background') return false
 
     // Only process the oldest (first) request. If it isn't ready yet, don't
     // skip ahead — the queue is FIFO and later entries may depend on this one.
     const req = queue[0]
     if (!this._isQueuedRequestReady(req)) return false
 
-    queue.shift()
-    if (queue.length === 0) this.requestQueue.delete(sessionId)
+    try { this.requestQueue.claim(sessionId) } catch (error) {
+      req.held = true
+      req.error = `The host could not save the delivery receipt: ${error instanceof Error ? error.message : String(error)}`
+      req.revision = (req.revision ?? 0) + 1
+      this._publishQueue(sessionId)
+      log.error('queue_receipt_save_failed', { sessionId, queueId: req.queueId, error: String(error) })
+      return false
+    }
     log.info('queued_request_processing', { queueId: req.queueId })
 
     this._emit(req.sessionId, { type: 'prompt_dequeued', queueId: req.queueId })
+    if (req.kind === 'provider_switch') {
+      void this._applyQueuedProviderSwitch(req)
+      return true
+    }
 
     const reqInput = req.run.input
     const dispatchSession = this.activeSessions.get(req.sessionId)
-    const freshProvider = dispatchSession?.backendId ?? reqInput.provider
+    const freshProvider = reqInput.provider
     const input: SessionRunInput = {
       ...reqInput,
       provider: freshProvider,
-      agentSessionId: dispatchSession?.agentSessionId ?? reqInput.agentSessionId,
+      agentSessionId: dispatchSession?.backendId === freshProvider ? dispatchSession.agentSessionId : reqInput.agentSessionId,
     }
 
     const run: SessionRunRequest = {
@@ -4019,6 +4502,9 @@ export class SessionRuntime extends EventEmitter {
       sessionId: req.sessionId,
       servedQueueId: req.queueId,
       servedEnqueuedAt: req.enqueuedAt,
+      // SAFETY: the shared executor validates each tool's declared Zod fields
+      // before invoking it. Restore the full catalog, never persisted closures.
+      tools: req.run.tools.length ? req.run.tools : Object.values(solusToolbox).flatMap((group) => Object.values(group)) as AgentTool[],
       options: { ...req.run.options, promptSource: 'queued' },
     }
     // A session in 'background' still has its provider query open. A second
@@ -4030,8 +4516,15 @@ export class SessionRuntime extends EventEmitter {
       : this._startRunLifecycle(run)
     lifecycle
       .then((lifecycle) => lifecycle.done)
-      .then(() => req.resolve())
-      .catch((e) => req.reject(e))
+      .then(() => { this.requestQueue.settle(req); req.resolve(); this._publishQueue(sessionId) })
+      .catch((error) => {
+        try { this.requestQueue.settle(req, error instanceof Error ? error.message : String(error)) } catch (saveError) {
+          this.requestQueue.holdUncertain(req, `The host could not save the result. Check its history before resuming: ${String(saveError)}`)
+          log.error('queue_settlement_save_failed', { sessionId, queueId: req.queueId, error: String(saveError) })
+        }
+        req.reject(error)
+        this._publishQueue(sessionId)
+      })
     return true
   }
 
@@ -4044,8 +4537,13 @@ export class SessionRuntime extends EventEmitter {
   private _queuedPromptsForSession(sessionId: string): QueuedPromptSnapshot[] {
     const queue = this.requestQueue.get(sessionId) ?? []
     return queue
+      .filter((entry) => entry.run.options.via !== 'session-report' && entry.run.options.via !== 'question-answer')
       .map((r) => ({
         queueId: r.queueId,
+        kind: r.kind ?? 'prompt', revision: r.revision ?? 0, held: r.held, error: r.error,
+        provider: r.run.input.provider,
+        modelConfig: { modelId: r.run.input.preferredModel, reasoningEffort: r.run.input.reasoningEffort, contextWindow: r.run.input.contextWindow, fastMode: r.run.input.fastMode },
+        attachments: r.run.options.queueAttachments,
         clientPromptId: r.run.options.clientPromptId,
         text: r.prompt,
         enqueuedAt: r.enqueuedAt,
@@ -4054,7 +4552,7 @@ export class SessionRuntime extends EventEmitter {
         rateLimitType: r.rateLimitType,
         images: r.run.options.imageAttachments,
         imageRefs: r.run.options.imageAttachmentRefs,
-        author: r.run.actor?.user ?? undefined,
+        author: r.run.actor?.user ?? r.author,
       }))
   }
 
@@ -4124,9 +4622,7 @@ export class SessionRuntime extends EventEmitter {
   private _markSessionDead(sessionId: string): void {
     const session = this.activeSessions.get(sessionId)
     const agentSessionId = session?.agentSessionId
-    if (session && agentSessionId) {
-      this._backendFor(session.backendId).permissions.clearPendingForSession(agentSessionId)
-    }
+    if (session && agentSessionId) this._expirePendingInput(this._backendFor(session.backendId), agentSessionId)
     this._flushPendingSession(sessionId)
     this._currentRateLimitEvent(sessionId)
     if (session) {
@@ -4273,6 +4769,12 @@ export class SessionRuntime extends EventEmitter {
   }
 
   private _applyStatus(sessionId: string, newStatus: SessionStatus): void {
+    if (!this.isShuttingDown && (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'interrupted' || newStatus === 'dead' || newStatus === 'rate_limited')) {
+      this.restartRuns?.remove(sessionId)
+    } else if (newStatus === 'background') {
+      const restartRun = this.restartRuns?.get(sessionId)
+      if (restartRun) this.restartRuns?.save({ ...restartRun, state: 'background' })
+    }
     const session = this.activeSessions.get(sessionId)
     // Attention persists across restarts and is correlated with rows read off
     // disk, so it stays keyed by the provider's thread id — seam (b).
@@ -4322,6 +4824,15 @@ export class SessionRuntime extends EventEmitter {
   }
 
   shutdown(): void {
+    this.isShuttingDown = true
+    for (const session of this.activeSessions.values()) {
+      if (!session.agentSessionId || !this.restartRuns?.get(session.sessionId)) continue
+      try {
+        this.handoffCarry.settle(session.agentSessionId, 'interrupted', this.turnLog.get(session.sessionId) ?? [], Date.now())
+      } catch (error) {
+        log.error('restart_carry_save_failed', { sessionId: session.sessionId, error: String(error) })
+      }
+    }
     this.checkouts.dispose()
     this.failedSetupPrompts.clear()
     log.info('control_plane_shutdown')
@@ -4395,6 +4906,7 @@ export class SessionRuntime extends EventEmitter {
    * that asked (a reattach replay, or a sender's own withheld echo).
    */
   private _emit(sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }): void {
+    if (!to) this._recordRestartToolEvent(sessionId, event)
     if (!to) {
       for (const chunk of this.responseText.beforeEvent(sessionId, event)) this._emit(sessionId, chunk)
     }
@@ -4402,6 +4914,34 @@ export class SessionRuntime extends EventEmitter {
     // duplicate it for the next joiner. Only the broadcast stream is the turn.
     if (!to) this._recordTurnEvent(sessionId, event)
     this.emit('event', sessionId, event, to)
+  }
+
+  private _recordRestartToolEvent(sessionId: string, event: NormalizedEvent): void {
+    switch (event.type) {
+      case 'tool_call_complete':
+        if (!event.outcome && !event.completedAtMs) return
+        break
+      case 'tool_call':
+      case 'tool_result':
+      case 'subagent_report':
+        break
+      default:
+        return
+    }
+    if (!this.restartRuns || this.isShuttingDown || !restartRecoveryEnabled()) return
+    const restartRun = this.restartRuns.get(sessionId)
+    if (!restartRun) return
+    const toolId = 'toolUseId' in event ? event.toolUseId : event.toolId
+    if (event.type === 'tool_call') {
+      if (restartRun.backgroundTools.length >= 32 || restartRun.backgroundTools.some((tool) => tool.toolId === toolId)) return
+      restartRun.backgroundTools.push({ toolId: event.toolId, name: event.isSubagent ? `Child agent (${event.subagentType ?? event.toolName})` : event.toolName })
+    } else {
+      if (event.type === 'tool_result' && event.isAsyncLaunch) return
+      const index = restartRun.backgroundTools.findIndex((tool) => tool.toolId === toolId)
+      if (index === -1) return
+      restartRun.backgroundTools.splice(index, 1)
+    }
+    this.restartRuns.save(restartRun)
   }
 
   /** Accumulate the in-flight turn so a client joining mid-turn can be brought
@@ -4427,6 +4967,28 @@ export class SessionRuntime extends EventEmitter {
     this.emit('error', sessionId, error)
   }
 
+
+  /**
+   * Closes every blocking request a run holds without an answer, when the run
+   * exits, stops, or dies. The provider is told no, and every client learns
+   * that the card can no longer be answered. Async questions are kept in SQLite,
+   * not here, so they stay open after the provider exits.
+   */
+  private _expirePendingInput(backend: AgentBackend, agentSessionId: string): void {
+    backend.permissions.clearPendingForSession(agentSessionId)
+    const sessionId = this.agentSessionToSession.get(agentSessionId)
+    const session = sessionId ? this.activeSessions.get(sessionId) : undefined
+    if (!sessionId || !session) return
+    const expired = session.pendingInputEvents.filter((event) => event.type === 'permission_request' || event.type === 'question_request')
+    if (!expired.length) return
+    session.pendingInputEvents = session.pendingInputEvents.filter((event) => event.type !== 'permission_request' && event.type !== 'question_request')
+    session.hasPendingInput = session.pendingInputEvents.length > 0
+    for (const event of expired) {
+      this.questionIdToSession.delete(event.questionId)
+      this._emit(sessionId, { type: 'permission_resolved', questionId: event.questionId, expired: 'run_ended' })
+    }
+    log.info('pending_input_expired', { sessionId, agentSessionId, count: expired.length })
+  }
 
   private _clearPendingInputEvent(questionId: string): void {
     const match = (event: NormalizedEvent) => eventHasQuestionId(event, questionId)

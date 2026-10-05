@@ -86,6 +86,16 @@ export function cloneUrlForProtocol(cloneUrl: string, protocol: CloneProtocol): 
   }
 }
 
+/**
+ * How a clone reaches the code host: what the person chose, else what a pasted
+ * URL already says (`git@…` is SSH), else HTTPS. A pasted SSH URL is never
+ * quietly rewritten to HTTPS.
+ */
+export function cloneProtocolFor(intent: CloneIntent, chosen: CloneProtocol | null): CloneProtocol {
+  if (chosen) return chosen
+  return intent.kind === 'clone-url' ? intent.protocol : 'https'
+}
+
 /** The clone URL an intent commits to, or null when there is nothing to clone. */
 export function cloneUrlForIntent(intent: CloneIntent, protocol: CloneProtocol): string | null {
   if (intent.kind === 'owner-repo' || intent.kind === 'clone-url') {

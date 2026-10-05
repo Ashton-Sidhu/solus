@@ -81,12 +81,12 @@
   });
 
   function selectEditor(editorId: EditorId) {
-    theme.update({ defaultEditor: editorId });
+    theme.setDevice("defaultEditor", editorId);
     requestInputFocus();
   }
 
   function selectTerminal(terminalId: TerminalAppId) {
-    theme.update({ fallbackTerminal: terminalId });
+    theme.setDevice("fallbackTerminal", terminalId);
     requestInputFocus();
   }
 

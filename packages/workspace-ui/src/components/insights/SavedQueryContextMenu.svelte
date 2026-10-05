@@ -13,7 +13,6 @@
     x,
     y,
     query,
-    canDelete,
     onOpen,
     onDelete,
     onClose,
@@ -21,8 +20,6 @@
     x: number;
     y: number;
     query: SavedMetricsQuery;
-    /** Mobile composes nothing, so it does not remove anything either. */
-    canDelete: boolean;
     onOpen: () => void;
     onDelete: () => void;
     onClose: () => void;
@@ -57,12 +54,10 @@
         Copy SQL
       </ContextMenu.Item>
     {/if}
-    {#if canDelete}
-      <ContextMenu.Separator />
-      <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
-        <TrashIcon />
-        Delete saved query
-      </ContextMenu.Item>
-    {/if}
+    <ContextMenu.Separator />
+    <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
+      <TrashIcon />
+      Delete saved query
+    </ContextMenu.Item>
   </ContextMenu.Content>
 </ContextMenu.Root>

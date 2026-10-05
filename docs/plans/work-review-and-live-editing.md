@@ -104,8 +104,11 @@ Limits of what landed:
   made offline against the machine's copy do not merge after the move.
 - The agent edit lock covers the write, not the whole streaming tool call, and
   the agent is named in the status line, not in the avatar stack.
-- Diagrams on a phone keep the current behavior (open decision 2), and viewers
-  and commenters see a diagram preview that follows the projected body.
+- Diagrams on a phone keep the current behavior (open decision 2). Viewers
+  and commenters open the full diagram shell (header, History, Review, threads)
+  over a read-only canvas, with the reason in the header: a commenter comments
+  and reviews, a viewer reads the threads and writes none. Nothing a reader
+  does is saved or pushed.
 
 The product work then has three phases, in this order:
 
@@ -240,9 +243,8 @@ The facts that this plan depends on:
   members and teams. The share dialog already uses it through `directoryFor`
   (`contexts/sharing/shares.store.svelte.ts`).
 - **Notifications.** Attention is only for sessions
-  (`packages/contracts/src/attention-types.ts`). Web push subscriptions are
-  keyed by device per host, with no user id
-  (`packages/server/src/notifications/push-service.ts`). Nothing can notify
+  (`packages/contracts/src/attention-types.ts`). A browser notification
+  comes only from an open Solus tab, and there is no web push. Nothing can notify
   one particular person. There is no native mobile push; mobile is the
   responsive web client.
 - **Presence.** It runs only in memory. The focus is `session` or `none`

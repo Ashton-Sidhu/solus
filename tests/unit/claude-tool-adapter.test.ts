@@ -35,3 +35,17 @@ describe('the fields Claude validates a call against', () => {
     expect(z.object(fields).parse({ prompt: 'go' })).toEqual({ prompt: 'go', report: true, wait_seconds: 0 })
   })
 })
+
+// WHY: device_screenshot parity needs the agent to see the image itself, not
+// a host file path it may not be able to read (plan 016, P09).
+describe('tool results with an image', () => {
+  test('Claude receives the text and then the PNG as an image block', async () => {
+    const { claudeToolResponse } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
+    const response = claudeToolResponse({ ok: true, text: 'Screenshot', image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } })
+    expect(response.content).toEqual([
+      { type: 'text', text: 'Screenshot' },
+      { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+    ])
+    expect(claudeToolResponse({ ok: false, text: 'no' })).toEqual({ content: [{ type: 'text', text: 'no' }], isError: true })
+  })
+})

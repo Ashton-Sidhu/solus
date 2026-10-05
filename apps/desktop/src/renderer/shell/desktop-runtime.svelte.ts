@@ -26,7 +26,10 @@ import { serverConnections } from "@solus/client-core/server-connections";
 import { subscribeAllHosts } from "@solus/client-core/host-events";
 import { localApi } from "@solus/client-core/local-api";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
+import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications/notification-hub.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
+import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
+import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
 import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
 import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
@@ -89,7 +92,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
 
   // Electron-only: analytics is desktop-side.
   initAnalytics({
-    enabled: settings.analyticsEnabled,
+    // Undecided consent stays off until the person chooses (plans/018 §3.1).
+    enabled: settings.clientAnalyticsEnabled === true,
     platform: "desktop",
     viewMode: "wide",
   });
@@ -242,6 +246,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     return () => unsubscribe?.();
   });
 
+  // The notifications hub reads every source once for the page and the badge (plan 015).
+  $effect(() => untrack(() => notificationHubStore.start()));
+
   $effect(() => {
     return untrack(() =>
       notificationsStore.start({
@@ -282,11 +289,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         sessionSidebarStore.subscribeSessionStatuses();
       const defaultServerId = serverConnections.defaultMachineId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
-      // The promoted settings tier lives on the host so it follows the user
-      // between desktop, web, and mobile. The localStorage copy already painted
-      // this boot; this reconciles it with whatever another client last set.
-      if (defaultServerId) void settings.hydrateFromHost(defaultServerId);
-      const unsubHostConfig = settings.listenForHostConfigChanges();
       const unsubProjectDirectory = listenForProjectDirectory();
       const unsubUsage = subscribeAllHosts(
         "usage.limitsChanged",
@@ -338,6 +340,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
+      // A device an agent opens is revealed beside its own conversation only.
+      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
+      const unsubDevices = devicesStore.subscribe();
       const unsubGuideStatus = pullRequests.guides.subscribe();
       // An agent can need an account before any surface that would show its
       // status has been opened, so the request is heard app-wide, not by the card.
@@ -374,12 +379,12 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         browserStore.onSurfaceRequested = null;
         browserStore.onRecordingSaved = null;
         unsubBrowser();
+        unsubDevices();
         unsubGuideStatus();
         unsubConnectRequests();
         unsubSeats();
         unsubUplink();
         unsubPresence();
-        unsubHostConfig();
         unsubProjectDirectory();
         unsubAtlassian();
         unsubShown();

@@ -2,6 +2,7 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { describe, expect, test } from 'bun:test'
 import {
+  canDeleteTaskComment,
   commentSessionName,
   linkGroups,
   linkRow,
@@ -108,6 +109,27 @@ describe('task comment session attribution', () => {
     expect(commentSessionName({ originSessionId: '01M0B1F57R0HSH0R0SY2P9AMYX' }, []))
       .toBe('01M0B1F5')
     expect(commentSessionName({}, [session])).toBeNull()
+  })
+})
+
+describe('who is offered Delete on a task comment', () => {
+  // WHY: the host refuses a delete by anyone but the comment's author or the
+  // task's owner. Offering Delete to another editor would only end in an error.
+  const me = { kind: 'account' as const, accountId: 'me' }
+  const them = { kind: 'account' as const, accountId: 'them' }
+  const byUser = (id: typeof me) => ({ source: 'local' as const, externalId: null, author: { kind: 'user' as const, user: { id, displayName: id.accountId } } })
+
+  test('a reader may delete their own comment but not another person\'s', () => {
+    expect(canDeleteTaskComment(byUser(me), { userId: me, canModerate: false })).toBe(true)
+    expect(canDeleteTaskComment(byUser(them), { userId: me, canModerate: false })).toBe(false)
+  })
+
+  test('the task owner may delete anyone\'s unpublished comment', () => {
+    expect(canDeleteTaskComment(byUser(them), { userId: me, canModerate: true })).toBe(true)
+  })
+
+  test('a published comment is never deleted in Solus', () => {
+    expect(canDeleteTaskComment({ ...byUser(me), externalId: 'gh-1' }, { userId: me, canModerate: true })).toBe(false)
   })
 })
 

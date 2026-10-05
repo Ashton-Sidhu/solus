@@ -99,7 +99,6 @@ export async function readFilePreview(
     const buffer = truncated
       ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
       : await readFile(target)
-    const outsideRoot = !root || !isInsideRoot(root, target)
     const result: FilePreviewResult = {
       ok: true,
       kind: 'text',
@@ -107,7 +106,8 @@ export async function readFilePreview(
       displayPath,
       contents: buffer.toString('utf-8'),
       size: fileStat.size,
-      isReadOnly: outsideRoot || truncated,
+      // A truncated save would replace the file with its first part.
+      isReadOnly: truncated,
       mimeType: mimeTypeFor(target),
     }
     if (truncated) result.truncated = true

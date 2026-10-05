@@ -6,7 +6,7 @@ import type {
   WorkReviewInboxItem,
   WorkReviewRequest,
   WorkReviewsChanged,
-  WorkReviewState,
+  WorkReviewStateEntry,
 } from '@solus/contracts/work-review'
 
 /** A host from before work review answers "Unknown method": it has no reviews. */
@@ -27,8 +27,8 @@ function messageOf(error: Error | string): string {
 export class WorkReviewsStore {
   /** The full review of a work a surface asked for, by work id. */
   readonly reviews = new SvelteMap<string, WorkReview>()
-  /** The derived state of every work with reviewers, by work id. */
-  readonly states = new SvelteMap<string, WorkReviewState>()
+  /** The state and reviewers of every work with reviewers, by work id. */
+  readonly summaries = new SvelteMap<string, WorkReviewStateEntry>()
   /** The works that wait for the reader, by host. */
   readonly inboxByHost = new SvelteMap<string, (WorkReviewInboxItem & { serverId: string })[]>()
   readonly errors = new SvelteMap<string, string>()
@@ -94,11 +94,13 @@ export class WorkReviewsStore {
       if (this.hostTokens.get(serverId) !== token) return
       this.inboxByHost.set(serverId, inbox.map((item) => ({ ...item, serverId })))
       const answered = new Set(states.map((entry) => entry.workId))
-      for (const workId of this.states.keys()) {
-        if (!answered.has(workId) && this.hostOf(workId) === serverId) this.states.delete(workId)
+      for (const workId of this.summaries.keys()) {
+        if (!answered.has(workId) && this.hostOf(workId) === serverId) this.summaries.delete(workId)
       }
-      for (const entry of states) {
-        if (this.states.get(entry.workId) !== entry.state) this.states.set(entry.workId, entry.state)
+      for (const answer of states) {
+        // A host from before reviewer lists answers the state alone.
+        const entry = { ...answer, reviewers: answer.reviewers ?? [] }
+        if (!sameSummary(this.summaries.get(entry.workId), entry)) this.summaries.set(entry.workId, entry)
       }
     } catch (error) {
       const message = messageOf(error instanceof Error ? error : String(error))
@@ -139,14 +141,24 @@ export class WorkReviewsStore {
   /** A work the window no longer knows. */
   forget(workId: string): void {
     this.reviews.delete(workId)
-    this.states.delete(workId)
+    this.summaries.delete(workId)
     this.errors.delete(workId)
     this.tokens.delete(workId)
   }
 
   private accept(review: WorkReview): void {
     this.reviews.set(review.workId, review)
-    if (review.state === 'draft') this.states.delete(review.workId)
-    else this.states.set(review.workId, review.state)
+    if (review.state === 'draft') this.summaries.delete(review.workId)
+    else this.summaries.set(review.workId, review)
   }
+}
+
+/** Unchanged entries keep their object, so a refresh repaints only the works that changed. */
+function sameSummary(current: WorkReviewStateEntry | undefined, next: WorkReviewStateEntry): boolean {
+  return !!current && current.state === next.state && current.reviewers.length === next.reviewers.length
+    && current.reviewers.every((reviewer, i) => {
+      const other = next.reviewers[i]
+      return reviewer.reviewerId === other.reviewerId && reviewer.displayName === other.displayName && reviewer.decision === other.decision
+        && reviewer.decidedAt === other.decidedAt && reviewer.requestedAt === other.requestedAt && reviewer.isStale === other.isStale && reviewer.isAwaiting === other.isAwaiting
+    })
 }

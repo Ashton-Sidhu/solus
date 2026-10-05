@@ -229,12 +229,16 @@ export class InsightsStore {
   private sessionNames = new SvelteMap<string, string | null>()
   /** By trace. A finished turn's change never moves, so one read is enough. */
   private turnChanges = new SvelteMap<string, TurnChange>()
+  /** The read in flight for a trace, so a share can wait for its change. */
+  private turnChangeReads = new Map<string, Promise<void>>()
   private lastRun: LastRun | null = null
   private loadToken = 0
   /** A filter change reads the summary and the rows; a page change reads the
    *  rows alone. Each kind of read is superseded only by a newer read of it. */
   private turnAnswerToken = 0
   private turnRowsToken = 0
+  /** A live pull event is newer than the snapshot in a listing response. */
+  private insightPullRevision = 0
   /** The answer read that set `running`, or 0. A read that is dropped must
    *  still give `running` back, and must not clear it for a newer owner. */
   private runningTurnAnswer = 0
@@ -272,7 +276,9 @@ export class InsightsStore {
       else this.sessionNames.delete(change.sessionId)
     })
     const unsubscribePull = subscribeAllHosts('metrics.insightPullChanged', (serverId, state) => {
-      if (serverId === this.hostId) this.insightPull = state
+      if (serverId !== this.hostId) return
+      this.insightPullRevision += 1
+      this.insightPull = state
     })
     const unsubscribe = subscribeAllHosts('metrics.turnsChanged', (serverId, change) => {
       if (serverId !== this.hostId) return
@@ -281,6 +287,7 @@ export class InsightsStore {
       // A change read while the turn ran found no snapshot yet; the next read
       // after it ends finds it.
       this.turnChanges.delete(change.traceId)
+      this.turnChangeReads.delete(change.traceId)
       if (this.traces.has(change.traceId)) void this.reloadTrace(change.traceId)
       else if (change.sessionId) this.sessionSummaries.delete(change.sessionId)
       this.scheduleTurnsReload()
@@ -326,6 +333,7 @@ export class InsightsStore {
     this.sessionSummaries.clear()
     this.sessionNames.clear()
     this.turnChanges.clear()
+    this.turnChangeReads.clear()
     this.turnFlags.clear()
     this.turnFlagsLoaded = false
     this.resetTurnControls()
@@ -606,6 +614,7 @@ export class InsightsStore {
     if (!scope) return
     const answerToken = ++this.turnAnswerToken
     const rowsToken = ++this.turnRowsToken
+    const pullRevision = this.insightPullRevision
     const filter: MetricsTurnFilter = {
       timeRange: this.turnSelection ?? resolveRange(this.range, Date.now()),
       status: this.turnStatus ?? undefined,
@@ -627,7 +636,9 @@ export class InsightsStore {
       ])
       if (answerToken !== this.turnAnswerToken) return
       this.turnListingSummary = summary
-      if (summary.pull !== undefined) this.insightPull = summary.pull
+      if (summary.pull !== undefined && pullRevision === this.insightPullRevision) {
+        this.insightPull = summary.pull
+      }
       // A page or sort change made while this read was out has newer rows.
       if (rowsToken === this.turnRowsToken) this.showTurnRows(page)
       this.answerWindowStale = false
@@ -946,8 +957,21 @@ export class InsightsStore {
     return repoFileLoader(() => this.api, () => ctx)
   }
 
+  /** Resolves when the change is read, also when another caller started the read. */
   async loadTurnChange(ctx: IpcContext, traceId: string): Promise<void> {
+    const pending = this.turnChangeReads.get(traceId)
+    if (pending) return pending
     if (this.turnChanges.has(traceId)) return
+    const read = this.readTurnChange(ctx, traceId)
+    this.turnChangeReads.set(traceId, read)
+    try {
+      await read
+    } finally {
+      if (this.turnChangeReads.get(traceId) === read) this.turnChangeReads.delete(traceId)
+    }
+  }
+
+  private async readTurnChange(ctx: IpcContext, traceId: string): Promise<void> {
     const hostId = this.hostId
     // Claimed before the await so two mounts of one turn read once.
     this.turnChanges.set(traceId, { status: 'loading' })

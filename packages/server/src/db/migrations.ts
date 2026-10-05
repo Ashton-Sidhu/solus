@@ -352,6 +352,37 @@ DELETE FROM kv WHERE key = 'codex-session-index-watermark';
 INSERT INTO kv(key, value) VALUES ('session-messages-rebuild', '1')
   ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 `,
+  // The notifications hub's host-local table (plans/015-notifications-hub.md):
+  // the pull request observer's baseline.
+  `
+-- The last complete answer of the code host about the pull requests that ask
+-- one person's attention: per credential (provider host and viewer login),
+-- repository, and recipient. Only a complete answer replaces it.
+CREATE TABLE notification_pr_observations (
+  authority TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  recipient_key TEXT NOT NULL,
+  pending TEXT NOT NULL,
+  observed_at INTEGER NOT NULL,
+  PRIMARY KEY (authority, repo, recipient_key)
+);
+`,
+  // v1 of the notifications hub queued automation results here; v2 writes them
+  // in the run's own transaction. A file that ran v1's slot above has the table.
+  `
+DROP TABLE IF EXISTS notification_intents;
+`,
+  // Execution recovery belongs to this host even when records are mirrored.
+  `
+CREATE TABLE session_restart_runs (
+  session_id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL DEFAULT 'local',
+  run_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -7,6 +7,7 @@
   import PermissionCard from "../PermissionCard.svelte";
   import QuestionCard from "../QuestionCard.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
+  import { toasts } from "../../../lib/toasts";
 
   /**
    * What another session's turn is waiting on a person for, shown in the
@@ -29,6 +30,12 @@
   const shortcuts = $derived(
     !sess?.questionQueue.length && !sess?.permissionQueue.length,
   );
+
+  // The other session may have answered it, or its run ended: say so, never fail silently.
+  function answerRefused(error: unknown): false {
+    toasts.error("This request is no longer open", { description: error instanceof Error ? error.message : String(error) });
+    return false;
+  }
 </script>
 
 {#if request.kind === "question"}
@@ -36,9 +43,8 @@
     {tabId}
     request={request.question}
     provider={ref.provider}
-    askingSessionId={ref.agentSessionId}
     {shortcuts}
-    respond={(questionId, answers) => api.respondQuestion(ctx, ref.agentSessionId, questionId, answers)}
+    respond={(questionId, answers) => api.respondQuestion(ctx, ref.agentSessionId, questionId, answers).catch(answerRefused)}
   />
 {:else if request.kind === "permission"}
   <PermissionCard
@@ -46,7 +52,7 @@
     permission={request.permission}
     cwd={ref.cwd}
     {shortcuts}
-    respond={(questionId, optionId) => void api.respondPermission(ctx, ref.agentSessionId, questionId, optionId)}
+    respond={(questionId, optionId) => void api.respondPermission(ctx, ref.agentSessionId, questionId, optionId).catch(answerRefused)}
   />
 {:else}
   <div class="flex flex-col gap-2" data-testid="agent-plan-request">

@@ -589,6 +589,11 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
       : null
   }
 
+  if (item.type === 'contextCompaction') {
+    // Codex records no trigger or token counts on the item.
+    return { messageId: item.id, role: 'system', content: '', compaction: {}, timestamp }
+  }
+
   if (item.type === 'reasoning') {
     // Reasoning/thinking span, carried for provider handoffs; display surfaces
     // skip this role. Prefer the concise summary over the raw content.

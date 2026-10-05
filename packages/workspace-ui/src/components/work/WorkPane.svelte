@@ -28,8 +28,9 @@
   import { setWorkPaneContext } from "./lib/work-pane-context";
   import { isLiveEditable, type WorkLiveLease } from "../../contexts/works/work-live.store.svelte";
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
+  import { diagramReadOnlyReason } from "../diagram/lib/reader-mode";
 
-  let { params, paneId, onAttachFile, onScreenshot, onDesignMode, composerActions }: RouteSurfaceProps<"work"> = $props();
+  let { params, paneId, onAttachFile, onScreenshot, onDesignMode }: RouteSurfaceProps<"work"> = $props();
 
   const session = getSurfaceContext();
   const pane = paneActions(() => paneId);
@@ -98,8 +99,9 @@
   const callerRole = $derived(workServerId ? sharesStore.listFor(workServerId, { kind: "work", id: params.workId })?.callerRole ?? null : null);
   // A commenter reads and reviews; only an editor changes the body.
   const viewerReadOnly = $derived(callerRole === "viewer" || callerRole === "commenter");
-  // The host deletes a work for its owner alone; a Local work has no list.
-  const canDelete = $derived(callerRole === null || callerRole === "owner");
+  // The host deletes a work for its owner alone; a Local work has no list. A
+  // guest never owns the work, also before its share list has loaded.
+  const canDelete = $derived(shell.canOpenResource("workspace") && (callerRole === null || callerRole === "owner"));
   $effect(() => {
     const serverId = workServerId;
     const workId = params.workId;
@@ -194,6 +196,8 @@
   // A guest shell has nowhere for these to lead, so the surfaces offer no way there.
   // A duplicate lands in the sharer's Workspace, which a guest cannot open.
   const canOpenWorkspace = $derived(shell.canOpenResource("workspace"));
+  // An artifact has no maximize, so its cluster is one pill shorter.
+  const canMaximizePane = $derived(shell.hasCompanionPanes && workMetadata?.type !== "artifact");
   // Starting an agent on the work is the workspace's: a client with no runner
   // behind it has no session to start.
   const canStartSession = $derived(!!session.workspace && shell.canOpenResource("chat"));
@@ -275,9 +279,21 @@
 {/snippet}
 
 {#if work && draft}
-  <!-- The raised pane controls are wider than the flat ones the column
-       measured its inset for (three 1.625rem pills, 0.375rem apart). -->
-  <div class="flex h-full flex-col min-h-0 work-live-host pointer-fine:[--solus-pane-chrome-inset:6.625rem]" class:work-live-pulse={justUpdated}>
+  <!-- The header reserves exactly the raised cluster it sits beside: the
+       0.625rem right inset, one 1.625rem pill per control 0.375rem apart, and
+       one more gap before the header's last control. A slot reserved for a
+       control the pane does not show reads as a hole in the row. Guest shells
+       supply their own measured inset; keep it for every pointer type. -->
+  <div
+    class="flex h-full flex-col min-h-0 work-live-host {!canOpenWorkspace
+      ? ''
+      : canMaximizePane
+        ? 'pointer-fine:[--solus-pane-chrome-inset:6.625rem]'
+        : shell.hasCompanionPanes
+          ? 'pointer-fine:[--solus-pane-chrome-inset:4.625rem]'
+          : 'pointer-fine:[--solus-pane-chrome-inset:2.625rem]'}"
+    class:work-live-pulse={justUpdated}
+  >
     {#if openWork?.status === "unavailable"}
       {@render savedCopyStatus(unavailableMessage(openWork.unavailableReason), { label: "Check again", testId: "work-check-again", run: () => openWork?.retry() })}
     {:else if draft.conflict}
@@ -292,36 +308,39 @@
     {/if}
     {#key `${work.id}-${renderKey}-${liveBinding ? "live" : "saved"}-${liveReady}`}
       <div class="flex-1 min-h-0">
-        {#if work.type === "diagram" && viewerReadOnly}
-          {#await import("../diagram/DiagramPreview.svelte") then previewModule}
-            <previewModule.default content={draft.content} title={work.title} />
-          {/await}
-        {:else if work.type === "diagram" && !liveReady}
+        {#if work.type === "diagram" && !liveReady}
           <DiagramShellSkeleton />
         {:else if work.type === "diagram"}
           {#await import("../diagram/DiagramShell.svelte")}
             <DiagramShellSkeleton />
           {:then diagramModule}
             {@const DiagramShell = diagramModule.default}
-            <!-- See the note on the document branch below: workId is read from
-                 DOM handlers that can outlive `work` by a tick. -->
-            <DiagramShell
-              content={draft.content}
-              title={work.title}
-              workId={work?.id}
-              onSave={async (c) => {
-                await saveCopy({ content: c });
-              }}
-              onDirtyChange={(d) => draft?.setDirty(d)}
-              onClose={handleClose}
-              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-              onRename={viewerReadOnly ? undefined : handleRename}
-              onDelete={canDelete ? handleDelete : undefined}
-              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
-              onExport={exportStartPath ? handleExport : undefined}
-              {hostIsRemote}
-              live={liveBinding}
-            />
+            <!-- A reader's canvas is set up once; the role arrives with the share
+                 list, after the shell may have mounted. -->
+            {#key viewerReadOnly}
+              <!-- See the note on the document branch below: workId is read from
+                   DOM handlers that can outlive `work` by a tick. -->
+              <DiagramShell
+                content={draft.content}
+                title={work.title}
+                workId={work?.id}
+                onSave={viewerReadOnly
+                  ? undefined
+                  : async (c) => {
+                      await saveCopy({ content: c });
+                    }}
+                onDirtyChange={(d) => draft?.setDirty(d)}
+                onClose={handleClose}
+                onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
+                onRename={viewerReadOnly ? undefined : handleRename}
+                onDelete={canDelete ? handleDelete : undefined}
+                onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
+                onExport={exportStartPath ? handleExport : undefined}
+                {hostIsRemote}
+                live={liveBinding}
+                readOnlyReason={diagramReadOnlyReason(callerRole)}
+              />
+            {/key}
           {:catch error}
             <RouteLoadError
               {error}
@@ -417,7 +436,6 @@
         {onAttachFile}
         {onScreenshot}
         {onDesignMode}
-        {composerActions}
         label={work.type === "diagram"
           ? "Work with this diagram"
           : work.type === "artifact"
@@ -429,7 +447,7 @@
       <PaneChrome
         onClose={handleClose}
         onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
-        onToggleMaximize={shell.hasCompanionPanes && workMetadata?.type !== "artifact" ? pane.toggleMaximize : null}
+        onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
         maximized={pane.maximized}
         isLeading={pane.isLeading}
         closeLabel={work.type === "diagram"
@@ -464,7 +482,7 @@
   <PaneChrome
     onClose={handleClose}
     onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
-    onToggleMaximize={shell.hasCompanionPanes && workMetadata?.type !== "artifact" ? pane.toggleMaximize : null}
+    onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
     maximized={pane.maximized}
     isLeading={pane.isLeading}
     closeLabel="Close loading work"

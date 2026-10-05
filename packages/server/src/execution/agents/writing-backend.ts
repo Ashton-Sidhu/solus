@@ -1,5 +1,5 @@
 import { AGENT_BIN, type TextGenerationModelSelection } from '@solus/contracts/types'
-import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/host-config'
+import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/settings'
 import { findOnPath, getCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { SeatRequiredError, type SeatResolver, type TurnSeat } from '../seats/seat-manager'

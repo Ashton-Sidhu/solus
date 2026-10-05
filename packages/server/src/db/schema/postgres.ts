@@ -3,6 +3,7 @@
 // ported domain adds its tables here and in `sqlite.ts`.
 import * as activitySchema from '../../data/activity/schema'
 import * as folioSchema from '../../data/works/schema'
+import * as notificationsSchema from '../../data/notifications/schema'
 import * as insightSchema from '../../data/insights/insight-schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
@@ -40,4 +41,5 @@ export const insight_spans = insightSchema.insightSpans.pg
 export const insight_log_events = insightSchema.insightLogEvents.pg
 export const workspace_projects = projectsSchema.workspaceProjects.pg
 export const activity = activitySchema.activity.pg
+export const notifications = notificationsSchema.notifications.pg
 export { solusApiReceiptsPostgres as workspace_api_receipts } from '../../data/workspace/schema'

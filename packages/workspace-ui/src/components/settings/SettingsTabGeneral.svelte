@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
-  import type { ResponseStreamingMode } from "@solus/contracts/host-config";
-  import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/host-config";
+  import type { ResponseStreamingMode } from "@solus/contracts/settings";
+  import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/settings";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import { PERMISSION_MODES } from "@solus/contracts/types";
   import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
@@ -34,9 +34,9 @@
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
   import RateLimitSetting from "./RateLimitSetting.svelte";
-  import AutomationRetentionSetting from "./AutomationRetentionSetting.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
+  import { isModelOffered } from "./lib/text-generation-models";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
   import { solusToolsStore } from "./solus-tools.store.svelte";
   import type { TextGenerationModelSelection } from "@solus/contracts/types";
@@ -82,9 +82,9 @@
     });
   });
 
+  // The choice is the person's; the host snapshot only says which models it offers.
   $effect(() => {
-    const selection = textGenerationSnapshot?.textGenerationModel;
-    if (!selection) return;
+    const selection = theme.textGenerationModel;
     if (!textGenerationPickerSelection) {
       textGenerationPickerSelection = {
         provider: selection.provider,
@@ -164,33 +164,12 @@
     return `${agent?.label ?? selection.provider} · ${model?.label ?? selection.model}`;
   }
 
-  function isSameTextGenerationModel(
-    left: TextGenerationModelSelection | null | undefined,
-    right: TextGenerationModelSelection | null | undefined,
-  ): boolean {
-    return (
-      !!left &&
-      !!right &&
-      left.provider === right.provider &&
-      left.model === right.model
-    );
-  }
-
-  async function selectTextGenerationModel(
-    selection: PickerSelection,
-  ): Promise<void> {
+  function selectTextGenerationModel(selection: PickerSelection): void {
     if (!selection.modelId) return;
-    await textGenerationSettingsStore
-      .update(
-        { serverId, api },
-        {
-          textGenerationModel: {
-            provider: selection.provider,
-            model: selection.modelId,
-          },
-        },
-      )
-      .catch(() => {});
+    theme.setPersonal("textGenerationModel", {
+      provider: selection.provider,
+      model: selection.modelId,
+    });
   }
 
   /** One press of the stepper: fine enough to tune by feel, coarse enough that
@@ -201,7 +180,7 @@
    *  current one rather than turning the motion off. */
   function commitSidebarMotionMs(value: number) {
     if (!Number.isFinite(value)) return;
-    theme.update({ sidebarMotionMs: value });
+    theme.setPersonal("sidebarMotionMs", value);
   }
 
   interface SettingItem {
@@ -317,14 +296,6 @@
       keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
     },
     {
-      id: "automation-retention",
-      keywords: ["automation", "archived", "delete", "retention", "days", "history"],
-    },
-    {
-      id: "analytics",
-      keywords: ["analytics", "telemetry", "tracking", "privacy", "data"],
-    },
-    {
       id: "about",
       keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
     },
@@ -376,7 +347,7 @@
       <SettingsSelect
         options={permissionModes}
         value={theme.defaultPermissionMode}
-        onSelect={(value) => theme.update({ defaultPermissionMode: value })}
+        onSelect={(value) => theme.setPersonal("defaultPermissionMode", value)}
         ariaLabel="Default permission mode"
       />
     {/snippet}
@@ -384,13 +355,6 @@
 </SettingsSection>
 
 <ModelRoutingSection {serverId} visible={isVisible("model-routing")} />
-
-<SettingsSection
-  label="Organization"
-  visible={isVisible("automation-retention")}
->
-  <AutomationRetentionSetting {serverId} visible={isVisible("automation-retention")} />
-</SettingsSection>
 
 <SettingsSection
   label="Behavior"
@@ -411,7 +375,7 @@
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-input bg-white shadow-xs/5 dark:bg-input/30"
       >
         <button
           type="button"
@@ -460,7 +424,7 @@
       <SettingsSelect
         options={responseStreamingModes}
         value={theme.responseStreamingMode}
-        onSelect={(value) => theme.update({ responseStreamingMode: value })}
+        onSelect={(value) => theme.setPersonal("responseStreamingMode", value)}
         ariaLabel="Response streaming"
       />
     {/snippet}
@@ -475,7 +439,7 @@
       <Switch
         checked={theme.showDiffSummaryAfterTurn}
         onCheckedChange={(next) =>
-          theme.update({ showDiffSummaryAfterTurn: next })}
+          theme.setPersonal("showDiffSummaryAfterTurn", next)}
         size="default"
         aria-label="Toggle changed files summaries after turns"
       />
@@ -490,7 +454,7 @@
     {#snippet control()}
       <Switch
         checked={theme.showToolCalls}
-        onCheckedChange={(next) => theme.update({ showToolCalls: next })}
+        onCheckedChange={(next) => theme.setPersonal("showToolCalls", next)}
         size="default"
         aria-label="Toggle tool calls in the transcript"
       />
@@ -506,7 +470,7 @@
       <Switch
         checked={theme.collapseComposerWhenIdle}
         onCheckedChange={(next) =>
-          theme.update({ collapseComposerWhenIdle: next })}
+          theme.setPersonal("collapseComposerWhenIdle", next)}
         size="default"
         aria-label="Toggle collapsing the input bar when idle"
       />
@@ -521,14 +485,14 @@
     {#snippet control()}
       <Switch
         checked={theme.autoRenameSessions}
-        onCheckedChange={(next) => theme.update({ autoRenameSessions: next })}
+        onCheckedChange={(next) => theme.setPersonal("autoRenameSessions", next)}
         size="default"
         aria-label="Toggle automatic session naming"
       />
     {/snippet}
   </SettingsRow>
 
-  <RateLimitSetting {serverId} visible={isVisible("ratelimit")} />
+  <RateLimitSetting visible={isVisible("ratelimit")} />
 </SettingsSection>
 
 <SettingsSection label="Projects" visible={isVisible("projects-base")}>
@@ -584,8 +548,9 @@
 >
   <SettingsRow
     label="Text-generation model"
-    description="Session names and short background writing on {hostLabel}."
+    description="Session names and short background writing for your work."
     visible={isVisible("text-generation-model")}
+    bodyVisible={!!textGenerationError || (!!textGenerationSnapshot && !isModelOffered(textGenerationSnapshot.agents, theme.textGenerationModel))}
   >
     {#snippet control()}
       {#if textGenerationPickerSelection && textGenerationSnapshot}
@@ -597,8 +562,7 @@
           ariaLabel="Text-generation model"
           returnFocusOnClose
           class="w-full @min-[30rem]/pane:w-56"
-          onSelectionChange={(selection) =>
-            void selectTextGenerationModel(selection)}
+          onSelectionChange={selectTextGenerationModel}
         />
       {:else}
         <Button
@@ -611,36 +575,18 @@
         </Button>
       {/if}
     {/snippet}
-    {#if textGenerationError || (textGenerationSnapshot && !isSameTextGenerationModel(textGenerationSnapshot.textGenerationModel, textGenerationSnapshot.effectiveTextGenerationModel))}
-      {#snippet body()}
-        {#if textGenerationError}
-          <p class="text-xs text-destructive" role="alert">
-            {textGenerationError}
-          </p>
-        {:else if textGenerationSnapshot}
-          <p class="text-xs text-muted-foreground">
-            The saved model is not available on this host. Solus currently uses {textGenerationModelLabel(
-              textGenerationSnapshot.effectiveTextGenerationModel,
-            )}.
-          </p>
-        {/if}
-      {/snippet}
-    {/if}
-  </SettingsRow>
-</SettingsSection>
-
-<SettingsSection label="Privacy" visible={isVisible("analytics")}>
-  <SettingsRow
-    label="Share anonymous analytics"
-    description="Help improve Solus with anonymous usage data."
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.analyticsEnabled}
-        onCheckedChange={(next) => theme.update({ analyticsEnabled: next })}
-        size="default"
-        aria-label="Toggle analytics"
-      />
+    {#snippet body()}
+      {#if textGenerationError}
+        <p class="text-xs text-destructive" role="alert">
+          {textGenerationError}
+        </p>
+      {:else if textGenerationSnapshot}
+        <p class="text-xs text-muted-foreground">
+          {hostLabel} does not offer {textGenerationModelLabel(theme.textGenerationModel)}. Your choice stays saved; this host uses {textGenerationModelLabel(
+            textGenerationSnapshot.effectiveTextGenerationModel,
+          )}.
+        </p>
+      {/if}
     {/snippet}
   </SettingsRow>
 </SettingsSection>

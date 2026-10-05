@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { SOLUS_WORKTREE_PATH_MARKER } from '@solus/contracts/types'
 
 /**
- * "Add project…" in a page-level project switcher. A project used to reach the
+ * "Open project…" in a page-level project switcher. A project used to reach the
  * Tasks / Pull requests / Automations / Workspace switchers only after a
  * session ran in it; this flow lets a person name a folder that is on disk but
  * has never been opened. Two records have to agree for that to work: the client

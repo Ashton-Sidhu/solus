@@ -5,7 +5,7 @@ import type { WorkspaceTask, WorkspaceWork, WorkspaceWorkSummary, WorkspaceSessi
 /** The established client records, read from the HTTP contract. */
 export function taskRecord(task: WorkspaceTask): Task {
   return { ...task, providerId: 'local', organizationId: task.organizationId ?? 'local', url: null,
-    shortId: task.shortId ?? undefined, assignee: task.assignee ?? undefined, priority: task.priority ?? undefined,
+    shortId: task.shortId ?? undefined, assignee: task.assignee ?? undefined, assigneeUserId: task.assigneeUserId ?? undefined, priority: task.priority ?? undefined,
     dueDate: task.dueDate ?? undefined, originSessionId: task.originSessionId ?? undefined,
     createdAt: Date.parse(task.createdAt), updatedAt: Date.parse(task.updatedAt), canEditPlanningFields: true }
 }

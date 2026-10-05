@@ -9,7 +9,7 @@ import { addOutput } from './session-outputs'
  * the change is legal, and every legal change is published once.
  */
 
-export type ExchangeState = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'settled'
+export type ExchangeState = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'waiting_for_children' | 'settled'
 
 export interface Exchange {
   exchangeId: string
@@ -44,6 +44,14 @@ export interface Exchange {
   /** A person asked for changes to a plan: the run ends, and the revision continues this exchange. */
   revising: boolean
   dispatchedAt: number
+  /** Incoming requests whose work created this message; never session-wide. */
+  parentExchangeIds?: string[]
+  fingerprint?: string
+  disposition?: 'started' | 'steered' | 'queued'
+  settledAt?: number
+  report?: import('@solus/contracts/session-exchange').SessionReport
+  deliveryState?: 'pending' | 'queued' | 'accepted' | 'disposed'
+  deliveryQueueId?: string
 }
 
 export type ExchangeEvent =
@@ -54,6 +62,7 @@ export type ExchangeEvent =
   /** The target's provider refused the turn on a limit; it resumes at the reset. */
   | { type: 'rate_limited' }
   | { type: 'revision_requested' }
+  | { type: 'children_pending'; runId: string }
   | { type: 'settled'; runId?: string; outcome: ExchangeOutcome }
 
 export function isOpenExchange(exchange: Exchange): boolean {
@@ -80,6 +89,10 @@ export function applyExchangeEvent(exchange: Exchange, event: ExchangeEvent): bo
     case 'rate_limited':
       if (exchange.state === 'rate_limited' || exchange.state === 'awaiting_input') return false
       exchange.state = 'rate_limited'
+      return true
+    case 'children_pending':
+      if (exchange.runId && exchange.runId !== event.runId) return false
+      exchange.state = 'waiting_for_children'
       return true
     case 'revision_requested':
       if (exchange.state !== 'awaiting_input' && exchange.state !== 'running') return false

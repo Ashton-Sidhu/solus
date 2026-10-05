@@ -15,8 +15,8 @@ export interface AutomationTemplate {
   /** Agent configuration to use instead of the launchpad defaults. */
   agentProvider?: AgentId
   modelId?: string
-  /** Seed this one in Scratchpad instead of the current project — its scope is
-   *  the machine, not a repo, so a project cwd would only mislead. */
+  /** Seed this one as a chat, with no project — its scope is the machine, not
+   *  a repo, so a project cwd would only mislead. */
   runsInWorkspace?: boolean
   trigger: AutomationTrigger
 }

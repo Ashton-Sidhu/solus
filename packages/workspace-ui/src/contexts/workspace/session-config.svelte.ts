@@ -2,6 +2,8 @@ import type { AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, Rea
 import type { Via } from '@solus/contracts/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import type { ModelOptions } from '@solus/contracts/settings'
+import { restoredModelConfig } from './model-options'
 import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
@@ -30,24 +32,23 @@ interface RunOwner {
 }
 
 /**
- * The model settings a patch produces. Naming a different model resets the three
- * values that belong to a model rather than to the composer: each model carries
- * its own window and effort, and keeping the outgoing model's would run the new
- * one against limits it never agreed to. Every other patch edits one field.
+ * A different model restores its saved options when its current profile permits
+ * them, otherwise its defaults. Options from the outgoing model never carry over.
  */
 function nextModelConfig(
   current: ModelConfig,
   patch: Partial<ModelConfig>,
   provider: AgentId,
+  remembered?: ModelOptions,
 ): ModelConfig {
-  const modelId = patch.modelId ?? null
-  if ('modelId' in patch && modelId !== current.modelId) {
-    const profile = MODEL_PROFILES[provider]?.[modelId ?? '']
+  if ('modelId' in patch && patch.modelId !== current.modelId) {
+    const defaults = restoredModelConfig(provider, patch.modelId ?? null, remembered)
     return {
-      modelId,
-      reasoningEffort: patch.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high',
-      contextWindow: patch.contextWindow ?? profile?.defaultContextWindow ?? null,
-      fastMode: patch.fastMode ?? (profile?.supportsFastMode ? current.fastMode : false),
+      ...defaults,
+      reasoningEffort: patch.reasoningEffort ?? defaults.reasoningEffort,
+      contextWindow: patch.contextWindow !== undefined ? patch.contextWindow : defaults.contextWindow,
+      fastMode: !!MODEL_PROFILES[provider]?.[defaults.modelId ?? '']?.supportsFastMode
+        && (patch.fastMode ?? defaults.fastMode),
     }
   }
   return {
@@ -106,7 +107,7 @@ export class SessionConfigController {
         return deps.settings.defaultPermissionMode ?? 'full-access'
       },
       set permissionMode(mode: PermissionMode) {
-        deps.settings.update({ defaultPermissionMode: mode })
+        deps.settings.setPersonal('defaultPermissionMode', mode)
       },
       modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false } as ModelConfig,
     })
@@ -157,7 +158,7 @@ export class SessionConfigController {
     const i = TAB_GROUP_MODES.indexOf(this.tabGroupMode)
     const tabGroupMode = TAB_GROUP_MODES[(i + 1) % TAB_GROUP_MODES.length]
     this.tabGroupMode = tabGroupMode
-    this.deps.settings.update({ tabGroupMode })
+    this.deps.settings.setPersonal('tabGroupMode', tabGroupMode)
   }
 
   /**
@@ -174,12 +175,36 @@ export class SessionConfigController {
     const draft = session || !tabId ? undefined : this.deps.draftFor(tabId)
     const current = session?.run.modelConfig ?? draft?.run.modelConfig ?? this.globalDefaults.modelConfig
     const provider = session?.run.provider ?? draft?.run.provider ?? this.deps.settings.activeAgent
-    const next = nextModelConfig(current, patch, provider)
+    const next = this.configureModel(current, patch, provider)
 
     // A draft owns its run, so it is handed a new one rather than edited in
     // place — the same write the model chip's detached selection makes.
     if (draft) draft.run = { ...draft.run, modelConfig: next }
     else Object.assign(current, next)
+  }
+
+  /** Resolve a picker or keyboard choice and persist its concrete model options. */
+  configureModel(current: ModelConfig, patch: Partial<ModelConfig>, provider: AgentId): ModelConfig {
+    const modelId = 'modelId' in patch ? patch.modelId : current.modelId
+    const remembered = provider && modelId ? this.deps.settings.modelOptionsByProvider[provider]?.[modelId] : undefined
+    const next = nextModelConfig(current, patch, provider, remembered)
+
+    if (provider && next.modelId && next.modelId !== AUTO_MODEL_ID) {
+      const { reasoningEffort, contextWindow, fastMode } = next
+      const options = $state.snapshot(this.deps.settings.modelOptionsByProvider)
+      this.deps.settings.setPersonal('modelOptionsByProvider', {
+        ...options,
+        [provider]: { ...options[provider], [next.modelId]: { reasoningEffort, contextWindow, fastMode } },
+      })
+    }
+
+    return next
+  }
+
+  /** Restore supported options for a model without changing the saved preference. */
+  modelConfigFor(provider: AgentId, modelId: string | null): ModelConfig {
+    return restoredModelConfig(provider, modelId, modelId
+      ? this.deps.settings.modelOptionsByProvider[provider]?.[modelId] : undefined)
   }
 
   /** The agent new sessions start on. It is a preference, so it never rewrites
@@ -188,7 +213,7 @@ export class SessionConfigController {
   setDefaultAgent(agentId: AgentId, via: Via = 'click'): void {
     if (this.deps.settings.activeAgent === agentId) return
     track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
-    this.deps.settings.update({ activeAgent: agentId })
+    this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     this.deps.setPluginCommands({ global: [], project: [] })
     this.deps.refreshPluginCommands(this.deps.defaultRunConfig().workingDirectory)
@@ -200,7 +225,7 @@ export class SessionConfigController {
    *  provider glyph with a Codex model (or the reverse). */
   followActiveSessionAgent(agentId: AgentId): void {
     if (this.deps.settings.activeAgent === agentId) return
-    this.deps.settings.update({ activeAgent: agentId })
+    this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
   }
 
@@ -234,7 +259,13 @@ export class SessionConfigController {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (this.handoffInProgress) return
     if (session) {
-      if (session.run.provider === agentId) return
+      if (session.run.provider === agentId && !session.outboundPrompts?.some((prompt) => prompt.kind === 'provider_switch')) return
+      if (agentId !== 'opencode' && (session.agentSessionId || session.handoffId || session.status === 'connecting' || session.status === 'running')) {
+        try {
+          await this.deps.apiFor(targetTabId).sessionQueueChange(this.deps.ctx(targetTabId), { kind: 'switch', provider: agentId, modelConfig: this.pinnedModelConfigFor(agentId) })
+        } catch (error) { this.handoffFailed(error instanceof Error ? error.message : String(error)) }
+        return
+      }
       if (session.status === 'connecting' || session.status === 'running') return
     }
 
@@ -246,7 +277,7 @@ export class SessionConfigController {
     if (!session?.agentSessionId && !session?.handoffId) {
       const newModelConfig = this.defaultModelConfigFor(agentId)
       track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
-      this.deps.settings.update({ activeAgent: agentId })
+      this.deps.settings.setPersonal('activeAgent', agentId)
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
       if (!session) {
@@ -289,7 +320,7 @@ export class SessionConfigController {
   adoptHandoff(session: Session, agentId: AgentId, result: SessionProviderSwitchResult, targetTabId: string, via: Via = 'click'): void {
     const newModelConfig = this.pinnedModelConfigFor(agentId)
     track('agent_switched', { from: result.fromProvider, to: agentId, via })
-    this.deps.settings.update({ activeAgent: agentId })
+    this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = newModelConfig
     this.deps.setPluginCommands({ global: [], project: [] })
     session.run.provider = agentId
@@ -564,7 +595,7 @@ export class SessionConfigController {
   /** Pin the model new sessions start on for one agent. Stored per agent, so the
    *  choice survives switching the default agent away and back. */
   setDefaultModel(agentId: AgentId, modelId: string): void {
-    this.deps.settings.update({ defaultModels: { ...this.deps.settings.defaultModels, [agentId]: modelId } })
+    this.deps.settings.setPersonal('defaultModels', { ...$state.snapshot(this.deps.settings.defaultModels), [agentId]: modelId })
     if (agentId === this.deps.settings.activeAgent) {
       this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     }
@@ -587,17 +618,10 @@ export class SessionConfigController {
     const profiles = MODEL_PROFILES[agentId]
     if (!profiles) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
     const chosenId = this.deps.settings.defaultModels[agentId]
-    const defaultEntry =
-      (chosenId && profiles[chosenId] ? [chosenId, profiles[chosenId]] : null) ??
-      Object.entries(profiles).find(([, profile]) => profile.isDefault)
-    if (!defaultEntry) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
-    const [modelId, profile] = defaultEntry
-    return {
-      modelId,
-      reasoningEffort: profile.defaultReasoningEffort,
-      contextWindow: profile.defaultContextWindow ?? null,
-      fastMode: false,
-    }
+    const modelId = chosenId && profiles[chosenId]
+      ? chosenId : Object.keys(profiles).find((id) => profiles[id].isDefault)
+    if (!modelId) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
+    return this.modelConfigFor(agentId, modelId)
   }
 
   defaultReasoningEffortFor(agentId: AgentId, modelId: string | null): ReasoningEffort {

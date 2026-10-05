@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
-  import { runtime } from "@solus/workspace-ui/contexts";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
   let isDark = $state(document.documentElement.classList.contains("dark"));
@@ -20,7 +19,7 @@
 
 <Toaster
   theme={isDark ? "dark" : "light"}
-  position={runtime.isMobileViewport ? "top-center" : "top-right"}
+  position="top-right"
   offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={3}
   duration={6000}

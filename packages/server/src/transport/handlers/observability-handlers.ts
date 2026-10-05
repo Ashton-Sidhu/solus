@@ -1,4 +1,5 @@
 import { TextGenerator } from '../../execution/agents/text-generator'
+import { contextPreferences } from '../../execution/agents/run-input'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { productionLogFilePath } from '../../logger'
 import { metricsSchema } from '../../data/insights/field-registry'
@@ -100,6 +101,7 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
         cwd,
         prompt,
         systemPrompt: nlCompileSystemPrompt(),
+        executionPreferences: contextPreferences(ctx),
         service: SPAN_SERVICES.insights,
         disableReasoning: true,
         unattended: true,

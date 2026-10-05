@@ -13,3 +13,14 @@ export class HostRpcError extends Error {
 export function rpcErrorCode(error: Error): string | undefined {
   return error instanceof HostRpcError ? error.code : undefined
 }
+
+/** The transport dropped or refused a call before a host answered it. A send
+ *  that fails this way may be retried with the same id. */
+export class TransportDisconnectedError extends Error {
+  code = 'TRANSPORT_DISCONNECTED'
+
+  constructor() {
+    super('disconnected')
+    this.name = 'TransportDisconnectedError'
+  }
+}

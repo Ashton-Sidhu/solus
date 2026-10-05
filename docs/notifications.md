@@ -19,16 +19,16 @@ Notifications states it once per group, so each row is only a channel:
 |---|---|---|
 | Toast | In front | An in-app toast with **Open session** |
 | Sound | Background | Plays `resources/notification.mp3` |
-| System alert | Background | An OS notification (desktop), a browser notification (web), or a web push to a device that is away |
+| System alert | Background | An OS notification (desktop) or a browser notification (web) |
 
 "In front" is `document.visibilityState === 'visible' && document.hasFocus()`
 (`isSolusInFront` in the store). The sound additionally asks the shell
 whether the window is visible, which is how a window hidden to the tray counts
 as the background.
 
-On web and mobile, the system-alert switch also owns the web-push subscription:
-on subscribes this device, off unsubscribes it. The switch is a host setting
-that every client shares, but the browser grant is per device. When the switch
+On web, the open Solus tab shows the system alert. The browser shows it only
+while a Solus tab is open; when no tab is open, no alert comes. The switch is a
+host setting that every client shares, but the browser grant is per device. When the switch
 is on and this browser has not answered, the row offers Allow; when the browser
 has blocked notifications, the row says so. Turning the switch on asks too.
 Settings is the only place to change it; the input bar has no notifications

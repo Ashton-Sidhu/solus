@@ -19,12 +19,10 @@
   } from "../../contexts";
   import {
     cycledModelId,
-    modelConfigForModel,
     nextPermissionMode,
   } from "../../contexts/workspace/run-config";
   import {
     defaultModelIdFor,
-    clampReasoningEffort,
   } from "../pickers/lib/picker-selection";
   import { track } from "../../lib/analytics";
   import type {
@@ -63,6 +61,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { useComposerFold } from "./lib/composer-fold.svelte";
+  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/session-drive";
 
   import type { Snippet } from "svelte";
 
@@ -206,7 +205,11 @@
   const activeProvider = $derived(run?.provider ?? theme.activeAgent);
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
-  const readOnlyReason = $derived(suppliedReadOnlyReason ?? sess?.readOnlyReason ?? null);
+  const readOnlyReason = $derived(
+    suppliedReadOnlyReason ??
+      sess?.readOnlyReason ??
+      (sess && !canDriveSession(sess.run.serverId, sess.id) ? VIEW_ONLY_REASON : null),
+  );
   const isReadOnly = $derived(!!readOnlyReason);
   // Model and permission-mode shortcuts belong to the composer, not to a tab
   // resolved from global focus: the focused pane's bar edits the run it is
@@ -385,7 +388,8 @@
   // do", and with an empty composer during a turn that is stopping it — the
   // instant anything is typed the button is a Send (or a Steer) again, so
   // nothing is taken away.
-  const stopsRun = $derived(isTouch && !hasKeyboard && isBusy && !hasContent);
+  // A read-only bar offers no way to act on the run, stopping it included.
+  const stopsRun = $derived(!isReadOnly && isTouch && !hasKeyboard && isBusy && !hasContent);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {
@@ -504,13 +508,13 @@
   // exactly as `setPermissionMode` does; a draft's belongs to the draft, so it
   // goes back through `onRun` rather than through this bar's prop.
   function cycleModel() {
-    if (!run || isBusy) return;
+    if (!run) return;
     const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
     const models = metadata?.models;
     if (!models || models.length === 0) return;
     const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null);
     if (!nextModelId) return;
-    const nextConfig = modelConfigForModel(run, nextModelId);
+    const nextConfig = session.config.configureModel(run.modelConfig, { modelId: nextModelId }, run.provider ?? theme.activeAgent);
     if (onRun) onRun({ ...run, modelConfig: { ...run.modelConfig, ...nextConfig } });
     else Object.assign(run.modelConfig, nextConfig);
     track("model_changed", { via: "keybinding" });
@@ -528,7 +532,7 @@
   // draft has none, so it rewrites its run and takes the new agent's default
   // model — the same two branches the chip's agent row runs.
   function cycleAgent() {
-    if (!run || isBusy) return;
+    if (!run) return;
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -543,15 +547,7 @@
       onRun?.({
         ...run,
         provider: next.id,
-        modelConfig: {
-          ...run.modelConfig,
-          modelId,
-          reasoningEffort: clampReasoningEffort(
-            next.id,
-            modelId,
-            run.modelConfig.reasoningEffort,
-          ),
-        },
+        modelConfig: session.config.modelConfigFor(next.id, modelId),
       });
     }
     refocusComposer();

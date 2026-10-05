@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { untrack } from "svelte";
-  import type { HostApi } from "@solus/client-core/host-api";
   import type { AgentTaskLifecyclePolicy } from "@solus/contracts/types";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -15,46 +13,23 @@
   } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
-  import { connectionsStore, getAgentContext, getSettingsContext } from "../../contexts";
+  import { getAgentContext, getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { taskLeadSettingsStore } from "./task-lead-settings.store.svelte";
   import {
     leadModelAgents,
     leadModelFor,
     pickerFromLeadModel,
   } from "./lib/task-lead-models";
-  import type { LeadModelSelection } from "@solus/contracts/host-config";
+  import type { LeadModelSelection } from "@solus/contracts/settings";
 
   interface Props {
     searchQuery?: string;
-    serverId: string;
-    api: HostApi;
-    hostLabel: string;
   }
 
-  let { searchQuery = "", serverId, api, hostLabel }: Props = $props();
+  let { searchQuery = "" }: Props = $props();
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
-
-  $effect(() => {
-    const targetServerId = serverId;
-    const targetApi = api;
-    untrack(() => {
-      void connectionsStore.refreshCapabilities({
-        serverId: targetServerId,
-        api: targetApi,
-      });
-    });
-  });
-
-  $effect(() => {
-    const hostId = serverId;
-    return untrack(() => taskLeadSettingsStore.watch(hostId));
-  });
-
-  const leadState = $derived(taskLeadSettingsStore.states.get(serverId));
-  const leadSettings = $derived(leadState?.settings ?? null);
   const agents = $derived(leadModelAgents(agentContext.metadata));
 
   // ─── Task behavior ───
@@ -68,19 +43,13 @@
     { value: "autonomous", label: "Autonomous" },
   ];
 
-  const taskLifecyclePolicy = $derived(
-    connectionsStore.capabilitiesFor(serverId)?.agentTaskLifecyclePolicy,
-  );
   const taskLifecyclePolicyLabel = $derived(
-    taskLifecyclePolicies.find((option) => option.value === taskLifecyclePolicy)
-      ?.label ?? "Unavailable",
+    taskLifecyclePolicies.find((option) => option.value === theme.agentTaskLifecyclePolicy)
+      ?.label ?? theme.agentTaskLifecyclePolicy,
   );
 
-  async function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
-    await connectionsStore.setAgentTaskLifecyclePolicy(value, {
-      serverId,
-      api,
-    });
+  function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
+    theme.setPersonal("agentTaskLifecyclePolicy", value);
     requestInputFocus();
   }
 
@@ -88,7 +57,7 @@
     const days = Number.isFinite(value)
       ? Math.max(1, Math.min(365, Math.floor(value)))
       : theme.sidebarCompletedRetentionDays;
-    theme.update({ sidebarCompletedRetentionDays: days });
+    theme.setPersonal("sidebarCompletedRetentionDays", days);
   }
 
   // ─── Lead session ───
@@ -115,41 +84,37 @@
   });
 
   $effect(() => {
-    const workerModel = leadSettings?.workerModel;
+    const workerModel = theme.workerModel;
     workerPickerSelection = workerModel ? pickerFromLeadModel(workerModel) : null;
   });
 
   function setLeadModelEnabled(enabled: boolean) {
-    theme.update({ leadModel: enabled ? initialModel() : null });
+    theme.setPersonal("leadModel", enabled ? initialModel() : null);
   }
 
   function selectLeadModel(selection: PickerSelection) {
     const leadModel = leadModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
-    if (leadModel) theme.update({ leadModel });
+    if (leadModel) theme.setPersonal("leadModel", leadModel);
   }
 
   function setWorkerModelEnabled(enabled: boolean) {
-    void taskLeadSettingsStore.save(serverId, {
-      workerModel: enabled ? initialModel() : null,
-    });
+    theme.setPersonal("workerModel", enabled ? initialModel() : null);
   }
 
   function selectWorkerModel(selection: PickerSelection) {
     const workerModel = leadModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
-    if (workerModel) void taskLeadSettingsStore.save(serverId, { workerModel });
+    if (workerModel) theme.setPersonal("workerModel", workerModel);
   }
 
-  // Saved on blur, not per keystroke: the host may be across a network.
+  // Saved on blur, not per keystroke: a synced profile sends after a pause anyway.
   let leadInstructionsDraft = $state("");
   $effect(() => {
-    leadInstructionsDraft = leadSettings?.leadInstructions ?? "";
+    leadInstructionsDraft = theme.leadInstructions;
   });
 
   function commitLeadInstructions() {
-    if (leadSettings && leadInstructionsDraft !== leadSettings.leadInstructions) {
-      void taskLeadSettingsStore.save(serverId, {
-        leadInstructions: leadInstructionsDraft,
-      });
+    if (leadInstructionsDraft !== theme.leadInstructions) {
+      theme.setPersonal("leadInstructions", leadInstructionsDraft);
     }
     requestInputFocus();
   }
@@ -218,8 +183,6 @@
               size="sm"
               aria-label="Task lifecycle control"
               class="min-w-28 justify-between text-xs font-normal shadow-xs"
-              disabled={taskLifecyclePolicy === undefined ||
-                connectionsStore.agentTaskLifecyclePolicyUpdating}
             >
               <span>{taskLifecyclePolicyLabel}</span>
               <CaretDownIcon size={11} style="opacity:0.6" />
@@ -232,7 +195,7 @@
           sideOffset={6}
           class="w-[160px]"
         >
-          <DropdownMenu.RadioGroup value={taskLifecyclePolicy}>
+          <DropdownMenu.RadioGroup value={theme.agentTaskLifecyclePolicy}>
             {#each taskLifecyclePolicies as option (option.value)}
               <DropdownMenu.RadioItem
                 value={option.value}
@@ -245,14 +208,6 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {/snippet}
-    {#if taskLifecyclePolicy === undefined}
-      {#snippet body()}
-        <p class="text-xs text-muted-foreground">
-          This host does not expose task lifecycle controls. Reconnect it after
-          updating Solus.
-        </p>
-      {/snippet}
-    {/if}
   </SettingsRow>
 
   <SettingsRow
@@ -262,7 +217,7 @@
   >
     {#snippet control()}
       <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs"
+        class="flex h-7 items-center overflow-hidden rounded-md border border-input bg-white shadow-xs/5 dark:bg-input/30"
       >
         <button
           type="button"
@@ -343,7 +298,6 @@
     label="Default worker model"
     description="Model and reasoning the lead gives a worker when your instructions name none. Off lets the lead choose."
     visible={isVisible("worker-model")}
-    disabled={!leadSettings}
   >
     {#snippet control()}
       <div class="flex items-center justify-end gap-2">
@@ -355,14 +309,12 @@
             menuSide="bottom"
             ariaLabel="Default worker model and reasoning"
             returnFocusOnClose
-            disabled={leadState?.saving}
             class="w-full @min-[30rem]/pane:w-56"
             onSelectionChange={selectWorkerModel}
           />
         {/if}
         <Switch
-          checked={!!leadSettings?.workerModel}
-          disabled={!leadSettings || leadState?.saving}
+          checked={!!theme.workerModel}
           onCheckedChange={setWorkerModelEnabled}
           aria-label="Use a default worker model"
         />
@@ -372,35 +324,21 @@
 
   <SettingsRow
     label="Lead instructions"
-    description="Added after the built-in lead rules on {hostLabel}. Say how to route work to agents and models."
+    description="Added after the built-in lead rules on every host. Say how to route work to agents and models."
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}
-      {#if leadSettings}
-        <PlainTextEditor
-          value={leadInstructionsDraft}
-          onValueChange={(text) => (leadInstructionsDraft = text)}
-          onBlur={commitLeadInstructions}
-          enterInsertsNewline
-          hidePlaceholderOnFocus
-          maxHeight={220}
-          dictation
-          placeholder="Send frontend work to Claude Opus and backend work to Codex. Ask before you start more than three workers."
-          class="rounded-lg border border-border bg-background px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
-        />
-      {/if}
-      {#if leadState?.error}
-        <div class="flex items-center gap-2 text-workspace-chrome" role="status">
-          <span class="text-destructive">{leadState.error}</span>
-          <button
-            type="button"
-            class="underline"
-            onclick={() => taskLeadSettingsStore.load(serverId)}>Retry</button
-          >
-        </div>
-      {:else if !leadSettings}
-        <p class="text-xs text-muted-foreground">Loading…</p>
-      {/if}
+      <PlainTextEditor
+        value={leadInstructionsDraft}
+        onValueChange={(text) => (leadInstructionsDraft = text)}
+        onBlur={commitLeadInstructions}
+        enterInsertsNewline
+        hidePlaceholderOnFocus
+        maxHeight={220}
+        dictation
+        placeholder="Send frontend work to Claude Opus and backend work to Codex. Ask before you start more than three workers."
+        class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
+      />
     {/snippet}
   </SettingsRow>
 </SettingsSection>

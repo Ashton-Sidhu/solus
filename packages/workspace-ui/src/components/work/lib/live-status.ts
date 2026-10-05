@@ -29,5 +29,5 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
   if (input.lock) return { label: input.lock.by?.kind === 'agent' ? 'Agent is editing' : 'Updating…', tone: 'busy' }
   if (input.mode === 'read') return { label: input.readReason === 'schema' ? 'Read-only · update Solus to edit' : 'Read-only', tone: 'ok' }
   if (input.unsent > 0) return { label: 'Saving…', tone: 'busy' }
-  return { label: 'Live', tone: 'ok' }
+  return { label: 'Saved', tone: 'ok' }
 }

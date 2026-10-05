@@ -6,11 +6,13 @@ import { Server, type Socket } from 'socket.io'
 import type { CallerCtx, RpcInvocationArgs, RpcInvocationResult, SolusServer } from './server'
 import type { ClientEventRegistry } from './events/client-event-registry'
 import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
+import type { DeviceFrameChannel } from '../devices/device-frame-channel'
 import { consumeWsTicket } from '../admission/auth'
 import { RpcAccessError } from '../admission/access-policy'
 import { PlaneDisabledError } from '../host/roles'
 import { GithubConnectionRequiredError } from '../providers/github/connection-required'
 import { WorkingTreeBusyError } from '../execution/sessions/working-tree-busy'
+import { RequestNotAnswerableError } from '../execution/sessions/pending-input'
 import { WorkMovedError } from '../data/works/work'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
@@ -93,6 +95,9 @@ export function attachWebSocketTransport(
      *  alongside the host-event one, so streamed JPEG frames reach the same
      *  sockets host events do — just as raw binary frames rather than JSON. */
     browserFrames?: BrowserFrameChannel
+    /** The binary device-video side channel (docs/plans/native-devices.md, D2).
+     *  Same sockets as host events; H.264 and JPEG packets ride as binary. */
+    deviceFrames?: DeviceFrameChannel
     requireAuth?: boolean | (() => boolean)
     /** Requester addresses allowed past a require-auth bind without a token
      *  (the machine itself, the host's own tailnet). Untrusted when absent. */
@@ -152,6 +157,8 @@ export function attachWebSocketTransport(
   const clientSocketCounts = new Map<string, number>()
   const eventUnregisters = new Map<string, () => void>()
   const frameUnregisters = new Map<string, () => void>()
+  const deviceFrameUnregisters = new Map<string, () => void>()
+  const deviceFramesUnwritten = new Map<string, number>()
   const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let closing = false
 
@@ -237,6 +244,20 @@ export function attachWebSocketTransport(
       }))
     }
 
+    if (previousCount === 0 && opts.deviceFrames && !deviceFrameUnregisters.has(clientId)) {
+      deviceFrameUnregisters.set(clientId, opts.deviceFrames.register(clientId, {
+        send: (header, data) => {
+          deviceFramesUnwritten.set(clientId, (deviceFramesUnwritten.get(clientId) ?? 0) + 1)
+          io.to(room).emit('device-frame', header, data)
+        },
+        // Packets sent since the client's socket last drained its write
+        // buffer: the device link skips video for a congested client until
+        // the next keyframe.
+        buffered: () => deviceFramesUnwritten.get(clientId) ?? 0,
+      }))
+    }
+    socket.conn.on('drain', () => { deviceFramesUnwritten.set(clientId, 0) })
+
     const id = randomBytes(8).toString('hex')
     const session: ClientSession = { id, clientId, socket, deviceId, deviceLabel, principal, connectedAt: Date.now() }
     sessions.set(id, session)
@@ -285,6 +306,9 @@ export function attachWebSocketTransport(
           eventUnregisters.delete(clientId)
           frameUnregisters.get(clientId)?.()
           frameUnregisters.delete(clientId)
+          deviceFrameUnregisters.get(clientId)?.()
+          deviceFrameUnregisters.delete(clientId)
+          deviceFramesUnwritten.delete(clientId)
           responseCaches.get(clientId)?.close()
           responseCaches.delete(clientId)
           opts.onClientExpired?.({ clientId, deviceId })
@@ -337,6 +361,8 @@ export function attachWebSocketTransport(
       eventUnregisters.clear()
       for (const unregister of frameUnregisters.values()) unregister()
       frameUnregisters.clear()
+      for (const unregister of deviceFrameUnregisters.values()) unregister()
+      deviceFrameUnregisters.clear()
       for (const cache of responseCaches.values()) cache.close()
       responseCaches.clear()
       clientSocketCounts.clear()
@@ -397,6 +423,8 @@ function getCachedResponse(
       if (err instanceof WorkingTreeBusyError) return { error: { message: err.message, code: err.code } }
       // A shared work: the client asks the host that has it now (cloud-sharing.md §3a).
       if (err instanceof WorkMovedError) return { error: { message: err.message, code: err.code } }
+      // A permission or question the host no longer holds: the client closes the card.
+      if (err instanceof RequestNotAnswerableError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

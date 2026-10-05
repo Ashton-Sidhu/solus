@@ -22,6 +22,34 @@
       "when": 1790865179478,
       "tag": "0002_work_location",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791000696570,
+      "tag": "0003_notifications_hub",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791003208207,
+      "tag": "0004_notifications_hub_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791076353822,
+      "tag": "0005_task_lead_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791083309796,
+      "tag": "0006_session_execution_preferences",
+      "breakpoints": true
     }
   ]
 }

@@ -5,24 +5,26 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
-import { guestBoot } from './lib/guest-boot.svelte'
+import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import { memberLinkFor } from './lib/guest-member'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
 import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
-import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
+import { pairServer } from '@solus/client-core/pairing'
+import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptCloudOriginIfPresent } from '@solus/client-core/uplink-account'
-import { startupAccountRead } from '@solus/client-core/cloud-account'
+import { cookieCloudAccount, startupAccountRead } from '@solus/client-core/cloud-account'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
 import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation, probeServer } from './lib/connect'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
 import { webState } from './lib/web-state.svelte'
-import { webPushState } from './lib/web-push.svelte'
+import { registerServiceWorker } from './lib/service-worker'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
-import { routeForPushClick, serverIdForInstallation, type PushClickPayload } from './lib/push-click'
 import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
@@ -31,9 +33,6 @@ import { z } from 'zod'
 const serviceWorkerMessageSchema = z.object({
   type: z.string().optional(),
   route: z.string().nullable().optional(),
-  sessionId: z.string().nullable().optional(),
-  installationId: z.string().nullable().optional(),
-  entryKey: z.string().nullable().optional(),
 })
 
 window.addEventListener('unhandledrejection', (event) => {
@@ -59,17 +58,11 @@ let pendingNotificationRoute = consumeColdNotificationRoute()
 
 function consumeColdNotificationRoute(): string | null {
   const url = new URL(location.href)
-  const payload: PushClickPayload = {
-    sessionId: url.searchParams.get('notificationSessionId'),
-    installationId: url.searchParams.get('notificationInstallationId'),
-    route: url.searchParams.get('notificationRoute'),
-  }
-  if (!payload.sessionId && !payload.route) return null
-  url.searchParams.delete('notificationSessionId')
-  url.searchParams.delete('notificationInstallationId')
+  const route = url.searchParams.get('notificationRoute')
+  if (!route) return null
   url.searchParams.delete('notificationRoute')
   history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
-  return routeForPushClick(payload, loadServers())
+  return route
 }
 
 const root = document.getElementById('root')!
@@ -96,22 +89,12 @@ function loadWorkspaceApp(): Promise<typeof import('./App.svelte')> {
 function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
   serviceWorkerBridgeInstalled = true
+  registerServiceWorker()
   navigator.serviceWorker.addEventListener('message', (event) => {
     const parsed = serviceWorkerMessageSchema.safeParse(event.data)
     if (!parsed.success) return
-    const data = parsed.data
-    if (data?.type === 'solus:push-received') {
-      const serverId = serverIdForInstallation(data.installationId, loadServers())
-      if (serverId && data.entryKey) {
-        window.dispatchEvent(new CustomEvent('solus:push-received', {
-          detail: { serverId, entryKey: data.entryKey },
-        }))
-      }
-      return
-    }
-    if (data?.type !== 'solus:notification-click') return
-    const route = routeForPushClick(data, loadServers())
-    if (!route) return
+    const { type, route } = parsed.data
+    if (type !== 'solus:notification-click' || !route) return
     window.focus()
     if (solusApp) window.dispatchEvent(new CustomEvent('solus:open-route', { detail: route }))
     else history.replaceState(null, '', route.replace(/^#/, ''))
@@ -144,7 +127,6 @@ async function connectToServer(
   installWindowSolusApi(api)
   serverConnections.registerPrimary(target.id, api, transport, target)
   activeTransport = transport
-  webPushState.init()
   installServiceWorkerMessageBridge()
   transport.start()
   void prefetchStartupTranscript()
@@ -309,11 +291,18 @@ function loadGuestApp(): Promise<typeof import('./GuestApp.svelte')> {
 async function bootGuest(link: GuestLink): Promise<void> {
   guestBoot.link = link
   guestBoot.displayName = loadGuestIdentity()?.displayName ?? ''
-  const { default: GuestLanding } = await import('./routes/GuestLanding.svelte')
+  // A visitor signed in to Solus is not asked who they are: the account server
+  // mints the grant for their account, and the host names them from it.
+  const [{ default: GuestLanding }, profile] = await Promise.all([
+    import('./routes/GuestLanding.svelte'),
+    cookieCloudAccount(location.origin).readProfile(),
+  ])
+  if (profile) guestBoot.signedInAs = profile.name || profile.email
   const landing = mount(GuestLanding, {
     target: root,
     props: { onContinue: (displayName: string) => void connectGuest(link, displayName, () => void unmount(landing)) },
   })
+  if (guestBoot.signedInAs) void connectGuest(link, guestBoot.signedInAs, () => void unmount(landing))
 }
 
 async function connectGuest(link: GuestLink, displayName: string, onShellMounted: () => void): Promise<void> {
@@ -367,13 +356,21 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   try {
     const info = await api.connectionsGetServerInfo()
     if (generation !== connectionGeneration) return
-    if (info.principal !== 'guest' || !info.share || !isGuestLinkResource(info.share.resource) || info.share.resource.kind !== link.resource.kind || info.share.resource.id !== link.resource.id) {
+    const share = linkShare(info, link)
+    if (!share) {
       guestBoot.fail('This link does not match the shared resource.')
       return
     }
     guestBoot.serverId = serverId
     guestBoot.accountUserId = info.userId ?? null
-    const share = { resource: info.share.resource, role: info.share.role }
+    // A member with at least the link's role opens it as themselves, not as a guest.
+    const memberLink = await memberLinkFor(share, info, location.origin)
+    if (generation !== connectionGeneration) return
+    if (memberLink) {
+      transport.destroy()
+      location.replace(memberLink)
+      return
+    }
     guestBoot.share = share
     guestBoot.displayName = info.displayName ?? displayName
     const { default: GuestApp } = await loadGuestApp()
@@ -386,6 +383,13 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
     else guestBoot.fail(error instanceof Error ? error.message : 'The cloud workspace did not answer')
   }
+}
+
+/** The share the host admitted this guest to, when it is the one the link names. */
+function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | null {
+  const resource = info.share?.resource
+  if (info.principal !== 'guest' || !info.share || !resource || !isGuestLinkResource(resource)) return null
+  return resource.kind === link.resource.kind && resource.id === link.resource.id ? { resource, role: info.share.role } : null
 }
 
 const bootPairToken = pairTokenFromLocation(location.href)

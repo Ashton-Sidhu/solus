@@ -25,7 +25,7 @@
   <nav class="drill-crumbs" aria-label="Diagram breadcrumb">
     <button
       type="button"
-      class="diagram-shell__crumb"
+      class="diagram-shell__crumb pointer-coarse:min-h-11"
       onclick={() => onNavigate(0)}
       title={rootTitle ?? `Back to ${rootLabel}`}
     >
@@ -34,7 +34,7 @@
     {#each path as crumb, i (crumb.id ?? i)}
       <span class="diagram-shell__crumb-sep" aria-hidden="true">›</span>
       {#if i === path.length - 1}
-        <span class="diagram-shell__crumb diagram-shell__crumb--current" aria-current="page">
+        <span class="diagram-shell__crumb diagram-shell__crumb--current" title={crumb.label} aria-current="page">
           {crumb.label}
         </span>
         <!-- Says what kind of level you are standing on, so a nested graph never
@@ -43,7 +43,7 @@
       {:else}
         <button
           type="button"
-          class="diagram-shell__crumb"
+          class="diagram-shell__crumb pointer-coarse:min-h-11"
           onclick={() => onNavigate(i + 1)}
           title="Back to {crumb.label}"
         >

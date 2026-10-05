@@ -8,7 +8,8 @@
     Link2 as LinkSimpleIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { defaultDeviceLabel, urlHost } from "@solus/client-core/pairing";
+  import { urlHost } from "@solus/client-core/pairing";
+  import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { preferredRouteUrl } from "@solus/client-core/server-connection";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import {

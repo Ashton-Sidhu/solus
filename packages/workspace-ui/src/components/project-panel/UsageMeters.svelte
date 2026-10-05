@@ -61,9 +61,9 @@
             <CodeIcon size={16} />
           {/if}
         </span>
-        <span class="min-w-0 flex-1 truncate font-medium">{row.label}</span>
+        <span class="min-w-0 flex-1 truncate">{row.label}</span>
         {#if row.status}
-          <span class="shrink-0 text-xs text-(--solus-text-tertiary)">
+          <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">
             {row.status === "api" ? "API billing" : "Unavailable"}
           </span>
         {/if}
@@ -74,7 +74,7 @@
           <div class="flex flex-col gap-[0.1875rem]">
             <!-- The window and what's left of it read as one phrase; when it
                  refills is the qualifier, so it sits out at the right. -->
-            <div class="flex items-baseline gap-1.5 text-xs">
+            <div class="flex items-baseline gap-1.5 text-chrome-dense">
               <span class="shrink-0 text-(--solus-text-secondary)"
                 >{meter.label}</span
               >

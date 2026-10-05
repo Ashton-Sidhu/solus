@@ -1,13 +1,21 @@
 import { afterEach, beforeAll, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let createWorktree: typeof import('@solus/server/git/worktree-manager')['createWorktree']
 let renameWorktreeBranch: typeof import('@solus/server/git/worktree-manager')['renameWorktreeBranch']
-beforeAll(async () => { ({ createWorktree, renameWorktreeBranch } = await import('@solus/server/git/worktree-manager')) })
-import { generatedWorktreeBranchName, isTemporaryWorktreeBranch } from '@solus/server/git/worktree-branch-name'
+beforeAll(async () => {
+  // Branch naming reads host config. A disposable data dir keeps the live
+  // ~/.solus settings out of this test.
+  process.env.SOLUS_DATA_DIR = mkdtempSync(join(tmpdir(), 'solus-worktree-rename-data-'))
+  ;({ createWorktree, renameWorktreeBranch } = await import('@solus/server/git/worktree-manager'))
+})
+import { DEFAULT_WORKTREE_BRANCH_NAMING, generatedWorktreeBranchName, temporaryWorktreeBranchId } from '@solus/contracts/worktree-branch-naming'
+
+const defaultNamer = { naming: DEFAULT_WORKTREE_BRANCH_NAMING, user: null }
+const isTemporaryWorktreeBranch = (branch: string) => temporaryWorktreeBranchId(branch, defaultNamer) !== null
 import { git } from '@solus/server/git/exec'
 
 const directories: string[] = []
@@ -70,5 +78,18 @@ test('only a temporary branch or a name with words is used', () => {
   expect(isTemporaryWorktreeBranch('solus/0a1b2c3d')).toBe(true)
   expect(isTemporaryWorktreeBranch('solus/stable-session-reconnect')).toBe(false)
   expect(isTemporaryWorktreeBranch('main')).toBe(false)
-  expect(generatedWorktreeBranchName('???')).toBeNull()
+  expect(generatedWorktreeBranchName('???', defaultNamer, '0a1b2c3d')).toBeNull()
+})
+
+test('a project template without an id gets a suffix when its name is taken', async () => {
+  // WHY: a custom or static name is not always unique. A taken name must not
+  // fail worktree creation.
+  const directory = repository()
+  mkdirSync(join(directory, '.solus'))
+  writeFileSync(join(directory, '.solus', 'config.json'), JSON.stringify({
+    worktreeBranchNaming: { mode: 'custom', prefix: 'solus', template: '{prefix}/work' },
+  }))
+  git(['branch', 'solus/work'], directory)
+  const checkout = await createWorktree(directory, 'main')
+  expect(checkout.branch).toBe('solus/work-2')
 })

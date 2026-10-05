@@ -118,6 +118,7 @@
     restoreLabel="Back to split"
     {onClose}
     clearsWindowControls={fullScreen}
+    divided={false}
   />
 
   <div class="@container min-h-0 flex-1 overflow-y-auto px-6 select-text" data-sb>

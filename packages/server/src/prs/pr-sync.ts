@@ -1,5 +1,5 @@
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
-import type { PrInterest, PrSyncChange, PullRequest } from '@solus/contracts/providers'
+import type { PrInterest, PrSyncChange, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
@@ -113,6 +113,9 @@ export interface PrSyncDeps {
   isSessionBusy?: (sessionId: string) => boolean
   codeHost?: (projectScope: string) => Promise<CodeHost | null>
   now?: () => number
+  /** Every complete answer about the pull requests asking the viewer's attention,
+   *  as read: the notifications hub records what is new in it (plans/015 §5). */
+  observeNeedingAttention?: (repo: RepoRef, viewer: string, pullRequests: PullRequest[]) => Promise<void>
 }
 
 /**
@@ -403,8 +406,11 @@ export class PrSync {
     sync.needsReviewAt = this.now() + NEEDS_REVIEW_MS
     const { repo, provider } = sync.host
     const viewer = await provider.review.getViewer(repo)
-    const rows = attachReviewAttention(await prIndex.listNeedsReview(repo, provider, viewer), viewer)
-      .filter((pullRequest) => pullRequest.needsMyReview)
+    const answer = await prIndex.listNeedsReview(repo, provider, viewer)
+    await this.deps.observeNeedingAttention?.(repo, viewer, answer).catch((error) => {
+      log.warn('pr_sync_attention_observation_failed', { repo: repoKeyOf(repo), error: error instanceof Error ? error.message : String(error) })
+    })
+    const rows = attachReviewAttention(answer, viewer).filter((pullRequest) => pullRequest.needsMyReview)
     const known = new Set(observations.map(({ number }) => number))
     for (const row of rows) {
       if (known.has(row.number)) continue

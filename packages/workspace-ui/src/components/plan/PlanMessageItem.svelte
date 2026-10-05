@@ -61,7 +61,7 @@
       : "",
   );
   const documentMeta = $derived(
-    compactMeta(ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
+    compactMeta(ref.contentVersion ? `v${ref.contentVersion}` : "", ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
   );
   const planMeta = $derived(
     comments.length > 0
@@ -120,7 +120,7 @@
     {skipMotion}
   >
     {#snippet glyph()}<WorkflowIcon />{/snippet}
-    {#snippet rail()}{diagramSummary}{/snippet}
+    {#snippet rail()}{#if ref.contentVersion}v{ref.contentVersion}{#if diagramSummary} · {/if}{/if}{diagramSummary}{/snippet}
     {#snippet menu()}{@render taskLink()}{/snippet}
     {#snippet body()}
       {#if ref.content}

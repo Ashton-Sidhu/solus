@@ -17,8 +17,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 // docs/plans/organization-scope.md §7: a publication is the one recoverable
 // operation that moves a Local work or session into one organization on the
-// Solus API. It reserves the destination first, sends, waits for the service's
-// receipt, and only then commits the record's new state. A failure keeps the
+// Solus API. It reserves the destination first, sends, and commits the record's
+// new state when the delivery cycle that carried it reports the service's receipt. A failure keeps the
 // row and its story and the local copy; a second destination is refused while
 // one is on its way.
 
@@ -29,7 +29,6 @@ let transcriptMirrorModule: typeof import('@solus/server/sync/mirror/transcript-
 let outbox: typeof import('@solus/server/sync/outbox/outbox-store')
 let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
 let records: typeof import('@solus/server/data/sessions/session-records')
-let principal: typeof import('@solus/server/admission/principal')
 let dbModule: typeof import('@solus/server/db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -45,7 +44,6 @@ beforeAll(async () => {
   outbox = await import('@solus/server/sync/outbox/outbox-store')
   mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
   records = await import('@solus/server/data/sessions/session-records')
-  principal = await import('@solus/server/admission/principal')
   dbModule = await import('@solus/server/db')
   ;(await import('@solus/server/host/host-category')).resetHostCategoryForTests()
 })
@@ -118,7 +116,6 @@ interface Harness {
   coordinator: InstanceType<typeof publication.PublicationCoordinator>
   changes: Publication[]
   forgotten: Publication['resource'][]
-  turnRunning: Set<string>
   finished: (resource: Publication['resource']) => Promise<Publication>
   stop: () => Promise<void>
 }
@@ -146,25 +143,21 @@ async function harness(away = new Set<string>()): Promise<Harness> {
   const changes: Publication[] = []
   const forgotten: Publication['resource'][] = []
   const completions = new Map<string, (row: Publication) => void>()
-  const turnRunning = new Set<string>()
   const coordinator = new publication.PublicationCoordinator({
     delivery: runner,
     transcriptMirror,
     transcriptSource: (sessionId) => ({ provider: 'claude-code', projectPath: '-repo', agentSessionId: sessionId }),
-    isTurnRunning: (sessionId) => turnRunning.has(sessionId),
     hostId: () => HOST_ID,
     forgetResource: async (resource) => { forgotten.push(resource) },
     onChanged: (row) => {
       changes.push(row)
       if (row.state === 'committed' || row.state === 'failed') completions.get(row.resource.id)?.(row)
     },
-    waitMs: 3_000,
-    pollMs: 5,
   })
   // As boot-server does: every delivery pass picks up what is still on its way.
   const stopResuming = runner.onCycle(() => coordinator.resume())
   return {
-    cloud, runner, coordinator, changes, forgotten, turnRunning,
+    cloud, runner, coordinator, changes, forgotten,
     finished: (resource) => new Promise((resolve) => { completions.set(resource.id, resolve) }),
     stop: async () => {
       stopResuming()
@@ -217,14 +210,9 @@ describe('publishing a session', () => {
       const resource = { kind: 'session', id: 's-pub' } as const
       expect(h.coordinator.reservedOrganization(resource)).toBeNull()
 
-      // A turn is running: the publication waits for the boundary and reserves A meanwhile.
-      h.turnRunning.add('s-pub')
+      // The destination is reserved before anything is sent.
       await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
       expect(h.coordinator.reservedOrganization(resource)).toBe('A')
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      expect((await records.getSessionRecord(principal.ANY_ORGANIZATION, 's-pub'))).toMatchObject({ organizationId: 'A', publication: 'local' })
-      expect(h.cloud.reports).toEqual([])
-      h.turnRunning.delete('s-pub')
 
       const done = await settled(h, resource)
       expect(done.state).toBe('committed')

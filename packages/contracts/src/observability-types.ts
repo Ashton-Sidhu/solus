@@ -454,7 +454,8 @@ export interface MetricsTurnSummary {
 
 /** The marks a person can put on a turn. One per turn: a turn is one of these
  *  or unmarked, and a second mark replaces the first. */
-export type TurnFlagKind = 'good' | 'bad_answer' | 'too_slow' | 'expensive'
+export const TURN_FLAG_KINDS = ['good', 'bad_answer', 'too_slow', 'expensive'] as const
+export type TurnFlagKind = (typeof TURN_FLAG_KINDS)[number]
 
 /** A person's mark on a turn, kept in solus.db beside saved queries — durable
  *  user judgement, exempt from metrics.db rollover, host-local like the spans

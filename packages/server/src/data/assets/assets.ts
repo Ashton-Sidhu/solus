@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto'
 import { createReadStream, existsSync } from 'fs'
-import { mkdir, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
+import { chmod, copyFile, mkdir, open, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, extname, isAbsolute, join } from 'path'
 import { Readable } from 'stream'
 import { z } from 'zod'
@@ -32,11 +32,39 @@ const IMAGE_EXTENSION = new Map<string, string>([
   ['image/webp', 'webp'],
 ])
 
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+
+/** The raster image type that a file's first bytes name, or null. */
+function rasterImageMimeOf(bytes: Buffer): string | null {
+  if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
+  const gif = bytes.subarray(0, 6).toString('ascii')
+  if (gif === 'GIF87a' || gif === 'GIF89a') return 'image/gif'
+  if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp'
+  }
+  return null
+}
+
+/** The raster image type of a host file whose name has no media extension.
+ *  An agent often saves a download without one (`/tmp/shots/pr_4`). */
+async function sniffRasterImageMime(path: string): Promise<string | null> {
+  const handle = await open(path, 'r')
+  try {
+    const head = Buffer.alloc(12)
+    const { bytesRead } = await handle.read(head, 0, head.length, 0)
+    return rasterImageMimeOf(head.subarray(0, bytesRead))
+  } finally {
+    await handle.close()
+  }
+}
 
 interface AssetTokenPayload {
   path: string
   expiresAt: number
   downloadName?: string
+  /** The type read from the file's bytes, when its name does not give one. */
+  mime?: string
 }
 
 const assetTokenPayloadSchema = z
@@ -44,6 +72,7 @@ const assetTokenPayloadSchema = z
     path: z.string(),
     expiresAt: z.number().int(),
     downloadName: z.string().optional(),
+    mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']).optional(),
   })
   .strict()
 
@@ -51,7 +80,7 @@ export function verifyAssetToken(token: string, secret: Buffer, now = Date.now()
   const payload = readSignedToken(token, secret, assetTokenPayloadSchema)
   if (!payload) return null
   if (!isAbsolute(payload.path) || payload.expiresAt <= now) return null
-  if (!ASSET_ID.test(basename(payload.path)) && !mediaTypeFor(payload.path)) return null
+  if (!ASSET_ID.test(basename(payload.path)) && !mediaTypeFor(payload.path) && !payload.mime) return null
   return payload
 }
 
@@ -72,10 +101,8 @@ function decodeUploadedAsset(request: AssetUploadRequest): Buffer {
 
   if (IMAGE_EXTENSION.has(request.mime)) {
     const valid =
-      (request.mime === 'image/png' && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
-      (request.mime === 'image/jpeg' && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9) ||
-      (request.mime === 'image/gif' && (bytes.subarray(0, 6).toString('ascii') === 'GIF87a' || bytes.subarray(0, 6).toString('ascii') === 'GIF89a')) ||
-      (request.mime === 'image/webp' && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP')
+      rasterImageMimeOf(bytes) === request.mime &&
+      (request.mime !== 'image/jpeg' || (bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9))
     if (!valid) throw new Error('The image does not match its file type.')
   }
   return bytes
@@ -134,6 +161,35 @@ export async function writeAssetBytes(
 }
 
 /**
+ * Store a host file (an app build) under its content address without reading
+ * it into memory. The copy is hashed, not the source, so a file that changes
+ * during the copy cannot be stored under the wrong digest.
+ */
+export async function writeAssetFile(
+  sourcePath: string,
+  extension: string,
+  options: { assetsDir?: string } = {},
+): Promise<AssetUploadResult> {
+  const root = options.assetsDir ?? join(dataDir(), 'assets')
+  await mkdir(root, { recursive: true })
+  const temporary = join(root, `.import.${randomBytes(6).toString('hex')}.tmp`)
+  try {
+    await copyFile(sourcePath, temporary)
+    await chmod(temporary, 0o600)
+    const hash = createHash('sha256')
+    for await (const chunk of createReadStream(temporary)) hash.update(chunk as Buffer)
+    const id = `${hash.digest('hex')}.${extension}`
+    if (!ASSET_ID.test(id)) throw new Error('The asset extension is invalid.')
+    const target = join(root, id)
+    if (!existsSync(target)) await rename(temporary, target)
+    const size = (await stat(target)).size
+    return { id, uri: `asset://${id}`, mime: mediaTypeFor(id)?.mime ?? 'application/octet-stream', size }
+  } finally {
+    await unlink(temporary).catch(() => {})
+  }
+}
+
+/**
  * Sign a short-lived URL for one media file on this host, or one stored asset.
  * A path may name any media file the host can read: every caller already reads
  * host files over `readProjectFile`, and a guest cannot call this at all. Only a
@@ -160,13 +216,20 @@ export async function createAssetUrl(
   }
   const targetStat = await stat(target)
   if (!targetStat.isFile()) throw new Error('Only files can be served as assets.')
+  let sniffedMime: string | undefined
   if (!assetId && !mediaTypeFor(target)) {
-    throw new Error('This asset type is not allowed.')
+    sniffedMime = (await sniffRasterImageMime(target)) ?? undefined
+    if (!sniffedMime) throw new Error('This asset type is not allowed.')
   }
 
   const now = options.now ?? Date.now()
   const expiresAt = now + (options.ttlMs ?? ASSET_URL_TTL_MS)
-  const payload: AssetTokenPayload = { path: target, expiresAt, downloadName: assetId ? request.name : undefined }
+  const payload: AssetTokenPayload = {
+    path: target,
+    expiresAt,
+    downloadName: assetId ? request.name : undefined,
+    mime: sniffedMime,
+  }
   const token = signToken(payload, options.secret ?? getAssetSigningSecret())
   return { relativeUrl: `/api/assets/${token}`, expiresAt }
 }
@@ -208,8 +271,9 @@ export async function serveAssetToken(
   if (!fileStat.isFile()) return new Response('Not found', { status: 404 })
   const isStoredAsset = ASSET_ID.test(basename(payload.path))
   const mediaType = mediaTypeFor(payload.path)
-  const mime = mediaType?.mime ?? 'application/octet-stream'
-  if (!isStoredAsset && !mediaType) return new Response('Unsupported type', { status: 415 })
+  const knownMime = mediaType?.mime ?? payload.mime
+  const mime = knownMime ?? 'application/octet-stream'
+  if (!isStoredAsset && !knownMime) return new Response('Unsupported type', { status: 415 })
   // A stored video plays in place like a stored image shows. Every other stored
   // asset downloads, because its bytes were never checked against its type.
   const isInline = isStoredAsset && (isRasterImage(payload.path) || mediaType?.kind === 'video')

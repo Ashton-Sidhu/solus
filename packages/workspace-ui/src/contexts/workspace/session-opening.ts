@@ -4,6 +4,7 @@ import type { Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { uuid } from '@solus/contracts/uuid'
+import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
@@ -603,6 +604,17 @@ export class SessionOpening {
   moveToRunOnHost(run: RunConfig): void {
     const directory = run.gitContext?.repoRoot ?? run.workingDirectory
     if (!directory || directory === '~') return
+    // A chat has no checkout to follow: any host that is up can run it.
+    if (isChat(directory)) {
+      const host = this.runOnHosts.find((candidate) => candidate.online)
+      if (!host) return
+      run.serverId = host.serverId
+      run.taskServerId = host.serverId
+      run.workingDirectory = NEW_CHAT_DIRECTORY
+      run.gitContext = null
+      run.projectGroupPath = null
+      return
+    }
     const choice = chooseRunOnHost(
       projectsStore.checkoutsOf(projectsStore.projectKeyFor(run.serverId, directory)),
       this.runOnHosts,

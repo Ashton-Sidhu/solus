@@ -3,7 +3,7 @@
   import {
     Activity as ActivityIcon,
     MessageSquare as ChatTeardropIcon,
-    Clock as ClockIcon,
+    Hourglass as HourglassIcon,
     FileText as FileTextIcon,
     CircleX as XCircleIcon,
   } from "@lucide/svelte";
@@ -28,7 +28,7 @@
     status === "error"
       ? "var(--destructive)"
       : status === "limit"
-        ? "var(--chart-2)"
+        ? "var(--warning)"
         : status === "background"
           ? "var(--solus-status-running-icon)"
           : "var(--primary)",
@@ -49,7 +49,7 @@
           ? XCircleIcon
           : status === "background"
             ? ActivityIcon
-            : ClockIcon,
+            : HourglassIcon,
   );
 </script>
 

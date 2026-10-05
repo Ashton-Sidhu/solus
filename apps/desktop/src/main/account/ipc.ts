@@ -3,8 +3,14 @@ import { join } from 'path'
 import { app, ipcMain, safeStorage, shell } from 'electron'
 import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
+import type { SettingsRequestFailure } from '@solus/contracts/host-api'
+import {
+  accountSettingsPatchRequestSchema,
+  organizationSettingsPatchRequestSchema,
+} from '@solus/contracts/settings'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
+import { desktopSettingsRequests } from './settings-client'
 import { acquireHostAccessToken, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
@@ -19,7 +25,15 @@ export const ACCOUNT_CHANNELS = {
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
+  accountSettingsGet: 'solus:account-settings-get',
+  accountSettingsPatch: 'solus:account-settings-patch',
+  accountSettingsDelete: 'solus:account-settings-delete',
+  organizationSettingsGet: 'solus:organization-settings-get',
+  organizationSettingsPatch: 'solus:organization-settings-patch',
 } as const
+
+/** A renderer request that fails its schema never reaches the website. */
+const INVALID_REQUEST: SettingsRequestFailure = { kind: 'error', code: 'invalid_request', message: null }
 
 const hostIdSchema = z.string().min(1).max(64)
 const organizationIdSchema = z.string().min(1).max(128)
@@ -93,6 +107,24 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkOrganizationDirectory, (_event, rawOrganizationId) => {
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
     return organizationId.success ? loadOrganizationDirectory(session, organizationId.data) : null
+  })
+
+  // Settings sync and organization settings: typed calls only, decoded here.
+  const settings = desktopSettingsRequests(session)
+  ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsGet, () => settings.accountSettingsGet())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsPatch, (_event, rawRequest) => {
+    const request = accountSettingsPatchRequestSchema.safeParse(rawRequest)
+    return request.success ? settings.accountSettingsPatch(request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsDelete, () => settings.accountSettingsDelete())
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    return organizationId.success ? settings.organizationSettingsGet(organizationId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsPatch, (_event, rawOrganizationId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const request = organizationSettingsPatchRequestSchema.safeParse(rawRequest)
+    return organizationId.success && request.success ? settings.organizationSettingsPatch(organizationId.data, request.data) : INVALID_REQUEST
   })
 
   // The keychain is not reliably readable before `ready`, and this module is

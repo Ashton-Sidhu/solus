@@ -1,6 +1,7 @@
 <script lang="ts">
   interface Props {
-    onAddNode: () => void;
+    /** Absent for a reader, who sees only that the diagram is empty. */
+    onAddNode?: () => void;
   }
 
   let { onAddNode }: Props = $props();
@@ -24,13 +25,15 @@
       <path d="M4.5 7.5v1.5a1 1 0 001 1h3" />
     </svg>
     <p class="diagram-empty__title">No nodes yet</p>
-    <p class="diagram-empty__hint">
-      Add a node to start building your diagram.
-    </p>
-    <button
-      type="button"
-      class="diagram-btn diagram-empty__cta"
-      onclick={onAddNode}>Add node</button
-    >
+    {#if onAddNode}
+      <p class="diagram-empty__hint">
+        Add a node to start building your diagram.
+      </p>
+      <button
+        type="button"
+        class="diagram-btn diagram-empty__cta"
+        onclick={onAddNode}>Add node</button
+      >
+    {/if}
   </div>
 </div>

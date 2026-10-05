@@ -24,9 +24,24 @@ orchestrator in `packages/server/src/execution/orchestration/`.
   limited until 15:40 · resumes on its own". It resumes by itself at the reset.
 - **Reports and notices never show as text.** The host writes them into the
   parent's conversation for its model; the card shows their facts instead.
-- **Restarts.** Orchestration state is in memory. A host restart ends every open
-  message; a card whose reply was lost says so. A parent that delegated to a
-  child is told the child's turn ended.
+- **Restarts.** The host saves requests, results, and report delivery. Queued
+  work stays held until its author resumes it. An uncertain running request
+  ends as interrupted. A saved result remains readable and its pending report
+  is recovered. Cards show the saved state on desktop, web, and mobile.
+
+## Continuing after a host restart
+
+The host also continues eligible Local root sessions after a restart by default.
+It starts a new turn in the saved provider conversation, with the saved model
+options and permission mode. This works on personal and self-hosted hosts,
+including when the owner uses a remote client. Managed cloud hosts disable it.
+Set `continueSessionsAfterHostRestart` to false to opt out.
+
+Queued user prompts remain held for Resume. Explicit Stop, newer prompts, and
+settlement cancel pending recovery. Uncertain delivery or a failed native resume
+stays held with an error; check history before resuming it. Recovery does not
+restore a stopped process or automatically restart delegated children. Closing
+or disconnecting a client leaves remote work running and does not invoke recovery.
 
 ## What the parent's model receives
 
@@ -46,12 +61,67 @@ orchestrator in `packages/server/src/execution/orchestration/`.
   settles from it.
 - **Nothing carries full content.** A plan, a work, a diff or a transcript is
   named by id; the parent reads it with `read_plan`, `read_work` or
-  `read_session`. The reply is cut at 1,200 characters (the card keeps the
-  whole reply while the host is live), a report lists at most 20 outputs, and a
+  `read_session`. The reply is cut at 1,200 characters and points to the saved exchange.
+  Read its full reply with `read_session_exchange` and `reply_offset=0`, then
+  continue with `next_reply_offset` until it is null. Each page is at most
+  6,000 UTF-16 code units. The card keeps the whole reply while the host is live; a report lists at most 20 outputs, and a
   merged prompt keeps 10 items whole. A child that answers another session is
   asked to reply in at most five short lines and to put detail in a task
   comment or a work. The limits are
   `ORCHESTRATION_LIMITS` in `packages/contracts/src/session-exchange.ts`.
+
+## Async and nested requests
+
+`wait_seconds=0` and `report=true` are the defaults. The calling agent can end
+its turn while another agent works. Session creation returns an accepted
+exchange before provider startup finishes. Its `pending:` ID names the card,
+not a provider conversation. Use `read_session_exchange` to get the provider
+session ID once it initializes. Retrying with the same `request_id` returns
+the same exchange during startup. Startup failures settle that exchange and
+reach the parent through the normal report path. A wait budget includes startup
+and does not cancel the child when it expires.
+
+The result starts a follow-up turn or
+waits in the caller's existing queue. A bounded wait returns a report once; a
+wait timeout leaves the work and async reporting active.
+
+Each request has its own exchange ID. When A asks B for work and B asks C to
+review it, the host links B's request to the specific A-to-B exchange. It does
+not link all work in B's session. Unrelated requests and `report=false` messages
+can finish independently.
+
+B can be running, waiting for its children, or finished. Ending B's provider
+turn while C is open does not finish A's request. C's report carries A's
+exchange ID into B's follow-up. B must read the result and complete that turn
+before A receives B's final result. Queued child reports also keep the parent
+request open. Reported requests to an ancestor are refused to prevent a cycle;
+use `report=false` for an ordinary update to an ancestor.
+
+`start_session` and `send_session` accept an optional `request_id`. A retry
+with the same ID and the same work returns the original exchange. Different
+work with the same ID is refused. The key belongs to the calling session and
+is kept for thirty days after a closed request. Use a new key for each review
+round. The wait duration can change on a retry.
+
+Use provider-native agents for work the current provider can run with the
+needed model. Use Solus sessions for another provider or model, or for durable
+work that must remain visible across turns. Give each worker the full brief,
+choose its checkout before starting it, and inspect its result before reporting
+completion. Critical guidance is loaded with `start_session`; workers also get
+these completion rules in their system instruction.
+
+Both providers receive shared orchestration guidance when session tools are
+available. Claude receives it in its system prompt append. Codex receives it
+with the user's instructions in the thread developer message on start, resume,
+and fork. It stays outside collaboration-mode text, which a native mode prompt
+can replace. Model selection uses the host catalog, including same-provider
+models that native subagent tools may not support.
+
+Claude can defer MCP tool descriptions until tool search; `alwaysLoad` keeps
+critical tool guidance visible. Codex uses `deferLoading` for ordinary dynamic
+tools and keeps `alwaysLoad` tools available immediately. Tool loading does not change report delivery:
+both providers use the same host exchanges, notices, and reports. Native
+subagents use their provider's own result delivery.
 
 ## The lead session
 
@@ -68,8 +138,8 @@ implement beyond very small edits, start workers with the full brief and
 `report` on, answer from reports and `read_task_sessions` rather than by reading
 transcripts or source, keep replies short, write durable summaries into the
 task, and call `read_task_sessions` first when the user writes, but not after
-reports. A restart ends the lead's open messages like any parent's; that first
-read is how it catches up.
+reports. After a restart, that first read helps the lead catch up. Saved queues remain
+held, and uncertain running requests end as interrupted.
 
 A lead is woken as rarely as possible, because each wake reads its whole thread
 again. Its reports are held until the last message it waits on settles, and
@@ -87,10 +157,56 @@ a lead: any session that starts another is its parent.
 | `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. |
 | `stop_session` | Stops a session and clears its queue. |
+| `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
 | `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |
 | `read_task_sessions` | The task view: the task and every session working on it — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
 | `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). |
 | `list_agent_targets` | Providers and models this host can run. |
+| `read_queue` | Reads the caller's ordered queue, entry revisions, provider choices, and held errors. |
+| `change_queue` | Edits, removes, moves, or promotes a prompt to steering; queues a Claude or Codex provider/model switch. Only a user can resume held work. |
+
+## Queue and provider changes
+
+The host saves accepted queue entries before it confirms them. Prompts and
+provider switches use one ordered queue. For example, a switch to Codex, a
+prompt, and a switch to Claude run in that order after the current turn ends.
+Moving or removing a switch changes the provider of the prompts after it.
+The current turn keeps its provider and model options.
+
+Desktop, web, and mobile expose Edit, Remove, Up, Down, Steer now, and Resume.
+Edits have a separate draft, so the main composer's text and files stay intact.
+Save checks the entry revision. If another client changed or started the entry,
+the host refuses the edit and the draft remains available.
+
+After a host restart, all saved entries are held. A started entry also shows
+that its result is uncertain. Each author resumes their own work with a fresh
+authorization check; the host owner resumes anonymous host work. Later entries
+cannot pass a held entry. Agent tools cannot resume held work.
+
+A cross-provider handoff still uses a file on the host. It contains visible
+user and assistant history with source provider, session, turn, item, and time
+labels. It keeps the first request and latest turn intact, then selects earlier
+items by matching terms in the next prompt, with recent history as the tie
+breaker. It keeps the original message order. Omitted history can be read with
+`read_session`.
+
+The host's `handoffHistoryTokens` setting sets the history budget (default
+16,000). `read_config` and `update_config` expose it. The incoming model window
+can reduce that budget: Solus reserves space for the complete new prompt and
+system context. The estimate uses UTF-8 byte length, not a provider tokenizer.
+Required history that exceeds the budget causes a held error before the
+provider changes. Private reasoning, tool state, child output, and historical
+attachment data are excluded. Public text from failed or interrupted turns is
+saved separately and carried if the native history lacks it.
+
+## Child permissions
+
+A delegated session inherits its parent's permission mode. It can use a
+clearly stricter mode. Auto and Accept edits are separate policies; a child
+cannot switch between them to gain access. A parent in Plan mode can start
+only a Plan child. The host saves the policy so unattended follow-ups keep it
+after the provider process exits or the host restarts. A user can grant more
+access through the normal permission controls.
 
 With `wait_seconds`, a report that arrives in time is the call's result and is
 not queued again; a notice ends the wait at once; when the time runs out the
@@ -103,7 +219,33 @@ of what it did, what it produced and what is still open.
 
 ## Architecture
 
-- **The control plane runs turns.** It keeps each session's queue, provider
+The change uses three focused parts:
+
+- `SessionExchangeStore` saves host-local execution receipts under
+  `session-queues/exchanges/`. A single atomic file contains the result and its
+  pending delivery state. It stores no provider callbacks or permission grants.
+- `ExchangeLedger` owns request identity, saved state, and child relationships.
+  Active receipts and undelivered reports remain available. Closed receipts are
+  removed after thirty days when the host loads them.
+- `ParentDelivery` merges reports for a busy caller. Queue entries save both the
+  report IDs and the incoming request IDs for the completion follow-up. Their
+  text and IDs change in one queue write.
+
+The provider adapters still run turns. `SessionRuntime` carries the IDs and
+calls the orchestration hooks when a report is accepted, removed, or settled.
+The orchestration layer alone decides when a request is complete. The existing
+shared RPC contract carries the saved state to all clients.
+
+At startup, recovery reattaches reports already present in a saved queue. It
+resubmits pending reports that have no queue receipt, and interrupts uncertain
+provider work. It does not automatically repeat provider execution or resume
+held queue entries. Report acceptance means the runtime accepted its turn;
+it does not prove that the model read or acted on the result. A crash in that
+interval can leave a held, uncertain turn that the author must inspect.
+
+
+- **The control plane runs turns.** A focused session request queue owns ordered
+  entries and crash receipts, backed by atomic host-local files. The runtime keeps provider
   handles, steering, stop and rate-limit parking. A run carries the ids of the
   messages it answers and nothing more about them. It reports what happens to a
   run through hooks: queued, started, parked on a rate limit, a request for

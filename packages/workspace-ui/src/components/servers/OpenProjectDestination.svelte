@@ -7,7 +7,6 @@ import Icon from "@iconify/svelte";
     Search as MagnifyingGlassIcon,
   } from "@lucide/svelte";
   import NewProjectNameField from "./NewProjectNameField.svelte";
-  import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { abbreviateHome } from "../../lib/paths";
@@ -45,9 +44,9 @@ import Icon from "@iconify/svelte";
     if (store.protocol === "https") {
       return store.readiness?.github?.solusToken
         ? null
-        : { message: `Public repositories only, until ${host} signs in.`, blocking: false };
+        : { message: `Public repositories only, until ${host} signs in to GitHub.`, blocking: false };
     }
-    if (store.sshKeyMissing) return { message: "No SSH key on this machine — clone over HTTPS instead.", blocking: true };
+    if (store.sshKeyMissing) return { message: `There is no SSH key on ${host}.`, blocking: true };
     if (store.sshAccess && !store.sshAccess.ok) return { message: store.sshAccess.message, blocking: true };
     return null;
   });
@@ -65,24 +64,22 @@ import Icon from "@iconify/svelte";
 
 {#if store.source === "new"}
   <div class="flex flex-col gap-3 border-t border-border px-5 pb-5 pt-4 text-workspace-chrome">
-    <label
-      class="flex min-w-0 cursor-text items-center gap-3 py-2"
-    >
+    <div class="flex min-w-0 items-end gap-3 py-1">
       <NewProjectNameField
         bind:value={store.newProjectName}
         bind:inputEl
         parent={store.newProjectParent ?? store.projectsRoot}
         platform={store.platform}
+        hostLabel={store.hostLabel || "this machine"}
         disabled={store.creatingProject}
         onchangeparent={() => { store.beginBrowse(); onBrowse(); }}
-        class="text-base"
+        showsLabel
+        class="h-9 rounded-lg bg-muted px-2.5 text-base"
       />
       {#if store.creatingProject}
-        <LoaderIcon size={15} class="shrink-0 animate-spin text-muted-foreground" aria-label="Creating" />
-      {:else if store.canCreate}
-        <Kbd variant="hint" class="shrink-0 pointer-coarse:hidden">↵</Kbd>
+        <LoaderIcon size={15} class="mb-7 shrink-0 animate-spin text-muted-foreground" aria-label="Creating" />
       {/if}
-    </label>
+    </div>
 
     {#if store.createError}
       <p role="alert" class="text-pretty text-(--solus-status-error)" transition:slide={{ duration: 160 }}>
@@ -245,14 +242,24 @@ import Icon from "@iconify/svelte";
   </div>
 {/if}
 
-<!-- The protocol is a header control; only what will make the clone fail
-     or fall short is said here. -->
-{#if protocolWarning}
-  <p
-    class="text-xs px-5 pb-1 text-pretty leading-relaxed {protocolWarning.blocking ? 'text-(--solus-status-error)' : 'text-muted-foreground'}"
-    transition:slide={{ duration: 160 }}
-  >
-    {protocolWarning.message}
+<!-- How the clone signs in, in one quiet line. The URL decides it (`git@…` is
+     SSH); the switch is only for the person who knows they need the other. -->
+{#if store.cloneUrl}
+  <p class="text-xs px-5 pb-1 text-pretty leading-relaxed text-muted-foreground" transition:slide={{ duration: 160 }}>
+    {#if protocolWarning}
+      <span class={protocolWarning.blocking ? "text-(--solus-status-error)" : ""}>{protocolWarning.message}</span>
+    {:else if store.protocol === "ssh"}
+      Uses an SSH key on {store.hostLabel || "this machine"}.
+    {:else}
+      Uses the GitHub sign-in on {store.hostLabel || "this machine"}.
+    {/if}
+    <button
+      type="button"
+      class="rounded-sm text-foreground underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+      onclick={() => store.chooseProtocol(store.protocol === "ssh" ? "https" : "ssh")}
+    >
+      {store.protocol === "ssh" ? "Use HTTPS instead" : "Use SSH instead"}
+    </button>
   </p>
 {/if}
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { attentionEntryKey } from '@solus/server/notifications/push-service'
+import { attentionEntryKey } from '@solus/contracts/notification-types'
 import { countDesktopAttentionEntries, diffDesktopAttentionSnapshot } from '@solus/server/desktop-notifications-core'
 import type { AttentionEntry } from '@solus/contracts/attention-types'
 

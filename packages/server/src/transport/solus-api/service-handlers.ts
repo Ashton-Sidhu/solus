@@ -8,6 +8,7 @@ import { registerTasksHandlers } from '../handlers/tasks-handlers'
 import { registerFolioHandlers } from '../handlers/folio-handlers'
 import { registerCloudUploadHandlers } from './cloud-uploads'
 import { registerWorkReviewHandlers } from '../handlers/work-review-handlers'
+import { registerNotificationHubHandlers } from '../handlers/notification-hub-handlers'
 import { registerWorkLiveHandlers } from '../handlers/work-live-handlers'
 import type { WorkLiveManager } from '../../work-live/work-live-manager'
 import { registerCapabilityHandlers } from '../handlers/capability-handlers'
@@ -35,16 +36,17 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   registerFolioHandlers(server, { shares: deps.shares })
   registerCloudUploadHandlers(server, { shares: deps.shares })
   registerWorkReviewHandlers(server, { shares: deps.shares })
+  registerNotificationHubHandlers(server, { shares: deps.shares })
   registerWorkLiveHandlers(server, { live: deps.workLive, shares: deps.shares })
   registerCapabilityHandlers(server)
-  server.register('start', async () => ({ projectPath: '', homePath: '', workspacePath: '', version: appVersion(), agents: [] }))
+  server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
   server.register('getServerCapabilities', async () => ({ headless: true, desktopHandlers: false, agents: { claude: false, codex: false }, dictation: false,
     platform: process.platform, version: appVersion(), projectCount: 0, agentAuth: { claude: false }, gitAuth: { github: false } }))
   server.register('connectionsGetServerInfo', async (_args, { principal }): Promise<ConnectionsServerInfo> => {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
       installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind }
     if (principal.kind === 'org-member') Object.assign(info, { userId: principal.userId, organizationId: principal.organizationId, displayName: principal.displayName })
-    if (principal.kind === 'guest') Object.assign(info, { organizationId: principal.organizationId, displayName: principal.displayName, share: { resource: principal.share.resource, role: principal.share.role } })
+    if (principal.kind === 'guest') Object.assign(info, { userId: principal.accountUserId, organizationId: principal.organizationId, displayName: principal.displayName, share: { resource: principal.share.resource, role: principal.share.role } })
     return info
   })
   registerWorkspaceProjectHandlers(server)

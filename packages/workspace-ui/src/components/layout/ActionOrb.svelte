@@ -44,6 +44,7 @@
   import { actionOrbWouldOverflow } from "./lib/action-orb-layout";
   import { askInsights } from "../insights/lib/ask-insights";
   import { hostPolicy } from "@solus/client-core/host-policy";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
   import "./ActionOrb.css";
 
   let {
@@ -151,7 +152,9 @@
   const showInsights = $derived(!!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
   const showInterrupt = $derived(
-    isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
+    isRunning &&
+      (sess?.messages.some((m) => m.role === "user") ?? false) &&
+      canDriveSession(sess?.run.serverId, sess?.id),
   );
   const uncommittedFilesLabel = $derived(
     uncommittedFiles.length > 99 ? "99+" : String(uncommittedFiles.length),

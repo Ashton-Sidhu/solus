@@ -54,17 +54,6 @@ export function companionMinimizesProjectPanel(ref: RouteRef | null): boolean {
 }
 
 /**
- * A companion pane takes the session sidebar's width, except the two that are
- * navigated from it: the automation builder, and a task page beside the task's
- * conversation, which is the split view the sidebar's task rows open
- * (docs/plans/task-conversation.md). Closing the sidebar under the row that was
- * just clicked would take away the way to the next task.
- */
-export function companionCollapsesSidebar(ref: RouteRef | null): boolean {
-  return ref !== null && ref.name !== 'automation' && ref.name !== 'task'
-}
-
-/**
  * The task column's measure. It holds one line of text per row, so it is sized
  * rather than shared: past 440px the titles stop being the thing that runs out
  * of room and the column just gets emptier, and under 300px the row's trailing

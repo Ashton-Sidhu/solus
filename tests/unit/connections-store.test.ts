@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
-import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 
 const mockedServerConnections = singleHostServerConnections()
 
@@ -100,39 +99,6 @@ describe('agent task lifecycle settings', () => {
     await store.refreshCapabilities({ serverId: 'remote-host', api })
 
     expect(store.capabilitiesFor('remote-host')?.agentTaskLifecyclePolicy).toBe('moderate')
-  })
-
-  test('updates the host capability from the saved policy', async () => {
-    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
-      <T>(value: T) => value,
-      { snapshot: <T>(value: T) => value },
-    )
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: { solus: {
-        configUpdate: async () => ({ config: { ...DEFAULT_HOST_CONFIG, agentTaskLifecyclePolicy: 'autonomous' }, seeded: true }),
-      } },
-    })
-    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
-    const store = new ConnectionsStore()
-    store.capabilities = {
-      headless: false,
-      desktopHandlers: true,
-      agents: { claude: true, codex: true },
-      dictation: false,
-      platform: 'darwin',
-      version: 'test',
-      projectCount: 1,
-      agentAuth: { claude: true },
-      gitAuth: { github: true },
-      agentTaskLifecyclePolicy: 'moderate',
-    }
-
-    await store.setAgentTaskLifecyclePolicy('autonomous', { serverId: 'local' })
-
-    expect(store.capabilities.agentTaskLifecyclePolicy).toBe('autonomous')
-    expect(store.agentTaskLifecyclePolicyUpdating).toBe(false)
   })
 })
 

@@ -1,16 +1,19 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type {
-  TextGenerationSettings,
-  TextGenerationSettingsSnapshot,
-} from '@solus/contracts/types'
+import type { TextGenerationSettingsSnapshot } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
 import { createAppContext } from '../app/create-app-context'
 
 export interface TextGenerationSettingsHostContext {
   serverId: string
-  api: Pick<HostApi, 'textGenerationSettingsGet' | 'configUpdate'>
+  api: Pick<HostApi, 'textGenerationSettingsGet'>
 }
 
+/**
+ * What one host offers for text generation: its installed models, and the model
+ * it falls back to for a choice it lacks. The choices themselves are the
+ * person's (`textGenerationModel`, `sourceControlWriterModel`,
+ * `sourceControlWriting` in the personal settings) and travel with each request.
+ */
 export class TextGenerationSettingsStore {
   private readonly snapshots = new SvelteMap<string, TextGenerationSettingsSnapshot>()
   private readonly loadingHosts = new SvelteMap<string, boolean>()
@@ -58,25 +61,6 @@ export class TextGenerationSettingsStore {
       })
     this.loads.set(host.serverId, promise)
     return promise
-  }
-
-  async update(
-    host: TextGenerationSettingsHostContext,
-    patch: Partial<TextGenerationSettings>,
-  ): Promise<TextGenerationSettingsSnapshot> {
-    this.errors.set(host.serverId, null)
-    try {
-      // Re-read rather than trust the patch: the snapshot also reports which
-      // model is actually available on the host, which the patch cannot say.
-      await host.api.configUpdate(patch)
-      return await this.load(host, { force: true })
-    } catch (error) {
-      this.errors.set(
-        host.serverId,
-        error instanceof Error ? error.message : 'Could not save text-generation settings.',
-      )
-      throw error
-    }
   }
 }
 

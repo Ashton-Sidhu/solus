@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
@@ -7,7 +7,7 @@ import { HOST_LOGIN_SEAT, SEAT_PROVIDERS, SEAT_REQUIRED_CODE, seatProviderSchema
 import { parseUserKey, userKey, type UserId } from '@solus/contracts/user'
 import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
-import { memberFolderFor } from '../../host/member-folders'
+import { memberFolderFor, recordedMemberFolder } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 import type { GitIdentityManager, ProcessGitIdentity } from '../../git/git-identity-manager'
 
@@ -167,6 +167,8 @@ export interface SeatManagerDeps {
   hostCodexHome?: string
   /** Whether the host login is signed in; the CLI's own answer by default. */
   hostLoginConnected?: (provider: SeatProvider) => Promise<boolean>
+  /** Whether a member's seat directory holds a working login; the CLI's own answer by default. */
+  memberLoginConnected?: (provider: SeatProvider, home: string) => Promise<boolean>
   /** Which Git identity a member's turn acts as. */
   gitIdentities?: GitIdentityManager
   now?: () => number
@@ -177,6 +179,7 @@ export class SeatManager implements SeatStore {
   private readonly hostClaudeDir: string
   private readonly hostCodexHome: string
   private readonly hostLoginConnected: (provider: SeatProvider) => Promise<boolean>
+  private readonly memberLoginConnected: (provider: SeatProvider, home: string) => Promise<boolean>
   private readonly listeners = new Set<(event: SeatChangedEvent) => void>()
   /** `seatKey:provider` → its row, or null for none. Every turn resolves a seat
    *  at least twice, and this manager is the table's only writer, so a row is
@@ -191,6 +194,7 @@ export class SeatManager implements SeatStore {
     this.hostClaudeDir = deps.hostClaudeDir ?? hostClaudeDir()
     this.hostCodexHome = deps.hostCodexHome ?? hostCodexHome()
     this.hostLoginConnected = deps.hostLoginConnected ?? ((provider) => providerLoginConnected(provider, null))
+    this.memberLoginConnected = deps.memberLoginConnected ?? providerLoginConnected
   }
 
   onChanged(listener: (event: SeatChangedEvent) => void): () => void {
@@ -209,6 +213,7 @@ export class SeatManager implements SeatStore {
    *  command — a process, not a row. Everything a seat row answers is still read
    *  from the row. */
   async status(seat: Seat, provider: SeatProvider): Promise<SeatStatus> {
+    if (seat.kind === 'user') await this.adoptPresentLogin(seat, provider)
     const isHostLogin = seat.kind === 'host-login'
     const row = this.row(seat, provider)
     if (!row) {
@@ -240,6 +245,7 @@ export class SeatManager implements SeatStore {
   async resolveForTurn(seat: Seat, provider: AgentId): Promise<TurnSeat | null> {
     if (!isSeatProvider(provider)) return null
     if (seat.kind === 'host-login') return this.connectedSeat(seat, provider)
+    await this.adoptPresentLogin(seat, provider)
     const row = this.row(seat, provider)
     if (!row) throw new SeatRequiredError(provider, 'none')
     if (row.state !== 'connected') throw new SeatRequiredError(provider, row.state)
@@ -417,6 +423,40 @@ export class SeatManager implements SeatStore {
   /** The folder a user's seats live in: their member folder, named once their name is known. */
   private folderOf(seat: Extract<Seat, { kind: 'user' }>): string {
     return memberFolderFor(seatUserIdSchema.parse(seatKey(seat)), seat.name)
+  }
+
+  /**
+   * A member's login that is in their seat directory without a sign-in on this host
+   * (copied in by whatever provisions the machine) connects their seat. Only a file
+   * the provider CLI writes counts, and the CLI's own check must pass. An expired
+   * seat is connected again only by a credential written after it expired, so a
+   * refused login does not come back by itself. A sign-in in progress is left alone.
+   */
+  private async adoptPresentLogin(seat: Extract<Seat, { kind: 'user' }>, provider: SeatProvider): Promise<void> {
+    const row = this.row(seat, provider)
+    if (row?.state === 'connected' || row?.state === 'connecting') return
+    // A read: look in the folders that exist, and make none. The named folder, or the
+    // user id's when the login arrived before the name did.
+    const userId = seatUserIdSchema.parse(seatKey(seat))
+    const level = join(this.seatsRoot, provider === 'claude-code' ? 'claude' : 'codex')
+    const file = provider === 'claude-code' ? CLAUDE_CREDENTIALS_FILE : CODEX_AUTH_FILE
+    let found: { home: string; writtenAt: number } | null = null
+    for (const folder of new Set([recordedMemberFolder(userId), userId])) {
+      try {
+        found = { home: join(level, folder), writtenAt: statSync(join(level, folder, file)).mtimeMs }
+        break
+      } catch {
+        // Not in this folder.
+      }
+    }
+    if (!found) return
+    if (row?.state === 'expired' && found.writtenAt <= row.updated_at) return
+    if (!(await this.memberLoginConnected(provider, found.home))) return
+    this.upsert(seat, provider, { state: 'connected', method: 'login', error: null, connectedAt: this.now() })
+    log.info('seat_login_adopted', { seat: userId, provider })
+    // Names the member folder, as a sign-in here would have; a login already under the user id keeps that folder.
+    this.userHome(seat, provider)
+    await this.announce(seat, provider)
   }
 
   private row(seat: Seat, provider: SeatProvider): SeatRow | null {

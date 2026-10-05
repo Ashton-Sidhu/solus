@@ -1,0 +1,5 @@
+# Local Expo state and generated native projects (Expo prebuild owns ios/ and android/).
+.expo/
+ios/
+android/
+dist/

@@ -1,4 +1,5 @@
 import type { PrReviewContext, Prompt, RunConfig, Session, SessionSpec, TaskTarget } from '@solus/contracts/types'
+import type { ModelOptionsByProvider } from '@solus/contracts/settings'
 import { inheritRunConfig } from './run-config'
 import { uuid } from '@solus/contracts/uuid'
 import { makePrompt } from './session.factories'
@@ -29,8 +30,8 @@ export class SessionDraft {
    *   `null` is the whole meaning of "start fresh" — there is no separate flag,
    *   because starting fresh *is* having nothing to inherit.
    */
-  constructor(defaults: RunConfig, inherit?: RunConfig | null) {
-    this.run = $state(inheritRunConfig(defaults, inherit))
+  constructor(defaults: RunConfig, inherit?: RunConfig | null, remembered: ModelOptionsByProvider = {}) {
+    this.run = $state(inheritRunConfig(defaults, inherit, remembered))
   }
 
   /** The plain, serializable shape — what persists and what dispatch consumes. */

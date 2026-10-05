@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   classifyCloneInput,
+  cloneProtocolFor,
   cloneUrlForIntent,
   cloneUrlForProtocol,
   matchesRepoQuery,
@@ -81,6 +82,17 @@ describe('protocol toggle', () => {
     expect(cloneUrlForIntent(classifyCloneInput('solus'), 'https')).toBeNull()
     expect(cloneUrlForIntent(classifyCloneInput('solus-sh/solus'), 'ssh'))
       .toBe('git@github.com:solus-sh/solus.git')
+  })
+
+  test('a pasted SSH URL clones over SSH until the person picks otherwise', () => {
+    // WHY: the dialog used to default to HTTPS and quietly rewrite a pasted
+    // `git@…` URL, so a person who copied the SSH URL got an HTTPS clone.
+    const ssh = classifyCloneInput('git@github.com:solus-sh/solus.git')
+    expect(cloneProtocolFor(ssh, null)).toBe('ssh')
+    expect(cloneUrlForIntent(ssh, cloneProtocolFor(ssh, null))).toBe('git@github.com:solus-sh/solus.git')
+    expect(cloneProtocolFor(ssh, 'https')).toBe('https')
+    expect(cloneProtocolFor(classifyCloneInput('https://github.com/solus-sh/solus'), null)).toBe('https')
+    expect(cloneProtocolFor(classifyCloneInput('solus-sh/solus'), null)).toBe('https')
   })
 })
 

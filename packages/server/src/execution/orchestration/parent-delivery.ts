@@ -26,9 +26,9 @@ export interface ParentDeliveryRuntime {
     agentSessionId: string,
     prompt: string,
     delivery: PromptDelivery,
-    order: { via: 'session-report'; agentSessionId: string; agentMessageId: string },
+    order: { via: 'session-report'; agentSessionId: string; agentMessageId: string; exchangeIds?: string[]; reportExchangeIds?: string[] },
   ): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
-  replaceQueuedPrompt(sessionId: string, queueId: string, text: string): boolean
+  replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean
   hasQueuedPrompt(sessionId: string, queueId: string): boolean
   cancelQueuedPrompt(agentSessionId: string, queueId: string): boolean
   trackWork<T>(work: Promise<T>): Promise<T>
@@ -40,6 +40,7 @@ export interface DeliveryEntry {
   targetAgentSessionId: string
   /** Names a notice so it can be withdrawn while it still waits. Reports have none. */
   noticeKey?: string
+  continuationExchangeIds?: string[]
   /** Wait without waking the parent, until a later delivery or `release`. */
   hold?: boolean
 }
@@ -57,7 +58,15 @@ export class ParentDelivery {
   private readonly held = new Map<string, DeliveryEntry[]>()
   private readonly chains = new Map<string, Promise<void>>()
 
-  constructor(private readonly runtime: ParentDeliveryRuntime) {}
+  constructor(
+    private readonly runtime: ParentDeliveryRuntime,
+    private readonly recordDelivery: (exchangeIds: string[], state: 'queued' | 'accepted' | 'disposed', queueId?: string) => void,
+  ) {}
+
+  /** Reattach reports to an existing held queue entry; never enqueue a copy. */
+  restore(parentAgentSessionId: string, queueId: string, entries: DeliveryEntry[]): void {
+    this.outboxes.set(parentAgentSessionId, { queueId, entries })
+  }
 
   /** Puts an item in front of the parent. `entry` may still be resolving its
    *  facts, and resolves to null when the parent is not to hear it; items
@@ -87,6 +96,7 @@ export class ParentDelivery {
   dropHeld(parentAgentSessionId: string): void {
     this.serialize(parentAgentSessionId, async () => {
       const dropped = this.takeHeld(parentAgentSessionId)
+      this.recordDelivery(reportIds(dropped), 'disposed')
       if (dropped.length) log.info('session_reports_dropped', { parentAgentSessionId, items: dropped.length })
     })
   }
@@ -100,7 +110,7 @@ export class ParentDelivery {
       const entries = outbox.entries.filter((entry) => entry.noticeKey !== noticeKey)
       if (entries.length === 0) {
         if (this.runtime.cancelQueuedPrompt(parentAgentSessionId, outbox.queueId)) this.outboxes.delete(parentAgentSessionId)
-      } else if (this.runtime.replaceQueuedPrompt(this.runtime.sessionIdFor(parentAgentSessionId)!, outbox.queueId, promptFor(entries))) {
+      } else if (this.runtime.replaceQueuedPrompt(this.runtime.sessionIdFor(parentAgentSessionId)!, outbox.queueId, promptFor(entries), reportIds(entries), continuationIds(entries))) {
         outbox.entries = entries
       }
       log.info('session_notice_withdrawn', { parentAgentSessionId, noticeKey, remaining: entries.length })
@@ -120,8 +130,9 @@ export class ParentDelivery {
     if (outbox) {
       const parentSessionId = this.runtime.sessionIdFor(parentAgentSessionId)!
       const merged = [...outbox.entries, ...entries]
-      if (this.runtime.replaceQueuedPrompt(parentSessionId, outbox.queueId, promptFor(merged))) {
+      if (this.runtime.replaceQueuedPrompt(parentSessionId, outbox.queueId, promptFor(merged), reportIds(merged), continuationIds(merged))) {
         outbox.entries = merged
+        this.recordDelivery(reportIds(entries), 'queued', outbox.queueId)
         log.info('session_report_merged', { parentAgentSessionId, exchangeId: last.exchangeId, items: merged.length })
         return
       }
@@ -130,8 +141,11 @@ export class ParentDelivery {
       via: 'session-report',
       agentSessionId: last.targetAgentSessionId,
       agentMessageId: last.exchangeId,
+      reportExchangeIds: reportIds(entries),
+      exchangeIds: continuationIds(entries),
     })
     log.info('session_report_dispatched', { parentAgentSessionId, exchangeId: last.exchangeId, kind: last.item.type, items: entries.length, disposition: result.disposition })
+    this.recordDelivery(reportIds(entries), result.disposition === 'queued' ? 'queued' : 'accepted', result.queueId)
     if (result.disposition === 'queued' && result.queueId) {
       this.outboxes.set(parentAgentSessionId, { queueId: result.queueId, entries })
     } else {
@@ -167,4 +181,12 @@ export class ParentDelivery {
 
 function promptFor(entries: readonly DeliveryEntry[]): string {
   return formatParentPrompt(entries.map((entry) => entry.item))
+}
+
+function reportIds(entries: readonly DeliveryEntry[]): string[] {
+  return entries.filter((entry) => entry.item.type === 'report').map((entry) => entry.exchangeId)
+}
+
+function continuationIds(entries: readonly DeliveryEntry[]): string[] {
+  return [...new Set(entries.flatMap((entry) => entry.continuationExchangeIds ?? []))]
 }

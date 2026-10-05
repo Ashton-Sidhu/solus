@@ -178,7 +178,7 @@
   function savePrompt(prompt: string) {
     if (!prompt.trim()) return;
     const lens = savedLensFromPrompt(prompt);
-    settings.update({ savedLenses: [...settings.savedLenses, lens] });
+    settings.setPersonal("savedLenses", [...$state.snapshot(settings.savedLenses), lens]);
     toasts.success(`Saved “${lens.name}” as a lens`);
   }
 

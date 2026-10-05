@@ -23,3 +23,21 @@ A structured rejection can be followed by a terminal error with no window or res
 That error must not erase the reset already known for the held run. The host sends
 queue confirmation before the rate-limited status to prevent a decision-card flash
 when it automatically queues a retry.
+
+## Limited status
+
+A rate-limited session has its own status: **limited**. It is not the same as a
+queued prompt. The session row, the session tooltip, the breadcrumb, the task
+page, and the mobile list show it with an amber hourglass. When the provider
+gives a reset time, the label adds it, for example "rate limited, resets 3:40
+PM". When the provider does not give a reset time, the label does not show one.
+A limited session does no work, so its row does not show a working timer.
+
+## Snooze until the limit resets
+
+When a session is limited and its reset time is known and still ahead, the
+decision card and the session snooze menu show **Snooze until limit resets**. It
+uses the usual session snooze (`sessionSnooze`) with the reset time as the wake
+time. When the reset time is unknown or has passed, the option does not show.
+Only a session row can be snoozed; a task row cannot, so the decision card hides
+the option for a session that a task row stands for.

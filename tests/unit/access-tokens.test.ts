@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPairSync, sign, type KeyObject } from 'crypto'
 import { AccessTokenVerifier, JWKS_REFRESH_MIN_INTERVAL_MS, type FetchLike } from '@solus/server/admission/access-tokens'
-import { ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { ACCOUNT_AUDIENCE, FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS, GUEST_GRANT_TTL_SECONDS, SOLUS_API_AUDIENCE, hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
 
 // plans/010-standard-oauth.md: a host trusts one issuer and one key set, both from
 // its link config, and accepts the account plane's access tokens for its own
@@ -46,7 +46,7 @@ const nowSeconds = Math.floor(NOW / 1000)
 
 describe('access token verification', () => {
   test('a token for this host from the linked issuer is accepted for its whole short life, not only once', async () => {
-    // WHY: an OAuth access token is a bearer credential; a client reconnecting within five minutes presents it again.
+    // WHY: an OAuth access token is a bearer credential; a client keeps it and presents it again when it reconnects.
     const key = keyPair('k1')
     const verifier = new AccessTokenVerifier({ audience: AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     const token = signToken(key.privateKey, key.kid, {}, nowSeconds)
@@ -73,7 +73,10 @@ describe('access token verification', () => {
     const key = keyPair('k1')
     const verifier = new AccessTokenVerifier({ audience: AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds - 700, exp: nowSeconds - 1 }, nowSeconds))).toEqual({ ok: false, reason: 'expired' })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + 3_600 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS }, nowSeconds))).toMatchObject({ ok: true })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS + 1 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
+    // A share link's grant keeps its ten minutes: a guest's reach ends with it.
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { access: 'guest', sub: 'guest:visitor', exp: nowSeconds + GUEST_GRANT_TTL_SECONDS + 1 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
     expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds + 300, exp: nowSeconds + 900 }, nowSeconds))).toEqual({ ok: false, reason: 'not-yet-valid' })
   })
 

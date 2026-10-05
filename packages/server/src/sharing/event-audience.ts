@@ -26,6 +26,8 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
     return principal.kind === 'org-member' && event.payload.removedUserIds.includes(principal.userId)
   }
   if (principal.kind === 'guest') {
+    // A session share grants no host device access (docs/plans/native-devices.md, D3).
+    if (event.type === 'device.stateChanged' || event.type === 'device.surfaceRequested') return false
     // A guest on a task page re-reads it when tasks change. An event that names
     // a task reaches only a guest who can open that task.
     if (event.type === 'tasks.invalidated') {
@@ -51,6 +53,7 @@ export async function attentionVisibleTo(principal: Principal, entries: readonly
 
 /** Events that carry no resource id and describe the host as a whole; members hear them, guests never do. */
 const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
+  'device.stateChanged',
   'session.indexChanged',
   'attention.snapshotChanged',
   'tasks.invalidated',
@@ -76,6 +79,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.transcriptChanged':
     case 'session.statusChanged':
     case 'session.presenceChanged':
+    case 'device.surfaceRequested':
       return { kind: 'session', id: event.payload.sessionId }
     case 'works.changed':
       return { kind: 'work', id: event.payload.workId }
@@ -83,6 +87,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'workLive.update':
     case 'workLive.awareness':
     case 'workLive.state':
+    case 'work.presenceChanged':
       return { kind: 'work', id: event.payload.workId }
     case 'annotations.changed':
       return event.payload.kind === 'work'

@@ -2,6 +2,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { Automation, AutomationAction, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { visibleInWindow } from '../../lib/organization-filter'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 
@@ -10,6 +11,12 @@ import { organizationSelection } from '../connections/organization-selection.sto
 // main-process automation service the agent tools use. A human-made and an
 // agent-made automation are therefore indistinguishable downstream.
 export class AutomationsStore {
+  /**
+   * The person's execution preferences (plans/018 §6), captured on a create and on
+   * an edit of what the automation does, so it runs the same while no client is
+   * open. The workspace supplies them.
+   */
+  executionPreferences: () => ExecutionPreferences = () => ({})
   items = $state<Automation[]>([])
   /** Run history per automation id, loaded lazily when a row is expanded. */
   runs = new SvelteMap<string, AutomationRun[]>()
@@ -228,7 +235,7 @@ export class AutomationsStore {
       throw new Error('Automations are not supported on this host')
     }
     // The host records who made it from the admitted caller.
-    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, enabled, trigger)
+    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, enabled, trigger, this.executionPreferences())
     this.hostByAutomationId.set(created.id, serverId)
     this.upsert(created)
     return created
@@ -238,7 +245,9 @@ export class AutomationsStore {
     id: string,
     patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
   ): Promise<void> {
-    const updated = await this.apiForAutomation(id).automationUpdate(id, patch)
+    // An edit of what it does or when re-captures the editor's preferences; a rename or toggle keeps the snapshot.
+    const edits = patch.action !== undefined || patch.trigger !== undefined
+    const updated = await this.apiForAutomation(id).automationUpdate(id, edits ? { ...patch, executionPreferences: this.executionPreferences() } : patch)
     if (updated) this.upsert(updated)
   }
 

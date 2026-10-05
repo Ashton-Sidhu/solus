@@ -2,7 +2,6 @@
   "version": "0.18.0",
   "projectPath": "/home/demo/acme",
   "homePath": "/home/demo",
-  "workspacePath": "/home/demo/acme",
   "agents": [
     {
       "id": "claude-code",

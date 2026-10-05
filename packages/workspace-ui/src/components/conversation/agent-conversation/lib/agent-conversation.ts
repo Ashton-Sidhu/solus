@@ -4,13 +4,14 @@ import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
+import { plainDetail, type AgentLinkStatus } from '../../lib/agent-link'
 
 /** The card's single headline state — one treatment, one verb, no layout shift.
  *  `lost` is a message whose reply a host restart took; `limited` is a turn
  *  parked on its provider's rate limit, which resumes on its own. */
-export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' | 'limited' | 'replied' | 'failed' | 'lost' | 'closed'
+export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' | 'limited' | 'children' | 'replied' | 'failed' | 'lost' | 'closed'
 
-const OPEN_STATUSES = new Set<AgentExchangeStatus>(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'answered'])
+const OPEN_STATUSES = new Set<AgentExchangeStatus>(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'answered'])
 
 /** A start_session card before its session exists — nothing to open, track or
  *  interrupt yet. */
@@ -39,11 +40,7 @@ export function agentConversationCardState(
   const last = ref.exchanges[ref.exchanges.length - 1]
   if (!last) return 'dispatching'
   if (last.restored && OPEN_STATUSES.has(last.status)) {
-    if (carried === undefined) return 'dispatching'
-    if (carried === null) return 'lost'
-    if (carried.state === 'awaiting_input') return 'waiting'
-    if (carried.state === 'rate_limited') return 'limited'
-    return carried.state === 'queued' ? 'dispatching' : 'replying'
+    return restoredCardState(carried)
   }
   switch (last.status) {
     case 'dispatched':
@@ -52,6 +49,8 @@ export function agentConversationCardState(
     case 'running':
     case 'answered':
       return 'replying'
+    case 'waiting_for_children':
+      return 'children'
     case 'awaiting_input':
       return 'waiting'
     case 'rate_limited':
@@ -64,6 +63,16 @@ export function agentConversationCardState(
     case 'interrupted':
       return 'replied'
   }
+}
+
+function restoredCardState(carried: SentSessionMessage | null | undefined): AgentConversationCardState {
+  if (carried === undefined) return 'dispatching'
+  if (carried === null) return 'lost'
+  if (carried.state === 'settled') return carried.outcome === 'failed' ? 'failed' : 'replied'
+  if (carried.state === 'awaiting_input') return 'waiting'
+  if (carried.state === 'rate_limited') return 'limited'
+  if (carried.state === 'waiting_for_children') return 'children'
+  return carried.state === 'queued' ? 'dispatching' : 'replying'
 }
 
 /** What the card's last exchange is waiting on a person for, if it is waiting. */
@@ -101,7 +110,7 @@ export function rateLimitedUntil(ref: AgentConversationRef, carried: SentSession
 
 /** Live states keep their colour, clock and footer; settled states drop all three. */
 export function isLiveAgentConversationState(state: AgentConversationCardState): boolean {
-  return state === 'dispatching' || state === 'replying' || state === 'waiting' || state === 'limited'
+  return state === 'dispatching' || state === 'replying' || state === 'waiting' || state === 'limited' || state === 'children'
 }
 
 /** This agent has been asked something and hasn't answered yet — including a
@@ -186,7 +195,7 @@ function agentSideOf(exchange: AgentExchange): AgentMessage[] {
   }
   // One pending slot at most, and never beside an unanswered question — the
   // question IS what the exchange is doing right now.
-  if (exchange.status === 'dispatched' || exchange.status === 'queued' || exchange.status === 'running' || exchange.status === 'answered' || (exchange.status === 'awaiting_input' && !asked.length)) {
+  if (exchange.status === 'dispatched' || exchange.status === 'queued' || exchange.status === 'running' || exchange.status === 'waiting_for_children' || exchange.status === 'answered' || (exchange.status === 'awaiting_input' && !asked.length)) {
     return [...asked, ...answered, { key: replyKey, from: 'agent', kind: 'reply', text: '', pending: true }]
   }
   // Failed or interrupted with nothing said: the header carries the cause, so
@@ -278,4 +287,36 @@ export async function openAgentSession(
 /** Display title: the CLI slug wins once the indexer has it. */
 export function agentConversationTitle(ref: AgentConversationRef, meta: SessionMeta | undefined): string {
   return meta?.slug || ref.title
+}
+
+/**
+ * The session row's status dot, word, and detail line (T3 Code's subagent
+ * link). Every in-flight state is `live`; the detail says why a settled
+ * exchange ended, or the reply's first words when it answered.
+ */
+export function agentConversationLink(
+  ref: AgentConversationRef,
+  state: AgentConversationCardState,
+  neverStarted: boolean,
+): AgentLinkStatus & { detail: string } {
+  switch (state) {
+    case 'dispatching':
+      return { tone: 'live', label: neverStarted ? 'Starting' : 'Queued', detail: '' }
+    case 'replying':
+      return { tone: 'live', label: 'Running', detail: '' }
+    case 'waiting':
+      return { tone: 'live', label: 'Waiting', detail: '' }
+    case 'children':
+      return { tone: 'live', label: 'Waiting', detail: 'Waiting on agents' }
+    case 'limited':
+      return { tone: 'live', label: 'Waiting', detail: 'Rate limited' }
+    case 'replied':
+      return { tone: 'done', label: 'Completed', detail: plainDetail(ref.exchanges.at(-1)?.reply ?? '') }
+    case 'failed':
+      return { tone: 'failed', label: 'Failed', detail: neverStarted ? 'Never started' : 'Stopped replying' }
+    case 'lost':
+      return { tone: 'idle', label: 'Stopped', detail: 'Reply lost in a restart' }
+    case 'closed':
+      return { tone: 'idle', label: 'Stopped', detail: 'Closed its session' }
+  }
 }

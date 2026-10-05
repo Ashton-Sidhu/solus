@@ -1,20 +1,25 @@
 <script lang="ts">
   import { MessageSquare as CommentsIcon, MessageSquarePlus as PinIcon } from "@lucide/svelte";
   import type { CommentPin } from "@solus/contracts/types";
+  import type { TurnFlagKind } from "@solus/contracts/observability-types";
   import { uuid } from "@solus/contracts/uuid";
   import { getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
-  import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
+  import { SubPageCrumbLine } from "../ui/list-page";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import ArtifactCommentLayer from "../artifact/ArtifactCommentLayer.svelte";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import { openThreads } from "../comments/lib/thread";
+  import { sameUser } from "@solus/contracts/user";
+  import { toasts } from "../../lib/toasts";
   import { formatClock } from "./lib/format";
   import { buildTraceView } from "./lib/waterfall";
   import { traceExportJson } from "./lib/turn-analysis";
   import { parseTurnReport } from "./lib/turn-report";
+  import { flagChoice, flagColor, markGroups } from "./lib/turn-flags";
+  import TurnFlagMenu from "./TurnFlagMenu.svelte";
   import TurnReadings from "./TurnReadings.svelte";
 
   /**
@@ -23,7 +28,8 @@
    * readings captured at Share (docs/plans/cloud-sharing.md §4). A person the
    * report was shared with reads the same page its sharer did. The turn stayed
    * on its computer, so nothing here leads to another turn, the session, or the
-   * task; comments pin to points on the page, as on an artifact.
+   * task; comments pin to points on the page, as on an artifact. Each reader
+   * who may comment keeps their own mark on the turn; a viewer reads the marks.
    */
   interface Props {
     content: string;
@@ -97,6 +103,17 @@
   const openCommentCount = $derived(openThreads(comments).length);
   const commentsReadOnly = $derived(!!serverId && sharesStore.listFor(serverId, { kind: "work", id: workId })?.callerRole === "viewer");
 
+  // ─── Marks: each reader's own, beside the comments ───
+  // A mark is a reaction like a comment, so whoever may comment may mark.
+  const marks = $derived(session.worksStore.annotationMarks(workId));
+  const selfId = $derived(serverId ? presenceStore.currentUserId(serverId) : null);
+  const ownMark = $derived(selfId ? (marks.find((mark) => sameUser(mark.by.id, selfId)) ?? null) : null);
+  const otherMarks = $derived(markGroups(marks.filter((mark) => mark !== ownMark)));
+
+  function setMark(mark: { kind: TurnFlagKind; note: string } | null): void {
+    void session.worksStore.setAnnotationMark(workId, mark).catch(() => toasts.error("Could not save the mark"));
+  }
+
   let pinArmed = $state(false);
   let draftPin = $state<CommentPin | null>(null);
   let openThreadId = $state<string | null>(null);
@@ -138,86 +155,116 @@
   useKeybinding("artifact.dismiss", dismissCommentOverlay, { enabled: () => hasCommentOverlay });
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-background text-foreground" data-testid="insights-report-shell">
-  <div
-    class="workspace-titlebar flex h-auto min-h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-1.5 border-b border-[var(--hairline)] pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))] @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-1 @max-[30rem]/pane:pl-2"
-  >
-    {#if onOpenWorkspace}
-      <span class="-ml-[7px] flex shrink-0 items-center @max-[30rem]/pane:ml-0">
-        <ParentPageCrumb page="folio" onOpen={onOpenWorkspace} />
-      </span>
-    {/if}
-    {#if renaming}
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1 py-0.5 text-workspace-chrome font-medium text-(--solus-text-primary) outline-none"
-        bind:value={renameValue}
-        onblur={commitRename}
-        onkeydown={renameKeydown}
-        autofocus
-        aria-label="Rename report"
-        data-testid="rename-work-input"
-      />
-    {:else}
-      <button
-        type="button"
-        class="min-w-0 flex-1 truncate border-0 bg-transparent text-left text-workspace-chrome font-medium text-(--solus-text-primary) enabled:cursor-text"
-        onclick={startRename}
-        disabled={!onRename}
-        title={onRename ? "Rename" : undefined}
-      >
-        {title}
-      </button>
-    {/if}
-    {#if report}
-      <span class="shrink-0 text-workspace-chrome text-muted-foreground @max-[30rem]/pane:hidden">
-        Captured {formatClock(report.capturedAt)}
-      </span>
-    {/if}
-    {#if !commentsReadOnly}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="shrink-0 text-muted-foreground pointer-coarse:size-10 {pinArmed ? 'bg-(--solus-accent-soft) text-(--solus-accent)' : ''}"
-        title="Comment on the report (⌥C)"
-        aria-label="Comment on the report"
-        aria-pressed={pinArmed}
-        onclick={() => {
-          pinArmed = !pinArmed;
-          if (pinArmed) draftPin = null;
-        }}
-      >
-        <PinIcon size={14} />
-      </Button>
-    {/if}
-    {#if comments.length > 0}
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-7 shrink-0 gap-1 px-2 text-workspace-chrome text-muted-foreground pointer-coarse:h-10 {commentListOpen ? 'bg-(--solus-accent-soft) text-(--solus-accent)' : ''}"
-        title={commentListOpen ? "Hide comments" : "Show comments"}
-        aria-label={commentListOpen ? "Hide comments" : "Show comments"}
-        aria-pressed={commentListOpen}
-        onclick={() => (commentListOpen = !commentListOpen)}
-      >
-        <CommentsIcon size={14} />
-        <span class="tabular-nums">{openCommentCount}</span>
-      </Button>
-    {/if}
-    <WorkHeaderActions
-      onStartRename={onRename ? startRename : undefined}
-      {copied}
-      copy={copyJson}
-      {workId}
-      {title}
-      currentContent={content}
-      {exportFormats}
-      {onExport}
-      {hostIsRemote}
-      {onDelete}
-      {onDuplicate}
+{#snippet titleControl()}
+  {#if renaming}
+    <!-- svelte-ignore a11y_autofocus -->
+    <input
+      class="h-7 min-w-24 max-w-96 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-[7px] text-workspace-chrome text-foreground outline-none pointer-coarse:h-9"
+      bind:value={renameValue}
+      onblur={commitRename}
+      onkeydown={renameKeydown}
+      autofocus
+      aria-label="Rename report"
+      data-testid="rename-work-input"
     />
-  </div>
+  {:else}
+    <button
+      type="button"
+      class="flex h-7 min-w-0 max-w-96 items-center truncate rounded border-0 bg-transparent px-[7px] text-left text-foreground enabled:cursor-text pointer-coarse:h-9"
+      onclick={startRename}
+      disabled={!onRename}
+      title={onRename ? "Rename" : title}
+    >
+      <span class="truncate">{title}</span>
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet headerActions()}
+  {#if report}
+    <span class="shrink-0 text-muted-foreground @max-[30rem]/pane:hidden">
+      Captured {formatClock(report.capturedAt)}
+    </span>
+  {/if}
+  {#if !commentsReadOnly}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="shrink-0 text-muted-foreground pointer-coarse:size-10 {pinArmed ? 'bg-(--solus-accent-soft) text-(--solus-accent)' : ''}"
+      title="Comment on the report (⌥C)"
+      aria-label="Comment on the report"
+      aria-pressed={pinArmed}
+      onclick={() => {
+        pinArmed = !pinArmed;
+        if (pinArmed) draftPin = null;
+      }}
+    >
+      <PinIcon size={14} />
+    </Button>
+  {/if}
+  {#if comments.length > 0}
+    <Button
+      variant="ghost"
+      size="sm"
+      class="h-7 shrink-0 gap-1 px-2 text-workspace-chrome text-muted-foreground pointer-coarse:h-10 {commentListOpen ? 'bg-(--solus-accent-soft) text-(--solus-accent)' : ''}"
+      title={commentListOpen ? "Hide comments" : "Show comments"}
+      aria-label={commentListOpen ? "Hide comments" : "Show comments"}
+      aria-pressed={commentListOpen}
+      onclick={() => (commentListOpen = !commentListOpen)}
+    >
+      <CommentsIcon size={14} />
+      <span class="tabular-nums">{openCommentCount}</span>
+    </Button>
+  {/if}
+  <WorkHeaderActions
+    onStartRename={onRename ? startRename : undefined}
+    {copied}
+    copy={copyJson}
+    {workId}
+    {title}
+    currentContent={content}
+    {exportFormats}
+    {onExport}
+    {hostIsRemote}
+    {onDelete}
+    {onDuplicate}
+  />
+{/snippet}
+
+<!-- The turn's own verbs, beside its prompt as on the Insights panel. Only
+     the mark applies here: the turn's session and task stayed on its computer.
+     The control is the reader's own mark; the others' marks follow it. -->
+{#snippet turnActions()}
+  {#each otherMarks as group (group.kind)}
+    {@const choice = flagChoice(group.kind)}
+    <span
+      class="flex h-6.5 shrink-0 items-center gap-1 rounded-full px-2 text-insights-chrome tabular-nums pointer-coarse:h-10"
+      style="color:{flagColor(group.kind)}"
+      title={group.title}
+      aria-label={group.title}
+    >
+      <choice.icon class="size-4" strokeWidth={1.5} aria-hidden="true" />
+      {group.count}
+    </span>
+  {/each}
+  <TurnFlagMenu
+    flag={ownMark}
+    readOnly={commentsReadOnly}
+    onSet={(kind, note) => setMark({ kind, note })}
+    onClear={() => setMark(null)}
+  />
+{/snippet}
+
+<div class="flex h-full min-h-0 flex-col bg-background text-foreground" data-testid="insights-report-shell">
+  <!-- The same band the Insights turn page draws, so the shared page reads
+       as that page: the way back, the report's name, and its actions. -->
+  <SubPageCrumbLine
+    page="folio"
+    onOpenPage={onOpenWorkspace}
+    leafControl={titleControl}
+    actions={headerActions}
+    divided={false}
+  />
 
   <!-- As on the Insights panel: the page is for reading recorded values, so
        its body opts back into text selection. -->
@@ -235,9 +282,10 @@
           baselines={report.baselines}
           {prompts}
           {change}
-          showResult={report.patch != null}
+          showResult
           loadRepoFiles={async () => null}
           spanId={openSpanId}
+          actions={turnActions}
           onOpenSpan={(spanId) => (openSpanId = spanId)}
         />
         <ArtifactCommentLayer

@@ -1,10 +1,11 @@
+import { isChat } from '@solus/contracts/chat'
 import type { AgentTool } from './tools/agent-tool'
 
 /**
  * The host facts every agent gets, whatever its backend: where it runs, how
  * Solus renders what it writes, and the shared browser. This is the only copy.
- * Claude receives it through its system prompt append; Codex receives it after
- * its collaboration-mode instructions. Provider behavior stays with the
+ * Claude receives it through its system prompt append; Codex receives it in
+ * its thread developer instructions. Provider behavior stays with the
  * provider, and tool-specific guidance stays with its tool.
  */
 
@@ -25,10 +26,30 @@ Use the Solus link tool to register every pull request that you create or work o
 
 const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, call list_session_pull_requests and link each pull request from your work that is missing.'
 
+const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
+
+Use a native subagent for brief same-provider work when it supports the chosen model. Use start_session for another provider or model, a durable Solus conversation, or nested async work. File related work as task=attempt on the current task. Start an unrelated conversation only when the user asks for it.
+
+Give each worker the full brief, constraints, and expected result; it does not see this conversation. Choose its workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding.
+
+Solus tool definitions can load through the harness's tool search. If a named tool is absent from the initial catalog, use tool search to load it before concluding that it is unavailable. Do not start duplicate work to work around a tool discovery failure.
+
+Prefer report=true and wait_seconds=0. End your turn while the worker runs; its report wakes you. A wait timeout does not cancel work. Keep the returned session and exchange IDs. An ended provider turn with open child work is not a final result. Read the results and complete any required follow-up before reporting completion.
+
+Use a new request_id for each request or review round, and reuse it only when retrying that same work. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.`
+
+/** A chat has no project (docs/plans/projectless-chat.md). Its folder is a
+ *  scratch folder the person never sees, so the agent must not lead them to it. */
+const CHAT_INSTRUCTIONS = `## Chat
+
+This session is a chat with no project. The person did not choose a folder or a repository. Your working folder is a private scratch folder that Solus made for this chat. It is not a Git repository. Do not mention its path, and do not run Git commands in it. You can create files there when a task needs them; refer to them by file name. If the work grows into a project, tell the person that they can start a session in a project.`
+
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'
   model: string
   reasoningEffort: string
+  /** The run's working directory: a chat gets the chat block. */
+  workingDirectory?: string
 }
 
 function singleLine(value: string): string {
@@ -36,7 +57,7 @@ function singleLine(value: string): string {
 }
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
- *  `browser_status` for the Browser group, `link` for the Tasks group. */
+ *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
@@ -44,6 +65,13 @@ You can embed images and videos in your response with Markdown and absolute file
   const has = (name: string) => tools.some((tool) => tool.name === name)
   return [
     runtimeInfo,
+    isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
+    has('start_session') && [
+      ORCHESTRATION_INSTRUCTIONS,
+      has('list_agent_targets') && 'Before choosing a worker provider or model, call list_agent_targets for the current catalog. A native subagent tool may support fewer models than the host.',
+      has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
+      has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
+    ].filter(Boolean).join('\n\n'),
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
     has('link') && (has('list_session_pull_requests')
       ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`

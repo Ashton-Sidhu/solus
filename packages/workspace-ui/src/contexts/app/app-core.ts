@@ -4,6 +4,9 @@ import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
+import { settingsSyncStore } from './settings-sync.store.svelte'
+import { hostSettingsStore } from './host-settings.store.svelte'
+import { accountStore } from '../account/account.store.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
 import { SessionRecords, setSessionRecords } from '../workspace/session-records.svelte'
 import { type ClientShellContext, setClientShellContext } from './client-shell.svelte'
@@ -65,6 +68,10 @@ export interface AppCore {
  */
 export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
+  // One sync coordinator and one host-settings follower per client, not per tab.
+  onDestroy(settingsSyncStore.start(settings.personal))
+  onDestroy(settingsSyncStore.followAccount(accountStore))
+  onDestroy(hostSettingsStore.start())
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
   const sessionEnvironmentStore = new SessionEnvironmentStore(checkoutStore)

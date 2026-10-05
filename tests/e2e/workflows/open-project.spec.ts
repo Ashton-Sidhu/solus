@@ -32,7 +32,7 @@ test.describe('Open project flow', () => {
     await expect(page.locator(TITLE)).toHaveText('Open project')
     // Opening a folder and cloning are always offered; GitHub only when signed in.
     const labels = await page.locator(OPTION).allInnerTexts()
-    expect(labels.some((text) => text.includes('Open a folder'))).toBe(true)
+    expect(labels.some((text) => text.includes('Open an existing folder'))).toBe(true)
     expect(labels.some((text) => text.includes('Clone from a URL'))).toBe(true)
 
     await page.keyboard.press('Escape')
@@ -102,7 +102,7 @@ test.describe('Open project flow', () => {
     await app.waitForAppReady()
     await openFlow(page)
 
-    await chooseAction(page, 'Open a folder')
+    await chooseAction(page, 'Open an existing folder')
 
     // The picker is the only folder UI; the flow steps aside while it owns
     // navigation and selection.

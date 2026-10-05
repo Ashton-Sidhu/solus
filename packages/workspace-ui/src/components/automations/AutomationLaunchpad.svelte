@@ -9,7 +9,8 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
-  import { connectionsStore, getAgentContext, getWorkspaceContext } from "../../contexts";
+  import { getAgentContext, getWorkspaceContext } from "../../contexts";
+  import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
@@ -161,10 +162,7 @@
           agentProvider,
           modelId,
           reasoningEffort: "medium",
-          cwd:
-            (template.runsInWorkspace
-              ? connectionsStore.chatFolderFor(serverId)
-              : null) ?? projectPath,
+          cwd: template.runsInWorkspace ? NEW_CHAT_DIRECTORY : projectPath,
         },
         template.trigger,
         // Seeded paused: a template carries a schedule, and nothing should run

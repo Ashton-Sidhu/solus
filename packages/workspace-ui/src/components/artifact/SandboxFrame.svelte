@@ -14,8 +14,8 @@
     expandScale,
     lastReportedHeight,
     rememberReportedHeight,
-    scrollContainerOf,
   } from "./lib/artifact-view";
+  import { scrollContainerOf } from "../../lib/scroll-container";
 
   /**
    * The one place agent HTML runs: a sandboxed iframe carrying a

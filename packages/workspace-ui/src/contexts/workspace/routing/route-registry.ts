@@ -22,6 +22,10 @@ import { serverConnections } from '@solus/client-core/server-connections'
  */
 
 export type SettingsTab =
+  | 'personal'
+  | 'organization'
+  | 'device'
+  | 'host'
   | 'general'
   | 'appearance'
   | 'notifications'
@@ -33,6 +37,7 @@ export type SettingsTab =
   | 'api-access'
   | 'tools'
   | 'skills'
+  | 'devices'
   | 'voice'
   | 'telemetry'
   | 'experimental'
@@ -40,6 +45,10 @@ export type SettingsTab =
   | 'keybindings'
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
+  'personal',
+  'organization',
+  'device',
+  'host',
   'general',
   'appearance',
   'notifications',
@@ -51,6 +60,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'api-access',
   'tools',
   'skills',
+  'devices',
   'voice',
   'telemetry',
   'experimental',
@@ -95,6 +105,8 @@ export interface RouteParams {
   settings: { tab?: SettingsTab; projectCwd?: string }
   folio: Record<string, never>
   automations: { automationId?: string }
+  /** The notifications hub (plans/015): every source's notifications addressed to the person. */
+  notifications: Record<string, never>
   plan: { planId: string | null; serverId?: string }
   /** A work id is host-local. The host stays in the route so a cloud-served
    *  client can restore or deep-link the work without guessing a connection. */
@@ -142,6 +154,9 @@ export interface RouteParams {
    *  absent id follows whichever page the browser store last made active, which
    *  is how "an agent asked for a surface" lands somewhere. */
   browser: { browserPageId?: string; serverId?: string }
+  /** Native device previews for one session (docs/plans/native-devices.md).
+   *  Without a session the pane follows the focused conversation. */
+  devices: { sessionId?: string; serverId?: string }
   /** The record of a session on a host that cannot open its transcript: the
    *  organization's workspace service while the runner is offline
    *  (docs/plans/cloud-service-model.md R8). Read-only. */
@@ -383,6 +398,14 @@ export const ROUTES: RouteTable = {
     ownsTitlebarChrome: true,
     component: () => import('../../../components/automations/AutomationsPage.svelte'),
   },
+  notifications: {
+    parse: () => ({}),
+    serialize: () => '',
+    placement: 'any',
+    exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/notifications/NotificationsPage.svelte'),
+  },
   plan: {
     // A streamed plan has no id yet — the gallery browser fills the pane — so
     // an empty segment is a valid location, not a parse failure.
@@ -583,6 +606,19 @@ export const ROUTES: RouteTable = {
     placement: 'aside',
     defaultWeight: 0.5,
     component: () => import('../../../components/browser/BrowserPane.svelte'),
+  },
+  devices: {
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      const params: RouteParams['devices'] = {}
+      if (id) params.sessionId = id
+      if (serverId) params.serverId = serverId
+      return params
+    },
+    serialize: (p) => serializeScopedId(p.sessionId ?? '', p.serverId),
+    placement: 'aside',
+    defaultWeight: 0.4,
+    component: () => import('../../../components/devices/DevicesPane.svelte'),
   },
   sessionRecord: {
     parse: (s) => {

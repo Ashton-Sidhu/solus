@@ -554,7 +554,8 @@ role.
 
 **18. Notifications — moved to the notifications hub (D15).** The hub finds new
 mentions in comments and document bodies (D16) and notifies once per new
-mention. Not part of this plan.
+mention. Not part of this plan; implemented by
+[plan 015](015-notifications-hub.md) (`docs/plans/notifications-hub.md`).
 
 ### Order at a glance
 

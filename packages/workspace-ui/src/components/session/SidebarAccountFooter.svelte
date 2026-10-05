@@ -10,6 +10,7 @@
    *  anywhere else their row has the icon buttons alone. */
   import { localApi } from "@solus/client-core/local-api";
   import {
+    Bell as BellIcon,
     Settings as GearIcon,
     Keyboard as KeyboardIcon,
     UserRound as UserIcon,
@@ -20,7 +21,13 @@
     LogOut as LogOutIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { accountStore, getWorkspaceContext, serversStore } from "../../contexts";
+  import { unreadCountLabel } from "@solus/client-core/notifications/presentation";
+  import {
+    accountStore,
+    getWorkspaceContext,
+    notificationHubStore,
+    serversStore,
+  } from "../../contexts";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
@@ -33,6 +40,9 @@
   const account = $derived(accountStore.state);
   const signedIn = $derived(account.kind === "signed-in" ? account : null);
   const settingsOpen = $derived(session.router.at("settings"));
+  // Unread notifications addressed to you across every source; "+" while a source has not answered.
+  const notificationCount = $derived(notificationHubStore.unreadCount);
+  const notificationCountLabel = $derived(unreadCountLabel(notificationCount));
   // No keychain means no account on this device, so there is nothing to offer.
   const offersSignIn = $derived(
     accountStore.isAvailable && !signedIn && account.kind !== "unavailable",
@@ -49,6 +59,7 @@
   isActive: boolean,
   onclick: () => void,
   icon: typeof GearIcon,
+  badge?: string | null,
 )}
   {@const Icon = icon}
   <TooltipUI.Root>
@@ -60,12 +71,19 @@
           size="icon-sm"
           aria-label={label}
           aria-current={isActive ? "page" : undefined}
-          class="rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {isActive
+          class="relative rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {isActive
             ? 'bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] text-foreground'
             : ''}"
           {onclick}
         >
           <Icon size={15} />
+          {#if badge}
+            <span
+              class="pointer-events-none absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] leading-none font-semibold text-primary-foreground tabular-nums"
+              data-testid="notification-unread-count"
+              aria-hidden="true">{badge}</span
+            >
+          {/if}
         </Button>
       {/snippet}
     </TooltipUI.Trigger>
@@ -87,6 +105,16 @@
     settingsOpen && session.settingsTab === "keybindings",
     () => session.showSettings("keybindings"),
     KeyboardIcon,
+  )}
+  {@render utilityButton(
+    notificationCountLabel
+      ? `Notifications, ${notificationCountLabel} unread`
+      : "Notifications",
+    comboHint("global.toggle-notifications"),
+    session.router.at("notifications"),
+    () => session.toggleNotifications(),
+    BellIcon,
+    notificationCountLabel,
   )}
 
   <div class="ml-auto flex min-w-0 items-center">

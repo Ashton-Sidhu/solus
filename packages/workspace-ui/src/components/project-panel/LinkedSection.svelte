@@ -147,10 +147,10 @@ does not push the rest of the rail off screen. -->
             >
               <GitPullRequestIcon size={16} />
             </span>
-            <span class="shrink-0 text-xs text-(--solus-text-tertiary)">#{row.number}</span>
-            <span class="min-w-0 flex-1 truncate text-left font-medium">{row.title}</span>
+            <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">#{row.number}</span>
+            <span class="min-w-0 flex-1 truncate text-left">{row.title}</span>
             {#if row.state}
-              <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{row.state}</span>
+              <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{row.state}</span>
             {/if}
           </button>
         {/snippet}

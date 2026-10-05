@@ -76,7 +76,7 @@ describe('a window with no machine', () => {
       },
       start: async () => {
         calls.push(`${serverId}:start`)
-        return { version: '1', projectPath: '/p', homePath: '/h', workspacePath: '/w', agents: [] }
+        return { version: '1', projectPath: '/p', homePath: '/h', agents: [] }
       },
     }))
     const { AgentContext } = await import('@solus/workspace-ui/contexts/app/agent.context.svelte')
@@ -109,6 +109,6 @@ describe('a window with no machine', () => {
     // A second call with the same default machine is a no-op.
     await lifecycle.initStaticInfo()
     expect(calls).toEqual(['machine-1:usageLimits', 'machine-1:start'])
-    expect(lifecycle.staticInfo?.workspacePath).toBe('/w')
+    expect(lifecycle.staticInfo?.projectPath).toBe('/p')
   })
 })

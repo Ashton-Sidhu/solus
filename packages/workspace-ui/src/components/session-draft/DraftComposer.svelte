@@ -16,10 +16,10 @@
    * The composer a session draft is written in: where it will run, the seat it
    * still needs, and the bar with its pickers. Every surface that composes a
    * draft renders this — the draft pane, and the composer docked on a page — so
-   * the destination strip, the shell's own controls and the slash commands are
+   * the destination strip, the toolbar and the slash commands are
    * the same wherever a new session starts.
    */
-  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode" | "composerActions"> {
+  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> {
     draft: SessionDraft;
     paneId: string;
     active: boolean;
@@ -59,7 +59,6 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    composerActions,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -146,22 +145,18 @@
     {onSent}
   >
     {#snippet leadingActions()}
-      {#if composerActions}
-        {@render composerActions(draft.id)}
-      {:else}
-        <InputToolbar
-          {active}
-          {spacious}
-          showDestination={false}
-          {isPrimary}
-          run={draft.run}
-          onRun={(next) => (draft.run = next)}
-          selection={modelSelection}
-          onAttachFile={attachFile}
-          {onScreenshot}
-          {onDesignMode}
-        />
-      {/if}
+      <InputToolbar
+        {active}
+        {spacious}
+        showDestination={false}
+        {isPrimary}
+        run={draft.run}
+        onRun={(next) => (draft.run = next)}
+        selection={modelSelection}
+        onAttachFile={attachFile}
+        {onScreenshot}
+        {onDesignMode}
+      />
     {/snippet}
   </InputBar>
 </div>

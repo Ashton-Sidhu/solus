@@ -309,9 +309,6 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     const toHost = request?.destination === 'host'
     const rawRoot = toHost ? null : projectRootForRequest(ctx, request?.cwd)
     const requestedPath = request?.path ?? ''
-    if (!toHost && !rawRoot) {
-      return { ok: false, path: requestedPath, error: 'No project directory is available.' } satisfies WriteFileResult
-    }
     if (!requestedPath) {
       return { ok: false, path: requestedPath, error: 'No file path was provided.' } satisfies WriteFileResult
     }
@@ -347,14 +344,8 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       }
     }
 
-    if (root && !isInsideRoot(root, target)) {
-      return {
-        ok: false,
-        path: target,
-        error: 'File path is outside the project directory.',
-      } satisfies WriteFileResult
-    }
-
+    // A file outside the project saves where it is, like a file inside it.
+    const insideRoot = root !== null && isInsideRoot(root, target)
     try {
       if (request.expectedContents !== undefined) {
         const currentContents = await readFile(target, 'utf8')
@@ -370,13 +361,13 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       const encoding = request.encoding === 'base64' ? 'base64' : 'utf8'
       const payload = Buffer.from(request.contents, encoding)
       await writeFile(target, payload)
-      if (root) await refreshFinder(root)
+      if (root && insideRoot) await refreshFinder(root)
       return {
         ok: true,
         path: target,
         // Relative to the project it belongs to; an export has no project to be
         // relative to, so it reports where it actually landed.
-        displayPath: root ? pathRelative(root, target) || basename(target) : target,
+        displayPath: root && insideRoot ? pathRelative(root, target) || basename(target) : target,
         size: payload.byteLength,
       } satisfies WriteFileResult
     } catch (err) {

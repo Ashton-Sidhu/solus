@@ -1,10 +1,10 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID, type SavedServer } from '@solus/client-core/server-registry'
 import {
-  defaultDeviceLabel,
   pairServer,
   saveBootstrappedServer,
 } from '@solus/client-core/pairing'
+import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { discoveredServerUrl, serversStore } from '../../contexts'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'

@@ -7,6 +7,7 @@ import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { existingTaskId, taskRoleOf } from './session-draft.svelte'
 import { UNTITLED_TASK_TITLE, type Task } from '../tasks/task.svelte'
+import { canDriveSession } from '../sharing/session-drive'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionMetadataWorkspace = Pick<WorkspaceContext,
@@ -102,7 +103,7 @@ export class SessionMetadata {
   ): void {
     for (const { sessionId, taskServerId } of applySessionTitleChange(this.workspace.sessions.byId, serverId, event)) {
       for (const tabId of this.workspace.tabIdsForSession(sessionId)) this.metadataFinalizedTabs.add(tabId)
-      if (taskServerId === serverId) continue
+      if (taskServerId === serverId || !canDriveSession(serverId, sessionId)) continue
       // A dispatched session is indexed on its execution host, while its task
       // host holds a lightweight proxy row for closed-attempt display. Carry
       // the authoritative rename back across that boundary; otherwise only the
@@ -126,6 +127,9 @@ export class SessionMetadata {
     const agentSessionId = session?.agentSessionId
     if (!tab || !session || !agentSessionId || session.forked) return
     if (this.metadataFinalizedTabs.has(tabId)) return
+    // A member who may only read a shared session does not name it: the host
+    // requires an editor, and the session's driver names it.
+    if (!canDriveSession(session.run.serverId, session.id)) return
 
     if (session.titleCustom) {
       // A name typed into a session before the provider knew about it had
@@ -150,7 +154,7 @@ export class SessionMetadata {
       hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
     )
     const metadata = await this.workspace.apiFor(tabId)
-      .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, metadataContext)
+      .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, { ...metadataContext, sessionId: agentSessionId, executionPreferences: this.workspace.settings.executionPreferences })
       .catch(() => null)
     if (!metadata) return
     if (untitledTask) void untitledTask.nameFromLeadPrompt(metadata).catch(() => {})
@@ -228,7 +232,7 @@ export class SessionMetadata {
       const metadata = await api.generateSessionMetadata(
         openingPrompt,
         workingDirectory,
-        metadataContext,
+        { ...metadataContext, sessionId: agentSessionId, executionPreferences: this.workspace.settings.executionPreferences },
       )
       if (!metadata) throw new Error("Couldn't generate a new session title.")
 

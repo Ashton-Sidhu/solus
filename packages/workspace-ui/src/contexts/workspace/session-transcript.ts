@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
-import { artifactUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
+import { workUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -211,6 +211,14 @@ export function materializeSessionTranscript(
       }
       continue
     }
+    // A context compaction the provider recorded: the same divider the live
+    // `context_compaction` stop draws, outside the thinking run.
+    if (m.compaction) {
+      if (!m.parentToolUseId) {
+        messages.push({ id: m.messageId ?? nextMsgId(), role: 'system', content: '', timestamp: m.timestamp, compaction: m.compaction })
+      }
+      continue
+    }
     if (m.role === 'reasoning') {
       if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
       const thought = m.content.trim()
@@ -382,7 +390,7 @@ export function materializeSessionTranscript(
         id: nextMsgId(),
         role: 'assistant' as const,
         content: '',
-        workRef: { workId, title, workType: docType },
+        workRef: { workId, title, workType: docType, contentVersion: 1 },
         timestamp: m.timestamp ?? Date.now(),
       })
       continue
@@ -426,7 +434,7 @@ export function materializeSessionTranscript(
     } else if (m.role === 'tool' && m.toolName?.endsWith('update_work')) {
       messages.push(msg)
       const result = resultsByToolId.get(m.toolId ?? '') ?? m
-      const revision = artifactUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId), artifactFileBodies?.get(m.toolId ?? ''))
+      const revision = workUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId), artifactFileBodies?.get(m.toolId ?? ''))
       if (revision) messages.push(revision)
       continue
     } else if (m.role === 'tool' && isRenderArtifactTool(m.toolName)) {
@@ -451,7 +459,7 @@ export function materializeSessionTranscript(
           // Never infer artifact identity from a title: two artifacts can share
           // a title, and a later rename must not break the revision chain.
           const ref = result.artifactWorkRef
-          if (ref) workRef = { workId: ref.workId, title: ref.title, workType: 'artifact' }
+          if (ref) workRef = { workId: ref.workId, title: ref.title, workType: 'artifact', contentVersion: ref.contentVersion }
         }
         messages.push({
           id: nextMsgId(),
@@ -555,11 +563,15 @@ export function reconcileQueuedPromptsForSession(session: Session, queuedPrompts
     return {
       ...existing,
       ...prompt,
+      queueAttachments: prompt.attachments,
       clientPromptId: prompt.clientPromptId ?? `queued:${prompt.queueId}`,
       state: 'queued' as const,
       // The sender keeps its own local previews; every other client renders the
       // snapshot's host refs, which is all a reconnect carries.
-      attachments: existing?.attachments ?? imageRefAttachments(prompt.imageRefs),
+      attachments: prompt.attachments
+        ? prompt.attachments.map((attachment) => ({ ...existing?.attachments?.find((item) => item.id === attachment.id), ...attachment, path: attachment.hostPath ?? '',
+          dataUrl: attachment.dataUrl ?? existing?.attachments?.find((item) => item.path === attachment.hostPath)?.dataUrl }))
+        : existing?.attachments ?? imageRefAttachments(prompt.imageRefs),
     }
   })
   session.outboundPrompts.splice(

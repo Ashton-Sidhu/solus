@@ -60,6 +60,16 @@ describe('run model selection', () => {
 })
 
 describe('new run resolution', () => {
+  test('new sessions restore saved tuning instead of resetting the effort', () => {
+    // WHY: new-tab and draft creation must use the same remembered choice as
+    // the model picker, even when the source session has older options.
+    const defaults = run('codex', 'gpt-6-astra')
+    const saved = { reasoningEffort: 'max' as const, contextWindow: 1_050_000, fastMode: true }
+    const resolved = resolveNewRunConfig(defaults, defaults, {}, { codex: { 'gpt-6-astra': saved } })
+    expect(resolved.modelConfig).toEqual({ modelId: 'gpt-6-astra', ...saved })
+    expect(inheritRunConfig(defaults, resolved, { codex: { 'gpt-6-astra': saved } }).modelConfig).toEqual(resolved.modelConfig)
+  })
+
   test('an explicit project wins over the source and a fresh-task anchor', () => {
     const defaults = run('codex', 'gpt-5.6-sol')
     const source = {

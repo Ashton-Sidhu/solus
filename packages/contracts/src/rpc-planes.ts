@@ -47,6 +47,8 @@ export const RPC_PLANES = {
   rateLimitDecision: 'execution',
   cancelQueuedPrompt: 'execution',
   editQueuedPrompt: 'execution',
+  sessionQueue: 'execution',
+  sessionQueueChange: 'execution',
   writePlanFile: 'execution',
 
   // Files / media
@@ -232,7 +234,6 @@ export const RPC_PLANES = {
   presenceSetFocus: 'collaboration',
   presenceSetComposing: 'collaboration',
   presenceSetEditing: 'collaboration',
-  setAnalyticsConsent: 'collaboration',
 
   // Host config
   typeSafeKeySet: 'collaboration',
@@ -269,11 +270,13 @@ export const RPC_PLANES = {
   modelProfilesStatus: 'collaboration',
   modelProfilesRefresh: 'collaboration',
 
-  // Attention and push notifications
+  // Attention and notifications
   listAttention: 'collaboration',
-  pushGetPublicKey: 'collaboration',
-  pushSubscribe: 'collaboration',
-  pushUnsubscribe: 'collaboration',
+  notificationsCapability: 'collaboration',
+  notificationsList: 'collaboration',
+  notificationsCount: 'collaboration',
+  notificationsSetRead: 'collaboration',
+  notificationsSetArchived: 'collaboration',
 
   // Folio / works
   duplicateWork: 'collaboration',
@@ -505,6 +508,31 @@ export const RPC_PLANES = {
   browserListCookieSources: 'execution',
   browserRequestCookieAccess: 'execution',
   browserImportCookies: 'execution',
+
+  // Native devices run where the simulators are: this host's execution plane
+  deviceState: 'execution',
+  deviceList: 'execution',
+  deviceToolInspect: 'execution',
+  deviceDetail: 'execution',
+  deviceConfigure: 'execution',
+  deviceHostSave: 'execution',
+  deviceHostRemove: 'execution',
+  deviceHostTest: 'execution',
+  deviceToolUpdate: 'execution',
+  deviceHostRetry: 'execution',
+  deviceOpen: 'execution',
+  deviceClose: 'execution',
+  deviceShutdown: 'execution',
+  deviceInput: 'execution',
+  deviceAction: 'execution',
+  deviceSubscribeFrames: 'execution',
+  deviceUnsubscribeFrames: 'execution',
+  deviceScreenshot: 'execution',
+  deviceControlAcquire: 'execution',
+  deviceControlRelease: 'execution',
+  deviceControlResume: 'execution',
+  deviceInstall: 'execution',
+  deviceProjectDetect: 'execution',
 
   // Observability / Insights over the host's own metrics database
   metricsQuery: 'execution',

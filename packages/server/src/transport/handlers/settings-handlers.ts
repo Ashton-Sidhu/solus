@@ -7,6 +7,7 @@ import {
   setHostConfig,
 } from '../../host/settings'
 import { hostConfigPatchSchema } from '@solus/contracts/host-config'
+import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { configureOtel, otelActiveSignals, otelManagedByEnvironment } from '../../otel'
 import type { SolusServer } from '../server'
 import type { OtelSettingsSnapshot, TextGenerationSettingsSnapshot } from '@solus/contracts/types'
@@ -31,24 +32,20 @@ export function registerSettingsHandlers(
 
   server.register('configUpdate', async (args) => {
     // SAFETY: The RPC method contract supplies the config patch in slot zero.
-    const [patch] = args
-    const parsed = hostConfigPatchSchema.parse(patch ?? {})
-    const snapshot = setHostConfig(parsed)
-    if (parsed.rateLimitBehavior === 'queue') deps.sessionRuntime.queueHeldRateLimitedPrompts()
+    const [update] = args
+    // Strict: a personal or device key has no place on a host (plans/018), so a
+    // patch that carries one is refused whole rather than partly applied.
+    const parsed = hostConfigPatchSchema.safeParse(update ?? {})
+    if (!parsed.success) throw new Error(`Host config refused: ${z.prettifyError(parsed.error)}`)
+    const patch = parsed.data
+    const snapshot = Object.keys(patch).length ? setHostConfig(patch) : getHostConfig()
     // Applied to the running process, not just persisted: an operator who turns
     // export on should see data arrive without restarting the host.
-    if (parsed.otel) await configureOtel(snapshot.config.otel)
+    if (patch.otel) await configureOtel(snapshot.config.otel)
     // Broadcast so a second window or a second device converges rather than
     // holding a settings panel that disagrees with the one just edited.
     deps.onHostConfigChanged(snapshot)
     return snapshot
-  })
-
-  // Predates host config and is kept because clients on older builds still call
-  // it. Analytics consent now lives in host config, so it writes there.
-  server.register('setAnalyticsConsent', (args) => {
-    const [enabled] = args
-    deps.onHostConfigChanged(setHostConfig({ analyticsEnabled: enabled === true }))
   })
 
   const textGenerationSnapshot = async (): Promise<TextGenerationSettingsSnapshot> => {
@@ -59,13 +56,14 @@ export function registerSettingsHandlers(
         .filter((metadata) => metadata !== undefined)
         .map(enrichAgentMetadata),
     )
-    const { config } = getHostConfig()
+    // The host holds no person's writing models (plans/018): this reports the
+    // built-in values and what a requester with no preferences gets on this host.
     return {
-      textGenerationModel: config.textGenerationModel,
-      sourceControlWriterModel: config.sourceControlWriterModel,
-      sourceControlWriting: config.sourceControlWriting,
-      effectiveTextGenerationModel: resolveTextGenerationModel(),
-      effectiveSourceControlWriterModel: resolveSourceControlWriterModel(),
+      textGenerationModel: DEFAULT_EXECUTION_PREFERENCES.textGenerationModel,
+      sourceControlWriterModel: DEFAULT_EXECUTION_PREFERENCES.sourceControlWriterModel,
+      sourceControlWriting: DEFAULT_EXECUTION_PREFERENCES.sourceControlWriting,
+      effectiveTextGenerationModel: resolveTextGenerationModel(undefined),
+      effectiveSourceControlWriterModel: resolveSourceControlWriterModel(undefined),
       agents,
     }
   }

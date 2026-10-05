@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import {
     ExternalLink as ArrowSquareOutIcon,
     Columns3 as ColumnsIcon,
@@ -107,7 +108,7 @@
     </ContextMenu.Item>
 
     {#if onShare}
-      <ContextMenu.Item onSelect={() => select(onShare)} data-testid="share-item">
+      <ContextMenu.Item onSelect={() => select(onShare)} data-testid="share-item" disabled={!accountStore.isSignedIn} title={!accountStore.isSignedIn ? "Sign in to share" : undefined}>
         <ShareIcon />
         Share…
       </ContextMenu.Item>

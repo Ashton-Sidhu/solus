@@ -1,6 +1,6 @@
 import type { Principal } from '../../admission/principal'
 import { PresenceManager } from '../../presence/presence-manager'
-import { registerPresenceHandlers } from '../handlers/presence-handlers'
+import { publishPresenceRoom, registerPresenceHandlers } from '../handlers/presence-handlers'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
 
@@ -10,7 +10,7 @@ export function workspacePresence(server: SolusServer, events: HostEventPublishe
   const watchers = new Map<string, Set<string>>()
   const publishHost = async (organizationId: string | undefined) => {
     if (organizationId === undefined) return
-    await events.publish(presence.clientsIn(organizationId), 'host.presenceChanged', await presence.hostSnapshot(organizationId))
+    await publishPresenceRoom(presence, events, organizationId)
   }
   const publishSession = (sessionId: string) => {
     const clients = [...watchers.get(sessionId) ?? []]

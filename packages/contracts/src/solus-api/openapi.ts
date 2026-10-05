@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { solusApiOperations } from './operations'
-import { workspaceActivityListSchema, workspaceErrorSchema, workspaceIdSchema } from './schemas'
+import { workspaceActivityListSchema, workspaceErrorSchema, workspaceIdSchema, workspaceNotificationSchema } from './schemas'
 
 /** Response schemas several operations answer, written once under `components.schemas`. */
-const sharedResponses = new Map<z.ZodType, string>([[workspaceActivityListSchema, 'ActivityList']])
+const sharedResponses = new Map<z.ZodType, string>([[workspaceActivityListSchema, 'ActivityList'], [workspaceNotificationSchema, 'Notification']])
 
 /** Generated from the same schemas and route metadata used by the server and client. */
 export function solusApiOpenApi() {

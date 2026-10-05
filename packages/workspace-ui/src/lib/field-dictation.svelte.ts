@@ -1,5 +1,5 @@
 import { onDestroy } from 'svelte'
-import { getVoiceModelStore } from '../contexts'
+import { getVoiceModelStore, hasVoiceModelStore } from '../contexts'
 import { dictation, isDictationTarget, type DictationTarget } from './dictation.svelte'
 import { comboHint } from './keybindings/manifest'
 
@@ -18,11 +18,14 @@ interface FieldDictationOptions {
 }
 
 export function createFieldDictation(options: FieldDictationOptions) {
-  const voiceModel = getVoiceModelStore()
+  // A surface mounted without the app (a page on the account site) has no voice
+  // model: the field types like any other, with no mic and no dictation target.
+  const voiceModel = hasVoiceModelStore() ? getVoiceModelStore() : null
+  const enabled = () => voiceModel !== null && options.getEnabled()
 
   $effect(() => {
     const ref = options.getRef()
-    if (!options.getEnabled() || !ref) return
+    if (!enabled() || !ref) return
     dictation.registerSubmit(ref, options.getOnSubmit())
     dictation.registerVadMinSpeechMs(ref, options.getVadMinSpeechMs())
     return () => dictation.unregisterSubmit(ref)
@@ -48,29 +51,30 @@ export function createFieldDictation(options: FieldDictationOptions) {
 
   function handleFocus(event: FocusEvent): void {
     const ref = options.getRef()
-    if (options.getEnabled() && ref && isDictationTarget(ref)) dictation.focusGained(ref)
+    if (enabled() && ref && isDictationTarget(ref)) dictation.focusGained(ref)
     options.getOnfocus()?.(event)
   }
 
   function handleBlur(event: FocusEvent): void {
     const ref = options.getRef()
-    if (options.getEnabled() && ref) dictation.focusLost(ref)
+    if (enabled() && ref) dictation.focusLost(ref)
     options.getOnblur()?.(event)
   }
 
   return {
     get micState() {
       const ref = options.getRef()
-      return options.getEnabled() && dictation.target === ref ? dictation.state : 'idle'
+      return enabled() && dictation.target === ref ? dictation.state : 'idle'
     },
-    /** False on a host with no transcription backend: hide the mic and reclaim its gutter. */
+    /** False with no voice model, or on a host with no transcription backend: hide the mic and reclaim its gutter. */
     get micVisible() {
-      return voiceModel.supported
+      return voiceModel?.supported ?? false
     },
     get micDisabled() {
-      return options.getDisabled() || !voiceModel.ready
+      return options.getDisabled() || !voiceModel?.ready
     },
     get idleMicTooltip() {
+      if (!voiceModel) return ''
       if (voiceModel.ready) return `Voice input (${comboHint('voice.toggle-recorder')})`
       if (voiceModel.status.state === 'downloading' && voiceModel.progressPct !== null) {
         return `Downloading voice model - ${voiceModel.progressPct}%`
@@ -79,7 +83,7 @@ export function createFieldDictation(options: FieldDictationOptions) {
       return 'Voice model is preparing'
     },
     get progressPct() {
-      return voiceModel.ready ? null : voiceModel.progressPct
+      return !voiceModel || voiceModel.ready ? null : voiceModel.progressPct
     },
     get rmsRef() {
       return dictation.rmsRef
@@ -89,7 +93,7 @@ export function createFieldDictation(options: FieldDictationOptions) {
     handleBlur,
     toggle() {
       const ref = options.getRef()
-      if (ref) dictation.toggleInto(ref)
+      if (enabled() && ref) dictation.toggleInto(ref)
     },
     confirm() {
       dictation.stop()

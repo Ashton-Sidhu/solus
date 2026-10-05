@@ -17,7 +17,7 @@
   import { isColumnResized, nudgeColumnSize, resetColumnSize, seedColumnSize } from './data-table/column-sizing'
   import { cellContextFrom, type CellContext } from './data-table/table-pointer'
   import { insightsTableFeatures, type InsightsTableFeatures } from './data-table/data-table-features'
-  import { columnEmphasis, columnGrows, columnTrack, MIN_TRACK_PX } from './lib/table-grid'
+  import { columnGrows, columnTrack, MIN_TRACK_PX } from './lib/table-grid'
 
   interface Props {
     result: MetricsQueryResult
@@ -176,14 +176,11 @@
             {#each row.getVisibleCells() as cell (cell.id)}
               {@const index = Number(cell.column.id)}
               {@const value = cell.getValue() as MetricsValue}
-              {@const emphasis = columnEmphasis(gridColumns[index])}
               <Table.Cell
-                class="truncate px-3 py-0 text-insights-table {emphasis === 'primary' ? 'font-medium' : ''} {numericColumns[index] ? 'tabular-nums' : ''}"
+                class="truncate px-3 py-0 text-insights-table text-foreground {numericColumns[index] ? 'tabular-nums' : ''}"
                 style="{trackStyle(index, cell.column.getSize())};text-align:{numericColumns[index]
                   ? 'right'
-                  : 'left'};color:{emphasis === 'secondary'
-                  ? 'var(--muted-foreground)'
-                  : 'var(--foreground)'}"
+                  : 'left'}"
                 title={display(value)}
                 data-column-id={cell.column.id}
                 data-column-label={result.columns[index].name}

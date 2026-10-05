@@ -1,4 +1,5 @@
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { isSessionBusyStatus, type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import { loadCachedStart, saveCachedStart } from './tab-persistence'
@@ -23,7 +24,6 @@ export interface StaticInfo {
   subscriptionType: string | null
   projectPath: string
   homePath: string
-  workspacePath: string
 }
 
 export interface WorkspaceLifecycleStoreDeps {
@@ -36,8 +36,8 @@ export interface WorkspaceLifecycleStoreDeps {
   /** Where work happens when no run is in play — `WorkspaceContext.defaultRunConfig`. */
   defaultRunConfig(): RunConfig
   /** The runs of everything that has begun nothing — unstarted tabs and every
-   *  open draft. What the agent demotion retargets, on the same reading as the
-   *  start-directory follow: nothing has happened in them yet to disturb. */
+   *  open draft. What the agent demotion retargets: nothing has happened in
+   *  them yet to disturb. */
   unstartedRuns(): RunConfig[]
   refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
@@ -116,23 +116,19 @@ export class WorkspaceLifecycleStore {
   }
 
   /**
-   * Apply a start() payload to staticInfo + agent metadata. The workspace path
-   * it carries can move the default run's directory. The active-agent
+   * Apply a start() payload to staticInfo + agent metadata. The active-agent
    * availability demotion is FRESH-only: a stale cache could wrongly demote an
    * agent whose availability has since recovered, so the optimistic path never
    * touches the active agent.
    */
   private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
-    const previousDefault = this.deps.defaultRunConfig().workingDirectory
     this.staticInfo = {
       version: result.version || 'unknown',
       email: result.auth?.email || null,
       subscriptionType: result.auth?.subscriptionType || null,
       projectPath: result.projectPath || '~',
       homePath: result.homePath || '~',
-      workspacePath: result.workspacePath || '~',
     }
-    this.followDefaultDirectory(previousDefault, this.deps.defaultRunConfig().workingDirectory)
     this.deps.agent?.hydrate(result.agents ?? [])
     if (opts.fresh) this.followAvailableAgent(result.agents ?? [])
   }
@@ -142,7 +138,7 @@ export class WorkspaceLifecycleStore {
    * into the work that has not begun. The seeded composer is built from the
    * saved preference before this payload lands, so on a host with only one
    * agent installed it would keep pointing at the other one and fail at the
-   * first prompt — the same reason the start directory is followed above.
+   * first prompt.
    */
   private followAvailableAgent(agents: AgentMetadata[]): void {
     const isAvailable = (agentId: AgentId): boolean =>
@@ -162,8 +158,8 @@ export class WorkspaceLifecycleStore {
   }
 
   /**
-   * Optimistically apply the last cached start() payload so staticInfo, agent
-   * metadata, and the workingDirectory default are ready before first paint —
+   * Optimistically apply the last cached start() payload so staticInfo and
+   * agent metadata are ready before first paint —
    * no server round trip. Idempotent: once staticInfo exists (cache or fresh)
    * this is a no-op. Fresh reconciliation happens in initStaticInfo.
    */
@@ -173,33 +169,6 @@ export class WorkspaceLifecycleStore {
     return this.deps.registry.tabOrder.filter(
       (tabId) => !hasSessionStarted(this.deps.registry.sessionFor(tabId)),
     )
-  }
-
-  /**
-   * The seeded composer is built before the fresh start payload lands, so when
-   * that payload moves the default directory it would otherwise sit on a
-   * project the app is no longer pointed at — most visibly on a first run,
-   * where there is no cache and the default is `~`. It is showing the default
-   * rather than a choice anyone made, so it follows the default.
-   */
-  private followDefaultDirectory(from: string, to: string): void {
-    if (from === to) return
-    // Read the tabs that are following before anything moves: the git refresh
-    // below is keyed on a tab, and `from` is gone once the runs are retargeted.
-    const followingTabIds = this.unstartedTabIds().filter(
-      (tabId) => this.deps.registry.sessionFor(tabId)?.run.workingDirectory === from,
-    )
-    // Drafts follow on the same reading, and only `unstartedRuns` reaches them:
-    // a draft has no tab, so the registry cannot see it, yet a first run leaves
-    // it holding exactly the `~` this reconciliation exists to move off.
-    for (const run of this.deps.unstartedRuns()) {
-      if (run.workingDirectory !== from) continue
-      run.workingDirectory = to
-      run.gitContext = null
-    }
-    for (const tabId of followingTabIds) {
-      void this.deps.refreshGitState({ sourceId: tabId }).catch(() => null)
-    }
   }
 
   hydrateStaticInfoFromCache(): void {
@@ -309,8 +278,11 @@ export class WorkspaceLifecycleStore {
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
     ctx.session.provider = provider
+    // A new chat has no folder yet, so it reads the commands every folder has.
+    const directory = workingDirectory === NEW_CHAT_DIRECTORY ? '~' : workingDirectory
+    if (directory !== workingDirectory) ctx.session.workingDirectory = ctx.session.projectPath = directory
     const result = await this.deps.apiFor(targetTabId)
-      .getPluginCommands(workingDirectory, $state.snapshot(ctx))
+      .getPluginCommands(directory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
 
     if (targetSession) {

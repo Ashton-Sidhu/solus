@@ -8,6 +8,7 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import type { HostSetupSession } from "../servers/host-setup.store.svelte";
   import HostBrowserRuntime from './HostBrowserRuntime.svelte';
+  import HostDevices from './HostDevices.svelte';
 
   interface Props {
     setup: HostSetupSession;
@@ -72,6 +73,8 @@
   />
 
   <HostBrowserRuntime {serverId} />
+
+  <HostDevices {serverId} />
 
   <SettingsRow
     label="SSH keys"

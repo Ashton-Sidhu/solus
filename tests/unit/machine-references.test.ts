@@ -33,7 +33,7 @@ function owner(
 ): MachineReferenceOwner {
   const settings = {
     lastProject,
-    update(patch: { lastProject: null }) { settings.lastProject = patch.lastProject },
+    setLayout(_key: 'lastProject', value: null) { settings.lastProject = value },
   }
   return {
     settings,

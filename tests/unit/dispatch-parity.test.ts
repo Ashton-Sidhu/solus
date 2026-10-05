@@ -26,7 +26,6 @@ let automationTools: typeof import('@solus/server/execution/agents/tools/automat
 let linkedContent: typeof import('@solus/server/data/tasks/linked-content')
 let workApplier: typeof import('@solus/server/data/works/work-applier')
 let closeDb: typeof import('@solus/server/db')['closeDb']
-let serverSettings: typeof import('@solus/server/host/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
@@ -48,7 +47,6 @@ beforeAll(async () => {
   automationTools = await import('@solus/server/execution/agents/tools/automation-tools')
   linkedContent = await import('@solus/server/data/tasks/linked-content')
   workApplier = await import('@solus/server/data/works/work-applier')
-  serverSettings = await import('@solus/server/host/settings')
   taskApplier.registerTaskOutboxApplier()
   workApplier.registerWorkOutboxApplier()
 })
@@ -107,12 +105,15 @@ function toolContext(solusSessionId: string) {
 }
 
 describe('agent task lifecycle policy', () => {
-  afterEach(() => {
-    serverSettings.setHostConfig({ agentTaskLifecyclePolicy: 'moderate' })
-  })
+  /** The policy is the one the session's dispatch carried in its person's
+   *  preferences (plans/018 §3.3), not the host's config. */
+  async function dispatchedWith(solusSessionId: string, agentTaskLifecyclePolicy: 'none' | 'moderate' | 'autonomous'): Promise<void> {
+    const { recordSessionSettings } = await import('@solus/server/execution/sessions/session-settings')
+    recordSessionSettings(solusSessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy } })
+  }
 
   test('none prevents every agent status change', async () => {
-    serverSettings.setHostConfig({ agentTaskLifecyclePolicy: 'none' })
+    await dispatchedWith('none-policy', 'none')
     const task = await createTask('local', { title: 'User controlled', projectKey: '/p', body: '' })
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(
@@ -126,6 +127,7 @@ describe('agent task lifecycle policy', () => {
   })
 
   test('moderate permits progress but prevents Done', async () => {
+    // No preferences were dispatched for this session, so the built-in moderate policy applies.
     const task = await createTask('local', { title: 'User closes this', projectKey: '/p', body: '' })
     const reviewed = await taskTools.updateTaskStatusAgentTool.execute(
       { task_id: task.id, status: 'in_review' },
@@ -143,7 +145,7 @@ describe('agent task lifecycle policy', () => {
   })
 
   test('autonomous permits Done', async () => {
-    serverSettings.setHostConfig({ agentTaskLifecyclePolicy: 'autonomous' })
+    await dispatchedWith('autonomous-policy', 'autonomous')
     const task = await createTask('local', { title: 'Agent controlled', projectKey: '/p', body: '' })
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(

@@ -110,10 +110,10 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    /* The project rail declares its device-based type rung once. Rows inherit
-       it so resizing this container cannot change their typography. */
+    /* The project rail declares its type rung once. Rows inherit it so every
+       row label in the rail reads at one size. */
     font-size: inherit;
-    font-weight: 500;
+    font-weight: 400;
     text-align: left;
     cursor: pointer;
     transition:
@@ -188,7 +188,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }

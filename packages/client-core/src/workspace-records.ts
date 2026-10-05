@@ -70,7 +70,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       let cursor: string | undefined
       let indexing = false
       do {
-        const page = await client.request('listSessions', { query: { limit: 200, cursor, provider: filter?.provider, projectPath: filter?.projectPath, includeWorktrees: filter?.includeWorktrees === undefined ? undefined : filter.includeWorktrees ? 'true' : 'false' } })
+        const page = await client.request('listSessions', { query: { limit: 200, cursor, provider: filter?.provider, projectPath: filter?.projectPath, includeWorktrees: filter?.includeWorktrees === undefined ? undefined : filter.includeWorktrees ? 'true' : 'false', chats: filter?.chats === undefined ? undefined : filter.chats ? 'true' : 'false' } })
         for (const session of page.items) records.push(sessionRecord(session))
         indexing ||= page.indexing
         cursor = page.nextCursor ?? undefined

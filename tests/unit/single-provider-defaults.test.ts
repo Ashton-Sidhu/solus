@@ -66,7 +66,7 @@ function lifecycleFor(activeAgent: AgentId, runs: RunConfig[]) {
   } as never)
   const applyStartInfo = (agents: AgentMetadata[]) => {
     ;(store as unknown as { applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void })
-      .applyStartInfo({ version: '0', projectPath: '/repo', homePath: '/home', workspacePath: '/repo', agents } as StartInfo, { fresh: true })
+      .applyStartInfo({ version: '0', projectPath: '/repo', homePath: '/home', agents } as StartInfo, { fresh: true })
   }
   return { settings, applyStartInfo }
 }

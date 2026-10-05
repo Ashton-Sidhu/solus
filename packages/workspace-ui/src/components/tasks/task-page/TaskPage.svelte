@@ -11,7 +11,6 @@
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
-    runtime,
     sharesStore,
   } from "../../../contexts";
   import { attemptServerId } from "../../../lib/sessionUtils";
@@ -63,7 +62,6 @@
   import TaskSidebar from "./TaskSidebar.svelte";
   import TaskTabStrip from "./TaskTabStrip.svelte";
   import type { TaskTabId } from "./lib/task-tabs";
-  import { BottomSheet } from "../../ui/bottom-sheet";
   import { isStackedPane, observePaneWidth } from "../../../lib/pane-width";
   import {
     CalendarDays as CalendarIcon,
@@ -180,6 +178,16 @@
   // opens it on a machine the Run-on picker chooses, or asks for one. A guest
   // shell has no workspace to start from.
   const canStartSession = $derived(!!session.workspace);
+  // Only a comment's author or a moderator (the task's owner; on a host that
+  // keeps no share list, its own user) may delete it; the host refuses others.
+  const canModerateComments = $derived.by(() => {
+    if (!taskServerId) return true;
+    const role = sharesStore.listFor(taskServerId, { kind: "task", id: taskId })?.callerRole;
+    return role === undefined || role === "owner";
+  });
+  $effect(() => {
+    if (taskServerId) void sharesStore.load(taskServerId, { kind: "task", id: taskId });
+  });
   function copyLink(record: Task): void {
     if (linkServerId) void sharesStore.copyTaskLink(linkServerId, record.id);
   }
@@ -566,10 +574,10 @@
   }
 
 
-  async function stopSession(sessionId: string) {
+  /** `serverId` is the host running the session, not the task's: a cloud
+   *  task's home serves no execution RPC (TaskSessionsList resolves it). */
+  async function stopSession(sessionId: string, serverId: string) {
     try {
-      const serverId = store.get(taskId).serverId;
-      if (!serverId) return;
       await serverConnections.apiFor(serverId).stopSession(sessionId);
     } catch (err) {
       toastError("stop session", err);
@@ -580,8 +588,8 @@
   // Wide, the four sections scroll past each other in one column and the
   // sidebar sits beside them. Below 30rem neither is possible: the sidebar has
   // no column to be, and a long Activity feed would push the composer off the
-  // bottom. So the sections become a strip, the sidebar becomes a sheet, and
-  // the composer is pinned.
+  // bottom. So the sections become a strip, the sidebar opens under the title,
+  // and the composer is pinned.
   //
   // Read from the page's own box at the same 30rem the stylesheet uses — the
   // window would answer for the whole display and be wrong in a companion pane.
@@ -595,11 +603,11 @@
 
   // ── The folded rung ──
   // A separate question from `stacked`, and a wider one. `stacked` asks whether
-  // this is a phone layout — one section at a time, a record bar, a pinned
+  // the pane is narrow enough for one section at a time, a record bar, a pinned
   // composer. This asks only whether the rail still has a column to sit in,
-  // which it loses at 72rem, long before the page becomes a phone. Between the
-  // two the rail used to fold under the content and land beneath the comment
-  // composer, past everything, with no way to reach it as a sheet instead.
+  // which it loses at 72rem, long before the page stacks. Between the two the
+  // rail used to fold under the content and land beneath the comment composer,
+  // past everything.
   const railFolded = $derived(isTaskRailFolded(paneWidth));
 
 
@@ -607,10 +615,7 @@
   let detailsOpen = $state(false);
   let detailsButton = $state<HTMLButtonElement | null>(null);
   // Where the rail folds, its fields open in place under the title, inside
-  // this pane. Only the phone shell raises them as a sheet: a narrow pane on a
-  // wide window is still a desktop, and a full-window sheet there covers every
-  // other pane to edit three fields of one of them.
-  const detailsAsSheet = $derived(runtime.isMobileViewport);
+  // this pane.
   const detailsSummary = $derived(task ? taskDetailsSummary(task) : null);
   const tabCounts = $derived({
     linked: links.length + prRows.length,
@@ -651,15 +656,13 @@
        first — who has it, when it is due, how it is labelled — and only what is
        set; status and priority are already on the line. A narrow pane sheds
        the labels, then the due date, so the assignee keeps its room. It opens
-       the rail's fields under the title, or the sheet that holds them on a
-       phone. -->
+       the rail's fields under the title. -->
   <button
     bind:this={detailsButton}
     type="button"
     class="-mx-1.5 inline-flex h-[26px] max-w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-1.5 font-normal text-muted-foreground outline-none transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground aria-expanded:text-foreground pointer-coarse:h-9 [-webkit-tap-highlight-color:transparent]"
-    onclick={() => (detailsOpen = detailsAsSheet ? true : !detailsOpen)}
-    aria-haspopup={detailsAsSheet ? "dialog" : undefined}
-    aria-controls={detailsAsSheet ? undefined : "task-details-panel"}
+    onclick={() => (detailsOpen = !detailsOpen)}
+    aria-controls="task-details-panel"
     aria-expanded={detailsOpen}
   >
     {#if detailsSummary?.assignee}
@@ -698,8 +701,7 @@
       Details
       <CaretDownIcon
         size={13}
-        class="shrink-0 opacity-70 transition-transform duration-150 motion-reduce:transition-none {detailsOpen &&
-        !detailsAsSheet
+        class="shrink-0 opacity-70 transition-transform duration-150 motion-reduce:transition-none {detailsOpen
           ? 'rotate-180'
           : ''}"
         aria-hidden="true"
@@ -709,7 +711,7 @@
 {/snippet}
 
 {#snippet detailsPanel()}
-  {#if detailsOpen && !detailsAsSheet}
+  {#if detailsOpen}
     <!-- Open, the rail's fields sit between the title and the description.
          Escape closes them and hands focus back to Details, before the page's
          own Escape can close the task. -->
@@ -786,7 +788,7 @@
   {/if}
 {/snippet}
 
-{#snippet propertiesPanel(variant: "column" | "panel" | "sheet")}
+{#snippet propertiesPanel(variant: "column" | "panel")}
   {#if task}
     <TaskSidebar
       {task}
@@ -1019,6 +1021,7 @@
               currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
               provider={upstream?.canSync ? upstream.provider : null}
               onPublish={(commentId) => publishComments([commentId])}
+              canModerate={canModerateComments}
               onDelete={deleteComment}
             />
           </div>
@@ -1040,7 +1043,7 @@
         </div>
 
         <!-- One definition, two homes: a column beside the content where there
-             is room for one, and a sheet where there is not. Rendering it twice
+             is room for one, and a panel under the title where there is not. Rendering it twice
              would be twenty props kept in step by hand. -->
         {#if !railFolded}
           {@render propertiesPanel("column")}
@@ -1075,23 +1078,3 @@
   />
 {/if}
 
-<!-- The desktop sidebar, in order, as a sheet. It stops short of the top so the
-     task behind it stays identifiable — this edits the task you are reading,
-     and covering it entirely would leave nothing to say which one that is. -->
-{#if railFolded && detailsOpen && detailsAsSheet}
-  <BottomSheet label="Task details" onClose={() => (detailsOpen = false)}>
-    {#snippet header()}
-      <div class="flex items-center justify-between">
-        <span class="text-workspace-chrome font-medium text-foreground">Details</span>
-        <button
-          type="button"
-          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent]"
-          onclick={() => (detailsOpen = false)}
-        >
-          Done
-        </button>
-      </div>
-    {/snippet}
-    {@render propertiesPanel("sheet")}
-  </BottomSheet>
-{/if}

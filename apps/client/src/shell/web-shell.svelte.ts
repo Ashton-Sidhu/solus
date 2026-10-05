@@ -1,7 +1,6 @@
 import { onDestroy } from 'svelte'
 import type { ClientShellContext } from '@solus/workspace-ui/contexts/app/client-shell.svelte'
 import { ClientViewport } from '@solus/workspace-ui/contexts/app/client-viewport.svelte'
-import { runtime } from '@solus/workspace-ui/contexts/app/runtime.svelte'
 import {
   openResourceInWorkspace,
   WORKSPACE_RESOURCE_KINDS,
@@ -19,11 +18,10 @@ export class WebShell extends ClientViewport implements ClientShellContext {
   protected readonly resourceKinds: ReadonlySet<ResourceRouteKind> = WORKSPACE_RESOURCE_KINDS
   protected workspace: WorkspaceContext | null = null
   visible = $state(document.visibilityState === 'visible')
-  get layout(): 'mobile' | 'wide' { return runtime.isMobileViewport ? 'mobile' : 'wide' }
-  /** The workspace surrounds this shell: the project panel and companion panes exist where it is wide. */
+  /** The workspace surrounds this shell: the project panel and companion panes exist with it. */
   get hasWorkspace(): boolean { return this.resourceKinds.has('workspace') }
-  get hasProjectPanel(): boolean { return this.hasWorkspace && this.layout === 'wide' }
-  get hasCompanionPanes(): boolean { return this.hasWorkspace && this.layout === 'wide' }
+  get hasProjectPanel(): boolean { return this.hasWorkspace }
+  get hasCompanionPanes(): boolean { return this.hasWorkspace }
   constructor() {
     super()
     const refreshVisibility = () => { this.visible = document.visibilityState === 'visible' }

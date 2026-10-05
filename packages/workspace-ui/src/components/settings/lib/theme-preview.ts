@@ -1,4 +1,4 @@
-import type { ThemeMode } from '@solus/contracts/host-config'
+import type { ThemeMode } from '@solus/contracts/settings'
 
 /**
  * The colours a theme tile paints its miniature of the app with. Fixed

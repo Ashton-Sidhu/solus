@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { Folder as FolderIcon } from "@lucide/svelte";
+  import {
+    Folder as FolderIcon,
+    MessageCircle as ChatIcon,
+  } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { connectionsStore, getSurfaceContext } from "../../contexts";
-  import { isChatFolder } from "../../lib/paths";
+  import { isChat } from "@solus/contracts/chat";
+  import { getSurfaceContext } from "../../contexts";
   import { projectFaviconResolver } from "../../lib/project-favicon";
-  import WorkspaceMark from "./WorkspaceMark.svelte";
 
   let {
     projectRoot,
@@ -27,11 +29,8 @@
       ? serverConnections.resolveId(contextualServerId)
       : "";
   });
-  // Scratchpad is the chat folder of the host that holds the root; a host that
-  // names none (the cloud console's service) treats every root as a project.
-  const isScratchpad = $derived(
-    isChatFolder(projectRoot, connectionsStore.chatFolderFor(resolvedServerId)),
-  );
+  // A chat has no project, so it has no project icon.
+  const inChat = $derived(isChat(projectRoot));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
   let source = $state<{
     key: string;
@@ -43,7 +42,7 @@
     const key = requestKey;
     const faviconServerId = resolvedServerId;
     const root = projectRoot;
-    if (isScratchpad || !hasRoot || !faviconServerId) {
+    if (inChat || !hasRoot || !faviconServerId) {
       source = { key, status: "ready", url: null };
       return;
     }
@@ -73,8 +72,8 @@
 <span
   class="relative inline-flex flex-shrink-0 items-center justify-center {className}"
 >
-  {#if isScratchpad}
-    <WorkspaceMark class="size-full" />
+  {#if inChat}
+    <ChatIcon size="100%" class="text-(--solus-text-tertiary)" />
   {:else}
     {#if !hasRoot || (source.key === requestKey && source.status === "ready" && !source.url)}
       <FolderIcon size="100%" class="text-(--solus-text-tertiary)" />

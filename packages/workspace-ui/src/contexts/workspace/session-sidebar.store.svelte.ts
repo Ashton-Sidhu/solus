@@ -18,10 +18,12 @@ import {
   shouldShelveCompletedTask,
   shouldShowDurableSidebarTask,
   shouldShowSidebarChild,
+  isWorkingStatus,
   projectFilterChoices,
   resolveProjectFilter,
   sortTasksByCreation,
   sortSidebarRowsByCreation,
+  sortRowsByReturn,
   sortTasks,
   taskStatusFor,
   type ProjectFilterChoice,
@@ -33,14 +35,16 @@ import {
 } from '../../components/session/lib/task-list'
 import { draftTitle, sessionDraftTitle, type DraftRow } from '../../components/session/lib/draft-list'
 import { projectsStore } from '../projects/projects.store.svelte'
-import { connectionsStore } from '../connections/connections.store.svelte'
-import { isChatFolder, SCRATCHPAD_LABEL } from '../../lib/paths'
+import { CHAT_LABEL } from '../../lib/paths'
+import { isChat } from '@solus/contracts/chat'
 import { pickerProjectChoices as buildPickerProjectChoices } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
+import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
 import {
   attemptServerId,
   findOpenTabForSession,
   getAttentionState,
+  sessionLimitResetsAt,
   sessionDisplayName,
   sessionTitle,
   type AttentionState,
@@ -72,6 +76,7 @@ import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-req
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { sessionStatesStore, type ShelvedSession } from './session-states.store.svelte'
 import { taskBindingSessionId } from './session-draft.svelte'
+import { canDriveSession } from '../sharing/session-drive'
 import {
   prLinkDiscoveryAttempts,
   type PrLinkDiscoveryAttempt,
@@ -104,6 +109,9 @@ export type SidebarSessionChild = {
   modelId?: string | null
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
+  /** While rate limited: when the provider window reopens, in epoch ms.
+   *  Absent when the session is not limited or no reset is known. */
+  limitResetsAt?: number
   /** Newest known session activity. The task/session index supplies this for
    * closed sessions; mounted sessions use their live transcript. */
   lastActivityAt: number
@@ -122,11 +130,19 @@ export type SidebarSessionChild = {
   isLead?: boolean
 }
 
-/** A row's project name. A chat reads "Scratchpad" against the chat folder of
- *  its own host, so a chat on any host is named the same way. */
-function projectLabel(projectKey: string, serverId: string | null | undefined): string {
-  if (isChatFolder(projectKey, connectionsStore.chatFolderFor(serverId))) return SCRATCHPAD_LABEL
+/** A row's project name. A chat has no project, so it reads "Chat". */
+function projectLabel(projectKey: string): string {
+  if (isChat(projectKey)) return CHAT_LABEL
   return projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
+}
+
+/** Every chat files under one heading: each has its own folder, but none is a project. */
+const CHATS_GROUP_KEY = 'solus:chats'
+
+/** The project a row groups and filters under: the repository key, or the chats. */
+function groupKeyFor(serverId: string, projectKey: string): string {
+  if (isChat(projectKey)) return CHATS_GROUP_KEY
+  return projectKey === '~' ? projectKey : projectsStore.projectKeyFor(serverId, projectKey)
 }
 
 /** Every mounted conversation the sidebar must project. `tabOrder` gives the
@@ -282,6 +298,7 @@ export class SessionSidebarStore {
     let unread = false
     let createdAt = task.createdAt ?? task.updatedAt
     let runStartedAt = 0
+    let limitResetsAt: number | undefined
     // The host the task is being worked on, taken from the first session it
     // has open. A task record remembers a project, never a machine — but its
     // links remember one each, which is what answers for a task whose only
@@ -320,6 +337,7 @@ export class SessionSidebarStore {
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
       attention = maxTaskAttention(attention, nextAttention)
       unread ||= tab.hasUnread
+      limitResetsAt ??= sessionLimitResetsAt(session) ?? undefined
       if (nextAttention === 'running') {
         const startedAt = turnStartedAt(session)
         if (startedAt > 0) runStartedAt = runStartedAt === 0 ? startedAt : Math.min(runStartedAt, startedAt)
@@ -340,6 +358,7 @@ export class SessionSidebarStore {
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
       attention = maxTaskAttention(attention, nextAttention)
       unread ||= tab.hasUnread
+      limitResetsAt ??= sessionLimitResetsAt(session) ?? undefined
       if (nextAttention === 'running') {
         const startedAt = turnStartedAt(session)
         if (startedAt > 0) runStartedAt = runStartedAt === 0 ? startedAt : Math.min(runStartedAt, startedAt)
@@ -362,8 +381,8 @@ export class SessionSidebarStore {
       key: task.id,
       title: task.title,
       projectKey,
-      projectLabel: projectLabel(projectKey, serverId ?? linkedServerId),
-      groupKey: this.session.tasksStore.projectKeyOf(task) ?? projectKey,
+      projectLabel: projectLabel(projectKey),
+      groupKey: isChat(projectKey) ? CHATS_GROUP_KEY : this.session.tasksStore.projectKeyOf(task) ?? projectKey,
       branchName: null,
       serverId: serverId ?? linkedServerId,
       prNumber: this.session.tasksStore.get(task.id).prLink?.number || null,
@@ -375,6 +394,7 @@ export class SessionSidebarStore {
       unread,
       createdAt,
       runStartedAt,
+      limitResetsAt,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
       snoozedUntil: 0,
@@ -433,8 +453,8 @@ export class SessionSidebarStore {
       key: tabId,
       title: sessionTitle(session),
       projectKey,
-      projectLabel: projectLabel(projectKey, session.run.serverId),
-      groupKey: projectKey === '~' ? projectKey : projectsStore.projectKeyFor(session.run.serverId, projectKey),
+      projectLabel: projectLabel(projectKey),
+      groupKey: groupKeyFor(session.run.serverId, projectKey),
       branchName: environment.branch,
       serverId: session.run.serverId ?? null,
       prNumber: null,
@@ -443,6 +463,7 @@ export class SessionSidebarStore {
       unread: tab.hasUnread && !isSettled,
       createdAt: firstActivityAt(session),
       runStartedAt: attention === 'running' ? turnStartedAt(session) : 0,
+      limitResetsAt: sessionLimitResetsAt(session) ?? undefined,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
       snoozedUntil: lifecycle.snoozedUntil,
@@ -468,8 +489,8 @@ export class SessionSidebarStore {
       sessionId: entry.sessionId,
       title: entry.title ?? 'Session',
       projectKey,
-      projectLabel: projectLabel(projectKey, entry.serverId),
-      groupKey: projectKey === '~' ? projectKey : projectsStore.projectKeyFor(entry.serverId, projectKey),
+      projectLabel: projectLabel(projectKey),
+      groupKey: groupKeyFor(entry.serverId, projectKey),
       branchName: null,
       serverId: entry.serverId,
       prNumber: null,
@@ -593,14 +614,19 @@ export class SessionSidebarStore {
       this.session.environment.environmentFor(run),
       run.projectGroupPath,
     )
-    if (!projectKey || projectKey === '~') return null
-    return { projectKey, label: projectLabel(projectKey, run.serverId), count: 0 }
+    if (!projectKey || projectKey === '~' || isChat(projectKey)) return null
+    return { projectKey, label: projectLabel(projectKey), count: 0 }
   })
 
   /** The projects the task picker offers as a scope. Built from what that
    *  picker can actually list, not from the sidebar's columns. */
   pickerProjectChoices: ProjectFilterChoice[] = $derived.by(() =>
-    buildPickerProjectChoices(this.session.tasksStore.tasks, this.currentProject),
+    buildPickerProjectChoices(
+      this.session.tasksStore.tasks,
+      this.currentProject,
+      this.session.logicalProjects.flatMap((project) =>
+        project.checkouts.map((checkout) => ({ projectKey: checkout.projectRoot, label: project.label }))),
+    ),
   )
 
   /** The project the list is scoped to, or null for all of them. Resolved
@@ -626,22 +652,42 @@ export class SessionSidebarStore {
     return this.session.tasksStore.peek(taskId) ?? undefined
   }
 
-  /**
-   * The Tasks section: open tasks. A row opens the task's lead with the task
-   * page beside it. A row lives in exactly one place: a finished task goes to
-   * the Completed shelf. Filtering is a subset of the same order, never a
-   * re-sort.
-   */
-  taskRows: SidebarTask[] = $derived(this.inFilter(this.activeTasks.filter((row) => !!row.taskId)))
+  private returnOrder = new SidebarReturnOrder()
 
-  /** The Sessions section: active sessions that no task row stands for. A
-   *  settled or snoozed session is on its shelf. */
-  sessionRows: SidebarTask[] = $derived.by(() => {
+  /** Open task rows, and open session rows that no task row stands for. A
+   *  session with unsent work and no pane is in Drafts instead. */
+  private openRows: SidebarTask[] = $derived.by(() => {
     const parked = this.parkedSessionTabIds
+    // Every status change rebuilds this pass, so the return order sees each
+    // row leave the Working section before the sections sort.
+    this.returnOrder.observe(this.activeTasks, Date.now())
     return this.inFilter(this.activeTasks.filter((row) =>
-      !row.taskId && !row.tabIds.some((tabId) => parked.has(tabId)),
+      !!row.taskId || !row.tabIds.some((tabId) => parked.has(tabId)),
     ))
   })
+
+  /**
+   * The Tasks section: open tasks that are not working. A row opens the task's
+   * lead with the task page beside it. A row lives in exactly one place: a
+   * busy task is in the Working section, a finished task on the Completed
+   * shelf.
+   */
+  taskRows: SidebarTask[] = $derived(sortRowsByReturn(
+    this.openRows.filter((row) => !!row.taskId && !isWorkingStatus(row.status)),
+    (row) => this.returnOrder.returnedAt(row),
+  ))
+
+  /** The Sessions section: active sessions that no task row stands for and
+   *  that are not working. A settled or snoozed session is on its shelf. */
+  sessionRows: SidebarTask[] = $derived(sortRowsByReturn(
+    this.openRows.filter((row) => !row.taskId && !isWorkingStatus(row.status)),
+    (row) => this.returnOrder.returnedAt(row),
+  ))
+
+  /** The Working section: open tasks and sessions whose agent is busy without
+   *  the user, in the order they arrived. A row leaves it when it comes back
+   *  to the user, and lands on top of its own section. */
+  workingRows: SidebarTask[] = $derived(this.openRows.filter((row) => isWorkingStatus(row.status)))
 
   /**
    * The one session the list shows under a task row: the session on screen,
@@ -775,12 +821,12 @@ export class SessionSidebarStore {
       )
       // A draft with no repo behind it belongs to nothing yet, so no project
       // scope can exclude it.
-      if (filter && projectKey !== '~' && projectsStore.projectKeyFor(draft.run.serverId, projectKey) !== filter) continue
+      if (filter && projectKey !== '~' && groupKeyFor(draft.run.serverId, projectKey) !== filter) continue
       rows.push({
         draftId: draft.id,
         title: draftTitle(draft.prompt),
         projectKey,
-        projectLabel: projectLabel(projectKey, draft.run.serverId),
+        projectLabel: projectLabel(projectKey),
         serverId: draft.run.serverId,
         hasAttachments: draft.prompt.attachments.length > 0,
       })
@@ -792,13 +838,13 @@ export class SessionSidebarStore {
         this.session.environment.environmentFor(session.run),
         session.run.projectGroupPath,
       )
-      if (filter && projectKey !== '~' && projectsStore.projectKeyFor(session.run.serverId, projectKey) !== filter) continue
+      if (filter && projectKey !== '~' && groupKeyFor(session.run.serverId, projectKey) !== filter) continue
       rows.push({
         draftId: `session:${tabId}`,
         tabId,
         title: sessionDraftTitle(session),
         projectKey,
-        projectLabel: projectLabel(projectKey, session.run.serverId),
+        projectLabel: projectLabel(projectKey),
         serverId: session.run.serverId,
         hasAttachments: session.prompt.attachments.length > 0,
       })
@@ -878,7 +924,7 @@ export class SessionSidebarStore {
   }
 
   setProjectFilter(projectKey: string | null): void {
-    this.settings.update({ sidebarProjectFilter: projectKey })
+    this.settings.setLayout('sidebarProjectFilter', projectKey)
   }
 
   /**
@@ -1256,6 +1302,7 @@ export class SessionSidebarStore {
       // the task record captured when it was last written.
       branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
       runStartedAt: sess && attention === 'running' ? turnStartedAt(sess) : 0,
+      limitResetsAt: (sess && sessionLimitResetsAt(sess)) ?? undefined,
       reviewGuideStatus:
         guideStatus === 'queued' || guideStatus === 'generating'
           ? 'generating'
@@ -1360,10 +1407,12 @@ export class SessionSidebarStore {
     return tabId && sessionId ? { serverId: this.session.serverIdFor(tabId), sessionId } : null
   }
 
-  /** Whether the row's session can be settled and snoozed: tasks cannot, and
-   *  neither can a session that has not started. */
+  /** Whether the row's session can be settled and snoozed: tasks cannot,
+   *  neither can a session that has not started, and neither can a member who
+   *  may only read a shared session (the host requires an editor). */
   canShelve(row: SidebarTask): boolean {
-    return this.sessionOfRow(row) !== null
+    const target = this.sessionOfRow(row)
+    return target !== null && canDriveSession(target.serverId, target.sessionId)
   }
 
   /** Snooze a session's row on its host, so every client defers it. `until`
@@ -1396,7 +1445,7 @@ export class SessionSidebarStore {
    * its host, so its row is only closed.
    */
   private async toggleSessionSettled(row: SidebarTask): Promise<void> {
-    const target = this.sessionOfRow(row)
+    const target = this.canShelve(row) ? this.sessionOfRow(row) : null
     if (!target) {
       this.closeTask(row)
       return
@@ -1607,7 +1656,7 @@ export class SessionSidebarStore {
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
     const closesActiveTab = tabIds.includes(activeTabId)
-    const openRows = [...this.taskRows, ...this.sessionRows]
+    const openRows = [...this.taskRows, ...this.sessionRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
       ...this.snoozedTasks,
@@ -1818,7 +1867,7 @@ export class SessionSidebarStore {
       const info = await api.getSessionInfo(pin.sessionId)
       const openingPrompt = info?.firstMessage?.trim()
       if (!openingPrompt) throw new Error("Couldn't find the session's opening prompt.")
-      const metadata = await api.generateSessionMetadata(openingPrompt, info?.cwd || pin.cwd)
+      const metadata = await api.generateSessionMetadata(openingPrompt, info?.cwd || pin.cwd, { sessionId: pin.sessionId, executionPreferences: this.settings.executionPreferences })
       if (!metadata) throw new Error("Couldn't generate a new session title.")
       await api.setSessionTitle(pin.sessionId, metadata.title, 'generated')
       await this.loadPinnedSessions()

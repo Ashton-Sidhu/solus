@@ -85,13 +85,13 @@
             <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        <span class="inline-flex size-4 shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
+        <span class="inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
           <display.icon class="block size-full" />
         </span>
-        <!-- Composer ladder, rung 3: icon-only below 28rem. The shield glyph
+        <!-- Composer ladder, rung 3: icon-only below 28rem. The mode glyph
              already names the mode, so the word is the cheapest thing on the row
              to spend. Declared here rather than passed down as a prop, so the
              rung is one CSS fact instead of a width measurement each of the
@@ -116,7 +116,7 @@
         {@const option = PERMISSION_MODE_DISPLAY[mode]}
         {@const isChecked = permissionMode === mode}
         <DropdownMenu.RadioItem value={mode} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
-          <span class="flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover) text-(--solus-text-secondary)'}">
+          <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
             <option.icon class="size-3.5" />
           </span>
           <span class="flex min-w-0 flex-col gap-0.5">

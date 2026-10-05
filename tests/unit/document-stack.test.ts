@@ -1,3 +1,5 @@
+import type { Message } from '@solus/contracts/types'
+import { groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
 import { describe, expect, test } from 'bun:test'
 import {
   stackKicker,
@@ -43,4 +45,11 @@ describe('stack rail', () => {
     // rail empty.
     expect(stackLastEditedAt([entry(), entry({ workId: 'w2', updatedAt: 'not a date' })])).toBe(0)
   })
+})
+
+
+test('repeated writes to one work keep one card with its latest update', () => {
+  const first: Message = { id: 'create', role: 'assistant', content: '', workRef: { workId: 'work', title: 'First', workType: 'doc' }, timestamp: 1 }
+  const update: Message = { id: 'update', role: 'assistant', content: '', workRef: { workId: 'work', title: 'Latest', workType: 'doc', contentVersion: 2 }, timestamp: 2 }
+  expect(groupMessages([first, update])).toEqual([{ kind: 'document', messages: [update] }])
 })

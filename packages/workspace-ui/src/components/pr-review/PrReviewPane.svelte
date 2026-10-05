@@ -88,8 +88,7 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    composerActions,
-  }: Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode" | "composerActions"> & {
+  }: Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> & {
     pr: PrReviewTarget | null;
     /** Present when the review is mounted in the workspace pane router. */
     paneId?: PaneId;
@@ -893,7 +892,7 @@
           onAlwaysGenerate={settings.generatePrGuidesOnOpen
             ? undefined
             : () => {
-                settings.update({ generatePrGuidesOnOpen: true });
+                settings.setPersonal("generatePrGuidesOnOpen", true);
                 generateGuide();
               }}
         />
@@ -1010,7 +1009,6 @@
         {onAttachFile}
         {onScreenshot}
         {onDesignMode}
-        {composerActions}
         label="Work with this pull request"
       />
     {/if}

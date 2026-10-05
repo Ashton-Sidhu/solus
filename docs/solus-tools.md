@@ -1,8 +1,8 @@
 # Solus tool settings
 
 Settings → Tools lists Solus agent tools by function: Works, External documents,
-Automations, Browser, Sessions, Tasks, Intelligence, Connections, Insights, and
-Configuration. Search by group or tool name. Each tool has a switch; each group
+Automations, Browser, Devices, Sessions, Tasks, Intelligence, Connections,
+Insights, and Configuration. Search by group or tool name. Each tool has a switch; each group
 has an Enable all switch that changes the full group, even during a search.
 All tools are enabled by default. Intelligence includes `ask_jev`.
 
@@ -30,9 +30,19 @@ entry for a removed tool (`wait_for_session`, `answer_session`, `review_plan`,
 `create_session`, `prompt_session`, `find_sessions`) is dropped when the host
 reads its settings; any other unknown name is refused.
 
+The Devices group holds `device_list`, `device_open`, `device_screenshot`,
+`device_close` and `device_install`. They work only when device support and
+agent access are on for the host, and each call checks both again.
+`device_open` returns the bound `agent-device` command the agent drives the
+device with. `device_install` records an app build and installs it on a
+simulator, emulator or connected phone. See
+[Device previews](native-devices.md).
+
 The Sessions group holds the orchestration tools: `start_session`,
 `send_session`, `stop_session`, `read_session`, `read_task_sessions`,
-`search_sessions` and `list_agent_targets`. See
+`search_sessions`, `list_agent_targets`, `read_queue`, and `change_queue`. The
+queue tools operate on the calling session. They cannot resume held work or
+approve permissions. See
 [Session orchestration](session-orchestration.md).
 
 The Tasks group holds one tool for links, `link`. With a `task_id` it attaches

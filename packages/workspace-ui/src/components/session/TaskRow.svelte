@@ -221,7 +221,7 @@
   {#if mark?.kind === "glyph"}
     <TaskStatusGlyph
       status={mark.status}
-      label={attentionLabel(task.attention)}
+      label={attentionLabel(task.attention, task.limitResetsAt)}
     />
   {:else if mark?.kind === "woke"}
     <span
@@ -268,7 +268,7 @@
       class="flex shrink-0 items-center text-chart-5"
       role="img"
       onanimationstart={alignStatusAnimationPhase}
-      aria-label={attentionLabel(task.attention)}
+      aria-label={attentionLabel(task.attention, task.limitResetsAt)}
     >
       <SpinnerGapIcon size={14} class="animate-spin" />
     </span>
@@ -455,7 +455,7 @@
     aria-selected={isCurrentSession}
     aria-expanded={disclosedSession ? true : undefined}
     aria-label={mark?.kind === "glyph"
-      ? `${task.title} — ${attentionLabel(task.attention)}`
+      ? `${task.title} — ${attentionLabel(task.attention, task.limitResetsAt)}`
       : task.title}
     title={task.snoozeNote && task.snoozedUntil > 0 && task.snoozedUntil <= Date.now()
       ? `Snooze reminder: ${task.snoozeNote}`
@@ -652,6 +652,7 @@
       provider={tooltipSession?.provider}
       modelId={tooltipSession?.modelId}
       attention={task.attention}
+      limitResetsAt={task.limitResetsAt}
       reviewGuideStatus={reviewGuideTooltipStatus}
     />
   </TooltipUI.Root>

@@ -1,4 +1,5 @@
 import { materializeStartupTranscript } from './startup-session'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { afterPaint } from '../../lib/after-paint'
 import { markStartupTranscriptApplied } from './startup-transcript'
 import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
@@ -336,7 +337,7 @@ function _materializeTabs(
       const run: Partial<RunConfig> = {
         serverId,
         provider: snapTab.provider,
-        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
+        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || NEW_CHAT_DIRECTORY,
         gitContext: snapTab.gitContext,
         worktree: snapTab.worktreeRequested
           ? { baseBranch: snapTab.worktreeBaseBranch }
@@ -477,7 +478,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
-  const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
+  const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || NEW_CHAT_DIRECTORY
   // Provider ids already resolve to the complete lineage inside loadSession.
   // Read the bytes alongside identity, but build cards using resolved identity
   // below. A worktree transcript lives under its checkout, not the repo root.

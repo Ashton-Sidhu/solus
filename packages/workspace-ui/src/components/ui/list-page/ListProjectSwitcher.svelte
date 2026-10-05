@@ -245,7 +245,7 @@
         onclick={addProject}
       >
         <FolderPlusIcon size={14} class="shrink-0 text-muted-foreground" />
-        <span class="min-w-0 flex-1 truncate">Add project…</span>
+        <span class="min-w-0 flex-1 truncate">Open project…</span>
       </button>
 
       <div

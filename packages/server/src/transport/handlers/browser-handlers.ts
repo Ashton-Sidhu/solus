@@ -80,6 +80,11 @@ export function registerBrowserHandlers(
 
   server.register('browserOpen', async (args) => {
     const [request] = args
+    // The reserved device variant stays on the wire for compatibility; native
+    // devices have their own domain (docs/plans/native-devices.md, D1).
+    if (request.target.kind === 'device') {
+      throw new Error('Simulators and emulators open in the Devices pane. Use deviceOpen, or device_open for agents.')
+    }
     if (request.target.kind === 'url' && !request.target.url.trim()) {
       throw new Error('browserOpen requires a URL')
     }

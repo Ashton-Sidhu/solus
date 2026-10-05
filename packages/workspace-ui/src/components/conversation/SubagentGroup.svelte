@@ -1,29 +1,20 @@
 <script lang="ts">
+  import { ChevronDown as ChevronDownIcon } from "@lucide/svelte";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import type { Message } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import { formatActivityDuration } from "./lib/activity-summary";
-  import {
-    subagentGroupRail,
-    subagentGroupSummary,
-    subagentGroupType,
-    subagentRow,
-  } from "./lib/subagent-group";
-  import ActivityRow from "./ActivityRow.svelte";
-  import SubagentReturnCard from "./SubagentReturnCard.svelte";
-  import SubagentRow from "./SubagentRow.svelte";
-  import SubagentRunCard from "./SubagentRunCard.svelte";
-  import TranscriptCard from "./TranscriptCard.svelte";
+  import { subagentStatusLine } from "./lib/agent-link";
+  import { subagentGroupSummary, subagentRow } from "./lib/subagent-group";
+  import AgentAvatar from "./AgentAvatar.svelte";
+  import SubagentLink from "./SubagentLink.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
 
   /**
-   * §18 — a fan-out is one object, not n cards. Several sub-agents dispatched by
-   * one decision render as one card with one row each; a lone sub-agent is the
-   * same card with one row, so nothing about the anatomy shifts as a turn adds
-   * agents. When the last one lands the whole card folds to a single activity
-   * row, the same shape §16 gives a finished turn. The reader can open it
-   * again and fold it back.
+   * §18 — the sub-agents one turn launches, as T3 Code shows them. A lone agent
+   * is one flat row. Several fold behind one header: their avatars stacked, the
+   * count, a status line, and the time. Opening it lists one row per agent.
    */
   interface Props {
     messages: Message[];
@@ -32,8 +23,8 @@
   }
   let { messages, tabId, skipMotion = false }: Props = $props();
 
-  /** Past this the card is a list, not a glance — the tail folds behind a row. */
-  const MAX_ROWS = 8;
+  /** Avatars the header stacks before it counts the rest. */
+  const STACKED_AVATARS = 3;
 
   const session = getWorkspaceContext();
   const sess = $derived(session.sessionFor(tabId));
@@ -68,111 +59,78 @@
     });
   });
 
-  const elapsed = $derived(formatActivityDuration(summary.elapsedMs));
-  const railText = $derived(subagentGroupRail(summary));
+  const statusLine = $derived(subagentStatusLine(rows.map((row) => row.state)));
 
-  // The group speaks for itself once every agent has landed, so it folds by
-  // default — until the reader asks for it back.
+  // Folded until the reader opens it, the same as T3 Code.
   const disclosure = getTranscriptDisclosure();
   const view = $derived(disclosure.forKey(`subagents:${messages[0]?.id}`));
-  const collapsed = $derived(
-    view.openedByUser === null ? runningCount === 0 : !view.openedByUser,
-  );
-
-  const visibleRows = $derived(view.showAllRows ? rows : rows.slice(0, MAX_ROWS));
-  const hiddenCount = $derived(rows.length - visibleRows.length);
+  const expanded = $derived(view.openedByUser === true);
 </script>
 
-{#snippet fanOutGlyph()}
-  <svg
-    width="11"
-    height="11"
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <circle cx="4" cy="3.4" r="1.6" />
-    <circle cx="4" cy="8.6" r="1.6" />
-    <circle cx="9" cy="3.4" r="1.6" />
-    <circle cx="9" cy="8.6" r="1.6" />
-  </svg>
-{/snippet}
-
-{#snippet foldLabel()}
-  {summary.total} subagents worked{elapsed ? " for " : ""}<span
-    class="text-(--solus-text-primary)">{elapsed}</span
-  >
-{/snippet}
-
-{#snippet foldRail()}
-  <span class="text-[color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]"
-    >{summary.failed} failed</span
-  >
-{/snippet}
-
-{#snippet groupRail()}{railText}{/snippet}
-
-{#snippet agentRows()}
-  {#each visibleRows as row (row.id)}
-    <SubagentRow {row} {tabId} />
-  {/each}
-  {#if hiddenCount > 0}
-    <button
-      type="button"
-      class="h-(--tx-card-row) cursor-pointer rounded-(--tx-card-row-radius) border-none bg-transparent px-2 text-left text-transcript-meta text-muted-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]"
-      onclick={() => (view.showAllRows = true)}
-    >
-      {hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
-    </button>
-  {/if}
-{/snippet}
-
 {#if !isBatch}
-  <!-- §3 — one agent has two faces, and which one it wears is the whole state:
-       while it runs it is one line with a step seam, and when it lands it opens
-       a body, because only then is there something to read. -->
-  {#if rows[0].state === "done"}
-    <SubagentReturnCard
-      message={messages[0]}
-      row={rows[0]}
-      {tabId}
-      {skipMotion}
-    />
-  {:else}
-    <SubagentRunCard row={rows[0]} {tabId} {skipMotion} />
-  {/if}
-{:else if collapsed}
-  <!-- §16's turn-collapse row with the fan-out glyph in the icon slot.
-       Expanding brings the group card back, not a list of n cards.
-       `activity-host` opts the row out of the transcript's paint containment. -->
-  <div class="activity-host py-1 {skipMotion ? '' : 'animate-msg-in-side'}">
-    <ActivityRow
-      glyph={fanOutGlyph}
-      label={foldLabel}
-      rail={summary.failed > 0 ? foldRail : undefined}
-      onToggle={() => (view.openedByUser = true)}
-      testid="subagent-group-folded"
-    />
+  <div class="py-1 {skipMotion ? '' : 'animate-msg-in-side'}">
+    <!-- The transcript card's surface: its fill, radius, and quiet ring. -->
+    <div
+      class="rounded-(--tx-card-radius) bg-(--solus-tx-card-bg) p-1 shadow-[shadow:var(--solus-tx-quiet-shadow)]"
+    >
+      <SubagentLink row={rows[0]} {tabId} />
+    </div>
   </div>
 {:else}
-  <!-- The line carries only what the agents share: the objective, the count,
-       and a tally. Progress and elapsed time vary per agent, so they live on
-       the row. Once every agent has landed, the line folds the group away. -->
-  <TranscriptCard
-    title={summary.title}
-    type={subagentGroupType(summary)}
-    bodyLayout="rows"
-    expanded={runningCount === 0 ? true : undefined}
-    ariaLabel="Fold sub-agents"
-    onOpen={runningCount === 0 ? () => (view.openedByUser = false) : undefined}
-    data-testid="subagent-group"
-    {skipMotion}
-    glyph={fanOutGlyph}
-    rail={groupRail}
-    body={agentRows}
-  />
+  <!-- `activity-host` opts the group out of the transcript's paint containment. -->
+  <div class="activity-host py-1 {skipMotion ? '' : 'animate-msg-in-side'}" data-testid="subagent-group">
+    <div
+      class="overflow-hidden rounded-(--tx-card-radius) bg-(--solus-tx-card-bg) shadow-[shadow:var(--solus-tx-quiet-shadow)]"
+    >
+      <button
+        type="button"
+        class="flex w-full min-w-0 cursor-pointer items-center gap-3 overflow-hidden border-none bg-transparent px-3 py-2 text-left transition-opacity hover:opacity-100 {expanded ||
+        runningCount > 0
+          ? 'text-(--solus-text-primary) opacity-100'
+          : 'text-muted-foreground opacity-55'}"
+        aria-expanded={expanded}
+        aria-label={`${summary.title}, ${statusLine}`}
+        onclick={() => (view.openedByUser = !expanded)}
+      >
+        <span class="flex shrink-0 items-center -space-x-1.5" aria-hidden="true">
+          {#each rows.slice(0, STACKED_AVATARS) as row (row.id)}
+            <AgentAvatar provider={row.provider} />
+          {/each}
+          {#if rows.length > STACKED_AVATARS}
+            <span
+              class="relative inline-flex size-6 items-center justify-center rounded-full border border-[color-mix(in_oklch,var(--foreground)_10%,transparent)] bg-[color-mix(in_oklch,var(--foreground)_2%,var(--solus-tx-card-bg))] dark:border-[color-mix(in_oklch,white_5%,transparent)] dark:bg-[color-mix(in_oklch,white_3%,var(--solus-tx-card-bg))] text-[0.625rem] font-medium tabular-nums text-muted-foreground ring-2 ring-(--solus-tx-card-bg)"
+            >
+              +{rows.length - STACKED_AVATARS}
+            </span>
+          {/if}
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-xs font-semibold">{summary.title}</span>
+          <span
+            class="block truncate text-[0.625rem] {runningCount > 0
+              ? 'text-(--chart-5)'
+              : summary.failed > 0
+                ? 'text-destructive'
+                : 'text-muted-foreground'}">{statusLine}</span
+          >
+        </span>
+        <span class="shrink-0 font-mono text-[0.625rem] tabular-nums text-muted-foreground"
+          >{formatActivityDuration(summary.elapsedMs)}</span
+        >
+        <ChevronDownIcon
+          size={14}
+          aria-hidden="true"
+          class="shrink-0 text-muted-foreground transition-transform {expanded ? 'rotate-180' : ''}"
+        />
+      </button>
+      {#if expanded}
+        <!-- One row per agent under a hairline, inside the same card. -->
+        <div class="border-t-[0.5px] border-(--solus-tx-divider) p-1">
+          {#each rows as row (row.id)}
+            <SubagentLink {row} {tabId} />
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </div>
 {/if}

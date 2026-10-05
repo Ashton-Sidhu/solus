@@ -65,6 +65,10 @@ export function remoteWorkspaceOperations(
     listWorkActivity: (_context, workId, query) => call(() => client.request('listWorkActivity', { id: workId, query })),
     listSessionActivity: (_context, sessionId, query) => call(() => client.request('listSessionActivity', { id: sessionId, query })),
     listMyActivity: (_context, query) => call(() => client.request('listMyActivity', { query })),
+    listMyNotifications: (_context, query) => call(() => client.request('listMyNotifications', { query })),
+    countMyNotifications: () => call(() => client.request('countMyNotifications', {})),
+    setMyNotificationRead: (_context, notificationId, input) => call(() => client.request('setMyNotificationRead', { id: notificationId, body: input })),
+    setMyNotificationArchived: (_context, notificationId, input) => call(() => client.request('setMyNotificationArchived', { id: notificationId, body: input })),
   }
 }
 

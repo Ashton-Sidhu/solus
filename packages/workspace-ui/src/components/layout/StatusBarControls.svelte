@@ -2,12 +2,12 @@
   import { FolderOpen as FolderOpenIcon, GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import {
-    connectionsStore,
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
   import { displayDirName } from "../../lib/paths";
+  import { isChat } from "@solus/contracts/chat";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { RunConfig, WorktreeEntry } from "@solus/contracts/types";
@@ -53,13 +53,9 @@
   const isBusy = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
-  const displayDir = $derived(
-    displayDirName(
-      ctx.workingDirectory,
-      connectionsStore.chatFolderFor(run?.serverId ?? session.fallbackServerId),
-    ),
-  );
-  const dirTooltip = $derived(ctx.workingDirectory);
+  const displayDir = $derived(displayDirName(ctx.workingDirectory));
+  // A chat's folder is the host's business, not the reader's.
+  const dirTooltip = $derived(isChat(ctx.workingDirectory) ? displayDir : ctx.workingDirectory);
   const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
   const defaultGitContext = $derived(session.tabCtx.gitContext);
   const worktreePath = $derived(run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);

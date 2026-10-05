@@ -67,9 +67,17 @@ Solus has three primary client surfaces:
 - **Desktop** — the macOS Electron app, including native window behavior, tray and global
   shortcuts, local IPC, and the ability to host the server.
 - **Web** — the standalone client in `apps/client/`, served by the headless Solus server and
-  connected through WebSockets.
-- **Mobile** — the iOS and Android client for controlling agent work remotely from a
-  phone or tablet.
+  connected through WebSockets. It has one layout, the wide workspace layout, on every
+  device. A phone browser gets the same layout.
+- **Mobile** — the native iOS and Android app in `apps/mobile/` (Expo and React Native),
+  for controlling agent work remotely from a phone or tablet. It shares
+  `@solus/contracts` and `@solus/client-core` with the other clients, but not the
+  Svelte components.
+
+Phone UI belongs in `apps/mobile/` only. Do not add a phone layout, a phone shell, or a
+viewport-width switch between layouts to `apps/client/` or `packages/workspace-ui/`.
+Layout in those packages adapts to its container (`@container`) and to the pointer
+(`pointer-coarse:`), as the Product and UX rules say.
 
 Every user-interface change must be implemented and verified across mobile, desktop, and
 web. The clients may use surface-appropriate interaction and navigation patterns, but
@@ -208,10 +216,11 @@ applied:
 
 - **Entry points.** A behavior reachable from the conversation may also be reachable from
   Settings, the command palette, a context menu, the project panel, and a keybinding.
-- **Clients.** Implement every UI change across mobile, desktop, and web. Desktop uses
-  Electron IPC and native capabilities; web and mobile connect remotely and cannot
-  assume Electron APIs. Surface-specific interaction is acceptable; missing capability
-  is not.
+- **Clients.** Implement every UI change across mobile, desktop, and web. Desktop and web
+  share the Svelte workspace UI; mobile is the native app in `apps/mobile/` and needs its
+  own React Native implementation. Desktop uses Electron IPC and native capabilities;
+  web and mobile connect remotely and cannot assume Electron APIs. Surface-specific
+  interaction is acceptable; missing capability is not.
 - **Providers.** Claude and Codex each have an adapter and different lifecycle semantics.
   Provider-shaped features need an explicit decision for each backend, even when the
   decision is “unsupported.”
@@ -236,8 +245,9 @@ applied:
 - Use `text-workspace-chrome` for navigation, rails, action labels, and other
   workspace chrome. It is 14px on every display. Supporting text in the session
   sidebar (a row's project and host line) and the project panel use
-  `text-chrome-dense` (12px, 14px on touch). Labels of project panel rows and
-  input bar controls use weight 500 with 16px icons. Solus has one density: do not
+  `text-chrome-dense` (12px, 14px on touch). Labels of project panel rows are
+  13px (14px on touch) at weight 400; input bar controls use weight 500. Both
+  use 16px icons. Solus has one density: do not
   size type or geometry by the monitor. Users make the UI denser or roomier
   with zoom (`mod+plus` / `mod+minus`). Layout adapts to its container
   (`@container`) and to the pointer (`pointer-coarse:`), never to `screen.width`
@@ -460,7 +470,8 @@ use a narrow Grep.
 |---|---|
 | `apps/desktop/` | Electron main, preload, desktop renderer bootstrap, native windows, tray, shortcuts, and optional file handlers |
 | `apps/standalone-server/` | Headless server process entry |
-| `apps/client/` | Standalone web and mobile-responsive client shell, service worker, and demo |
+| `apps/client/` | Standalone web client shell (one wide layout), service worker, and demo |
+| `apps/mobile/` | Native iOS and Android app (Expo and React Native); phone and tablet UI lives here only |
 | `apps/site/` | SvelteKit and Cloudflare site |
 | `apps/cli/` | Installed command-line process |
 

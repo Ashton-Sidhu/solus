@@ -15,7 +15,6 @@ export interface AttentionNotificationCandidate {
 export class AttentionNotificationTracker {
   constructor(private readonly includeFinished = false) {}
   private readonly hosts = new Map<string, HostSnapshotState>()
-  private readonly delivered = new Set<string>()
 
   applySnapshot(
     serverId: string,
@@ -26,30 +25,17 @@ export class AttentionNotificationTracker {
     const previous = this.hosts.get(serverId)
     if (!previous) {
       this.hosts.set(serverId, { keys: nextKeys })
-      for (const entry of entries) this.delivered.add(this.scopedKey(serverId, attentionEntryKey(entry)))
       return []
-    }
-
-    for (const key of previous.keys) {
-      if (!nextKeys.has(key)) this.delivered.delete(this.scopedKey(serverId, key))
     }
 
     const created: AttentionNotificationCandidate[] = []
     for (const entry of entries) {
-      const entryKey = attentionEntryKey(entry)
-      if (previous.keys.has(entryKey) || (!this.includeFinished && !isNotifiableAttentionEntry(entry))) continue
-      const scopedKey = this.scopedKey(serverId, entryKey)
-      if (this.delivered.has(scopedKey)) continue
-      this.delivered.add(scopedKey)
+      if (previous.keys.has(attentionEntryKey(entry)) || (!this.includeFinished && !isNotifiableAttentionEntry(entry))) continue
       if (!isSessionFocused(serverId, entry.sessionId)) created.push({ serverId, entry })
     }
 
     previous.keys = nextKeys
     return created
-  }
-
-  markPushDelivered(serverId: string, entryKey: string): void {
-    this.delivered.add(this.scopedKey(serverId, entryKey))
   }
 
   prepareForReconnect(serverId: string): void {
@@ -58,14 +44,6 @@ export class AttentionNotificationTracker {
 
   dropHost(serverId: string): void {
     this.hosts.delete(serverId)
-    const prefix = `${serverId}:`
-    for (const key of this.delivered) {
-      if (key.startsWith(prefix)) this.delivered.delete(key)
-    }
-  }
-
-  private scopedKey(serverId: string, entryKey: string): string {
-    return `${serverId}:${entryKey}`
   }
 }
 

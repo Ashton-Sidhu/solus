@@ -20,6 +20,7 @@ import { workAnnotations, workLiveDocs, workReviewers, workRevisions, works } fr
 import { emitWorkChanged } from './work-events'
 import { workLiveBridge } from './work-live-bridge'
 import { recordNewMentions } from '../activity/mentions'
+import { removeNotificationsFor } from '../notifications/store'
 import { hostAttribution } from '../stored-attribution'
 import {
   REVISION_COLUMNS,
@@ -188,7 +189,7 @@ async function changeBody(db: Db, row: WorkRow, write: WorkBodyWrite, checkpoint
 /** Replace the body: one version step, a new hash and author, and the preview.
  *  A person the new body first mentions is recorded as `mentioned` activity. */
 async function writeBody(db: Db, row: WorkRow, body: { content: string; author: Attribution | null; title?: string }): Promise<{ contentVersion: number; contentHash: string }> {
-  await recordNewMentions(db, row.organization_id, { kind: 'work', id: row.id }, body.author ?? hostAttribution(), row.content ?? '', body.content)
+  await recordNewMentions(db, row.organization_id, { kind: 'work', id: row.id, title: body.title ?? row.title ?? undefined }, body.author ?? hostAttribution(), row.content ?? '', body.content)
   const contentVersion = row.content_version + 1
   const contentHash = documentContentHash(body.content)
   await db.run(sql`
@@ -503,6 +504,8 @@ export class Work implements WorkRecord {
       for (const table of [workAnnotations, workRevisions, workReviewers, workLiveDocs]) {
         await db.run(sql`DELETE FROM ${table} WHERE work_id = ${this.id}`)
       }
+      // The organization's copy is the authority now; its notifications are there.
+      await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })
       await db.run(sql`
         UPDATE ${works} SET content = '', preview = '', content_hash = ${documentContentHash('')},
           previous_revision_id = NULL, location = ${JSON.stringify(location)}
@@ -517,6 +520,7 @@ export class Work implements WorkRecord {
       if (!row) throw new Error(`Work not found: ${this.id}`)
       await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${this.id}`)
       await db.run(sql`DELETE FROM ${works} WHERE id = ${this.id}`)
+      await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })
     })
   }
 }

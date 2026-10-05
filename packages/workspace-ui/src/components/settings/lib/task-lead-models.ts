@@ -1,5 +1,5 @@
 import type { AgentId, AgentMetadata, ReasoningEffort } from '@solus/contracts/types'
-import type { LeadModelSelection } from '@solus/contracts/host-config'
+import type { LeadModelSelection } from '@solus/contracts/settings'
 import { defaultReasoningFor, type PickerSelection } from '../../pickers/lib/picker-selection'
 
 function isLeadModelAgent(provider: AgentId): provider is LeadModelSelection['provider'] {

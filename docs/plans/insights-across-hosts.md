@@ -114,11 +114,15 @@ and not part of `SessionRuntime`.
   error with the answer.
 - **Loading state.** The listing summary carries `pull: { pulling, error }`,
   and `metrics.insightPullChanged` reports each start and end. While a pull
-  runs, a thin sweep runs along the top edge of the turn table; reduced
-  motion holds it still. A failed pull shows "Other hosts unavailable" with
-  the reason as its tooltip.
+  runs, a quiet "Checking for synced turns…" status with a cloud-download icon
+  appears beside the turn count. It has no continuous animation and does not
+  block the rows or their empty state. A live event takes precedence over the
+  pull snapshot in a listing response, so a late response cannot restore a
+  loading state after the pull ends. A failed pull shows "Other hosts
+  unavailable" with the reason as its tooltip.
 - Signed out, or with "Send Insights to organization cloud" off: it does
-  nothing. Own turns stay as they are now.
+  nothing and announces no loading state. Eligibility is checked before a
+  pull starts. Own turns stay as they are now.
 - **Limit:** a turn that reaches the cloud more than 6 hours after it started,
   for example from a host that was offline, is not pulled. If this becomes a
   real problem, add an arrival sequence to `insight_spans` and use it as the
@@ -238,3 +242,10 @@ the stale `data/insights/organization-turns.ts` references in
    every finished span with its log events, about 110 MB each month at the
    measured rate. This plan does not change that. The organization view and
    the pulled-turn detail read those trees.
+
+## Query result appearance
+
+The chart measure menu sizes to its longest label. Labels stay on one line;
+a menu wider than the screen scrolls horizontally. Query result tables use the
+Insights table type size, row height, alternate row fills, and hover state.
+Result values use the normal foreground color in light and dark mode.

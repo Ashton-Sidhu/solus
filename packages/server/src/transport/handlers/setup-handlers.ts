@@ -15,7 +15,6 @@ import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
-import { createLogger } from '../../logger'
 import { runAsync } from '../../git/exec'
 import { isGitUsable } from '../../git/git-availability'
 import { createGitAskpassHelper, gitAuthEnv, type GitAuthEnv } from '../../git/git-auth-env'
@@ -25,8 +24,8 @@ import { GitHubAuth } from '../../providers/github/auth'
 import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
-import { getHostConfig, getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
-import { MEMBER_CHAT_FOLDER_NAME, setupProjectsRoot, WORKSPACE_DIR } from '../../workspace'
+import { getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
+import { makeChatFolder, setupProjectsRoot } from '../../workspace'
 import { memberFolderFor } from '../../host/member-folders'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
@@ -52,8 +51,6 @@ import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryR
 import type { CheckoutService } from '../../git/checkout-service'
 import type { GitIdentityManager } from '../../git/git-identity-manager'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
-
-const log = createLogger('main', 'setup-handlers')
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
@@ -168,40 +165,7 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
       github: await hasGithubAuth(),
     },
     ...projectsBaseDirectoryFor(opts.principal),
-    agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
-    ...chatFolderCapability(opts.principal),
   }
-}
-
-/**
- * The caller's chat folder, as capabilities report it. A chat folder inside a Git
- * work tree (a worktree-local `SOLUS_DATA_DIR` in development) is left out: an
- * agent there would read and change that repository, so the client hides
- * Scratchpad instead.
- */
-export function chatFolderCapability(principal: Principal | undefined, hostRoot = setupProjectsRoot()): Pick<ServerCapabilities, 'workspacePath'> {
-  const chatFolder = chatFolderFor(principal, hostRoot)
-  return isInsideGitWorkTree(chatFolder) ? {} : { workspacePath: chatFolder }
-}
-
-/** Per folder: every capability probe asks, and the answer does not change while the host runs. */
-const gitWorkTreeFolders = new Map<string, boolean>()
-
-/** True when a `.git` entry sits in the folder or above it. No git process: this runs on every probe. */
-function isInsideGitWorkTree(folder: string): boolean {
-  const known = gitWorkTreeFolders.get(folder)
-  if (known !== undefined) return known
-  let inside = false
-  for (let dir = resolve(folder); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, '.git'))) {
-      inside = true
-      break
-    }
-    if (dirname(dir) === dir) break
-  }
-  gitWorkTreeFolders.set(folder, inside)
-  if (inside) log.warn('chat_folder_in_git_worktree', { chatFolder: folder })
-  return inside
 }
 
 /** Capability probes intentionally skip the launcher's cache. Off the main
@@ -321,27 +285,12 @@ export function projectsRootFor(principal: Principal | undefined, hostRoot = set
 }
 
 /**
- * Where this principal's sessions with no project run (Scratchpad). A member of an
- * organization gets a chat folder inside their member folder, so two members never
- * share one; this also holds on a personal host shared with an organization. The
- * owner, the host itself, and a personal host keep the owner's chat folder
- * (`WORKSPACE_DIR`) at its old path, so old sessions still resume.
+ * The folder one chat runs in: `.solus-chats/<chat id>` in the caller's projects
+ * root (docs/plans/projectless-chat.md). The owner and every member use this one
+ * rule, and every chat is outside the host's data folder.
  */
-export function chatFolderFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
-  const chatFolder = principal?.kind === 'org-member'
-    ? join(projectsRootFor(principal, hostRoot), MEMBER_CHAT_FOLDER_NAME)
-    : WORKSPACE_DIR
-  try {
-    mkdirSync(chatFolder, { recursive: true })
-  } catch (err) {
-    log.warn('chat_folder_create_failed', { chatFolder, error: String(err) })
-  }
-  return chatFolder
-}
-
-/** A bare `~` is the client's "no folder known yet": the caller's chat folder. `~/x` is a home path and stays. */
-export function resolveUnknownFolder(path: string, principal: Principal | undefined): string {
-  return path === '~' ? chatFolderFor(principal) : path
+export function chatFolderFor(chatId: string, principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  return makeChatFolder(projectsRootFor(principal, hostRoot), chatId)
 }
 
 /**

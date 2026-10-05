@@ -1,6 +1,7 @@
 # Devices — agents build, run, and prove iOS apps on simulators
 
-Status: proposed, 2026-09-25. Not implemented. §13 lists the open decisions.
+Status: proposed, 2026-09-25. Superseded for implementation by
+[native-devices.md](native-devices.md) (plan 016, decisions D1–D3).
 
 ## 1. Why
 

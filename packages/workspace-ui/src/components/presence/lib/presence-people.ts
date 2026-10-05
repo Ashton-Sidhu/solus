@@ -1,4 +1,4 @@
-import type { HostParticipant, HostPresenceSnapshot, PresenceFocus, PresenceParticipant, SessionActivity, SessionParticipant } from '@solus/contracts/presence'
+import type { HostParticipant, PresenceFocus, PresenceParticipant, SessionActivity, SessionParticipant } from '@solus/contracts/presence'
 import { sameUser, userKey, type User, type UserId } from '@solus/contracts/user'
 
 /**
@@ -100,17 +100,6 @@ export function sameFocus(a: PresenceFocus, b: PresenceFocus): boolean {
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
   if (a.kind === 'work' && b.kind === 'work') return a.workId === b.workId
   return true
-}
-
-/**
- * The people on a host who were not there a moment ago: the join notice. Nothing
- * is new on the first snapshot, and nothing until the reader knows who they are,
- * because until then their own second device would be announced as a stranger.
- */
-export function newArrivals(previous: HostPresenceSnapshot | undefined, next: HostPresenceSnapshot, options: PeopleOptions): PresencePerson[] {
-  if (!previous || !options.self) return []
-  const before = new Set(previous.participants.map((participant) => userKey(participant.user.id)))
-  return peopleFrom(next.participants, options).filter((person) => !before.has(person.userId))
 }
 
 /** What a client shows, as it reports it to the host: the host and the focus there. */

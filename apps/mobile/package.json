@@ -1,0 +1,52 @@
+{
+  "name": "@solus/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test:logic": "cd ../.. && bun scripts/test-unit.ts native-mobile",
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android"
+  },
+  "dependencies": {
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@react-navigation/native": "^7.5.0",
+    "@react-navigation/native-stack": "^7.20.0",
+    "@solus/client-core": "workspace:*",
+    "@solus/contracts": "workspace:*",
+    "expo": "~57.0.26",
+    "expo-build-properties": "~57.0.22",
+    "expo-camera": "~57.0.6",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-image-picker": "~57.0.20",
+    "expo-network": "~57.0.2",
+    "expo-secure-store": "~57.0.4",
+    "expo-sqlite": "~57.0.3",
+    "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.3",
+    "expo-system-ui": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "socket.io-client": "^4.8.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "babel-preset-expo": "~57.0.13",
+    "typescript": "^5.9.3"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  }
+}

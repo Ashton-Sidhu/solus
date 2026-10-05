@@ -19,13 +19,14 @@ describe('text-generation model resolution', () => {
       }))
 
       const settings = await import('./packages/server/src/host/settings')
-      settings.setHostConfig({
+      // The person's own writing preferences (plans/018 §3.1), sent with the request.
+      const preferences = {
         textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
         sourceControlWriterModel: { provider: 'claude-code', model: 'claude-sonnet-5' },
-      })
+      }
       console.log(JSON.stringify({
-        configured: settings.getHostConfig().config.sourceControlWriterModel,
-        effective: settings.resolveSourceControlWriterModel(),
+        configured: preferences.sourceControlWriterModel,
+        effective: settings.resolveSourceControlWriterModel(preferences),
       }))
     `
     const run = spawnSync(process.execPath, ['-e', script], {
@@ -47,6 +48,38 @@ describe('text-generation model resolution', () => {
     expect(output.effective).toEqual({ provider: 'codex', model: 'gpt-5.5' })
   })
 
+  test("the host's config never chooses a person's writing model", () => {
+    const script = String.raw`
+      import { mock } from 'bun:test'
+      import { mkdtempSync } from 'fs'
+      import { tmpdir } from 'os'
+      import { join } from 'path'
+
+      process.env.SOLUS_DATA_DIR = mkdtempSync(join(tmpdir(), 'solus-model-resolution-'))
+      mock.module('./packages/server/src/cli-env', () => ({
+        getCliPath: () => '/bin',
+        findOnPath: (bin) => '/bin/' + bin,
+      }))
+
+      const settings = await import('./packages/server/src/host/settings')
+      settings.setHostConfig({ textGenerationModel: { provider: 'claude-code', model: 'claude-sonnet-5' } })
+      console.log(JSON.stringify({
+        none: settings.resolveTextGenerationModel(undefined),
+        mine: settings.resolveTextGenerationModel({ textGenerationModel: { provider: 'codex', model: 'gpt-5.5' } }),
+      }))
+    `
+    const run = spawnSync(process.execPath, ['-e', script], { cwd: root, encoding: 'utf8' })
+    expect(run.stderr).toBe('')
+    expect(run.status).toBe(0)
+    // SAFETY: The child script prints this exact test-owned JSON payload last.
+    const output = JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('\n{') + 1)) as {
+      none: { provider: string; model: string }
+      mine: { provider: string; model: string }
+    }
+    expect(output.none.provider).toBe('codex')
+    expect(output.mine).toEqual({ provider: 'codex', model: 'gpt-5.5' })
+  })
+
   // There is no second configured model to fall back to, so an unavailable
   // choice must land on the cheap default of whichever agent is installed.
   test('falls back to the installed agent default when the configured model is unavailable', () => {
@@ -63,13 +96,11 @@ describe('text-generation model resolution', () => {
       }))
 
       const settings = await import('./packages/server/src/host/settings')
-      settings.setHostConfig({
-        textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
-      })
+      const preferences = { textGenerationModel: { provider: 'codex', model: 'gpt-5.5' } }
       console.log(JSON.stringify({
-        configured: settings.getHostConfig().config.textGenerationModel,
-        effective: settings.resolveTextGenerationModel(),
-        effectiveWriter: settings.resolveSourceControlWriterModel(),
+        configured: preferences.textGenerationModel,
+        effective: settings.resolveTextGenerationModel(preferences),
+        effectiveWriter: settings.resolveSourceControlWriterModel(preferences),
       }))
     `
     const run = spawnSync(process.execPath, ['-e', script], {
@@ -105,10 +136,8 @@ describe('text-generation model resolution', () => {
       }))
 
       const settings = await import('./packages/server/src/host/settings')
-      settings.setHostConfig({
-        textGenerationModel: { provider: 'codex', model: 'gpt-not-a-real-model' },
-      })
-      console.log(JSON.stringify({ effective: settings.resolveTextGenerationModel() }))
+      const preferences = { textGenerationModel: { provider: 'codex', model: 'gpt-not-a-real-model' } }
+      console.log(JSON.stringify({ effective: settings.resolveTextGenerationModel(preferences) }))
     `
     const run = spawnSync(process.execPath, ['-e', script], {
       cwd: root,

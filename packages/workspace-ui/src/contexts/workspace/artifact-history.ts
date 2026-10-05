@@ -6,33 +6,50 @@ import { nextMsgId } from './session.utils'
 
 const updateInput = z.object({ work_id: z.string(), content: z.string().optional(), html_path: z.string().optional(), title: z.string().optional() })
 
-/** Rebuild from tool input, as for initial renders. Explicit failures and running
+/** Restore successful work cards and artifact previews from tool input. Explicit failures and running
  * calls do not become completed previews. Never use today's work content. A call
  * that named an `html_path` has no HTML in its input: `fileBody` is the revision
  * that call wrote (`loadArtifactFileBodies`). */
-export function artifactUpdateFromHistory(
+export function workUpdateFromHistory(
   tool: WireSessionLoadMessage,
   result: WireSessionLoadMessage,
-  getWork: (workId: string) => Pick<WorkMeta, 'type'> | undefined,
+  getWork: (workId: string) => Pick<WorkMeta, 'type' | 'title'> | undefined,
   fileBody?: string,
 ): Message | undefined {
   if (result.status === 'error' || tool.toolStatus === 'error' || tool.toolStatus === 'running') return
   try {
     const input = updateInput.parse(JSON.parse(tool.toolInput || '{}'))
-    const html = input.html_path ? fileBody : input.content
-    if (html === undefined) return
-    const work = result.artifactWorkRef ? undefined : getWork(input.work_id)
-    const ref = result.artifactWorkRef ?? (work?.type === 'artifact'
-      ? { workId: input.work_id, title: input.title ?? resolveArtifactTitle(undefined, html) }
-      : undefined)
-    if (!ref || ref.workId !== input.work_id) return
-    return {
-      id: nextMsgId(), role: 'assistant', content: '',
-      artifact: { kind: 'html', html },
-      workRef: { workId: ref.workId, title: ref.title, workType: 'artifact' },
-      timestamp: result.timestamp ?? tool.timestamp ?? Date.now(),
+    const work = getWork(input.work_id)
+    if (result.workUpdateSucceeded && !result.artifactWorkRef && work?.type !== 'artifact') {
+      return {
+        id: nextMsgId(), role: 'assistant', content: '',
+        workRef: { workId: input.work_id, title: input.title ?? work?.title ?? 'Work', workType: work?.type ?? 'doc', contentVersion: result.workContentVersion },
+        timestamp: result.timestamp ?? tool.timestamp ?? Date.now(),
+      }
     }
+    return artifactUpdateMessage(input, tool, result, work, fileBody)
   } catch { return undefined }
+}
+
+function artifactUpdateMessage(
+  input: z.infer<typeof updateInput>,
+  tool: WireSessionLoadMessage,
+  result: WireSessionLoadMessage,
+  work: Pick<WorkMeta, 'type' | 'title'> | undefined,
+  fileBody?: string,
+): Message | undefined {
+  const html = input.html_path ? fileBody : input.content
+  if (html === undefined) return
+  const ref = result.artifactWorkRef ?? (work?.type === 'artifact'
+    ? { workId: input.work_id, title: input.title ?? resolveArtifactTitle(undefined, html), contentVersion: result.workContentVersion }
+    : undefined)
+  if (!ref || ref.workId !== input.work_id) return
+  return {
+    id: nextMsgId(), role: 'assistant', content: '',
+    artifact: { kind: 'html', html },
+    workRef: { workId: ref.workId, title: ref.title, workType: 'artifact', contentVersion: ref.contentVersion },
+    timestamp: result.timestamp ?? tool.timestamp ?? Date.now(),
+  }
 }
 
 const htmlPathInput = z.object({ html_path: z.string() })

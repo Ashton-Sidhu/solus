@@ -9,6 +9,7 @@
   import { LogOut as SignOutIcon } from "@lucide/svelte";
   import { SEAT_PROVIDERS } from "@solus/contracts/seats";
   import { seatsStore } from "../../contexts";
+  import { cloudAgentSeatsStore as cloudSeats, usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
@@ -24,12 +25,14 @@
   }
 
   let { serverId }: Props = $props();
+  const cloud = $derived(usesCloudAgentSeats(serverId));
 
   $effect(() => {
+    if (cloud) return cloudSeats.watch();
     void seatsStore.ensure(serverId);
   });
 
-  const hasSeats = $derived(seatsStore.hasSeats.get(serverId) === true);
+  const hasSeats = $derived(cloud || seatsStore.hasSeats.get(serverId) === true);
 
   async function disconnect(provider: (typeof SEAT_PROVIDERS)[number]) {
     await seatsStore.disconnect(serverId, provider);
@@ -47,8 +50,8 @@
     {/snippet}
     <SettingsRow
       label={seatLabel(provider)}
-      description={seatDescription(status, seatsStore.errorFor(serverId, provider))}
-      body={action === "disconnect" ? undefined : panel}
+      description={cloud ? cloudSeats.connected(provider) === null ? "Checking your cloud connection…" : cloudSeats.connected(provider) ? "Connected to your Solus Cloud account" : "Connect on your account’s Connections page" : seatDescription(status, seatsStore.errorFor(serverId, provider))}
+      body={cloud || action !== "disconnect" ? panel : undefined}
       testId="seat-row-{provider}"
     >
       {#snippet labelExtra()}
@@ -59,10 +62,10 @@
             <OpenAIBlossom size={11} />
           {/if}
         </span>
-        <ProviderConnectedCheck connected={status?.state === "connected"} provider={seatLabel(provider)} />
+        <ProviderConnectedCheck connected={cloud ? cloudSeats.connected(provider) === true : status?.state === "connected"} provider={seatLabel(provider)} />
       {/snippet}
       {#snippet control()}
-        {#if action === "disconnect"}
+        {#if !cloud && action === "disconnect"}
           <Button variant="outline" size="sm" disabled={seatsStore.isBusy(serverId, provider)} onclick={() => void disconnect(provider)}>
             <SignOutIcon size={13} />
             Disconnect

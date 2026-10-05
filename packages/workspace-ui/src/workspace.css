@@ -313,9 +313,9 @@
      the branch/project/model pickers). Deliberately separate from the popover
      tokens above: a menu draws its edge as a hairline *inside* the shadow
      stack, where a modal or toast still wants a real border. */
-  /* Its own value, not the popover's: dialogs are pure white to lift off the
-     canvas, but a menu stays the warm off-white it has always been. */
-  --solus-menu-bg: #fcfbf8;
+  /* Menus share the bright popover surface so dropdowns stay neutral against
+     the page and the settings cards. */
+  --solus-menu-bg: var(--solus-popover-bg);
   /* Four layers, no border. The ring is a spread-only hairline, so it adds
      nothing to the box and doesn't harden the corner radius; being foreground
      ink rather than --border, it darkens against whatever the panel sits on.
@@ -601,7 +601,7 @@
      tokens this block already redefines, so they re-resolve here on their own.
      The background and the drop layers need dark values: pure black at
      light-mode alphas disappears against a dark canvas. */
-  --solus-menu-bg: #353430fc;
+  --solus-menu-bg: var(--solus-popover-bg);
   --solus-menu-shadow:
     0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 16%, transparent),
     0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.30),
@@ -800,7 +800,7 @@
     0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 18%, transparent),
     0 0.125rem 0.375rem -0.125rem rgba(60, 45, 30, 0.08);
   --solus-tx-attention-shadow:
-    0 0 0 0.0625rem color-mix(in oklch, var(--chart-2) 38%, transparent),
+    var(--solus-tx-quiet-ring),
     0 0.0625rem 0.1875rem rgba(60, 45, 30, 0.05),
     0 0.5rem 1.125rem -0.5rem rgba(60, 45, 30, 0.12);
   --solus-tx-divider: color-mix(in oklch, var(--foreground) 10%, transparent);
@@ -3295,7 +3295,7 @@ button.solus-token {
 .prose-transcript table {
   width: 100%;
   margin: 0.65rem 0;
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-size: inherit;
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;
@@ -4348,6 +4348,18 @@ html.is-mac-workspace
      Kept as a token, unlike the rest of chrome, while the value settles: one
      edit here moves every menu in the app. Fold it into `text-sm` once it has. */
   --text-menu: 0.875rem;
+}
+
+/* Settings controls share one surface even when their trigger comes from a
+   folder picker, a model picker, or a standard outline button. Focus and error
+   states keep the owning control's indicator. */
+@utility settings-controls {
+  & :is([data-variant="outline"], [data-slot="select-trigger"], [data-slot="session-chip"]):not(:focus-visible):not([aria-invalid="true"]) {
+    @apply border-input bg-white text-foreground shadow-xs/5;
+    @variant dark {
+      @apply bg-input/30;
+    }
+  }
 }
 
 @utility menu-surface {

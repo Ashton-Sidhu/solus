@@ -2,7 +2,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "@solus/contracts/types";
-  import { getSettingsContext, getAgentContext, getPullRequestsContext, getWorkspaceContext } from "../../contexts";
+  import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
@@ -10,6 +10,7 @@
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SavedLensesSetting from "./SavedLensesSetting.svelte";
+  import { hostSettingsStore } from "../../contexts/app/host-settings.store.svelte";
 
   interface Props {
     searchQuery?: string;
@@ -20,9 +21,10 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
-  const pullRequests = getPullRequestsContext();
   const projectPath = $derived(projectScopeOf(session.ctx.session));
-  const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
+  // Review warming runs on a host, for one of its projects: the host's setting.
+  const warmingServerId = $derived(session.serverIdForContext(session.ctx));
+  const warmingEnabled = $derived(hostSettingsStore.isReviewWarmingEnabled(warmingServerId, projectPath));
 
   // These are the exact durable values used for review guide generation.
   const reviewAgentId = $derived(theme.reviewAgent);
@@ -61,32 +63,32 @@
     const metadata = agentContext.metadata[id];
     const model = metadata?.defaultModel ?? metadata?.models[0]?.id ?? "";
     const reasoning = MODEL_PROFILES[id]?.[model]?.defaultReasoningEffort ?? "medium";
-    theme.update({ reviewAgent: id, reviewModel: model, reviewReasoning: reasoning });
+    theme.setPersonal("reviewAgent", id);
+    theme.setPersonal("reviewModel", model);
+    theme.setPersonal("reviewReasoning", reasoning);
     requestInputFocus();
   }
 
   function selectReviewModel(id: string) {
     const reasoning = MODEL_PROFILES[reviewAgentId]?.[id]?.defaultReasoningEffort ?? "medium";
-    theme.update({ reviewAgent: reviewAgentId, reviewModel: id, reviewReasoning: reasoning });
+    theme.setPersonal("reviewAgent", reviewAgentId);
+    theme.setPersonal("reviewModel", id);
+    theme.setPersonal("reviewReasoning", reasoning);
     requestInputFocus();
   }
 
   function selectReviewReasoning(id: (typeof reviewReasoningLevels)[number]) {
-    theme.update({ reviewReasoning: id });
+    theme.setPersonal("reviewReasoning", id);
     requestInputFocus();
   }
 
   function setWarmingEnabled(enabled: boolean) {
-    theme.setReviewWarmingEnabled(projectPath, enabled);
-    const api = session.apiForContext(session.ctx);
-    void pullRequests.needsReview
-      .refresh(api, session.serverIdForContext(session.ctx), session.ctx)
-      .catch(() => {});
+    void hostSettingsStore.setReviewWarmingEnabled(warmingServerId, projectPath, enabled);
     requestInputFocus();
   }
 
   function setGenerateOnOpen(enabled: boolean) {
-    theme.update({ generatePrGuidesOnOpen: enabled });
+    theme.setPersonal("generatePrGuidesOnOpen", enabled);
     requestInputFocus();
   }
 
@@ -241,14 +243,14 @@
     {#snippet body()}
       <PlainTextEditor
         value={theme.reviewGuideInstructions}
-        onValueChange={(value) => theme.update({ reviewGuideInstructions: value })}
+        onValueChange={(value) => theme.setPersonal("reviewGuideInstructions", value)}
         onBlur={() => requestInputFocus()}
         enterInsertsNewline
         hidePlaceholderOnFocus
         maxHeight={220}
         dictation
         placeholder="Focus on data flow, call out migration risks, and group tests with the behavior they verify."
-        class="rounded-lg border border-border bg-background px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
+        class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
       />
     {/snippet}
   </SettingsRow>

@@ -1,3 +1,4 @@
+import { SessionQueueController } from './session-queue.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
 import { splitHostKey } from '@solus/client-core/host-key'
@@ -27,7 +28,6 @@ import { workspaceProjectsStore } from '../projects/workspace-projects.store.sve
 import { serversStore } from '../connections/servers.store.svelte'
 import { presenceStore } from '../presence/presence.store.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
-import { connectionsStore } from '../connections/connections.store.svelte'
 import { projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
@@ -70,7 +70,8 @@ import { clearPlanWaiting, openPlanModal, closePlanModal, approvePlanWithModel, 
 import { unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { isChatFolder, projectDirLabel } from '../../lib/paths'
+import { projectDirLabel } from '../../lib/paths'
+import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -217,6 +218,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  closes. Pane widths are PaneForge's own business — see WorkspaceBody. */
   maximizedPaneId = $state<PaneId | null>(null)
   ui: WorkspaceUiStore
+  readonly queue = new SessionQueueController(this)
   config: SessionConfigController
   onTurnSettled?: (sessionId: string, cwd: string | null) => void
   onTabClosing?: (tabId: string) => void
@@ -251,6 +253,9 @@ export class WorkspaceContext implements SurfaceContext {
     this.drafts = new SessionDrafts(this)
     this.dispatch = new PromptDispatch(this)
     this.settings = settings
+    // Background work captures the person's preferences when it is made (plans/018 §6).
+    this.automationsStore.executionPreferences = () => settings.executionPreferences
+    this.tasksStore.executionPreferences = () => settings.executionPreferences
     this.shell = shell
     this.statusBar = statusBar
     this.agent = agent
@@ -873,7 +878,7 @@ export class WorkspaceContext implements SurfaceContext {
       const key = sess.run.gitContext?.repoRoot ?? sess.run.workingDirectory ?? '~'
       let project = byKey.get(key)
       if (!project) {
-        project = { key, label: projectDirLabel(key, connectionsStore.chatFolderFor(sess.run.serverId)), roots: [] }
+        project = { key, label: projectDirLabel(key), roots: [] }
         byKey.set(key, project)
       }
       for (const root of [sess.run.gitContext?.repoRoot, sess.run.gitContext?.worktreePath, sess.run.workingDirectory]) {
@@ -883,8 +888,7 @@ export class WorkspaceContext implements SurfaceContext {
     }
     if (byKey.size === 0) {
       const key = this.galleryProjectPath
-      const serverId = (this.activeSession?.run ?? this.defaultRunConfig).serverId
-      return [{ key, label: projectDirLabel(key, connectionsStore.chatFolderFor(serverId)), roots: [key] }]
+      return [{ key, label: projectDirLabel(key), roots: [key] }]
     }
     return [...byKey.values()]
   }
@@ -973,6 +977,12 @@ export class WorkspaceContext implements SurfaceContext {
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       this.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
+    } else {
+      // No run is alive on the host, so no blocking request it asked can be answered.
+      for (const request of session.permissionQueue) request.expired ??= 'run_ended'
+      for (const request of session.questionQueue) {
+        if (request.responseMode !== 'message') request.expired ??= 'run_ended'
+      }
     }
     void this.refreshThreadGoal(session.id)
   }
@@ -1020,9 +1030,8 @@ export class WorkspaceContext implements SurfaceContext {
     const isSplit = tabId === this.splitChatTabId
     const collapsed = isSplit ? this.settings.splitProjectPanelCollapsed : this.settings.projectPanelCollapsed
     collapsed.goal = false
-    this.settings.update(isSplit
-      ? { splitProjectPanelOpen: true, splitProjectPanelCollapsed: collapsed }
-      : { projectPanelOpen: true, projectPanelCollapsed: collapsed })
+    this.settings.setLayout(isSplit ? 'splitProjectPanelOpen' : 'projectPanelOpen', true)
+    this.settings.setLayout(isSplit ? 'splitProjectPanelCollapsed' : 'projectPanelCollapsed', collapsed)
   }
 
 
@@ -1035,7 +1044,7 @@ export class WorkspaceContext implements SurfaceContext {
       workingDirectory: cwd,
       gitContext: options.gitContext,
       serverId: options.serverId,
-    })
+    }, this.settings.modelOptionsByProvider)
     // Isolation belongs to one piece of work, so a fresh tab only branches a
     // worktree when the gesture that opened it asked for one.
     const worktreeRequested = options.worktreeRequested ?? false
@@ -1135,17 +1144,11 @@ export class WorkspaceContext implements SurfaceContext {
   /** The one write to `lastProject`: a session the user composed has started. */
   private rememberLastProject(run: RunConfig): void {
     const directory = projectRootOf(run)
-    if (!directory) return
-    // A Scratchpad chat also names the host "Just chat" goes back to.
-    if (
-      isChatFolder(directory, connectionsStore.chatFolderFor(run.serverId))
-      && this.settings.lastChatServerId !== run.serverId
-    ) {
-      this.settings.update({ lastChatServerId: run.serverId })
-    }
+    // A chat is not a project to start in again: its folder is its own.
+    if (!directory || isChat(directory)) return
     const last = this.settings.lastProject
     if (last?.serverId === run.serverId && last.directory === directory) return
-    this.settings.update({ lastProject: { serverId: run.serverId, directory } })
+    this.settings.setLayout('lastProject', { serverId: run.serverId, directory })
   }
 
   /** Where a session starts when nothing is carried over: the app's own saved
@@ -1160,7 +1163,7 @@ export class WorkspaceContext implements SurfaceContext {
       // or it was never listed at this origin.
       (serverId) => !serverConnections.isKnownServer(serverId)
         || ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
-      { serverId: this.fallbackServerId, directory: this.staticInfo?.workspacePath ?? '~' },
+      { serverId: this.fallbackServerId, directory: NEW_CHAT_DIRECTORY },
     )
     return {
       workingDirectory: project.directory,
@@ -1202,7 +1205,7 @@ export class WorkspaceContext implements SurfaceContext {
       ? serverConnections.apiFor(serverId)
       : this.defaultHostApi()
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
-    const { agentSessionId } = await api.createHeadlessSession(request)
+    const { agentSessionId } = await api.createHeadlessSession({ ...request, executionPreferences: this.settings.executionPreferences })
     return agentSessionId
   }
 
@@ -1285,7 +1288,7 @@ export class WorkspaceContext implements SurfaceContext {
       chatRoute(sessionId, this.sessions.byId[sessionId]?.run.serverId),
       { target: 'aside' },
     )
-    if (this.settings.splitProjectPanelOpen) this.settings.update({ splitProjectPanelOpen: false })
+    if (this.settings.splitProjectPanelOpen) this.settings.setLayout('splitProjectPanelOpen', false)
   }
 
   /** Move the split chat back into the leading pane's tab pool. */
@@ -1815,6 +1818,17 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /**
+   * Open the Devices pane beside the conversation: the session's simulators
+   * and emulators. Without a session the pane follows the focused one.
+   */
+  openDevices(sessionId?: string, serverId?: string): void {
+    const params: Extract<RouteRef, { name: 'devices' }>['params'] = {}
+    if (sessionId) params.sessionId = sessionId
+    if (serverId) params.serverId = serverId
+    this.router.navigate({ name: 'devices', params }, { target: 'aside' })
+  }
+
+  /**
    * Open an ordinary web address in Solus's own browser.
    *
    * The host is named by the caller and never assumed. A link in a transcript
@@ -2017,6 +2031,18 @@ export class WorkspaceContext implements SurfaceContext {
    *  and context climbing — where "why is this session slow" is answered. */
   openInsightsSession(sessionId: string, via: Via = 'click'): void {
     this.showPage({ name: 'insights', params: { sessionId } }, via, 'insights')
+  }
+
+  // ─── Notifications page ───
+  //
+  // The hub store reads every source on its own; opening the page is a location change.
+
+  toggleNotifications(via: Via = 'click'): void {
+    this.togglePage({ name: 'notifications', params: {} }, via, 'notifications')
+  }
+
+  openNotifications(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
+    this.showPage({ name: 'notifications', params: {} }, via, 'notifications', this.paneTarget(target))
   }
 
   // ─── Automations page ───

@@ -1,5 +1,6 @@
+import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
-import type { EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
 import { existingTaskId, taskBindingSessionId, taskRoleOf } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
@@ -12,13 +13,14 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
 import type { UserId } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import { showsActivity } from '../../components/activity/lib/activity-line'
+import { canDriveSession } from '../sharing/session-drive'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 
@@ -127,6 +129,28 @@ export class SessionEventReducer {
     else session.messages.push(message)
   }
 
+  /**
+   * The divider a finished context compaction draws, where a reload reads it
+   * from the provider's transcript. Claude settles one compaction twice — its
+   * status, then its `compact_boundary` record, in either order — so a second
+   * stop updates the divider just drawn. The record carries the token counts
+   * and the real trigger, so its fields win.
+   */
+  private appendCompactionDivider(session: Session, event: Extract<WireNormalizedEvent, { type: 'context_compaction' }>): void {
+    const compaction: ContextCompaction = {}
+    if (event.trigger) compaction.trigger = event.trigger
+    if (event.preTokens !== undefined) compaction.preTokens = event.preTokens
+    if (event.postTokens !== undefined) compaction.postTokens = event.postTokens
+    const last = session.messages.at(-1)
+    if (last?.compaction) {
+      last.compaction = event.preTokens !== undefined
+        ? { ...last.compaction, ...compaction }
+        : { ...compaction, ...last.compaction }
+      return
+    }
+    session.messages.push({ id: nextMsgId(), role: 'system', content: '', timestamp: event.completedAtMs ?? Date.now(), compaction })
+  }
+
   /** An optimistic user message opens the turn before its host confirmation. */
   closeAgentConversationTurn(session: Session): void {
     this.agentConversations.closeTurn(session)
@@ -211,6 +235,7 @@ export class SessionEventReducer {
     if (event.type === 'context_compaction') {
       if (parentToolUseId) return
       session.currentActivity = event.state === 'start' ? 'Compacting...' : 'Thinking...'
+      if (event.state === 'stop' && !event.failed) this.appendCompactionDivider(session, event)
       return
     }
 
@@ -283,6 +308,7 @@ export class SessionEventReducer {
           pendingTaskId
           && session.currentTurnStart === 'fresh'
           && session.run.serverId !== taskServerId
+          && canDriveSession(session.run.serverId, session.id)
         ) {
           this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId)
           // On a dispatch this client is the only party that can name the
@@ -613,6 +639,11 @@ export class SessionEventReducer {
       case 'permission_resolved': {
         const resolvedId = event.questionId
         const permIdx = session.permissionQueue.findIndex((p) => p.questionId === resolvedId)
+        if (event.expired) {
+          // Nobody answered: the card stays, without its controls, to say why.
+          expireRequest(session, resolvedId, event.expired)
+          break
+        }
         // A plan is never in the permission queue, so a queued request skips the walk.
         if (event.decision && permIdx === -1) this.applyPlanDecision(session, event)
         if (permIdx !== -1) session.permissionQueue.splice(permIdx, 1)
@@ -680,9 +711,11 @@ export class SessionEventReducer {
         if (session.agentSessionId && event.gitContext.branch) {
           const taskSessionId = taskBindingSessionId(session)
           const taskServerId = session.run.taskServerId
+          // Only a driver of the session copies it; the host refuses a viewer.
           if (
             taskServerId
             && taskSessionId
+            && canDriveSession(session.run.serverId, session.id)
           ) {
             void serverConnections.apiFor(taskServerId)
               .setSessionBranch(taskSessionId, event.gitContext.branch)
@@ -773,6 +806,25 @@ export class SessionEventReducer {
         session.messages.push(message)
         break
       }
+
+      case 'session_queue':
+        session.queueHeld = event.held
+        session.queueVersion = (session.queueVersion ?? 0) + 1
+        reconcileQueuedPromptsForSession(session, event.entries)
+        break
+      case 'provider_switch_applied':
+        session.run.provider = event.provider
+        session.run.modelConfig = { ...event.modelConfig }
+        if (!event.result) break
+        session.agentSessionId = event.result.restoredSessionId ?? null
+        session.handoffId = event.result.handoffId
+        session.handoffFrom = undefined
+        session.sessionModel = null
+        session.run.sessionSkills = []
+        session.pluginCommands = { global: [], project: [] }
+        session.rateLimitInfo = null
+        this.deps.tasksStore.rekeySessionBinding(event.result.taskSessionMove.sourceSessionId, event.result.taskSessionMove.targetSessionId, session.run.taskServerId)
+        break
 
       case 'prompt_queued': {
         // A queued session report is invisible plumbing — no outbound chip.
@@ -876,6 +928,8 @@ export class SessionEventReducer {
           // their user_message arrives. Start the visible clock at that first
           // evidence of work instead of leaving the sidebar margin blank.
           session.currentTurnStartedAt ??= Date.now()
+          // A new turn: cards closed before it have said why; they leave.
+          dropExpiredRequests(session)
         } else if (event.status === 'idle') {
           session.currentTurnStartedAt = null
         }
@@ -909,7 +963,7 @@ export class SessionEventReducer {
 
       case 'work_updated': {
         void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, session.run.serverId)
-        this.deps.workStreamTracker.updateArtifact(session, event)
+        this.deps.workStreamTracker.updateWork(session, event)
         break
       }
 
@@ -970,6 +1024,19 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           browserSnapshot: event.snapshot,
+          timestamp: Date.now(),
+        })
+        break
+      }
+
+      case 'device_build_ready': {
+        // Like a capture: the build is what the turn produced, so its install
+        // buttons appear when the agent hands it over.
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          deviceBuild: event.build,
           timestamp: Date.now(),
         })
         break

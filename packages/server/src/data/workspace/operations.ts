@@ -4,7 +4,9 @@ import type {
   WorkspaceSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
   WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
   WorkspaceActivityList, WorkspaceActivityQuery, WorkspaceMyActivityQuery,
+  WorkspaceNotificationArchived, WorkspaceNotificationPage, WorkspaceNotificationQuery, WorkspaceNotificationRead,
 } from '@solus/contracts/solus-api'
+import type { HubNotification, NotificationCount } from '@solus/contracts/notification-hub'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
 /** Transport-independent operations: HTTP and admitted in-process tools share these rules. */
@@ -37,4 +39,8 @@ export interface WorkspaceOperations {
   listWorkActivity(context: WorkspaceRequestContext, workId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listSessionActivity(context: WorkspaceRequestContext, sessionId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listMyActivity(context: WorkspaceRequestContext, query: WorkspaceMyActivityQuery): Promise<WorkspaceActivityList>
+  listMyNotifications(context: WorkspaceRequestContext, query: WorkspaceNotificationQuery): Promise<WorkspaceNotificationPage>
+  countMyNotifications(context: WorkspaceRequestContext): Promise<NotificationCount>
+  setMyNotificationRead(context: WorkspaceRequestContext, notificationId: string, input: WorkspaceNotificationRead): Promise<HubNotification>
+  setMyNotificationArchived(context: WorkspaceRequestContext, notificationId: string, input: WorkspaceNotificationArchived): Promise<HubNotification>
 }

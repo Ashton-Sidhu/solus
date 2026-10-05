@@ -22,6 +22,8 @@ export const ORCHESTRATION_LIMITS = {
   /** Characters of a child's reply in a report or a wait result. A task's lead
    *  reads every report, so a reply is a brief; the rest is one read away. */
   reply: 1_200,
+  /** Characters of a saved reply fetched in one exchange read. */
+  replyPage: 6_000,
   /** Output lines in one report. */
   outputs: 20,
   /** Characters of an output or notice title. */
@@ -283,10 +285,13 @@ export interface SessionReport {
 }
 
 /** A reply cut to the report limit, pointing at the rest. */
-export function clipReply(reply: string, agentSessionId: string): string {
+export function clipReply(reply: string, exchangeId?: string): string {
   const text = reply.trim()
   if (text.length <= ORCHESTRATION_LIMITS.reply) return text
-  return `${text.slice(0, ORCHESTRATION_LIMITS.reply)}… (cut; read_session session_id=${agentSessionId} for the rest)`
+  const hint = exchangeId
+    ? `read_session_exchange exchange_id=${exchangeId} reply_offset=0 for the full saved reply`
+    : 'read_session for the full reply'
+  return `${text.slice(0, ORCHESTRATION_LIMITS.reply)}… (cut; ${hint})`
 }
 
 export function formatSessionReport(report: SessionReport): string {
@@ -307,7 +312,7 @@ export function formatSessionReport(report: SessionReport): string {
     const more = report.outputs.length - shown.length
     if (more > 0) lines.push(`- +${more} more; call read_task_sessions`)
   }
-  lines.push('Reply:', clipReply(report.reply, report.agentSessionId))
+  lines.push('Reply:', clipReply(report.reply, report.messageId))
   return lines.join('\n')
 }
 

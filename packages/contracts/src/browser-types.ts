@@ -317,8 +317,9 @@ export function viewportLabel(viewport: BrowserViewport): string {
 }
 
 /**
- * What a page shows. `device` (simulator/emulator) is declared here so the agent
- * verb set never forks per platform; its adapter arrives with P4.
+ * What a page shows. The `device` variant is reserved for wire compatibility
+ * only: hosts refuse it, because native devices have their own domain
+ * (`device-types.ts`, docs/plans/native-devices.md D1).
  */
 export type BrowserTarget =
   | { kind: 'url'; url: string; worktreePath?: string; branch?: string; projectRoot?: string }

@@ -134,6 +134,26 @@ describe('turn rows on the workspace service', () => {
 })
 
 describe('the pull on a host', () => {
+  test.each([
+    { name: 'signed out', userId: null, organizations: ['A'] },
+    { name: 'no organization sends Insights', userId: 'alice', organizations: [] },
+  ])('$name never announces a cloud fetch', async ({ userId, organizations }) => {
+    // WHY: an empty local table is a complete answer when cloud sync is not
+    // available. Announcing a no-op pull creates a false loading indicator.
+    const states: Array<{ pulling: boolean; error: string | null }> = []
+    let sourceCalls = 0
+    const host = new pullModule.InsightPull({
+      userId: () => userId, hostId: () => 'this-host', organizations: () => organizations, now: () => now,
+      source: async () => { sourceCalls += 1; throw new Error('Cloud access must not start') },
+      onChange: (state) => states.push(state),
+    })
+    const request = host.request()
+    expect(host.state()).toEqual({ pulling: false, error: null })
+    await request
+    expect(states).toEqual([])
+    expect(sourceCalls).toBe(0)
+  })
+
   test('writes only the person\'s turns from other hosts, and a second pull writes nothing new', async () => {
     await mirror('laptop', 'trace-1', 'alice', now - HOUR)
     await mirror('this-host', 'trace-own', 'alice', now - HOUR)

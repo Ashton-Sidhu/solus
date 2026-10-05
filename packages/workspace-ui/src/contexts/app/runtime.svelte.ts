@@ -1,5 +1,3 @@
-import { isMobileLayout, MOBILE_QUERY } from './viewport'
-
 // Input: primary pointer is imprecise (phone, tablet)
 const TOUCH_QUERY = '(pointer: coarse)'
 // Input: any connected pointer is precise (iPad + Magic Keyboard, touch laptop with trackpad)
@@ -18,12 +16,6 @@ const FINE_POINTER_QUERY = '(any-pointer: fine)'
 const AWAY_SETTLE_MS = 1_000
 
 class RuntimeStore {
-  isMobileViewport = $state(isMobileLayout(
-    globalThis.window?.innerWidth,
-    globalThis.screen?.width,
-    globalThis.screen?.height,
-    globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false,
-  ))
   isTouchDevice = $state(globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false)
   hasKeyboardPointer = $state(globalThis.window?.matchMedia(FINE_POINTER_QUERY).matches ?? true)
   /** The window is on screen and has focus: someone is looking at it. */
@@ -44,13 +36,7 @@ class RuntimeStore {
       mq.addEventListener('change', (e) => setter(e.matches))
     }
 
-    window.addEventListener('resize', () => this.refreshMobileViewport())
-
-    listen(MOBILE_QUERY, () => this.refreshMobileViewport())
-    listen(TOUCH_QUERY, (v) => {
-      this.isTouchDevice = v
-      this.refreshMobileViewport()
-    })
+    listen(TOUCH_QUERY, (v) => this.isTouchDevice = v)
     listen(FINE_POINTER_QUERY, (v) => this.hasKeyboardPointer = v)
 
     const refreshWindowForeground = () => {
@@ -74,16 +60,6 @@ class RuntimeStore {
     window.addEventListener('focus', refreshWindowForeground)
     window.addEventListener('blur', refreshWindowForeground)
     document.addEventListener('visibilitychange', refreshWindowForeground)
-  }
-
-  private refreshMobileViewport(): void {
-    const next = isMobileLayout(
-      window.innerWidth,
-      globalThis.screen?.width,
-      globalThis.screen?.height,
-      window.matchMedia(TOUCH_QUERY).matches,
-    )
-    if (next !== this.isMobileViewport) this.isMobileViewport = next
   }
 }
 

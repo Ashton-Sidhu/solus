@@ -48,8 +48,10 @@ export function ladderDelayMs(attempt: number, random: () => number = Math.rando
 export interface HostSupervisorOptions {
   transport: SupervisedTransport
   onPhaseChange?: (phase: HostPhase, attempt: number) => void
-  /** Attempt decoration for the legacy status stream while a retry is due. */
-  onRetryScheduled?: (attempt: number) => void
+  /** A dial failed and the next is due. Returns true when the transport now aims
+   *  at a route this run of failures has not tried: that dial goes out at once,
+   *  because a different route is not a retry of a failed one. */
+  onDialFailed?: (attempt: number) => boolean
   /** One authenticated advertisement per server session. Failures resolve to
    *  an empty record: absent means unsupported, never a feature error. */
   loadCapabilities?: () => Promise<HostCapabilities>
@@ -198,7 +200,10 @@ export class HostSupervisor {
       ? 'offline'
       : this.hasConnected ? 'reconnecting' : 'connecting'
     this.setPhase(presentation)
-    this.options.onRetryScheduled?.(this.attempt)
+    if (this.options.onDialFailed?.(this.attempt)) {
+      this.dial()
+      return
+    }
     const setTimeoutFn = this.options.setTimeoutFn ?? setTimeout
     this.retryTimer = setTimeoutFn(() => {
       this.retryTimer = null

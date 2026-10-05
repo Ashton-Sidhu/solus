@@ -7,10 +7,12 @@
     Square as StopIcon,
   } from "@lucide/svelte";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import * as TooltipUI from "../../ui/tooltip";
   import {
     getSessionSidebarStore,
     getSurfaceContext,
+    hostRolesStore,
     isAgentRunningStatus,
     presenceStore,
     serversStore,
@@ -33,7 +35,8 @@
     onOpen: (sessionId: string) => void;
     /** Open beside the conversation. Null on a client with no companion pane. */
     onOpenSplit: ((sessionId: string) => void) | null;
-    onStop: (sessionId: string) => void;
+    /** Stop the session on the host that runs it (`serverId`). */
+    onStop: (sessionId: string, serverId: string) => void;
     onUnlink: (sessionId: string) => void;
     /** Start a session on this task. Null where the task's host runs none (the workspace service). */
     onNewSession: (() => void) | null;
@@ -96,6 +99,16 @@
       const running = open
         ? isAgentRunningStatus(open.status)
         : session.tasksStore.isSessionRunning(serverId, link.sessionId);
+      // Stop is an execution RPC: it goes to the host running the session. A
+      // cloud task's home runs nothing, so with no connected machine to ask
+      // the row offers no Stop rather than one that fails.
+      const executionServerId = serverId ? serverConnections.resolveId(serverId) : null;
+      const stopServerId =
+        executionServerId &&
+        hostRolesStore.hasExecution(executionServerId) &&
+        serversStore.statusFor(executionServerId) === "online"
+          ? executionServerId
+          : null;
       const attention: AttentionState =
         sidebarStore?.sessionAttention(serverId, link.sessionId) ?? (running ? "running" : null);
       return {
@@ -108,6 +121,7 @@
           taskTitle,
           host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
         ),
+        stopServerId,
         attention,
         // Stated in words only when there is something to say; an ended
         // session's glyph and its tooltip already say "Idle".
@@ -196,11 +210,12 @@
           <div
             class="flex gap-2 border-t border-[var(--hairline)] px-[13px] py-2.5"
           >
-            {#if row.running}
+            {#if row.running && row.stopServerId}
+              {@const stopServerId = row.stopServerId}
               <button
                 type="button"
                 class="h-[38px] flex-1 cursor-pointer rounded-lg border-0 bg-transparent font-medium text-[color-mix(in_oklch,var(--failure)_70%,var(--foreground))] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--failure)_42%,transparent)] active:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] [-webkit-tap-highlight-color:transparent]"
-                onclick={() => onStop(row.sessionId)}
+                onclick={() => onStop(row.sessionId, stopServerId)}
               >
                 Stop
               </button>
@@ -350,7 +365,8 @@
                may need without hunting for it. The rest appear on hover or
                focus, as Linked's do; the row itself opens the session. -->
           <span class="flex shrink-0 items-center gap-0.5">
-            {#if row.running}
+            {#if row.running && row.stopServerId}
+              {@const stopServerId = row.stopServerId}
               <TooltipUI.Root>
                 <TooltipUI.Trigger>
                   {#snippet child({ props })}
@@ -360,7 +376,7 @@
                       class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--wash-2)] hover:text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
                       onclick={(e) => {
                         e.stopPropagation();
-                        onStop(row.sessionId);
+                        onStop(row.sessionId, stopServerId);
                       }}
                       aria-label="Stop session"
                     >

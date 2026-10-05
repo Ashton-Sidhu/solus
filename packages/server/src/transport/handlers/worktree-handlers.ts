@@ -22,7 +22,8 @@ import { attributionOf, seatFor } from '../../admission/actor'
 import type { GitIdentityManager } from '../../git/git-identity-manager'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
-import { getHostConfig, resolveSourceControlWriterModel } from '../../host/settings'
+import { resolveSourceControlWriterModel, sourceControlWritingFor } from '../../host/settings'
+import { contextPreferences } from '../../execution/agents/run-input'
 import { writingBackendFor, type WritingBackend } from '../../execution/agents/writing-backend'
 
 const log = createLogger('main', 'worktree-handlers')
@@ -191,12 +192,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         throw new WorkingTreeBusyError(busy.authorName)
       }
     }
-    const policy = await resolveSourceControlWritingPolicy(
-      cwd,
-      getHostConfig().config.sourceControlWriting,
-    )
+    // The caller's own writing preferences (plans/018 §3.3), on their own provider seat.
+    const preferences = contextPreferences(ctx)
+    const policy = await resolveSourceControlWritingPolicy(cwd, sourceControlWritingFor(preferences))
     const writerBackend = await writingBackendFor(
-      resolveSourceControlWriterModel(),
+      resolveSourceControlWriterModel(preferences),
       (provider) => sessionRuntime.seatForTurn(handlerCtx.actor, provider),
     )
     const pullRequestRequested = request.action === 'create_pull_request'
@@ -336,8 +336,10 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     pendingWorktreeSetups.get(sessionId)?.abort(new Error('Superseded'))
     pendingWorktreeSetups.set(sessionId, setup)
     try {
+      const preferences = contextPreferences(ctx)
       const gitContext = await sessionRuntime.checkouts.create(repoRoot, ctx.session.gitContext?.targetBranch, {
         signal: setup.signal,
+        naming: preferences?.worktreeBranchNaming,
       })
       sessionRuntime.setSessionGitEnvironment(sessionId, gitContext.worktreePath ?? cwd, gitContext)
       // Recorded before the branch is named: a reader resolves the checkout's current branch by its path.
@@ -347,7 +349,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         if (branch) moved.branch = branch
         await sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, handlerCtx.actor, moved)
       }
-      if (namePrompt) void sessionRuntime.nameWorktreeBranch(sessionId, gitContext, namePrompt, handlerCtx.actor)
+      if (namePrompt) void sessionRuntime.nameWorktreeBranch(sessionId, gitContext, namePrompt, handlerCtx.actor, preferences)
       return { success: true, gitContext }
     } catch (err) {
       log.error('continue_in_worktree_failed', { error: err instanceof Error ? err.message : String(err) })

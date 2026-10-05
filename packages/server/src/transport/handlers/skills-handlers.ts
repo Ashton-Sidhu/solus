@@ -6,19 +6,18 @@ import type { MemberSkillHomes } from '../../skills/skills-cli'
 import type { SeatStore } from '../../execution/seats/seat-manager'
 import { projectScopeOf } from '@solus/contracts/types'
 import { expandHome } from '../../files/host-path'
-import { resolveUnknownFolder } from './setup-handlers'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { createLogger } from '../../logger'
 import type { HandlerCtx, SolusServer } from '../server'
 import { seatFor } from '../../admission/actor'
-import type { Principal } from '../../admission/principal'
 
 const log = createLogger('main', 'skills-handlers')
 const UPDATE_AGENT_FILES_COMMAND = '/update-agent-files'
 
-/** Instruction files need somewhere real to land, so a session with no project
- *  writes to the caller's chat folder rather than the host's home directory. */
-function agentFilesDirectory(scope: string, principal: Principal): string {
-  return expandHome(resolveUnknownFolder(scope || '~', principal))
+/** Instruction files land in the session's folder. A new chat has none until it starts. */
+function agentFilesDirectory(scope: string): string {
+  if (!scope || scope === NEW_CHAT_DIRECTORY) throw new Error('Send a first prompt before you update agent files')
+  return expandHome(scope)
 }
 
 async function appendInstructionFile(filePath: string, text: string): Promise<void> {
@@ -64,11 +63,11 @@ export function registerSkillsHandlers(server: SolusServer, deps: { sessionRunti
     return result
   })
 
-  server.register('updateAgentFiles', async (args, handlerCtx) => {
+  server.register('updateAgentFiles', async (args) => {
     const [ctx, text] = args
     if (!text) return { success: false, err: 'No content provided' }
 
-    const cwd = agentFilesDirectory(projectScopeOf(ctx.session), handlerCtx.principal)
+    const cwd = agentFilesDirectory(projectScopeOf(ctx.session))
     const targets = [path.join(cwd, 'AGENTS.md')]
     if (deps.sessionRuntime.getBackendIds().includes('claude-code')) {
       targets.push(path.join(cwd, 'CLAUDE.md'))

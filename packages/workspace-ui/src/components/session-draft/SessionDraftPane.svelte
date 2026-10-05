@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    connectionsStore,
     getWorkspaceContext,
     getSessionSidebarStore,
     runtime,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
+  import { isChat } from "@solus/contracts/chat";
   import { homeGitDetails } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
@@ -17,7 +17,6 @@
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import { projectHostId } from "../servers/run-on";
 
   let {
     params,
@@ -26,7 +25,6 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    composerActions,
   }: RouteSurfaceProps<"draft"> = $props();
 
   const session = getWorkspaceContext();
@@ -93,15 +91,11 @@
   const projectRoot = $derived(
     gitHome.projectRoot ?? draft?.run.workingDirectory ?? "~",
   );
-  // The host the folder is on — a draft headed for another host names that
-  // host's folder — so a chat there reads "Scratchpad" too.
-  const projectHost = $derived(draft ? projectHostId(draft.run) : null);
-  const projectName = $derived(
-    projectDirLabel(projectRoot, connectionsStore.chatFolderFor(projectHost)),
-  );
-  // No project chosen yet — "build in ~?" names nothing, so the question drops
-  // its object and only the chip below is left to do the choosing.
-  const hasProject = $derived(projectName !== "~");
+  const projectName = $derived(projectDirLabel(projectRoot));
+  // A chat has no project to build in; "build in ~?" names nothing either. Both
+  // drop the object, and only the chip below is left to do the choosing.
+  const inChat = $derived(isChat(projectRoot));
+  const hasProject = $derived(!inChat && projectName !== "~");
   // Only a headline click sets an external anchor. Closing clears it so the
   // next open from the input header uses the chip's own trigger.
   let projectPickerOpen = $state(false);
@@ -208,6 +202,8 @@
             >{projectName}</span
           ></button
         >?
+      {:else if inChat}
+        What can I help with?
       {:else}
         What should we build?
       {/if}
@@ -272,7 +268,6 @@
         {onAttachFile}
         {onScreenshot}
         {onDesignMode}
-        {composerActions}
       />
     </div>
 

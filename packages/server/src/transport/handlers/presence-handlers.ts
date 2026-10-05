@@ -1,8 +1,24 @@
 import { presenceSetComposingRequestSchema, presenceSetEditingRequestSchema, presenceSetFocusRequestSchema, PRESENCE_NO_FOCUS, type PresenceFocus } from '@solus/contracts/presence'
 import type { PresenceManager } from '../../presence/presence-manager'
 import type { Principal } from '../../admission/principal'
-import { presenceRoomOf } from '../../presence/presence-manager'
+import { presenceRoomOf, workPresence } from '../../presence/presence-manager'
+import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
+
+/**
+ * Send one organization's room to the clients in it, or to `recipients` among
+ * them. The audience filter keeps the host room from guests; a guest on a work's
+ * link gets the people on that work instead, as the work's room.
+ */
+export async function publishPresenceRoom(presence: PresenceManager, events: HostEventPublisher, organizationId: string, recipients?: readonly string[]): Promise<void> {
+  const snapshot = await presence.hostSnapshot(organizationId)
+  const clientIds = recipients ?? presence.clientsIn(organizationId)
+  void events.publish(clientIds, 'host.presenceChanged', snapshot)
+  for (const [workId, guestClientIds] of presence.workGuestsIn(organizationId)) {
+    const audience = guestClientIds.filter((clientId) => clientIds.includes(clientId))
+    if (audience.length) void events.publishToRoom({ kind: 'work', id: workId }, audience, 'work.presenceChanged', workPresence(snapshot, workId))
+  }
+}
 
 /**
  * What a client tells the host about itself (docs/plans/multiplayer-presence.md):

@@ -6,16 +6,19 @@ import {
   type WorkReview,
   type WorkReviewDecide,
   type WorkReviewer,
+  type WorkReviewerSummary,
   type WorkReviewInboxItem,
   type WorkReviewRequest,
   type WorkReviewsChanged,
   type WorkReviewStateEntry,
 } from '@solus/contracts/work-review'
-import { userColorIndex, userKey, userSchema, type User } from '@solus/contracts/user'
+import { ulid } from '@solus/contracts/ulid'
+import { userColorIndex, userKey, userSchema, type Attribution, type User } from '@solus/contracts/user'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import type { Principal, RecordScope } from '../../admission/principal'
 import type { ShareManager } from '../../sharing/share-manager'
 import { scopeClause } from '../scope'
+import { recordNotification } from '../notifications/store'
 import { workReviewers, works } from './schema'
 import { Work } from './work'
 import { isoTime, workTypeSchema } from './work-rows'
@@ -87,6 +90,14 @@ function emitReviewsChanged(change: WorkReviewsChanged): void {
   })
 }
 
+function attributionOfUser(user: User | null): Attribution {
+  return user ? { kind: 'user', user } : { kind: 'system' }
+}
+
+function reviewSummary(title: string) {
+  return { title: (title || 'Untitled').slice(0, 300) }
+}
+
 async function reviewerRows(db: Db, workId: string): Promise<ReviewerRow[]> {
   return reviewerRowSchema.array().parse(await db.all(sql`
     SELECT ${REVIEWER_COLUMNS} FROM ${workReviewers} WHERE work_id = ${workId} ORDER BY COALESCE(requested_at, decided_at), reviewer_id
@@ -110,6 +121,8 @@ export async function requestWorkReview(scope: RecordScope, workId: string, inpu
   await getDatabase().transaction(async (db) => {
     const revision = await work.checkpoint({ reason: 'review', expectedContentVersion: input.expectedContentVersion })
     const existing = new Map((await reviewerRows(db, work.id)).map((row) => [row.reviewer_id, row]))
+    // The hub keeps one row per reviewer and request (plans/015-notifications-hub.md §5).
+    const eventId = `work.review_requested:${work.id}:${input.requestId ?? ulid()}`
     for (const reviewer of input.reviewers) {
       // A request is newer than the decision it follows, even within one millisecond.
       const now = Math.max(Date.now(), (existing.get(reviewer.userId)?.decided_at ?? 0) + 1)
@@ -124,7 +137,15 @@ export async function requestWorkReview(scope: RecordScope, workId: string, inpu
           requested_rev = excluded.requested_rev
       `)
     }
-    emitReviewsChanged({ workId: work.id, change: 'requested', reviewerIds: input.reviewers.map((reviewer) => reviewer.userId), by })
+    const reviewerIds = input.reviewers.map((reviewer) => reviewer.userId)
+    const resource = { kind: 'work' as const, workId: work.id, revisionId: revision.revisionId }
+    // A retry of this request notifies nobody twice; a deliberate re-request has a new id.
+    await recordNotification(db, {
+      organizationId: work.organizationId, eventId, recipients: reviewerIds, resource, by: attributionOfUser(by),
+      facts: input.message ? { kind: 'work.review_requested', message: input.message } : { kind: 'work.review_requested' },
+      summary: reviewSummary(work.title),
+    })
+    emitReviewsChanged({ workId: work.id, change: 'requested', reviewerIds, by })
   })
   return loadWorkReview(scope, workId)
 }
@@ -168,6 +189,16 @@ export async function decideWorkReview(scope: RecordScope, workId: string, input
         decided_rev = excluded.decided_rev,
         decided_content_hash = excluded.decided_content_hash
     `)
+    // The decision tells whoever asked. Whether a request is still open is the review's own answer.
+    const resource = { kind: 'work' as const, workId: work.id, revisionId: revision.revisionId }
+    const requester = prior?.requested_by ? parseUser(prior.requested_by) : null
+    if (requester) {
+      await recordNotification(db, {
+        organizationId: work.organizationId, eventId: `work.review_decided:${work.id}:${reviewerId}:${now}`,
+        recipients: [userKey(requester.id)], resource, by: { kind: 'user', user: reviewer },
+        facts: { kind: 'work.review_decided', decision: input.decision }, summary: reviewSummary(work.title),
+      })
+    }
     emitReviewsChanged({ workId: work.id, change: 'decided', reviewerIds: [reviewerId], by: reviewer })
   })
   return loadWorkReview(scope, workId)
@@ -206,27 +237,25 @@ export async function workReviewInbox(scope: RecordScope, reviewerId: string): P
   }))
 }
 
-const stateRowSchema = z.object({
-  work_id: z.string(),
-  content_hash: z.string(),
-  decision: workReviewDecisionSchema.nullable(),
-  decided_content_hash: z.string().nullable(),
-})
+const stateRowSchema = reviewerRowSchema.extend({ work_id: z.string(), content_hash: z.string() })
 
-/** The review state of every work in scope that has reviewers, for the gallery. */
+/** The review state and reviewers of every work in scope that has reviewers, for the gallery. */
 export async function workReviewStates(scope: RecordScope): Promise<WorkReviewStateEntry[]> {
   const rows = stateRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT r.work_id, w.content_hash, r.decision, r.decided_content_hash
+    SELECT r.work_id, w.content_hash, r.reviewer_id, r.display_name, r.color_index, r.requested_by, r.requested_at, r.request_message,
+      r.requested_rev, r.decision, r.decision_summary, r.decided_at, r.decided_rev, r.decided_content_hash
     FROM ${workReviewers} r JOIN ${works} w ON w.id = r.work_id
     WHERE ${scopeClause(scope, sql.raw('w.organization_id'))}
+    ORDER BY COALESCE(r.requested_at, r.decided_at), r.reviewer_id
   `))
-  const byWork = new Map<string, { decision: WorkReviewer['decision']; isStale: boolean }[]>()
+  const byWork = new Map<string, WorkReviewerSummary[]>()
   for (const row of rows) {
+    const { reviewerId, displayName, colorIndex, requestedAt, decision, decidedAt, isStale, isAwaiting } = reviewerFromRow(row, row.content_hash)
     const list = byWork.get(row.work_id) ?? []
-    list.push({ decision: row.decision, isStale: row.decision !== null && row.decided_content_hash !== row.content_hash })
+    list.push({ reviewerId, displayName, colorIndex, requestedAt, decision, decidedAt, isStale, isAwaiting })
     byWork.set(row.work_id, list)
   }
-  return [...byWork].map(([workId, reviewers]) => ({ workId, state: deriveWorkReviewState(reviewers) }))
+  return [...byWork].map(([workId, reviewers]) => ({ workId, state: deriveWorkReviewState(reviewers), reviewers }))
 }
 
 /**

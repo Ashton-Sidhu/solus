@@ -27,7 +27,6 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     closeTargetPaneId,
-    companionCollapsesSidebar,
     companionMinimizesProjectPanel,
     COMPANION_PANE_DEFAULT_SIZE,
     COMPANION_PANE_MIN_SIZE,
@@ -173,9 +172,6 @@
   const secondaryMinimizesProjectPanel = $derived(
     secondaryVisible && companionMinimizesProjectPanel(companionRef),
   );
-  const secondaryCollapsesSidebar = $derived(
-    secondaryVisible && companionCollapsesSidebar(companionRef),
-  );
   // Dedicated review surfaces read edge-to-edge and do not want a session
   // column beside them. The pull requests page is a workspace list, so it keeps
   // the user's sidebar state like Automations and Workspace do.
@@ -311,9 +307,7 @@
   // lives in that pane's chrome; the split chat carries its own toggle.
   function toggleProjectPanel(isSplit = false) {
     if (isSplit) {
-      settings.update({
-        splitProjectPanelOpen: !settings.splitProjectPanelOpen,
-      });
+      settings.setLayout("splitProjectPanelOpen", !settings.splitProjectPanelOpen);
       return;
     }
     if (!leadingStarted) {
@@ -322,13 +316,13 @@
       // An explicit reveal becomes the user's conversation preference once the
       // first session starts; hiding the empty-home rail remains transient.
       if (open && !settings.projectPanelOpen) {
-        settings.update({ projectPanelOpen: true });
+        settings.setLayout("projectPanelOpen", true);
       }
       if (!open) requestInputFocus();
       return;
     }
     const open = !settings.projectPanelOpen;
-    settings.update({ projectPanelOpen: open });
+    settings.setLayout("projectPanelOpen", open);
     if (!open) requestInputFocus();
   }
 
@@ -547,15 +541,14 @@
       ),
   );
 
-  // Collapse the session sidebar when a full-width surface opens — a secondary
-  // pane, review guide, or Settings — and restore it on close, the same way the
-  // diff panel reclaims the width. Track only the surface transition: the user
+  // Collapse the session sidebar when a primary review or Settings opens, and
+  // restore it on close. Secondary panes keep the user's sidebar state.
+  // Track only the surface transition: the user
   // can reopen the sidebar while that surface remains open without this effect
   // immediately closing it again. The Workspace is not one of them: it dropped
   // its own left rail, so it no longer competes for the sidebar's width.
   $effect(() => {
     const sidebarOverlayOpen =
-      secondaryCollapsesSidebar ||
       primaryReviewOpen ||
       router.at("settings");
 

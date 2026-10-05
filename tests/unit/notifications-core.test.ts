@@ -25,14 +25,11 @@ describe('AttentionNotificationTracker', () => {
     expect(tracker.applySnapshot('host-a', [entry('question')], () => false)).toEqual([])
   })
 
-  test('suppresses a focused session and a push-delivered key', () => {
+  test('suppresses a focused session', () => {
     const tracker = new AttentionNotificationTracker()
     tracker.applySnapshot('host-a', [], () => false)
     expect(tracker.applySnapshot('host-a', [entry('focused')], (_host, sessionId) => sessionId === 'focused'))
       .toEqual([])
-
-    tracker.markPushDelivered('host-a', 'pushed:question')
-    expect(tracker.applySnapshot('host-a', [entry('focused'), entry('pushed')], () => false)).toEqual([])
   })
 
   test('keeps identical session shapes isolated by host', () => {

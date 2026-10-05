@@ -33,6 +33,11 @@ export const solusApiOperations = {
   listSessionActivity: { method: 'get', path: '/sessions/:sessionId/activity', scope: 'sessions:read', query: queries.workspaceActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
   /** Activity that names the caller, from every record kind the credential may read; each row's record is checked. */
   listMyActivity: { method: 'get', path: '/me/activity', query: queries.workspaceMyActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
+  /** The caller's notifications at this home (plans/015-notifications-hub.md). Every row's record is checked. */
+  listMyNotifications: { method: 'get', path: '/me/notifications', query: queries.workspaceNotificationQuerySchema, response: schemas.workspaceNotificationPageSchema, status: 200 },
+  countMyNotifications: { method: 'get', path: '/me/notifications/count', query: empty, response: schemas.workspaceNotificationCountSchema, status: 200 },
+  setMyNotificationRead: { method: 'post', path: '/me/notifications/:notificationId/read', query: empty, body: schemas.workspaceNotificationReadSchema, response: schemas.workspaceNotificationSchema, status: 200 },
+  setMyNotificationArchived: { method: 'post', path: '/me/notifications/:notificationId/archive', query: empty, body: schemas.workspaceNotificationArchivedSchema, response: schemas.workspaceNotificationSchema, status: 200 },
   listInsights: { method: 'get', path: '/insights', scope: 'insights:read', query: queries.workspaceInsightQuerySchema, response: schemas.workspaceInsightPageSchema, status: 200 },
   getInsight: { method: 'get', path: '/insights/:insightId', scope: 'insights:read', query: empty, response: schemas.workspaceInsightSchema, status: 200 },
   getInsightSpans: { method: 'get', path: '/insights/:insightId/spans', scope: 'insights:read', query: empty, response: schemas.workspaceInsightTreeSchema, status: 200 },

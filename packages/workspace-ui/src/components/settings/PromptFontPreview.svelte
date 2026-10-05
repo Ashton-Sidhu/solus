@@ -10,7 +10,7 @@
 </script>
 
 <div
-  class="rounded-lg border border-border bg-card px-3.5 [--plain-editor-font-size:var(--solus-prompt-font-size)] [font-family:var(--solus-prompt-font-family)] [--plain-editor-line-height:1.625] [--solus-font-weight-body:var(--solus-font-weight-user-content)] [--plain-editor-padding:0.75rem_0]"
+  class="rounded-lg border border-input bg-white dark:bg-input/30 px-3.5 [--plain-editor-font-size:var(--solus-prompt-font-size)] [font-family:var(--solus-prompt-font-family)] [--plain-editor-line-height:1.625] [--solus-font-weight-body:var(--solus-font-weight-user-content)] [--plain-editor-padding:0.75rem_0]"
 >
   <PlainTextEditor
     value={draft}

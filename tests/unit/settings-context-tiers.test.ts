@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
-// The settings context is one table per tier: a host-config key is mirrored by
-// naming it in `MIRRORED_HOST_KEYS`, a device key by a row in `DEVICE_FIELDS`.
-// These tests pin what that buys — a key added to the contract reads, heals,
-// stores, and pushes with no further wiring — using `showToolCalls`, the newest
-// mirrored key, and the device keys whose absence means something.
+// The settings context reads each key from the store that owns it (plans/018
+// §3.5): a personal key from the personal profile, a device key and a layout
+// key from the device store. These tests pin what that buys — a personal key
+// reads, heals, and persists in the personal profile with no host write; a
+// device key stays out of it; and the legacy single blob migrates once.
 
+const hostWrites: unknown[] = []
 mock.module('@solus/client-core/server-connections', () => ({
-  serverConnections: singleHostServerConnections(),
+  serverConnections: {
+    ...singleHostServerConnections(),
+    apiFor: () => ({ configUpdate: async (patch: unknown) => { hostWrites.push(patch) }, configGet: async () => ({}) }),
+  },
 }))
 mock.module('@solus/client-core/local-api', () => ({ localApi: {} }))
 mock.module('@solus/client-core/host-events', () => ({ subscribeAllHosts: () => () => {} }))
@@ -29,7 +33,7 @@ function memoryStorage(seed: Record<string, string> = {}) {
 
 function styleStub() {
   const properties = new Map<string, string>()
-  return { setProperty: (name: string, value: string) => void properties.set(name, value) }
+  return { setProperty: (name: string, value: string) => void properties.set(name, value), properties }
 }
 
 function installDom(storage: ReturnType<typeof memoryStorage>) {
@@ -55,6 +59,7 @@ function installDom(storage: ReturnType<typeof memoryStorage>) {
 
 beforeEach(() => {
   for (const key of GLOBAL_KEYS) previous[key] = globals[key]
+  hostWrites.length = 0
 })
 
 afterEach(() => {
@@ -67,65 +72,114 @@ afterEach(() => {
 async function load(storage = memoryStorage()) {
   installDom(storage)
   const { SettingsContext } = await import('@solus/workspace-ui/contexts/app/settings.context.svelte')
-  return { settings: new SettingsContext(), storage }
+  return { settings: new SettingsContext(storage as unknown as Storage), storage }
 }
 
-function stored(storage: ReturnType<typeof memoryStorage>): Record<string, unknown> {
-  return JSON.parse(storage.getItem('solus-settings') ?? '{}')
+function profile(storage: ReturnType<typeof memoryStorage>, accountKey = 'anonymous'): Record<string, unknown> {
+  return JSON.parse(storage.getItem(`solus.personal-settings.v1:${accountKey}`) ?? '{}')
 }
 
-describe('a mirrored host key', () => {
-  test('reads the contract default on a fresh install and is written straight back', async () => {
-    const { settings, storage } = await load()
+function deviceLayout(storage: ReturnType<typeof memoryStorage>): Record<string, unknown> {
+  return JSON.parse(storage.getItem('solus.device-layout.v1') ?? '{}')
+}
+
+function deviceSettings(storage: ReturnType<typeof memoryStorage>): Record<string, unknown> {
+  return JSON.parse(storage.getItem('solus.device-settings.v1') ?? '{}')
+}
+
+describe('a personal key', () => {
+  test('reads the contract default on a fresh install', async () => {
+    const { settings } = await load()
     expect(settings.showToolCalls).toBe(true)
-    expect(stored(storage).showToolCalls).toBe(true)
   })
 
-  test('reads its default from a blob saved before the key existed', async () => {
-    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ themeMode: 'dark' }) }))
+  test('a change reads back and persists in the personal profile, never on a host', async () => {
+    const { settings, storage } = await load()
+    expect(settings.setPersonal('showToolCalls', false)).toBe(true)
+    expect(settings.showToolCalls).toBe(false)
+    expect(profile(storage).showToolCalls).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(hostWrites).toEqual([])
+    const restored = await load(storage)
+    expect(restored.settings.showToolCalls).toBe(false)
+  })
+
+  test('model options survive reload', async () => {
+    const { settings, storage } = await load()
+    const modelOptionsByProvider = {
+      codex: { 'gpt-5.4': { reasoningEffort: 'low' as const, contextWindow: null, fastMode: false } },
+    }
+    settings.setPersonal('modelOptionsByProvider', modelOptionsByProvider)
+    const restored = await load(storage)
+    expect(restored.settings.modelOptionsByProvider).toEqual(modelOptionsByProvider)
+  })
+
+  test('a value its strict schema refuses is not stored', async () => {
+    const { settings, storage } = await load()
+    expect(settings.setPersonal('themeMode', 'sepia' as 'dark')).toBe(false)
+    expect(settings.themeMode).toBe('system')
+    expect(profile(storage).themeMode).toBeUndefined()
+  })
+
+  test('a bad stored value heals to the default on its own', async () => {
+    const storage = memoryStorage({
+      'solus.personal-settings.v1:anonymous': JSON.stringify({ showToolCalls: 'no', themeMode: 'dark' }),
+    })
+    const { settings } = await load(storage)
     expect(settings.showToolCalls).toBe(true)
     expect(settings.themeMode).toBe('dark')
   })
 
-  test('heals a bad stored value to the contract default', async () => {
-    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ showToolCalls: 'no' }) }))
-    expect(settings.showToolCalls).toBe(true)
-  })
-
-  test('a change reads back, persists, and is part of the host mirror', async () => {
-    const { settings, storage } = await load()
-    settings.update({ showToolCalls: false })
-    expect(settings.showToolCalls).toBe(false)
-    expect(stored(storage).showToolCalls).toBe(false)
-    expect(settings.hostConfig.showToolCalls).toBe(false)
+  test('execution preferences carry the personal values a host reads', async () => {
+    const { settings } = await load()
+    settings.setPersonal('rateLimitBehavior', 'queue')
+    settings.setPersonal('extraInstructions', 'Be brief.')
+    expect(settings.ctx.executionPreferences).toMatchObject({ rateLimitBehavior: 'queue', extraInstructions: 'Be brief.' })
+    expect(settings.executionPreferences).not.toHaveProperty('themeMode')
   })
 })
 
 describe('a device key', () => {
-  test('stays out of the host mirror', async () => {
-    const { settings } = await load()
-    settings.update({ projectPanelOpen: true })
+  test('stays out of the personal profile', async () => {
+    const { settings, storage } = await load()
+    settings.setLayout('projectPanelOpen', true)
+    settings.setDevice('defaultEditor', 'vscode')
     expect(settings.projectPanelOpen).toBe(true)
-    expect('projectPanelOpen' in settings.hostConfig).toBe(false)
+    expect(settings.defaultEditor).toBe('vscode')
+    expect(profile(storage)).not.toHaveProperty('projectPanelOpen')
+    expect(profile(storage)).not.toHaveProperty('defaultEditor')
+    expect(deviceLayout(storage).projectPanelOpen).toBe(true)
+    expect(deviceSettings(storage).defaultEditor).toBe('vscode')
+    const restored = await load(storage)
+    expect(restored.settings.projectPanelOpen).toBe(true)
+    expect(restored.settings.defaultEditor).toBe('vscode')
   })
 
-  test('onboarding shows on a fresh install but not to someone with an older blob', async () => {
+  test('a bad stored layout value heals to its default on its own', async () => {
+    const storage = memoryStorage({ 'solus.device-layout.v1': JSON.stringify({ projectPanelOpen: 'yes', splitProjectPanelOpen: true }) })
+    const { settings } = await load(storage)
+    expect(settings.projectPanelOpen).toBe(false)
+    expect(settings.splitProjectPanelOpen).toBe(true)
+  })
+
+  test('onboarding shows on a fresh install until it is completed', async () => {
     const fresh = await load()
     expect(fresh.settings.onboardingCompleted).toBe(false)
-    const older = await load(memoryStorage({ 'solus-settings': JSON.stringify({ themeMode: 'light' }) }))
-    expect(older.settings.onboardingCompleted).toBe(true)
-  })
-})
-
-describe('legacy blobs', () => {
-  test('the old terminal choice carries over when the new key was never written', async () => {
-    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ defaultTerminal: 'iterm2' }) }))
-    expect(settings.fallbackTerminal).toBe('iterm2')
+    fresh.settings.setLayout('onboardingCompleted', true)
+    const later = await load(fresh.storage)
+    expect(later.settings.onboardingCompleted).toBe(true)
   })
 
-  test('the old notification flags decide the channels when the new key is absent', async () => {
-    const { settings } = await load(memoryStorage({ 'solus-settings': JSON.stringify({ soundEnabled: false }) }))
-    expect(settings.notifications.channels.sound).toBe(false)
-    expect(settings.notifications.channels.system).toBe(false)
+  test('an installed font is a device override; a preset is the synced choice', async () => {
+    const { settings, storage } = await load()
+    settings.setFont('fontFamily', 'Comic Code')
+    expect(settings.fontFamily).toBe('Comic Code')
+    expect(settings.fontOverrideOf('fontFamily')).toBe('Comic Code')
+    expect(profile(storage).fontFamily).toBeUndefined()
+    settings.useSyncedFont('fontFamily')
+    expect(settings.fontFamily).toBe(settings.syncedFontOf('fontFamily'))
+    settings.setFont('fontFamily', 'inter')
+    expect(profile(storage).fontFamily).toBe('inter')
+    expect(settings.fontOverrideOf('fontFamily')).toBeNull()
   })
 })

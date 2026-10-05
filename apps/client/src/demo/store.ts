@@ -24,7 +24,7 @@ import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-sni
 import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
-import { applyCommentCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
+import { applyWorkCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
 
 /** A synchronous stand-in for the host's SHA-256: equal bodies get equal
@@ -373,7 +373,7 @@ export class DemoStore {
     const entry = this.findWorkEntry(workId)
     const current: WorkAnnotations = entry?.annotations ?? { version: 1, workId, comments: [], updatedAt: 0 }
     const now = Date.now()
-    const next: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, { by: { kind: 'user', user: DEMO_USER }, canModerate: true, now }), updatedAt: now }
+    const next: WorkAnnotations = { ...applyWorkCommand(current, command, { by: { kind: 'user', user: DEMO_USER }, canModerate: true, now }), updatedAt: now }
     if (entry) entry.annotations = next
     return next
   }

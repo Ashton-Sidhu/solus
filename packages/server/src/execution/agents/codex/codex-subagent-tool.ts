@@ -4,7 +4,8 @@ import type { SeatResolver, TurnSeat } from '../../seats/seat-manager'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { buildSystemPrompt } from '../system-hint'
-import { hostInstructionsFor } from '../run-input'
+import { instructionsFor } from '../run-input'
+import { sessionSettings } from '../../sessions/session-settings'
 import { resolveHomePath } from '../../../platform/paths'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
 import { SPAN_SERVICES } from '../../../data/insights/registries'
@@ -46,6 +47,8 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
     inputFields: codexSubagentFields,
     requiresApproval: false,
     execute: async (args, context) => {
+      // The session whose turn starts the subagent: its person's instructions apply.
+      const parentSessionId = context.solusSessionId()
       const parentToolUseId = context.parentToolUseId()
       let seat: TurnSeat | undefined
       try {
@@ -66,6 +69,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
           ...Object.values(solusToolbox.insights),
           ...Object.values(solusToolbox.intelligence),
           ...Object.values(solusToolbox.browser),
+          ...Object.values(solusToolbox.devices),
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),
         ],
@@ -75,7 +79,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
         persistence: 'ephemeral',
         seat,
         service: SPAN_SERVICES.subagents,
-        systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
+        systemPrompt: buildSystemPrompt(instructionsFor(sessionSettings(parentSessionId)?.preferences, model)) || undefined,
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
           context.emit(parentSubagentEvent(event, parentToolUseId))

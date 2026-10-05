@@ -48,6 +48,15 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   moved += (await db.run(sql`UPDATE resource_owner SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   moved += (await db.run(sql`UPDATE session_records SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   moved += (await db.run(sql`UPDATE session_admissions SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+  // The person's notifications and their read state go with them (plans/015-notifications-hub.md);
+  // a row the target already has for the same event wins.
+  moved += (await db.run(sql`
+    DELETE FROM notifications WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)} AND EXISTS (
+      SELECT 1 FROM notifications AS kept WHERE kept.organization_id = notifications.organization_id
+        AND kept.recipient_key = ${toKey} AND kept.event_id = notifications.event_id
+    )
+  `)).changes
+  moved += (await db.run(sql`UPDATE notifications SET recipient_key = ${toKey} WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   return moved
 }
 

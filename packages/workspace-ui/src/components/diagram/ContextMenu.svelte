@@ -14,8 +14,9 @@
     y: number
     type: 'node' | 'edge'
     onDuplicate?: () => void
-    onDelete: () => void
-    onEditDetails: () => void
+    /** Absent, with every other edit, in a reader's menu. */
+    onDelete?: () => void
+    onEditDetails?: () => void
     onClose: () => void
     showRemoveFromGroup?: boolean
     onRemoveFromGroup?: () => void
@@ -58,10 +59,12 @@
 <ContextMenu.Root onOpenChange={(open) => { if (!open) onClose() }}>
   <ContextMenu.PointTrigger {x} {y} />
   <ContextMenu.Content class="min-w-40">
-    <ContextMenu.Item onSelect={onEditDetails}>
-      <PencilSimpleIcon />
-      {type === 'edge' ? 'Edit edge' : 'Edit details'}
-    </ContextMenu.Item>
+    {#if onEditDetails}
+      <ContextMenu.Item onSelect={onEditDetails}>
+        <PencilSimpleIcon />
+        {type === 'edge' ? 'Edit edge' : 'Edit details'}
+      </ContextMenu.Item>
+    {/if}
 
     {#if showDetail && onOpenDetail}
       <ContextMenu.Item onSelect={onOpenDetail}>
@@ -95,11 +98,13 @@
     {#if type === 'node' && onDuplicate}
       <ContextMenu.Item onSelect={onDuplicate}>Duplicate</ContextMenu.Item>
     {/if}
-    <ContextMenu.Separator />
-    <ContextMenu.Item variant="destructive" onSelect={onDelete}>
-      <TrashIcon />
-      Delete
-      <ContextMenu.Shortcut>{isMac ? '⌫' : 'Del'}</ContextMenu.Shortcut>
-    </ContextMenu.Item>
+    {#if onDelete}
+      <ContextMenu.Separator />
+      <ContextMenu.Item variant="destructive" onSelect={onDelete}>
+        <TrashIcon />
+        Delete
+        <ContextMenu.Shortcut>{isMac ? '⌫' : 'Del'}</ContextMenu.Shortcut>
+      </ContextMenu.Item>
+    {/if}
   </ContextMenu.Content>
 </ContextMenu.Root>

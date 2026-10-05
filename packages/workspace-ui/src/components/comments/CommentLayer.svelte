@@ -20,6 +20,7 @@
     showCommentHighlights,
   } from "./lib/comment-highlights";
   import { drawerFrame, type PaneBox } from "./lib/rail-layout";
+  import { getCommentViewer } from "./lib/comment-viewer";
   import {
     prosePosToTextOffset,
     findMarkElement,
@@ -105,9 +106,11 @@
   let commentFormAnchor = $state<{ left: number; top: number; width: number } | null>(null);
 
   // Published to the host, which owns the selection bubble the Comment action
-  // now lives on. The rules for what can carry a comment stay here.
+  // now lives on. The rules for what can carry a comment stay here: a
+  // selection, no open form, and a reader the host takes comments from.
+  const viewer = getCommentViewer();
   $effect(() => {
-    canComment = !!selectionRange && !commentFormAnchor;
+    canComment = !!selectionRange && !commentFormAnchor && viewer().canReply;
   });
 
   let activeRailCommentId = $state<string | null>(null);

@@ -1,4 +1,5 @@
 import { CheckoutStore } from './checkout.store.svelte'
+import { isChat } from '@solus/contracts/chat'
 import { createAppContext } from '../app/create-app-context'
 import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
@@ -257,7 +258,7 @@ export class SessionEnvironmentStore {
       ?? run?.workingDirectory
       ?? workspace.defaultRunConfig.workingDirectory
     const level = opts.level ?? 'status'
-    if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
+    if (!cwd || cwd === '~' || isChat(cwd)) return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
     // The host that holds the directory is the only one that can read it, and
     // the run is what names that host. A host this client does not know (it was
     // deleted) or one that runs nothing (the workspace service) has no checkout.
@@ -518,6 +519,8 @@ export class SessionEnvironmentStore {
     cwd: string,
     opts: { force?: boolean; details?: boolean; bypassCache?: boolean; refs?: boolean } = {},
   ): Promise<GitStatusOutcome> {
+    // A chat has no repository, and a new chat has no folder yet.
+    if (isChat(cwd)) return { ok: true }
     const key = hostKey(serverId, cwd)
     const includeDetails = opts.details === true
     // Refs only ride along with a details scan; a summary stays the cheap read

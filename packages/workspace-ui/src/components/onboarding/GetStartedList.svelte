@@ -18,12 +18,12 @@
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import { getStartedItems, type GetStartedItemId } from "./lib/get-started";
 
-  const ICONS: Record<GetStartedItemId, typeof ChevronIcon> = {
+  const ICONS = {
     machine: MachineIcon,
     agents: AgentsIcon,
     github: GithubIcon,
     project: ProjectIcon,
-  };
+  } satisfies Record<GetStartedItemId, typeof ChevronIcon>;
 
   let { class: className }: { class?: string } = $props();
 
@@ -37,34 +37,25 @@
 </script>
 
 {#if items.length > 0}
-  <section class={cn("flex w-full flex-col gap-1.5", className)} aria-label="Get started">
-    <span class="px-1 text-workspace-chrome font-medium text-(--solus-text-tertiary)">Get started</span>
-    <div
-      class="flex flex-col overflow-hidden rounded-2xl bg-[var(--solus-tx-card-bg)] shadow-[shadow:var(--solus-tx-card-shadow)]"
-    >
+  <details class={cn("group/setup w-full text-workspace-chrome text-(--solus-text-secondary)", className)}>
+    <summary class="flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg px-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+      <ChevronIcon size={14} class="shrink-0 transition-transform group-open/setup:rotate-90 motion-reduce:transition-none" />
+      <span>Finish setup</span>
+      <span class="text-(--solus-text-tertiary)">· {items.length} {items.length === 1 ? "step" : "steps"}</span>
+    </summary>
+    <div class="flex flex-wrap gap-1 pt-1">
       {#each items as item (item.id)}
         {@const Icon = ICONS[item.id]}
         <button
           type="button"
-          class="group flex min-h-14 w-full items-center gap-3 overflow-hidden px-4 py-2.5 text-left transition-colors duration-150 not-last:shadow-[inset_0_-1px_0_var(--hairline)] hover:bg-[var(--wash-1)] focus-visible:bg-[var(--wash-1)] focus-visible:outline-none"
+          class="flex min-h-9 items-center gap-2 rounded-lg px-3 text-left hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
           onclick={() => cloud.reopenAt(item.stage)}
+          title={item.detail}
         >
-          <span
-            class="flex size-8 shrink-0 items-center justify-center rounded-lg"
-            style="background: color-mix(in oklch, var(--primary) 12%, transparent); color: color-mix(in oklch, var(--primary) 72%, var(--foreground))"
-          >
-            <Icon size={16} />
-          </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span class="truncate text-sm font-medium text-(--solus-text-primary)">{item.label}</span>
-            <span class="truncate text-workspace-chrome text-(--solus-text-tertiary)">{item.detail}</span>
-          </span>
-          <ChevronIcon
-            size={14}
-            class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
-          />
+          <Icon size={16} class="shrink-0" />
+          <span>{item.label}</span>
         </button>
       {/each}
     </div>
-  </section>
+  </details>
 {/if}

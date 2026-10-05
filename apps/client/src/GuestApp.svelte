@@ -13,6 +13,7 @@
   import WorkPane from '@solus/workspace-ui/components/work/WorkPane.svelte';
   import SessionRecordPage from '@solus/workspace-ui/components/session/record/SessionRecordPage.svelte';
   import SharedPrompt from '@solus/workspace-ui/components/sharing/SharedPrompt.svelte';
+  import { SharedPromptStore } from '@solus/workspace-ui/contexts/sharing/shared-prompt.store.svelte';
   import { GuestShell } from './shell/guest-shell.svelte';
   import { guestAccessLine, guestRoleLabel } from './shell/lib/guest-access';
   import { guestBoot, type GuestShare } from './lib/guest-boot.svelte';
@@ -39,11 +40,20 @@
     }
     return null;
   });
+  // Whether the shared session's runner is online: the composer takes prompts
+  // then, and the page header says it reads the cloud copy only when it is not.
+  const prompt = new SharedPromptStore();
+  $effect(() => (sharedSessionId ? prompt.watch(serverId, sharedSessionId) : undefined));
   const people = $derived(sharedSessionId ? presenceStore.sessionPeople(serverId, sharedSessionId) : []);
   const room = $derived(sharedSessionId ? presenceStore.sessionRoom(serverId, sharedSessionId) : undefined);
   const activeUserId = $derived(room?.activeTurn ? userKey(room.activeTurn.author.id) : null);
   // The page headers reserve the cluster's width, as they reserve the pane controls'.
   let clusterWidth = $state(0);
+
+  // Who else has the shared work open, and this guest on their screens: the work
+  // header's faces read the room, and the host learns the work is on screen.
+  onMount(() => presenceStore.listen());
+  $effect(() => presenceStore.reportWorkspaceFocus(session));
 
   onMount(() => {
     void sharesStore.load(serverId, share.resource);
@@ -65,8 +75,8 @@
   >
     <main class="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="guest-main">
       {#if sharedSessionId}
-        <SessionRecordPage params={{ serverId, sessionId: sharedSessionId }} paneId="">
-          {#snippet composer()}{#key sharedSessionId}<SharedPrompt ownAccount={!!guestBoot.accountUserId} {serverId} sessionId={sharedSessionId!} editable={role === 'editor'} />{/key}{/snippet}
+        <SessionRecordPage params={{ serverId, sessionId: sharedSessionId }} paneId="" live={prompt.available}>
+          {#snippet composer()}<SharedPrompt ownAccount={!!guestBoot.accountUserId} {serverId} sessionId={sharedSessionId!} editable={role === 'editor'} store={prompt} />{/snippet}
         </SessionRecordPage>
       {:else if activeWork}
         <WorkPane params={activeWork.params} paneId={activeWork.paneId} />

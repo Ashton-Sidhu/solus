@@ -1,6 +1,6 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
-  import { getWorkspaceContext, serversStore, sharesStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore, accountStore, sharesStore } from "../../contexts";
   import type { MetricsSpan, TurnFlagKind } from "@solus/contracts/observability-types";
   import {
     Download as ExportIcon,
@@ -255,12 +255,16 @@
 
   /** A running turn has no settled readings to report yet. */
   const canShareReport = $derived(
-    !!insightsStore.serverId && !!root && !isLive && sharesStore.canShareFrom(insightsStore.serverId, "work"),
+    !!insightsStore.serverId && !!root && !isLive && (!accountStore.isSignedIn || sharesStore.canShareFrom(insightsStore.serverId, "work")),
   );
 
-  function shareReport(): void {
+  async function shareReport(): Promise<void> {
     const serverId = insightsStore.serverId;
     if (!serverId || !root || !trace) return;
+    // The diff is part of the report: a share made before git's answer lands
+    // waits for it rather than leaving the change out.
+    if (sessionRecordCtx) await insightsStore.loadTurnChange(sessionRecordCtx, traceId);
+    const change = insightsStore.turnChange(traceId);
     const capturedAt = new Date();
     const report: TurnReport = {
       version: 1,
@@ -271,10 +275,12 @@
       taskTitle,
       baselines,
       prompts: Object.fromEntries(promptsByTrace(insightsStore.volumeRows.filter((row) => row.sessionId === sessionId))),
-      patch: storedChange?.status === "ready" && !pulledHostId ? storedChange.patch : null,
+      patch: change?.status === "ready" && !pulledHostId ? change.patch : null,
     };
     const title = turnReportTitle({ subject: turnReportSubject({ sessionName, taskTitle, prompt }), capturedAt });
-    void sharesStore.shareReport(serverId, { title, content: turnReportContent(report), agentProvider: reportAgent(root.provider) });
+    // The sharer's mark goes with the report as their own mark on it.
+    const mark = flag ? { kind: flag.kind, note: flag.note } : null;
+    void sharesStore.shareReport(serverId, { title, content: turnReportContent(report), agentProvider: reportAgent(root.provider), mark });
   }
 
   function exportTrace(): void {
@@ -344,10 +350,10 @@
       variant="ghost"
       size="icon"
       class="size-6.5 shrink-0 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:size-10"
-      title="Share a report of this turn"
+      title={accountStore.isSignedIn ? "Share a report of this turn" : "Sign in to share"}
       aria-label="Share a report of this turn"
-      disabled={sharesStore.busy}
-      onclick={shareReport}
+      disabled={!accountStore.isSignedIn || sharesStore.busy}
+      onclick={() => void shareReport()}
     >
       <ShareIcon size={16} strokeWidth={1.5} aria-hidden="true" />
     </Button>
@@ -424,6 +430,7 @@
     restoreLabel="Back to split"
     {onClose}
     clearsWindowControls={fullScreen}
+    divided={false}
   />
 
   <!-- A container, not the viewport, decides the aside's position: beside the

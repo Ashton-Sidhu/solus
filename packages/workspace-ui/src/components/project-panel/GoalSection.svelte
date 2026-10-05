@@ -203,10 +203,10 @@
             rows="4"
             autofocus
             aria-label="Goal objective"
-            class="w-full resize-y rounded-md border border-[color-mix(in_srgb,var(--solus-text-primary)_12%,transparent)] bg-transparent px-1.5 py-1 text-xs leading-5 text-(--solus-text-primary) outline-none focus:border-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]"
+            class="w-full resize-y rounded-md border border-[color-mix(in_srgb,var(--solus-text-primary)_12%,transparent)] bg-transparent px-1.5 py-1 text-chrome-dense leading-5 text-(--solus-text-primary) outline-none focus:border-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]"
           />
           <div class="flex items-center justify-between gap-2">
-            <span class="text-xs tabular-nums text-(--solus-text-tertiary)">
+            <span class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">
               {objectiveDraft.length} / 4,000
             </span>
             <span class="flex gap-1">
@@ -219,7 +219,7 @@
         <!-- The objective is the subject of the card, so it carries the primary
              ink; every reading below it steps down from here. -->
         <p
-          class="m-0 text-xs leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary) {objectiveExpanded
+          class="m-0 text-chrome-dense leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary) {objectiveExpanded
  ? 'max-h-56 overflow-y-auto overscroll-contain'
  : 'line-clamp-6'}"
         >
@@ -227,7 +227,7 @@
         </p>
         {#if isLongObjective}
           <button
-            class="-mt-0.5 cursor-pointer self-start border-none bg-transparent p-0 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:text-(--solus-text-primary)"
+            class="-mt-0.5 cursor-pointer self-start border-none bg-transparent p-0 text-chrome-dense text-(--solus-text-tertiary) transition-colors duration-150 hover:text-(--solus-text-primary)"
             type="button"
             onclick={() => (objectiveExpanded = !objectiveExpanded)}
           >
@@ -239,7 +239,7 @@
       <!-- Cost and elapsed are footnotes to the objective, not readings worth a
            grid of their own — one tertiary line, the same weight the rail gives
            any other trailing value. -->
-      <div class="text-xs tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
+      <div class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
 
       {#if goal.tokenBudget !== undefined}
         <div
@@ -261,7 +261,7 @@
         <!-- Deleting a goal drops its whole record, so it arms in place and
              waits for a second, deliberate click — same as discarding changes. -->
         <div class="flex flex-col gap-1 rounded-md border border-destructive/20 p-1.5">
-          <p class="m-0 text-xs leading-4 text-(--solus-text-tertiary)">
+          <p class="m-0 text-chrome-dense leading-4 text-(--solus-text-tertiary)">
             Deletes this goal and its progress. This can't be undone.
           </p>
           <div class="flex justify-end gap-1">

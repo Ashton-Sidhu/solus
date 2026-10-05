@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getDatabase, type Db } from '../../db/database'
 import type { WorkExternalComments } from '@solus/contracts/work-comments'
 import type { WorkAnnotations } from '@solus/contracts/types'
-import { applyCommentCommand, type CommentActor, type WorkCommentCommand } from '@solus/contracts/comment-commands'
+import { applyWorkCommand, type CommentActor, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
@@ -67,6 +67,8 @@ export async function saveWorkAnnotations(scope: RecordScope, ann: WorkAnnotatio
       workId: ann.workId,
       comments: ann.comments,
       updatedAt: ann.updatedAt,
+      // A save of the threads leaves the readers' marks as they are.
+      marks: current?.marks,
       externalComments: current?.externalComments,
       googleComments: current?.googleComments,
     })
@@ -89,7 +91,7 @@ export async function applyWorkComment(
   const next = await getDatabase().transaction(async (db) => {
     const organizationId = await organizationOfWork(db, scope, workId)
     const current = await readAnnotations(db, organizationId, workId) ?? { version: 1, workId, comments: [], updatedAt: 0 }
-    const merged: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, actor) }
+    const merged = applyWorkCommand(current, command, actor)
     await writeAnnotations(db, organizationId, merged)
     await recordThreadMentions(db, organizationId, { kind: 'work', id: workId }, actor.by, current.comments, merged.comments)
     return await readAnnotations(db, organizationId, workId) ?? merged

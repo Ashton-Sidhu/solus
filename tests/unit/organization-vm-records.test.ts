@@ -249,7 +249,7 @@ describe('shared compute, access on the record', () => {
     const chat = { kind: 'session', id: 's-bob-chat' } as const
     const project = { kind: 'session', id: 's-bob-project' } as const
 
-    expect(await turnOrganization.admitTurnOrganization(ctx(chat.id, 'A', { workingDirectory: '~' }), actorFor(BOB_IN_A), deps)).toBe('A')
+    expect(await turnOrganization.admitTurnOrganization(ctx(chat.id, 'A', { workingDirectory: '/data/projects/bob/.solus-chats/s-bob-chat' }), actorFor(BOB_IN_A), deps)).toBe('A')
     expect(await turnOrganization.admitTurnOrganization(ctx(project.id, 'A', { workingDirectory: '/srv/repo' }), actorFor(BOB_IN_A), deps)).toBe('A')
 
     expect(await scoped.ownerOf(chat)).toBe('bob')

@@ -10,6 +10,9 @@ export const KEYBINDINGS = {
   // task then opens as the split view (docs/plans/task-conversation.md).
   'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
   'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
+  // A chat has no project. ⌘⌥N sits beside the new-session family, and no
+  // browser claims it, so web keeps the same combo.
+  'global.new-chat':          { combo: { mod: true, alt: true, code: 'KeyN' },            scope: 'global',             label: 'New chat',                 group: 'Tasks' },
   'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in task',      group: 'Tasks' },
   'global.new-task':          { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
@@ -47,6 +50,7 @@ export const KEYBINDINGS = {
   'global.toggle-workspace':     { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open workspace',           group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
+  'global.toggle-notifications': { combo: { alt: true, shift: true, code: 'KeyK' },        scope: 'global',             label: 'Open notifications',       group: 'View' },
   'global.toggle-insights':    { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Open insights',            group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' }, web: { alt: true, shift: true, code: 'BracketLeft' }, scope: 'global', label: 'Toggle sidebar',           group: 'View' },
   // Desktop-only: on web these combos stay with the browser's own zoom (the

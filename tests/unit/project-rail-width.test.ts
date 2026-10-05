@@ -6,7 +6,6 @@ import {
 } from '@solus/workspace-ui/components/project-panel/lib/rail-width'
 import {
   MIN_PRIMARY_PANE_WIDTH,
-  companionCollapsesSidebar,
   companionMinimizesProjectPanel,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -68,17 +67,6 @@ describe('project rail width', () => {
       expect(isProjectRailOpen(false, 800, minimized)).toBe(false)
       expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, minimized)).toBe(false)
     }
-  })
-
-  test('a task page beside the conversation keeps the session sidebar open', () => {
-    // WHY: the sidebar's task rows open the split view — the lead's
-    // conversation with the task page beside it. A companion that collapsed
-    // the sidebar would hide the list the row was just clicked in, so the task
-    // page joins the automation builder as a companion that leaves it alone.
-    expect(companionCollapsesSidebar({ name: 'task', params: { taskId: 't1' } })).toBe(false)
-    expect(companionCollapsesSidebar({ name: 'automation', params: { automationId: 'a1' } })).toBe(false)
-    expect(companionCollapsesSidebar({ name: 'review', params: { sourceTabId: 'primary-tab' } })).toBe(true)
-    expect(companionCollapsesSidebar(null)).toBe(false)
   })
 
   test('review content still minimizes the rail and closing it restores the preference', () => {

@@ -60,8 +60,6 @@
     /** Everything else, behind ⋯. */
     menu?: Snippet;
     body?: Snippet;
-    /** The progress seam along the bottom edge. */
-    seam?: Snippet;
   }
 
   let {
@@ -90,7 +88,6 @@
     actions,
     menu,
     body,
-    seam,
   }: Props = $props();
 
   let menuOpen = $state(false);
@@ -190,9 +187,6 @@
       <div class="flex flex-wrap items-center justify-end gap-1 px-(--tx-card-pad-r) pb-2">
         {@render cardActions(false)}
       </div>
-    {/if}
-    {#if seam}
-      <div class="tx-card__seam" aria-hidden="true">{@render seam()}</div>
     {/if}
   </div>
 </div>
@@ -434,15 +428,5 @@
     height: 0.03125rem;
     margin: -0.25rem var(--tx-card-pad-l) 0.1875rem;
     background: var(--solus-tx-divider);
-  }
-
-  .tx-card__seam {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    display: flex;
-    height: 0.125rem;
-    gap: 0.0625rem;
   }
 </style>

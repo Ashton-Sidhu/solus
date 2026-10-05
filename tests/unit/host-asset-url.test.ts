@@ -59,6 +59,24 @@ describe('signed URLs for host media files', () => {
     expect(new Uint8Array(await partial.arrayBuffer())).toEqual(new Uint8Array([2, 3]))
   })
 
+  test('serves a raster image whose name has no extension by reading its bytes', async () => {
+    // WHY: an agent often saves a download as `/tmp/shots/pr_4`. Its reply embeds
+    // that path, and the image must still show.
+    const path = join(sandbox, 'pr_4')
+    await writeFile(path, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]))
+    const { relativeUrl } = await createAssetUrl(ctx, { path }, { secret, now })
+    const response = await serve(relativeUrl)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+  })
+
+  test('refuses a file with no extension whose bytes are not a raster image', async () => {
+    await writeFile(join(projectRoot, 'credentials'), 'TOKEN=secret')
+    await writeFile(join(projectRoot, 'logo'), '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>')
+    await expect(createAssetUrl(ctx, { path: 'credentials' }, { secret, now })).rejects.toThrow('This asset type is not allowed.')
+    await expect(createAssetUrl(ctx, { path: 'logo' }, { secret, now })).rejects.toThrow('This asset type is not allowed.')
+  })
+
   test('refuses any file that is not media, so a signed URL never serves source or secrets', async () => {
     await writeFile(join(projectRoot, '.env'), 'TOKEN=secret')
     await writeFile(join(projectRoot, 'notes.txt'), 'notes')

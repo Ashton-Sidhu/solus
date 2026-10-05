@@ -123,11 +123,13 @@ describe('agent tools', () => {
 
     const reread = readVersion((await workTools.executeWorkTool('read_work', { work_id: work.id })).text)
     expect(reread).toBe(2)
-    const saved = await workTools.executeWorkTool('update_work', { work_id: work.id, content: '# Agent revision', expected_content_version: reread })
+    const updates: Array<{ contentVersion: number }> = []
+    const saved = await workTools.executeWorkTool('update_work', { work_id: work.id, content: '# Agent revision', expected_content_version: reread }, { onWorkUpdated: (work) => updates.push(work) })
     expect(saved.ok).toBe(true)
     // The prefix transcripts project from is unchanged; the new version follows it.
     expect(saved.text).toStartWith('Updated "Spec".')
     expect(readVersion(saved.text)).toBe(3)
+    expect(updates.map((work) => work.contentVersion)).toEqual([3])
     expect((await works.loadWork('local', work.id))?.content).toBe('# Agent revision')
   })
 

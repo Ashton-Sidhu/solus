@@ -66,7 +66,7 @@
   const isLeading = $derived(paneId === session.router.leadingPane.id);
 
   function toggleRail() {
-    settings.update({ splitProjectPanelOpen: !settings.splitProjectPanelOpen });
+    settings.setLayout("splitProjectPanelOpen", !settings.splitProjectPanelOpen);
     requestInputFocus(tabId ? { tabId } : undefined);
   }
 </script>

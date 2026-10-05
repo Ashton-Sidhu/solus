@@ -24,7 +24,7 @@ export interface SolusEventMap {
   branch_switched: { via?: Via }
   plan_approved: { mode: 'supervised' | 'default' }
   plan_rejected: { has_comment: boolean }
-  surface_viewed: { surface: 'workspace' | 'tasks' | 'prs' | 'automations' | 'insights' | 'review' | 'pr_review' | 'plan_modal' | 'work_modal' | 'settings'; via?: Via }
+  surface_viewed: { surface: 'workspace' | 'tasks' | 'prs' | 'automations' | 'notifications' | 'insights' | 'review' | 'pr_review' | 'plan_modal' | 'work_modal' | 'settings'; via?: Via }
   palette_command_run: { command_id: string }
   keybinding_used: { binding_id: string; scope: string; overridden: boolean }
   model_changed: { via?: Via }

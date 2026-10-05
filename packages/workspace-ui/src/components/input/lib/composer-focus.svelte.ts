@@ -62,6 +62,10 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     prevFocusable = isFocusable;
 
     if (!isFocusable || options.isReadOnly() || runtime.shouldSuppressFocus) return;
+    // A focused companion pane owns the keyboard. Read untracked: a pane focus
+    // change alone must not re-run this and pull the caret out of the control
+    // that just took focus.
+    if (!untrack(() => options.isFocusedPaneComposer())) return;
 
     if (justBecameFocusable) {
       // rAF ensures focus lands after display:none → visible transitions

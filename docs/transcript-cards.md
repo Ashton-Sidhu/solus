@@ -42,7 +42,6 @@ Body layouts (`bodyLayout`):
 - `media` — full-bleed under a 0.5px rule, capped at 150px.
 - `rows` — grouped rows (`TranscriptCardRow`) under a rule inset 12px.
 
-A running sub-agent draws a 2px progress seam on the bottom edge (`seam` snippet).
 
 ## Actions
 
@@ -50,7 +49,7 @@ A running sub-agent draws a 2px progress seam on the bottom edge (`seam` snippet
 ⋯ menu. It stops the click so that the card does not open too.
 
 - `primary` — 6% fill. Open, Report, Read, Done.
-- `filled` — only when the card waits on the user. Review, Connect, Sign in.
+- `filled` — primary orange, only when the card waits on the user. Review, Connect, Sign in.
 - `ghost` — no fill. Pause, Annotate, Stop, Not now.
 - `icon` — 24px square. Split and dismiss.
 - `item` — a row in the ⋯ menu.
@@ -75,18 +74,19 @@ rejoins. The decision card disappears only after the host confirms a queued retr
 | Pressed | `scale(0.996)` |
 | Focus-visible | 2px `--solus-accent-border-medium`, offset 2px |
 | Open in the pane | `open`: the composer's focus ring (1px accent at 34%, 4px halo at 9%); a grouped row takes the 1px ring inset |
-| Running | spinner; type word becomes a participle; seam when steps are known |
+| Running | spinner; type word becomes a participle |
 | Streaming | same height as the landed card, skeleton bars and a word count |
 | Failed | `failed`: destructive 26% ring; reason in the type slot; Retry |
 | Waiting on the user (agent) | `waiting`: chart-2 40% inset ring; body opens |
-| Blocking interrupt | `variant="attention"` |
+| Blocking interrupt | `variant="attention"`: neutral edge, stronger lift |
 | Resolved interrupt | quiet, header only, check glyph, Done |
 | Closed or superseded | `superseded`: 0.85 opacity, 1 on hover |
 
-Attention applies only to Connect, Seat, and RateLimit cards, through
-`AttentionCard`. Permission and question cards keep their full raised layout in
-`InterruptCard`, with an eyebrow, a meta line, and a footer. This is a product
-decision: their controls need the room.
+Attention applies to Connect, Seat, RateLimit, Permission, and blocking Question
+cards. `AttentionCard` and `InterruptCard` use the same `TranscriptCard` shell.
+Permission and question bodies stay open, with their decision controls in the
+wrapping footer. Their header uses a glyph, a lowercase type word, and a time
+rail. Message-mode questions use the quiet shell because they do not stop a turn.
 
 Codex may emit a message-mode question while its turn continues. Its question
 card remains open when that turn ends and after the client reconnects. An
@@ -94,14 +94,65 @@ answer steers a running turn or starts another turn; Dismiss closes the question
 without sending a message. A blocking provider callback still holds its turn
 until answered.
 
-Sub-agent cards carry no status word: the glyph is the status (a spinner while
-running, a check when returned, a warning when failed). Their rail leads with the
-provider's mark and the model's name, then steps and time.
+The host owns whether a request can still be answered. When a run exits, stops,
+or dies with a blocking permission or question open, the host tells the
+provider no. It then sends `permission_resolved` with `expired: 'run_ended'`
+for each request. The card stays, but its footer shows the reason ("No longer
+answerable — the run ended.") in place of its answer controls. A card with an
+expiry does not keep the session in "awaiting" in the sidebar. It leaves when
+the next turn starts. This applies to Claude and Codex, on desktop, web, and
+mobile.
 
-All sub-agents that one turn launches share one card, with one row for each
-agent. The card stays at the position of the first launch. Tool calls and prose
-between two launches do not start a second card; they show in order below the
-card. A new turn starts a new card.
+- On reconnect, the host sends the client its list of open requests
+  (`pending_input_sync`). A card that the client kept from before, and that was
+  answered or closed meanwhile, leaves. When no run is alive, the client marks
+  each blocking card `run_ended`.
+- An answer to a request that the host does not hold now fails with the code
+  `REQUEST_NOT_ANSWERABLE`. The client shows a toast, and the card shows
+  `closed` ("No longer answerable — it was answered elsewhere or closed.").
+- A message-mode question is saved on the host and never expires with its run.
+
+### Agent rows
+
+Sub-agents and the sessions another agent starts follow T3 Code's subagent
+link: one row (`AgentLinkRow`) on the transcript card's surface (its fill,
+radius, and quiet ring). The row has a 24px round provider avatar with a
+status dot, the title
+(12px, 500), a detail line (11px, muted), the elapsed time (10px, mono), and a
+chevron when there is something to open. The row takes a 4% wash on hover.
+The avatar uses `ProviderMark` (transparent), as T3 Code does: one quiet tile
+for every provider, and the mark carries the identity. Claude is in its brand
+colour and Codex is in the text colour. The tile fill is opaque: 2% foreground
+on the card in light mode and 3% white on the card in dark mode.
+
+- **Dot.** Blue (`--chart-5`) for every in-flight state, sage (`--chart-3`)
+  when done, destructive when failed, and muted when stopped or closed.
+- **Status word.** `Running`, `Queued`, `Starting`, `Waiting`, `Completed`,
+  `Failed`, or `Stopped`. It is the detail line when there is no detail.
+  When there is a detail and the agent is not done, the word also shows
+  after the title, at 10px.
+- **Detail.** For a sub-agent: the step in flight and its target while it runs,
+  the first line of its answer when it returns, or the reason it failed. For
+  a session: the first line of the reply, or why it ended (`Never started`,
+  `Stopped replying`, `Reply lost in a restart`, `Closed its session`).
+  Markdown is reduced to plain text.
+- **Hover.** The native tooltip names the sub-agent's model and effort, or the
+  session's provenance.
+
+A lone sub-agent is one row. All sub-agents that one turn launches share one
+group at the position of the first launch. Tool calls and prose between two
+launches do not start a second group. A new turn starts a new group. The
+group is a header button: up to three overlapping avatars without dots (then
+`+N`), the label `3 subagents` (12px, 600), a status line (`2 working · 1 done
+· 1 failed`, blue while any agent runs, destructive when one failed), the
+elapsed time, and a chevron. It is folded until the reader opens it. A folded,
+settled header is at 55% opacity. The header and the rows share one card;
+open, the rows show under a hairline.
+
+A session row keeps its split and ⋯ controls before the time. They show on
+hover or focus, and always on touch. Cmd-click opens the session beside this
+conversation. When the other agent waits on a person here (a request or a
+plan decision), the decision shows under the row, indented to the title.
 
 A finished tool-group row that says "Thought for …" also shows the first line
 of the latest thought, as plain text in the foreground colour, and truncates it
@@ -139,10 +190,18 @@ span holds the full text, with no cap. A sub-agent's thinking span also holds
 the text when the provider sends it. The insights span detail shows it as a "Thought" block, and the text goes
 with the span to OTLP when trace export is on.
 
-The agent conversation card is header-only. Its dialogue is read in the agent's
-own session. A click on the card or its Open button opens that session in a
-tab; the split icon opens it beside this conversation. A body appears only when the other
-agent waits on a person here (a request or a plan decision).
+### Context compaction
+
+When the provider compacts the context, the transcript shows a divider at that
+point: "Context compacted". The divider also shows the trigger (automatic or on
+request) and the token counts before and after, when the provider reports them.
+Claude reports all three. Codex reports only that a compaction occurred.
+
+The live `context_compaction` stop event draws the divider. A failed
+compaction draws no divider. After a reload, the history read draws the same
+divider from the provider transcript: Claude's `compact_boundary` system line,
+or Codex's `contextCompaction` item. Desktop, web, and mobile all render it
+through the shared transcript, and the read-only session record shows it too.
 
 ## Tokens
 
@@ -156,3 +215,12 @@ because the fill does the lifting.
   rows in the design are not built.
 - A mixed "turn outputs" group for 3+ cards of different types is an open
   question in the design and is not built.
+
+
+Successful `update_work` calls add a work card for documents, slides, and diagrams.
+The card shows the version saved by that call (`v1`, `v2`, and so on).
+The title stays unchanged. Open loads the current saved work. The card is
+restored from the successful tool receipt after a reload on every client and for
+both providers. Failed and unfinished saves do not add a completed card. Repeated
+writes to one work in a turn keep one card with the latest update. HTML artifacts
+keep their inline revision preview.

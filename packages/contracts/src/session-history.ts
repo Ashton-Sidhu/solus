@@ -1,4 +1,4 @@
-import type { AgentId, QuestionAnswer } from './types'
+import type { AgentId, ContextCompaction, QuestionAnswer } from './types'
 import type { SessionReport } from './session-exchange'
 import type { Activity } from './activity'
 
@@ -30,6 +30,8 @@ export interface ProviderHistoryPage {
 }
 
 export interface SessionLoadMessage {
+  sourceProvider?: AgentId
+  sourceSessionId?: string
   questionAnswer?: QuestionAnswer
   /** Stable provider identity or identity for a Solus-owned synthetic row. */
   messageId?: string
@@ -54,6 +56,8 @@ export interface SessionLoadMessage {
   /** A host-recorded activity merged into the history by its time (plans/012 §5),
    *  or a provider handoff the lineage read rebuilt as `agent_switched`. */
   activity?: Activity
+  /** A context compaction the provider recorded in its transcript. */
+  compaction?: ContextCompaction
   timestamp: number
 }
 
@@ -86,6 +90,8 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   artifactWorkRef?: { workId: string; title: string; contentVersion?: number }
   /** A legacy update receipt can identify success without naming the work type. */
   workUpdateSucceeded?: boolean
+  /** Saved content version from a successful update receipt. */
+  workContentVersion?: number
 }
 
 export const MAX_SESSION_TOOL_INPUTS = 200

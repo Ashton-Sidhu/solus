@@ -1,5 +1,6 @@
 import type { AcceptPlanResult, AgentId, Plan, PlanDescriptor, PermissionMode, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '@solus/contracts/types'
-import { MODEL_PROFILES, planKey, encodePathAsFolder } from '@solus/contracts/types'
+import { MODEL_PROFILES, planKey, encodePathAsFolder, REQUEST_NOT_ANSWERABLE_CODE } from '@solus/contracts/types'
+import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { formatInlineComments } from './session.utils'
 import { track } from '../../lib/analytics'
@@ -246,7 +247,10 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
     // Awaited so the deny lands before the note, otherwise the note can steer
     // into a turn that is still blocked on the unanswered plan permission.
     const ipc = ctx.ctxFor(tabId)
-    await ctx.apiFor(tabId).respondPermission(ipc, ipc.session.sessionId, plan.questionId!, denyOption.id)
+    // A plan whose run already ended is not held any more; the revise note still goes.
+    await ctx.apiFor(tabId).respondPermission(ipc, ipc.session.sessionId, plan.questionId!, denyOption.id).catch((error) => {
+      if (!(error instanceof Error) || rpcErrorCode(error) !== REQUEST_NOT_ANSWERABLE_CODE) throw error
+    })
   } else {
     // Only a run that was actually cancelled was stopped. Revising a plan whose
     // run has already exited cancels nothing, so it must not claim otherwise.

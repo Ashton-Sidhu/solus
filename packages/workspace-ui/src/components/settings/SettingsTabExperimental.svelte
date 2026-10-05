@@ -36,7 +36,7 @@
     {#snippet control()}
       <Switch
         checked={settings.voiceModeEnabled}
-        onCheckedChange={(enabled) => settings.update({ voiceModeEnabled: enabled })}
+        onCheckedChange={(enabled) => settings.setDevice("voiceModeEnabled", enabled)}
         size="default"
         aria-label="Toggle auto voice mode"
       />

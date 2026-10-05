@@ -24,7 +24,7 @@
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { connectionsStore, getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -51,6 +51,7 @@
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
   import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
@@ -110,6 +111,8 @@
   const session = getWorkspaceContext();
   /** The band draws the leaf session; its share badge names it. */
   const bandSession = $derived(session.sessionFor(tabId));
+  // A member who may only read a shared session neither renames it nor links it to a task.
+  const canDrive = $derived(canDriveSession(session.serverIdFor(tabId), bandSession?.id));
   const linkedTask = $derived(taskOfTab(session, tabId));
   let taskLinkOpen = $state(false);
   let taskLinkAnchor = $state<HTMLButtonElement | null>(null);
@@ -158,7 +161,7 @@
   );
   const projectLabel = $derived(
     draft
-      ? projectDirLabel(projectKey, connectionsStore.chatFolderFor(draft.run.serverId))
+      ? projectDirLabel(projectKey)
       : (task?.projectLabel ?? "~"),
   );
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
@@ -776,6 +779,7 @@
                   title={leafLabels.session}
                   onclick={() => toggleMenu("session")}
                   ondblclick={() => {
+                    if (!canDrive) return;
                     // Rename where the name is. The two clicks underneath have
                     // already toggled the menu open and shut; drop it anyway
                     // so the field never renders behind it.
@@ -966,7 +970,7 @@
         onDismiss={() => requestInputFocus()}
         {paneId}
       />
-    {:else if bandSession}
+    {:else if bandSession && (linkedTask || canDrive)}
       <button
         type="button"
         class={BAND_ACTION}

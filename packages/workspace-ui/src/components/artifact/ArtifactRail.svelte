@@ -15,11 +15,12 @@
   interface Props {
     workId: string;
     title: string;
+    contentVersion?: number;
     /** Where the conversation lives, for the Link control. */
     linkContext?: TaskLinkContext;
   }
 
-  let { workId, title, linkContext }: Props = $props();
+  let { workId, title, contentVersion, linkContext }: Props = $props();
 
   const session = getSurfaceContext();
   const shareServerId = $derived(session.worksStore.hostFor(workId));
@@ -28,6 +29,7 @@
 <div class="artifact-rail" data-testid="artifact-rail">
   <span class="artifact-rail__kicker shrink-0">Artifact</span>
   <span class="artifact-rail__title min-w-0 truncate">{title}</span>
+  {#if contentVersion}<span class="shrink-0 tabular-nums">v{contentVersion}</span>{/if}
   <span class="flex-1"></span>
   <TaskLinkControl
     target={{ kind: "work", targetScope: "", targetKey: workId }}

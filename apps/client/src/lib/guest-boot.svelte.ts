@@ -28,6 +28,8 @@ class GuestBootState {
   error = $state<string | null>(null)
   displayName = $state('')
   accountUserId = $state<string | null>(null)
+  /** The account's name when the visitor is signed in to Solus; the landing then asks nothing. */
+  signedInAs = $state<string | null>(null)
   serverId = $state<string | null>(null)
   share = $state<GuestShare | null>(null)
   link: GuestLink | null = null

@@ -577,7 +577,7 @@ async function main(): Promise<void> {
     const plans = capturePlans(sessions, db)
     const fixtures: DemoFixtures = {
       startInfo: {
-        version: 'demo', projectPath: DEMO_PROJECT, homePath: '/home/demo', workspacePath: DEMO_PROJECT,
+        version: 'demo', projectPath: DEMO_PROJECT, homePath: '/home/demo',
         agents: [{ id: 'claude-code', label: 'Claude Code', models: [], defaultModel: '', available: true }],
       },
       persistedTabs: { version: 1, activeTabId: '', tabOrder: [], tabs: [] },

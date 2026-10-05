@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
+import { createServer as createNetServer } from 'node:net'
 import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, revokeDevice, verifySessionToken } from '@solus/server/admission/auth'
 import { io } from 'socket.io-client'
 import { SolusServer } from '@solus/server/transport/server'
@@ -7,6 +8,7 @@ import { ClientEventRegistry } from '@solus/server/transport/events/client-event
 import { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import { attachWebSocketTransport, isLoopbackAddress } from '@solus/server/transport/websocket'
 import { WsTransport, type ConnectionStatus } from '@solus/client-core/ws-transport'
+import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import { PresenceManager } from '@solus/server/presence/presence-manager'
 import { useHostUser } from '@solus/server/host/host-user'
@@ -52,7 +54,7 @@ describe('Socket.IO transport', () => {
     const client = createClient(harness.url, { acquireGrant: async () => 'grant:video' })
     client.start()
     await waitForStatus(client, 'connected')
-    const api = client.buildSolusApi() as SolusAPI
+    const api = withBrowserCapabilities(client.buildSolusApi(), client) as SolusAPI
     const file = new File([new Uint8Array(11 * 1024 * 1024)], 'recording.mp4', { type: 'video/mp4' })
     const attachments = await api.uploadFiles([file], { session: { sessionId: 'session-1' } } as IpcContext)
     expect(attachments?.[0]?.hostPath).toBe('/host/uploads/recording.mp4')
@@ -244,8 +246,8 @@ describe('Socket.IO transport', () => {
     const client = createClient(harness.url)
     client.start()
     await waitForStatus(client, 'connected')
-    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
-    const api = client.buildSolusApi() as SolusAPI
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI; the browser layer adds uploads.
+    const api = withBrowserCapabilities(client.buildSolusApi(), client) as SolusAPI
 
     Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined, configurable: true })
     Object.defineProperty(globalThis, 'FileReader', { value: DataUrlFileReader, configurable: true })
@@ -281,8 +283,8 @@ describe('Socket.IO transport', () => {
     const client = createClient(harness.url)
     client.start()
     await waitForStatus(client, 'connected')
-    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
-    const api = client.buildSolusApi() as SolusAPI
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI; the browser layer adds uploads.
+    const api = withBrowserCapabilities(client.buildSolusApi(), client) as SolusAPI
     Object.defineProperty(globalThis, 'FileReader', { value: DataUrlFileReader, configurable: true })
     cleanups.push(() => { Reflect.deleteProperty(globalThis, 'FileReader') })
 
@@ -361,9 +363,9 @@ describe('Socket.IO transport', () => {
     expect(authFailures).toBe(1)
   })
 
-  test('an Uplink client mints one grant per dial, so a reconnect never replays a spent grant', async () => {
-    // WHY: the host consumes a grant's jti at the ticket exchange (docs/adr/0019 §1).
-    // A cached grant would 401 on every reconnect and block the host after two drops.
+  test('an Uplink client asks its grant source on every dial', async () => {
+    // WHY: the source decides whether a kept grant still serves; the transport never
+    // holds one past the dial, so a refused or expired grant is never presented twice.
     const harness = await createHarness(true)
     const minted: string[] = []
     let authFailures = 0
@@ -388,8 +390,71 @@ describe('Socket.IO transport', () => {
     expect(authFailures).toBe(0)
   })
 
+  test('a dial checks the host identity beside the credential exchange, not after the socket opens', async () => {
+    // WHY: through a tunnel every step is a relay round trip. Checking identity only
+    // once the socket was open put one more of them before the first RPC.
+    const harness = await createHarness(true)
+    let identityCheckStarted!: () => void
+    const identityChecking = new Promise<void>((resolve) => { identityCheckStarted = resolve })
+    const client = createClient(harness.url, {
+      acquireGrant: async () => {
+        await identityChecking
+        return 'grant:overlap'
+      },
+      verifyConnectedHost: async () => {
+        identityCheckStarted()
+        return true
+      },
+    })
+
+    client.start()
+    await waitForStatus(client, 'connected')
+  })
+
+  test('a dial on a route that does not answer fails at the credential exchange', async () => {
+    // WHY: a host's LAN route seen from another network drops packets. socket.io waits
+    // 20s to call that a failure, and only then could the client move to the tunnel.
+    const silent = createNetServer(() => {})
+    await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+    cleanups.push(() => { silent.close() })
+    const address = silent.address()
+    if (!address || typeof address === 'string') throw new Error('expected TCP address')
+    const client = createClient(`http://127.0.0.1:${address.port}`, { sessionToken: 'paired-token' })
+    const outcomes: string[] = []
+    client.attachDialOutcomeReporter((outcome) => outcomes.push(outcome.kind))
+
+    client.start()
+    await waitFor(() => outcomes.length > 0)
+    expect(outcomes).toEqual(['dial-failed'])
+  })
+
+  test('a kept grant the host refuses is replaced once before the device is blocked', async () => {
+    // WHY: a client keeps its grant for redials. A host linked again since may refuse
+    // it; only a new grant the host refuses means this device is done here.
+    const harness = await createHarness(true)
+    const presented: string[] = []
+    let authFailures = 0
+    const client = createClient(harness.url, {
+      acquireGrant: async (options) => {
+        const grant = options?.fresh ? `grant:new-${presented.length}` : 'grant:kept'
+        presented.push(grant)
+        return grant
+      },
+      onAuthFailed: () => { authFailures++ },
+    })
+
+    client.start()
+    await waitForStatus(client, 'connected')
+    // The harness host takes a grant once, so the kept one is refused on the redial.
+    closeClientEngine(client, true)
+    await waitForStatus(client, 'reconnecting')
+    await waitForStatus(client, 'connected')
+    expect(presented).toEqual(['grant:kept', 'grant:kept', 'grant:new-2'])
+    expect(authFailures).toBe(0)
+  })
+
   test('a grant-admitted socket ends when its grant expires', async () => {
-    // WHY: "its live one dies within ten minutes" — revocation is grant expiry plus
+    // WHY: a socket lives no longer than its grant — revocation is grant expiry plus
     // a re-dial the revoked device cannot complete. Nothing else ends the socket.
     const harness = await createHarness(true)
     const ticket = issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt: Date.now() + 200 })

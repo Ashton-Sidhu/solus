@@ -2,7 +2,8 @@ import { ExternalCommentsStore } from './external-comments.store.svelte'
 import { WorkHistoryStore } from './work-history.store.svelte'
 import { WorkReviewsStore } from './work-reviews.store.svelte'
 import { WorkLiveStore } from './work-live.store.svelte'
-import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMeta, WorkType } from '@solus/contracts/types'
+import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMark, WorkMeta, WorkType } from '@solus/contracts/types'
+import type { TurnFlagKind } from '@solus/contracts/observability-types'
 import type { NewWorkComment, WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -298,6 +299,24 @@ export class WorksStore {
     return this.annotations[workId]?.comments ?? []
   }
 
+  /** Every reader's mark on an Insights report. */
+  annotationMarks(workId: string): WorkMark[] {
+    return this.annotations[workId]?.marks ?? []
+  }
+
+  /** Set or clear the caller's own mark. The host stamps who set it, so the
+   *  answer replaces the list; a refused mark re-reads and is thrown. */
+  async setAnnotationMark(workId: string, mark: { kind: TurnFlagKind; note: string } | null): Promise<void> {
+    const command: WorkCommentCommand = mark ? { kind: 'mark', mark } : { kind: 'unmark' }
+    try {
+      this.acceptAnnotations(workId, await this.apiForWork(workId).applyWorkComment(workId, command))
+    } catch (err) {
+      logWorkLoad('error', 'mark command failed', { workId, kind: command.kind, error: formatError(err) })
+      await this.loadAnnotations(workId)
+      throw err
+    }
+  }
+
   async loadAnnotations(workId: string, serverId?: string): Promise<WorkAnnotations | null> {
     if (serverId) this.hostByWorkId.set(workId, serverId)
     const token = ++this.nextLoadToken
@@ -342,6 +361,7 @@ export class WorksStore {
     const entry = this.ensureAnnotationsEntry(workId)
     entry.updatedAt = ann?.updatedAt ?? Date.now()
     reconcileComments(entry.comments, ann?.comments ?? [])
+    entry.marks = ann?.marks ?? []
     return entry
   }
 

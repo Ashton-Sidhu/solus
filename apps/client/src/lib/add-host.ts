@@ -1,4 +1,5 @@
-import { defaultDeviceLabel, normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
+import { normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
+import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { loadServers, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { classifyConnectInput, probeServer } from './connect'

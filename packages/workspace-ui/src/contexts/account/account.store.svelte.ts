@@ -13,6 +13,8 @@ import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
  */
 class AccountStore {
   state = $state<AccountState>({ kind: 'signed-out' })
+  /** False until the shell or the account origin first answers; until then `signed-out` is only the starting value. */
+  hasAnswered = $state(false)
   /** True when the client shell can hold a Solus account (desktop today). */
   readonly isAvailable = localApi.accountState !== undefined
   private hasStarted = false
@@ -23,14 +25,16 @@ class AccountStore {
     if (this.hasStarted) return
     this.hasStarted = true
     if (!this.isAvailable) {
-      void this.readCloudProfile()
+      void this.readCloudProfile().finally(() => { this.hasAnswered = true })
       return
     }
     localApi.onAccountStateChange((state) => {
       this.state = state
+      this.hasAnswered = true
     })
     void localApi.accountState().then((state) => {
       this.state = state
+      this.hasAnswered = true
     })
   }
 

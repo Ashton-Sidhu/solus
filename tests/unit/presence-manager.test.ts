@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { PRESENCE_COLOR_COUNT, sessionActivityStateOf, type SessionActivity } from '@solus/contracts/presence'
+import { PRESENCE_COLOR_COUNT, sessionActivityStateOf, type SessionActivity, type WorkPresenceSnapshot } from '@solus/contracts/presence'
 import { parseUserKey, userColorIndex, userKey } from '@solus/contracts/user'
 import { PresenceManager, TYPING_EXPIRY_MS, activeTurnFor } from '@solus/server/presence/presence-manager'
 import { actorFor } from '@solus/server/admission/actor'
 import { hostUser, useHostUser } from '@solus/server/host/host-user'
 import type { Principal } from '@solus/server/admission/principal'
+import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
+import { publishPresenceRoom } from '@solus/server/transport/handlers/presence-handlers'
 
 // A host always holds its user; the Solus API, which has none, admits no owner.
 beforeEach(() => useHostUser({ localId: 'owner-1' }))
@@ -239,6 +241,34 @@ describe('works', () => {
     presence.leave('c-bob')
     clock.advance(TYPING_EXPIRY_MS)
     expect(expired).toEqual([])
+  })
+  test('a guest on a work link is told who has that work open, and nothing else of the host', async () => {
+    // WHY: people looking at a shared work could not see each other. A guest
+    // never gets the host room, so it gets the work's people as the work's room.
+    const ana: Principal = { kind: 'guest', guestId: 'g2', displayName: 'Ana', deviceId: 'g2', share: { resource: { kind: 'work', id: 'w1' }, role: 'viewer', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
+    const presence = new PresenceManager()
+    presence.join('c-bob', BOB, 'Solus cloud')
+    presence.join('c-owner', OWNER, 'Mac')
+    presence.join('c-ana', ana, 'Guest link')
+    presence.join('c-maya', MAYA, 'Guest link')
+    presence.setFocus('c-bob', { kind: 'work', workId: 'w1' })
+    presence.setFocus('c-owner', { kind: 'work', workId: 'w2' })
+    presence.setFocus('c-ana', { kind: 'work', workId: 'w1' })
+    const sent: Array<{ recipients: readonly string[]; type: string; payload: unknown; room?: unknown }> = []
+    const events = {
+      publish: async (recipients: readonly string[], type: string, payload: unknown) => { sent.push({ recipients, type, payload }); return recipients.length },
+      publishToRoom: async (room: unknown, recipients: readonly string[], type: string, payload: unknown) => { sent.push({ room, recipients, type, payload }); return recipients.length },
+    } as unknown as HostEventPublisher
+    await publishPresenceRoom(presence, events, 'local')
+    const workRoom = sent.find((event) => event.type === 'work.presenceChanged') as { recipients: string[]; room: unknown; payload: WorkPresenceSnapshot }
+    expect(workRoom.recipients).toEqual(['c-ana'])
+    expect(workRoom.room).toEqual({ kind: 'work', id: 'w1' })
+    expect(workRoom.payload.participants.map((participant) => participant.clientId)).toEqual(['c-bob', 'c-ana'])
+    expect(sent.filter((event) => event.type === 'work.presenceChanged')).toHaveLength(1)
+    // A reconnect re-sends the room to that client only.
+    sent.length = 0
+    await publishPresenceRoom(presence, events, 'local', ['c-bob'])
+    expect(sent.map((event) => [event.type, event.recipients])).toEqual([['host.presenceChanged', ['c-bob']]])
   })
 })
 

@@ -29,7 +29,7 @@ export class TaskApiOperations {
       createdAt: new Date(task.createdAt ?? task.updatedAt).toISOString(), updatedAt: new Date(task.updatedAt).toISOString(),
       title: task.title, body: task.body, projectKey: task.projectKey ?? null,
       projectId: task.projectKey ? projects.get(task.organizationId ?? 'local')?.get(task.projectKey) ?? null : null,
-      status: task.status, assignee: task.assignee ?? null, priority: task.priority ?? null,
+      status: task.status, assignee: task.assignee ?? null, assigneeUserId: task.assigneeUserId ?? null, priority: task.priority ?? null,
       labels: task.labels ?? [], dueDate: task.dueDate ?? null, originSessionId: task.originSessionId ?? null,
       shortId: task.shortId ?? null, titleSource: task.titleSource, source: task.source,
       originAutomationId: task.originAutomationId, triagedAt: task.triagedAt, doneAt: task.doneAt,

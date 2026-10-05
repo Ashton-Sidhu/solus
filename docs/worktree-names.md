@@ -4,6 +4,37 @@ A checkout is identified by its host and path. Its branch name can change withou
 changing that identity. The directory keeps its original name when a branch is
 renamed.
 
+## Branch naming
+
+Settings > Source control > Worktrees > **Branch names** sets how Solus names the
+branch of a new worktree on this host. The setting is the host config key
+`worktreeBranchNaming`. Desktop, web, and mobile show the same row.
+
+| Mode | Template | Behavior |
+|---|---|---|
+| Name from title (default) | `{prefix}/{slug}` | The worktree starts on `{prefix}/<id>`. When a title is generated from the first prompt, the branch is renamed to `{prefix}/<slug>`. |
+| Short id | `{prefix}/{id}` | The first name is final. No model names the branch. |
+| Custom template | your template | Tokens: `{prefix}`, `{slug}`, `{id}`, `{user}`. The branch is renamed only when the template uses `{slug}`. Before the rename, `{slug}` holds the id. |
+
+- `{prefix}` is the prefix setting. The default is `solus`. Empty means no prefix.
+- `{id}` is eight random hex characters.
+- `{slug}` is the generated title in lowercase words joined by `-`.
+- `{user}` is the project's `git config user.name` as a slug. If git has no user,
+  the token is empty and the separator next to it is removed.
+
+Solus cleans every name to git's ref-name rules (`git check-ref-format --branch`):
+spaces and forbidden characters become `-`, and repeated `/` and `.` collapse. A
+template with an unknown token, or one that cannot make a valid name, falls back
+to `solus/{slug}`. Settings shows the error and an example name. If a title
+cannot make a name, the worktree keeps its temporary branch. A worktree is never
+left without a branch. A name that a branch already holds gets a `-2`, `-3`, and
+so on suffix.
+
+A project can override the host setting in Settings > Projects > **Override
+branch names**. The override is saved in the project's `.solus/config.json` as
+`worktreeBranchNaming`, so a team can commit it. The override applies to every
+worktree of that repository. It does not depend on the agent provider.
+
 ## Server owner
 
 `git/checkout-service.ts` owns current checkout state. Session startup, continuing

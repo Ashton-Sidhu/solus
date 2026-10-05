@@ -39,8 +39,10 @@ runner grant, the run authority, and the account branch of the API credential.
 3. Removal ends everything. When a refresh is refused, the host stops that person's
    runs and automations for that organization and deletes their output that is still
    waiting to be sent.
-4. The access token is a JWT of about 5 minutes. It cannot be revoked; its life is the
-   limit. The refresh token rotates and has no fixed expiry; revocation and the live
+4. The access token is a JWT of about 5 minutes. The first-party token that a client
+   dials a host or the Solus API with lives 8 hours: a host closes a socket when its
+   token ends, and a short life dropped every connection every 5 minutes. A token
+   cannot be revoked; its life is the limit. The refresh token rotates and has no fixed expiry; revocation and the live
    check at refresh end it.
 5. Delegation is token exchange (RFC 8693), not a sign-in redirect on each host. The
    client connects to many hosts from one app, so a per-host redirect is worse UX
@@ -133,7 +135,9 @@ replaces `SOLUS_INTEGRATION_SERVICE_KEY`.
 
 **Removal.** app.solus.sh revokes the refresh tokens of (person, O) at once and
 refuses connections at once. The person's current access tokens still work until
-they expire (5 minutes at most). At the next refresh the host stops the work.
+they expire: 5 minutes for a delegated token, 8 hours for the first-party token a
+client dials with. Token exchange checks standing live, so the person's tokens give
+no new delegation. At the next refresh the host stops the work.
 
 ## 6. What changes, by file
 
@@ -301,7 +305,7 @@ kept beside the new tokens.
 
 - Better Auth and `@better-auth/oauth-provider` 1.7.6. `auth/oauth.ts` configures the
   provider (resources `urn:solus:api` and `urn:solus:account`, host resources on
-  demand, no dynamic registration, hashed client secrets, 300-second access tokens,
+  demand, no dynamic registration, hashed client secrets, 300-second access tokens (8 hours for the first-party mint),
   refresh tokens with no practical expiry, rotated on use) and the server-only
   first-party mint (`issueSolusAccessToken`), which the token-mediating routes call
   with the person's Better Auth session.
@@ -328,7 +332,7 @@ kept beside the new tokens.
   `oauthClient` on enrollment, the access-token route schemas. The runner grant and
   run authority schemas are deleted. `sub` is the user id; a guest keeps `guest:`.
 - `admission/access-tokens.ts` replaces `host-grants.ts`: JWKS verification, audience
-  check, lifetime at most ten minutes, nothing spent.
+  check, lifetime at most 8 hours (10 minutes for a guest grant), nothing spent.
 - `sync/delegations.ts` replaces `run-authority.ts`: one delegation per person and
   organization, exchanged once with the token the person's client presented
   (`vault/account-integrations.ts` remembers it; on the desktop the owner's token

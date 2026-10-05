@@ -13,6 +13,7 @@ import { localApi } from "@solus/client-core/local-api";
 import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
 
 import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
+import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
 
 import {
   branchKeyFor,
@@ -100,6 +101,7 @@ export function installDesktopKeybindings(
   useKeybinding("global.new-session-without-task", () => {
     session.drafts.openSessionDraft({ withoutTask: true, via: "keybinding" });
   });
+  useKeybinding("global.new-chat", () => openChatDraft(session, "keybinding"));
   useKeybinding("global.new-session-in-task", () => {
     session.drafts.openSessionDraft({ via: "keybinding" });
   });
@@ -265,6 +267,7 @@ export function installDesktopKeybindings(
     session.toggleAutomations("keybinding"),
   );
   useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
+  useKeybinding("global.toggle-notifications", () => session.toggleNotifications("keybinding"));
   useKeybinding("global.share", () => {
     const target = activeSessionShareTarget(session);
     if (target) sharesStore.open(target);

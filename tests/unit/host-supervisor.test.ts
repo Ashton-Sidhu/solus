@@ -58,6 +58,32 @@ describe('host supervisor', () => {
     expect(supervisor.phase).toBe('connected')
   })
 
+  test('a failed dial goes out again at once on a route not yet tried, and waits on a tried one', () => {
+    // WHY: a host away from its LAN fails on the direct route. The tunnel is a
+    // different route, not a retry, so the client must not sit out the ladder first.
+    const dials: number[] = []
+    const pendingTimers: Array<() => void> = []
+    const routes = 2
+    const supervisor = new HostSupervisor({
+      transport: { start: () => dials.push(dials.length + 1), probe: async () => {} },
+      onDialFailed: (attempt) => attempt < routes,
+      setTimeoutFn: ((handler: () => void) => {
+        pendingTimers.push(handler)
+        return pendingTimers.length as unknown as ReturnType<typeof setTimeout>
+      }) as typeof setTimeout,
+      clearTimeoutFn: (() => {}) as typeof clearTimeout,
+      random: () => 0.5,
+    })
+    supervisor.start()
+    supervisor.report({ kind: 'dial-failed' })
+    expect(dials.length).toBe(2)
+    expect(pendingTimers.length).toBe(0)
+
+    supervisor.report({ kind: 'dial-failed' })
+    expect(dials.length).toBe(2)
+    expect(pendingTimers.length).toBe(1)
+  })
+
   test('offline is a presentation of the running ladder, never a stop', () => {
     // WHY: the plan's phase machine — after N straight failures the row reads
     // offline, but the supervisor keeps dialling at the ladder cap.

@@ -1,5 +1,4 @@
 import type { LogicalProject, ProjectRef } from '../../../contexts/projects/project-catalog'
-import type { RunConfig } from '@solus/contracts/types'
 
 /** One row of the project chip: a project, never one of its checkouts. */
 export interface ProjectChipOption {
@@ -39,19 +38,4 @@ export function projectChipOptions(
       hostLabel: checkout.serverId !== selectedHostId ? hostLabelFor(checkout.serverId) : null,
     }]
   })
-}
-
-/**
- * The chip's Scratchpad row (docs/projects.md, "Scratchpad"): the chat folder of
- * the host the run is headed for — its Run-on host, not the client's own
- * machine, so web and mobile get the row too. Null hides the row: that host
- * offers no Scratchpad, or has not said yet.
- */
-export function scratchpadCheckout(
-  run: Pick<RunConfig, 'serverId' | 'pendingHostDispatch'>,
-  chatFolderFor: (serverId: string) => string | null,
-): ProjectRef | null {
-  const serverId = run.pendingHostDispatch?.serverId ?? run.serverId
-  const chatFolder = chatFolderFor(serverId)
-  return chatFolder ? { serverId, projectRoot: chatFolder } : null
 }

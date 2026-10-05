@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { CircleCheck as CheckCircleIcon, Link2 as LinkSimpleIcon, X as XIcon } from "@lucide/svelte";
-  import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink } from "@solus/client-core/pairing";
+  import { normalizeServerUrl, pairServer, parsePairLink } from "@solus/client-core/pairing";
+  import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import type { SavedServer } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";

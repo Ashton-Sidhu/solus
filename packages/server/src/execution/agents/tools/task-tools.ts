@@ -12,7 +12,8 @@ import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreig
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
 import { recordOutboxOp, type DeliveryDestination } from '../../../sync/outbox/outbox-store'
 import { ulid } from '@solus/contracts/ulid'
-import { getHostConfig } from '../../../host/settings'
+import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
+import { sessionSettings } from '../../sessions/session-settings'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import type { SessionPullRequestOpPayload, TaskCommentOpPayload, TaskLinkOpPayload, TaskLinkSessionOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
 import type {
@@ -242,7 +243,9 @@ async function executeTaskTool(
       const id = input.task_id.trim()
       if (!id) return { ok: false, text: 'update_task_status requires a task_id.' }
       const status = input.status
-      const lifecyclePolicy = getHostConfig().config.agentTaskLifecyclePolicy
+      // The choice of the person the session's run works for. A call no session
+      // stands behind gets the built-in default.
+      const lifecyclePolicy = sessionSettings(deps.ctx.solusSessionId)?.preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
       if (lifecyclePolicy === 'none') {
         return {
           ok: false,

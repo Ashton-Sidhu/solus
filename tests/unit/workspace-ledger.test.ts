@@ -35,6 +35,7 @@ function item(over: Partial<WorkspaceItem> & { id: string; timestamp: number }):
     projectLabel: 'repo',
     status: null,
     reviewState: null,
+    reviewers: [],
     awaitingMyReview: false,
     source: { kind: 'work', work: {} as never },
     ...over,

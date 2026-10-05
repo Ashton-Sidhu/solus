@@ -5,16 +5,16 @@ import { join, relative } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { Principal } from '@solus/server/admission/principal'
+import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 
 // bun has no node:sqlite; the handler modules' import chain reaches the db even
 // though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// Scratchpad (work "Just chat vs the Solus workspace model" §0, §10): a session
-// with no project runs in the caller's chat folder. Each member of an
-// organization has their own, inside their member folder; the owner keeps the
-// old `my-workspace` folder so old sessions still resume. A bare `~` from a
-// client means that folder, never the home folder. A chat starts private.
+// A chat (docs/plans/projectless-chat.md) is a session with no project. Each chat
+// runs in a folder of its own, `.solus-chats/<id>` in the caller's projects root,
+// so files from two chats never mix and no chat runs in the host's data folder.
+// `~` is the home folder; only the explicit new-chat marker starts a chat.
 
 const sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'solus-chat-folder-')))
 const dataDir = join(sandbox, 'data')
@@ -24,8 +24,8 @@ const previousProjectsRoot = process.env.SOLUS_PROJECTS_ROOT
 process.env.SOLUS_DATA_DIR = dataDir
 process.env.SOLUS_PROJECTS_ROOT = hostRoot
 
-const { chatFolderCapability, chatFolderFor, resolveUnknownFolder } = await import('@solus/server/transport/handlers/setup-handlers')
-const { isChatFolder, WORKSPACE_DIR } = await import('@solus/server/workspace')
+const { chatFolderFor, projectsRootFor } = await import('@solus/server/transport/handlers/setup-handlers')
+const { ChatUnavailableError } = await import('@solus/server/workspace')
 const { resolveHomePath } = await import('@solus/server/platform/paths')
 const { registerSessionHandlers } = await import('@solus/server/transport/handlers/session-handlers')
 // `SolusServer.handle()` resolves the actor before a handler runs (plans/012 §4).
@@ -50,62 +50,62 @@ afterAll(() => {
 })
 
 describe('chat folder', () => {
-  test('two members get two chat folders in their member folders, outside the data folder', () => {
-    const alice = chatFolderFor(member('alice'), hostRoot)
-    const bob = chatFolderFor(member('bob'), hostRoot)
-    expect(alice).toBe(join(hostRoot, 'alice', '.chat'))
-    expect(bob).toBe(join(hostRoot, 'bob', '.chat'))
-    expect(existsSync(alice) && existsSync(bob)).toBe(true)
-    expect(isInside(dataDir, alice) || isInside(dataDir, bob)).toBe(false)
+  test('each chat gets its own folder, so the files of two chats never mix', () => {
+    const first = chatFolderFor('chat-a', OWNER, hostRoot)
+    const second = chatFolderFor('chat-b', OWNER, hostRoot)
+    expect(first).toBe(join(hostRoot, '.solus-chats', 'chat-a'))
+    expect(second).toBe(join(hostRoot, '.solus-chats', 'chat-b'))
+    expect(existsSync(first) && existsSync(second)).toBe(true)
   })
 
-  test('a member of a personal host shared with an organization also gets their own chat folder', () => {
-    expect(chatFolderFor(member('carol', 'personal'), hostRoot)).toBe(join(hostRoot, 'carol', '.chat'))
+  test('the owner and a member use one rule: their own projects root, never the data folder', () => {
+    const alice = chatFolderFor('chat-c', member('alice'), hostRoot)
+    expect(alice).toBe(chatFolderIn(projectsRootFor(member('alice'), hostRoot), 'chat-c'))
+    expect(isInside(projectsRootFor(member('alice'), hostRoot), alice)).toBe(true)
+    expect(isInside(dataDir, alice)).toBe(false)
+    expect(isInside(dataDir, chatFolderFor('chat-d', OWNER, hostRoot))).toBe(false)
   })
 
-  test('the owner keeps the old chat folder, so old sessions still resume', () => {
-    expect(WORKSPACE_DIR).toBe(join(dataDir, 'my-workspace'))
-    expect(chatFolderFor(OWNER, hostRoot)).toBe(WORKSPACE_DIR)
-    expect(chatFolderFor({ kind: 'remote-owner', userId: 'u', deviceId: 'd', expiresAt: 0, deviceLabel: 'Web' }, hostRoot)).toBe(WORKSPACE_DIR)
-    expect(chatFolderFor(undefined, hostRoot)).toBe(WORKSPACE_DIR)
+  test('a chat id that could walk the filesystem is refused', () => {
+    expect(() => chatFolderFor('../escape', OWNER, hostRoot)).toThrow()
+    expect(() => chatFolderFor('a/b', OWNER, hostRoot)).toThrow()
   })
 
-  test('recognizes every chat folder, and nothing else, without a caller', () => {
-    expect(isChatFolder(WORKSPACE_DIR, hostRoot)).toBe(true)
-    expect(isChatFolder(join(WORKSPACE_DIR, 'notes'), hostRoot)).toBe(true)
-    expect(isChatFolder(join(hostRoot, 'alice', '.chat'), hostRoot)).toBe(true)
-    expect(isChatFolder(join(hostRoot, 'alice', '.chat', 'draft'), hostRoot)).toBe(true)
-    expect(isChatFolder(join(hostRoot, 'alice', 'solus'), hostRoot)).toBe(false)
-    expect(isChatFolder(join(hostRoot, '.chat'), hostRoot)).toBe(false)
-    expect(isChatFolder(join(sandbox, 'elsewhere', 'x', '.chat'), hostRoot)).toBe(false)
-  })
-
-  test('capabilities leave out a chat folder that is inside a Git work tree', () => {
-    const plainRoot = join(sandbox, 'plain-host')
-    expect(chatFolderCapability(member('dan'), plainRoot)).toEqual({ workspacePath: join(plainRoot, 'dan', '.chat') })
-
+  test('a projects root inside a Git work tree runs no chats', () => {
     const repoRoot = join(sandbox, 'repo-host')
     mkdirSync(join(repoRoot, '.git'), { recursive: true })
-    expect(chatFolderCapability(member('dan'), repoRoot)).toEqual({})
+    expect(() => chatFolderFor('chat-e', OWNER, repoRoot)).toThrow(ChatUnavailableError)
   })
 })
 
-describe('bare ~', () => {
-  test("means the caller's chat folder; ~/x is still a home path", () => {
-    expect(resolveUnknownFolder('~', member('alice'))).toBe(join(hostRoot, 'alice', '.chat'))
-    expect(resolveUnknownFolder('~', OWNER)).toBe(WORKSPACE_DIR)
-    expect(resolveUnknownFolder('~/code', member('alice'))).toBe('~/code')
+describe('isChat', () => {
+  test('names a new chat, a chat folder, and the folder that holds them', () => {
+    expect(isChat(NEW_CHAT_DIRECTORY)).toBe(true)
+    expect(isChat(join(hostRoot, '.solus-chats', 'chat-a'))).toBe(true)
+    expect(isChat(join(hostRoot, '.solus-chats', 'chat-a') + '/')).toBe(true)
+    expect(isChat(join(hostRoot, '.solus-chats'))).toBe(true)
+  })
+
+  test('the home folder and a project are not chats', () => {
+    expect(isChat('~')).toBe(false)
+    expect(isChat('')).toBe(false)
+    expect(isChat(join(hostRoot, 'solus'))).toBe(false)
+    expect(isChat(join(hostRoot, '.solus-chats', 'chat-a', 'notes'))).toBe(false)
+  })
+})
+
+describe('~ is the home folder', () => {
+  test('a bare ~ and ~/x expand in the home folder', () => {
+    expect(resolveHomePath('~')).toBe(homedir())
     expect(resolveHomePath('~/code')).toBe(join(homedir(), 'code'))
   })
 
-  test('without a caller it is the owner chat folder, never the home folder', () => {
-    expect(resolveHomePath('~')).toBe(WORKSPACE_DIR)
-    expect(resolveHomePath('')).toBe(WORKSPACE_DIR)
-    expect(existsSync(WORKSPACE_DIR)).toBe(true)
+  test('a new chat that reaches a process unresolved is refused, not run somewhere else', () => {
+    expect(() => resolveHomePath(NEW_CHAT_DIRECTORY)).toThrow()
   })
 })
 
-describe('a chat starts private', () => {
+describe('starting a chat', () => {
   type Handler = (args: unknown[], ctx: { clientId: string; principal: Principal }) => Promise<unknown>
   type Resource = { kind: string; id: string }
   const handlers = new Map<string, Handler>()
@@ -152,12 +152,28 @@ describe('a chat starts private', () => {
     return prompted.at(-1)!
   }
 
+  test('the folder a client names for its chat is made before the agent runs there', async () => {
+    const folder = chatFolderIn(projectsRootFor(OWNER), 'chat-named')
+    const chat = await startSession('chat-named', folder, OWNER)
+    expect(chat.session.workingDirectory).toBe(folder)
+    expect(chat.session.projectPath).toBe(folder)
+    expect(existsSync(folder)).toBe(true)
+  })
+
+  test('a new chat with no folder gets one named by its session', async () => {
+    const chat = await startSession('chat-new', NEW_CHAT_DIRECTORY, OWNER)
+    expect(chat.session.workingDirectory).toBe(chatFolderIn(projectsRootFor(OWNER), 'chat-new'))
+  })
+
+  test('a bare ~ starts a session in the home folder path, not a chat', async () => {
+    const session = await startSession('home-1', '~', OWNER)
+    expect(session.session.workingDirectory).toBe('~')
+  })
+
   test('a chat on an organization space gets no organization grant; a project session does', async () => {
     const alice = member('alice')
 
-    const chat = await startSession('chat-1', '~', alice)
-    expect(chat.session.workingDirectory).toBe(join(hostRoot, 'alice', '.chat'))
-    expect(chat.session.projectPath).toBe(join(hostRoot, 'alice', '.chat'))
+    await startSession('chat-1', NEW_CHAT_DIRECTORY, alice)
     expect(shareCalls).toEqual(['claim chat-1 private'])
 
     shareCalls.length = 0
@@ -176,7 +192,8 @@ describe('a chat starts private', () => {
   })
 
   test('a chat that binds without a watch first also starts private', async () => {
-    const ctx = { session: { sessionId: 'chat-2', agentSessionId: 'thread-2', workingDirectory: join(hostRoot, 'alice', '.chat'), projectPath: '' }, settings: {}, statusBar: {} } as IpcContext
+    const folder = chatFolderIn(projectsRootFor(member('alice')), 'chat-2')
+    const ctx = { session: { sessionId: 'chat-2', agentSessionId: 'thread-2', workingDirectory: folder, projectPath: '' }, settings: {}, statusBar: {} } as IpcContext
     await handlers.get('bindRuntimeSession')!([ctx], { clientId: 'ws:chat-2', principal: member('alice') })
     expect(shareCalls).toEqual(['claim chat-2 private'])
   })

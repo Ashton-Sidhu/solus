@@ -4,6 +4,7 @@ import { TextGenerator } from '../execution/agents/text-generator'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
 import { resolveTextGenerationModel } from '../host/settings'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { AgentId } from '@solus/contracts/types'
 import type { SeatResolver, TurnSeat } from '../execution/seats/seat-manager'
 import { writingBackendFor } from '../execution/agents/writing-backend'
@@ -41,10 +42,12 @@ export async function generateWorktreeName(
   cwd: string,
   abortSignal?: AbortSignal,
   seatFor?: SeatResolver,
+  /** The person's preferences: their writing model names the worktree. */
+  preferences?: ExecutionPreferences,
 ): Promise<string | null> {
   const prompt = promptText.trim()
   if (!prompt) return null
-  const backend = await writingBackendFor(resolveTextGenerationModel(), seatFor)
+  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor)
   if (!backend) return null
   return generateWorktreeNameWith(dispatcher, prompt, cwd, backend, abortSignal)
 }

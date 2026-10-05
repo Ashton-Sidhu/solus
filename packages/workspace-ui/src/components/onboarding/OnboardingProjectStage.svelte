@@ -152,6 +152,6 @@
     oncontinue={onstart}
     onback={preparation ? undefined : () => store.back()}
     {onskip}
-    skipLabel="Just chat"
+    skipLabel="New chat"
   />
 </div>

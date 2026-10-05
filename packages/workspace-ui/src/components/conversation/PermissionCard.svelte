@@ -2,7 +2,7 @@
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from '../../contexts'
-  import type { PermissionRequest, PermissionOption } from '@solus/contracts/types'
+  import { requestExpiryText, type PermissionRequest, type PermissionOption } from '@solus/contracts/types'
   import { abbreviateHome, truncateMiddle } from '../../lib/paths'
   import CopyButton from '../ui/CopyButton.svelte'
   import { fileChangePreviews } from './lib/fileChangePreview'
@@ -16,10 +16,10 @@
     splitPathTail,
   } from './lib/interrupt'
   import { presenceStore } from '../../contexts/presence/presence.store.svelte'
+  import { canDriveSession } from '../../contexts/sharing/session-drive'
   import { othersTurnLabel } from '../presence/lib/actor-name'
   import { formatReleaseTime } from './lib/queued-prompts'
   import InterruptCard from './InterruptCard.svelte'
-  import TranscriptChip from './TranscriptChip.svelte'
   import { liveActivityClock } from '../../lib/shared-clock'
   import { conversationIsVisible } from './lib/conversation-visibility'
   import { z } from 'zod'
@@ -47,7 +47,11 @@
 
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
+  // A member who may only read the session sees the request, not the answers.
+  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id))
   let responded = $state(false)
+  // The host closed it unanswered (its run ended), or this click was sent.
+  const closed = $derived(responded || !!permission.expired)
   // A session holding on a permission is *waiting*, and the footer says how long
   // it has held — the same clock the question card runs.
   let askedAt = $state(Date.now())
@@ -63,7 +67,7 @@
 
   const onScreen = conversationIsVisible()
   $effect(() => {
-    if (responded || !onScreen()) return
+    if (closed || !onScreen()) return
     return liveActivityClock.subscribe((value) => { now = value })
   })
 
@@ -95,23 +99,22 @@
   const actions = $derived(permissionFooterOrder(permission.options))
 
   function handleOption(optionId: string) {
-    if (responded) return
+    if (closed) return
     responded = true
     if (respond) respond(permission.questionId, optionId)
-    else session.controls.respondPermission(tabId, permission.questionId, optionId)
+    else void session.controls.respondPermission(tabId, permission.questionId, optionId).then((answered) => { if (!answered) responded = false })
   }
 
   function classFor(option: PermissionOption): string {
-    // Even a destructive request keeps neutral buttons — the affirmative is the
-    // card's one terracotta, and the strip carries the warning.
-    if (option === actions.affirmative) return 'interrupt-btn interrupt-btn--primary'
-    if (option === actions.escape) return 'interrupt-btn'
-    return 'interrupt-btn interrupt-btn--secondary'
+    // The narrowest grant gets the filled action; broader grants stay quiet.
+    if (option === actions.affirmative) return 'tx-card-action is-filled'
+    if (option === actions.escape) return 'tx-card-action is-ghost'
+    return 'tx-card-action'
   }
 
   /** The key hints are the card's contract, so they act rather than decorate. */
   function handleKeydown(e: KeyboardEvent) {
-    if (!shortcuts || tabId !== session.activeTabId || responded) return
+    if (!shortcuts || !canDrive || tabId !== session.activeTabId || closed) return
     if (e.metaKey || e.ctrlKey || e.altKey) return
     const target = e.target
     if (target instanceof HTMLElement) {
@@ -136,33 +139,19 @@
 {/snippet}
 
 <InterruptCard
-  eyebrow={kicker.label}
+  type="permission"
   {title}
+  target={cwdParts ? `${cwdParts.head}${cwdParts.tail}` : undefined}
   tone={kicker.tone === 'destructive' ? 'destructive' : 'neutral'}
   testId="permission-card"
 >
-  {#snippet chip()}
-    <TranscriptChip state={kicker.tone === 'destructive' ? 'destructive' : 'warning'}>
-      {kicker.chip}
-    </TranscriptChip>
-  {/snippet}
-
-  {#snippet meta()}
-    <span class="shrink-0">{permission.toolTitle}</span>
-    {#if cwdParts}
-      <span class="shrink-0 opacity-60">·</span>
-      <span class="min-w-0 truncate text-transcript-meta"
-        >{cwdParts.head}<span class="font-medium text-(--foreground)">{cwdParts.tail}</span></span
-      >
-    {/if}
-    {#if queueLength > 1}
-      <span class="shrink-0 opacity-60">·</span>
-      <span class="shrink-0">1 of {queueLength} waiting</span>
-    {/if}
+  {#snippet rail()}
+    {#if queueLength > 1}<span>1 of {queueLength}</span>{/if}
+    <span>{waiting}</span>
   {/snippet}
 
   <div
-    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4"
+    class="flex flex-col gap-2.5"
   >
     {#if argv}
       <div class="interrupt-payload">
@@ -258,11 +247,16 @@
   </div>
 
   {#snippet footer()}
+    {#if permission.expired}
+      <span class="text-transcript-meta text-(--muted-foreground)" data-testid="permission-expired">{requestExpiryText(permission.expired)}</span>
+    {:else if !canDrive}
+      <span class="text-transcript-meta text-(--muted-foreground)">Waiting for an editor</span>
+    {:else}
     {#if actions.escape}
       <button
         type="button"
         class={classFor(actions.escape)}
-        disabled={responded}
+        disabled={closed}
         data-testid="permission-option"
         data-kind="deny"
         onclick={() => handleOption(actions.escape!.optionId)}
@@ -276,7 +270,7 @@
       <button
         type="button"
         class={classFor(option)}
-        disabled={responded}
+        disabled={closed}
         data-testid="permission-option"
         data-kind="other"
         onclick={() => handleOption(option.optionId)}
@@ -284,18 +278,11 @@
         {option.label}
       </button>
     {/each}
-    <span class="shrink-0 text-transcript-meta text-(--muted-foreground)">
-      {#if responded}
-        Answered
-      {:else}
-        Holding · <span class="text-transcript-meta">{waiting}</span>
-      {/if}
-    </span>
     {#if actions.affirmative}
       <button
         type="button"
         class={classFor(actions.affirmative)}
-        disabled={responded}
+        disabled={closed}
         data-testid="permission-option"
         data-kind="allow"
         onclick={() => handleOption(actions.affirmative!.optionId)}
@@ -303,6 +290,7 @@
         {actions.affirmative.label}
         <span class="interrupt-key">⏎</span>
       </button>
+    {/if}
     {/if}
   {/snippet}
 </InterruptCard>

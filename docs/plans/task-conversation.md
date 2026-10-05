@@ -35,7 +35,15 @@ pane, a record beside it.
 - **lead contract** — the rules appended to the lead's task packet.
 - **Tasks section**, **Sessions section** — the two live sections of the
   session sidebar. A row in Tasks is a **task row**; a row in Sessions is a
-  **session row**.
+  **session row**. Both sections list rows newest first by creation, except
+  that a row this client saw leave the Working section moves to the top.
+  Opening or loading a session never moves it.
+- **Working section** — the closed-by-default section below Sessions that
+  holds the task and session rows whose agent is busy without the user: a
+  running turn, background work after a finished turn, or a rate-limit wait. A
+  row goes back to the top of its own section when it finishes, fails, or asks
+  for an answer or a plan decision. This is not the `working` task session
+  role.
 - **task chip** — the mark on a session row that names the task the session
   belongs to, when that task has no task row on this client.
 
@@ -212,10 +220,9 @@ link transfers session ownership exactly as `working` does.
      latest attempt. Only a lead brings the page beside it.
    - The phone has one pane, so none of these opens the page; the conversation
      keeps the pane and the page is a tap away on the session's task chip.
-   - A task page in the companion pane keeps the session sidebar open
-     (`companionCollapsesSidebar` in `layout/lib/workspace-body.ts`), as the
-     automation builder does: the list the row was clicked in stays on screen
-     for the next task.
+   - Opening a companion pane keeps the session sidebar in its current state.
+     A task page beside the conversation leaves the list on screen for the
+     next task.
    - The Tasks page's rows open through `openTask` where the shell has
      companion panes. `openTask` promotes a provider ticket to a native task
      first, as Start does. Without companion panes, or without a workspace, the

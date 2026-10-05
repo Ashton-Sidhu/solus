@@ -1,13 +1,13 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { HostPresenceSnapshot, PresenceFocus, SessionPresenceSnapshot } from '@solus/contracts/presence'
+import type { HostPresenceSnapshot, PresenceFocus, SessionPresenceSnapshot, WorkPresenceSnapshot } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
 import type { UserId } from '@solus/contracts/user'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { followStep, newArrivals, peopleFrom, sameFocus, type FocusReport, type PeopleOptions, type PresencePerson } from '../../components/presence/lib/presence-people'
+import { followStep, peopleFrom, sameFocus, type FocusReport, type PeopleOptions, type PresencePerson } from '../../components/presence/lib/presence-people'
 import { hostPeopleAcrossHosts, rosterPeople, type RosterPerson } from '../../components/presence/lib/host-people'
-import { serversStore } from '../connections/servers.store.svelte'
 import { sharesStore } from '../sharing/shares.store.svelte'
+import { roleCanDrive } from '../sharing/session-drive'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -20,8 +20,7 @@ import { TypingReporter } from './typing-reporter'
  * sent, tells the host what this client is looking at and whether it is typing,
  * and answers every surface's "who else" from one place, so a stack in the band,
  * a dot in the sidebar, and a name on a bubble can never disagree. It also owns
- * the two reactions to presence that are not a surface: the notice when someone
- * arrives, and follow mode.
+ * follow mode. Host and organization arrivals update presence without a notice.
  */
 
 /** How long a focus change waits before it is sent, so a tab sweep is one report. */
@@ -65,6 +64,8 @@ class PresenceStore {
   readonly selfClientIds = new SvelteMap<string, string>()
   /** `serverId|sessionId` → that session's room. */
   readonly sessions = new SvelteMap<string, SessionPresenceSnapshot>()
+  /** `serverId|workId` → that work's people, sent to a guest on its link instead of the host room. */
+  readonly works = new SvelteMap<string, WorkPresenceSnapshot>()
   /** The person this client goes along with, or null. */
   following = $state<FollowTarget | null>(null)
   private readonly loads = new Map<string, Promise<void>>()
@@ -95,13 +96,14 @@ class PresenceStore {
   listen(): () => void {
     if (this.stopListening) return this.stopListening
     const unsubscribeHost = subscribeAllHosts('host.presenceChanged', (serverId, snapshot) => {
-      const previous = this.hosts.get(serverId)
       this.hosts.set(serverId, snapshot)
       void this.ensure(serverId)
-      for (const person of newArrivals(previous, snapshot, this.peopleOptions(serverId))) this.announceArrival(serverId, person)
     })
     const unsubscribeSession = subscribeAllHosts('session.presenceChanged', (serverId, snapshot) => {
       this.sessions.set(sessionKey(serverId, snapshot.sessionId), snapshot)
+    })
+    const unsubscribeWork = subscribeAllHosts('work.presenceChanged', (serverId, snapshot) => {
+      this.works.set(sessionKey(serverId, snapshot.workId), snapshot)
     })
     const unsubscribeStatus = serverConnections.onStatusChange((serverId, status) => {
       if (status !== 'connected') return
@@ -117,6 +119,7 @@ class PresenceStore {
     this.stopListening = () => {
       unsubscribeHost()
       unsubscribeSession()
+      unsubscribeWork()
       unsubscribeStatus()
       if (this.focusTimer) clearTimeout(this.focusTimer)
       this.typing.clear()
@@ -190,8 +193,10 @@ class PresenceStore {
     return this.sessions.get(sessionKey(serverId, sessionId))
   }
 
-  /** The people whose focused pane shows one session, from the host room. */
+  /** The people whose focused pane shows one session or work: from the host room, or a guest's work room. */
   peopleFocusedOn(serverId: string, focus: PresenceFocus): PresencePerson[] {
+    const workRoom = focus.kind === 'work' ? this.works.get(sessionKey(serverId, focus.workId)) : undefined
+    if (workRoom) return peopleFrom(workRoom.participants, this.peopleOptions(serverId))
     return this.hostPeople(serverId).filter((person) => person.focus && sameFocus(person.focus, focus))
   }
 
@@ -233,7 +238,8 @@ class PresenceStore {
 
   /** The person pressed a key in a session's prompt; the host hears it at most once per repeat interval. */
   noteTyping(serverId: string | null | undefined, sessionId: string | null | undefined): void {
-    if (!serverId || !sessionId) return
+    // A member who may only read the session is not composing in it; the host refuses the report.
+    if (!serverId || !sessionId || !roleCanDrive(sharesStore.listFor(serverId, { kind: 'session', id: sessionId })?.callerRole)) return
     const key = sessionKey(serverId, sessionId)
     this.typingRooms.set(key, { serverId, sessionId })
     this.typing.keystroke(key)
@@ -257,14 +263,6 @@ class PresenceStore {
   stopEditing(serverId: string | null | undefined, workId: string | null | undefined): void {
     if (!serverId || !workId) return
     this.editing.stop(sessionKey(serverId, workId))
-  }
-
-  /** Someone arrived on a host: one quiet notice, naming the host only when this client is on several. */
-  private announceArrival(serverId: string, person: PresencePerson): void {
-    if (!notificationsStore.wants('teammate_presence')) return
-    const onSeveralHosts = serverConnections.connectedServerIds().length > 1
-    const hostLabel = onSeveralHosts ? serversStore.hostFor(serverId)?.label : undefined
-    toasts.info(`${person.displayName} joined`, hostLabel ? { description: hostLabel } : undefined)
   }
 
   /** Go where a person goes, until they leave or the reader opens something of their own. */

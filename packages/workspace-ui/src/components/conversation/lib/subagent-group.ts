@@ -1,6 +1,6 @@
 import { MODEL_PROFILES, REASONING_EFFORT_LABELS, modelLabelFor, type AgentId, type Message } from '@solus/contracts/types'
-import { formatActivityDuration, getToolDescription, participleFor } from './activity-summary'
-import { parseSubagentInput, subagentTodos } from './subagent'
+import { getToolDescription, participleFor } from './activity-summary'
+import { parseSubagentInput } from './subagent'
 import { z } from 'zod'
 
 /**
@@ -9,17 +9,6 @@ import { z } from 'zod'
  */
 
 export type SubagentRowState = 'running' | 'done' | 'failed'
-
-/**
- * Steps the rail prints. An agent that keeps a todo list gives a real
- * denominator (`5/8`); one that never wrote a plan has only the tool calls it
- * has run, so `total` is 0 and the rail prints the bare count rather than
- * inventing a fraction.
- */
-export interface SubagentSteps {
-  done: number
-  total: number
-}
 
 export interface SubagentRow {
   id: string
@@ -30,7 +19,6 @@ export interface SubagentRow {
   activity: string
   /** What the live step is on. Mono, truncates, empty once settled. */
   target: string
-  steps: SubagentSteps
   /** The backend the agent runs on, for its mark on the card line. */
   provider: AgentId
   /** The model's display name, or empty when nothing names one. */
@@ -47,7 +35,7 @@ export interface SubagentGroupSummary {
   /** Agents that are neither running nor failed. */
   done: number
   elapsedMs: number
-  /** The shared objective. */
+  /** The group header's label: `3 subagents`. */
   title: string
   /** Counts, never names. */
   chip: string
@@ -71,23 +59,6 @@ export function subagentState(message: Message): SubagentRowState {
   if (message.toolStatus === 'running') return 'running'
   if (message.toolStatus === 'error') return 'failed'
   return 'done'
-}
-
-/**
- * The agent's own plan is the only thing that knows how many steps there are.
- * Without one, fall back to the tool calls it has run — a count with no
- * denominator, which the rail prints bare rather than inventing a fraction.
- */
-function stepsFor(message: Message, subs: Message[]): SubagentSteps {
-  const todos = subagentTodos(message)
-  if (todos.length > 0) {
-    return { done: todos.filter((todo) => todo.status === 'completed').length, total: todos.length }
-  }
-  const observedToolUses = subs.reduce((count, m) => (m.role === 'tool' ? count + 1 : count), 0)
-  return {
-    done: Math.max(observedToolUses, message.backgroundTaskProgress?.toolUses ?? 0),
-    total: 0,
-  }
 }
 
 function lastRunningTool(subs: Message[]): Message | undefined {
@@ -156,7 +127,6 @@ export function subagentRow(
     state,
     activity: live ? live.activity : resultSummary(message, subs),
     target: live?.target ?? '',
-    steps: stepsFor(message, subs),
     ...subagentIdentity(message, fallback),
     elapsedMs: Math.max(
       0,
@@ -207,25 +177,6 @@ export function subagentModelMeta(message: Message, fallback: SubagentModelFallb
   return [model, effortLabel].filter(Boolean)
 }
 
-function subagentTypeOf(message: Message): string {
-  return (message.subagentType || parseSubagentInput(message.toolInput).subagent_type || '').trim()
-}
-
-/** The agent type, but only when it names something — "agent" says nothing a
- *  reader of a sub-agent row doesn't already know. */
-function namedType(message: Message): string {
-  const type = subagentTypeOf(message)
-  return type === 'agent' || type === 'general-purpose' ? '' : type
-}
-
-/** The shared objective: the one thing every agent in the fan-out has in common.
- *  The count is the card's type word, so the title does not repeat it. */
-function groupTitle(messages: Message[]): string {
-  const types = new Set(messages.map(namedType))
-  const shared = types.size === 1 ? [...types][0] : ''
-  return shared ? `${shared} agents in parallel` : 'Agents in parallel'
-}
-
 export function subagentGroupSummary(
   messages: Message[],
   rows: SubagentRow[],
@@ -259,23 +210,7 @@ export function subagentGroupSummary(
     failed,
     done,
     elapsedMs: Math.max(0, (running > 0 ? now : settledAt) - startedAt),
-    title: groupTitle(messages),
+    title: `${messages.length} subagent${messages.length === 1 ? '' : 's'}`,
     chip,
   }
-}
-
-/** The group card's type word: how many agents the fan-out holds. */
-export function subagentGroupType(summary: SubagentGroupSummary): string {
-  return `${summary.total} sub-agent${summary.total === 1 ? '' : 's'}`
-}
-
-/** The group card's rail: counts and time only. */
-export function subagentGroupRail(summary: SubagentGroupSummary): string {
-  return [
-    `${summary.done} done`,
-    summary.failed > 0 ? `${summary.failed} failed` : '',
-    formatActivityDuration(summary.elapsedMs),
-  ]
-    .filter(Boolean)
-    .join(' · ')
 }

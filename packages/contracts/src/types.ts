@@ -1,3 +1,4 @@
+import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { WireSessionLoadMessage } from './session-history'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
@@ -5,10 +6,14 @@ import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
+import type { DeviceBuildRef } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
+import type { TurnFlagKind } from './observability-types'
 import type { Activity } from './activity'
 import type { MediaType } from './media-types'
+import type { WorktreeBranchNaming } from './worktree-branch-naming'
+import type { ExecutionPreferenceSnapshot, ExecutionPreferences } from './settings'
 import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
 import { z } from 'zod'
 
@@ -54,8 +59,6 @@ export interface ServerCapabilities {
   projectsBaseDirectoryIsSet?: boolean
   /** How much control agents have over task lifecycle status. */
   agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
-  /** This host's general-purpose workspace — the app's default working directory. */
-  workspacePath?: string
 }
 
 /** Feature surface advertised by one authenticated host. Missing keys are
@@ -298,15 +301,6 @@ export type SshBootstrapResult =
   | { status: 'needs-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
   | { status: 'needs-auth'; sshTarget: string; attempt: number; message: string }
 
-export interface WebPushSubscriptionJSON {
-  endpoint: string
-  expirationTime?: number | null
-  keys: {
-    p256dh: string
-    auth: string
-  }
-}
-
 // ─── Shared primitive types used by NormalizedEvent and multiple layers ───
 
 export interface UsageData {
@@ -406,6 +400,8 @@ export interface HeadlessSessionRequest {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   cwd: string
+  /** The requester's preferences for this session (plans/018 §6); absent means the built-in defaults. */
+  executionPreferences?: ExecutionPreferences
 }
 
 // ─── Model Profiles ───
@@ -589,6 +585,23 @@ export function isSessionBusyStatus(status: SessionStatus): boolean {
     || status === 'rate_limited'
 }
 
+/**
+ * Why a pending permission or question can no longer be answered. The host
+ * owns this state. `run_ended`: the run that asked it exited, stopped, or died.
+ * `closed`: the host does not hold it now — another client answered it, or the
+ * host restarted. A card with an expiry shows the reason and no answer controls.
+ */
+export type RequestExpiry = 'run_ended' | 'closed'
+
+/** The host refuses an answer to a request it does not hold now. */
+export const REQUEST_NOT_ANSWERABLE_CODE = 'REQUEST_NOT_ANSWERABLE'
+
+export function requestExpiryText(expiry: RequestExpiry): string {
+  return expiry === 'run_ended'
+    ? 'No longer answerable — the run ended.'
+    : 'No longer answerable — it was answered elsewhere or closed.'
+}
+
 export interface PermissionRequest {
   questionId: string
   toolTitle: string
@@ -597,6 +610,8 @@ export interface PermissionRequest {
   options: Array<{ optionId: string; kind?: string; label: string }>
   /** Whose turn asks, as the host stamped it; live only. */
   turnAuthor?: User
+  /** Set when the request can no longer be answered. */
+  expired?: RequestExpiry
 }
 
 /** Fields the permission UI and policy inspect from provider tool payloads. */
@@ -645,6 +660,9 @@ export interface QuestionRequest {
   canCancel?: boolean
   /** Whose turn asks, as the host stamped it; live only. */
   turnAuthor?: User
+  /** Set when the request can no longer be answered. A message-mode question
+   *  never expires with its run: it is answered by a new message. */
+  expired?: RequestExpiry
 }
 
 /** An image the host already holds on disk, named by the absolute path
@@ -668,9 +686,14 @@ export interface SessionMetadataAttachment {
 }
 
 export interface SessionMetadataGenerationContext {
+  /** The session being named. The host runs one generation per session at a
+   *  time, and a concurrent request for the same session joins it. */
+  sessionId?: string
   attachments?: SessionMetadataAttachment[]
   imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
   imageAttachmentRefs?: PromptImageRef[]
+  /** The requester's writing preferences (`textGenerationModel`); absent means the built-in default. */
+  executionPreferences?: ExecutionPreferences
 }
 
 export interface Attachment {
@@ -957,6 +980,8 @@ export type PendingHostDispatch =
  * mid-conversation moves the session, not a copy of it.
  */
 export interface Session {
+  queueVersion?: number
+  queueHeld?: boolean
   id: string
   run: RunConfig
   agentSessionId: string | null
@@ -1216,9 +1241,21 @@ export interface PrConflictResolutionResult {
   error?: string
 }
 
+/** A provider context compaction, drawn as a transcript divider. Each field is
+ *  present only when the provider reports it: Claude records the trigger and
+ *  the token counts, Codex records only that a compaction happened. */
+export interface ContextCompaction {
+  trigger?: 'manual' | 'auto'
+  preTokens?: number
+  postTokens?: number
+}
+
 export interface Message {
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
+  /** A system row that marks a context compaction. Live from the
+   *  `context_compaction` stop event, and read back with the history. */
+  compaction?: ContextCompaction
   /** A system row that is one activity the host recorded (plans/012 §5): a stop,
    *  a decision, a rename. Live from the `activity` event, and read back with the
    *  history, so it survives a reload. */
@@ -1286,7 +1323,7 @@ export interface Message {
   planId?: string
   /** Stable ExitPlanMode tool_use id — used for scroll-to-plan targeting */
   planToolUseId?: string
-  workRef?: { workId: string; title: string; workType?: WorkType }
+  workRef?: { workId: string; title: string; workType?: WorkType; contentVersion?: number }
   /** A rendered visual artifact (render_artifact tool) shown flush in the
    *  conversation. `pending` is true while the tool call is still in flight.
    *  An HTML artifact also carries `workRef` once it is persisted as an
@@ -1321,6 +1358,8 @@ export interface Message {
   browserSnapshot?: BrowserSnapshotRef
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
+  /** An app build the agent handed to Solus, rendered as a card that installs it. */
+  deviceBuild?: DeviceBuildRef
   /** Agent-conversation card for another agent this thread is driving
    *  (start_session / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
@@ -1478,6 +1517,7 @@ export interface PlanMessageRef {
   content?: string;
   timestamp?: number;
   updatedAt?: string;
+  contentVersion?: number;
   /** Only set when kind === 'document' — distinguishes diagram from doc/slides */
   workType?: WorkType;
   /** True while a create_work tool call is still streaming content into the card. */
@@ -1554,6 +1594,18 @@ export interface WorkAnnotations {
   version: 1
   workId: string
   comments: PlanComment[]
+  /** Each reader's own mark on the turn an Insights report shows: one per
+   *  person, set by anyone who may comment. */
+  marks?: WorkMark[]
+  updatedAt: number
+}
+
+/** One person's mark on a shared Insights report. */
+export interface WorkMark {
+  by: User
+  kind: TurnFlagKind
+  /** Why, in the person's words. Empty when they marked without saying. */
+  note: string
   updatedAt: number
 }
 
@@ -1663,7 +1715,7 @@ export type AgentConversationOrigin = 'created' | 'prompted'
 
 /** Where one exchange stands. `lost` is a message the transcript opened whose
  *  reply never arrived and that the host no longer carries — a restart ended it. */
-export type AgentExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'answered' | 'done' | 'failed' | 'interrupted' | 'lost'
+export type AgentExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'waiting_for_children' | 'answered' | 'done' | 'failed' | 'interrupted' | 'lost'
 
 /** One prompt→reply round-trip with another agent. `index` is dispatch order
  *  within the agent-conversation card and never renumbers. */
@@ -1720,15 +1772,15 @@ export interface AgentConversationRef {
 
 /**
  * A message a session sent that the host still carries: its turn has not
- * settled (`queued`, `running`, `awaiting_input`), or its reply waits for the
- * sender (`reply_queued`). Served from host memory, so a message missing from
- * the list is either finished — its reply is in the sender's transcript — or
- * was lost to a host restart.
+ * settled, waiting on nested work, or has a reply waiting for the sender.
+ * Stored host receipts keep queued work, pending reports, and final outcomes
+ * visible after a restart. Closed receipts are retained for safe retries.
  */
 export interface SentSessionMessage {
   messageId: string
   targetAgentSessionId: string
-  state: 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'reply_queued'
+  state: 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'waiting_for_children' | 'reply_queued' | 'settled'
+  outcome?: ExchangeOutcome
   request?: ExchangeRequest
   /** While `rate_limited`: when the turn resumes. */
   resetsAt?: number
@@ -1744,7 +1796,7 @@ export type AgentConversationUpdate =
   | { phase: 'attached'; messageId: string; agentSessionId: string; cwd?: string }
   /** The target accepted the message: its turn started, it waits behind the
    *  target's current turn, or it joined that turn as a steer. */
-  | { phase: 'accepted'; agentSessionId: string; messageId: string; state: 'queued' | 'running' }
+  | { phase: 'accepted'; agentSessionId: string; messageId: string; state: 'queued' | 'running' | 'waiting_for_children' }
   | { phase: 'awaiting_input'; agentSessionId: string; messageId: string; request: ExchangeRequest }
   /** A person answered what the message's turn was waiting on, from any surface. */
   | { phase: 'answered'; agentSessionId: string; messageId: string; answerText: string }
@@ -1799,16 +1851,19 @@ export type NormalizedEvent =
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User }
-  /** Who decided is an `activity` of its own; this event only clears the request. */
-  | { type: 'permission_resolved'; questionId: string; decision?: PermissionDecision }
+  /** Who decided is an `activity` of its own; this event only clears the request.
+   *  With `expired`, nobody answered: the host closed the request (its run ended),
+   *  and clients keep the card, without answer controls, to say why. */
+  | { type: 'permission_resolved'; questionId: string; decision?: PermissionDecision; expired?: RequestExpiry }
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
   | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url'; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
-   *  duration; Codex can report start and stop item boundaries. */
-  | { type: 'context_compaction'; state: 'start' | 'stop'; trigger?: 'manual' | 'auto'; startedAtMs?: number; completedAtMs?: number; durationMs?: number }
+   *  duration and its token counts; Codex can report start and stop item
+   *  boundaries. A stop that is not `failed` draws the compaction divider. */
+  | { type: 'context_compaction'; state: 'start' | 'stop'; trigger?: 'manual' | 'auto'; startedAtMs?: number; completedAtMs?: number; durationMs?: number; preTokens?: number; postTokens?: number; failed?: boolean }
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
@@ -1817,6 +1872,8 @@ export type NormalizedEvent =
   | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; agentSessionId?: string; agentMessageId?: string; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
+  | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
+  | { type: 'provider_switch_applied'; provider: AgentId; modelConfig: ModelConfig; result: SessionProviderSwitchResult | null }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
   | { type: 'rate_limit_resolved'; sessionId: string; action: RateLimitDecisionAction }
   /** One thing a person (or the host) did to the session that people read: a
@@ -1828,7 +1885,7 @@ export type NormalizedEvent =
   | { type: 'plan_rejected'; planToolUseId: string }
   | { type: 'permission_mode_changed'; permissionMode: PermissionMode }
   | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string }
-  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string }
+  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
@@ -1837,6 +1894,7 @@ export type NormalizedEvent =
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
+  | { type: 'device_build_ready'; build: DeviceBuildRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
 
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
@@ -1872,6 +1930,8 @@ export interface PromptDispatchResult {
 }
 
 export interface PromptOptions {
+  queueAttachments?: QueueAttachment[]
+  queueAttachmentContext?: string
   prompt: string
   /** Explicit source of this turn for observability. Queue drain replaces it
    *  with `queued`; a remote execution host receives `dispatch`. */
@@ -1979,13 +2039,9 @@ export interface SessionCtx {
 export type AppFontFamily = 'inter' | 'dm-sans' | 'system' | 'geist' | 'lora' | 'sf-pro-text' | 'sf-mono'
 export type AppCodeFontFamily = 'sf-mono' | 'geist-mono' | 'fira-code' | 'cascadia-code' | 'jetbrains-mono' | 'system-mono'
 
+/** The sender's choices a host reads for one request. */
 export interface SettingsCtx {
-  themeMode: 'dark' | 'light' | 'system'
-  isDark: boolean
-  voiceModeEnabled: boolean
-  vadSilenceMs: number
-  defaultEditor: EditorId | null
-  /** Terminal opened only when no terminal is attached to the shared tmux session. */
+  /** This device's terminal, for a launch on the client's own machine. Never applied to a remote host. */
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   /** Effective review-companion choices used by foreground and background guide generation. */
@@ -1996,16 +2052,12 @@ export interface SettingsCtx {
   reviewGuideInstructions: string
   /** Per-project opt-in resolved by the renderer before crossing IPC. */
   reviewWarmingEnabled: boolean
-  rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
-  /** A preset id or an installed family name; see `FontFamilyPreference`. */
-  fontFamily: string
-  fontSize: number
-  codeFontFamily: string
-  codeFontSize: number
-  /** App-wide user instructions added through the provider's instruction extension point. */
-  extraInstructions: string
-  /** Extra instructions keyed by resolved model id, appended when that model runs. */
-  modelInstructions: Record<string, string>
+  /**
+   * The sender's personal preferences the host reads while it runs this work
+   * (plans/018 §6), including instructions and rate-limit behavior. Strict: a bad
+   * value refuses the request.
+   */
+  executionPreferences: ExecutionPreferences
 }
 
 export interface StatusBarCtx {
@@ -2075,10 +2127,10 @@ export interface SessionRunInput {
   reasoningEffort: ReasoningEffort
   fastMode: boolean
   permissionMode: PermissionMode
-  rateLimitBehavior: SettingsCtx['rateLimitBehavior']
+  rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
   /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
-  /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */
+  /** Extra instructions scoped to the model in use, resolved from the sender's execution preferences at dispatch time. */
   modelInstructions?: string
   /** System-level context used only when starting a new provider session. */
   handoff?: {
@@ -2086,6 +2138,12 @@ export interface SessionRunInput {
     fromSessionId: string
     seedSystemAppend: string
   }
+  /**
+   * The acting person's preferences, captured when this run was requested, so a
+   * queued or resumed run keeps them and another client's later edit cannot
+   * change it mid-run (plans/018 §6). Absent: built-in defaults.
+   */
+  executionPreferences?: ExecutionPreferences
 }
 
 // ─── Control Plane Types ───
@@ -2188,7 +2246,7 @@ export interface AcceptPlanResult {
 
 export type QueuedPromptReason = 'busy' | 'rate_limit'
 
-export interface QueuedPromptSnapshot {
+export interface QueuedPromptSnapshot extends QueueEntryDetails {
   queueId: string
   clientPromptId?: string
   text: string
@@ -2211,7 +2269,8 @@ export type OutboundPromptState = 'steering' | 'queueing' | 'queued' | 'failed'
 /** One renderer-side representation for every prompt waiting to be accepted,
  *  queued, or retried. `clientPromptId` is generated before dispatch and is the
  *  sole correlation key used to reconcile backend events. */
-export interface OutboundPrompt {
+export interface OutboundPrompt extends Omit<QueueEntryDetails, 'attachments'> {
+  queueAttachments?: QueueAttachment[]
   clientPromptId: string
   queueId?: string
   text: string
@@ -2454,6 +2513,8 @@ export interface SessionRecordListFilter {
   provider?: AgentId
   projectPath?: string
   includeWorktrees?: boolean
+  /** Only chats, the sessions with no project, in every chat folder. */
+  chats?: boolean
   limit?: number
 }
 
@@ -2590,7 +2651,6 @@ export interface StartInfo {
   mcpServers?: string[]
   projectPath: string
   homePath: string
-  workspacePath: string
   agents: AgentMetadata[]
 }
 
@@ -2681,6 +2741,9 @@ export interface ProjectConfig {
   tasksAutoPushComments?: boolean
   /** Move in-review tasks to done when their linked pull request merges. */
   taskDoneOnMerge?: boolean
+  /** Overrides the host's worktree branch naming for this project. Absent =
+   *  the host setting. */
+  worktreeBranchNaming?: WorktreeBranchNaming
 }
 
 // ─── Editor / Terminal Types ───
@@ -3269,6 +3332,13 @@ export interface Automation {
    *  an agent's session and the person it worked for. The person's removal from
    *  the organization pauses it (plans/010-standard-oauth.md). */
   createdBy: Attribution
+  /**
+   * The creator's personal preferences this automation runs with (plans/018 §6):
+   * captured when it was created or last edited, or once from the host's old
+   * config (`source: 'legacy'`) the first time it ran after the upgrade. A later
+   * edit to the person's settings does not rewrite it.
+   */
+  executionPreferences?: ExecutionPreferenceSnapshot
   lastRunId?: string
   lastRunStatus?: AutomationRunStatus
   lastRunAt?: string

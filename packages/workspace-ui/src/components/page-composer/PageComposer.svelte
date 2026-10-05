@@ -16,10 +16,9 @@
   /**
    * A page's way to start an agent on it: one chat glyph docked at the foot of
    * the page, which opens into the same composer a new session gets. Send turns
-   * the draft into a session and pops its conversation out beside the page —
-   * or, on a phone, where there is no beside, in its place.
+   * the draft into a session and pops its conversation out beside the page.
    */
-  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode" | "composerActions"> {
+  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> {
     /** The pane the page fills. Its composer is this one. */
     paneId: string;
     /** What the draft is aimed at: the work it binds, the host it runs on. */
@@ -45,14 +44,17 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    composerActions,
   }: Props = $props();
 
   const session = getWorkspaceContext();
 
-  // Held, not looked up: Send drops the draft from the map while the bar is
-  // still clearing the text it just sent.
+  // The draft the page holds: the one the next Send starts, or null once it has.
   let draft = $state.raw<SessionDraft | null>(null);
+  // The draft on screen. Send and fold let go of `draft` while the bar is still
+  // clearing the text it sent and the composer is still scaling away, and
+  // both read the draft they were given until they are gone — so the rendered
+  // one is held apart, the way the draft pane holds its `sent` draft.
+  let shown = $state.raw<SessionDraft | null>(null);
   let expanded = $state(false);
   let composerEl = $state<HTMLDivElement | null>(null);
   let composerInput = $state<ReturnType<typeof DraftComposer> | null>(null);
@@ -61,6 +63,7 @@
 
   async function expand() {
     draft ??= session.drafts.openDockedDraft({ ...aim, via: "click" }, cwd);
+    shown = draft;
     expanded = true;
     // The caret waits for the pop-out: one placed mid-scale is painted at the
     // scaled size and can stay a filled block. Without the motion there is no
@@ -126,8 +129,7 @@
   });
 </script>
 
-{#if expanded && draft}
-  {@const current = draft}
+{#if expanded && shown}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={composerEl}
@@ -145,7 +147,7 @@
   >
     <DraftComposer
       bind:this={composerInput}
-      draft={current}
+      draft={shown}
       {paneId}
       active
       isPrimary={false}
@@ -158,7 +160,6 @@
       {onAttachFile}
       {onScreenshot}
       {onDesignMode}
-      {composerActions}
     />
   </div>
 {:else}

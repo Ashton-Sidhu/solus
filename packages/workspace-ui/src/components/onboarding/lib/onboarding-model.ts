@@ -73,8 +73,8 @@ export const TOUCH_STAGES: OnboardingStage[] = ['getting-around', 'host', 'cloud
 
 /**
  * The cloud flow. Each stage makes the next one possible: a machine, the
- * agents on it, GitHub, and the shared start choice. `agents` is passed over
- * when no machine was chosen (`skipsAgents`). Skipping GitHub still asks
+ * account's agents, GitHub, and the shared start choice. Cloud agent checks
+ * need no chosen machine. Skipping GitHub still asks
  * where to start; a repository is an optional step under existing code.
  */
 export const CLOUD_POINTER_STAGES: OnboardingStage[] = ['compute', 'agents', 'github', 'start']

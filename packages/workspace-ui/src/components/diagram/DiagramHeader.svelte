@@ -1,6 +1,7 @@
 <script lang="ts">
   import { liveStatus, type LiveStatusInput } from "../work/lib/live-status";
-  import { Check as CheckIcon } from "@lucide/svelte";
+  import WorkSavedStatus from "../work/WorkSavedStatus.svelte";
+  import SessionNameInput from "../session/SessionNameInput.svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
@@ -26,6 +27,8 @@
     copyFormats: WorkCopyFormat[];
     onExport?: (request: WorkExportRequest) => void;
     hostIsRemote: boolean;
+    /** Why the reader may not edit; null for an editor. */
+    readOnlyReason?: string | null;
   }
 
   let {
@@ -43,29 +46,14 @@
     copyFormats,
     onExport,
     hostIsRemote,
+    readOnlyReason = null,
   }: Props = $props();
 
-  // Click-to-rename (mirrors DocumentShell). Only the root title is editable.
+  // Double-click to rename, like the session crumb. The field commits on
+  // Enter or blur and cancels on Escape (`SessionNameInput`).
   let renaming = $state(false);
-  let renameValue = $state("");
   function startRename() {
-    renameValue = title;
     renaming = true;
-  }
-  function commitRename() {
-    if (!renaming) return;
-    renaming = false;
-    const next = renameValue.trim();
-    if (next && next !== title) onRename?.(next);
-  }
-  function renameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.currentTarget instanceof HTMLInputElement) e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      renaming = false;
-    }
   }
 
   let copied = $state(false);
@@ -103,28 +91,46 @@
     </span>
   {/if}
   {#if renaming}
-    <!-- svelte-ignore a11y_autofocus -->
-    <input
-      class="diagram-shell__title-input"
-      bind:value={renameValue}
-      onblur={commitRename}
-      onkeydown={renameKeydown}
-      autofocus
-      aria-label="Rename diagram"
-      data-testid="rename-work-input"
-    />
-  {:else if onOpenWorkspace}
+    <span class="flex h-[1.875rem] w-80 min-w-24 max-w-full shrink items-center">
+      <SessionNameInput
+        value={title}
+        variant="row"
+        class="text-workspace-chrome font-medium"
+        onCommit={(next) => {
+          renaming = false;
+          onRename?.(next);
+        }}
+        onCancel={() => (renaming = false)}
+      />
+    </span>
+  {:else if onRename}
+    <button
+      type="button"
+      class="min-w-0 truncate rounded-md border-0 bg-transparent px-1 py-0.5 text-left text-workspace-chrome font-medium text-(--solus-text-primary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:min-h-11"
+      ondblclick={startRename}
+      title="{title} — double-click to rename"
+      aria-label={`Rename diagram: ${title}`}
+    >{title}</button>
+  {:else}
     <span
       class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
       title={title}>{title}</span
     >
   {/if}
-  <div class="diagram-shell__toolbar-spacer"></div>
   <div class="diagram-shell__save-status">
-    {#if liveState}
+    <!-- A reader saves nothing, so the slot says why the canvas does not edit.
+         A live connection's trouble still wins: it is news to a reader too. -->
+    {#if readOnlyReason && (!liveState || liveStatus(liveState).tone === "ok")}
+      <span data-testid="diagram-read-only" title={readOnlyReason}>Read-only</span>
+      <span class="@max-[30rem]/pane:hidden">· {readOnlyReason}</span>
+    {:else if liveState}
       {@const status = liveStatus(liveState)}
-      <span class="diagram-shell__save-dot" class:opacity-0={status.tone === "ok"} aria-hidden="true"></span>
-      <span data-testid="live-status">{status.label}</span>
+      {#if status.label === "Saved"}
+        <WorkSavedStatus />
+      {:else}
+        <span class="size-1.5 shrink-0 rounded-full {status.tone === 'warn' ? 'bg-(--solus-status-error)' : 'bg-(--solus-accent)'}" aria-hidden="true"></span>
+        <span data-testid="live-status">{status.label}</span>
+      {/if}
     {:else if saver.showSaving}
       <span class="diagram-shell__save-dot" aria-hidden="true"></span>
       <span>Saving…</span>
@@ -140,10 +146,10 @@
         Save failed — retry
       </button>
     {:else if saver.lastSavedAt !== null}
-      <CheckIcon size={11} />
-      <span>{formatSavedAgo(saver.lastSavedAt, now)}</span>
+      <WorkSavedStatus label={formatSavedAgo(saver.lastSavedAt, now)} />
     {/if}
   </div>
+  <div class="diagram-shell__toolbar-spacer"></div>
   <WorkHeaderActions
     onStartRename={onRename ? startRename : undefined}
     {copied}

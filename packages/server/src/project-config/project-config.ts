@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
+import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
 import { git } from '../git/exec'
 
 /**
@@ -36,6 +37,8 @@ const projectConfigInputSchema = z.object({
   }).optional(),
   tasksAutoPushComments: z.boolean().optional(),
   taskDoneOnMerge: z.boolean().optional(),
+  // A malformed override is dropped, not fatal: the rest of the file still applies.
+  worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
 })
 
 type ProjectConfigInput = z.infer<typeof projectConfigInputSchema>
@@ -91,6 +94,9 @@ function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   }
   if (raw.taskDoneOnMerge !== undefined) {
     config.taskDoneOnMerge = raw.taskDoneOnMerge
+  }
+  if (raw.worktreeBranchNaming !== undefined) {
+    config.worktreeBranchNaming = raw.worktreeBranchNaming
   }
   return config
 }

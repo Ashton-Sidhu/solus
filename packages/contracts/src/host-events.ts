@@ -1,3 +1,4 @@
+import type { DeviceState } from './device-types'
 import type { CheckoutChange } from './checkout'
 import type { AtlassianOAuthCompleted } from './atlassian'
 import type { HostConfigSnapshot } from './host-config'
@@ -27,11 +28,12 @@ import type { InsightPullState } from './observability-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
-import type { HostPresenceSnapshot, SessionPresenceSnapshot } from './presence'
+import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus, Publication } from './organization-scope'
 import type { UplinkStatus } from './uplink'
 import type { WatchChangedEvent } from './watch-types'
 import type { WorkReviewsChanged } from './work-review'
+import type { NotificationsChanged } from './notification-hub'
 import type { WorkLiveAwarenessEvent, WorkLiveStateEvent, WorkLiveUpdateEvent } from './work-live'
 import { z } from 'zod'
 
@@ -89,6 +91,9 @@ export interface HostEventMap {
   /** One work's reviewers or decisions changed. Delivered to everyone who can
    *  open the work; the review is read again with `workReviewGet`. */
   'workReviews.changed': WorkReviewsChanged
+  /** The caller's own notifications changed at this home. Delivered only to the
+   *  recipient's connections; they read the first page again. */
+  'notifications.changed': NotificationsChanged
   /** Live editing: sent only to the clients in the work's room, never stored as events. */
   'workLive.update': WorkLiveUpdateEvent
   'workLive.awareness': WorkLiveAwarenessEvent
@@ -118,6 +123,12 @@ export interface HostEventMap {
    *  delta: the list is a handful of rows, and two mounted clients offering
    *  different identities for one project is the failure to avoid. */
   'browser.profilesChanged': { profiles: BrowserProfileSet }
+  /** The whole device snapshot. Bounded: hosts, devices and previews are capped. A
+   *  client that sees a revision lower than one it holds ignores it; after a
+   *  reconnect it reads `deviceState`. Never carries frames or credentials. */
+  'device.stateChanged': { state: DeviceState }
+  /** An agent or user opened a device in a session; clients showing that session may reveal it. */
+  'device.surfaceRequested': { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
   /** This host's config changed. Every mounted client adopts it, so two
    *  windows or two devices cannot end a turn showing different settings. */
@@ -143,6 +154,9 @@ export interface HostEventMap {
   /** Who is connected to this host and what each of them has focused. Delivered to
    *  every admitted client but a guest, who is never told about the host. */
   'host.presenceChanged': HostPresenceSnapshot
+  /** Who has one work open. Delivered to the guests on that work's link, who
+   *  never get the host room. */
+  'work.presenceChanged': WorkPresenceSnapshot
   /** This host's cloud link changed: linked, unlinked, or the tunnel came up or
    *  went down. The whole status, as `uplinkStatus` answers it: linking returns
    *  before the connector registers, so the row that just linked hears "online" here. */
@@ -201,6 +215,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'workLive.awareness': { owner: 'works', category: 'targeted', recovery: 'reset', description: "A cursor in a work open live moved, or a client left its room." },
   'workLive.state': { owner: 'works', category: 'targeted', recovery: 'reset', description: 'The agent edit lock on a work open live started or ended.' },
   'workReviews.changed': { owner: 'works', category: 'delta', recovery: 'reload', description: "A work's reviewers or review decisions changed; read the review again by work id." },
+  'notifications.changed': { owner: 'notifications', category: 'invalidation', recovery: 'reload', description: "The recipient's notifications changed; read the first page again." },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
@@ -211,6 +226,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },
   'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "A project's named browser profiles changed." },
+  'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
+  'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
@@ -219,6 +236,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
+  'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's cloud link or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },

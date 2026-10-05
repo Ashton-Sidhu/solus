@@ -305,6 +305,7 @@ export class Task implements TaskRecord {
       const metadata = await this.#api.generateSessionMetadata(
         taskTitleRegenerationInput(this),
         this.projectKey ?? '~',
+        { executionPreferences: this.#store.executionPreferences() },
       )
       if (!metadata) throw new Error("Couldn't generate a new task title.")
       return await this.update({ title: metadata.title })

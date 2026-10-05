@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { ContextCompaction } from '@solus/contracts/types'
 import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
@@ -91,6 +92,14 @@ const claudeTranscriptLineSchema = z.object({
   cwd: z.string().optional(),
   isSidechain: z.boolean().optional(),
   isMeta: z.boolean().optional(),
+  subtype: z.string().optional(),
+  /** On a `compact_boundary` system line. Claude writes it in camel case here,
+   *  unlike the snake-case `compact_metadata` of the live stream. */
+  compactMetadata: z.object({
+    trigger: z.enum(['manual', 'auto']).optional().catch(undefined),
+    preTokens: z.number().optional().catch(undefined),
+    postTokens: z.number().optional().catch(undefined),
+  }).optional().catch(undefined),
   parent_tool_use_id: z.string().optional(),
   message: z.object({
     content: z.union([z.string(), z.array(claudeContentBlockSchema)]).optional(),
@@ -191,6 +200,15 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
     // Sub-agent (Agent/Task) activity is recorded with the spawning tool's id, so
     // history replay can divert it into that tool's nested transcript.
     const parentToolUseId: string | undefined = obj.parent_tool_use_id || undefined
+    if (obj.type === 'system' && obj.subtype === 'compact_boundary') {
+      // The live `context_compaction` stop draws the same divider.
+      const compaction: ContextCompaction = {}
+      const metadata = obj.compactMetadata
+      if (metadata?.trigger) compaction.trigger = metadata.trigger
+      if (metadata?.preTokens !== undefined) compaction.preTokens = metadata.preTokens
+      if (metadata?.postTokens !== undefined) compaction.postTokens = metadata.postTokens
+      return { messageId: obj.uuid, role: 'system', content: '', compaction, timestamp: new Date(obj.timestamp ?? 0).getTime() }
+    }
     if (obj.type === 'user') {
       if (obj.isMeta) return null
       const content = obj.message?.content

@@ -172,6 +172,17 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
   app.get(routes.listSessionMessages.path, async c => c.json(await operations.listSessionMessages(authority(c), id(c, 'sessionId'), query(c, routes.listSessionMessages.query))))
   app.get(routes.listSessionActivity.path, async c => c.json(await operations.listSessionActivity(authority(c), id(c, 'sessionId'), query(c, routes.listSessionActivity.query))))
   app.get(routes.listMyActivity.path, async c => c.json(await operations.listMyActivity(authority(c), query(c, routes.listMyActivity.query))))
+  // Before `/me/notifications/:notificationId/...`; the fixed segment is never an id.
+  app.get(routes.countMyNotifications.path, async c => { query(c, routes.countMyNotifications.query); return c.json(await operations.countMyNotifications(authority(c))) })
+  app.get(routes.listMyNotifications.path, async c => c.json(await operations.listMyNotifications(authority(c), query(c, routes.listMyNotifications.query))))
+  app.post(routes.setMyNotificationRead.path, limitBody(4 * 1024), async c => {
+    query(c, routes.setMyNotificationRead.query)
+    return c.json(await operations.setMyNotificationRead(authority(c), id(c, 'notificationId'), await body(c, routes.setMyNotificationRead.body)))
+  })
+  app.post(routes.setMyNotificationArchived.path, limitBody(4 * 1024), async c => {
+    query(c, routes.setMyNotificationArchived.query)
+    return c.json(await operations.setMyNotificationArchived(authority(c), id(c, 'notificationId'), await body(c, routes.setMyNotificationArchived.body)))
+  })
 
   app.get(routes.listInsights.path, async c => c.json(await operations.listInsights(authority(c), query(c, routes.listInsights.query))))
   app.get(routes.getInsightSpans.path, async c => { query(c, routes.getInsightSpans.query); return c.json(await operations.getInsightSpans(authority(c), z.string().min(1).max(1024).parse(c.req.param('insightId')))) })

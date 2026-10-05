@@ -13,11 +13,22 @@ import { z } from 'zod'
 /**
  * A person's access token lives five minutes (plans/010-standard-oauth.md): the
  * account plane is an OAuth 2.1 authorization server, hosts and the Solus API check
- * its JWT access tokens offline, and a short life is how removal reaches them.
+ * its JWT access tokens offline, and a short life is how removal reaches them. A
+ * host's delegated tokens refresh on their own, so a short life costs them nothing.
  */
 export const ACCESS_TOKEN_TTL_SECONDS = 300
 
-/** A guest grant lives ten minutes; no token a host accepts lives longer. */
+/**
+ * The token the Solus apps dial a host or the Solus API with lives eight hours. A
+ * host admits a socket for its token's life, so a shorter life drops every live
+ * connection that often, and a client keeps the token for its redials. Hosts check
+ * it offline: a person removed from an organization can connect with a token they
+ * hold until it ends. Token exchange checks standing live, so delegated work stops
+ * at once; an owner's device revocation on the host also takes effect at once.
+ */
+export const FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60
+
+/** A guest grant lives ten minutes. */
 export const GUEST_GRANT_TTL_SECONDS = 600
 
 /**
@@ -709,6 +720,12 @@ export const uplinkErrorCodeSchema = z.enum([
   'personal_hosts_not_allowed',
   /** An organization ticket was redeemed with a user grant that is not this host's, has expired, or names nobody. */
   'invalid_user_grant',
+  /** A settings write named a revision that is no longer current; the body carries the current document. */
+  'settings_conflict',
+  /** Synced settings were cleared since this client last read them; it must turn sync on again. */
+  'settings_generation_changed',
+  /** Only an organization owner may change its settings. */
+  'not_settings_manager',
 ])
 export type UplinkErrorCode = z.infer<typeof uplinkErrorCodeSchema>
 

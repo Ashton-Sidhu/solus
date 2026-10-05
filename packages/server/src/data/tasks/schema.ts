@@ -18,6 +18,8 @@ export const tasks = defineTable('tasks', {
   body: text({ notNull: true, default: '' }),
   status: text({ notNull: true, default: 'inbox' }),
   assignee: text(),
+  /** The Solus person assigned, by user key; never inferred from `assignee`. */
+  assignee_user_id: text(),
   due_date: text(),
   priority: text(),
   labels: json({ notNull: true, default: '[]' }),
@@ -32,6 +34,12 @@ export const tasks = defineTable('tasks', {
   triaged_at: bigint(),
   done_at: bigint(),
   last_read_at: bigint(),
+  /**
+   * The lead preferences captured when the task was first led
+   * (`ExecutionPreferenceSnapshot`; plans/018 §3.1): later lead and worker runs
+   * use them, so a person's changed default does not change an existing task.
+   */
+  lead_preferences: json(),
   organization_id: ORGANIZATION,
 }, {
   indexes: [

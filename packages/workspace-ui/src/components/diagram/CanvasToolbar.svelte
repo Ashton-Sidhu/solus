@@ -9,6 +9,8 @@
   import type { LayoutDirection } from '@solus/contracts/diagram-layout'
 
   interface Props {
+    /** A reader's bar: zoom, search and the minimap; nothing that edits. */
+    readOnly?: boolean
     canUndo: boolean
     canRedo: boolean
     onUndo: () => void
@@ -36,6 +38,7 @@
   }
 
   let {
+    readOnly = false,
     canUndo, canRedo, onUndo, onRedo, onDuplicate, onSearch, onSelectAll, onArrange, arrangementCount,
     onAddNode,
     onAddGroup,
@@ -71,39 +74,41 @@
      thing on this bar worth spending the accent on, so it leads. -->
 <Panel position="bottom-center">
   <div class="canvas-toolbar" role="toolbar" aria-label="Canvas controls">
-    <div class="canvas-toolbar__group">
-      <button type="button" class="canvas-toolbar__btn" disabled={!canUndo} onclick={onUndo} title="Undo" aria-label="Undo"><Undo2 size={16} /></button>
-      <button type="button" class="canvas-toolbar__btn" disabled={!canRedo} onclick={onRedo} title="Redo" aria-label="Redo"><Redo2 size={16} /></button>
-    </div>
-    <span class="canvas-toolbar__divider" aria-hidden="true"></span>
-    <div class="canvas-toolbar__group">
-      <button
-        type="button"
-        class="canvas-toolbar__btn canvas-toolbar__add"
-        onclick={onAddNode}
-        title="Add node (⌥N)"
-        aria-label="Add node"
-      >
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-          <path d="M8 3v10M3 8h10" />
-        </svg>
-      </button>
+    {#if !readOnly}
+      <div class="canvas-toolbar__group">
+        <button type="button" class="canvas-toolbar__btn" disabled={!canUndo} onclick={onUndo} title="Undo" aria-label="Undo"><Undo2 size={16} /></button>
+        <button type="button" class="canvas-toolbar__btn" disabled={!canRedo} onclick={onRedo} title="Redo" aria-label="Redo"><Redo2 size={16} /></button>
+      </div>
+      <span class="canvas-toolbar__divider" aria-hidden="true"></span>
+      <div class="canvas-toolbar__group">
+        <button
+          type="button"
+          class="canvas-toolbar__btn canvas-toolbar__add"
+          onclick={onAddNode}
+          title="Add node (⌥N)"
+          aria-label="Add node"
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+        </button>
 
-      <button
-        type="button"
-        class="canvas-toolbar__btn"
-        onclick={() => onAddGroup()}
-        title="Add group (⌥G)"
-        aria-label="Add group"
-      >
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <rect x="1.75" y="3.5" width="12.5" height="10" rx="2" stroke-dasharray="2.2 1.8" />
-          <path d="M8 7v3M6.5 8.5h3" />
-        </svg>
-      </button>
-    </div>
+        <button
+          type="button"
+          class="canvas-toolbar__btn"
+          onclick={() => onAddGroup()}
+          title="Add group (⌥G)"
+          aria-label="Add group"
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <rect x="1.75" y="3.5" width="12.5" height="10" rx="2" stroke-dasharray="2.2 1.8" />
+            <path d="M8 7v3M6.5 8.5h3" />
+          </svg>
+        </button>
+      </div>
 
-    <span class="canvas-toolbar__divider" aria-hidden="true"></span>
+      <span class="canvas-toolbar__divider" aria-hidden="true"></span>
+    {/if}
 
     <!-- Zoom and fit are the controls every canvas has, editable or not, so the
          reading preview renders this same cluster. -->
@@ -112,7 +117,7 @@
     <span class="canvas-toolbar__divider" aria-hidden="true"></span>
 
     <div class="canvas-toolbar__group">
-      {#if isTouchDevice && onToggleTouchNodeDrag}
+      {#if !readOnly && isTouchDevice && onToggleTouchNodeDrag}
         <!-- Touch has no hover cursor to distinguish moving a card from moving
              the board. Navigation stays the default; this explicit mode gives
              node arrangement its own reversible gesture. -->
@@ -131,10 +136,14 @@
         </button>
       {/if}
 
-      <SelectionArrangeMenu count={arrangementCount} {onArrange} {onSelectAll} />
-      <button type="button" class="canvas-toolbar__btn" disabled={arrangementCount === 0} onclick={onDuplicate} title="Duplicate selected nodes" aria-label="Duplicate selected nodes"><Copy size={16} /></button>
+      {#if !readOnly}
+        <SelectionArrangeMenu count={arrangementCount} {onArrange} {onSelectAll} />
+        <button type="button" class="canvas-toolbar__btn" disabled={arrangementCount === 0} onclick={onDuplicate} title="Duplicate selected nodes" aria-label="Duplicate selected nodes"><Copy size={16} /></button>
+      {/if}
       <button type="button" class="canvas-toolbar__btn" onclick={onSearch} title="Search diagram" aria-label="Search diagram"><Search size={16} /></button>
-      <DiagramLayoutMenu onLayout={relayoutAndFit} current={layoutDirection} />
+      {#if !readOnly}
+        <DiagramLayoutMenu onLayout={relayoutAndFit} current={layoutDirection} />
+      {/if}
 
       <!-- Dropped, not disabled, where no minimap fits: a toggle that cannot
            change what the user sees is a lying control, and the width it gives
@@ -158,7 +167,7 @@
       {/if}
     </div>
 
-    {#if onDeleteSelected}
+    {#if onDeleteSelected && !readOnly}
       <span class="canvas-toolbar__divider" aria-hidden="true"></span>
 
       <button

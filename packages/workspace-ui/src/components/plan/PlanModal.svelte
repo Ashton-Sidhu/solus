@@ -26,6 +26,9 @@
   import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
+  import { setCommentViewer } from "../comments/lib/comment-viewer";
+  import { SINGLE_READER } from "../comments/lib/thread";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
 
   const commentExtensions = [CommentHighlights];
 
@@ -52,6 +55,11 @@
   );
   const planServerId = $derived(planStore.hostFor(plan.id));
   const planProjectRoot = $derived(plan.cwd || plan.projectPath);
+  // A plan belongs to its session: a member who may only read that session
+  // reads the plan, and its comments, but does not edit, publish, bookmark,
+  // comment on, or decide it. The host requires an editor for each.
+  const canDrive = $derived(canDriveSession(planServerId, plan.sessionId));
+  setCommentViewer(() => ({ ...SINGLE_READER, canModerate: canDrive, canReply: canDrive }));
 
   const planRevisions = $derived(planStore.plansForSession(plan.sessionId));
   const revisionCount = $derived(planRevisions.length);
@@ -90,6 +98,7 @@
   });
 
   async function handleToggleBookmark() {
+    if (!canDrive) return;
     await planStore.toggleBookmark(plan.id);
   }
 
@@ -170,6 +179,7 @@
   scope="plan-modal"
   bindings={{ close: "plan-modal.close", save: "plan-modal.save", copy: "plan-modal.copy", find: "plan-modal.find", pinOutline: "plan-modal.pin-outline" }}
   extraExtensions={commentExtensions}
+  readOnly={!canDrive}
   onSave={handleSave}
   onClose={closeModal}
   onCommentSelection={() => commentLayer?.startComment()}
@@ -231,11 +241,13 @@
   {/snippet}
 
   {#snippet documentActions({ copied, copy })}
-    <WorkPublishMenu
-      planId={plan.id}
-      getCurrentContent={() => shell?.getCurrentMarkdown() ?? plan.content}
-      flushSave={() => shell?.flushSave() ?? Promise.resolve()}
-    />
+    {#if canDrive}
+      <WorkPublishMenu
+        planId={plan.id}
+        getCurrentContent={() => shell?.getCurrentMarkdown() ?? plan.content}
+        flushSave={() => shell?.flushSave() ?? Promise.resolve()}
+      />
+    {/if}
     <button
       type="button"
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
@@ -247,6 +259,7 @@
       <span class="plan-soft-pill__swatch" aria-hidden="true"></span>
       <span class="plan-soft-pill__label">Comments{comments.length > 0 ? ` (${comments.length})` : ""}</span>
     </button>
+    {#if canDrive}
     <button
       type="button"
       onclick={handleToggleBookmark}
@@ -257,6 +270,7 @@
     >
       <BookmarkSimpleIcon size={14} weight={isBookmarked ? "fill" : "regular"} class={isBookmarked ? "text-(--solus-accent)" : ""} />
     </button>
+    {/if}
     <!-- Secondary actions (open session, Google Docs, copy) collapse into one overflow menu. -->
     <DropdownMenu.Root bind:open={overflowOpen}>
       <DropdownMenu.Trigger>
@@ -311,6 +325,9 @@
   {/snippet}
 
   {#snippet footer()}
+    {#if !canDrive}
+      <p class="shrink-0 px-5 pt-2 pb-3 text-sm text-(--solus-text-tertiary) max-md:px-3 max-md:pb-2">Waiting for an editor to decide this plan</p>
+    {:else}
     <div
       class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2"
       class:absolute={composerCollapsed}
@@ -329,6 +346,7 @@
         onDone={closeModal}
       />
     </div>
+    {/if}
   {/snippet}
 
 </DocumentShell>

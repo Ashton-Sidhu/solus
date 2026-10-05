@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  subagentGroupRail,
   subagentGroupSummary,
-  subagentGroupType,
   subagentRow,
 } from '@solus/workspace-ui/components/conversation/lib/subagent-group'
 import type { Message } from '@solus/contracts/types'
@@ -22,10 +20,6 @@ function agent(overrides: Partial<Message> & Pick<Message, 'id'>): Message {
 
 function step(id: string, toolName: string, toolInput?: string): Message {
   return { id, role: 'tool', content: '', toolName, toolInput, timestamp: NOW } as Message
-}
-
-function todo(content: string, status: 'completed' | 'in_progress' | 'pending') {
-  return { content, status }
 }
 
 const FALLBACK = { model: 'Sonnet 5', effort: 'medium' }
@@ -78,36 +72,11 @@ describe('subagent row', () => {
     expect(row.state).toBe('done')
     expect(row.activity).toBe('8 call sites rewritten, guard test added')
     expect(row.target).toBe('')
-    // No plan, so the rail can only report the calls it made — never a fraction.
-    expect(row.steps).toEqual({ done: 2, total: 0 })
     // A settled row's elapsed is what it took, not how long ago it landed.
     expect(row.elapsedMs).toBe(46_000)
   })
 
-  // The agent's own plan is the only thing that knows how many steps there are;
-  // without it the rail would have to invent a denominator to print "5/8".
-  test('an agent that keeps a plan gives the rail a real denominator', () => {
-    const row = subagentRow(
-      agent({
-        id: 'a',
-        toolStatus: 'running',
-        subTodos: [
-          todo('Read the token map', 'completed'),
-          todo('Rewrite call sites', 'completed'),
-          todo('Add the guard test', 'in_progress'),
-          todo('Update the docs', 'pending'),
-        ],
-        subMessages: [step('s1', 'Read'), step('s2', 'Edit')],
-      }),
-      NOW,
-      FALLBACK,
-    )
-
-    // The plan wins over the tool count — 2 tools ran, but 2 of 4 steps are done.
-    expect(row.steps).toEqual({ done: 2, total: 4 })
-  })
-
-  test('an SDK heartbeat supplies live activity and a bare tool count without inventing todos', () => {
+  test('an SDK heartbeat supplies the live activity and the elapsed time', () => {
     const row = subagentRow(
       agent({
         id: 'a',
@@ -126,7 +95,6 @@ describe('subagent row', () => {
 
     expect(row.activity).toBe('Reading src/shared/types.ts')
     expect(row.target).toBe('')
-    expect(row.steps).toEqual({ done: 7, total: 0 })
     expect(row.elapsedMs).toBe(75_000)
   })
 
@@ -147,31 +115,6 @@ describe('subagent row', () => {
     // Nothing asked for: the parent session's own dispatch is what ran.
     const inherited = subagentRow(agent({ id: 'b', subagentType: 'general-purpose' }), NOW, FALLBACK)
     expect(inherited).toMatchObject({ modelLabel: 'Sonnet 5', effortLabel: 'Medium' })
-  })
-
-  // A reloaded transcript replays no events, so the todos have to come back off
-  // the TodoWrite the agent actually ran.
-  test('a reloaded agent recovers its plan from the TodoWrite in its transcript', () => {
-    const row = subagentRow(
-      agent({
-        id: 'a',
-        toolStatus: 'completed',
-        toolCompletedAt: NOW,
-        subMessages: [
-          step('s1', 'TodoWrite', JSON.stringify({ todos: [todo('Sweep the portal', 'pending')] })),
-          step(
-            's2',
-            'TodoWrite',
-            JSON.stringify({ todos: [todo('Sweep the portal', 'completed')] }),
-          ),
-        ],
-      }),
-      NOW,
-      FALLBACK,
-    )
-
-    // The last write is the plan — an earlier one would report stale progress.
-    expect(row.steps).toEqual({ done: 1, total: 1 })
   })
 
   test('an agent that never returned a result falls back to the last thing it said', () => {
@@ -234,47 +177,11 @@ describe('subagent group summary', () => {
     expect(summary.chip).toBe('2 done')
   })
 
-  // The rail is counts and time only. A summed step count means nothing across
-  // agents doing different work, so the group never prints one.
-  test('the group rail counts landed agents, then failures, then time', () => {
-    const summary = summarize([
-      agent({ id: 'a', toolStatus: 'running' }),
-      agent({ id: 'b', toolStatus: 'error', toolCompletedAt: NOW }),
-      agent({ id: 'c', toolStatus: 'completed', toolCompletedAt: NOW }),
-    ])
-
-    expect(subagentGroupRail(summary)).toBe('1 done · 1 failed · 1m 0s')
-  })
-
-  test('a group with no failures does not print a zero failure count', () => {
-    const summary = summarize([agent({ id: 'a', toolStatus: 'running' })])
-    expect(subagentGroupRail(summary)).toBe('0 done · 1m 0s')
-  })
-
-  test('the count is the type word, so the title does not repeat it', () => {
-    const summary = summarize([agent({ id: 'a' }), agent({ id: 'b' })])
-    expect(subagentGroupType(summary)).toBe('2 sub-agents')
-    expect(summary.title).not.toContain('2')
-  })
-
-  test('the title names the shared agent type, and never repeats a generic one', () => {
-    const typed = summarize([
-      agent({ id: 'a', subagentType: 'Explore' }),
-      agent({ id: 'b', subagentType: 'Explore' }),
-    ])
-    expect(typed.title).toBe('Explore agents in parallel')
-
-    const generic = summarize([
-      agent({ id: 'a', subagentType: 'general-purpose' }),
-      agent({ id: 'b', subagentType: 'general-purpose' }),
-    ])
-    expect(generic.title).toBe('Agents in parallel')
-
-    const mixed = summarize([
-      agent({ id: 'a', subagentType: 'Explore' }),
-      agent({ id: 'b', subagentType: 'Plan' }),
-    ])
-    expect(mixed.title).toBe('Agents in parallel')
+  // WHY: the header names the count the way T3 Code does; the status line
+  // carries the states, so the label never changes as agents land.
+  test('the group label is the agent count', () => {
+    expect(summarize([agent({ id: 'a' }), agent({ id: 'b' })]).title).toBe('2 subagents')
+    expect(summarize([agent({ id: 'a' })]).title).toBe('1 subagent')
   })
 })
 

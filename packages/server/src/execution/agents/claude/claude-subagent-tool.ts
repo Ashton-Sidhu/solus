@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { resolveHomePath } from '../../../platform/paths'
 import { buildSystemPrompt } from '../system-hint'
-import { hostInstructionsFor } from '../run-input'
+import { instructionsFor } from '../run-input'
+import { sessionSettings } from '../../sessions/session-settings'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../agent-runner'
 import type { SeatResolver, TurnSeat } from '../../seats/seat-manager'
@@ -55,6 +56,8 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatF
     inputFields: claudeSubagentFields,
     requiresApproval: false,
     execute: async (rawArgs, context) => {
+      // The session whose turn starts the subagent: its person's instructions apply.
+      const parentSessionId = context.solusSessionId()
       const args = claudeSubagentInputSchema.parse(rawArgs)
       const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
       const reasoningEffort =
@@ -78,6 +81,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatF
           ...Object.values(solusToolbox.insights),
           ...Object.values(solusToolbox.intelligence),
           ...Object.values(solusToolbox.browser),
+          ...Object.values(solusToolbox.devices),
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),
         ],
@@ -88,7 +92,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatF
         seat,
         service: SPAN_SERVICES.subagents,
         unattended: true,
-        systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
+        systemPrompt: buildSystemPrompt(instructionsFor(sessionSettings(parentSessionId)?.preferences, model)) || undefined,
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
           context.emit(parentSubagentEvent(event, parentToolUseId))

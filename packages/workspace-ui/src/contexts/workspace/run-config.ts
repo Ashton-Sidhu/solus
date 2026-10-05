@@ -1,6 +1,9 @@
 import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, ReasoningEffort, RunConfig, WorktreeEntry } from '@solus/contracts/types'
 import { MODEL_PROFILES, PERMISSION_MODES, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import type { ModelOptionsByProvider } from '@solus/contracts/settings'
+import { restoredModelConfig } from './model-options'
 import type { ProjectLocation } from '../app/settings.context.svelte'
 
 /**
@@ -12,9 +15,8 @@ import type { ProjectLocation } from '../app/settings.context.svelte'
 
 /**
  * What a new session runs with, given the app's defaults and — when there is one
- * — the session it was opened from. A plain function of two run configs, which
- * is the whole rule: everything a draft needs to know about its environment is
- * already a `RunConfig`, so nothing else has to be passed in.
+ * — the session it was opened from. Saved model options override the source
+ * tuning so new tabs and drafts use the latest choice for that model.
  *
  * Four fields deliberately do *not* carry over, because they describe one
  * session's history rather than where the next one should start.
@@ -22,13 +24,18 @@ import type { ProjectLocation } from '../app/settings.context.svelte'
 export function inheritRunConfig(
   defaults: RunConfig,
   inherit?: RunConfig | null,
+  remembered: ModelOptionsByProvider = {},
 ): RunConfig {
   const source = alignRunProvider(inherit ?? defaults, defaults.provider)
+  const modelId = source.modelConfig.modelId
+  const saved = source.provider && modelId ? remembered[source.provider]?.[modelId] : undefined
 
   return {
     ...source,
+    // A chat's folder is its own: the next session from it is a new chat.
+    workingDirectory: isChat(source.workingDirectory) ? NEW_CHAT_DIRECTORY : source.workingDirectory,
     gitContext: source.gitContext ? { ...source.gitContext } : null,
-    modelConfig: {
+    modelConfig: saved && source.provider ? restoredModelConfig(source.provider, modelId, saved) : {
       ...source.modelConfig,
       // The model's own default, not whatever the last session was tuned to.
       reasoningEffort: modelDefaultEffort(source) ?? defaults.modelConfig.reasoningEffort,
@@ -68,12 +75,13 @@ export function resolveNewRunConfig(
   defaults: RunConfig,
   source: RunConfig | null | undefined,
   target: NewRunTarget = {},
+  remembered: ModelOptionsByProvider = {},
 ): RunConfig {
-  const run = inheritRunConfig(defaults, target.freshTask ? null : source)
+  const run = inheritRunConfig(defaults, target.freshTask ? null : source, remembered)
 
   if (target.freshTask) {
     const projectRoot = projectRootOf(source)
-    if (projectRoot) run.workingDirectory = projectRoot
+    if (projectRoot) run.workingDirectory = isChat(projectRoot) ? NEW_CHAT_DIRECTORY : projectRoot
     if (source) {
       run.serverId = source.serverId
       run.taskServerId = source.taskServerId
@@ -200,7 +208,7 @@ export function projectRootOf(run: RunConfig | null | undefined): string | null 
 /**
  * Where a new session starts when nothing on screen names a project: the
  * project the last session started in, unless its host is known to be down;
- * else the workspace directory of the default host. "Known to be down", not
+ * else a new chat on the default host. "Known to be down", not
  * "not yet up": at boot every host is still connecting, and the draft seeded
  * then must already name the right project. A session opened *from* something
  * takes that source's project first — `resolveNewRunConfig` owns that step.
@@ -208,9 +216,9 @@ export function projectRootOf(run: RunConfig | null | undefined): string | null 
 export function defaultStartProject(
   lastProject: ProjectLocation | null,
   isDown: (serverId: string) => boolean,
-  workspace: ProjectLocation,
+  newChat: ProjectLocation,
 ): ProjectLocation {
-  return lastProject && !isDown(lastProject.serverId) ? lastProject : workspace
+  return lastProject && !isDown(lastProject.serverId) ? lastProject : newChat
 }
 
 /**

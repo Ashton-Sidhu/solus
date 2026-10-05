@@ -3,7 +3,8 @@ import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { TurnSeat } from '../execution/seats/seat-manager'
 import { buildSystemPrompt } from '../execution/agents/system-hint'
-import { hostInstructionsFor } from '../execution/agents/run-input'
+import { instructionsFor } from '../execution/agents/run-input'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { createLogger } from '../logger'
 import { SPAN_SERVICES } from '../data/insights/registries'
 import { createReviewLensAgentTool, SUBMIT_REVIEW_LENS_TOOL_NAME, type LensDraft } from './review-lens-tool'
@@ -34,6 +35,8 @@ export interface LensAgentInput {
   /** The member's own provider login; absent for the host's login. */
   seat?: TurnSeat
   reasoningEffort: ReasoningEffort | null
+  /** The requester's preferences, whose instructions the run adds; absent adds none. */
+  executionPreferences?: ExecutionPreferences
   onWriting: () => void
   abortSignal: AbortSignal
 }
@@ -59,7 +62,7 @@ export async function runLensAgent(dispatcher: AgentDispatcher, input: LensAgent
       service: SPAN_SERVICES.reviewLens,
       unattended: true,
       timeoutMs: LENS_AGENT_TIMEOUT_MS,
-      systemPrompt: buildSystemPrompt(hostInstructionsFor(input.model)) || undefined,
+      systemPrompt: buildSystemPrompt(instructionsFor(input.executionPreferences, input.model)) || undefined,
     })
     const cancel = () => run.cancel()
     if (input.abortSignal.aborted) cancel()

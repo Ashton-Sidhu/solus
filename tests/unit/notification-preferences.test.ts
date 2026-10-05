@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   APP_NOTICE_EVENTS,
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -20,8 +17,6 @@ import {
   notificationRowMatches,
   notificationSettingsCoverContract,
 } from '@solus/workspace-ui/components/settings/lib/notification-settings'
-
-type SettingsModule = typeof import('@solus/server/host/settings')
 
 describe('notification preferences', () => {
   test('a notification needs both its channel and its event on', () => {
@@ -116,33 +111,5 @@ describe('the Notifications settings page', () => {
     expect(notificationRowMatches(approval, 'Needs')).toBe(true)
     expect(notificationRowMatches(approval, 'diagram')).toBe(false)
     expect(notificationRowMatches(approval, '')).toBe(true)
-  })
-})
-
-describe('the flags notifications replaced', () => {
-  test('a host that stored soundEnabled=false keeps sound and system alerts off', async () => {
-    // `soundEnabled` gated both. A user who turned it off must not get a sound
-    // and a system alert back because the key changed shape.
-    const legacyDir = mkdtempSync(join(tmpdir(), 'solus-legacy-notifications-'))
-    writeFileSync(join(legacyDir, 'server-settings.json'), JSON.stringify({
-      hostConfig: { soundEnabled: false, backgroundActivityToasts: true, fontSize: 14 },
-    }))
-
-    const previous = process.env.SOLUS_DATA_DIR
-    process.env.SOLUS_DATA_DIR = legacyDir
-    try {
-      const legacySettings = await import(
-        `@solus/server/host/settings?notifications=${Date.now()}`
-      ) as SettingsModule
-      const { config, seeded } = legacySettings.getHostConfig()
-
-      expect(seeded).toBe(true)
-      expect(config.notifications.channels).toEqual({ sound: false, toast: true, system: false })
-      expect(config.fontSize).toBe(14)
-    } finally {
-      if (previous === undefined) delete process.env.SOLUS_DATA_DIR
-      else process.env.SOLUS_DATA_DIR = previous
-      rmSync(legacyDir, { recursive: true, force: true })
-    }
   })
 })

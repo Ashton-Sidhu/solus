@@ -199,7 +199,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     app.route('/v1', createSolusApiRouter({
       credentials: workspaceCredentialsForHttp(opts), operations: opts.solusApi.operations,
       capabilities: { serviceId: opts.solusApi.serviceId, mode: opts.isApiMode ? 'solus-api' : 'combined-host',
-        apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', ...(opts.isApiMode ? ['insights' as const] : [])],
+        apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'notifications', ...(opts.isApiMode ? ['insights' as const] : [])],
         events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } },
       openApi: () => spec,
     }))

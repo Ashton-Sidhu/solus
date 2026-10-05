@@ -8,7 +8,7 @@
   import { runtime, sharesStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, type PersonRow, type ScopeOption } from "./lib/share-rows";
+  import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, sharedWithMembers, type PersonRow, type ScopeOption } from "./lib/share-rows";
   import { publishProblemMessage } from "./lib/publish-copy";
   import { userKey } from "@solus/contracts/user";
   import UserAvatar from "../users/UserAvatar.svelte";
@@ -98,7 +98,9 @@
   const linkContext = $derived(target ? sharesStore.linkContext(target.serverId) : null);
   /** The link as the host now holds it: always at hand for whoever may share. */
   const link = $derived(list && linkContext ? linkPresentation(list.link, linkContext, canShare, list.resource) : null);
-  const copyText = $derived(link?.kind === "url" ? link.url : link?.kind === "secret" ? link.secret : null);
+  /** Shared with members only: the app's address, which each opens with their own sign-in. */
+  const memberLink = $derived(target && list && sharedWithMembers(list) ? sharesStore.memberLinkUrl(target.serverId, target.resource) : null);
+  const copyText = $derived(memberLink ?? (link?.kind === "url" ? link.url : link?.kind === "secret" ? link.secret : null));
   /** Copy is one click on every open. With no link yet it widens the scope to the
    *  link first, so the dialog never sends the person to a choice before the verb. */
   const canCopy = $derived(canShare && !sharesStore.busy && link?.kind !== "checking" && link?.kind !== "unavailable");
@@ -118,7 +120,7 @@
     try {
       await navigator.clipboard.writeText(text);
       copied = true;
-      toasts.success(widened ? "Link copied · anyone with it can view" : "Link copied");
+      toasts.success(widened ? "Link copied · anyone with it can view" : memberLink ? "Link copied · only people with access can open it" : "Link copied");
     } catch {
       toasts.error("Couldn't copy the link");
     }

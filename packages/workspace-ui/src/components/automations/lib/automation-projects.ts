@@ -22,8 +22,6 @@ interface ProjectRoots {
 export function automationProjects(
   automations: Automation[],
   openProjects: ProjectRoots[],
-  /** The chat folder of a host, so an automation there reads "Scratchpad". */
-  chatFolderFor: (serverId: string | null) => string | null = () => null,
   serverIdFor: (automation: Automation) => string | null = () => null,
   hostLabelFor: (serverId: string) => string = (serverId) => serverId,
 ): AutomationProject[] {
@@ -45,7 +43,7 @@ export function automationProjects(
       key,
       projectPath,
       serverId,
-      label: openProject?.label ?? projectDirLabel(projectPath, chatFolderFor(serverId)),
+      label: openProject?.label ?? projectDirLabel(projectPath),
       roots: openProject?.roots ?? [automation.action.cwd],
       count: 1,
     })

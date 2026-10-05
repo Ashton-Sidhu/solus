@@ -18,12 +18,14 @@
    * line of equal controls.
    */
   interface Props {
-    flag: TurnFlag | null;
+    flag: Pick<TurnFlag, "kind" | "note"> | null;
     onSet: (kind: TurnFlagKind, note: string) => void;
     onClear: () => void;
+    /** The reader may see the mark but not set one: a viewer of a shared report. */
+    readOnly?: boolean;
   }
 
-  let { flag, onSet, onClear }: Props = $props();
+  let { flag, onSet, onClear, readOnly = false }: Props = $props();
 
   let open = $state(false);
   let noteDraft = $state("");
@@ -63,7 +65,12 @@
           ? ''
           : 'text-foreground'}"
         style={flag ? `color:${flagColor(flag.kind)}` : undefined}
-        title={flag ? flagTitle(flag.kind, flag.note) : "Mark this turn"}
+        title={readOnly
+          ? "Shared with you to view. Commenters and editors can mark it."
+          : flag
+            ? flagTitle(flag.kind, flag.note)
+            : "Mark this turn"}
+        disabled={readOnly}
       >
         {#if chosen}
           <chosen.icon class="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />

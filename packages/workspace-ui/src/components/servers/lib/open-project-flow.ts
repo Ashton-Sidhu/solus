@@ -4,6 +4,7 @@
  * whichever machine the project is being opened on — never to this client.
  */
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
+import { abbreviateHome } from '../../../lib/paths'
 
 /** What the user is opening — or, for `new`, creating. Decides which screen home hands off to. */
 export type ProjectSource = 'local' | 'clone' | 'github' | 'new'
@@ -36,4 +37,11 @@ export function joinHostPath(directory: string, name: string, platform?: string 
 export function newProjectPath(parent: string, name: string, platform?: string | null): string | null {
   const trimmed = name.trim()
   return trimmed ? joinHostPath(parent, safeProjectDirName(trimmed), platform) : null
+}
+
+/** A folder as a person names it — its own name, not the path to it. */
+export function folderLabel(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  if (abbreviateHome(trimmed) === '~') return 'your home folder'
+  return trimmed.split(/[\\/]/).pop() || trimmed
 }

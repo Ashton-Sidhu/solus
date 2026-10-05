@@ -175,7 +175,7 @@
     oncontinue={() => isCloud ? chooseRepository() : (pickerOpen = true)}
     onback={() => store.back()}
     {onskip}
-    skipLabel="Just chat"
+    skipLabel="New chat"
   />
 </div>
 

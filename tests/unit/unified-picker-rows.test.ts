@@ -65,16 +65,15 @@ describe('unified picker rows', () => {
     b: [child('b1', 'beta run')],
   }
 
-  test('a phone task with one session is not a group', () => {
-    // WHY: opening a group of one showed a child named after the task, a row
-    // that said nothing and cost a tap. Desktop keeps the group at any count.
+  test('a task with one session is still a group', () => {
+    // WHY: the preview column reads a task row and its session row
+    // differently, so a group of one keeps its disclosure.
     const { entries } = build(tasks, sessions)
     const alpha = entries[0]
     const beta = entries[1]
     if (alpha.kind !== 'task' || beta.kind !== 'task') throw new Error('expected task rows')
-    expect(isTaskGroup(alpha, true)).toBe(true)
-    expect(isTaskGroup(beta, true)).toBe(false)
-    expect(isTaskGroup(beta, false)).toBe(true)
+    expect(isTaskGroup(alpha)).toBe(true)
+    expect(isTaskGroup(beta)).toBe(true)
   })
 
   test('tasks and their expanded sessions form one keyboard sequence', () => {
@@ -471,23 +470,16 @@ describe('unified picker rows', () => {
   })
 
   // The virtualiser positions rows from this table before they paint, so a
-  // row kind with no height, or a touch row shorter than a thumb, would put
-  // every row after it in the wrong place.
-  test('every row kind has a height and touch rows are never shorter than pointer rows', () => {
+  // row kind with no height would put every row after it in the wrong place.
+  test('every row kind has a height', () => {
     const { rows } = build(tasks, sessions, '', ['a'])
-    for (const row of rows) {
-      const pointer = pickerRowHeight(row, false)
-      const touch = pickerRowHeight(row, true)
-      expect(pointer).toBeGreaterThan(0)
-      expect(touch).toBeGreaterThanOrEqual(pointer)
-      if (row.kind !== 'header') expect(touch).toBeGreaterThanOrEqual(44)
-    }
+    for (const row of rows) expect(pickerRowHeight(row)).toBeGreaterThan(0)
   })
 
-  test('the last session under a task is taller by the nest padding on a pointer display', () => {
+  test('the last session under a task is taller by the nest padding', () => {
     const { rows } = build(tasks, sessions, '', ['a'])
     const [first, last] = rows.filter((row) => row.kind === 'session')
-    expect(pickerRowHeight(last, false) - pickerRowHeight(first, false)).toBe(4)
+    expect(pickerRowHeight(last) - pickerRowHeight(first)).toBe(4)
   })
 })
 

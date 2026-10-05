@@ -33,7 +33,7 @@
     tabId?: string;
     /** The `artifact` work this render was persisted as. When set, the frame
      *  carries a rail naming it and opening it in a pane. */
-    workRef?: { workId: string; title: string };
+    workRef?: { workId: string; title: string; contentVersion?: number };
     /** Where the conversation lives, for the rail's Link control. */
     linkContext?: TaskLinkContext;
     /** Let a pane render use all available height while transcript and task
@@ -235,7 +235,7 @@
     {/if}
 
     {#if workRef}
-      <ArtifactRail workId={workRef.workId} title={workRef.title} {linkContext} />
+      <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
     {/if}
   </div>
 {/if}

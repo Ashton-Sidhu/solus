@@ -49,6 +49,7 @@
 
   interface Props {
     tabId?: string;
+    draftId?: string;
     /** Detached mode: the chip reads and mutates this local selection in place
      *  and never touches the session's model config or active agent. The host
      *  applies the choice at dispatch. */
@@ -85,6 +86,7 @@
   }
   let {
     tabId,
+    draftId,
     selection = $bindable(),
     isPrimary = false,
     menuSide = "top",
@@ -231,7 +233,7 @@
     // An unaddressed shortcut targets the primary composer. This includes a
     // detached new-session draft, whose model choice is local until dispatch.
     if (!isSessionSettingsShortcutTarget({ isPrimary, tabId, targetTabId })) return;
-    if (isBusy || handoffInProgress) return;
+    if (handoffInProgress) return;
     // Multiple mounted conversation surfaces can each render a SessionChip and
     // receive this shortcut. Only the one in the visible layout should open
     // (a display:none ancestor reports offsetParent === null).
@@ -247,7 +249,7 @@
     if (isAuto && !hoveredModelId) return;
     const pendingModelId =
       hoveredModelId && hoveredModelId !== currentModelId ? hoveredModelId : null;
-    if (selection) {
+    if (selection && !draftId) {
       if (pendingModelId) {
         selection.modelId = pendingModelId;
         selection.fastMode = false;
@@ -261,15 +263,14 @@
         ? {
             modelId: pendingModelId,
             reasoningEffort: effort,
-            fastMode: false,
           }
         : { reasoningEffort: effort },
-      tabId,
+      tabId ?? draftId,
     );
   }
   function selectModel(modelId: string) {
     hoveredModelId = null;
-    if (selection) {
+    if (selection && !draftId) {
       selection.modelId = modelId;
       selection.reasoningEffort = modelId === AUTO_MODEL_ID ? "medium" : clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
       selection.fastMode = false;
@@ -277,16 +278,16 @@
       return;
     }
     if (modelId === AUTO_MODEL_ID) {
-      session.updateModelConfig({ modelId, fastMode: false, reasoningEffort: "medium" }, tabId);
+      session.updateModelConfig({ modelId, fastMode: false, reasoningEffort: "medium" }, tabId ?? draftId);
     } else {
-      session.updateModelConfig({ modelId, fastMode: false }, tabId);
+      session.updateModelConfig({ modelId }, tabId ?? draftId);
     }
   }
   function selectAgent(id: AgentId) {
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
     legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata));
-    if (selection) {
+    if (selection && !draftId) {
       const modelId = defaultModelIdFor(id, metadata);
       selection.provider = id;
       selection.modelId = modelId;
@@ -296,13 +297,13 @@
       return;
     }
     pendingHandoffAgent = id;
-    void session.config.switchActiveAgent(id, tabId).finally(() => {
+    void session.config.switchActiveAgent(id, tabId ?? draftId).finally(() => {
       if (pendingHandoffAgent === id) pendingHandoffAgent = null;
     });
   }
 
   function applyFastMode(modelId: string, enabled: boolean) {
-    if (selection) {
+    if (selection && !draftId) {
       if (selection.modelId !== modelId) {
         selection.modelId = modelId;
         selection.reasoningEffort = clampReasoningEffort(
@@ -317,7 +318,7 @@
     }
     session.updateModelConfig(
       modelId !== currentModelId ? { modelId, fastMode: enabled } : { fastMode: enabled },
-      tabId,
+      tabId ?? draftId,
     );
   }
 
@@ -420,7 +421,7 @@
     if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
   }}
 >
-  <DropdownMenu.Trigger disabled={disabled || isBusy || handoffInProgress} bind:ref={triggerEl}>
+  <DropdownMenu.Trigger disabled={disabled || handoffInProgress} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
@@ -433,7 +434,7 @@
                  lets this box shrink past its content, but the glyph, the
                  reasoning label and the caret are all rigid, so without a clip
                  they paint outside the border box and over the neighbour. -->
-            <button {...tooltipProps} {...props} type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled || isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} data-slot="session-chip" type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled || handoffInProgress ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. Auto
              belongs to no one provider, so it carries a sparkles glyph in the
@@ -464,7 +465,7 @@
         <!-- Composer ladder, rung 5: below 22rem the chip is the glyph alone.
              It stays a hit target and keeps its ⌥ shortcut; only the label
              goes. Named `/composer` so the rung is inert wherever the chip is
-             not in a composer. The label inherits the chip's secondary colour,
+             not in a composer. The label inherits the chip's muted colour,
              the same as the permission chip beside it. -->
         <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
@@ -483,7 +484,7 @@
       </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Stop the task to change session settings" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
+        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Changes apply to later work; provider changes are queued" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
       </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>

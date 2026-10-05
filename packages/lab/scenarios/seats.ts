@@ -18,7 +18,7 @@ const caraUserId = PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : 
 /** The renderer's prompt context for a conversation in the Lab's working directory; a provider thread id resumes it. */
 function promptContext(ctx: ScenarioContext, sessionId: string, agentSessionId: string | null = null): IpcContext {
   const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
-  const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', rateLimitBehavior: 'queue' }
+  const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', executionPreferences: { rateLimitBehavior: 'queue' } }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   const context = { session, settings, statusBar }
   // SAFETY: the host reads only the fields named here (run-input.ts); the rest of the snapshot is renderer presentation state, as `hostProviderContext` in setup-rpc.ts also relies on.

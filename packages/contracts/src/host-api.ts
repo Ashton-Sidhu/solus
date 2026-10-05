@@ -1,8 +1,9 @@
+import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, SentSessionMessage, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, SentSessionMessage, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
@@ -17,12 +18,15 @@ import type { Watch } from './watch-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, AssetFindUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult } from './rpc'
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnFilter, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnListingSummary, MetricsTurnTrace, MetricsValue, SavedMetricsQuery, TurnFlag, TurnFlagKind } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
+import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceInputRequest, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceSubscribeRequest, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot } from './host-config'
+import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, OrganizationSettingsPatchRequest, OrganizationSettingsResponse } from './settings'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, DeviceSignInEnd } from './account-types'
@@ -88,6 +92,8 @@ export interface SolusAPI {
   unwatchSession(sessionId: string): Promise<void>
   prompt(ctx: IpcContext, options: PromptOptions): Promise<PromptDispatchResult>
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
+  sessionQueue(ctx: IpcContext): Promise<SessionQueueSnapshot>
+  sessionQueueChange(ctx: IpcContext, mutation: SessionQueueMutation): Promise<SessionQueueSnapshot>
   switchSessionAgent(sessionId: string, provider: AgentId, agentSessionId?: string | null): Promise<SessionProviderSwitchResult>
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
@@ -316,10 +322,10 @@ export interface SolusAPI {
   presenceSetComposing(request: PresenceSetComposingRequest): Promise<void>
   /** This client edits (or stopped editing) a work; the host roster hears it as `host.presenceChanged`. */
   presenceSetEditing(request: PresenceSetEditingRequest): Promise<void>
-  setAnalyticsConsent(enabled: boolean): Promise<void>
-  /** This host's durable config, plus whether any client has seeded it yet. */
+  /** This host's durable config. */
   typeSafeKeySet(apiKey: string | null): Promise<HostConfigSnapshot>
   configGet(): Promise<HostConfigSnapshot>
+  /** Host administrator only. Refuses any key that is not host config. */
   configUpdate(patch: HostConfigPatch): Promise<HostConfigSnapshot>
   textGenerationSettingsGet(): Promise<TextGenerationSettingsSnapshot>
   otelSettingsGet(): Promise<OtelSettingsSnapshot>
@@ -363,9 +369,16 @@ export interface SolusAPI {
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>
-  pushGetPublicKey(): Promise<string>
-  pushSubscribe(subscription: WebPushSubscriptionJSON): Promise<{ ok: boolean }>
-  pushUnsubscribe(): Promise<{ ok: boolean }>
+  /** The notifications hub this host answers (plans/015). An older host lacks the
+   *  method; a client shows it as unsupported, not as an empty inbox. */
+  notificationsCapability(): Promise<NotificationHubCapability>
+  /** The caller's notifications at this host, newest first. The host names the
+   *  recipient from the principal. `notifications.changed` says to read again. */
+  notificationsList(request: NotificationListRequest): Promise<NotificationPage>
+  notificationsCount(): Promise<NotificationCount>
+  /** Set, never toggle: the answer is the row as the host holds it after the write. */
+  notificationsSetRead(request: NotificationSetRead): Promise<NotificationStateResult>
+  notificationsSetArchived(request: NotificationSetArchived): Promise<NotificationStateResult>
 
   /** Create a durable provider session with no client watching it. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
@@ -669,10 +682,12 @@ export interface SolusAPI {
   outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>
   outboxApply(ops: OutboxOp[]): Promise<OutboxApplyResult>
 
-  automationCreate(name: string, action: AutomationAction, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
+  /** `executionPreferences` is the creator's preferences the automation runs with (plans/018 §6); absent from an older client. */
+  automationCreate(name: string, action: AutomationAction, enabled?: boolean, trigger?: AutomationTrigger, executionPreferences?: ExecutionPreferences): Promise<Automation>
   automationList(): Promise<Automation[]>
   automationRead(id: string): Promise<Automation | null>
-  automationUpdate(id: string, patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger }): Promise<Automation | null>
+  /** A patch that carries `executionPreferences` replaces the automation's captured snapshot (plans/018 §6). */
+  automationUpdate(id: string, patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger; executionPreferences?: ExecutionPreferences }): Promise<Automation | null>
   automationDelete(id: string): Promise<boolean>
   automationSetEnabled(id: string, enabled: boolean): Promise<Automation | null>
   automationRun(id: string): Promise<AutomationRun | null>
@@ -829,6 +844,45 @@ export interface SolusAPI {
   browserAnnotationState(browserPageId: string): Promise<BrowserAnnotationState>
   browserAnnotate(browserPageId: string, op: BrowserAnnotateOp): Promise<BrowserAnnotationState>
 
+  // ─── Native devices (docs/plans/native-devices.md) ───
+  /** The current revisioned device snapshot. No discovery, install or start. */
+  deviceState(): Promise<DeviceState>
+  /** Discover devices on every device host. Starts the hub only once setup enabled it. */
+  deviceList(): Promise<DeviceState>
+  /** Re-read tool versions and platforms. Never installs or starts anything. */
+  deviceToolInspect(): Promise<DeviceState>
+  /** Settings and foreground app as read from the device. */
+  deviceDetail(target: DeviceTarget): Promise<DeviceDetail>
+  deviceConfigure(request: DeviceConfigureRequest): Promise<DeviceState>
+  /** Add or replace one SSH device host on this Solus host. */
+  deviceHostSave(config: SshDeviceHostConfig): Promise<DeviceState>
+  deviceHostRemove(deviceHostId: string): Promise<DeviceState>
+  /** Read-only connection test: SSH, Node, npm and platform tools. Installs nothing. */
+  deviceHostTest(config: SshDeviceHostConfig): Promise<DeviceHostTestResult>
+  deviceToolUpdate(request: DeviceToolUpdateRequest): Promise<DeviceState>
+  deviceHostRetry(deviceHostId: string): Promise<DeviceState>
+  /** Show a device in a session, booting it when asked. */
+  deviceOpen(request: DeviceOpenRequest): Promise<DevicePreview>
+  /** Remove a session's preview. The device keeps running. */
+  deviceClose(request: DeviceCloseRequest): Promise<void>
+  /** Power a device off. Every session's preview of it ends. */
+  deviceShutdown(request: DeviceShutdownRequest): Promise<void>
+  deviceInput(request: DeviceInputRequest): Promise<void>
+  deviceAction(request: DeviceActionRequest): Promise<DeviceDetail>
+  /** Receive this device's video on the `device-frame` channel while visible. */
+  deviceSubscribeFrames(request: DeviceSubscribeRequest): Promise<void>
+  deviceUnsubscribeFrames(target: DeviceTarget): Promise<void>
+  deviceScreenshot(request: DeviceScreenshotRequest): Promise<DeviceScreenshotResult>
+  /** Take control of a device. From an agent, waits for its in-flight action. */
+  deviceControlAcquire(request: DeviceControlRequest): Promise<DeviceControlResult>
+  deviceControlRelease(target: DeviceTarget): Promise<void>
+  /** Let agents act on this device again after a takeover. */
+  deviceControlResume(target: DeviceTarget): Promise<void>
+  /** Install a recorded build on a device under the caller's control lease, then open it. */
+  deviceInstall(request: DeviceInstallRequest): Promise<DeviceBuild>
+  /** Whether the project at this host path builds a mobile app. Reads names only, to a fixed depth. */
+  deviceProjectDetect(projectPath: string): Promise<DeviceProjectInfo>
+
   /** The named identities a project's browser pages can sign in as. Host-owned,
    *  because the cookie jars live there. The built-in default is always first. */
   browserListProfiles(projectRoot?: string): Promise<BrowserProfileSet>
@@ -852,6 +906,29 @@ export interface SolusAPI {
   browserImportCookies(request: BrowserCookieImportRequest): Promise<BrowserCookieImportResult>
 
 }
+
+/** Why an account-plane settings call returned no document. */
+export type SettingsRequestFailure =
+  /** 401, or no account session: sign in again. */
+  | { kind: 'signed-out' }
+  /** The account website did not answer. Nothing is known about a write. */
+  | { kind: 'offline' }
+  /** Any other refusal, or an answer the schema does not accept. */
+  | { kind: 'error'; code: string; message: string | null }
+
+export type AccountSettingsResult =
+  | { kind: 'ok'; settings: AccountSettingsResponse }
+  /** 409: a stale revision, or a cleared generation. `current` is the stored document. */
+  | { kind: 'conflict'; reason: 'settings_conflict' | 'settings_generation_changed'; current: AccountSettingsResponse }
+  | SettingsRequestFailure
+
+export type OrganizationSettingsResult =
+  | { kind: 'ok'; settings: OrganizationSettingsResponse }
+  /** 409: another owner saved first. `current` is what they saved. */
+  | { kind: 'conflict'; current: OrganizationSettingsResponse }
+  /** 403 or 404: not a member, not an owner for a write, or the organization is gone. */
+  | { kind: 'forbidden' }
+  | SettingsRequestFailure
 
 export interface NativeSolusAPI {
   getPlatform(): string
@@ -899,6 +976,13 @@ export interface NativeSolusAPI {
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
   /** Start the organization's managed host; the lifecycle it is in afterwards. */
   uplinkStartManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Account settings sync and organization settings (plans/018 §4), on behalf of
+   *  the signed-in account. Main adds the token; each answer is decoded there. */
+  accountSettingsGet(): Promise<AccountSettingsResult>
+  accountSettingsPatch(request: AccountSettingsPatchRequest): Promise<AccountSettingsResult>
+  accountSettingsDelete(): Promise<AccountSettingsResult>
+  organizationSettingsGet(organizationId: string): Promise<OrganizationSettingsResult>
+  organizationSettingsPatch(organizationId: string, request: OrganizationSettingsPatchRequest): Promise<OrganizationSettingsResult>
   /** The desktop update status. Owned by the main process, which runs the
    *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
   updateStatus(): Promise<DesktopUpdateStatus>

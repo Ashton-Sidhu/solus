@@ -2,9 +2,12 @@ import { z } from 'zod'
 import type { Db } from '../../db/database'
 import type { Activity, TaskEventTarget } from '@solus/contracts/activity'
 import type { TaskEventKind } from '@solus/contracts/task-types'
-import type { Attribution } from '@solus/contracts/user'
+import { parseUserKey, type Attribution } from '@solus/contracts/user'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { isHostUserKey } from '../../host/host-user'
 import { appendActivity, newActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution } from '../stored-attribution'
+import { recordNotification } from '../notifications/store'
 
 /** Cap on the activity returned with a task's details. The feed is a page, not
  * an archive; deep history would get its own paged read if anything asked. */
@@ -89,4 +92,42 @@ export async function diffTaskActivity(
     if (from === to) continue
     await appendActivity(organizationId, taskChanged(taskId, by, field.change, { from, to }, now), db)
   }
+}
+
+/**
+ * A native task's Solus assignee changed (plans/015-notifications-hub.md §5):
+ * the new person is told. Whether the task is still theirs is the task's own
+ * answer. Only the typed `assignee_user_id` names a person; a provider login in
+ * `assignee` never does. Inside the caller's transaction.
+ */
+export async function notifyTaskAssignment(
+  db: Db,
+  organizationId: string,
+  task: { id: string; title: string },
+  before: string | null,
+  after: string | null,
+  by: Attribution,
+  now = Date.now(),
+): Promise<void> {
+  if (before === after || !after) return
+  const resource = { kind: 'task' as const, taskId: task.id }
+  await recordNotification(db, {
+    organizationId, eventId: `task.assigned:${task.id}:${after}:${now}`, recipients: [after], resource, by,
+    facts: { kind: 'task.assigned' }, summary: { title: task.title.slice(0, 300) }, createdAt: now,
+  })
+}
+
+/**
+ * Whom a task may name as its Solus assignee. A Local task has no members: only
+ * the host's user. An organization task names an account; a guest or a local
+ * owner key is not a member. Membership itself is the directory's answer on the
+ * client, as for review requests; the server never infers it from a name.
+ */
+export function assertTaskAssignee(organizationId: string, assigneeUserId: string | null | undefined): void {
+  if (!assigneeUserId) return
+  if (organizationId === LOCAL_ORGANIZATION_ID) {
+    if (!isHostUserKey(assigneeUserId)) throw new Error('A Local task can be assigned only to this host\'s user.')
+    return
+  }
+  if (parseUserKey(assigneeUserId).kind !== 'account') throw new Error('An organization task can be assigned only to a member account.')
 }

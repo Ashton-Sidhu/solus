@@ -5,7 +5,8 @@ import type { ReviewProgressStep } from '@solus/contracts/review'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { TurnSeat } from '../execution/seats/seat-manager'
 import { buildSystemPrompt } from '../execution/agents/system-hint'
-import { hostInstructionsFor } from '../execution/agents/run-input'
+import { instructionsFor } from '../execution/agents/run-input'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import {
   createReviewGuideAgentTool,
 } from './review-guide-tool'
@@ -32,6 +33,8 @@ export interface ReviewAgentInput {
   reasoningEffort?: ReasoningEffort | null
   /** Persistent review-only instructions from Settings. */
   reviewGuideInstructions?: string
+  /** The requester's preferences, whose instructions the run adds; absent adds none. */
+  executionPreferences?: ExecutionPreferences
   /** Instructions supplied with this review request, including skill input. */
   requestInstructions?: string
   /** Pre-computed diff to inline into the prompt so the agent skips gathering it
@@ -80,7 +83,7 @@ export async function runReviewAgent(
       service: SPAN_SERVICES.reviewGuide,
       unattended: true,
       timeoutMs: REVIEW_AGENT_TIMEOUT_MS,
-      systemPrompt: buildSystemPrompt(hostInstructionsFor(input.model)) || undefined,
+      systemPrompt: buildSystemPrompt(instructionsFor(input.executionPreferences, input.model)) || undefined,
     })
     const cancel = () => run.cancel()
     if (input.abortSignal?.aborted) cancel()

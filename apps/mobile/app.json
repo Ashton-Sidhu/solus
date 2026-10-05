@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Solus",
+    "slug": "solus",
+    "scheme": "solus",
+    "version": "0.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "icon": "../../resources/icon.png",
+    "ios": {
+      "bundleIdentifier": "sh.solus.mobile",
+      "supportsTablet": true,
+      "requireFullScreen": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Solus uses the camera only to scan a host's pairing code.",
+        "NSLocalNetworkUsageDescription": "Solus connects to Solus hosts on your local network."
+      }
+    },
+    "android": {
+      "package": "sh.solus.mobile",
+      "permissions": [
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Solus uses the camera only to scan a host's pairing code.",
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Solus opens your photo library only when you attach a photo or video.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

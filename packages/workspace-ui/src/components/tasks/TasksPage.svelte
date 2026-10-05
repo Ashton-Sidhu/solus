@@ -67,6 +67,7 @@
     taskGroups,
     taskStatusesFor,
   } from "./lib/tasks-list-view";
+  import { ownsTask } from "./lib/task-ownership";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
     ListEmpty,
@@ -280,6 +281,8 @@
     task: Task;
     x: number;
     y: number;
+    /** False until the task's host says the reader owns it. */
+    canDelete: boolean;
   } | null>(null);
 
   function clearFilters() {
@@ -765,7 +768,10 @@
     event.preventDefault();
     event.stopPropagation();
     selectedKey = task.id;
-    taskContextMenu = { task, x: event.clientX, y: event.clientY };
+    taskContextMenu = { task, x: event.clientX, y: event.clientY, canDelete: false };
+    void canDeleteTask(task).then((owns) => {
+      if (taskContextMenu?.task.id === task.id) taskContextMenu.canDelete = owns;
+    });
   }
 
   function toastTaskError(action: string, err: Parameters<typeof String>[0]) {
@@ -781,8 +787,17 @@
     }
   }
 
-  function deleteTasks(ids: string[], label: string) {
-    const localIds = ids.filter((id) => taskById(id)?.providerId === "local");
+  /** Delete is a Local task's, and its owner's alone. */
+  async function canDeleteTask(task: Task): Promise<boolean> {
+    return task.providerId === "local" && ownsTask(store, task.id);
+  }
+
+  async function deleteTasks(ids: string[], label: string) {
+    const tasks = ids.map((id) => taskById(id)).filter((task): task is Task => !!task);
+    const owned = await Promise.all(tasks.map(canDeleteTask));
+    const localIds = tasks.filter((_, i) => owned[i]).map((task) => task.id);
+    const notOwned = tasks.filter((task, i) => task.providerId === "local" && !owned[i]).length;
+    if (notOwned) toasts.error(`Couldn't delete ${notOwned} task${notOwned === 1 ? "" : "s"}`, { description: "Only the owner can delete a task." });
     // The sidebar command also closes the tasks' open tabs; left open, each
     // one would lose its task and reappear in the sidebar as a loose session.
     const pending = sessionSidebar?.deleteTasks(localIds) ?? store.softRemove(localIds);
@@ -797,7 +812,7 @@
   }
 
   function onDelete(task: Task) {
-    deleteTasks([task.id], "Task deleted");
+    void deleteTasks([task.id], "Task deleted");
   }
 
   // ── Bulk actions over the current selection ──
@@ -813,7 +828,7 @@
   function bulkDelete() {
     const ids = [...selection.ids];
     selection.clear();
-    deleteTasks(
+    void deleteTasks(
       ids,
       `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
     );
@@ -1465,7 +1480,7 @@
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
         onSetStatus={(status) => void onSetStatus(menuTask, status)}
         onMarkUnread={sessionSidebar ? () => void sessionSidebar.markTaskUnread(menuTask.id) : undefined}
-        onDelete={menuTask.providerId === "local"
+        onDelete={taskContextMenu.canDelete
           ? () => onDelete(menuTask)
           : undefined}
         onClose={() => (taskContextMenu = null)}

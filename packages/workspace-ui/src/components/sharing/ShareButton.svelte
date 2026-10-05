@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Share as ShareIcon } from "@lucide/svelte";
   import type { ShareResource } from "@solus/contracts/sharing";
-  import { sharesStore } from "../../contexts";
+  import { accountStore, sharesStore } from "../../contexts";
   import { shareSummary } from "./lib/share-rows";
 
   /**
@@ -24,7 +24,8 @@
   let { serverId, resource, title, class: className = "" }: Props = $props();
 
   $effect(() => {
-    if (serverId && resource) void sharesStore.load(serverId, resource);
+    accountStore.start();
+    if (accountStore.isSignedIn && serverId && resource) void sharesStore.load(serverId, resource);
   });
 
   const list = $derived(serverId && resource ? sharesStore.listFor(serverId, resource) : undefined);
@@ -32,16 +33,17 @@
   const shared = $derived(summary.scope !== null && summary.scope.kind !== "private");
   const canShare = $derived(!!serverId && !!resource && sharesStore.canShareFrom(serverId, resource.kind));
   const needsLink = $derived(resource?.kind === "session" && !canShare);
-  const label = $derived(needsLink ? "Live sharing needs this computer linked" : summary.label);
+  const disabled = $derived(!accountStore.isSignedIn || needsLink);
+  const label = $derived(!accountStore.isSignedIn ? "Sign in to share" : needsLink ? "Live sharing needs this computer linked" : summary.label);
 </script>
 
-{#if serverId && resource && (canShare || needsLink)}
+{#if serverId && resource && (canShare || needsLink || (!accountStore.isSignedIn && resource.kind !== "task"))}
   <button
     type="button"
     class="{className} disabled:cursor-not-allowed disabled:opacity-45"
     data-testid="share-button"
     data-shared={shared ? "true" : undefined}
-    disabled={needsLink}
+    {disabled}
     title={label}
     aria-label={label}
     onclick={() => sharesStore.open({ serverId, resource, title })}

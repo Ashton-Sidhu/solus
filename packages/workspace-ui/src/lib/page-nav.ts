@@ -1,10 +1,9 @@
 /**
- * The five routed page destinations, named once.
+ * The routed page destinations, named once.
  *
  * The session sidebar's nav rows navigate between them; the page breadcrumb and
  * the sub-page crumb read the same labels and glyphs to state where you are.
- * When a sixth page arrives it is added here and every surface gains it
- * together.
+ * A new page is added here and every surface gains it together.
  *
  * History is deliberately absent: it summons the session picker overlay rather
  * than navigating, so there is no route to put in a pane.
@@ -12,7 +11,7 @@
 
 import type { WorkspaceContext } from '../contexts'
 
-export type NavPage = 'folio' | 'automations' | 'insights' | 'prs' | 'tasks'
+export type NavPage = 'folio' | 'automations' | 'insights' | 'prs' | 'tasks' | 'notifications'
 
 export interface NavPageSpec {
   id: NavPage
@@ -28,6 +27,7 @@ export const NAV_PAGES: readonly NavPageSpec[] = [
   { id: 'insights', label: 'Insights' },
   { id: 'prs', label: 'Pull requests' },
   { id: 'tasks', label: 'Tasks' },
+  { id: 'notifications', label: 'Notifications' },
 ]
 
 export function navPageSpec(page: NavPage): NavPageSpec {
@@ -57,6 +57,9 @@ export function openNavPage(
       break
     case 'tasks':
       session.openTasks('click', target)
+      break
+    case 'notifications':
+      session.openNotifications('click', target)
       break
   }
 }

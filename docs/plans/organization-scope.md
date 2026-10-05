@@ -89,6 +89,14 @@ person's Local work. Another organization's records are reached by selecting
 that organization or opening another window. Do not combine all organizations
 into one unscoped view.
 
+**One exception: the notifications hub** ([notifications-hub.md](notifications-hub.md)).
+It shows what is addressed to the person from every host and every
+organization home the client reaches, whatever organization the window
+selected. Each source is still read through its own admitted connection and
+answers only the caller's rows in the scopes that admission allows; the client
+merges the feeds. No read spans organizations on the server, and every other
+board keeps the Local + selected-organization rule.
+
 These are sources, not three copies of every record. A VM session and its
 cloud mirror are one logical session, with one execution host and one record
 home. Merge them by stable identity. Show where records live and where work
@@ -195,9 +203,10 @@ This needs a durable transition, not just a new label on a tab:
 - Change the authoritative home and update tabs, search results, task links,
   works, and session insights references only after cloud receipt. Retain the
   host data required for execution and retry.
-- For an active turn, keep its admitted execution context unchanged and apply
-  the scope/home transition at a turn boundary. Show the move as pending until
-  that boundary; do not reinterpret tools already running under Local authority.
+- For an active turn, keep its admitted execution context unchanged; do not
+  reinterpret tools already running under Local authority. Publishing does not
+  wait for the turn to end: the snapshot is sent at once, and the mirror sends
+  the turn's rows again as they change (decision 2026-10-02).
 - After commitment, subsequent turns, agent tools, child sessions, and queued
   work use the new saved context. Independently scheduled automations retain
   their own saved authority unless explicitly changed.
@@ -337,6 +346,12 @@ Persist destination scope on pending operations, session reports, delivery
 cursors, and acknowledgements. An A grant cannot drain B's queue. Closing a
 window does not stop delivery. Internal system calls and automations carry
 their saved context rather than a process-wide current organization.
+
+### Organization settings
+
+An organization's owners can change Sync all Insights from Settings in any client
+(plans/018). It is the only organization setting a client can change. Hosts get it in
+the policy of their standing, as before. See `docs/settings.md`.
 
 ## 7. Window state and connections
 

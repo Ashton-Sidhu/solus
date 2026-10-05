@@ -2,8 +2,8 @@
   /**
    * The last thing onboarding asks, and the only stage that decides where the
    * user lands. A new project and existing code each ask one more question —
-   * the project's name, or its folder — inside the flow. "Just chat" ends the
-   * flow on the workspace's new-tab home.
+   * the project's name, or its folder — inside the flow. "New chat" ends the
+   * flow in a chat with no project.
    */
   import {
     MessageCircle as ChatCircleIcon,
@@ -61,8 +61,8 @@
     </OnboardingRow>
 
     <OnboardingRow
-      name="Just chat"
-      detail="Ask questions, no repository needed"
+      name="New chat"
+      detail="Ask anything, no project needed"
       delay={0.3}
       tint="var(--chart-3)"
       state="available"
@@ -80,6 +80,6 @@
     oncontinue={() => store.nameNewProject()}
     onback={() => store.back()}
     onskip={onchat}
-    skipLabel="Just chat"
+    skipLabel="New chat"
   />
 </div>

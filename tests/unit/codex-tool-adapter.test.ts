@@ -4,6 +4,17 @@ import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents
 import { CodexToolDispatcher, adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 
 describe('Codex dynamic tool adapter', () => {
+  test('defers ordinary tools while keeping essential guidance visible', () => {
+    const tools: AgentTool[] = ['ordinary_tool', 'start_session'].map((name) => ({
+      name, description: name, inputFields: {}, requiresApproval: false,
+      alwaysLoad: name === 'start_session', execute: async () => ({ ok: true, text: '' }),
+    }))
+    expect(adaptCodexTools(tools).map(({ name, deferLoading }) => ({ name, deferLoading }))).toEqual([
+      { name: 'ordinary_tool', deferLoading: true },
+      { name: 'start_session', deferLoading: false },
+    ])
+  })
+
   test('returns a terminal failure when a tool throws', async () => {
     const tool: AgentTool = {
       name: 'failing_tool',
@@ -46,5 +57,17 @@ describe('the schema Codex reads', () => {
     }
     const [adapted] = adaptCodexTools([tool])
     expect(adapted!.inputSchema).toMatchObject({ required: ['prompt'] })
+  })
+})
+
+// WHY: Codex must see the same screenshot Claude sees (plan 016, P09).
+describe('Codex tool results with an image', () => {
+  test('the PNG travels as an inputImage data URL after the text', async () => {
+    const { codexToolContentItems } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
+    expect(codexToolContentItems('Screenshot', { mimeType: 'image/png', data: 'iVBORw0KGgo=' })).toEqual([
+      { type: 'inputText', text: 'Screenshot' },
+      { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+    ])
+    expect(codexToolContentItems('text only')).toEqual([{ type: 'inputText', text: 'text only' }])
   })
 })

@@ -116,10 +116,10 @@
                   <CheckIcon size={16} class="text-(--solus-status-complete)" />
                 {/if}
               </span>
-              <span class="min-w-0 flex-1 truncate font-medium">{row.name}</span>
+              <span class="min-w-0 flex-1 truncate">{row.name}</span>
               <!-- Reserve space for short durations and grow for longer ones. -->
               <span
-                class="min-w-11 shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-(--solus-text-tertiary)"
+                class="min-w-11 shrink-0 whitespace-nowrap text-right text-chrome-dense tabular-nums text-(--solus-text-tertiary)"
                 >{formatActivityDuration(row.elapsedMs)}</span
               >
             </button>

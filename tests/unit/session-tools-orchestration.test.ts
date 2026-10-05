@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { OrchestrationItem } from '@solus/contracts/session-exchange'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -28,6 +29,9 @@ const transcript: SessionLoadMessage[] = [1, 2, 3, 3, 5, 6].map((timestamp, inde
 
 interface Call { method: string; args: unknown[] }
 const calls: Call[] = []
+let savedReply = 'Review passed.'
+let startingReceipt = false
+let startupOutcome: OrchestrationItem | undefined
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
@@ -51,7 +55,7 @@ beforeAll(async () => {
     }],
   } as never)
   sessionTools.setSessionOrchestration({
-    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', agentSessionId: 'thread-child', taskId: 'task-child' } },
+    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', agentSessionId: startingReceipt ? 'pending:m-created' : 'thread-child', starting: startingReceipt, taskId: 'task-child', waited: startupOutcome } },
     send: async (...args) => {
       calls.push({ method: 'send', args })
       const waitMs = (args[2] as { waitMs?: number }).waitMs ?? 0
@@ -60,6 +64,14 @@ beforeAll(async () => {
         : { exchangeId: 'm-sent', disposition: 'queued' }
     },
     stop: (...args) => { calls.push({ method: 'stop', args }); return true },
+    readExchange: (sender, exchangeId) => sender === 'thread-parent' && exchangeId === 'saved-result' ? {
+      exchangeId, kind: 'prompt', senderSessionId: 'parent', senderAgentSessionId: sender,
+      targetSessionId: 'peer', targetAgentSessionId: 'thread-peer', provider: 'codex', notify: true,
+      state: 'settled', outcome: 'completed', outputs: [], notices: [], revising: false,
+      dispatchedAt: 1, deliveryState: 'queued',
+      report: { messageId: exchangeId, agentSessionId: 'thread-peer', status: 'completed', outputs: [], reply: savedReply },
+    } : undefined,
+
   })
 })
 
@@ -126,7 +138,7 @@ describe('the acting session tools', () => {
     const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', report: false }, deps())
     expect(result.ok).toBe(true)
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['thread-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0] })
+    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['thread-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0, undefined] })
     expect(reloaded('start_session', result.text)).toEqual({ agentSessionId: 'thread-child', messageId: 'm-created', provider: 'codex' })
   })
 
@@ -191,7 +203,7 @@ describe('the acting session tools', () => {
 
   test('the tools the redesign replaced are gone', async () => {
     expect(sessionTools.sessionAgentTools.map((tool) => tool.name)).toEqual([
-      'list_agent_targets', 'search_sessions', 'read_session', 'read_task_sessions', 'start_session', 'send_session', 'stop_session',
+      'list_agent_targets', 'search_sessions', 'read_session', 'read_session_exchange', 'read_task_sessions', 'start_session', 'send_session', 'stop_session',
     ])
     for (const retired of ['wait_for_session', 'create_session', 'prompt_session', 'find_sessions']) {
       expect((await sessionTools.executeSessionTool(retired, { session_id: 'thread-peer' }, deps())).ok).toBe(false)
@@ -234,4 +246,74 @@ describe('read_session with a cursor', () => {
     expect(none).toContain('(nothing new)')
     expect(cursorOf(none)).toBe(6000)
   })
+})
+
+
+test('retry keys reach both orchestration commands', async () => {
+  calls.length = 0
+  await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'retry me', request_id: 'send-1' }, deps())
+  expect(calls[0]!.args[2]).toMatchObject({ requestId: 'send-1', waitMs: 0, notify: true })
+  await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', request_id: 'start-1' }, deps())
+  expect(calls[1]!.args[4]).toBe('start-1')
+})
+
+test('saved exchange reads expose a result without consuming its queued report', async () => {
+  calls.length = 0
+  const result = await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result' }, deps())
+  expect(result.ok).toBe(true)
+  expect(result.text).toContain('settled')
+  expect(result.text).toContain('Report delivery: queued')
+  expect(result.text).toContain('Review passed.')
+  expect(calls).toEqual([])
+  expect((await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result' }, deps('other-caller'))).ok).toBe(false)
+  expect((await sessionTools.executeSessionTool('read_session_exchange', {}, deps())).ok).toBe(false)
+})
+
+test('coordination guidance is loaded with the start tool', () => {
+  expect(sessionTools.startSessionAgentTool.alwaysLoad).toBe(true)
+  expect(sessionTools.startSessionAgentTool.description).toContain('wait_seconds=0')
+  expect(sessionTools.startSessionAgentTool.description).toContain('native subagent')
+})
+
+test('an accepted creation names its exchange without treating the pending card ID as a live session', async () => {
+  startingReceipt = true
+  try {
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none' }, deps())
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('Accepted session creation')
+    expect(result.text).toContain('Startup continues in the background')
+    expect(result.text).toContain('read_session_exchange with exchange_id=m-created')
+    expect(result.text).not.toContain('session://open')
+    expect(reloaded('start_session', result.text)).toMatchObject({ agentSessionId: 'pending:m-created', messageId: 'm-created' })
+  } finally { startingReceipt = false }
+})
+
+test('a startup failure received during an explicit wait is included in the pending receipt', async () => {
+  startingReceipt = true
+  startupOutcome = { type: 'report', report: { messageId: 'm-created', agentSessionId: 'pending:m-created', status: 'failed', outputs: [], reply: 'Provider unavailable' } }
+  try {
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', wait_seconds: 10 }, deps())
+    expect(result.text).toContain('Provider startup ended')
+    expect(result.text).toContain('Provider unavailable')
+    expect(result.text).not.toContain('Startup continues in the background')
+    expect(reloaded('start_session', result.text)?.report?.status).toBe('failed')
+  } finally { startingReceipt = false; startupOutcome = undefined }
+})
+
+test('full saved replies are read in bounded pages without consuming report delivery', async () => {
+  savedReply = 'a'.repeat(6000) + '\nThe unresolved issue is on the next page.'
+  calls.length = 0
+  try {
+    const first = await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result', reply_offset: 0 }, deps())
+    expect(first.text).toContain('a'.repeat(6000))
+    expect(first.text).not.toContain('The unresolved issue')
+    expect(first.text).toContain('next_reply_offset: 6000')
+    const second = await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result', reply_offset: 6000 }, deps())
+    expect(second.text).toContain(savedReply.slice(6000))
+    expect(second.text).toContain('next_reply_offset: null')
+    expect(second.text).toContain('Report delivery: queued')
+    expect(calls).toEqual([])
+    expect((await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result', reply_offset: savedReply.length + 1 }, deps())).ok).toBe(false)
+    expect((await sessionTools.executeSessionTool('read_session_exchange', { exchange_id: 'saved-result', reply_offset: -1 }, deps())).ok).toBe(false)
+  } finally { savedReply = 'Review passed.' }
 })

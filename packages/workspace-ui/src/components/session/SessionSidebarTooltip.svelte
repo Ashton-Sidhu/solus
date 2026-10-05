@@ -29,6 +29,8 @@
     provider?: AgentId | null;
     modelId?: string | null;
     attention?: AttentionState;
+    /** While rate limited: when the provider window reopens, in epoch ms. */
+    limitResetsAt?: number;
     reviewGuideStatus?: ReviewGuideIndicatorStatus;
   }
 
@@ -42,6 +44,7 @@
     provider,
     modelId,
     attention,
+    limitResetsAt,
     reviewGuideStatus,
   }: Props = $props();
 
@@ -122,7 +125,7 @@
         </div>
       {/if}
       {#if attention}
-        <div class="text-(--solus-text-secondary)">{attentionLabel(attention)}</div>
+        <div class="text-(--solus-text-secondary)">{attentionLabel(attention, limitResetsAt)}</div>
       {/if}
       {#if reviewGuideStatus}
         <div

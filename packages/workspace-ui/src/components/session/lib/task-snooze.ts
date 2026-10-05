@@ -119,3 +119,16 @@ export function taskSnoozeUntil(preset: TaskSnoozePreset, now = new Date()): num
   target.setHours(9, 0, 0, 0)
   return target.getTime()
 }
+
+/**
+ * The wake time of "Until limit resets", or null when the choice is not
+ * offered. It stands only while the provider has said when its window reopens
+ * and that time is still ahead: a reset time is never guessed, and a window
+ * that has already reopened has nothing to wait for.
+ */
+export function limitResetSnoozeUntil(
+  limitResetsAt: number | null | undefined,
+  now = Date.now(),
+): number | null {
+  return limitResetsAt && limitResetsAt > now ? limitResetsAt : null
+}

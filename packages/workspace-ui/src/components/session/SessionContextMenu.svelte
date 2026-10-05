@@ -17,7 +17,7 @@
     Share as ShareIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getSessionSidebarStore, getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext, accountStore, sharesStore } from "../../contexts";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -25,6 +25,7 @@
   import { selectSessionRename } from "./lib/session-context-menu";
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
+  import { canDriveSession } from "../../contexts/sharing/session-drive";
 
   interface Props {
     x: number;
@@ -86,6 +87,9 @@
   const sidebarStore = getSessionSidebarStore();
 
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
+  // A member who may only read a shared session gets the menu's reading
+  // actions; stopping, renaming, linking, settling, and snoozing are an editor's.
+  const canDrive = $derived(canDriveSession(tabId ? session.serverIdFor(tabId) : null, sess?.id));
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
   /** Telemetry is keyed by Solus's own session id, not the provider thread's,
    *  so an open session answers from its tab and a closed one from the id the
@@ -275,7 +279,7 @@
          rows used to spend a button on each. They live here now: one is
          destructive, the other is the user's own verdict, and neither is worth
          four glyphs appearing under the cursor. -->
-    {#if rowActions?.onStop}
+    {#if canDrive && rowActions?.onStop}
       <ContextMenu.Item
         onSelect={() => {
           onClose();
@@ -286,7 +290,7 @@
         Stop Run
       </ContextMenu.Item>
     {/if}
-    {#if rowActions?.onToggleDone}
+    {#if canDrive && rowActions?.onToggleDone}
       <ContextMenu.Item
         onSelect={() => {
           onClose();
@@ -297,7 +301,7 @@
         {rowActions.done ? "Mark Not Done" : "Mark Done"}
       </ContextMenu.Item>
     {/if}
-    {#if rowActions?.onSnooze}
+    {#if canDrive && rowActions?.onSnooze}
       <ContextMenu.Item
         onSelect={() => {
           onClose();
@@ -308,7 +312,7 @@
         Snooze…
       </ContextMenu.Item>
     {/if}
-    {#if rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze}
+    {#if canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze)}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}
@@ -330,23 +334,25 @@
     {/if}
     <!-- What the session belongs to. A session joins a task, and owns the pull
          requests it works on (docs/plans/session-pull-requests.md). -->
-    {#if tabId}
+    {#if tabId && (canDrive || linkedTask)}
       {#if linkedTask}
         <ContextMenu.Item onSelect={openTask}>
           <TaskIcon />
           Open Task
         </ContextMenu.Item>
-        <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
-          <UnlinkIcon />
-          Unlink from Task
-        </ContextMenu.Item>
+        {#if canDrive}
+          <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
+            <UnlinkIcon />
+            Unlink from Task
+          </ContextMenu.Item>
+        {/if}
       {:else}
         <ContextMenu.Item onSelect={linkToTask}>
           <LinkIcon />
           Link to Task…
         </ContextMenu.Item>
       {/if}
-      {#if sess?.agentSessionId}
+      {#if canDrive && sess?.agentSessionId}
         <ContextMenu.Item onSelect={linkPullRequest}>
           <GitPullRequestIcon />
           Link Pull Request…
@@ -354,13 +360,13 @@
       {/if}
       <ContextMenu.Separator />
     {/if}
-    {#if tabId}
+    {#if tabId && canDrive}
       <ContextMenu.Item onSelect={startRename}>
         <PencilSimpleIcon />
         Rename
       </ContextMenu.Item>
     {/if}
-    {#if tabId || onRegenerateTitle}
+    {#if canDrive && (tabId || onRegenerateTitle)}
       <ContextMenu.Item onSelect={regenerateTitle}>
         <ArrowsClockwiseIcon />
         Regenerate title
@@ -373,7 +379,7 @@
       </ContextMenu.Item>
     {/if}
     {#if hasSession}
-      <ContextMenu.Item onSelect={share} disabled={!canShare} title={canShare ? undefined : "Live sharing needs this computer linked"}>
+      <ContextMenu.Item onSelect={share} disabled={!accountStore.isSignedIn || !canShare} title={!accountStore.isSignedIn ? "Sign in to share" : canShare ? undefined : "Live sharing needs this computer linked"}>
         <ShareIcon />
         Share…
         <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>

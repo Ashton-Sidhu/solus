@@ -61,8 +61,12 @@ export class InsightPull {
   /** Starts a pull unless one runs or one ended recently. Never throws: the list answers from what is here. */
   request(): Promise<void> {
     if (this.running) return this.running
+    const userId = this.deps.userId()
+    if (!userId) return Promise.resolve()
+    const organizations = this.deps.organizations()
+    if (organizations.length === 0) return Promise.resolve()
     if (this.now() - this.lastPullAt < PULL_INTERVAL_MS) return Promise.resolve()
-    this.running = this.pull().finally(() => {
+    this.running = this.pull(userId, organizations).finally(() => {
       this.lastPullAt = this.now()
       this.running = null
       this.deps.onChange?.(this.state())
@@ -83,11 +87,9 @@ export class InsightPull {
     return true
   }
 
-  private async pull(): Promise<void> {
-    const userId = this.deps.userId()
-    if (!userId) return
+  private async pull(userId: string, organizations: string[]): Promise<void> {
     const errors: string[] = []
-    for (const organizationId of this.deps.organizations()) {
+    for (const organizationId of organizations) {
       try {
         await this.pullOrganization(userId, organizationId)
       } catch (error) {

@@ -7,6 +7,7 @@
     GitBranch as GitBranchIcon,
     GitFork as GitForkIcon,
     Globe as GlobeIcon,
+    Smartphone as SmartphoneIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import {
@@ -17,6 +18,8 @@
     toolsStore,
   } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
+  import { devicesStore } from "../../contexts/devices/devices.store.svelte";
+  import { openDeviceBuilds } from "../devices/lib/device-view-state.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -106,6 +109,17 @@
     return environmentStore.watchDetails(detailServerId, detailCwd);
   });
 
+  // The Devices row is for projects that build a mobile app (at the root or
+  // in a subfolder), or a conversation already showing a device. It counts
+  // the host's app builds, so a build is one click away.
+  const deviceProject = $derived(active && branchRepoRoot ? devicesStore.project(detailServerId, branchRepoRoot) : undefined);
+  const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, session.sessionFor(sourceId)?.id).length > 0);
+  const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
+  const buildCount = $derived(devicesStore.state(detailServerId)?.builds.length ?? 0);
+  $effect(() => {
+    if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
+  });
+
   // Clearing the browser profile arms in place, the way "Discard changes…"
   // does in the Git section: the row itself becomes the confirmation, so an
   // action that signs the user out everywhere still costs a second, deliberate
@@ -167,6 +181,20 @@
           }
         },
       },
+      // Simulators, connected phones, and the app builds agents made. With a
+      // build to install, the row opens straight on Builds.
+      ...(showsDevices ? [{
+        key: "devices",
+        label: "Devices",
+        icon: SmartphoneIcon,
+        badge: buildCount > 0 ? `${buildCount} build${buildCount === 1 ? "" : "s"}` : undefined,
+        phase: "idle" as const,
+        run: () => {
+          if (buildCount > 0) openDeviceBuilds(session, detailServerId);
+          else session.openDevices(undefined, detailServerId);
+          requestInputFocus();
+        },
+      }] : []),
     ],
   );
 
@@ -275,7 +303,7 @@
         >
         <!-- The branch is the section's anchor — a constant half-step heavier
              than the action rows beneath it. -->
-        <MiddleTruncate value={displayedBranch} class="flex-1 font-semibold" />
+        <MiddleTruncate value={displayedBranch} class="flex-1" />
         {#if copyableBranch}
           <span class="branch-copy-indicator" aria-hidden="true">
             <CopyIcon size={11} />
@@ -377,7 +405,7 @@
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
@@ -394,7 +422,7 @@
     border-radius: 0.4375rem;
     background: transparent;
     color: var(--solus-text-secondary);
-    /* Match MenuRow by inheriting the project rail's device-based type rung. */
+    /* Match MenuRow by inheriting the project rail's type rung. */
     font-size: inherit;
     font-weight: 400;
     text-align: left;
@@ -491,7 +519,7 @@
   }
   .stat-add,
   .stat-del {
-    font-size: var(--text-xs);
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
   }
   .stat-add {

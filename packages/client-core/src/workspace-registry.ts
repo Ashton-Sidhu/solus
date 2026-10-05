@@ -46,9 +46,29 @@ export function saveDirectoryWorkspaces(workspaces: readonly DirectoryWorkspace[
   return next
 }
 
-/** The saved workspace a `workspace:<organizationId>` id names, or null. */
+/**
+ * Organization ids that two directories list. A connection is keyed by
+ * `workspace:<organizationId>`, so such an id names no single service: the
+ * registry dials neither rather than reach one service's records with the
+ * other's identity (plans/015-notifications-hub.md §4).
+ */
+export function ambiguousOrganizationIds(workspaces: readonly SavedWorkspace[]): Set<string> {
+  const directoryOf = new Map<string, string>()
+  const ambiguous = new Set<string>()
+  for (const workspace of workspaces) {
+    const seen = directoryOf.get(workspace.organizationId)
+    if (seen !== undefined && seen !== workspace.directoryUrl) ambiguous.add(workspace.organizationId)
+    directoryOf.set(workspace.organizationId, workspace.directoryUrl)
+  }
+  return ambiguous
+}
+
+/** The saved workspace a `workspace:<organizationId>` id names; null when none, or when two directories list it. */
 export function savedWorkspaceFor(serviceId: string): SavedWorkspace | null {
-  return loadWorkspaces().find((workspace) => solusApiId(workspace.organizationId) === serviceId) ?? null
+  const workspaces = loadWorkspaces()
+  const matches = workspaces.filter((workspace) => solusApiId(workspace.organizationId) === serviceId)
+  if (matches.length === 0 || ambiguousOrganizationIds(matches).size > 0) return null
+  return matches[0]!
 }
 
 /**

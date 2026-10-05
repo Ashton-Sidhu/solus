@@ -11,6 +11,7 @@ export type DocumentStackEntry = {
   workId: string
   title: string
   workType?: WorkType
+  contentVersion?: number
   updatedAt?: string
   streaming: boolean
 }

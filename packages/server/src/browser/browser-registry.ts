@@ -1069,7 +1069,7 @@ export class BrowserRegistry {
       )
     }
     if (record.page.target.kind !== 'url') {
-      throw new Error('Device targets need their platform adapter, which this host does not have.')
+      throw new Error('Simulators and emulators open in the Devices pane, not a browser page. Use device_open.')
     }
     if (!record.page.url) throw new Error('This browser page has no address to open.')
 

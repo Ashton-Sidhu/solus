@@ -87,7 +87,7 @@ describe('file preview paths', () => {
     })
   })
 
-  test('previews files outside the project as read-only', async () => {
+  test('keeps files outside the project editable', async () => {
     const path = join(externalRoot, 'notes.txt')
     await writeFile(path, 'downloaded notes\n')
     const resolvedPath = await realpath(path)
@@ -101,12 +101,12 @@ describe('file preview paths', () => {
       displayPath: resolvedPath,
       contents: 'downloaded notes\n',
       size: 17,
-      isReadOnly: true,
+      isReadOnly: false,
       mimeType: 'text/plain',
     })
   })
 
-  test('treats a project symlink to an external file as read-only', async () => {
+  test('edits a project symlink at the external file it points to', async () => {
     const externalPath = join(externalRoot, 'linked.txt')
     const linkedPath = join(projectRoot, 'linked.txt')
     await writeFile(externalPath, 'outside\n')
@@ -118,7 +118,7 @@ describe('file preview paths', () => {
       ok: true,
       path: resolvedExternalPath,
       displayPath: resolvedExternalPath,
-      isReadOnly: true,
+      isReadOnly: false,
     })
 
     expect(isInsideRoot(await realpath(projectRoot), await realpath(linkedPath))).toBe(false)

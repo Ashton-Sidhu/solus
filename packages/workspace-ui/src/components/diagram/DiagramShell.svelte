@@ -20,8 +20,7 @@
   import DiagramLoadError from "./DiagramLoadError.svelte";
   import DiagramNodeInspector from "./inspector/DiagramNodeInspector.svelte";
   import DiagramNodeRail from "./inspector/DiagramNodeRail.svelte";
-  import DiagramInspectorRail from "./inspector/DiagramInspectorRail.svelte";
-  import DiagramEdgeInspector from "./inspector/DiagramEdgeInspector.svelte";
+  import DiagramEdgeDrawer from "./inspector/DiagramEdgeDrawer.svelte";
   import DiagramCommentsPanel from "./DiagramCommentsPanel.svelte";
   import DiagramThreadLayer from "./DiagramThreadLayer.svelte";
   import DiagramSearch from "./DiagramSearch.svelte";
@@ -36,12 +35,7 @@
   import { hasDiagramClipboard } from "./lib/clipboard.svelte";
   import { DEFAULT_ARROW_COLOR } from "./lib/flow-builders";
   import { DIAGRAM_EDGE_TYPES, DIAGRAM_NODE_TYPES } from "./lib/canvas-registry";
-  import {
-    EDGE_INSPECTOR_TABS,
-    nodeLinks,
-    type EdgeInspectorTab,
-    type EdgeUpdates,
-  } from "./lib/inspector-model";
+  import { nodeLinks, type EdgeUpdates } from "./lib/inspector-model";
   import type { ThreadAnchor } from "./lib/thread-card-position";
   import { minimapSize } from "./lib/minimap-size";
   import { arrangementSelection, type Arrangement } from "./lib/selection-arrangement";
@@ -53,6 +47,7 @@
   import { DiagramSaver } from "./lib/diagram-save.svelte";
   import { DiagramThreads } from "./lib/diagram-threads.svelte";
   import { DiagramInspector } from "./lib/diagram-inspector.svelte";
+  import { readingHandlers } from "./lib/reader-mode";
   import { diagramCopyFormats, diagramExportFormats } from "./lib/diagram-work-formats";
   import { isUnread } from "../comments/lib/thread";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
@@ -62,7 +57,8 @@
   interface Props {
     content: string;
     title: string;
-    onSave: (content: string) => Promise<void>;
+    /** Absent for a reader: nothing they do is saved. */
+    onSave?: (content: string) => Promise<void>;
     onClose: () => void;
     /** Fires true when the canvas has unsaved edits, false once they're saved.
         Lets the host decide whether an agent update can safely refresh. */
@@ -83,6 +79,8 @@
     onOpenWorkspace?: () => void;
     /** The diagram is edited live: the shared doc is the content. Read once. */
     live?: LiveEditorBinding | null;
+    /** Why a viewer or a commenter may not edit; null for an editor. Read once. */
+    readOnlyReason?: string | null;
   }
 
   let {
@@ -99,8 +97,11 @@
     onRename,
     onOpenWorkspace,
     live: liveProp = null,
+    readOnlyReason = null,
   }: Props = $props();
   const live = untrack(() => liveProp);
+  // A reader keeps the header, threads and canvas; nothing that edits is offered.
+  const readOnly = untrack(() => readOnlyReason !== null);
   const liveSession = live ? new DiagramLiveSession(live) : null;
   onDestroy(() => liveSession?.destroy());
 
@@ -151,7 +152,7 @@
   }, liveSession?.historyFor((next) => diagram.adopt(next)));
   const saver = new DiagramSaver({
     content: () => diagram.serialize(),
-    save: (text) => onSave(text),
+    save: (text) => onSave?.(text) ?? Promise.resolve(),
     onDirtyChange: (dirty) => onDirtyChange?.(dirty),
   });
   // The unreadable source stays what copy and JSON export hand out.
@@ -184,6 +185,7 @@
     reader: () => commentReader,
     anchorLabel: anchorLabelFor,
     selectAnchor: (anchor) => {
+      if (readOnly) return;
       if (anchor.nodeId) inspector.showNode(anchor.nodeId, false);
       else if (anchor.edgeId) inspector.showEdge(anchor.edgeId, false);
     },
@@ -192,8 +194,9 @@
     refreshPins: () => canvas.applyTransientState(),
   });
 
-  // Callbacks every projected node and edge carries back to the shell.
-  const nodeHandlers = {
+  // Callbacks every projected node and edge carries back to the shell. A
+  // reader's cards carry only the ones that do not change the diagram.
+  const editingNodeHandlers = {
     onLabelChange: (nodeId: string, label: string) => canvas.updateNode(nodeId, { label }),
     onAction: handleAction,
     onResize: (nodeId: string, width: number, height: number) => gestures.resize(nodeId, width, height),
@@ -204,7 +207,7 @@
     onToggleCollapse: (groupId: string) => canvas.toggleCollapse(groupId),
     onOpenThread: (nodeId: string) => threads.openFirstOn(nodeId),
   };
-  const edgeHandlers = {
+  const editingEdgeHandlers = {
     onLabelChange: (edgeId: string, label: string) => canvas.updateEdge(edgeId, { label: label || undefined }),
     onLabelOffsetChange: (edgeId: string, offset: { x: number; y: number }) => gestures.labelOffsetChange(edgeId, offset),
     onLabelOffsetCommit: () => gestures.labelOffsetCommit(),
@@ -212,6 +215,8 @@
     onBendOffsetCommit: (edgeId: string) => gestures.bendCommit(edgeId),
     onContextMenu: handleContextMenuOpen,
   };
+  const nodeHandlers = readOnly ? readingHandlers(editingNodeHandlers) : editingNodeHandlers;
+  const edgeHandlers = readOnly ? readingHandlers(editingEdgeHandlers) : editingEdgeHandlers;
   // One handler per editable edge property, for the inspector tabs.
   const edgeUpdates: EdgeUpdates = {
     label: (id, label) => canvas.updateEdge(id, { label: label || undefined }),
@@ -237,7 +242,7 @@
       contextMenu = null;
       // Pins belong to a level; a card over the level just left points at nothing.
       threads.closeFloating();
-      if (selectedNodeId) inspector.showNode(selectedNodeId, false);
+      if (selectedNodeId && !readOnly) inspector.showNode(selectedNodeId, false);
     },
     // A positionless diagram was auto-laid out with the LR default.
     initialLayout: initialDiagram.hadNoPositions ? "LR" : null,
@@ -411,6 +416,7 @@
         canvas.toggleFocus(nodeId);
         break;
       case "details":
+        if (readOnly) break;
         inspector.showNode(inspector.nodeId === nodeId ? null : nodeId, true);
         break;
       case "drilldown":
@@ -433,6 +439,8 @@
   }
 
   function handleContextMenuOpen(targetId: string, type: "node" | "edge", x: number, y: number) {
+    // A reader's menu holds only "Add comment", which rides a node.
+    if (readOnly && (type !== "node" || !workId || !commentReader.canReply)) return;
     paneMenu = null;
     contextMenu = { x, y, targetId, type };
   }
@@ -442,7 +450,7 @@
   // bare pane surface.
   function handleBoardContextMenu(e: MouseEvent) {
     const t = e.target instanceof HTMLElement ? e.target : null;
-    if (!t?.closest(".svelte-flow__pane")) return;
+    if (readOnly || !t?.closest(".svelte-flow__pane")) return;
     e.preventDefault();
     contextMenu = null;
     const flow = canvas.flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -497,12 +505,12 @@
   function handleNodeClick(nodeId: string) {
     canvas.moveFocusTo(nodeId);
     threads.closeFloating();
-    inspector.showNode(nodeId, false);
+    if (!readOnly) inspector.showNode(nodeId, false);
   }
 
   function handleEdgeClick(edgeId: string) {
     threads.closeFloating();
-    inspector.showEdge(edgeId, false);
+    if (!readOnly) inspector.showEdge(edgeId, false);
   }
 
   // Clicking empty canvas clears the selection, so close the drawer to match.
@@ -623,33 +631,40 @@
   });
 
   const guard = { enabled: canvasActive };
-  useKeybinding("diagram.undo", undo, guard);
-  useKeybinding("diagram.redo", redo, guard);
-  useKeybinding("diagram.select-all", () => canvas.selectAll(), guard);
+  // A reader's arrows only pan, also past a node a thread revealed and selected.
+  function nudgeOrPan(dx: number, dy: number, panDx: number, panDy: number) {
+    if (readOnly) canvas.deselectNodes();
+    canvas.nudgeOrPan(dx, dy, panDx, panDy);
+  }
+  // Shortcuts that change the diagram, or select what they change.
+  const editGuard = { enabled: () => !readOnly && canvasActive() };
+  useKeybinding("diagram.undo", undo, editGuard);
+  useKeybinding("diagram.redo", redo, editGuard);
+  useKeybinding("diagram.select-all", () => canvas.selectAll(), editGuard);
   useKeybinding("diagram.copy", () => canvas.copySelection(), guard);
-  useKeybinding("diagram.paste", () => canvas.paste(), guard);
-  useKeybinding("diagram.duplicate", () => canvas.duplicateSelection(), guard);
-  useKeybinding("diagram.delete-forward", deleteSelected, guard);
+  useKeybinding("diagram.paste", () => canvas.paste(), editGuard);
+  useKeybinding("diagram.duplicate", () => canvas.duplicateSelection(), editGuard);
+  useKeybinding("diagram.delete-forward", deleteSelected, editGuard);
   // addNode opens the new node's drawer and autofocuses its name input — same
   // as the toolbar button — so focus deliberately goes to the drawer.
-  useKeybinding("diagram.add-node", () => addNode(), guard);
-  useKeybinding("diagram.add-group", () => addGroup(), guard);
-  useKeybinding("diagram.send-to-back", () => canvas.setSentToBack(canvas.selectedNodeIds(), true), guard);
-  useKeybinding("diagram.bring-to-front", () => canvas.setSentToBack(canvas.selectedNodeIds(), false), guard);
+  useKeybinding("diagram.add-node", () => addNode(), editGuard);
+  useKeybinding("diagram.add-group", () => addGroup(), editGuard);
+  useKeybinding("diagram.send-to-back", () => canvas.setSentToBack(canvas.selectedNodeIds(), true), editGuard);
+  useKeybinding("diagram.bring-to-front", () => canvas.setSentToBack(canvas.selectedNodeIds(), false), editGuard);
   useKeybinding("diagram.search", () => { searchOpen = true; }, guard);
   useKeybinding("diagram.comments", toggleComments, guard);
   useKeybinding("diagram.toggle-inspector", toggleInspector, guard);
   useKeybinding("diagram.dismiss", dismiss, guard);
   useKeybinding("diagram.zoom-in", () => void canvas.flow?.zoomIn({ duration: 150 }), guard);
   useKeybinding("diagram.zoom-out", () => void canvas.flow?.zoomOut({ duration: 150 }), guard);
-  useKeybinding("diagram.nudge-up", () => canvas.nudgeOrPan(0, -10, 0, 80), guard);
-  useKeybinding("diagram.nudge-down", () => canvas.nudgeOrPan(0, 10, 0, -80), guard);
-  useKeybinding("diagram.nudge-left", () => canvas.nudgeOrPan(-10, 0, 80, 0), guard);
-  useKeybinding("diagram.nudge-right", () => canvas.nudgeOrPan(10, 0, -80, 0), guard);
-  useKeybinding("diagram.nudge-up-fine", () => canvas.nudgeOrPan(0, -1, 0, 24), guard);
-  useKeybinding("diagram.nudge-down-fine", () => canvas.nudgeOrPan(0, 1, 0, -24), guard);
-  useKeybinding("diagram.nudge-left-fine", () => canvas.nudgeOrPan(-1, 0, 24, 0), guard);
-  useKeybinding("diagram.nudge-right-fine", () => canvas.nudgeOrPan(1, 0, -24, 0), guard);
+  useKeybinding("diagram.nudge-up", () => nudgeOrPan(0, -10, 0, 80), guard);
+  useKeybinding("diagram.nudge-down", () => nudgeOrPan(0, 10, 0, -80), guard);
+  useKeybinding("diagram.nudge-left", () => nudgeOrPan(-10, 0, 80, 0), guard);
+  useKeybinding("diagram.nudge-right", () => nudgeOrPan(10, 0, -80, 0), guard);
+  useKeybinding("diagram.nudge-up-fine", () => nudgeOrPan(0, -1, 0, 24), guard);
+  useKeybinding("diagram.nudge-down-fine", () => nudgeOrPan(0, 1, 0, -24), guard);
+  useKeybinding("diagram.nudge-left-fine", () => nudgeOrPan(-1, 0, 24, 0), guard);
+  useKeybinding("diagram.nudge-right-fine", () => nudgeOrPan(1, 0, -24, 0), guard);
 
   // Every node draws the same swatch, so pass a constant string rather than a
   // per-node callback (which MiniMap would invoke for each node on every redraw).
@@ -683,11 +698,13 @@
     {copyFormats}
     {onExport}
     {hostIsRemote}
+    {readOnlyReason}
   />
 
   <!-- `inert` holds the canvas during the agent edit lock; the header says why. The
-       outline rules are DOM text, never markup, and each value is checked. -->
-  <div class="diagram-shell__canvas" inert={liveSession?.readOnly ?? false}>
+       outline rules are DOM text, never markup, and each value is checked. A
+       reader's canvas offers no edit, so it stays live for pins and threads. -->
+  <div class="diagram-shell__canvas" inert={!readOnly && (liveSession?.readOnly ?? false)}>
     {#if liveOutlineStyles}<svelte:element this={"style"}>{liveOutlineStyles}</svelte:element>{/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -718,7 +735,9 @@
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
         maxZoom={2.5}
-        nodesDraggable={!runtime.isTouchDevice || touchNodeDragEnabled}
+        nodesDraggable={!readOnly && (!runtime.isTouchDevice || touchNodeDragEnabled)}
+        nodesConnectable={!readOnly}
+        elementsSelectable={!readOnly}
         deleteKey={null}
         connectionRadius={40}
         proOptions={{ hideAttribution: true }}
@@ -738,6 +757,7 @@
         <DiagramCanvasBackground />
         <DiagramAlignmentGuides />
         <CanvasToolbar
+          {readOnly}
           onAddNode={() => addNode()}
           onAddGroup={() => addGroup()}
           onRelayout={(direction: LayoutDirection) => canvas.relayout(direction)}
@@ -828,7 +848,7 @@
       {/if}
 
       {#if !diagramParseFailed && canvas.nodes.length === 0}
-        <DiagramEmptyState onAddNode={() => addNode()} />
+        <DiagramEmptyState onAddNode={readOnly ? undefined : () => addNode()} />
       {/if}
 
       {#if contextMenu}
@@ -837,23 +857,23 @@
           x={menu.x}
           y={menu.y}
           type={menu.type}
-          onAddComment={workId
+          onAddComment={workId && commentReader.canReply
             ? () =>
                 // A thread rides the thing you right-clicked, so it is written
                 // on the canvas beside it rather than in a panel across the pane.
                 threads.openComposer(menu.type === "edge" ? { edgeId: menu.targetId } : { nodeId: menu.targetId })
             : undefined}
-          showRemoveFromGroup={!!contextTarget?.parentId}
+          showRemoveFromGroup={!readOnly && !!contextTarget?.parentId}
           onRemoveFromGroup={() => canvas.removeFromGroup(menu.targetId)}
           sentToBack={!!contextTarget?.sentToBack}
-          onSendToBack={() => handleContextMenuSentToBack(true)}
-          onBringToFront={() => handleContextMenuSentToBack(false)}
-          showDetail={contextTargetCanDetail}
+          onSendToBack={readOnly ? undefined : () => handleContextMenuSentToBack(true)}
+          onBringToFront={readOnly ? undefined : () => handleContextMenuSentToBack(false)}
+          showDetail={contextTargetCanDetail && (!readOnly || !!contextTarget?.detail?.nodes.length)}
           hasDetail={!!contextTarget?.detail?.nodes.length}
           onOpenDetail={() => canvas.openOrCreateDetail(menu.targetId)}
-          onDelete={handleContextMenuDelete}
-          onDuplicate={() => canvas.duplicateSelection()}
-          onEditDetails={handleContextMenuEditDetails}
+          onDelete={readOnly ? undefined : handleContextMenuDelete}
+          onDuplicate={readOnly ? undefined : () => canvas.duplicateSelection()}
+          onEditDetails={readOnly ? undefined : handleContextMenuEditDetails}
           onClose={() => {
             contextMenu = null;
           }}
@@ -919,53 +939,23 @@
         />
       {/if}
 
-      {#if activeDrawerEdge && inspector.open}
-        <DiagramEdgeInspector
+      {#if activeDrawerEdge}
+        <DiagramEdgeDrawer
           edge={activeDrawerEdge}
-          sourceLabel={activeDrawerEdge.sourceLabel}
-          targetLabel={activeDrawerEdge.targetLabel}
-          tab={inspector.edgeTab}
-          onTabChange={(tab) => (inspector.edgeTab = tab)}
+          {inspector}
+          {threads}
+          edgeThreads={inspectedEdgeThreads}
+          hasUnreadThreads={inspectedEdgeThreads.some((t) => isUnread(t, commentReader))}
           trunkSiblings={edgeTrunkSiblings}
           saveState={inspectorSaveState}
-          autoFocus={inspector.autoFocus}
           update={edgeUpdates}
-          onOpenEndpoint={(nodeId) => inspector.showNode(nodeId, false)}
           onReverse={() => {
             if (inspector.edgeId) canvas.reverseEdge(inspector.edgeId);
           }}
           onCollapse={collapseInspector}
           onClose={closeInspector}
           onDelete={deleteInspected}
-          threads={inspectedEdgeThreads}
-          diagramThreadCount={threads.counts.total}
-          showResolved={threads.showResolved}
-          onShowResolvedChange={(show) => threads.setShowResolved(show)}
-          onOpenThread={(commentId) => threads.openCard(commentId)}
-          onShowAllThreads={() => threads.openPanel(null, false)}
-          now={threads.now}
         />
-      {:else if activeDrawerEdge}
-        <DiagramInspectorRail
-          kindWord="Edge"
-          label={activeDrawerEdge.label ||
-            `${activeDrawerEdge.sourceLabel} → ${activeDrawerEdge.targetLabel}`}
-          tint={activeDrawerEdge.color ?? "var(--solus-accent)"}
-          tabs={EDGE_INSPECTOR_TABS}
-          tab={inspector.edgeTab}
-          hasUnreadThreads={inspectedEdgeThreads.some((t) => isUnread(t, commentReader))}
-          onExpand={(name) => {
-            if (name) inspector.edgeTab = name as EdgeInspectorTab;
-            inspector.open = true;
-          }}
-        >
-          {#snippet tile()}
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3.6 4h4a2 2 0 0 1 2 2v5.4M7.6 9.4l2 2 2-2" />
-              <circle cx="3.6" cy="4" r="1.4" />
-            </svg>
-          {/snippet}
-        </DiagramInspectorRail>
       {/if}
 
       {#if threads.commentsOpen}
@@ -976,11 +966,11 @@
             : null}
           onClearAnchor={() => (threads.commentDraftNodeId = null)}
           autoFocus={threads.commentsAutoFocus}
-          onAdd={(text) => threads.addPanelComment(text)}
+          onAdd={commentReader.canReply ? (text) => threads.addPanelComment(text) : undefined}
           onEdit={(commentId, text) => threads.editComment(commentId, text)}
           onDelete={(commentId) => threads.deleteComment(commentId)}
           onScrollTo={(commentId) => threads.revealComment(commentId)}
-          onSendToAgent={session.workspace ? () => threads.sendToAgent() : null}
+          onSendToAgent={session.workspace && !readOnly ? () => threads.sendToAgent() : null}
           onClose={() => {
             threads.commentsOpen = false;
             shellEl?.focus();

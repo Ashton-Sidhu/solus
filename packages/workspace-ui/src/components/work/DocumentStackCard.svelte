@@ -67,6 +67,7 @@
         onOpen={() => open(entry)}
         onOpenSecondary={() => openInSplit(entry)}
       >
+        {#snippet rail()}{#if entry.contentVersion}v{entry.contentVersion}{/if}{/snippet}
         {#snippet glyph()}
           {#if entry.streaming}
             <span class="activity-spinner"></span>

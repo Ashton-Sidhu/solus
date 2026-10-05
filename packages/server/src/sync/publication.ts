@@ -26,9 +26,11 @@ const log = createLogger('main', 'publication')
  * receipt, then commit the record's new state. A failure keeps the row and its
  * story; a restart resumes what is `pending` or `sent`.
  *
- * A session is assigned to the organization if it was unassigned, waits for
- * its turn to settle, has its record reported and its transcript mirrored, and
- * is `published` once the service acknowledged both.
+ * A session is assigned to the organization if it was unassigned, has its
+ * record reported and its transcript mirrored at once, and is `published` once
+ * the service acknowledged both. A turn that is running does not hold Share:
+ * the mirror keeps sending its rows as they change. Nothing here polls: the
+ * receipt is checked when a delivery cycle ends, which `resume` is called on.
  */
 
 export interface PublicationDeps {
@@ -36,12 +38,8 @@ export interface PublicationDeps {
   transcriptMirror: TranscriptMirror
   /** The runtime's view of a session: how its transcript is read, and whether a turn is running. */
   transcriptSource: (sessionId: string) => (TranscriptSource & { agentSessionId: string }) | null
-  isTurnRunning: (sessionId: string) => boolean
   hostId: () => string | null
   onChanged: (publication: Publication) => void
-  /** How long to wait for a turn to settle or a receipt to arrive before the publication stays where it is. */
-  waitMs?: number
-  pollMs?: number
 }
 
 export class PublicationCoordinator {
@@ -85,7 +83,7 @@ export class PublicationCoordinator {
     return toPublication(row)
   }
 
-  /** At boot, and after every delivery cycle: pick up what is still on its way. */
+  /** At boot, and after every delivery cycle: send what is `pending`, and commit what the service received. */
   resume(): void {
     for (const row of listActivePublications()) this.drive(row.id)
   }
@@ -102,7 +100,7 @@ export class PublicationCoordinator {
     const row = readPublication(id)
     if (!row || (row.state !== 'pending' && row.state !== 'sent')) return
     switch (row.resource.kind) {
-      case 'session': return this.publishSession(row)
+      case 'session': return row.state === 'pending' ? this.publishSession(row) : this.confirmSession(row)
       // A row from before works and tasks were uploaded by the client: nothing here sends it any more.
       default: return this.fail(row, `Share this ${row.resource.kind} again: it is now uploaded with your sign-in.`)
     }
@@ -121,17 +119,11 @@ export class PublicationCoordinator {
       if (!assigned || assigned.organizationId !== row.organizationId) return this.fail(row, 'This session belongs to another organization.')
     }
     if (!this.deps.hostId()) return this.fail(row, 'This host is not linked to Solus cloud.')
-    // A turn boundary: the snapshot is taken between turns, never through one.
-    const settled = await this.waitUntil(() => !this.deps.isTurnRunning(sessionId))
-    if (!settled) {
-      log.info('publication_waiting_for_turn', { publicationId: row.id, sessionId })
-      return
-    }
     // The record is reported and the transcript read once; the record says
     // `published` only after the service acknowledged both (§7).
     const current = await getSessionRecord(row.organizationId, recordId)
     if (!current) return this.fail(row, 'This session belongs to another organization.')
-    const destination = { organizationId: row.organizationId, actorUserId: current.ownerUserId ?? row.actorUserId }
+    const destination = destinationOf(row, current.ownerUserId)
     const reportSeq = queueSessionReport(destination, { ...current, runnerHostId: this.deps.hostId()! })
     // A live session's history is read the way the runtime reads it; a session
     // that is not running is read from its record's provider and thread id.
@@ -140,17 +132,22 @@ export class PublicationCoordinator {
     const mirrorSeq = await this.deps.transcriptMirror.flushNow(source.agentSessionId)
     const throughSeq = Math.max(row.throughSeq ?? 0, reportSeq, mirrorSeq)
     const sent = updatePublication(row.id, { state: 'sent', throughSeq })
-    if (row.state !== 'sent') this.deps.onChanged(toPublication(sent))
+    this.deps.onChanged(toPublication(sent))
     if (this.waitingOnPerson(sent, destination)) return
+    // The cycle that delivers these ends in `resume`, which commits the receipt.
     this.deps.delivery.kick()
-    const received = () => !sessionReportPendingThrough(row.organizationId, throughSeq) && !mirrorPendingThrough(row.organizationId, throughSeq)
-    await this.waitUntil(() => received() || this.deps.delivery.waitingReason(destination) !== null)
-    if (!received()) {
-      if (!this.waitingOnPerson(sent, destination)) log.info('publication_waiting_for_receipt', { publicationId: row.id, sessionId, throughSeq })
-      return
-    }
+  }
+
+  /** A `sent` session is `published` once the service received everything through its sequence. */
+  private async confirmSession(row: PublicationRow): Promise<void> {
+    const recordId = recordSessionId(row.resource.id)
+    const record = await getSessionRecord(row.organizationId, recordId)
+    if (!record) return this.fail(row, 'This session belongs to another organization.')
+    if (this.waitingOnPerson(row, destinationOf(row, record.ownerUserId))) return
+    const throughSeq = row.throughSeq ?? 0
+    if (sessionReportPendingThrough(row.organizationId, throughSeq) || mirrorPendingThrough(row.organizationId, throughSeq)) return
     await markSessionPublished(recordId)
-    this.commit(sent)
+    this.commit(row)
   }
 
   // ── Shared ───────────────────────────────────────────────────────────────
@@ -181,18 +178,11 @@ export class PublicationCoordinator {
     }
     return reason !== null
   }
+}
 
-  /** Polls `condition` until it holds or the wait runs out; answers whether it held. */
-  private async waitUntil(condition: () => boolean): Promise<boolean> {
-    const waitMs = this.deps.waitMs ?? 60_000
-    const pollMs = this.deps.pollMs ?? 500
-    const deadline = Date.now() + waitMs
-    for (;;) {
-      if (condition()) return true
-      if (Date.now() >= deadline) return false
-      await new Promise((resolve) => setTimeout(resolve, pollMs))
-    }
-  }
+/** The session's owner delivers it, with their delegated token; a record with no owner is delivered as the publisher. */
+function destinationOf(row: PublicationRow, ownerUserId: string | null | undefined): DeliveryDestination {
+  return { organizationId: row.organizationId, actorUserId: ownerUserId ?? row.actorUserId }
 }
 
 function toPublication(row: PublicationRow): Publication {

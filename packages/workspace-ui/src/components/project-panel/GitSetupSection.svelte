@@ -77,11 +77,11 @@ import Icon from "@iconify/svelte";
 
 {#if showInit}
   <div class="flex flex-col gap-2 px-1 py-1">
-    <p class="text-pretty text-xs leading-relaxed text-muted-foreground">
+    <p class="text-pretty text-chrome-dense leading-relaxed text-muted-foreground">
       This folder isn't a Git repository yet.
     </p>
     {#if initError}
-      <p class="text-pretty text-xs leading-relaxed text-(--solus-status-error)">{initError}</p>
+      <p class="text-pretty text-chrome-dense leading-relaxed text-(--solus-status-error)">{initError}</p>
     {/if}
     <Button
       variant="outline"
@@ -96,7 +96,7 @@ import Icon from "@iconify/svelte";
   </div>
 {:else if showPublish}
   <div class="flex flex-col gap-2 px-1 py-1">
-    <p class="text-pretty text-xs leading-relaxed text-muted-foreground">
+    <p class="text-pretty text-chrome-dense leading-relaxed text-muted-foreground">
       No commits yet — publishing creates the GitHub repository and its remote.
     </p>
     <Button

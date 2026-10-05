@@ -1,18 +1,11 @@
+import { existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { dirname, join, resolve } from 'path'
 import { z } from 'zod'
-import { ownerChatFolder } from './platform/paths'
+import { chatFolderIn } from '@solus/contracts/chat'
+import { createLogger } from './logger'
 import { getServerSettings } from './host/settings'
 import { expandHome } from './files/host-path'
-
-/** The owner's chat folder — where a session with no project runs (Scratchpad). */
-export const WORKSPACE_DIR = ownerChatFolder()
-
-/** A Better Auth user id; nothing that could walk the filesystem. It names a member folder. */
-export const memberFolderUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
-
-/** The chat folder's name inside a member folder. A dot folder, so a folder picker hides it. */
-export const MEMBER_CHAT_FOLDER_NAME = '.chat'
 
 /**
  * Where projects land on this host — where "New project" creates a folder and a
@@ -31,16 +24,47 @@ export function setupProjectsRoot(
   return join(homeDirectory, 'projects')
 }
 
+const log = createLogger('main', 'workspace')
+
+/** A chat id names a folder: nothing in it may walk the filesystem. */
+const chatIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
+
+/** A chat refused because its folder would be inside a Git work tree. */
+export class ChatUnavailableError extends Error {
+  constructor() {
+    super('Chats are off on this host: its projects folder is inside a Git repository.')
+    this.name = 'ChatUnavailableError'
+  }
+}
+
 /**
- * True for a folder a session with no project runs in: the owner's chat folder, a
- * member's chat folder under this host's projects root, or a folder inside one.
- * It needs no principal: every chat folder has a fixed place.
+ * Make the folder one chat runs in, in a projects root (docs/plans/projectless-chat.md).
+ * Refused when the root is inside a Git work tree: an agent there would read and
+ * change that repository.
  */
-export function isChatFolder(path: string | null | undefined, hostRoot = setupProjectsRoot()): boolean {
-  if (!path) return false
-  if (path === '~') return true
-  const insideOwnerChatFolder = relative(WORKSPACE_DIR, resolve(path))
-  if (insideOwnerChatFolder === '' || (!insideOwnerChatFolder.startsWith('..') && !isAbsolute(insideOwnerChatFolder))) return true
-  const [memberFolderName, chatFolderName] = relative(hostRoot, resolve(path)).split(sep)
-  return chatFolderName === MEMBER_CHAT_FOLDER_NAME && memberFolderUserIdSchema.safeParse(memberFolderName).success
+export function makeChatFolder(projectsRoot: string, chatId: string): string {
+  if (isInsideGitWorkTree(projectsRoot)) throw new ChatUnavailableError()
+  const folder = chatFolderIn(projectsRoot, chatIdSchema.parse(chatId))
+  mkdirSync(folder, { recursive: true })
+  return folder
+}
+
+/** Per folder: the answer does not change while the host runs. */
+const gitWorkTreeFolders = new Map<string, boolean>()
+
+/** True when a `.git` entry sits in the folder or above it. No git process. */
+function isInsideGitWorkTree(folder: string): boolean {
+  const known = gitWorkTreeFolders.get(folder)
+  if (known !== undefined) return known
+  let inside = false
+  for (let dir = resolve(folder); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, '.git'))) {
+      inside = true
+      break
+    }
+    if (dirname(dir) === dir) break
+  }
+  gitWorkTreeFolders.set(folder, inside)
+  if (inside) log.warn('chat_root_in_git_worktree', { folder })
+  return inside
 }

@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { Clock as ClockIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { sendRateLimitedNow } from "../../../lib/rate-limit-actions";
   import { queuedCaption } from "../lib/queued-prompts";
+  import QueueEntryEditor from './QueueEntryEditor.svelte';
+  import type { SessionQueueMutation } from '@solus/contracts/session-queue';
+  import { isSteerableStatus } from '@solus/contracts/types';
   import UserMessageBubble from "../UserMessageBubble.svelte";
-  import type { EnrichedError, OutboundPrompt } from "@solus/contracts/types";
+  import type { OutboundPrompt } from "@solus/contracts/types";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { conversationIsVisible } from "../lib/conversation-visibility";
 
@@ -15,8 +19,12 @@
   let { tabId }: Props = $props();
 
   const session = getWorkspaceContext();
+  let editPrompt = $state<OutboundPrompt | null>(null);
+  let queueError = $state('');
   const sess = $derived(session.sessionFor(tabId));
   const prompts = $derived(sess?.outboundPrompts ?? []);
+  const queued = $derived(prompts.filter((prompt) => !!prompt.queueId));
+  $effect(() => { const source = tabId; untrack(() => { void session.queue.refresh(source).catch(reportError); }); });
   const isRateLimited = $derived(sess?.status === "rate_limited");
   // The held prompt carries the window it was queued against, which survives a
   // reconnect that drops rateLimitInfo.
@@ -43,15 +51,12 @@
     queuedCaption(prompts, { isRateLimited, resetsAt, rateLimitType, now }),
   );
 
-  function reportError(err: Error) {
-    const enriched: EnrichedError = {
-      message: err.message,
-      stderrTail: [],
-      exitCode: null,
-      elapsedMs: 0,
-      toolCallCount: 0,
-    };
-    session.eventReducer.handleError(sess!.id, enriched);
+  function reportError(err: Error) { queueError = err.message; }
+
+  async function change(mutation: SessionQueueMutation) {
+    queueError = '';
+    try { await session.queue.change(tabId, mutation); requestInputFocus({ tabId }); }
+    catch (error) { reportError(error instanceof Error ? error : new Error(String(error))); void session.queue.refresh(tabId); }
   }
 
   /** The queue's single escape: release everything the limit is holding. */
@@ -66,27 +71,16 @@
   }
 
   function handleRemove(prompt: OutboundPrompt) {
-    if (!prompt.queueId) return;
-    session.apiFor(tabId)
-      .cancelQueuedPrompt(session.ctxFor(tabId), prompt.queueId)
-      .catch(reportError);
-    requestInputFocus();
+    if (prompt.queueId) void change({ kind: 'remove', queueId: prompt.queueId, revision: prompt.revision ?? 0 });
   }
 
-  function handleEdit(prompt: OutboundPrompt, text: string) {
-    if (!prompt.queueId) return;
-    session.apiFor(tabId)
-      .editQueuedPrompt(session.ctxFor(tabId), prompt.queueId, text)
-      .catch(reportError);
-    requestInputFocus();
-  }
 </script>
 
 <!-- §1a — the bubbles are the queue. Each held prompt keeps its place in the
      transcript with its ordinal, and one caption under the last one carries
      the count, the cause, the live clock and the escape. The block owns its own
      top margin so the held prompts read as one object, not as n messages. -->
-{#if prompts.length > 0}
+{#if prompts.length > 0 || sess?.queueHeld}
   <div class="text-transcript-meta flex flex-col pt-[0.8125rem] pb-1.5">
     {#each prompts as prompt, index (`outbound-${prompt.clientPromptId}`)}
       <UserMessageBubble
@@ -102,12 +96,28 @@
         deliveryState={prompt.state}
         author={prompt.author}
         ordinal={prompts.length > 1 ? index + 1 : undefined}
-        onEditSubmit={prompt.queueId
-          ? (text) => handleEdit(prompt, text)
-          : undefined}
         onRemove={prompt.queueId ? () => handleRemove(prompt) : undefined}
       />
+      {#if prompt.queueId}
+        <div class="flex flex-wrap items-center justify-end gap-1 text-workspace-chrome">
+          <span class="mr-auto text-(--muted-foreground)">{prompt.kind === 'provider_switch' ? 'Provider switch' : prompt.provider ?? ''}{prompt.modelConfig?.modelId ? ` · ${prompt.modelConfig.modelId}` : ''}{prompt.held ? ' · Held' : ''}</span>
+          {#if prompt.kind !== 'provider_switch'}
+            <button type="button" onclick={() => editPrompt = { ...prompt }} class="rounded px-2 py-1 hover:bg-(--muted) pointer-coarse:min-h-11">Edit</button>
+            <button type="button" disabled={prompt.held || !sess || !isSteerableStatus(sess.status)} onclick={() => change({ kind: 'steer', queueId: prompt.queueId!, revision: prompt.revision ?? 0 })} class="rounded px-2 py-1 hover:bg-(--muted) disabled:opacity-40 pointer-coarse:min-h-11">Steer now</button>
+          {/if}
+          <button type="button" disabled={queued.indexOf(prompt) === 0} onclick={() => change({ kind: 'move', queueId: prompt.queueId!, revision: prompt.revision ?? 0, beforeQueueId: queued[queued.indexOf(prompt) - 1]?.queueId ?? null })} class="rounded px-2 py-1 hover:bg-(--muted) disabled:opacity-40 pointer-coarse:min-h-11" aria-label="Move queued entry up">Up</button>
+          <button type="button" disabled={queued.indexOf(prompt) === queued.length - 1} onclick={() => change({ kind: 'move', queueId: prompt.queueId!, revision: prompt.revision ?? 0, beforeQueueId: queued[queued.indexOf(prompt) + 2]?.queueId ?? null })} class="rounded px-2 py-1 hover:bg-(--muted) disabled:opacity-40 pointer-coarse:min-h-11" aria-label="Move queued entry down">Down</button>
+        </div>
+        {#if prompt.error}<p role="alert" class="text-workspace-chrome text-(--destructive)">{prompt.error}</p>{/if}
+      {/if}
     {/each}
+    {#if editPrompt}
+      {#key editPrompt.queueId}<QueueEntryEditor {tabId} prompt={editPrompt} onClose={() => editPrompt = null} />{/key}
+    {/if}
+    {#if queueError}<p role="alert" class="text-workspace-chrome text-(--destructive)">{queueError}</p>{/if}
+    {#if sess?.queueHeld || prompts.some((prompt) => prompt.held)}
+      <button type="button" onclick={() => change({ kind: 'resume' })} class="self-end rounded px-3 py-2 text-workspace-chrome hover:bg-(--muted) pointer-coarse:min-h-11">Resume queue</button>
+    {/if}
 
     {#if caption}
       <div class="mt-px flex items-center justify-end gap-1.5 text-(--muted-foreground)">

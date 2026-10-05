@@ -1,3 +1,4 @@
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { describe, expect, test } from 'bun:test'
 import type { Automation } from '@solus/contracts/types'
 import { automationProject, automationProjects } from '@solus/workspace-ui/components/automations/lib/automation-projects'
@@ -51,7 +52,6 @@ describe('automation project filter', () => {
     const projects = automationProjects(
       rows,
       [],
-      () => null,
       (row) => serverIds.get(row.id) ?? null,
       (serverId) => (serverId === 'host-a' ? 'Laptop' : 'Build host'),
     )
@@ -60,5 +60,12 @@ describe('automation project filter', () => {
       { label: 'solus · Build host', count: 1 },
       { label: 'solus · Laptop', count: 1 },
     ])
+  })
+
+  test('automations with no project file under one "Chat" choice', () => {
+    // WHY: each run of such an automation gets a new chat folder, so the saved
+    // marker is what they share, and it must read as a chat, not a path.
+    const projects = automationProjects([automation('a', NEW_CHAT_DIRECTORY), automation('b', NEW_CHAT_DIRECTORY)], [])
+    expect(projects.map(({ label, count }) => ({ label, count }))).toEqual([{ label: 'Chat', count: 2 }])
   })
 })

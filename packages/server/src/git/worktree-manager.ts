@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { existsSync, realpathSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
@@ -10,7 +11,8 @@ import { git, gitCommitExists, runAsync } from './exec'
 // helpers. Both sides only reach across inside function bodies, so the cycle
 // resolves at call time.
 import { resolveRepoRef } from './git-helpers'
-import { generatedWorktreeBranchName, isTemporaryWorktreeBranch, temporaryWorktreeBranchName } from './worktree-branch-name'
+import { generatedWorktreeBranchName, initialWorktreeBranchName, temporaryWorktreeBranchId, type WorktreeBranchNaming } from '@solus/contracts/worktree-branch-naming'
+import { captureWorktreeBranchNaming, capturedWorktreeBranchNamer, resolveWorktreeBranchNamer } from './worktree-branch-name'
 import { worktreePathFor } from './worktree-path'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
@@ -108,6 +110,8 @@ export interface CreateWorktreeOptions {
    *  one the worktree starts on a temporary branch that `renameWorktreeBranch`
    *  replaces later. */
   generatedName?: string | null
+  /** The person's naming preference; the project's `.solus/config.json` still wins. */
+  naming?: WorktreeBranchNaming
 }
 
 /** The linked worktree that currently holds `branch`, excluding `projectPath`
@@ -267,10 +271,13 @@ export async function createWorktree(
     throwIfAborted(options.signal)
     throw new Error(`Cannot create a worktree: ${startPoint} has no commit. Create an initial commit or select an existing branch.`, { cause: error })
   }
-  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName) : null
-  const branch = generatedBranch
-    ? await availableBranchName(projectPath, generatedBranch)
-    : temporaryWorktreeBranchName()
+  // The project's naming, else the person's. A name that cannot be generated
+  // keeps the temporary one, and any name gets a suffix when it is taken: a
+  // static or custom template does not always hold a unique id.
+  const namer = await resolveWorktreeBranchNamer(projectPath, options.naming)
+  const branchId = randomBytes(4).toString('hex')
+  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName, namer, branchId) : null
+  const branch = await availableBranchName(projectPath, generatedBranch ?? initialWorktreeBranchName(namer, branchId))
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
@@ -280,6 +287,9 @@ export async function createWorktree(
   // Do not cancel the atomic reservation: observe its outcome before rollback.
   await runAsync('git', ['branch', branch, startCommit], projectPath)
   try {
+    // The rename from the title uses this naming, whatever either setting says by then.
+    await captureWorktreeBranchNaming(projectPath, branch, namer.naming)
+      .catch((error) => log.warn('worktree_naming_capture_failed', { branch, error: String(error) }))
     throwIfAborted(options.signal)
     const checkoutArgs = ['worktree', 'add', worktreePath, branch]
     await dispatchStep<string>(
@@ -355,8 +365,10 @@ export async function renameWorktreeBranch(
   temporaryBranch: string,
   generatedName: string,
 ): Promise<string | null> {
-  if (!isTemporaryWorktreeBranch(temporaryBranch)) return null
-  const target = generatedWorktreeBranchName(generatedName)
+  const namer = await capturedWorktreeBranchNamer(worktreePath, temporaryBranch) ?? await resolveWorktreeBranchNamer(worktreePath, undefined)
+  const branchId = temporaryWorktreeBranchId(temporaryBranch, namer)
+  if (!branchId) return null
+  const target = generatedWorktreeBranchName(generatedName, namer, branchId)
   if (!target) return null
   if (await getWorkingBranch(worktreePath) !== temporaryBranch) return null
   const hasUpstream = await runAsync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], worktreePath)

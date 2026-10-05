@@ -1,8 +1,9 @@
 import type { PlanComment } from '@solus/contracts/types'
 import { userKey, type User } from '@solus/contracts/user'
-import type { WorkReview, WorkReviewDecision, WorkReviewer, WorkReviewState } from '@solus/contracts/work-review'
+import type { WorkReview, WorkReviewer, WorkReviewState } from '@solus/contracts/work-review'
 import type { OrganizationPeople } from '../../users/lib/organization-people'
 import { formatInlineComments } from '../../../contexts/workspace/session.utils'
+import { relativeTime } from '../../../lib/relative-time'
 
 export function reviewStateLabel(state: WorkReviewState): string {
   switch (state) {
@@ -12,12 +13,6 @@ export function reviewStateLabel(state: WorkReviewState): string {
     case 'approved': return 'Approved'
   }
 }
-
-export const DECISION_LABELS = {
-  approved: 'Approve',
-  changes_requested: 'Request changes',
-  commented: 'Comment',
-} satisfies Record<WorkReviewDecision, string>
 
 /**
  * What a reviewer's row says. A stale decision stays visible, and says it is
@@ -32,6 +27,12 @@ export function reviewerStatus(reviewer: Pick<WorkReviewer, 'decision' | 'isStal
       ? reviewer.isStale ? 'Requested changes on an earlier version' : 'Changes requested'
       : reviewer.isStale ? 'Commented on an earlier version' : 'Commented'
   return reviewer.isAwaiting ? `${status} · review requested again` : status
+}
+
+/** What a reviewer did and when, for the hover text that stands in for the words the icons replace. */
+export function reviewerActivity(reviewer: Pick<WorkReviewer, 'decision' | 'isStale' | 'isAwaiting' | 'decidedAt' | 'requestedAt'>): string {
+  const at = reviewer.decision ? reviewer.decidedAt : reviewer.requestedAt
+  return at ? `${reviewerStatus(reviewer)} · ${relativeTime(Date.parse(at))}` : reviewerStatus(reviewer)
 }
 
 /** The reviewer's name as the organization lists them now, else as the host stamped it. */

@@ -56,7 +56,7 @@ describe('session transcript rehydration', () => {
       call('other', 'render_artifact', { html: '<p>Separate</p>' }, 'Rendered "Same title" in the conversation and saved it as an artifact (id: work-b).')
       call('edit', 'update_work', { work_id: 'work-a', content: '<p>Revised</p>' }, 'Updated "Renamed" (artifact, id: work-a).')
       call('failed', 'update_work', { work_id: 'work-a', content: '<p>Failed</p>' }, 'Work tool error: save failed', true)
-      call('document', 'update_work', { work_id: 'doc', content: 'Document' }, 'Updated "Document".')
+      call('document', 'update_work', { work_id: 'doc', content: 'Document' }, 'Updated "Document". New content_version: 4.')
       history.push({ role: 'tool', toolId: 'interrupted', toolName: `${prefix}update_work`, toolInput: JSON.stringify({ work_id: 'work-a', content: '<p>Incomplete</p>' }), content: '', timestamp: 20 })
       connections.registerPrimary('transcript-host', {})
       const ctx = {
@@ -71,6 +71,8 @@ describe('session transcript rehydration', () => {
       expect(artifacts.map((message) => message.artifact?.html)).toEqual(['<p>Original</p>', '<p>Separate</p>', '<p>Revised</p>'])
       expect(artifacts.map((message) => message.workRef?.workId)).toEqual(['work-a', 'work-b', 'work-a'])
       expect(artifacts.map((message) => message.workRef?.title)).toEqual(['Same title', 'Same title', 'Renamed'])
+      const documents = transcript.messages.filter((message) => message.workRef && !message.artifact)
+      expect(documents.map((message) => message.workRef)).toEqual([{ workId: 'doc', title: 'Work', workType: 'doc', contentVersion: 4 }])
     })
   }
   test('keeps the full thoughts before a tool call or prose block on that message', () => {

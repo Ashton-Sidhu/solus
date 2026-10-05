@@ -14,6 +14,9 @@ import { prGuideJobs } from '../../review/pr-guide-jobs'
 import { readPrGuide } from '../../review/pr-guide-store'
 import { publishPrGuideStatus } from '../../review/pr-guide-events'
 import { ReviewLensJobs } from '../../review/lens-jobs'
+import { notifyOnReviewJobResult, type ReviewJobRequester, type ReviewJobRun } from '../../notifications/review-job-results'
+import { ownerKeyOf } from '../../admission/actor'
+import { organizationForNew } from '../../admission/principal'
 
 export function registerReviewHandlers(
   server: SolusServer,
@@ -22,6 +25,14 @@ export function registerReviewHandlers(
 ): void {
   /** Guides and lenses run on the requester's own provider login, as their turns do. */
   const seatsOf = (handlerCtx: HandlerCtx): SeatResolver => (provider) => dispatcher.seatForTurn(handlerCtx.actor, provider)
+  /** Who asked for a generation: their hub hears when it finishes (plans/015 §5). */
+  const requesterOf = (handlerCtx: HandlerCtx): ReviewJobRequester | null => {
+    const recipientKey = ownerKeyOf(handlerCtx.actor)
+    if (!recipientKey) return null
+    const user = handlerCtx.actor.user
+    return { recipientKey, organizationId: organizationForNew(handlerCtx.actor.principal), by: user ? { kind: 'user', user } : { kind: 'system' } }
+  }
+  const guideTitle = (target: Extract<ReviewTarget, { kind: 'pr' }>) => `Guide for ${target.owner}/${target.repo}#${target.number}`
   const prTargetFor = (ctx: IpcContext, opts?: ReviewGuideRequestOptions): Extract<ReviewTarget, { kind: 'pr' }> | null => {
     if (opts?.target?.kind === 'pr') return opts.target
     if (opts?.scope === 'session' || opts?.target) return null
@@ -50,7 +61,7 @@ export function registerReviewHandlers(
     const target = prTargetFor(ctx, opts)
     if (target) return prGuideJobs.request({
       dispatcher, seatFor: seatsOf(handlerCtx), ctx, opts: { ...opts, target },
-      onStatus: (event) => publishPrGuideStatus(events, event),
+      onStatus: notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'guide', target, title: guideTitle(target) }, (event) => publishPrGuideStatus(events, event)),
     }).completion
     return generateGuide(
       dispatcher,
@@ -76,7 +87,10 @@ export function registerReviewHandlers(
         at: Date.now(),
       })
     }
-    if (target) return prGuideJobs.request({ dispatcher, seatFor: seatsOf(handlerCtx), ctx, opts: { ...opts, target }, onStatus: reportStatus }).status
+    if (target) {
+      const onStatus = notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'guide', target, title: guideTitle(target) }, reportStatus)
+      return prGuideJobs.request({ dispatcher, seatFor: seatsOf(handlerCtx), ctx, opts: { ...opts, target }, onStatus }).status
+    }
     const result = await requestReviewGuide(
       dispatcher,
       ctx,
@@ -162,8 +176,22 @@ export function registerReviewHandlers(
     events.broadcast('review.lensChanged', event)
   server.register('readReviewLens', async ([ctx, target]) => lenses.read(ctx, target))
   server.register('prLensRevisions', async ([ctx, targets]) => lenses.savedPrRevisions(ctx, targets))
-  server.register('requestReviewLens', async ([ctx, request], handlerCtx) => lenses.generate(ctx, request, emitLens, seatsOf(handlerCtx)))
-  server.register('editReviewLens', async ([ctx, request], handlerCtx) => lenses.edit(ctx, request, emitLens, seatsOf(handlerCtx)))
+  /** A PR lens run tells its requester when it is ready or failed; other targets have no PR to name. */
+  const emitLensFor = (handlerCtx: HandlerCtx, target: ReviewTarget, run: Pick<ReviewJobRun, 'lensId' | 'title'>) => {
+    if (target.kind !== 'pr') return emitLens
+    const notify = notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'lens', target, ...run }, () => {})
+    return (event: import('@solus/contracts/review').ReviewLensChangedEvent) => {
+      emitLens(event)
+      if (event.job) void notify(event.job)
+    }
+  }
+  server.register('requestReviewLens', async ([ctx, request], handlerCtx) => {
+    const run: Pick<ReviewJobRun, 'lensId' | 'title'> = { title: request.source.name }
+    if (request.source.savedLensId) run.lensId = request.source.savedLensId
+    return lenses.generate(ctx, request, emitLensFor(handlerCtx, request.target, run), seatsOf(handlerCtx))
+  })
+  server.register('editReviewLens', async ([ctx, request], handlerCtx) => lenses.edit(ctx, request,
+    emitLensFor(handlerCtx, request.target, { title: 'Lens edit' }), seatsOf(handlerCtx)))
   server.register('cancelReviewLens', async ([ctx, target]) => lenses.cancel(ctx, target, emitLens))
   server.register('restoreReviewLens', async ([ctx, target]) => lenses.restore(ctx, target, emitLens))
   server.register('updateReviewLensComments', async ([ctx, target, change]) => lenses.changeComments(ctx, target, change, emitLens))

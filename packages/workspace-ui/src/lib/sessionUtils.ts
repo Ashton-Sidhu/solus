@@ -5,13 +5,14 @@ import {
     CircleCheck as CheckCircleIcon,
     CircleX as XCircleIcon,
     CircleStop as StopCircleIcon,
-    Clock as ClockIcon,
+    Hourglass as HourglassIcon,
     Activity as ActivityIcon,
   } from "@lucide/svelte";
   import type { AttentionKind } from '@solus/contracts/attention-types'
   import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
+import { hasAnswerableRequest } from '../contexts/workspace/session.utils'
 
 export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }
@@ -19,7 +20,9 @@ export type PickerEntry =
 
 export type StatusIcon = { component: any; color: string; spin: boolean }
 
-export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' | 'running' | 'background' | 'queued' | null
+/** `limited` is a turn the provider's rate limit holds: it waits for the
+ *  window to reopen, not for the user, and it does no work meanwhile. */
+export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' | 'running' | 'background' | 'limited' | null
 
 /** True when `path` is `root` itself or nested beneath it (prefix match on
  *  path segments). Used to scope plans/works to the projects open in the
@@ -48,7 +51,8 @@ function hasPendingPlanQuestion(plans: Record<string, Plan>): boolean {
 export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string, Plan>): AttentionState {
   if (sess.status === 'awaiting_plan') return 'awaiting_plan'
   if (sess.status === 'awaiting_input') return 'awaiting'
-  if (sess.permissionQueue.length > 0 || sess.questionQueue.length > 0) return 'awaiting'
+  // A closed request still shows its card, but nobody can answer it: it does not ask for attention.
+  if (hasAnswerableRequest(sess)) return 'awaiting'
   // This runs once per open tab inside hot derived chains (sidebar, tab strip) on
   // every stream tick, so avoid the O(messages) scan unless a relevant plan
   // actually exists. The cheap O(plans) pre-check short-circuits the common case
@@ -66,7 +70,7 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
       if (p?.status === 'pending' && p.questionId) return 'awaiting_plan'
     }
   }
-  if (sess.status === 'rate_limited') return 'queued'
+  if (sess.status === 'rate_limited') return 'limited'
   if (sess.status === 'running' || sess.status === 'connecting') return 'running'
   return settledAttention(sess.status, tab.hasUnread)
 }
@@ -85,10 +89,34 @@ function settledAttention(status: SessionStatus, hasUnread: boolean): AttentionS
   return null
 }
 
-export function attentionLabel(state: AttentionState): string {
+/** When a rate-limited session's provider window reopens, in epoch ms. Null
+ *  when the session is not limited or the provider did not say: a reset time
+ *  is never guessed. */
+export function sessionLimitResetsAt(sess: Pick<Session, 'status' | 'rateLimitInfo'>): number | null {
+  if (sess.status !== 'rate_limited') return null
+  const resetsAt = sess.rateLimitInfo?.resetsAt
+  return resetsAt ? resetsAt * 1000 : null
+}
+
+/** "3:40 PM" today, "Mon 3:40 PM" on a later day: a weekly window can reopen
+ *  days from now, and a bare clock time would read as today. */
+export function formatResetClock(resetsAt: number, now = Date.now()): string {
+  const time = new Date(resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  if (new Date(resetsAt).toDateString() === new Date(now).toDateString()) return time
+  return `${new Date(resetsAt).toLocaleDateString([], { weekday: 'short' })} ${time}`
+}
+
+/** "resets 3:40 PM" — the reset clock as a limited row states it. */
+export function formatLimitReset(resetsAt: number): string {
+  return `resets ${formatResetClock(resetsAt)}`
+}
+
+/** `limitResetsAt` (epoch ms) adds the reset time to a limited state's label
+ *  when it is known. */
+export function attentionLabel(state: AttentionState, limitResetsAt?: number | null): string {
   if (state === 'awaiting') return 'needs input'
   if (state === 'awaiting_plan') return 'waiting for plan'
-  if (state === 'queued') return 'rate limited'
+  if (state === 'limited') return limitResetsAt ? `rate limited, ${formatLimitReset(limitResetsAt)}` : 'rate limited'
   if (state === 'error') return 'error'
   if (state === 'unread') return 'finished'
   if (state === 'background') return 'background task running'
@@ -115,8 +143,10 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
     return { component: ChatTeardropIcon, color: 'var(--solus-status-permission)', spin: false }
   if (state === 'awaiting_plan')
     return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
-  if (state === 'queued')
-    return { component: ClockIcon, color: 'var(--solus-status-permission)', spin: false }
+  // Amber, not the terracotta of a request: the provider holds this turn, and
+  // nothing waits on the user. The hourglass keeps it apart from a queued prompt's clock.
+  if (state === 'limited')
+    return { component: HourglassIcon, color: 'var(--warning)', spin: false }
   if (state === 'error')
     return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
   if (state === 'unread')
@@ -247,7 +277,7 @@ export function getStatusIcon(status: SessionStatus): StatusIcon | null {
   if (status === 'awaiting_plan')
     return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
   if (status === 'rate_limited')
-    return { component: ClockIcon, color: 'var(--solus-status-permission)', spin: false }
+    return { component: HourglassIcon, color: 'var(--warning)', spin: false }
   if (status === 'running' || status === 'connecting')
     return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
   if (status === 'failed' || status === 'dead')
@@ -295,7 +325,7 @@ export const STATUS_GROUP_LABELS = {
 export function getStatusGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): StatusGroupKey {
   const attention = getAttentionState(sess, tab, plans)
   if (attention === 'awaiting' || attention === 'awaiting_plan') return 'waiting'
-  if (attention === 'queued') return 'rate-limited'
+  if (attention === 'limited') return 'rate-limited'
   if (attention === 'running') return 'running'
   if (attention === 'error') return 'error'
   // The turn is over, so it groups with the finished sessions.

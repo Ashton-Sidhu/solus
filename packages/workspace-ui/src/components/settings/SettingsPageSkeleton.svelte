@@ -11,7 +11,7 @@
 </script>
 
 <div
-  class="flex h-full overflow-hidden [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+  class="flex h-full overflow-hidden [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
   role="status"
   aria-label="Loading settings"
 >
@@ -64,7 +64,7 @@
             <div class="flex flex-col gap-2.5">
               <Skeleton class="ml-4 h-2.5 w-24 rounded-[0.1875rem] opacity-45" />
               <div
-                class="flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40 [&>*+*]:border-t [&>*+*]:border-border/50"
+                class="flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background [&>*+*]:border-t [&>*+*]:border-border/50"
               >
                 {#each [0, 1] as row (row)}
                   <div class="flex items-center justify-between gap-4 px-4 py-3">

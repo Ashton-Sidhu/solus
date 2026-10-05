@@ -4,7 +4,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import ProviderMark from "../ui/ProviderMark.svelte";
-  import CodeBlock from "../ui/CodeBlock.svelte";
+  import FencedBlock from "../conversation/FencedBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import {
@@ -52,9 +52,10 @@
 
   let { panes }: Props = $props();
 
-  // Fences get the app's code block — the transcript is a reading surface, so a
-  // recorded answer keeps its highlighting and its own copy control.
-  const markdownRenderers = { code: CodeBlock, codespan: CodeSpan };
+  // Fences get the conversation's renderer, so a recorded answer reads as it did
+  // in the session: code keeps its highlighting and copy control, and an html
+  // or mermaid fence renders as the page or diagram the agent wrote.
+  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan };
 
   const ask = $derived(panes.find((pane) => pane.role === "prompt") ?? null);
   const answer = $derived(panes.find((pane) => pane.role === "response") ?? null);

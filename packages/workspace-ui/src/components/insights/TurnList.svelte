@@ -13,6 +13,7 @@
     Layers2 as StackSimpleIcon,
     MessageSquare as SessionIcon,
     CircleDashed as RunningIcon,
+    CloudDownload as FetchIcon,
   } from "@lucide/svelte";
   import * as Table from "../ui/table";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -674,6 +675,16 @@
       </p>
     </div>
 
+    {#if pulling}
+      <div
+        class="flex min-w-0 items-center gap-1.5 text-workspace-chrome text-muted-foreground"
+        role="status"
+      >
+        <FetchIcon class="size-4 shrink-0" aria-hidden="true" />
+        <span>Checking for synced turns…</span>
+      </div>
+    {/if}
+
     <DataTableToolbar
       table={dataTable}
       filterPlaceholder="Filter turns…"
@@ -690,19 +701,6 @@
     {/if}
     {@render statusFilters()}
     <DataTableColumnsMenu table={dataTable} />
-    {#if pulling}
-      <!-- Turns from other hosts are still arriving: a sweep along the table's
-           top edge, finite because the pull ends. Reduced motion holds it still. -->
-      <div
-        class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden"
-        role="progressbar"
-        aria-label="Loading turns from other hosts"
-      >
-        <span
-          class="block h-full w-2/5 bg-primary motion-safe:[animation:indeterminate-sweep_1.15s_cubic-bezier(0.65,0,0.35,1)_infinite] motion-reduce:w-full motion-reduce:opacity-40"
-        ></span>
-      </div>
-    {/if}
   </header>
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb bind:this={listElement}>

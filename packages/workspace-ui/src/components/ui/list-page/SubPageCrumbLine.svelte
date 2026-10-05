@@ -37,8 +37,9 @@
    */
   interface Props {
     page: NavPage;
-    /** Back to the list. */
-    onOpenPage: () => void;
+    /** Back to the list. Absent where there is no list to go back to, as on a
+     *  shared report a guest opened from a link. */
+    onOpenPage?: () => void;
     trail?: SubPageTrailSegment[];
     /** Where you are, as text. */
     leaf?: string;
@@ -119,7 +120,9 @@
          way a pull request's review band does: the list's own head already
          says which page this is, and the list is the way back. -->
     {#if clearsWindowControls}
-    <ParentPageCrumb {page} onOpen={onOpenPage} />
+    {#if onOpenPage}
+      <ParentPageCrumb {page} onOpen={onOpenPage} />
+    {/if}
     {#each trail as segment (segment.label)}
       {#if segment.onOpen}
         <button type="button" class={SUB_PAGE_CRUMB_BTN} onclick={segment.onOpen}>

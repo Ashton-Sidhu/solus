@@ -78,4 +78,15 @@ describe('picker project choices', () => {
     expect(choices.filter((choice) => choice.projectKey === 'solus')).toHaveLength(1)
     expect(choices[0]).toEqual({ projectKey: 'solus', label: 'solus', count: 1 })
   })
+
+  test('a known project with no task is still offered, once', () => {
+    // A project whose work is all sessions has no task to name it, so the
+    // menu listed only the projects that happened to hold a task.
+    const choices = pickerProjectChoices(tasks, null, [
+      { projectKey: 'solus', label: 'solus' },
+      { projectKey: 'sessions-only', label: 'sessions-only' },
+    ])
+    expect(choices.map((choice) => choice.projectKey)).toEqual(['model-routing', 'solus', 'sessions-only'])
+    expect(choices.at(-1)).toEqual({ projectKey: 'sessions-only', label: 'sessions-only', count: 0 })
+  })
 })

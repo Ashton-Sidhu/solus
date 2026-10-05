@@ -69,23 +69,11 @@
     min-width: 0.5rem;
   }
 
-  .diagram-shell__title-input {
-    flex: 1 1 auto;
-    font-size: var(--text-workspace-chrome);
-    font-weight: 500;
-    min-width: 6rem;
-    max-width: 24rem;
-    padding: 0.125rem 0.25rem;
-    margin-inline: -0.25rem;
-    border-radius: 0.375rem;
-    color: var(--solus-text-primary);
-    background: var(--solus-surface-hover);
-    border: 0.0625rem solid var(--solus-accent-border);
-    outline: none;
-  }
-
   .diagram-shell__crumb {
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     border: none;
     background: transparent;
     padding: 0.0625rem 0.25rem;
@@ -366,7 +354,7 @@
     display: flex;
     align-items: center;
     gap: 0.125rem;
-    max-width: 22rem;
+    max-width: min(22rem, calc(100cqw - 2rem));
     padding: 0.3125rem 0.625rem 0.3125rem 0.4375rem;
     border-radius: 1rem;
     border: 0.0625rem solid var(--solus-container-border);

@@ -11,15 +11,22 @@
     ChartNoAxesGantt as InsightsReportIcon,
     Cloud as CloudIcon,
     Pin as PushPinIcon,
+    CircleCheck as CircleCheckIcon,
+    CircleX as CircleXIcon,
+    CircleAlert as CircleAlertIcon,
+    Clock as ClockIcon,
+    Eye as EyeIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import DocProviderLogo from "../work/DocProviderLogo.svelte";
+  import ReviewerAvatars from "../work/ReviewerAvatars.svelte";
+  import { PR_CHECKS_TONE, PR_STATUS_TONE, PR_VERDICT_TONE } from "../prs/lib/pr-row-styles";
   import type { WorkspaceItem } from "./lib/workspace-items";
   import {
     formatGeneratedDate,
-    rowStatusLabel,
+    rowStatus,
     formatGeneratedFull,
     formatLedgerTime,
     upstreamProviderFor,
@@ -29,7 +36,7 @@
   import type { PresencePerson } from "../presence/lib/presence-people";
 
   /** One ledger row — the same 44px rhythm for every artifact, pinned or not.
-   *  Type is a coloured glyph, never a badge; status is a word in a fixed
+   *  Type is a coloured glyph, never a badge; status is an icon in a fixed
    *  column, never a dot or a pill.
    *
    *  The row carries provenance rather than prose: the body is what the peek is
@@ -103,7 +110,7 @@
     onContextMenu,
   }: Props = $props();
 
-  const statusLabel = $derived(rowStatusLabel(item));
+  const status = $derived(rowStatus(item));
   const titleRuns = $derived(highlightRuns(item.title, query));
   const generated = $derived(formatGeneratedDate(item.createdAt));
   const upstreamProvider = $derived(upstreamProviderFor(item));
@@ -336,21 +343,34 @@
       {/if}
     </span>
 
-    <!-- Each trailing field is sized to the longest thing it can actually hold —
-         "Jul 15, 2025", "Accepted", "Jul 15" — rather than to a shared column
-         width. Right-aligned text in an oversized box pays for the slack on its
-         left, which is what spread the tail across the row; matching the measure
-         to the content pulls them back into one cluster. None of them is faded:
-         these are the facts a person scans the ledger for, and the title leads on
-         weight instead. Pending is the one coloured word — the one live state. -->
-    <span
-      class="w-[3.75rem] shrink-0 truncate text-right @max-[30rem]/pane:w-auto @max-[30rem]/pane:text-left {item.status ===
- 'pending' || item.awaitingMyReview
- ? 'font-medium text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
- : item.reviewState === 'changes_requested' ? 'text-(--solus-diff-removed-text)' : ''}"
-      title={item.awaitingMyReview ? "Your review is requested" : undefined}
-    >
-      {statusLabel}
+    <!-- Reviewers: who reviews a work, ringed in the verdict they gave. Hover
+         names who decided what, and when. A fixed slot, so rows without
+         reviewers keep the status and time columns aligned. -->
+    <span class="flex w-[3rem] shrink-0 items-center justify-end @max-[30rem]/pane:w-auto @max-[30rem]/pane:empty:hidden">
+      <ReviewerAvatars reviewers={item.reviewers} size={14} />
+    </span>
+
+    <!-- Status is an icon in a fixed slot: a decided plan or a work's review
+         state. Its word is the hover text and the screen-reader name. A
+         pending plan shows nothing, because pending is the usual state. The
+         one that needs the reader, a requested review, is amber. The tones are
+         the pull request list's, so a verdict reads the same on both pages. -->
+    <span class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:w-auto @max-[30rem]/pane:empty:hidden">
+      {#if status}
+        <span class="flex" role="img" aria-label={status.label} title={status.label} data-testid="workspace-row-status" data-status={status.kind}>
+          {#if status.kind === "approved"}
+            <CircleCheckIcon size={14} class={PR_VERDICT_TONE.approved} />
+          {:else if status.kind === "rejected"}
+            <CircleXIcon size={14} class={PR_STATUS_TONE.closed} />
+          {:else if status.kind === "changes_requested"}
+            <CircleAlertIcon size={14} class={PR_VERDICT_TONE["changes-requested"]} />
+          {:else if status.kind === "review_requested"}
+            <EyeIcon size={14} class={PR_CHECKS_TONE.pending} />
+          {:else}
+            <ClockIcon size={14} class={PR_STATUS_TONE.draft} />
+          {/if}
+        </span>
+      {/if}
     </span>
 
     <!-- The record's one piece of slack, so age lands on the right edge the way

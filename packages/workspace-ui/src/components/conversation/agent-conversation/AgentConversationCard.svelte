@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { Check as CheckIcon } from "@lucide/svelte";
-  import TranscriptCard from "../TranscriptCard.svelte";
+  import {
+    Ellipsis as EllipsisIcon,
+    PanelRight as PanelRightIcon,
+  } from "@lucide/svelte";
+  import { mergeProps } from "bits-ui";
+  import * as Popover from "../../ui/popover";
+  import { requestInputFocus } from "../../../lib/inputFocus";
+  import AgentLinkRow from "../AgentLinkRow.svelte";
   import TranscriptCardAction from "../TranscriptCardAction.svelte";
-  import ClaudeIcon from "../../ClaudeIcon.svelte";
-  import OpenAIBlossom from "../../pickers/OpenAIBlossom.svelte";
   import type { AgentConversationRef } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
@@ -11,8 +15,8 @@
     agentAccent,
     agentConversationCardState,
     agentConversationElapsedMs,
+    agentConversationLink,
     agentConversationTitle,
-    agentMessages,
     awaitsHostWord,
     cardTaskId,
     formatAgentConversationDuration,
@@ -96,9 +100,6 @@
   const elapsed = $derived(
     formatAgentConversationDuration(agentConversationElapsedMs(ref, now)),
   );
-  const messageCount = $derived(
-    agentMessages(ref).filter((message) => live || !message.pending).length,
-  );
   // What the other agent's turn waits on a person for; answered right here.
   const request = $derived(cardState === "waiting" ? pendingRequest(ref, carried) : null);
   const taskId = $derived(cardTaskId(ref));
@@ -125,99 +126,107 @@
     void api.stopSession(ref.agentSessionId);
   }
 
-  // The provider mark names the agent, so the conversation title is the card's
-  // title. The type slot keeps a settled card's reason, which never truncates.
-  const reason = $derived(
-    cardState === "failed"
-      ? neverStarted
-        ? "never started"
-        : "stopped replying"
-      : cardState === "lost"
-        ? "reply lost in a restart"
-        : cardState === "closed"
-          ? "closed its session"
-          : undefined,
-  );
+  const link = $derived(agentConversationLink(ref, cardState, neverStarted));
+  let menuOpen = $state(false);
+
+  function handleMenuCloseAutoFocus(event: Event) {
+    event.preventDefault();
+    requestInputFocus();
+  }
 </script>
 
 <!-- Colour is identity for the other agent while the exchange is live; the
-     message blocks in the body read the same variable. -->
+     request and plan blocks below read the same variable. -->
 <div
-  class="contents"
+  class="py-1 {skipMotion ? '' : 'animate-msg-in-side'}"
   style:--agent-accent={live ? agentAccent(accentIndex) : "var(--muted-foreground)"}
 >
-  <TranscriptCard
-    {title}
-    type={reason}
-    waiting={cardState === "waiting"}
-    failed={cardState === "failed"}
-    superseded={cardState === "closed"}
-    ariaLabel="Open {agentName} session: {title}"
-    bodyLayout="prose"
-    actionLabel="Open"
-    onOpen={neverStarted ? undefined : () => open()}
-    onOpenSecondary={neverStarted ? undefined : () => open({ split: true })}
-    menu={neverStarted ? undefined : cardMenu}
-    body={needsDecision ? decisionBody : undefined}
-    secondaryActionLabel="Open {agentName} beside this conversation"
-    {skipMotion}
-    data-testid="agent-conversation-card"
+  <!-- The transcript card's surface: its fill, radius, and quiet ring. -->
+  <div
+    class="rounded-(--tx-card-radius) bg-(--solus-tx-card-bg) p-1 shadow-[shadow:var(--solus-tx-quiet-shadow)]"
   >
-    {#snippet glyph()}
-      <span
-        class="flex size-5 items-center justify-center rounded-md [&>svg]:size-3! {!live
-          ? 'bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] text-muted-foreground'
-          : provider === 'codex'
-            ? 'bg-white text-black shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
-            : provider === 'claude-code'
-              ? 'bg-[color-mix(in_srgb,#c15f2c_12%,transparent)] text-[#c15f2c] shadow-[inset_0_0_0_1px_color-mix(in_srgb,#c15f2c_18%,transparent)]'
-              : 'bg-[color-mix(in_oklch,var(--agent-accent)_17%,transparent)] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
-        aria-label="{agentName} session"
+    <AgentLinkRow
+      {provider}
+      tone={link.tone}
+      {title}
+      status={link.label}
+      detail={link.detail}
+      {elapsed}
+      hint={provenance || undefined}
+      ariaLabel="Open {agentName} session: {title}"
+      data-testid="agent-conversation-card"
+      data-state={cardState}
+      onOpen={neverStarted ? undefined : () => open()}
+      onOpenSecondary={neverStarted ? undefined : () => open({ split: true })}
+      trailing={neverStarted ? undefined : rowActions}
+    />
+    {#if needsDecision}
+      <!-- Indented to the title: px-2, the 24px avatar, and the 10px gap. -->
+      <!-- A click in the answer must not open the session. -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="cursor-auto pt-1 pr-2 pb-1 pl-[2.625rem] text-transcript-meta"
+        onclick={(e) => e.stopPropagation()}
       >
-        {@render providerMark(12)}
-      </span>
-    {/snippet}
-
-    {#snippet rail()}
-      {#if live}
-        <span class="tabular-nums">{elapsed}</span>
-      {:else}
-        {#if cardState === "replied"}
-          <CheckIcon
-            size={11}
-            class="text-[color-mix(in_oklch,var(--chart-3)_70%,var(--foreground))]"
-          />
+        {#if planToDecide}
+          <div class="pb-0.5">
+            <AgentPlanDecision {tabId} targetAgentSessionId={ref.agentSessionId} />
+          </div>
         {/if}
-        <span>{messageCount} {messageCount === 1 ? "message" : "messages"}</span>
-      {/if}
-    {/snippet}
-  </TranscriptCard>
-</div>
-
-{#snippet providerMark(size: number)}
-  {#if provider === "codex"}
-    <OpenAIBlossom {size} fill="currentColor" />
-  {:else if provider === "claude-code"}
-    <ClaudeIcon {size} />
-  {:else}
-    <span class="text-[0.5625rem] font-medium">Oc</span>
-  {/if}
-{/snippet}
-
-{#snippet decisionBody()}
-  <!-- A click in the answer must not open the session. -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="cursor-auto text-transcript-meta" onclick={(e) => e.stopPropagation()}>
-    {#if planToDecide}
-      <div class="pb-0.5">
-        <AgentPlanDecision {tabId} targetAgentSessionId={ref.agentSessionId} />
+        {#if request}
+          <AgentRequestCard {ref} {request} {tabId} />
+        {/if}
       </div>
     {/if}
-    {#if request}
-      <AgentRequestCard {ref} {request} {tabId} />
-    {/if}
   </div>
+</div>
+
+<!-- The split and ⋯ stay out of the way until the row is hovered or focused;
+     on touch, where nothing hovers, they always show. -->
+{#snippet rowActions()}
+  <span
+    class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/agent:opacity-100 group-hover/agent:opacity-100 pointer-coarse:opacity-100 {menuOpen
+      ? 'opacity-100'
+      : ''}"
+  >
+    <TranscriptCardAction
+      kind="icon"
+      label="Open {agentName} beside this conversation"
+      onclick={() => open({ split: true })}
+    >
+      <PanelRightIcon size={14} strokeWidth={1.75} />
+    </TranscriptCardAction>
+    <Popover.Root bind:open={menuOpen}>
+      <Popover.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...mergeProps(props, {
+              onclick: (e: MouseEvent) => e.stopPropagation(),
+            })}
+            type="button"
+            class="tx-card-action is-icon"
+            aria-label="More actions"
+            title="More actions"
+          >
+            <EllipsisIcon size={14} strokeWidth={2.5} />
+          </button>
+        {/snippet}
+      </Popover.Trigger>
+      <Popover.Content
+        align="end"
+        sideOffset={6}
+        class="w-auto min-w-44 gap-0.5 p-1"
+        onCloseAutoFocus={handleMenuCloseAutoFocus}
+      >
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="flex flex-col gap-0.5" onclick={(e) => e.stopPropagation()}>
+          {@render cardMenu()}
+        </div>
+      </Popover.Content>
+    </Popover.Root>
+  </span>
 {/snippet}
 
 {#snippet cardMenu()}

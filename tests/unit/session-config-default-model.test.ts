@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { IpcContext, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
+import type { ModelOptionsByProvider } from '@solus/contracts/settings'
+import type { SessionQueueMutation } from '@solus/contracts/session-queue'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -17,15 +19,16 @@ afterEach(() => {
 })
 
 function makeSettings(defaultModels: Record<string, string>, activeAgent = 'claude-code') {
+  const modelOptionsByProvider: ModelOptionsByProvider = {}
   return {
     activeAgent,
     defaultModels,
+    modelOptionsByProvider,
     defaultPermissionMode: 'full-access' as 'supervised' | 'accept-edits' | 'auto' | 'full-access' | 'plan',
     tabGroupMode: 'flat',
-    update(patch: { activeAgent?: string; defaultModels?: Record<string, string>; defaultPermissionMode?: 'supervised' | 'accept-edits' | 'auto' | 'full-access' | 'plan' }) {
-      if (patch.activeAgent) this.activeAgent = patch.activeAgent
-      if (patch.defaultModels) this.defaultModels = patch.defaultModels
-      if (patch.defaultPermissionMode) this.defaultPermissionMode = patch.defaultPermissionMode
+    setPersonal(key: 'activeAgent' | 'defaultModels' | 'modelOptionsByProvider' | 'defaultPermissionMode' | 'tabGroupMode', value: never) {
+      Object.assign(this, { [key]: value })
+      return true
     },
   }
 }
@@ -58,6 +61,7 @@ async function makeController(
     openSessionDraft?: (cwd?: string, freshTask?: boolean, gitContext?: unknown) => void
     apiForRun?: () => unknown
     refreshGitState?: () => Promise<{ status: boolean; details: boolean; refs: boolean; registration: boolean; ok: boolean }>
+    queueChanges?: SessionQueueMutation[]
   },
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -75,7 +79,9 @@ async function makeController(
     defaultRunConfig: () => ({ workingDirectory: '/repo', gitContext: null }) as any,
     ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
-    apiFor: () => ({ switchSessionAgent: async () => switchResult }) as any,
+    apiFor: () => ({ switchSessionAgent: async () => switchResult,
+      sessionQueueChange: async (_ctx: IpcContext, mutation: SessionQueueMutation) => { worktreeHarness?.queueChanges?.push(mutation) },
+    }) as any,
     apiForRun: (worktreeHarness?.apiForRun ?? (() => ({}))) as any,
     refreshPluginCommands: () => {},
     rekeyTaskSessionBinding: () => {},
@@ -192,7 +198,7 @@ describe('default model preference', () => {
     expect(controller.globalDefaults.modelConfig.fastMode).toBe(false)
   })
 
-  test('a handoff writes no divider of its own and runs on the pinned model', async () => {
+  test('queues a pinned provider choice and waits for the host before changing the active provider', async () => {
     const settings = makeSettings({ codex: 'gpt-5.4' })
     const session = {
       id: 'stable-session',
@@ -211,6 +217,7 @@ describe('default model preference', () => {
         workingDirectory: '/repo',
       },
     } as Session
+    const queueChanges: SessionQueueMutation[] = []
     const controller = await makeController(settings, session, {
       fromProvider: 'claude-code',
       fromSessionId: 'claude-session',
@@ -219,7 +226,7 @@ describe('default model preference', () => {
         sourceSessionId: 'claude-session',
         targetSessionId: 'stable-session',
       },
-    })
+    }, undefined, { queueChanges })
 
     await controller.switchActiveAgent('codex')
 
@@ -227,9 +234,9 @@ describe('default model preference', () => {
     // the one divider every client and a reload read (plans/012 §5). A divider
     // written here as well showed the switch twice.
     expect(session.messages).toEqual([])
-    expect(session.run.provider).toBe('codex')
-    expect(session.run.modelConfig.modelId).toBe('gpt-5.4')
-    expect(session.handoffId).toBe('stable-session')
+    expect(session.run.provider).toBe('claude-code')
+    expect(session.run.modelConfig.modelId).toBe('claude-opus-5')
+    expect(queueChanges).toMatchObject([{ kind: 'switch', provider: 'codex', modelConfig: { modelId: 'gpt-5.4' } }])
   })
 
   test('hands a resumed session a concrete model even when the default is Auto', async () => {
@@ -254,6 +261,7 @@ describe('default model preference', () => {
         workingDirectory: '/repo',
       },
     } as Session
+    const queueChanges: SessionQueueMutation[] = []
     const controller = await makeController(settings, session, {
       fromProvider: 'claude-code',
       fromSessionId: 'claude-session',
@@ -262,11 +270,11 @@ describe('default model preference', () => {
         sourceSessionId: 'claude-session',
         targetSessionId: 'stable-session',
       },
-    })
+    }, undefined, { queueChanges })
 
     await controller.switchActiveAgent('codex')
 
-    expect(session.run.modelConfig.modelId).toBe('gpt-6-astra')
+    expect(queueChanges).toMatchObject([{ kind: 'switch', modelConfig: { modelId: 'gpt-6-astra' } }])
   })
 })
 
@@ -360,6 +368,90 @@ describe('settings written against a draft composer', () => {
   })
 })
 
+
+describe('remembered model options', () => {
+  test('restores a draft model’s options after choosing another model', async () => {
+    const settings = makeSettings({})
+    const draft = makeDraft()
+    draft.run.provider = 'codex'
+    draft.run.modelConfig.modelId = 'gpt-6-astra'
+    const controller = await makeController(settings, null, undefined, draft)
+    controller.updateModelConfig({ reasoningEffort: 'max', contextWindow: 1_050_000, fastMode: true }, draft.id)
+    controller.updateModelConfig({ modelId: 'gpt-5.4' }, draft.id)
+    expect(draft.run.modelConfig.fastMode).toBe(false)
+
+    controller.updateModelConfig({ modelId: 'gpt-6-astra' }, draft.id)
+
+    expect(draft.run.modelConfig).toEqual({
+      modelId: 'gpt-6-astra', reasoningEffort: 'max', contextWindow: 1_050_000, fastMode: true,
+    })
+  })
+
+  test('restores saved defaults after recreating the controller and switching providers', async () => {
+    const settings = makeSettings({ 'claude-code': 'claude-opus-5', codex: 'gpt-5.4' })
+    const controller = await makeController(settings)
+    controller.updateModelConfig({ reasoningEffort: 'max', contextWindow: 1_000_000 })
+    controller.setDefaultAgent('codex')
+    controller.updateModelConfig({ reasoningEffort: 'low', fastMode: true })
+
+    const restored = await makeController(settings)
+    expect(restored.globalDefaults.modelConfig.reasoningEffort).toBe('low')
+    expect(restored.globalDefaults.modelConfig.fastMode).toBe(true)
+    restored.setDefaultAgent('claude-code')
+    expect(restored.globalDefaults.modelConfig).toEqual({
+      modelId: 'claude-opus-5', reasoningEffort: 'max', contextWindow: 1_000_000, fastMode: false,
+    })
+  })
+
+  test('uses profile defaults when saved options are no longer supported', async () => {
+    const settings = makeSettings({ 'claude-code': 'claude-haiku-4-5-20251001' })
+    settings.modelOptionsByProvider = {
+      'claude-code': {
+        'claude-haiku-4-5-20251001': { reasoningEffort: 'ultracode', contextWindow: 1_000_000, fastMode: true },
+      },
+    }
+    const controller = await makeController(settings)
+    expect(controller.globalDefaults.modelConfig).toEqual({
+      modelId: 'claude-haiku-4-5-20251001', reasoningEffort: 'medium', contextWindow: 200_000, fastMode: false,
+    })
+  })
+
+  test('explicit options override remembered options, including the default window', async () => {
+    const settings = makeSettings({})
+    const draft = makeDraft()
+    const controller = await makeController(settings, null, undefined, draft)
+    controller.updateModelConfig({ reasoningEffort: 'max', contextWindow: 1_000_000, fastMode: true }, draft.id)
+    controller.updateModelConfig({ modelId: 'claude-sonnet-5' }, draft.id)
+    controller.updateModelConfig({ modelId: 'claude-opus-5', reasoningEffort: 'low', contextWindow: null, fastMode: false }, draft.id)
+    expect(draft.run.modelConfig).toEqual({
+      modelId: 'claude-opus-5', reasoningEffort: 'low', contextWindow: null, fastMode: false,
+    })
+    controller.updateModelConfig({ modelId: 'claude-sonnet-5' }, draft.id)
+    controller.updateModelConfig({ modelId: 'claude-opus-5' }, draft.id)
+    expect(draft.run.modelConfig.contextWindow).toBeNull()
+  })
+
+  test('saves session choices without changing another open composer', async () => {
+    const settings = makeSettings({ codex: 'gpt-6-astra' }, 'codex')
+    const session = { run: { provider: 'codex', modelConfig: {
+      modelId: 'gpt-6-astra', reasoningEffort: 'high', contextWindow: 1_050_000, fastMode: false,
+    } } } as Session
+    const controller = await makeController(settings, session)
+    controller.updateModelConfig({ reasoningEffort: 'max', fastMode: true }, 'tab-1')
+    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('medium')
+    const fresh = await makeController(settings)
+    expect(fresh.globalDefaults.modelConfig.reasoningEffort).toBe('max')
+    expect(fresh.globalDefaults.modelConfig.fastMode).toBe(true)
+  })
+
+  test('does not give Auto the saved options of a concrete model', async () => {
+    const settings = makeSettings({})
+    const controller = await makeController(settings)
+    controller.updateModelConfig({ modelId: 'auto' })
+    expect(settings.modelOptionsByProvider).toEqual({})
+    expect(controller.globalDefaults.modelConfig.fastMode).toBe(false)
+  })
+})
 
 describe('default permission preference', () => {
   test('new composers follow saved changes without changing an open draft', async () => {

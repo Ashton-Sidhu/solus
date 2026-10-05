@@ -1,5 +1,5 @@
 import { arg, optionalArg, textArg } from './args'
-import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@solus/contracts/host-config'
+import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostConfigSnapshot } from '@solus/contracts/host-config'
 import type {
   HostCapabilities,
   RuntimeSessionInfo,
@@ -13,7 +13,6 @@ import { DEMO_USER, type DemoStore } from '../store'
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
   let config = structuredClone(DEFAULT_HOST_CONFIG)
-  let seeded = false
   backend.register('start', () => store.startInfo())
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
     attachUpload: true,
@@ -36,13 +35,11 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     projectCount: 1,
     agentAuth: { claude: true },
     gitAuth: { github: false },
-    agentTaskLifecyclePolicy: config.agentTaskLifecyclePolicy,
   }))
-  backend.register('configGet', () => ({ config, seeded }))
-  backend.register('configUpdate', (args) => {
+  backend.register('configGet', (): HostConfigSnapshot => ({ typeSafe: { source: null }, config }))
+  backend.register('configUpdate', (args): HostConfigSnapshot => {
     config = mergeHostConfig(config, hostConfigPatchSchema.parse(args[0]))
-    seeded = true
-    return { config, seeded }
+    return { typeSafe: { source: null }, config }
   })
   backend.register('voiceModelStatus', (): VoiceModelStatus => ({
     state: 'error',
@@ -92,7 +89,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
   backend.register('listDirectory', (args) => ({
     entries: [],
     parentPath: null,
-    currentPath: textArg(args, 0) ?? store.startInfo().workspacePath,
+    currentPath: textArg(args, 0) ?? store.startInfo().projectPath,
     error: null,
   }))
   backend.register('usageLimits', () => [])

@@ -25,7 +25,6 @@ export const devFixtures: DemoFixtures = {
     version: 'demo',
     projectPath: DEMO_PROJECT,
     homePath: DEMO_PROJECT,
-    workspacePath: DEMO_PROJECT,
     agents: [{
       id: 'claude-code',
       label: 'Claude Code',

@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm'
 import { ulid } from '@solus/contracts/ulid'
 import { taskComments, taskLinks, taskSessionLinks, tasks } from './schema'
-import type { Attribution } from '@solus/contracts/user'
-import { diffTaskActivity, TASK_ACTIVITY_LIMIT } from './task-activity'
+import { sameUser, type Attribution } from '@solus/contracts/user'
+import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
-import { agentAttribution, attributionJson } from '../stored-attribution'
+import { removeNotificationsFor } from '../notifications/store'
+import { agentAttribution, attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { claimSessionOutputLink, deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink, type TaskLinkWrite } from './task-links'
 import { readSessionOutputs } from './session-outputs'
 import {
@@ -54,7 +55,7 @@ import { z } from 'zod'
 const log = createLogger('main', 'task')
 const taskIdRowSchema = z.object({ task_id: z.string() })
 const taskPrRowSchema = z.object({ pr: z.string().nullable() })
-const commentSourceRowSchema = z.object({ source: z.string(), external_id: z.string().nullable() })
+const commentSourceRowSchema = z.object({ source: z.string(), external_id: z.string().nullable(), author: z.string().nullable() })
 const existingPrLinkRowSchema = z.object({
   target_scope: z.string(),
   url: z.string().nullable(),
@@ -80,6 +81,14 @@ interface PrLinkIdentity {
 /** A finished task is done or dropped: no work goes on under it. */
 function isFinishedStatus(status: string): boolean {
   return status === 'done' || status === 'dropped'
+}
+
+/** A moderator may delete any comment; anyone may delete an agent's or an
+ *  automation's; a person may delete only their own (as `mayChangeThread`). */
+function mayDeleteComment(author: Attribution | null, actor: { by: Attribution; canModerate: boolean }): boolean {
+  if (actor.canModerate) return true
+  if (author?.kind === 'agent' || author?.kind === 'automation') return true
+  return author?.kind === 'user' && actor.by.kind === 'user' && sameUser(author.user.id, actor.by.user.id)
 }
 
 function nextPrLinkIdentity(
@@ -161,6 +170,7 @@ export class Task implements TaskRecord {
   status!: TaskStatus
   url!: string | null
   assignee?: string
+  assigneeUserId?: string
   labels!: string[]
   epic?: TaskRecord['epic']
   dueDate?: string
@@ -304,6 +314,7 @@ export class Task implements TaskRecord {
       if (!title) throw new Error('Task title cannot be empty.')
       const status = patch.status ?? existing.status
       assertTaskStatus(status)
+      if (patch.assigneeUserId !== undefined) assertTaskAssignee(this.#organizationId, normalizedOptional(patch.assigneeUserId))
       const triagedAt = status === 'inbox' && projectKey === null
         ? null
         : existing.triaged_at ?? now
@@ -318,6 +329,7 @@ export class Task implements TaskRecord {
           body = ${patch.body ?? existing.body},
           status = ${status},
           assignee = ${patch.assignee === undefined ? existing.assignee : normalizedOptional(patch.assignee)},
+          assignee_user_id = ${patch.assigneeUserId === undefined ? existing.assignee_user_id : normalizedOptional(patch.assigneeUserId)},
           due_date = ${patch.dueDate === undefined ? existing.due_date : normalizedOptional(patch.dueDate)},
           priority = ${patch.priority === undefined ? existing.priority : patch.priority},
           labels = ${patch.labels === undefined ? existing.labels : JSON.stringify(patch.labels)},
@@ -330,6 +342,7 @@ export class Task implements TaskRecord {
       // so no field can be changed here and silently go unrecorded.
       const updated = await requireTask(this.#organizationId, this.id, db)
       await diffTaskActivity(db, this.#organizationId, this.id, existing, updated, by, now)
+      await notifyTaskAssignment(db, this.#organizationId, updated, existing.assignee_user_id, updated.assignee_user_id, by, now)
       if (options.markSyncDirty !== false) {
         const provider = (await externalLinkForTask(this.id, db))?.provider ?? null
         const changedFields: string[] = []
@@ -427,15 +440,23 @@ export class Task implements TaskRecord {
     return this.details()
   }
 
-  async deleteComment(commentId: string): Promise<TaskDetails> {
+  /**
+   * Delete one unpublished comment. An editor may comment, but only the person
+   * who wrote a comment, or a moderator (the task's owner or a host admin), may
+   * delete it: the same rule a work's threads follow (`mayChangeThread`).
+   */
+  async deleteComment(commentId: string, actor: { by: Attribution; canModerate: boolean }): Promise<TaskDetails> {
     const deleted = await database().transaction(async (db) => {
       await requireTask(this.#organizationId, this.id, db)
       const comment = commentSourceRowSchema.nullish().parse(await db.get(sql`
-        SELECT source, external_id FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
+        SELECT source, external_id, author FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
       `))
       if (!comment) throw new Error('This task comment no longer exists.')
       if (comment.source !== 'local' || comment.external_id !== null) {
         throw new Error('Only unpublished local task comments can be deleted in Solus.')
+      }
+      if (!mayDeleteComment(parseStoredAttribution(comment.author), actor)) {
+        throw new Error('Only the person who wrote a comment or the task owner may delete it.')
       }
       const removed = (await db.run(sql`
         DELETE FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
@@ -739,6 +760,7 @@ export class Task implements TaskRecord {
       `)).changes > 0
       // The task's history goes with it, as `task_events` did by its foreign key.
       if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
+      if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
       return removed
     })
     if (deleted) emitChanged()

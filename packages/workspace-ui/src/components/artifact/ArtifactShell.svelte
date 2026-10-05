@@ -1,6 +1,7 @@
 <script lang="ts">
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
+  import SessionNameInput from "../session/SessionNameInput.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import type { FilePayload } from "../diagram/lib/diagram-export";
   import ArtifactView from "./ArtifactView.svelte";
@@ -52,28 +53,12 @@
     onOpenWorkspace,
   }: Props = $props();
 
-  // Click-to-rename, mirroring DiagramShell.
+  // Double-click to rename, like the session crumb. The field commits on
+  // Enter or blur and cancels on Escape (`SessionNameInput`).
   let renaming = $state(false);
-  let renameValue = $state("");
   function startRename() {
     if (!onRename) return;
-    renameValue = title;
     renaming = true;
-  }
-  function commitRename() {
-    if (!renaming) return;
-    renaming = false;
-    const next = renameValue.trim();
-    if (next && next !== title) onRename?.(next);
-  }
-  function renameKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.currentTarget instanceof HTMLInputElement) e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      renaming = false;
-    }
   }
 
   let copied = $state(false);
@@ -196,23 +181,25 @@
       </span>
     {/if}
     {#if renaming}
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1 py-0.5 text-workspace-chrome font-medium text-(--solus-text-primary) outline-none"
-        bind:value={renameValue}
-        onblur={commitRename}
-        onkeydown={renameKeydown}
-        autofocus
-        aria-label="Rename artifact"
-        data-testid="rename-work-input"
-      />
+      <span class="flex h-[1.875rem] w-80 min-w-24 max-w-full flex-1 items-center">
+        <SessionNameInput
+          value={title}
+          variant="row"
+          class="text-workspace-chrome font-medium"
+          onCommit={(next) => {
+            renaming = false;
+            onRename?.(next);
+          }}
+          onCancel={() => (renaming = false)}
+        />
+      </span>
     {:else}
       <button
         type="button"
-        class="min-w-0 flex-1 cursor-text truncate border-0 bg-transparent text-left text-workspace-chrome font-medium text-(--solus-text-primary)"
-        onclick={startRename}
+        class="min-w-0 flex-1 truncate border-0 bg-transparent text-left text-workspace-chrome font-medium text-(--solus-text-primary)"
+        ondblclick={startRename}
         disabled={!onRename}
-        title={onRename ? "Rename" : undefined}
+        title={onRename ? "Double-click to rename" : undefined}
         data-testid="artifact-shell-title"
       >
         {title}

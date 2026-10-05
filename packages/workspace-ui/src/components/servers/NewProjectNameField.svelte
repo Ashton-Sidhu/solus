@@ -1,33 +1,33 @@
 <script lang="ts">
   /**
-   * The name of a new project, typed as the last segment of its own path: the
-   * host's projects folder leads in muted text and the name completes it, so
-   * the field and "where it lands" are one line rather than a field and a
-   * caption. When the host will rename the folder (`My Website` → `My-Website`)
-   * the field says so at its end.
+   * The name of a new project, asked as a name and not as a path. One quiet
+   * line under the field says what the host will make: the folder's own name
+   * (`My Website` becomes `My-Website`), the folder it goes in, and the
+   * machine. The full path is only a tooltip — a person who does not think in
+   * paths is never asked to read one.
    *
-   * With `onchangeparent`, the folder prefix is itself the control that moves
-   * the project somewhere else. The size comes from the caller's text class;
-   * every part inherits it. A surface too narrow for the folder sets
-   * `showsParent` to false and shows the location itself.
+   * With `onchangeparent`, the line ends in "Change", which picks another
+   * folder. The field's text size comes from the caller's class.
    */
   import { safeProjectDirName } from "@solus/contracts/project-folder-name";
-  import { abbreviateHome } from "../../lib/paths";
-  import { joinHostPath } from "./lib/open-project-flow";
+  import { folderLabel, newProjectPath } from "./lib/open-project-flow";
 
   interface Props {
     value: string;
     /** The host-absolute folder the project is created in. */
     parent: string;
     platform?: string | null;
+    /** The machine the folder is made on. */
+    hostLabel: string;
     disabled?: boolean;
     /** Widened to what the Open project dialog focuses across its steps. */
     inputEl?: HTMLInputElement | HTMLTextAreaElement | null;
     /** Enter in the field. Omit where the surrounding surface owns Enter. */
     onsubmit?: () => void;
-    /** Makes the folder prefix a button that picks another folder. */
+    /** Adds "Change", which picks another folder. */
     onchangeparent?: () => void;
-    showsParent?: boolean;
+    /** Shows "Project name" above the field; omit where a heading asks already. */
+    showsLabel?: boolean;
     class?: string;
   }
 
@@ -35,17 +35,19 @@
     value = $bindable(""),
     parent,
     platform = null,
+    hostLabel,
     disabled = false,
     inputEl = $bindable(null),
     onsubmit,
     onchangeparent,
-    showsParent = true,
+    showsLabel = false,
     class: className = "",
   }: Props = $props();
 
-  const prefix = $derived(abbreviateHome(joinHostPath(parent, "", platform)));
+  const id = $props.id();
   const folderName = $derived(value.trim() ? safeProjectDirName(value) : "");
-  const isRenamed = $derived(!!folderName && folderName !== value.trim());
+  const place = $derived(folderLabel(parent));
+  const fullPath = $derived(newProjectPath(parent, value, platform) ?? parent);
 
   function onkeydown(event: KeyboardEvent) {
     if (!onsubmit || event.key !== "Enter" || event.isComposing) return;
@@ -54,43 +56,39 @@
   }
 </script>
 
-<!-- `direction: rtl` on the prefix clips a long folder from its start, so the
-     end nearest the name stays readable; `bdi` keeps the path itself LTR. -->
-<span class="flex min-w-0 flex-1 items-baseline {className}">
-  {#if !showsParent}
-    <!-- The caller shows the location. -->
-  {:else if onchangeparent}
-    <button
-      type="button"
-      class="min-w-0 max-w-[55%] shrink overflow-hidden truncate rounded-sm text-muted-foreground [direction:rtl]
-        underline-offset-4 transition-colors duration-(--duration-quick)
-        hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
-      title="Change location — {parent}"
-      aria-label="Location {prefix}. Change location"
-      onclick={onchangeparent}
-    >
-      <bdi>{prefix}</bdi>
-    </button>
-  {:else}
-    <span class="min-w-0 max-w-[55%] shrink truncate text-muted-foreground [direction:rtl]" title={parent}>
-      <bdi>{prefix}</bdi>
-    </span>
+<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+  {#if showsLabel}
+    <label for="{id}-name" class="text-sm font-medium text-foreground">Project name</label>
   {/if}
   <input
     bind:this={inputEl}
     bind:value
-    class="min-w-[6ch] flex-1 bg-transparent p-0 text-[length:inherit] font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/40"
-    placeholder="project-name"
-    aria-label="Project name"
+    id="{id}-name"
+    class="min-w-0 bg-transparent p-0 font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/50 {className}"
+    placeholder="My website"
+    aria-label={showsLabel ? undefined : "Project name"}
+    aria-describedby="{id}-location"
     spellcheck={false}
     autocomplete="off"
-    autocapitalize="off"
     {disabled}
     {onkeydown}
   />
-  {#if isRenamed}
-    <span class="ml-2 max-w-[40%] shrink-0 truncate text-xs text-muted-foreground" title="The folder is named {folderName}">
-      as {folderName}
-    </span>
-  {/if}
-</span>
+  <p id="{id}-location" class="min-w-0 text-pretty text-xs text-muted-foreground" title={fullPath}>
+    {#if folderName}
+      Creates the folder <span class="font-medium text-foreground">{folderName}</span>
+      in {place} on {hostLabel}.
+    {:else}
+      Creates a folder in {place} on {hostLabel}.
+    {/if}
+    {#if onchangeparent}
+      <button
+        type="button"
+        class="rounded-sm text-foreground underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none disabled:opacity-50"
+        {disabled}
+        onclick={onchangeparent}
+      >
+        Change
+      </button>
+    {/if}
+  </p>
+</div>

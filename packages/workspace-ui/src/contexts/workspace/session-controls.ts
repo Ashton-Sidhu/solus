@@ -2,6 +2,9 @@ import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
+import { expireRequest } from './session.utils'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionControlsWorkspace = Pick<WorkspaceContext,
@@ -30,14 +33,27 @@ export class SessionControls {
     requestInputFocus({ tabId })
   }
 
-  respondPermission(tabId: string, questionId: string, optionId: string): void {
+  /** The card leaves only once the host took the answer: a refused answer
+   *  (a viewer on a shared session) leaves the request open for someone else. */
+  async respondPermission(tabId: string, questionId: string, optionId: string): Promise<boolean> {
     const ctx = this.workspace.ctxFor(tabId)
-    this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId)
+    let answered: boolean
+    try {
+      answered = await this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId)
+    } catch (error) {
+      this.refuseAnswer(tabId, questionId, error)
+      return false
+    }
+    if (!answered) {
+      toasts.error("You can't answer this request")
+      return false
+    }
     track('permission_responded', { decision: optionId })
     const session = this.workspace.sessionFor(tabId)
-    if (!session) return
+    if (!session) return true
     const idx = session.permissionQueue.findIndex((p) => p.questionId === questionId)
     if (idx !== -1) session.permissionQueue.splice(idx, 1)
+    return true
   }
 
   async respondQuestion(tabId: string, questionId: string, answers: Record<string, string>): Promise<boolean> {
@@ -46,11 +62,11 @@ export class SessionControls {
     try {
       answered = await this.workspace.apiFor(tabId).respondQuestion(ctx, ctx.session.sessionId, questionId, answers)
     } catch (error) {
-      toasts.error("Couldn't send answer", { description: String(error) })
+      this.refuseAnswer(tabId, questionId, error)
       return false
     }
     if (!answered) {
-      toasts.error('This question is no longer open')
+      toasts.error("You can't answer this question")
       return false
     }
     const session = this.workspace.sessionFor(tabId)
@@ -59,6 +75,18 @@ export class SessionControls {
     if (idx !== -1) session.questionQueue.splice(idx, 1)
     requestInputFocus({ tabId })
     return true
+  }
+
+  /** An answer that did not land. When the host no longer holds the request,
+   *  its card closes and says why; any other failure leaves it open to retry. */
+  private refuseAnswer(tabId: string, questionId: string, error: unknown): void {
+    if (error instanceof Error && rpcErrorCode(error) === REQUEST_NOT_ANSWERABLE_CODE) {
+      const session = this.workspace.sessionFor(tabId)
+      if (session) expireRequest(session, questionId, 'closed')
+      toasts.error('This request is no longer open', { description: requestExpiryText('closed') })
+      return
+    }
+    toasts.error("Couldn't send answer", { description: String(error) })
   }
 
   interruptSession(sessionId: string, opts: { notice?: boolean } = {}): void {

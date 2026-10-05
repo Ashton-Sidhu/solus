@@ -15,8 +15,11 @@ import type {
   AutomationsChangedEvent,
   AutomationTrigger,
 } from '@solus/contracts/types'
+import { executionPreferenceSnapshotSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { attributionSchema, userKey, type Attribution, type User } from '@solus/contracts/user'
 import { agentAttribution, followHostUser, hostAttribution, userOfStoredKey } from '../stored-attribution'
+import { announceNotifications, recordNotificationSync } from '../notifications/store'
+import { resolveEngine } from '../../db/engine'
 
 const log = createLogger('automations', 'automations-store.ts')
 
@@ -85,6 +88,7 @@ const automationMetadataSchema = z.object({
   archivedAt: z.string().optional(),
   archiveRequested: z.boolean().optional(),
   createdBy: z.union([legacyCreatorSchema.transform(creatorFromLegacy), attributionSchema.transform(followHostUser)]).optional(),
+  executionPreferences: executionPreferenceSnapshotSchema.optional(),
   lastRunId: z.string().optional(),
   lastRunStatus: runStatusSchema.optional(),
   lastRunAt: z.string().optional(),
@@ -310,6 +314,8 @@ export async function createAutomation(
   createdBy: Attribution,
   enabled = true,
   trigger: AutomationTrigger = { type: 'manual' },
+  /** The creator's preferences it runs with (plans/018 §6); without them it runs with the built-in defaults. */
+  executionPreferences?: ExecutionPreferences,
 ): Promise<Automation> {
   assertValidAction(action)
   assertValidTrigger(trigger)
@@ -332,6 +338,7 @@ export async function createAutomation(
     updatedAt: nowIso,
     createdBy,
   }
+  if (executionPreferences) automation.executionPreferences = { capturedAt: now.getTime(), preferences: executionPreferences }
   writeAutomation(database(), automation)
   emitChanged({ kind: 'saved', automation })
   return automation
@@ -358,7 +365,7 @@ export async function loadAutomation(id: string): Promise<Automation | null> {
  *  the trigger or the enabled state re-arms `nextRunAt` from now. */
 export async function updateAutomation(
   id: string,
-  patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
+  patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger; executionPreferences?: ExecutionPreferences },
 ): Promise<Automation | null> {
   const db = database()
   const row = automationRowSchema.nullish().parse(
@@ -376,6 +383,8 @@ export async function updateAutomation(
   if (patch.favorite !== undefined) existing.favorite = patch.favorite
   if (patch.action) existing.action = nextAction
   if (patch.trigger !== undefined) existing.trigger = nextTrigger
+  // An edit captures the editor's preferences.
+  if (patch.executionPreferences) existing.executionPreferences = { capturedAt: Date.now(), preferences: patch.executionPreferences }
 
   // Re-arm the schedule whenever the trigger or enabled state actually changes.
   // A paused automation carries no pending fire; a re-enabled one schedules
@@ -582,6 +591,10 @@ export async function finishRun(
   }
 
   const db = database()
+  // The person the result is for is resolved before the write, so the hub row is
+  // written with the run's outcome even when no client is connected (plan 015 §5).
+  const responsible = await loadAutomation(automationId)
+  const recipient = responsible ? await creatorKeyOf(responsible.createdBy) : null
   const result = withTx(() => {
     const runRow = automationRunRowSchema.nullish().parse(db.prepare(`
       SELECT *
@@ -610,11 +623,26 @@ export async function finishRun(
       }
       writeAutomation(db, automation)
     }
-    return { automation, finished }
+    // The hub's row is written in this same SQLite transaction: it commits with the
+    // run or not at all. Where the hub's table is in another database (Postgres),
+    // no atomic write is possible and no row is written.
+    const notified = finished && responsible && recipient && outcome.status !== 'running' && resolveEngine().kind === 'sqlite'
+      ? recordNotificationSync(db, {
+        organizationId: responsible.organizationId ?? LOCAL_ORGANIZATION_ID,
+        eventId: `automation.finished:${runId}`,
+        recipients: [recipient],
+        facts: { kind: 'automation.finished', status: outcome.status },
+        resource: { kind: 'automation', automationId, runId },
+        by: { kind: 'automation', automationId, name: responsible.name },
+        summary: { title: responsible.name.slice(0, 300) },
+      })
+      : []
+    return { automation, finished, notified }
   })
   if (result.automation && result.finished) {
     emitChanged({ kind: 'run-finished', automation: result.automation, run: result.finished })
   }
+  if (responsible) announceNotifications(responsible.organizationId ?? LOCAL_ORGANIZATION_ID, result.notified)
 }
 
 export async function loadRun(automationId: string, runId: string): Promise<AutomationRun | null> {

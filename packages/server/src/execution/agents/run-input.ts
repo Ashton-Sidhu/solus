@@ -1,26 +1,24 @@
 import type { ProviderConversation } from './agent-runner'
 import type { AgentId, IpcContext, SessionRunInput } from '@solus/contracts/types'
 import { MODEL_PROFILES } from '@solus/contracts/types'
-import { getHostConfig } from '../../host/settings'
+import { z } from 'zod'
+import { DEFAULT_EXECUTION_PREFERENCES, executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 
 /**
  * The instruction fields for a run with no renderer behind it — an automation,
- * an agent-created session, a handoff, a background review. App-wide
- * instructions live in host config, so these runs read them from the host
- * rather than from an `IpcContext` that does not exist.
- *
- * Before host config, every one of these paths hardcoded an empty string, so a
- * user's instructions applied to turns they typed and silently vanished from
- * turns Solus started for them.
+ * an agent-created session, a handoff, a background review. Instructions are
+ * the person's (plans/018 §3.1): they come from the preferences captured for
+ * the work, never from this host's config, so one person's instructions never
+ * reach another person's run. No preferences means no instructions.
  */
-export function hostInstructionsFor(
+export function instructionsFor(
+  preferences: ExecutionPreferences | undefined,
   model: string | null | undefined,
 ): Pick<SessionRunInput, 'extraInstructions' | 'modelInstructions'> {
-  const { config } = getHostConfig()
   return {
-    extraInstructions: config.extraInstructions,
+    extraInstructions: preferences?.extraInstructions ?? '',
     // A run with no resolved model simply has nothing scoped to it.
-    modelInstructions: model ? config.modelInstructions[model] : undefined,
+    modelInstructions: model ? preferences?.modelInstructions?.[model] : undefined,
   }
 }
 
@@ -32,9 +30,10 @@ export function hostInstructionsFor(
  * the model itself disagreeing, and the backend fell back to whatever its own
  * CLI defaults to instead of ours.
  */
-export function hostModelInputFor(
+export function unattendedModelInputFor(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
+  preferences: ExecutionPreferences | undefined,
 ): Pick<SessionRunInput, 'contextWindow' | 'model' | 'preferredModel' | 'extraInstructions' | 'modelInstructions'> {
   const profiles = provider ? MODEL_PROFILES[provider] ?? {} : {}
   const model = modelId || Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] || null
@@ -42,8 +41,26 @@ export function hostModelInputFor(
     contextWindow: model ? profiles[model]?.defaultContextWindow ?? null : null,
     model: model ?? '',
     preferredModel: model,
-    ...hostInstructionsFor(model),
+    ...instructionsFor(preferences, model),
   }
+}
+
+/**
+ * Parses the execution preferences a request carries (plans/018 §6). Strict: an
+ * unknown key or a bad value refuses the whole request, with the keys named,
+ * rather than running with a choice the person did not make. Undefined only where
+ * a request type makes them optional (an automation edit that changes no action).
+ */
+export function parseExecutionPreferences(sent: ExecutionPreferences | undefined): ExecutionPreferences | undefined {
+  if (sent === undefined) return undefined
+  const parsed = executionPreferencesSchema.safeParse(sent)
+  if (!parsed.success) throw new Error(`Execution preferences refused: ${z.prettifyError(parsed.error)}`)
+  return parsed.data
+}
+
+/** The preferences a client sent with its context. */
+export function contextPreferences(ctx: Pick<IpcContext, 'settings'>): ExecutionPreferences {
+  return parseExecutionPreferences(ctx.settings.executionPreferences) ?? {}
 }
 
 /**
@@ -59,6 +76,7 @@ export function hostModelInputFor(
  */
 export function runInputFromContext(ctx: IpcContext): SessionRunInput {
   const { session, settings, statusBar } = ctx
+  const preferences = contextPreferences(ctx)
   return {
     provider: session.provider ?? settings.activeAgent,
     agentSessionId: session.agentSessionId,
@@ -76,9 +94,11 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     reasoningEffort: statusBar.reasoningEffort,
     fastMode: statusBar.fastMode,
     permissionMode: session.permissionMode,
-    rateLimitBehavior: getHostConfig().config.rateLimitBehavior,
-    extraInstructions: settings.extraInstructions,
-    modelInstructions: settings.modelInstructions?.[statusBar.model],
+    // The sender's own choice, carried with the run and its queue entry: a
+    // process-wide value would let another client change it while this drains.
+    rateLimitBehavior: preferences.rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior,
+    ...instructionsFor(preferences, statusBar.model),
+    executionPreferences: preferences,
   }
 }
 

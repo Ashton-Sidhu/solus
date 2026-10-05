@@ -206,7 +206,7 @@
 
   const shouldAutofocus = $derived(!runtime.shouldSuppressFocus);
   /** Must track DirectoryRow's height — the virtual list positions on this number. */
-  const rowHeight = $derived(runtime.isMobileViewport ? 52 : 32);
+  const rowHeight = 32;
   const activeDescendant = $derived(
     highlightedRow ? `directory-option-${highlightedIndex}` : undefined,
   );
@@ -225,9 +225,7 @@
   // The file manager opens on the machine running the handler, so it is only
   // meaningful when the browsed host is this one.
   const canOpenFileManager = $derived(
-    hostPolicy.isClientMachine(serverId) &&
-      connectionsStore.desktopHandlersAvailable &&
-      !runtime.isMobileViewport,
+    hostPolicy.isClientMachine(serverId) && connectionsStore.desktopHandlersAvailable,
   );
 
   function handleBackdropMousedown(e: MouseEvent) {
@@ -521,11 +519,10 @@
 </script>
 
 {#if open && layer.el}
-  <!-- Desktop pickers centre in the app window. Mobile keeps the full-width sheet. -->
+  <!-- Pickers centre in the app window. -->
   <div
     use:portal={layer.el}
-    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-black/12
-      max-md:bottom-auto max-md:h-[100dvh] max-md:items-end max-md:bg-black/42"
+    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-black/12"
     role="presentation"
     onmousedown={handleBackdropMousedown}
     transition:fade={{ duration: 120 }}
@@ -536,9 +533,7 @@
       class="flex h-[clamp(28rem,65vh,43rem)] w-[clamp(42rem,72vw,64rem)] max-w-full origin-top flex-col overflow-hidden overscroll-contain
         rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
-        dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
-        max-md:mt-auto max-md:h-[calc(100dvh-6rem)] max-md:w-full max-md:rounded-b-none max-md:rounded-t-[1.625rem]
-        max-md:bg-background max-md:shadow-[shadow:0_-0.0625rem_0_var(--hairline-strong),0_-1.5rem_3.75rem_-1.25rem_rgba(0,0,0,0.5)]"
+        dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="directory-picker-title"
@@ -546,22 +541,13 @@
       onkeydown={handleKeyDown}
       transition:fly={{ y: 10, duration: 220, easing: expoOut }}
     >
-      <header class="flex h-14 shrink-0 items-center gap-3 px-5
-        max-md:h-auto max-md:flex-col max-md:items-stretch max-md:gap-0 max-md:px-4 max-md:pb-3 max-md:pt-0">
-        <!-- The grab bar. On a phone this dialog is a sheet, and the bar is the
-             one part a thumb reads before the words: it says which edge this
-             came from and which edge sends it back. Same metrics as
-             ui/bottom-sheet so every sheet in the product has one grip. -->
-        <div class="hidden shrink-0 justify-center pt-[0.5625rem] pb-[0.1875rem] max-md:flex" aria-hidden="true">
-          <span class="h-1 w-[2.375rem] rounded-full bg-foreground opacity-20"></span>
-        </div>
-        <div class="flex min-w-0 flex-1 items-center gap-3 max-md:h-11 max-md:flex-none">
-          <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-workspace-chrome font-medium
-            max-md:text-[1.0625rem] max-md:font-semibold max-md:tracking-[-0.014em]">
+      <header class="flex h-14 shrink-0 items-center gap-3 px-5">
+        <div class="flex min-w-0 flex-1 items-center gap-3">
+          <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-workspace-chrome font-medium">
             {title}
           </span>
           {#if hostLabel}
-            <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground max-md:hidden">
+            <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground">
               <DesktopTowerIcon size={14} />
               {hostLabel}
             </span>
@@ -569,26 +555,16 @@
           <Button
             variant="ghost"
             size="icon-xs"
-            class="-mr-1.5 text-muted-foreground max-md:mr-0 max-md:size-8 max-md:rounded-full max-md:bg-[var(--wash-3)]"
+            class="-mr-1.5 text-muted-foreground"
             onclick={onClose}
             aria-label="Cancel"
           >
             <XIcon size={14} />
           </Button>
         </div>
-        {#if hostLabel}
-          <!-- The host takes its own line rather than a chip beside the title:
-               at 393px a hostname and a title cannot share a row without one of
-               them being cut, and a cut label is the one thing the redesign
-               rules out. -->
-          <div class="hidden items-center gap-2 max-md:flex">
-            <DesktopTowerIcon size={14} class="shrink-0 text-muted-foreground" />
-            <span class="min-w-0 truncate text-[0.78125rem] text-muted-foreground">{hostLabel}</span>
-          </div>
-        {/if}
       </header>
 
-      <div class="flex min-h-0 flex-1 max-md:flex-col">
+      <div class="flex min-h-0 flex-1">
         <DirectoryPlaces
           locations={sidebarLocations}
           recents={recentProjects.slice(0, 6).map((project) => ({
@@ -605,15 +581,12 @@
           <div class="shrink-0 px-4 pb-2 pt-3">
             <nav
               bind:this={pathBarEl}
-              class="crumb-strip flex items-center gap-[0.1875rem] overflow-x-auto pb-2 max-md:gap-1"
+              class="crumb-strip flex items-center gap-[0.1875rem] overflow-x-auto pb-2"
               aria-label="Path breadcrumbs"
             >
               {#each crumbs as crumb, i (crumb.path)}
                 {#if i > 0}
-                  <CaretRightIcon size={14} class="shrink-0 text-muted-foreground/60 max-md:hidden" />
-                  <!-- A phone reads the trail as a path, so the separator is the
-                       one the path itself uses. -->
-                  <span class="hidden shrink-0 text-xs text-muted-foreground/35 max-md:inline" aria-hidden="true">/</span>
+                  <CaretRightIcon size={14} class="shrink-0 text-muted-foreground/60" />
                 {/if}
                 <!-- Kept out of the tab order: the trail is walked with ← and
                      Backspace from the filter, which never loses focus. -->
@@ -621,9 +594,9 @@
                   type="button"
                   tabindex={-1}
                   class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 font-mono text-xs outline-none
-                    hover:bg-muted max-md:min-h-7 max-md:rounded-md max-md:px-[0.5625rem] max-md:text-[0.71875rem]
+                    hover:bg-muted
                     {i === crumbs.length - 1
-                      ? 'font-medium max-md:bg-[var(--wash-2)] max-md:font-semibold'
+                      ? 'font-medium'
                       : 'text-muted-foreground'}"
                   onmousedown={(e) => e.preventDefault()}
                   onclick={() => navigateTo(crumb.path)}
@@ -638,23 +611,18 @@
                  combobox that field cannot carry. -->
             <div
               class="flex h-8 items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5
-                transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]
-                max-md:h-11 max-md:gap-[0.5625rem] max-md:px-3"
+                transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
             >
               {#if willCreate}
                 <FolderPlusIcon size={14} weight="fill" class="shrink-0 text-primary" />
               {:else}
                 <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
               {/if}
-              <!-- 16px on a phone, not the 13px the desktop field uses: iOS zooms
-                   into any input under 16px and does not zoom back out, which
-                   would leave the sheet scaled up after one tap on the filter. -->
               <Input
                 bind:ref={pathInputEl}
                 value={leaf}
                 type="text"
-                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent
-                  max-md:text-base"
+                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Filter folders"
                 spellcheck={false}
                 autocomplete="off"
@@ -668,17 +636,11 @@
                 aria-activedescendant={activeDescendant}
                 oninput={(e) => setLeaf(e.currentTarget.value)}
               />
-              <!-- How many folders the filter is actually offering. On a phone
-                   the list is a scroll rather than a glance, so the count is the
-                   only place that number is stated. -->
-              <span class="hidden shrink-0 font-mono text-[0.65625rem] text-muted-foreground max-md:inline">
-                {dirEntries.length}
-              </span>
               <Button
                 variant="ghost"
                 size="icon-xs"
                 tabindex={-1}
-                class="-mr-1 size-5 shrink-0 rounded text-muted-foreground max-md:size-8 {showHidden ? '' : 'opacity-55'}"
+                class="-mr-1 size-5 shrink-0 rounded text-muted-foreground {showHidden ? '' : 'opacity-55'}"
                 onmousedown={(e) => e.preventDefault()}
                 onclick={() => (showHidden = !showHidden)}
                 title={showHidden ? "Hide hidden folders" : "Show hidden folders"}
@@ -719,15 +681,9 @@
               />
             {/snippet}
 
-            <!-- Nothing is centred in a void on a phone: the sheet is 750px tall,
-                 so a centred state puts its one sentence 300px below the folder
-                 it is talking about. Each state sits at the top of the list as a
-                 card, where the list would have started. -->
             {#if loading}
               <div
-                class="flex h-full flex-col items-center justify-center gap-2
-                  max-md:mx-3 max-md:mt-2 max-md:h-auto max-md:items-start max-md:justify-start max-md:rounded-[0.875rem]
-                  max-md:bg-card max-md:p-4 max-md:shadow-[shadow:var(--elev-ring)]"
+                class="flex h-full flex-col items-center justify-center gap-2"
                 role="status"
                 aria-live="polite"
               >
@@ -735,9 +691,7 @@
               </div>
             {:else if loadError}
               <div
-                class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center
-                  max-md:mx-3 max-md:mt-2 max-md:h-auto max-md:items-start max-md:justify-start max-md:rounded-[0.875rem]
-                  max-md:bg-card max-md:p-4 max-md:text-left max-md:shadow-[shadow:var(--elev-ring)]"
+                class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"
                 role="alert"
               >
                 <FolderIcon size={20} class="text-(--solus-status-error)" />
@@ -756,31 +710,21 @@
               </div>
             {:else if willCreate && rows.length === 0}
               <div
-                class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center
-                  max-md:mx-3 max-md:mt-2 max-md:h-auto max-md:items-start max-md:justify-start max-md:rounded-[0.875rem]
-                  max-md:bg-card max-md:p-4 max-md:text-left max-md:shadow-[shadow:var(--elev-ring)]"
+                class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"
               >
                 <FolderPlusIcon size={20} class="text-(--solus-text-muted)" />
-                <span class="text-pretty text-xs text-(--solus-text-tertiary) max-md:text-[0.8125rem]">
+                <span class="text-pretty text-xs text-(--solus-text-tertiary)">
                   Press <Kbd variant="hint">↵</Kbd> to create “{targetName}” and {actionLabel.toLowerCase()} it.
                 </span>
               </div>
             {:else if rows.length === 0}
               <div
-                class="flex h-full flex-col items-center justify-center gap-2
-                  max-md:mx-3 max-md:mt-2 max-md:h-auto max-md:items-start max-md:justify-start max-md:rounded-[0.875rem]
-                  max-md:bg-card max-md:p-4 max-md:shadow-[shadow:var(--elev-ring)]"
+                class="flex h-full flex-col items-center justify-center gap-2"
               >
                 <FolderIcon size={20} class="text-(--solus-text-muted)" />
-                <span class="text-xs text-(--solus-text-tertiary) max-md:text-[0.8125rem]">
+                <span class="text-xs text-(--solus-text-tertiary)">
                   {leaf ? "No matching folders" : "Empty"}
                 </span>
-              </div>
-            {:else if runtime.isMobileViewport}
-              <div class="h-full overflow-y-auto [-webkit-overflow-scrolling:touch] [overscroll-behavior-y:contain] [touch-action:pan-y]">
-                {#each rows as _item, index (index)}
-                  {@render row(index)}
-                {/each}
               </div>
             {:else if listHeight > 0}
               <!-- With nothing highlighted the first row is the active one, so a
@@ -803,14 +747,12 @@
         </div>
       </div>
 
-      <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
-        max-md:h-auto max-md:flex-wrap max-md:gap-2.5 max-md:border-t-[var(--hairline)] max-md:bg-[var(--wash-1)]
-        max-md:py-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom,0))]">
+      <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4">
         <!-- The same in open and save mode: making a folder is part of
              choosing one, whatever the picker is for. -->
         <Button
           variant="ghost"
-          class="shrink-0 gap-1.5 text-[0.8125rem] text-muted-foreground max-md:h-12"
+          class="shrink-0 gap-1.5 text-[0.8125rem] text-muted-foreground"
           disabled={loading || !resolvedDirectory}
           onmousedown={(e) => e.preventDefault()}
           onclick={startNewFolder}
@@ -822,13 +764,12 @@
         {#if savingFile}
           <!-- The name of the file, not a filter: the crumbs above already say
                which folder it lands in, so this replaces the path readout. -->
-          <label class="flex min-w-0 flex-1 items-center gap-2 max-md:order-first max-md:basis-full">
+          <label class="flex min-w-0 flex-1 items-center gap-2">
             <span class="shrink-0 text-xs text-muted-foreground">Name</span>
             <Input
               bind:value={nameDraft}
               type="text"
-              class="h-8 min-w-0 flex-1 text-[0.8125rem]
-                max-md:h-[2.875rem] max-md:bg-card max-md:font-mono max-md:text-base max-md:shadow-[shadow:var(--elev-ring)]"
+              class="h-8 min-w-0 flex-1 text-[0.8125rem]"
               placeholder="File name"
               spellcheck={false}
               autocomplete="off"
@@ -848,7 +789,7 @@
             />
           </label>
         {:else}
-          <div class="flex-1 max-md:hidden"></div>
+          <div class="flex-1"></div>
         {/if}
         {#if canOpenFileManager}
           <Button
@@ -860,24 +801,16 @@
             Open in {fileManagerName}
           </Button>
         {/if}
-        {#if !runtime.isMobileViewport}
-          <Button variant="ghost" class="shrink-0 text-[0.8125rem]" onclick={onClose}>Cancel</Button>
-        {/if}
+        <Button variant="ghost" class="shrink-0 text-[0.8125rem]" onclick={onClose}>Cancel</Button>
         <Button
-          class="shrink-0 px-3.5 text-[0.8125rem] max-md:h-12 max-md:flex-1 max-md:text-sm max-md:font-semibold
-            max-md:tracking-[-0.005em] max-md:shadow-[shadow:0_0.0625rem_0.125rem_rgba(24,20,16,0.2)]"
+          class="shrink-0 px-3.5 text-[0.8125rem]"
           disabled={loading || creating || !resolvedPath || (savingFile && !nameIsValid)}
           onclick={() => void submit()}
         >
           {creating ? "Creating" : submitLabel}
-          <!-- In file mode the name is right there in the field beside it.
-               The phone's button is full width, so the name it will open has
-               the room to be read rather than clipped to 36 characters — and it
-               names the folder plainly, because a quoted path in a commit button
-               reads as a fragment of something longer that was cut. -->
+          <!-- In file mode the name is right there in the field beside it. -->
           {#if !savingFile}
-            <span class="inline-block max-w-36 truncate align-bottom max-md:hidden">“{targetName}”</span>
-            <span class="hidden min-w-0 truncate align-bottom max-md:inline-block">{targetName}</span>
+            <span class="inline-block max-w-36 truncate align-bottom">“{targetName}”</span>
           {/if}
         </Button>
       </footer>

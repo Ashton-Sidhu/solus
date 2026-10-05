@@ -1,7 +1,8 @@
 import type { AgentDispatcher } from './agent-runner'
 import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
-import { hostInstructionsFor } from './run-input'
+import { instructionsFor } from './run-input'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { AgentId, PromptOptions, ReasoningEffort } from '@solus/contracts/types'
 import { SPAN_SERVICES, type SpanService } from '../../data/insights/registries'
 import { resolveHomePath } from '../../platform/paths'
@@ -32,6 +33,8 @@ export interface TextGenerationOptions {
   service?: SpanService
   /** The member's own provider login; absent for the host's login. */
   seat?: TurnSeat
+  /** The requester's preferences, whose instructions the run adds; absent adds none. */
+  executionPreferences?: ExecutionPreferences
 }
 
 export class TextGenerator {
@@ -39,7 +42,7 @@ export class TextGenerator {
 
   async generate(options: TextGenerationOptions): Promise<string> {
     const reasoningEffort = options.reasoningEffort ?? 'low'
-    const userInstructions = buildSystemPrompt(hostInstructionsFor(options.model))
+    const userInstructions = buildSystemPrompt(instructionsFor(options.executionPreferences, options.model))
     const systemPrompt = [userInstructions, options.systemPrompt].filter(Boolean).join('\n\n')
     const run = this.dispatcher.runAgent({
       provider: options.provider,

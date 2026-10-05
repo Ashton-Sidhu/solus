@@ -1,14 +1,17 @@
 <script lang="ts">
   import {
     Clock as ClockIcon,
+    Hourglass as HourglassIcon,
     Moon as MoonIcon,
     NotebookPen as NotePencilIcon,
   } from "@lucide/svelte";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import { cn } from "@solus/workspace-ui/lib/tw";
+  import { formatResetClock } from "../../lib/sessionUtils";
   import {
     TASK_SNOOZE_CHOICES,
+    limitResetSnoozeUntil,
     taskSnoozeAnchorTarget,
     taskSnoozeUntil,
     type TaskSnoozeAnchor,
@@ -18,10 +21,18 @@
     taskTitle: string;
     /** The control the menu drops from, or the point a context menu opened at. */
     anchor: TaskSnoozeAnchor;
+    /** While the session is rate limited: when its provider window reopens,
+     *  in epoch ms. Adds "Until limit resets" when it is known and ahead. */
+    limitResetsAt?: number;
     onConfirm: (until: number, note: string) => void;
     onClose: () => void;
   }
-  let { taskTitle, anchor, onConfirm, onClose }: Props = $props();
+  let { taskTitle, anchor, limitResetsAt, onConfirm, onClose }: Props = $props();
+
+  // The clock is read once: the menu is short-lived, and a choice must not
+  // vanish under the pointer.
+  const openedAt = Date.now();
+  const limitResetUntil = $derived(limitResetSnoozeUntil(limitResetsAt, openedAt));
 
   let open = $state(true);
   let note = $state("");
@@ -72,6 +83,17 @@
       />
     </div>
     <div bind:this={rowsEl} class="p-1.5" onkeydown={onRowsKeydown} role="none">
+      {#if limitResetUntil}
+        <button
+          type="button"
+          class={cn(menuRowVariants(), "w-full")}
+          onclick={() => onConfirm(limitResetUntil, note.trim())}
+        >
+          <HourglassIcon size={13} class="shrink-0 text-(--warning)" />
+          <span class="min-w-0 flex-1 truncate text-left">Until limit resets</span>
+          <span class="shrink-0 text-(--solus-text-tertiary)">{formatResetClock(limitResetUntil)}</span>
+        </button>
+      {/if}
       {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
         {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
         <button

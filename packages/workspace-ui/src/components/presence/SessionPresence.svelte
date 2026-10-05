@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import { Users as UsersIcon } from "@lucide/svelte";
   import { userKey } from "@solus/contracts/user";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
@@ -98,7 +99,7 @@
       {/each}
       {#if canShare}
         <DropdownMenu.Separator />
-        <DropdownMenu.Item onSelect={openScope}>
+        <DropdownMenu.Item onSelect={openScope} disabled={!accountStore.isSignedIn} title={!accountStore.isSignedIn ? "Sign in to share" : undefined}>
           <UsersIcon /><span class="flex-1">Who can open…</span>
         </DropdownMenu.Item>
       {/if}

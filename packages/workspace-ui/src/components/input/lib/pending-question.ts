@@ -16,7 +16,7 @@ export function pendingQuestionForPrompt(
   if (session?.status !== 'awaiting_input') return null
 
   const request = session.questionQueue[0]
-  if (!request || (request.kind && request.kind !== 'standard')) return null
+  if (!request || request.expired || (request.kind && request.kind !== 'standard')) return null
   return request.questions.length > 0 ? request : null
 }
 

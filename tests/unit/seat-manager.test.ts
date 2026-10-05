@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -38,7 +38,7 @@ afterEach(() => {
   useMemberFolders(null)
 })
 
-function manager(now = () => 1_000_000, hostLoginConnected = async () => true) {
+function manager(now = () => 1_000_000, hostLoginConnected = async () => true, memberLoginConnected = async () => true) {
   const root = mkdtempSync(join(tmpdir(), 'seat-manager-'))
   roots.push(root)
   // bun has no node:sqlite; its own Database speaks the same prepare/get/all/run/exec surface.
@@ -50,6 +50,7 @@ function manager(now = () => 1_000_000, hostLoginConnected = async () => true) {
     hostClaudeDir: join(root, 'home', '.claude'),
     hostCodexHome: join(root, 'home', '.codex'),
     hostLoginConnected,
+    memberLoginConnected,
     now,
   })
   seats.onChanged((event) => events.push(event))
@@ -223,6 +224,64 @@ describe('resolving a turn', () => {
     const seat = await seats.resolveForTurn(BOB_SEAT, 'codex')
     expect(JSON.parse(readFileSync(join(seat!.home, 'auth.json'), 'utf8'))).toEqual({ tokens: { access_token: 'x' } })
     expect((await seats.status(BOB_SEAT, 'codex')).usageCapable).toBe(true)
+  })
+})
+
+// cloud-agent seats §4: a member need not sign in on a host to have a seat on it. A
+// login the provider CLI wrote elsewhere, put in their folder, is their seat.
+describe('a login copied into a member\'s folder', () => {
+  const place = (root: string, provider: 'claude' | 'codex', folder: string, file: string, at?: number) => {
+    const dir = join(root, 'seats', provider, folder)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, file), '{"tokens":{"access_token":"x"}}')
+    if (at !== undefined) utimesSync(join(dir, file), at / 1000, at / 1000)
+  }
+
+  test('connects the seat with no sign-in here, and the next turn runs on it', async () => {
+    const { seats, root, events } = manager()
+    place(root, 'codex', 'bob', 'auth.json')
+    place(root, 'claude', 'bob', '.credentials.json')
+    expect(await seats.status(BOB_SEAT, 'codex')).toMatchObject({ state: 'connected', method: 'login', usageCapable: true })
+    expect((await seats.resolveForTurn(BOB_SEAT, 'claude-code'))?.home).toBe(join(root, 'seats', 'claude', 'bob'))
+    expect(events.map((event) => `${event.provider}:${event.state}`)).toEqual(['codex:connected', 'claude-code:connected'])
+  })
+
+  test('no credential, or one the CLI rejects, is no seat', async () => {
+    const empty = manager()
+    expect((await empty.seats.status(BOB_SEAT, 'codex')).state).toBe('none')
+    await expect(empty.seats.resolveForTurn(BOB_SEAT, 'codex')).rejects.toThrow(SeatRequiredError)
+    const rejected = manager(undefined, undefined, async () => false)
+    place(rejected.root, 'codex', 'bob', 'auth.json')
+    expect((await rejected.seats.status(BOB_SEAT, 'codex')).state).toBe('none')
+  })
+
+  test('an expired seat comes back only with a credential written after it expired', async () => {
+    let now = 1_000_000_000_000
+    const { seats, root } = manager(() => now)
+    place(root, 'codex', 'bob', 'auth.json', now - 60_000)
+    expect((await seats.status(BOB_SEAT, 'codex')).state).toBe('connected')
+    now += 1_000
+    await seats.markExpired(BOB_SEAT, 'codex', '401 from the provider')
+    expect((await seats.status(BOB_SEAT, 'codex')).state).toBe('expired')
+    place(root, 'codex', 'bob', 'auth.json', now + 1_000)
+    expect((await seats.status(BOB_SEAT, 'codex')).state).toBe('connected')
+  })
+
+  test('a login under the user id is adopted where it is: a member who predates named folders keeps theirs', async () => {
+    const { seats, root, db } = manager()
+    useMemberFolders(new MemberFolders({ db, roots: () => [join(root, 'seats', 'claude'), join(root, 'seats', 'codex')] }))
+    place(root, 'codex', 'u1', 'auth.json')
+    const ada: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'u1' }, name: 'Ada' }
+    expect((await seats.status(ada, 'codex')).state).toBe('connected')
+    expect(seats.homeFor(ada, 'codex')).toBe(join(root, 'seats', 'codex', 'u1'))
+    expect(existsSync(join(root, 'seats', 'codex', 'u1', 'auth.json'))).toBe(true)
+  })
+
+  test('a sign-in in progress is left to finish', async () => {
+    const { seats, root } = manager()
+    await seats.markConnecting(BOB_SEAT, 'codex')
+    place(root, 'codex', 'bob', 'auth.json')
+    expect((await seats.status(BOB_SEAT, 'codex')).state).toBe('connecting')
   })
 })
 

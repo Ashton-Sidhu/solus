@@ -1,9 +1,9 @@
 import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-types'
 import { createLogger } from '@solus/server/logger'
-import { formatUserCode } from './user-code-format'
 import { profileFromResponse } from '@solus/client-core/cloud-account'
 import { AccountStore, type StoredAccount } from './account-store'
 import {
+  formatUserCode,
   requestDeviceCode,
   waitForDeviceApproval,
   type DeviceAuthorizationDeps,
@@ -75,6 +75,11 @@ export class AccountSession {
 
   get cloudOrigin(): string {
     return this.deps.cloudOrigin
+  }
+
+  /** Whether a session is stored. A null `cloudRequest` then means the website did not answer. */
+  get isSignedIn(): boolean {
+    return this.stored !== null
   }
 
   /**

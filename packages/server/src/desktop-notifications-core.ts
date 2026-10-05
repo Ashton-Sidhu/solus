@@ -1,4 +1,4 @@
-import { diffNewPushAttentionEntries } from './notifications/push-service'
+import { attentionEntryKey, isNotifiableAttentionEntry } from '@solus/contracts/notification-types'
 import type { AttentionEntry, AttentionKind } from '@solus/contracts/attention-types'
 
 const DESKTOP_BADGE_KINDS = new Set<AttentionKind>(['needs_approval', 'question'])
@@ -7,6 +7,30 @@ export interface DesktopAttentionSnapshot {
   created: AttentionEntry[]
   nextKeys: Set<string>
   badgeCount: number
+}
+
+interface AttentionDiff {
+  created: AttentionEntry[]
+  nextKeys: Set<string>
+}
+
+function diffNewAttentionEntries(
+  previousKeys: ReadonlySet<string>,
+  entries: AttentionEntry[],
+): AttentionDiff {
+  const nextKeys = new Set<string>()
+  const created: AttentionEntry[] = []
+
+  for (const entry of entries) {
+    const key = attentionEntryKey(entry)
+    nextKeys.add(key)
+
+    // Finished entries are useful in the attention inbox but too noisy for a notification.
+    if (!isNotifiableAttentionEntry(entry)) continue
+    if (!previousKeys.has(key)) created.push(entry)
+  }
+
+  return { created, nextKeys }
 }
 
 export function countDesktopAttentionEntries(
@@ -25,7 +49,7 @@ export function diffDesktopAttentionSnapshot(
   entries: AttentionEntry[],
   isActive?: (entry: AttentionEntry) => boolean,
 ): DesktopAttentionSnapshot {
-  const { created, nextKeys } = diffNewPushAttentionEntries(previousKeys, entries)
+  const { created, nextKeys } = diffNewAttentionEntries(previousKeys, entries)
   return {
     created,
     nextKeys,

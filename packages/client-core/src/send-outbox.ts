@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { PromptImageRef } from '@solus/contracts/types'
+import { queueAttachmentSchema, type QueueAttachment } from '@solus/contracts/session-queue'
 import { forwardCompatibleArray } from './forward-compat'
-import { TransportDisconnectedError } from './ws-transport'
+import { TransportDisconnectedError } from './rpc-error'
 
 /**
  * The durable send outbox (dispatch-client step 6): queued work survives a
@@ -27,6 +28,8 @@ export interface OutboxPromptPayload {
   /** Host-stored images, replayed by reference. A drain can outlive the
    *  composer, so the ref is what survives — the bytes were never held here. */
   imageAttachmentRefs?: PromptImageRef[]
+  queueAttachments?: QueueAttachment[]
+  queueAttachmentContext?: string
 }
 
 export interface OutboxRecord {
@@ -43,6 +46,14 @@ export interface OutboxRecord {
 
 const KEY_PREFIX = 'solus.sendOutbox.v1.'
 
+/** The synchronous part of `Storage` the outbox uses. The browser passes
+ *  `localStorage`; the native client passes its own key-value store. */
+export interface OutboxStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem(key: string): void
+}
+
 const outboxRecordSchema = z.looseObject({
   clientPromptId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -54,6 +65,8 @@ const outboxRecordSchema = z.looseObject({
     prompt: z.string(),
     displayPrompt: z.string().catch(''),
     delivery: z.string().optional().catch(undefined),
+    queueAttachments: forwardCompatibleArray(queueAttachmentSchema).optional().catch(undefined),
+    queueAttachmentContext: z.string().optional().catch(undefined),
     imageAttachments: forwardCompatibleArray(z.looseObject({
       mimeType: z.string(),
       dataUrl: z.string(),
@@ -78,6 +91,8 @@ export function classifySendFailure(error: unknown): 'transient' | 'domain' {
 export class SendOutbox {
   private draining = new Set<string>()
 
+  constructor(private readonly storage: () => OutboxStorage = () => localStorage) {}
+
   /** Queue (or re-queue) one prompt for a host. Same id replaces in place —
    *  an edit before delivery is the same message, not a second one. */
   enqueue(serverId: string, record: Omit<OutboxRecord, 'attempts' | 'lastError'>): void {
@@ -92,7 +107,7 @@ export class SendOutbox {
   entriesFor(serverId: string): OutboxRecord[] {
     let raw: string | null = null
     try {
-      raw = localStorage.getItem(KEY_PREFIX + serverId)
+      raw = this.storage().getItem(KEY_PREFIX + serverId)
     } catch {
       return []
     }
@@ -120,7 +135,7 @@ export class SendOutbox {
   /** Forgetting a host is total: its queued work leaves with it. */
   forgetHost(serverId: string): void {
     try {
-      localStorage.removeItem(KEY_PREFIX + serverId)
+      this.storage().removeItem(KEY_PREFIX + serverId)
     } catch {}
   }
 
@@ -185,7 +200,7 @@ export class SendOutbox {
 
   #write(serverId: string, records: OutboxRecord[]): void {
     try {
-      localStorage.setItem(KEY_PREFIX + serverId, JSON.stringify(records))
+      this.storage().setItem(KEY_PREFIX + serverId, JSON.stringify(records))
     } catch {}
   }
 }

@@ -86,13 +86,13 @@
   }
 
   :global(.tx-card-action.is-filled) {
-    background: var(--solus-text-primary);
-    color: var(--solus-container-bg);
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
 
   :global(.tx-card-action.is-filled:hover) {
-    background: color-mix(in oklch, var(--solus-text-primary) 88%, transparent);
-    color: var(--solus-container-bg);
+    background: color-mix(in oklch, var(--primary) 90%, black);
+    color: var(--primary-foreground);
   }
 
   :global(.tx-card-action.is-ghost),

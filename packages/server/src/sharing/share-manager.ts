@@ -233,7 +233,7 @@ export class ShareManager {
    * starts shared with the organization: the space is the team's, so its work is
    * visible to the team until the owner narrows it. A personal host's resources
    * start private. `shareWithOrganization: false` starts one private in every
-   * space: a chat, whose folder is the owner's own (Scratchpad decision S5).
+   * space: a chat, which is its owner's own (docs/projects.md, "Chats").
    */
   async claimOwner(
     resource: ShareResource,

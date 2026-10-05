@@ -1,15 +1,15 @@
 import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/activity'
 import { randomUUID } from 'node:crypto'
-import { z } from 'zod'
+import { recoverExchanges } from './recover-exchanges'
+import { ExchangeLedger, type ExchangeIdentity } from './exchange-ledger'
+import { SessionExchangeStore } from '../../data/sessions/session-exchange-store'
+import { promptedUpdate, settledUpdate, exchangeRequestFrom, finishOutputs, requestId, requestNotice, type TurnEnding } from './exchange-reports'
+export { turnEnding } from './exchange-reports'
 import {
   ORCHESTRATION_LIMITS,
   clip,
-  permissionRequestFrom,
   promptTitle,
-  questionRequestFrom,
   type ExchangeOutcome,
-  type ExchangePlan,
-  type ExchangeRequest,
   type OrchestrationItem,
   type SessionNotice,
   type SessionOutput,
@@ -28,13 +28,11 @@ import type {
 } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
 import { attributionOf, type Actor } from '../../admission/actor'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
-import { extractPlanTitle } from '../agents/plan-text'
 import { createLogger } from '../../logger'
 import { describePendingInput, type PendingInputDescription } from '../sessions/pending-input'
 import { applyExchangeEvent, isOpenExchange, type Exchange, type ExchangeEvent } from './exchange'
 import { recordPlanDecision } from './plan-decisions'
-import { addOutput, answerText, outputFromEvent, outputsFromAnswer, unansweredOutputs, type ResolvedInput } from './session-outputs'
+import { addOutput, answerText, outputFromEvent, outputsFromAnswer, type ResolvedInput } from './session-outputs'
 import { ParentDelivery } from './parent-delivery'
 
 const log = createLogger('orchestration', 'session-orchestrator.ts')
@@ -52,16 +50,17 @@ type PendingPlan = Extract<PendingInputDescription, { kind: 'plan' }>
  * hooks at the bottom of this class; the orchestrator calls back into it only
  * through `OrchestratedRuntime`.
  *
- * All state is in memory. No provider turn outlives the host, so a restart ends
- * every open exchange; the one thing boot can still do is tell the parent of a
- * delegated child that its child's turn is gone.
+ * Host-local receipts preserve exchanges, results, and report delivery. A
+ * restart restores queued work as held and marks uncertain running work
+ * interrupted; it never repeats provider execution automatically.
  */
 
 const IMPLEMENT_PREFIX = 'Implement this plan:\n\n'
 // The same copy a person's Revise sends in the session's own tab, so a decision
 // taken in either place reads identically in the target's transcript.
 const REVISION_PREFIX = 'Please revise the plan with these comments:\n\n'
-export const CHILD_INTERRUPTED_BY_RESTART = 'The host restarted while this session was running. Its turn ended without a reply. Use read_session to see how far it got, and send_session to continue it.'
+export { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
+import { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
 const NO_REPLY = '(no final assistant reply available)'
 
 /** A run of the control plane and the exchanges it answers. */
@@ -85,6 +84,8 @@ export interface SettledRun extends RunExchanges {
 }
 
 export interface CreateSessionOrder {
+  sessionId?: string
+  permissionMode?: PermissionMode
   prompt: string
   provider: AgentId
   modelId: string
@@ -98,6 +99,7 @@ export interface CreateSessionOrder {
 }
 
 export interface PromptOrder {
+  reportExchangeIds?: string[]
   exchangeIds?: string[]
   permissionMode?: PermissionMode
   via?: 'session-report'
@@ -109,6 +111,8 @@ export interface PromptOrder {
 export interface OrchestratedRuntime {
   /** Solus's id for a session named by either id, while this process knows it. */
   sessionIdFor(id: string): string | undefined
+  activeExchangeIdsFor(sessionId: string): string[]
+  queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }>
   /** The provider thread a live session runs on. */
   agentSessionIdFor(sessionId: string): string | undefined
   sessionMeta(agentSessionId: string): SessionMeta | null
@@ -118,7 +122,7 @@ export interface OrchestratedRuntime {
   /** Answers a permission the asking session is waiting on; false when it is not. */
   respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean
   pendingInputEvents(agentSessionId: string): NormalizedEvent[]
-  replaceQueuedPrompt(sessionId: string, queueId: string, text: string): boolean
+  replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean
   hasQueuedPrompt(sessionId: string, queueId: string): boolean
   cancelQueuedPrompt(agentSessionId: string, queueId: string): boolean
   /** How the session's last turn ended, read from its transcript. */
@@ -143,6 +147,8 @@ export interface OrchestratorDeps {
 export interface SpawnedSession {
   exchangeId: string
   agentSessionId: string
+  /** The provider has not initialized; agentSessionId is the pending card id. */
+  starting?: boolean
   taskId?: string
   /** With a wait: the report or notice that arrived in time, or null when none did. */
   waited?: OrchestrationItem | null
@@ -156,6 +162,8 @@ export const MAX_WAIT_MS = 600_000
 export const ANSWERING_ANOTHER_SESSION = 'Another Solus session sent you this work, and your last message is the reply it reads. '
   + 'End your turn with a reply of at most five short lines: the outcome, what you produced by id or link (branch, pull request, plans, works, sessions you started), and what is still open. '
   + 'Put longer detail in a task comment or a work, not in the reply. '
+  + 'For nested work, use report=true and wait_seconds=0, then end the turn while it runs. Its report wakes you. Read the result, do any required follow-up, and only then give your final reply. '
+  + 'An ended turn with open child work is not a final result for the session that sent this request. '
   + 'Do not use send_session to message the session that sent you this work; your reply reaches it.'
 
 /** The last plan a session's turn wrote. */
@@ -165,7 +173,8 @@ interface OpenPlan {
 }
 
 export class SessionOrchestrator {
-  private readonly exchanges = new Map<string, Exchange>()
+  private readonly ledger: ExchangeLedger
+  private readonly exchanges: Map<string, Exchange>
   /** Sender Solus id → target Solus ids it has sent a message to. Authorizes a
    *  person's answer from the sender's conversation. */
   private readonly contacts = new Map<string, Set<string>>()
@@ -182,8 +191,65 @@ export class SessionOrchestrator {
   constructor(
     private readonly runtime: OrchestratedRuntime,
     private readonly deps: OrchestratorDeps,
+    store?: SessionExchangeStore,
   ) {
-    this.delivery = new ParentDelivery(runtime)
+    this.ledger = new ExchangeLedger(store)
+    this.exchanges = this.ledger.exchanges
+    this.delivery = new ParentDelivery(runtime, (exchangeIds, state, queueId) => {
+      for (const exchangeId of exchangeIds) {
+        const exchange = this.exchanges.get(exchangeId)
+        if (!exchange || exchange.deliveryState === 'accepted' || exchange.deliveryState === 'disposed') continue
+        exchange.deliveryState = state
+        exchange.deliveryQueueId = queueId
+        this.ledger.save(exchange)
+      }
+    })
+  }
+
+  recover(): void {
+    recoverExchanges(this.runtime, this.ledger, this.delivery,
+      (exchange, outcome, reply) => this.settle(exchange, outcome, reply),
+      (exchange, item, hasReport) => this.deliverReport(exchange, item, hasReport))
+  }
+
+  /** Acceptance is separate from the result. Queued reports are accepted when
+   * their runtime turn starts, not when they merely enter its queue. */
+  reportsAccepted(exchangeIds: readonly string[]): void {
+    for (const exchangeId of exchangeIds) {
+      const exchange = this.exchanges.get(exchangeId)
+      if (!exchange || exchange.deliveryState === 'disposed') continue
+      exchange.deliveryState = 'accepted'
+      exchange.deliveryQueueId = undefined
+      this.ledger.save(exchange)
+    }
+  }
+
+  reportsDisposed(exchangeIds: readonly string[]): void {
+    for (const exchangeId of exchangeIds) {
+      const exchange = this.exchanges.get(exchangeId)
+      if (!exchange) continue
+      exchange.deliveryState = 'disposed'
+      exchange.deliveryQueueId = undefined
+      this.ledger.save(exchange)
+    }
+  }
+
+  readExchange(senderAgentSessionId: string, exchangeId: string): Exchange | undefined {
+    const senderSessionId = this.runtime.sessionIdFor(senderAgentSessionId)
+    return senderSessionId ? this.ledger.read(senderSessionId, exchangeId) : undefined
+  }
+
+  private async repeatedSpawn(exchange: Exchange, waitMs: number): Promise<SpawnedSession> {
+    const waited = exchange.report ? { type: 'report' as const, report: exchange.report }
+      : waitMs > 0 ? await this.waitOn(exchange, waitMs) : undefined
+    return { exchangeId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId,
+      starting: exchange.targetAgentSessionId.startsWith('pending:'), taskId: exchange.report?.taskId, waited }
+  }
+
+  private async repeatedSend(exchange: Exchange, waitMs: number): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
+    return { exchangeId: exchange.exchangeId, disposition: exchange.disposition ?? 'queued',
+      waited: exchange.report ? { type: 'report', report: exchange.report }
+        : waitMs > 0 ? await this.waitOn(exchange, waitMs) : undefined }
   }
 
   // ─── Commands ───
@@ -196,26 +262,68 @@ export class SessionOrchestrator {
     order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
     report: boolean,
     waitMs = 0,
+    requestId?: string,
   ): Promise<SpawnedSession> {
     // The stored delegation keeps the intent names it has always had.
     const intent = report ? 'delegate' : 'fire_and_forget'
-    const exchangeId = randomUUID()
-    const dispatchedAt = Date.now()
     const senderSessionId = senderAgentSessionId ? this.runtime.sessionIdFor(senderAgentSessionId) : undefined
+    const identity = this.ledger.identify(senderSessionId, requestId, JSON.stringify({ kind: 'create', order, report }))
+    if (identity.existing) return this.repeatedSpawn(identity.existing, waitMs)
+    const { exchangeId } = identity
+    const dispatchedAt = Date.now()
+    const exchange = this.openSpawn(senderAgentSessionId, senderSessionId, order, report, identity, dispatchedAt)
+    const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
+
+    const starting = (async (): Promise<SpawnedSession> => {
+      try {
+        const started = await this.runtime.createSession({
+          ...order,
+          sessionId: exchange?.targetSessionId,
+          exchangeIds: exchange ? [exchangeId] : undefined,
+          delegation: senderAgentSessionId
+            ? { parentAgentSessionId: senderAgentSessionId, messageId: exchangeId, intent, createdAt: dispatchedAt }
+            : undefined,
+        })
+        if (exchange) this.bindStarted(exchange, started.agentSessionId, this.runtime.sessionMeta(started.agentSessionId)?.cwd)
+        if (exchange) { exchange.disposition = 'started'; this.ledger.save(exchange) }
+        if (senderSessionId) this.recordStartedSession(senderSessionId, order.prompt, started)
+        const created: SpawnedSession = { exchangeId, agentSessionId: started.agentSessionId }
+        if (started.taskId) created.taskId = started.taskId
+        return created
+      } catch (error) {
+        if (exchange) this.settle(exchange, 'failed', `Session startup failed: ${error instanceof Error ? error.message : String(error)}`)
+        throw error
+      }
+    })()
+    if (!exchange) return starting
+    // Startup failures settle the durable exchange before this catch. The
+    // host tracks setup while the caller can leave its turn immediately.
+    void this.runtime.trackWork(starting.catch(() => {}))
+    const result = waited ? await waited : undefined
+    return { exchangeId, agentSessionId: exchange.targetAgentSessionId,
+      starting: exchange.targetAgentSessionId.startsWith('pending:'), taskId: order.taskId ?? undefined, waited: result }
+  }
+
+  private openSpawn(
+    senderAgentSessionId: string | undefined, senderSessionId: string | undefined,
+    order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>, report: boolean,
+    identity: ExchangeIdentity, dispatchedAt: number,
+  ): Exchange | null {
+    const { exchangeId, fingerprint } = identity
     const exchange = senderAgentSessionId && senderSessionId
       ? this.open({
           exchangeId,
           kind: 'create',
           senderSessionId,
           senderAgentSessionId,
-          targetSessionId: '',
+          targetSessionId: order.sessionId ?? randomUUID(),
           targetAgentSessionId: `pending:${exchangeId}`,
           provider: order.provider,
           notify: report,
-          dispatchedAt,
+          dispatchedAt, fingerprint,
+          parentExchangeIds: report && senderSessionId ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : [],
         })
       : null
-    const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
     if (exchange) {
       this.publish(exchange, {
         phase: 'dispatched',
@@ -232,24 +340,7 @@ export class SessionOrchestrator {
         dispatchedAt,
       })
     }
-    try {
-      const started = await this.runtime.createSession({
-        ...order,
-        exchangeIds: exchange ? [exchangeId] : undefined,
-        delegation: senderAgentSessionId
-          ? { parentAgentSessionId: senderAgentSessionId, messageId: exchangeId, intent, createdAt: dispatchedAt }
-          : undefined,
-      })
-      if (exchange) this.bindStarted(exchange, started.agentSessionId, this.runtime.sessionMeta(started.agentSessionId)?.cwd)
-      if (senderSessionId) this.recordStartedSession(senderSessionId, order.prompt, started)
-      const created: SpawnedSession = { exchangeId, agentSessionId: started.agentSessionId }
-      if (started.taskId) created.taskId = started.taskId
-      if (waited) created.waited = await waited
-      return created
-    } catch (error) {
-      if (exchange) this.settleUnaccepted(exchange)
-      throw error
-    }
+    return exchange
   }
 
   /** Sends one message to an existing session. The sender's card shows it before
@@ -257,7 +348,7 @@ export class SessionOrchestrator {
   async send(
     senderAgentSessionId: string,
     targetAgentSessionId: string,
-    message: { prompt: string; delivery: PromptDelivery; notify: boolean; permissionMode?: PermissionMode; waitMs?: number },
+    message: { prompt: string; delivery: PromptDelivery; notify: boolean; permissionMode?: PermissionMode; waitMs?: number; requestId?: string },
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
     const senderSessionId = this.runtime.sessionIdFor(senderAgentSessionId)
     if (!senderSessionId) throw new Error('The calling session is not live.')
@@ -268,7 +359,14 @@ export class SessionOrchestrator {
     const meta = this.runtime.sessionMeta(targetAgentSessionId)
     // Refused before the card shows it: there is nothing to send it to.
     if (!meta && !targetSessionId) throw new Error(`Session ${targetAgentSessionId} not found.`)
-    const exchangeId = randomUUID()
+    const { waitMs: _waitMs, requestId: retryId, ...request } = message
+    const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId: targetSessionId ?? targetAgentSessionId, request }))
+    if (identity.existing) return this.repeatedSend(identity.existing, message.waitMs ?? 0)
+    const { exchangeId, fingerprint } = identity
+    const parentExchangeIds = message.notify ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : []
+    if (this.ledger.isAncestor(parentExchangeIds, targetSessionId)) {
+      throw new Error('A request cannot wait for its own ancestor. Use report=false for an update to the sender.')
+    }
     const dispatchedAt = Date.now()
     const exchange = this.open({
       exchangeId,
@@ -279,7 +377,7 @@ export class SessionOrchestrator {
       targetAgentSessionId,
       provider: meta?.provider ?? 'claude-code',
       notify: message.notify,
-      dispatchedAt,
+      dispatchedAt, fingerprint, parentExchangeIds,
     })
     const waited = message.waitMs && message.waitMs > 0 ? this.waitOn(exchange, message.waitMs) : undefined
     this.publish(exchange, promptedUpdate(exchange, meta, message))
@@ -287,6 +385,8 @@ export class SessionOrchestrator {
     if (message.permissionMode) order.permissionMode = message.permissionMode
     try {
       const result = await this.runtime.promptSession(targetAgentSessionId, message.prompt, message.delivery, order)
+      exchange.disposition = result.disposition
+      this.ledger.save(exchange)
       return waited
         ? { exchangeId, disposition: result.disposition, waited: await waited }
         : { exchangeId, disposition: result.disposition }
@@ -443,17 +543,14 @@ export class SessionOrchestrator {
     const sent: SentSessionMessage[] = []
     for (const exchange of this.exchanges.values()) {
       if (exchange.senderSessionId !== senderSessionId) continue
-      const state = exchange.state === 'awaiting_input' || exchange.state === 'rate_limited'
+      const state = !isOpenExchange(exchange) ? exchange.deliveryState === 'pending' || exchange.deliveryState === 'queued' ? 'reply_queued' : 'settled' : exchange.state === 'waiting_for_children' ? 'waiting_for_children' : exchange.state === 'awaiting_input' || exchange.state === 'rate_limited'
         ? exchange.state
         : exchange.state === 'running' ? 'running' : 'queued'
       const message: SentSessionMessage = { messageId: exchange.exchangeId, targetAgentSessionId: exchange.targetAgentSessionId, state }
+      if (state === 'settled') message.outcome = exchange.outcome
       if (exchange.request && exchange.state === 'awaiting_input') message.request = exchange.request
       if (exchange.state === 'rate_limited' && exchange.rateLimitResetsAt) message.resetsAt = exchange.rateLimitResetsAt
       sent.push(message)
-    }
-    const senderAgentSessionId = this.agentSessionIdOf(senderSessionId)
-    for (const waiting of senderAgentSessionId ? this.delivery.waitingReports(senderAgentSessionId) : []) {
-      sent.push({ messageId: waiting.exchangeId, targetAgentSessionId: waiting.targetAgentSessionId, state: 'reply_queued' })
     }
     return sent
   }
@@ -465,7 +562,7 @@ export class SessionOrchestrator {
     for (const childThreadId of childThreadIds) {
       const meta = this.runtime.sessionMeta(childThreadId)
       const delegation = meta?.delegation
-      if (!meta || delegation?.intent !== 'delegate') continue
+      if (!meta || delegation?.intent !== 'delegate' || this.exchanges.has(delegation.messageId)) continue
       log.info('session_child_interrupted_by_restart', { agentSessionId: childThreadId, parentAgentSessionId: delegation.parentSessionId })
       this.delivery.deliver(delegation.parentSessionId, {
         exchangeId: delegation.messageId,
@@ -577,7 +674,15 @@ export class SessionOrchestrator {
     const exchanges = this.exchangesOf(run).filter((exchange) =>
       isOpenExchange(exchange) && !exchange.revising && (!exchange.runId || exchange.runId === run.runId))
     if (!exchanges.length) return
-    void this.runtime.trackWork(this.settleRun(run, exchanges)).catch((error) => {
+    const ready = exchanges.filter((exchange) => {
+      if (run.outcome !== 'completed' || !this.ledger.hasChildren(exchange.exchangeId)) return true
+      if (this.apply(exchange, { type: 'children_pending', runId: run.runId })) {
+        this.publish(exchange, { phase: 'accepted', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, state: 'waiting_for_children' })
+      }
+      return false
+    })
+    if (!ready.length) return
+    void this.runtime.trackWork(this.settleRun(run, ready)).catch((error) => {
       log.warn('exchange_settle_failed', { sessionId: run.sessionId, error: String(error) })
     })
   }
@@ -603,9 +708,11 @@ export class SessionOrchestrator {
     for (const exchange of this.exchanges.values()) {
       if (exchange.targetSessionId !== targetSessionId || !isOpenExchange(exchange)) continue
       if (exchange.runId && queuedRunIds.has(exchange.runId)) continue
-      if (senders.has(exchange.senderSessionId)) continue
-      senders.add(exchange.senderSessionId)
-      this.publish(exchange, { phase: 'stopped', agentSessionId: exchange.targetAgentSessionId })
+      if (!senders.has(exchange.senderSessionId)) {
+        senders.add(exchange.senderSessionId)
+        this.publish(exchange, { phase: 'stopped', agentSessionId: exchange.targetAgentSessionId })
+      }
+      if (exchange.state === 'waiting_for_children') this.settle(exchange, 'interrupted', 'Stopped while waiting for child work.')
     }
   }
 
@@ -637,6 +744,7 @@ export class SessionOrchestrator {
 
   private open(fields: Omit<Exchange, 'state' | 'outputs' | 'notices' | 'revising'>): Exchange {
     const exchange: Exchange = { ...fields, state: 'dispatched', outputs: [], notices: [], revising: false }
+    this.ledger.save(exchange)
     this.exchanges.set(exchange.exchangeId, exchange)
     if (exchange.targetSessionId) this.remember(exchange.senderSessionId, exchange.targetSessionId)
     return exchange
@@ -650,6 +758,7 @@ export class SessionOrchestrator {
     exchange.targetAgentSessionId = agentSessionId
     const attached: AgentConversationUpdate = { phase: 'attached', messageId: exchange.exchangeId, agentSessionId }
     if (cwd) attached.cwd = cwd
+    this.ledger.save(exchange)
     this.publish(exchange, attached)
   }
 
@@ -684,6 +793,7 @@ export class SessionOrchestrator {
 
   private apply(exchange: Exchange, event: ExchangeEvent): boolean {
     const changed = applyExchangeEvent(exchange, event)
+    if (changed && event.type !== 'settled') this.ledger.save(exchange)
     if (changed) log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: event.type, state: exchange.state })
     return changed
   }
@@ -754,20 +864,8 @@ export class SessionOrchestrator {
     const settled: ExchangeEvent = { type: 'settled', outcome }
     if (run) settled.runId = run.runId
     if (!this.apply(exchange, settled)) return
-    const update: Extract<AgentConversationUpdate, { phase: 'settled' }> = {
-      phase: 'settled',
-      agentSessionId: exchange.targetAgentSessionId,
-      messageId: exchange.exchangeId,
-      status: outcome,
-      replyText: reply,
-      settledAt: Date.now(),
-    }
-    if (exchange.outputs.length) update.outputs = exchange.outputs
-    if (taskId) update.taskId = taskId
-    if (run?.durationMs !== undefined) update.durationMs = run.durationMs
-    if (run?.toolCallCount !== undefined) update.toolCallCount = run.toolCallCount
-    this.publish(exchange, update)
-    this.exchanges.delete(exchange.exchangeId)
+    if (exchange.targetAgentSessionId.startsWith('pending:')) exchange.targetAgentSessionId = exchange.targetSessionId
+    const update = settledUpdate(exchange, outcome, reply, run, taskId)
     const stoppedBySender = this.stoppedBySender.delete(exchange.exchangeId)
     // Whatever the turn was still waiting on ended with it; the report says how.
     while (exchange.notices.length) this.withdrawNotice(exchange, exchange.notices[0]!)
@@ -782,9 +880,14 @@ export class SessionOrchestrator {
       reply: reply || NO_REPLY,
     }
     if (alsoMessageIds?.length) report.alsoMessageIds = alsoMessageIds
+    exchange.report = report
+    exchange.settledAt = update.settledAt
+    exchange.deliveryState = exchange.notify && !stoppedBySender && !reportedBy ? 'pending' : 'disposed'
+    this.ledger.save(exchange)
+    this.publish(exchange, update)
     const item: OrchestrationItem = { type: 'report', report }
     // A sender waiting in its tool call gets the report there, and only there.
-    if (this.endWait(exchange, item)) return
+    if (this.endWait(exchange, item)) { exchange.deliveryState = 'accepted'; this.ledger.save(exchange); return }
     if (reportedBy) return
     this.deliverReport(exchange, item, exchange.notify && !stoppedBySender)
   }
@@ -804,6 +907,7 @@ export class SessionOrchestrator {
     this.delivery.deliver(exchange.senderAgentSessionId, hold.then((held) => ({
       exchangeId: exchange.exchangeId,
       targetAgentSessionId: exchange.targetAgentSessionId,
+      continuationExchangeIds: exchange.parentExchangeIds,
       item,
       hold: held,
     })))
@@ -812,6 +916,7 @@ export class SessionOrchestrator {
   /** Holds the sender's tool call until the exchange reports, a notice ends the
    *  wait, or `ms` passes. The child is never stopped by the wait ending. */
   private waitOn(exchange: Exchange, ms: number): Promise<OrchestrationItem | null> {
+    if (exchange.wait) throw new Error('This request already has a waiting tool call. Read its exchange instead.')
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.endWait(exchange, null), Math.min(ms, MAX_WAIT_MS))
       exchange.wait = { resolve, timer }
@@ -869,99 +974,3 @@ export class SessionOrchestrator {
 }
 
 /** The card's first sight of a message to an existing session. */
-function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, message: { prompt: string; delivery: PromptDelivery }): AgentConversationUpdate {
-  const dispatched: AgentConversationUpdate = {
-    phase: 'dispatched',
-    agentSessionId: exchange.targetAgentSessionId,
-    messageId: exchange.exchangeId,
-    origin: 'prompted',
-    prompt: message.prompt,
-    delivery: message.delivery,
-    provider: exchange.provider,
-    title: meta ? sessionTitle(meta) : exchange.targetAgentSessionId.slice(0, 8),
-    cwd: meta?.cwd ?? '',
-    dispatchedAt: exchange.dispatchedAt,
-  }
-  if (meta?.model) dispatched.model = meta.model
-  if (meta?.reasoningEffort) dispatched.reasoningEffort = meta.reasoningEffort
-  return dispatched
-}
-
-function sessionTitle(meta: SessionMeta): string {
-  return meta.slug || (meta.firstMessage ? promptTitle(meta.firstMessage) : '') || meta.sessionId.slice(0, 8)
-}
-
-function exchangeRequestFrom(event: NormalizedEvent): ExchangeRequest | null {
-  if (event.type === 'question_request') return { kind: 'question', question: questionRequestFrom(event) }
-  if (event.type === 'permission_request') return { kind: 'permission', permission: permissionRequestFrom(event) }
-  if (event.type === 'plan') {
-    const pending = describePendingInput([event])
-    const blocking = pending?.kind === 'plan' && pending.blocking
-    const plan: ExchangePlan = { title: extractPlanTitle(event.planContent), content: event.planContent, blocking }
-    if (blocking) plan.questionId = event.questionId
-    if (event.planToolUseId) plan.planToolUseId = event.planToolUseId
-    return { kind: 'plan', plan }
-  }
-  return null
-}
-
-/** How a turn ended: its last top-level reply, or the error it stopped on. */
-export interface TurnEnding {
-  reply?: string
-  error?: string
-}
-
-/** The last turn of a transcript: the messages after the last prompt. A reply
- *  from an earlier turn is not this turn's reply. */
-export function turnEnding(messages: readonly SessionLoadMessage[]): TurnEnding {
-  const lastPrompt = messages.findLastIndex((message) => message.role === 'user')
-  const turn = messages.slice(lastPrompt + 1)
-  const reply = turn.findLast((message) => message.role === 'assistant' && !message.parentToolUseId && message.content.trim())?.content
-  const error = turn.findLast((message) => message.role === 'system' && /^error\b/i.test(message.content.trim()))?.content
-  const ending: TurnEnding = {}
-  if (reply) ending.reply = reply
-  if (error) ending.error = error.trim()
-  return ending
-}
-
-/** The outputs a settling turn adds: the branch its changed files are on, the
- *  questions it ended without an answer to, and its branch's pull request. */
-function finishOutputs(exchange: Exchange, branch: string | undefined, pullRequest: SessionOutput | null): void {
-  // The files are the session's; the branch they are on is the run's.
-  for (const output of exchange.outputs) {
-    if (output.kind === 'changed_files' && branch) output.branch = branch
-  }
-  if (exchange.state === 'awaiting_input') for (const output of unansweredOutputs(exchange.request)) addOutput(exchange.outputs, output)
-  if (pullRequest) addOutput(exchange.outputs, pullRequest)
-}
-
-/** The id a person's answer names: the question, permission or held plan. */
-function requestId(request: ExchangeRequest): string {
-  if (request.kind === 'question') return request.question.questionId
-  if (request.kind === 'permission') return request.permission.questionId
-  return request.plan.questionId ?? request.plan.planToolUseId ?? request.plan.title
-}
-
-/** The short notice a sender reads about a request: never a plan's text. */
-function requestNotice(exchange: Exchange, request: ExchangeRequest): SessionNotice {
-  const target = { messageId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId, provider: exchange.provider }
-  if (request.kind === 'question') {
-    return {
-      ...target,
-      kind: 'question',
-      questionId: request.question.questionId,
-      questions: request.question.questions.map((question) => ({ question: question.question, options: (question.options ?? []).map((option) => option.label) })),
-    }
-  }
-  if (request.kind === 'permission') {
-    const command = z.string().safeParse(request.permission.toolInput?.command)
-    const summary = request.permission.toolDescription ?? (command.success ? command.data : undefined)
-    const notice: SessionNotice = { ...target, kind: 'permission', questionId: request.permission.questionId, tool: request.permission.toolTitle }
-    if (summary) notice.summary = summary
-    return notice
-  }
-  const notice: SessionNotice = { ...target, kind: 'plan', title: request.plan.title }
-  if (request.plan.planToolUseId) notice.planToolUseId = request.plan.planToolUseId
-  if (request.plan.questionId) notice.questionId = request.plan.questionId
-  return notice
-}

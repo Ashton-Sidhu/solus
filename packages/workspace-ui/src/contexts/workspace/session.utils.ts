@@ -1,4 +1,4 @@
-import type { Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
+import type { Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { attributionLabel } from '@solus/contracts/user'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -60,8 +60,8 @@ const RUNNING_TOOL_SCAN_DEPTH = 250
 
 /** The most specific user-facing label for a live session's current phase. */
 export function computeCurrentActivity(session: Session): string {
-  if (session.permissionQueue.length > 0) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
-  if (session.questionQueue.length > 0) return 'Waiting for your input...'
+  if (session.permissionQueue[0] && !session.permissionQueue[0].expired) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
+  if (session.questionQueue[0] && !session.questionQueue[0].expired) return 'Waiting for your input...'
   if (session.isStreamingText) return 'Writing...'
   if (session.isReconnecting) return 'Reconnecting...'
   // A running tool always sits near the tail (the current exchange), so bound
@@ -117,6 +117,31 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
   if (event.responseMode) request.responseMode = event.responseMode
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
   return request
+}
+
+/** Marks a queued permission or question as no longer answerable, in place.
+ *  A message-mode question is answered by a new message, so it never expires. */
+export function expireRequest(session: Session, questionId: string, expiry: RequestExpiry): void {
+  const permission = session.permissionQueue.find((request) => request.questionId === questionId)
+  if (permission) permission.expired = expiry
+  const question = session.questionQueue.find((request) => request.questionId === questionId)
+  if (question && question.responseMode !== 'message') question.expired = expiry
+}
+
+/** Removes the cards that only remain to say why they were closed. */
+export function dropExpiredRequests(session: Session): void {
+  for (let index = session.permissionQueue.length - 1; index >= 0; index--) {
+    if (session.permissionQueue[index].expired) session.permissionQueue.splice(index, 1)
+  }
+  for (let index = session.questionQueue.length - 1; index >= 0; index--) {
+    if (session.questionQueue[index].expired) session.questionQueue.splice(index, 1)
+  }
+}
+
+/** Whether a person can still answer something this session asks. */
+export function hasAnswerableRequest(session: Session): boolean {
+  return session.permissionQueue.some((request) => !request.expired)
+    || session.questionQueue.some((request) => !request.expired)
 }
 
 export function progressFromTodos(todos: TodoItem[]): SessionProgress {

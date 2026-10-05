@@ -23,6 +23,7 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
   | 'runFor'
   | 'sessionFor'
   | 'sessions'
+  | 'settings'
   | 'tasksStore'
 >
 
@@ -122,7 +123,7 @@ export class SessionDrafts {
     if (options.freshTask && !options.serverId && serversStore.statusFor(run.serverId) !== 'online') {
       this.workspace.opening.moveToRunOnHost(run)
     }
-    const draft = new SessionDraft(this.workspace.defaultRunConfig, run)
+    const draft = new SessionDraft(this.workspace.defaultRunConfig, run, this.workspace.settings.modelOptionsByProvider)
     if (options.worktreeRequested) {
       draft.run.worktree = { baseBranch: draft.run.gitContext?.targetBranch ?? null }
     }
@@ -200,7 +201,7 @@ export class SessionDrafts {
     // the sent text here so it is not left sitting in a background composer.
     if (started) started.prompt.text = ''
 
-    const next = new SessionDraft(this.workspace.defaultRunConfig, run)
+    const next = new SessionDraft(this.workspace.defaultRunConfig, run, this.workspace.settings.modelOptionsByProvider)
     // Every other new draft starts from app-level preferences, because it is a
     // new session started *from* somewhere else. This one is the same composing
     // act continued: the pane never moved, so the chips under it must not change

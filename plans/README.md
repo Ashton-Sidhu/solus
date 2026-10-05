@@ -15,8 +15,41 @@
 | [012 One user, one actor, and one activity record](012-user-actor-and-activity.md) | IMPLEMENTED (uncommitted, 2026-09-29) — all eight stages built; stage 8 sends session activity through the transcript mirror and serves record activity and "activity naming me" on the Solus API — one `User` with a typed `UserId` (account, local, guest); `HOST_OWNER_USER_ID` and stored `'you'` labels removed (host-login seat, minted local owner, rows moved on link); one `Attribution` for every doer; the actor resolved once per request in every domain; one host-stored activity record for sessions, tasks and works (absorbs `task_events`, feeds the notifications hub); one user chip. Eight stages; O1 decided (`local` stays) | Plan 004 working tree; plan 010 account ids; P7 decides whose actor agent and automation turns carry |
 | [013 Unified cloud application](013-unified-cloud-application.md) | SOURCE IMPLEMENTED (uncommitted, 2026-10-01) for stages 1–4 with focused tests; backwards compatibility dropped (no users): no API alias, no Worker, old API deployment removed; stage 5 integration proof, packaged-image gate, and first deploy NOT done — one Node cloud application and release; local desktop/host APIs preserved; Better Auth server stays cloud-only | Current implementations of 007–010 and 012; existing live collaboration and runner delivery |
 | [014 Linux sandbox host proof](014-linux-sandbox-hosts.md) | PLAN (2026-10-01) — prove a managed Solus host runs as one Cloudflare Linux sandbox using Cloudflare's auto-save pattern: 11 pass/fail checks, timings, five passing runs on different days; no migration | 009, 010; `solus-cloud/host-worker` trial |
+| [015 Notifications hub v2](015-notifications-hub.md) | IMPLEMENTED IN SOURCE (2026-10-03, uncommitted) — stages 1–4: one active notification table per home, typed producer calls, shared refresh across sources, existing domain actions, desktop/web page and native screen; focused tests pass on SQLite and disposable Postgres; NO visual, device, or native-compile verification; native opens no resource until 017's destinations exist | Current host/API/identity work; implements 004 D15/D16; native foundation and destinations from 017; portable review storage remains separate |
+| [016 Native device previews and workflow](016-device-preview-parity.md) | PLAN (2026-10-02) — T3 parity (25 requirements) plus five approved Solus additions: control ownership, Run on device, native annotations, recording/evidence and saved test conditions; ten numbered stages plus 1A and 6A–6D; implementation not started | Current host/RPC/admission, provider adapters and pane routing; stage 0 proves helpers/transport; control ownership precedes input; product workflows precede 3D; full client and packaged proof required |
+| [017 Native mobile client](017-native-mobile-client.md) | IN PROGRESS (2026-10-03, uncommitted) — `apps/mobile` on Expo SDK 57 / React Native 0.86.3: stages 0–4 source done with focused logic tests, a disposable-host socket test, and Metro bundles for iOS and Android; NO native compile or device run (no Xcode or Android SDK on this machine); `solus-mobile` client registered in the solus-cloud working tree, not deployed. Milestone one is a conversation prototype, not a replacement: stages 5–6 gate retiring the mobile web shell | Existing client-core, host and record APIs; account integration from 010/013; coordinate notifications with 015 and device previews with 016; retain Android/browser access until replacement |
 
 ## Refactor and feature execution order
+
+Plan [018 Settings sync and organization policy](018-settings-sync-and-organization-policy.md)
+is PLAN (2026-10-03), not implemented. It adds opt-in account preference sync,
+cloud-owned organization rules, server enforcement, and Settings controls on desktop,
+web, and native mobile. It depends on the current account/organization implementation
+from 009, 010, 012, and 013 and the native client from 017. The user approved rules
+that apply only to work in their organization. Execute its six stages in order:
+contracts, cloud services, sync adapters, enforcement/migration, client UI, and release
+verification. Cloud settings storage and administration belong in `~/solus-cloud`.
+Section 3 classifies all 54 current host-config fields and 13 device fields, covers
+server and organization settings, and defines the store split and migration order.
+Task and writing defaults move to Personal; analytics splits into client and host
+consent; editor and terminal choices stay on the client device.
+
+Plan [017 Native mobile client](017-native-mobile-client.md) adds the native
+client surface. It keeps the existing Solus backend and stages web cleanup
+after replacement coverage. The first conversation milestone does not retire
+the mobile web client. Native notification delivery remains coordinated with
+015; native device previews remain owned by 016.
+
+Plan [015 Notifications hub v2](015-notifications-hub.md) owns the personal hub
+named by 004 D15/D16 and the recipient projection left for it by 012. It works
+on Local hosts and independent VMs without Solus Cloud, and combines their
+feeds with authorized organization homes. It adds a narrow exception to the
+selected-organization view filter, not to record access. Version 2 uses list
+refresh on changes and reconnect, online read/archive writes, and existing
+domain actions. Preserve useful v1 producer/access work while removing its
+journal and offline-sync requirements. Native hub presentation uses the source
+now under `apps/mobile/`, coordinated with 017. New background push infrastructure,
+notification replication, and portable review storage are separate work.
 
 Plan [013 Unified cloud application](013-unified-cloud-application.md) has its
 source for stages 1–4 in the working trees (2026-10-01, uncommitted); stage 5,

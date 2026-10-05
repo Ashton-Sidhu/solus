@@ -72,7 +72,7 @@
     <GithubConnectionRequired serverId={projectsFailure.serverId} layout="stacked" />
   </PageEmpty>
 {:else if !allProjects && scopeError?.kind === "unavailable"}
-  <!-- A project with no pull requests — Scratchpad, a plain directory, a
+  <!-- A project with no pull requests — a chat, a plain directory, a
        repository never pushed. A state to state, not a failure. The page
        scope is shared with the other project pages, so it may have been
        picked elsewhere: name the project and offer the way back out. -->

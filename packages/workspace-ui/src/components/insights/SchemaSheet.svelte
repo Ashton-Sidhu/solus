@@ -33,12 +33,9 @@
     onClose: () => void;
     /** Write a column name into the SQL editor at the cursor and leave. */
     onInsertColumn: (name: string) => void;
-    /** Mobile reads the model but composes nothing, so the insert affordance is
-     *  absent there rather than present and inert. */
-    readOnly?: boolean;
   }
 
-  let { schema, onClose, onInsertColumn, readOnly = false }: Props = $props();
+  let { schema, onClose, onInsertColumn }: Props = $props();
 
   let query = $state("");
   /** null is the overview: the table choice, not a table's columns. */
@@ -78,7 +75,6 @@
   }
 
   function insert(name: string): void {
-    if (readOnly) return;
     onInsertColumn(name);
   }
 
@@ -160,20 +156,17 @@
 
 {#snippet columnRow(column: MetricsFieldDescriptor, index: number, sourceName: string | null)}
   {@const enumerated = enumeratedValues(column.description)}
-  <svelte:element
-    this={readOnly ? "div" : "button"}
-    role={readOnly ? "listitem" : "option"}
-    aria-selected={readOnly ? undefined : index === activeIndex}
-    type={readOnly ? undefined : "button"}
+  <button
+    role="option"
+    aria-selected={index === activeIndex}
+    type="button"
     data-active={index === activeIndex}
-    class="grid w-full grid-cols-[minmax(0,11rem)_3.5rem_minmax(0,1fr)] items-baseline gap-x-4 rounded-lg px-3 py-1.5 text-left transition-colors @3xl:grid-cols-[minmax(0,14rem)_4.5rem_minmax(0,1fr)] @3xl:gap-x-6 {readOnly
-      ? ''
-      : 'cursor-pointer hover:bg-[var(--wash-1)]'} {index === activeIndex && !readOnly
+    class="grid w-full grid-cols-[minmax(0,11rem)_3.5rem_minmax(0,1fr)] items-baseline gap-x-4 rounded-lg px-3 py-1.5 text-left transition-colors @3xl:grid-cols-[minmax(0,14rem)_4.5rem_minmax(0,1fr)] @3xl:gap-x-6 cursor-pointer hover:bg-[var(--wash-1)] {index === activeIndex
       ? 'bg-[var(--wash-2)]'
       : ''}"
     onclick={() => insert(column.name)}
     onmouseenter={() => {
-      if (!readOnly) activeIndex = index;
+      activeIndex = index;
     }}
   >
     <span class="flex min-w-0 items-baseline gap-1.5">
@@ -214,7 +207,7 @@
         </span>
       {/if}
     </span>
-  </svelte:element>
+  </button>
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -437,23 +430,19 @@
         class="flex h-9 shrink-0 items-center gap-4 px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)]"
         style="background:var(--wash-1)"
       >
-        {#if readOnly}
-          <span>Reference only — queries are composed on desktop.</span>
-        {:else}
-          <span class="inline-flex items-center gap-1.5">
-            <Kbd variant="keycap">↑</Kbd>
-            <Kbd variant="keycap">↓</Kbd>
-            move
-          </span>
-          <span class="inline-flex items-center gap-1.5">
-            <Kbd variant="keycap">↵</Kbd>
-            insert
-          </span>
-          <span class="inline-flex items-center gap-1.5">
-            <Kbd variant="keycap">esc</Kbd>
-            close
-          </span>
-        {/if}
+        <span class="inline-flex items-center gap-1.5">
+          <Kbd variant="keycap">↑</Kbd>
+          <Kbd variant="keycap">↓</Kbd>
+          move
+        </span>
+        <span class="inline-flex items-center gap-1.5">
+          <Kbd variant="keycap">↵</Kbd>
+          insert
+        </span>
+        <span class="inline-flex items-center gap-1.5">
+          <Kbd variant="keycap">esc</Kbd>
+          close
+        </span>
       </footer>
     {/if}
   </div>

@@ -2,17 +2,19 @@ import { z } from 'zod'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { basename } from 'node:path'
+import { resolveHomePath } from '../../../platform/paths'
 import { getSessionMessages, listProjectRoots } from '../../../db/session-indexer'
 import { searchSessionIndex } from '../../../db/session-search'
 import { formatPendingInputReport } from '../../sessions/pending-input'
 import { plainSnippet } from '@solus/contracts/search-snippet'
 import { MODEL_PROFILES } from '@solus/contracts/types'
-import { formatExchangeTag, formatOrchestrationItem, type OrchestrationItem } from '@solus/contracts/session-exchange'
+import { formatExchangeTag, formatOrchestrationItem, ORCHESTRATION_LIMITS, type OrchestrationItem } from '@solus/contracts/session-exchange'
 import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../../../data/tasks/task'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
-import { MAX_WAIT_MS } from '../../orchestration/session-orchestrator'
+import type { Exchange } from '../../orchestration/exchange'
+import { MAX_WAIT_MS, type SpawnedSession } from '../../orchestration/session-orchestrator'
 import { formatTaskSessions } from '../../orchestration/task-view'
 
 const log = createLogger('sessions', 'session-tools.ts')
@@ -48,12 +50,14 @@ export interface SessionOrchestration {
     },
     report: boolean,
     waitMs?: number,
-  ): Promise<{ exchangeId: string; agentSessionId: string; taskId?: string; waited?: OrchestrationItem | null }>
+    requestId?: string,
+  ): Promise<{ exchangeId: string; agentSessionId: string; starting?: boolean; taskId?: string; waited?: OrchestrationItem | null }>
   send(
     senderAgentSessionId: string,
     targetAgentSessionId: string,
-    message: { prompt: string; delivery: PromptDelivery; notify: boolean; waitMs?: number },
+    message: { prompt: string; delivery: PromptDelivery; notify: boolean; waitMs?: number; requestId?: string },
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }>
+  readExchange?(senderAgentSessionId: string, exchangeId: string): Exchange | undefined
   stop(senderAgentSessionId: string | undefined, targetAgentSessionId: string): boolean
 }
 
@@ -116,6 +120,9 @@ interface SessionToolArgs {
   query?: unknown
   reasoning_effort?: unknown
   report?: unknown
+  request_id?: unknown
+  exchange_id?: unknown
+  reply_offset?: unknown
   role?: unknown
   session_id?: unknown
   tail?: unknown
@@ -139,6 +146,9 @@ const WAIT_FIELD = z
   .max(MAX_WAIT_MS / 1000)
   .default(0)
   .describe(`Seconds to wait for the outcome inside this call, up to ${MAX_WAIT_MS / 1000}. 0 (default) returns at once. If the turn ends in time its report is this call's result; if it waits on the user or is rate limited, that notice is the result at once; otherwise the call returns and the outcome comes back later. The session is never stopped by the wait ending.`)
+
+const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
+  .describe('Stable ID for this request, scoped to the calling session. Reuse it when retrying the same work; use a new ID for a new request or review round. A retry returns the original exchange and never starts duplicate work. Closed receipts are kept for 30 days.')
 
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
@@ -167,6 +177,7 @@ const startSessionFields = {
     .optional()
     .describe('Optional base branch to create an isolated worktree for the new session.'),
   report: REPORT_FIELD,
+  request_id: REQUEST_ID_FIELD,
   wait_seconds: WAIT_FIELD,
 }
 
@@ -214,6 +225,7 @@ const sendSessionFields = {
     .default('queue')
     .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it."),
   report: REPORT_FIELD,
+  request_id: REQUEST_ID_FIELD,
   wait_seconds: WAIT_FIELD,
 }
 
@@ -222,14 +234,17 @@ const stopSessionFields = {
 }
 
 const START_SESSION_DESC = [
-  "Start a new Solus session that runs `prompt` right away on its own agent, model and reasoning level, filed under the task you choose with `task`. Returns the new session id and its task id.",
+  "Start a new Solus session that runs `prompt` on its own agent, model and reasoning level, filed under the task you choose with `task`. With wait_seconds=0, return an accepted exchange before provider startup finishes. A pending session ID names the card; use read_session_exchange to get the provider session ID after initialization. Startup failures return through the same report path.",
   "How orchestration works: with `report` on, the session's outcome comes back to this conversation on its own — a [session notice] as soon as it waits on the user or is rate limited, and a [session report] when its turn ends, with its last message and references to what it produced. Do not poll for it; end your turn and you are woken. Use `wait_seconds` only when you cannot continue without the answer.",
   "Only the user answers a session's questions, plans and permissions, from the cards in this conversation or in that session's tab. When a notice says a session waits on the user, tell the user what it asks. A rate-limited session resumes on its own at the reset; you can wait, stop it, or start the work on another provider.",
   "A report names what the session produced by id, not by content: read a plan with read_plan, a work with read_work, the transcript with read_session; link any of them to a task with link; show one to the user by putting its link in your reply. read_task_sessions shows every session in your task and what each produced.",
   "Give each session everything it needs in `prompt`: it does not see this conversation.",
+  "Prefer async work: keep wait_seconds=0 and report=true, end your turn, and let the report wake you. A request stays open while its nested reported work or completion follow-up is pending. read_session_exchange reads the stored state and result by exchange id when needed mid-turn; do not poll in a loop.",
+  "Use a native subagent for brief same-provider work when it supports the selected model. Use start_session for work that needs a durable Solus conversation, another provider or model, or nested async coordination. Use send_session to continue an existing session; each new request and review round has its own exchange. Include the full brief, prior findings, responses, and unresolved issues for each review round.",
+  "Choose the workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding. Use request_id for safe retries. Prefer reported work owned by the current task; start an unrelated conversation only when the user asks for it.",
 ].join(' ')
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for start_session, including runtime availability and supported reasoning levels. Use this before choosing a cross-provider target.'
+  'List the agent providers and models currently configured on this Solus host for start_session, including runtime availability and supported reasoning levels. Use this before choosing a worker provider or model, including same-provider models a native subagent tool may not support.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
@@ -651,7 +666,9 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
   const report = parsed.data.report
   const waitMs = parsed.data.wait_seconds * 1000
-  const sent = await sessionOrchestration.send(callerSessionId, sessionId, { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs })
+  const order: Parameters<SessionOrchestration['send']>[2] = { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs }
+  if (parsed.data.request_id) order.requestId = parsed.data.request_id
+  const sent = await sessionOrchestration.send(callerSessionId, sessionId, order)
   const dispatch = sent.disposition === 'queued'
     ? 'Queued for'
     : sent.disposition === 'steered'
@@ -661,6 +678,32 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
     ok: true,
     text: `${dispatch} ${sessionLink(meta)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, agentSessionId: sessionId, provider: meta.provider })}${waitedBlock(sent.waited)}`,
   }
+}
+
+const readExchangeFields = {
+  exchange_id: z.string().min(1).describe('The exchange id returned by start_session or send_session.'),
+  reply_offset: z.number().int().nonnegative().optional().describe('Read the full saved reply in bounded pages. Start at 0, then use the returned next_reply_offset until it is null. Offsets count UTF-16 code units.'),
+}
+
+async function readExchangeTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
+  const parsed = z.object(readExchangeFields).safeParse(args)
+  const sender = deps.ctx?.sessionId
+  if (!parsed.success || !sender) return { ok: false, text: 'read_session_exchange requires exchange_id and an initialized calling session.' }
+  const exchange = sessionOrchestration?.readExchange?.(sender, parsed.data.exchange_id)
+  if (!exchange) return { ok: false, text: 'Exchange not found for this calling session.' }
+  const lines = [`Exchange ${exchange.exchangeId}: ${exchange.state}. Session ${exchange.targetAgentSessionId}.`]
+  if (exchange.deliveryState) lines.push(`Report delivery: ${exchange.deliveryState}.`)
+  if (exchange.report) {
+    const offset = parsed.data.reply_offset
+    if (offset === undefined) lines.push(formatOrchestrationItem({ type: 'report', report: exchange.report }))
+    else {
+      const reply = exchange.report.reply
+      if (offset > reply.length) return { ok: false, text: `reply_offset exceeds the saved reply length (${reply.length}).` }
+      const end = Math.min(reply.length, offset + ORCHESTRATION_LIMITS.replyPage)
+      lines.push(`Reply characters ${offset}-${end} of ${reply.length}:\n${reply.slice(offset, end)}`, `next_reply_offset: ${end < reply.length ? end : 'null'}`)
+    }
+  }
+  return { ok: true, text: lines.join('\n\n') }
 }
 
 async function stopSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
@@ -686,19 +729,12 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   }
   const runner = await chooseRunner(input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
   if ('error' in runner) return { ok: false, text: runner.error }
-  // A task holds its sessions directly, so an attempt without task_id joins
-  // the caller's own task. With task='none' the session has no task.
-  let taskId: string | null = null
-  if (input.task === 'attempt') {
-    const callerSessionId = deps.ctx?.sessionId
-    taskId = input.task_id?.trim()
-      || (callerSessionId ? (await Task.forSession(ANY_ORGANIZATION, callerSessionId))?.id : undefined)
-      || null
-    if (!taskId) return { ok: false, text: "This session has no task to join. Use task='none', or task='attempt' with a task_id." }
-  }
+  const binding = await resolveStartTask(input.task, input.task_id, deps.ctx?.sessionId)
+  if ('error' in binding) return { ok: false, text: binding.error }
+  const { taskId } = binding
 
   const { provider, modelId, reasoningEffort, contextWindow } = runner
-  const cwd = input.cwd?.trim() || deps.ctx?.cwd || '~'
+  const cwd = resolveHomePath(input.cwd?.trim() || deps.ctx?.cwd || '~')
   const waitMs = input.wait_seconds * 1000
   // The orchestrator puts the card in this conversation before the session
   // starts — startup can take a while — and binds it to the session once it does.
@@ -711,12 +747,29 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
     cwd,
     worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
     taskId,
-  }, input.report, waitMs)
+  }, input.report, waitMs, input.request_id)
 
+  if (created.starting) return { ok: true, text: formatPendingSessionReceipt(created, runner, input.report, waitMs) }
   return {
     ok: true,
-    text: `Started ${sessionLink({ provider, sessionId: created.agentSessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider })}${waitedBlock(created.waited)}`,
+    text: `Session ${sessionLink({ provider, sessionId: created.agentSessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider })}${waitedBlock(created.waited)}`,
   }
+}
+
+/** A pending card ID is not a provider conversation that session tools can use. */
+function formatPendingSessionReceipt(created: SpawnedSession, runner: Runner, report: boolean, waitMs: number): string {
+  const startup = created.waited?.type === 'report' ? 'Provider startup ended.' : 'Startup continues in the background.'
+  return `Accepted session creation on ${runner.provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}). ${startup}${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)} Use read_session_exchange with exchange_id=${created.exchangeId} for the startup state and provider session ID; do not pass the pending ID to session tools.\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider: runner.provider })}${waitedBlock(created.waited)}`
+}
+
+type StartTaskBinding = { taskId: string | null } | { error: string }
+
+/** An attempt joins an explicit task or the caller's own task. */
+async function resolveStartTask(task: 'attempt' | 'none', explicitTaskId: string | undefined, callerSessionId: string | undefined): Promise<StartTaskBinding> {
+  if (task === 'none') return { taskId: null }
+  const taskId = explicitTaskId?.trim()
+    || (callerSessionId ? (await Task.forSession(ANY_ORGANIZATION, callerSessionId))?.id : undefined)
+  return taskId ? { taskId } : { error: "This session has no task to join. Use task='none', or task='attempt' with a task_id." }
 }
 
 /** The provider, model and reasoning level a started session runs on. */
@@ -750,6 +803,7 @@ async function chooseRunner(requestedProvider: string, requestedModel: string, r
 const SESSION_TOOL_HANDLERS = new Map<string, SessionToolHandler>([
   ['list_agent_targets', listAgentTargetsTool],
   ['read_session', readSessionTool],
+  ['read_session_exchange', readExchangeTool],
   ['read_task_sessions', readTaskSessionsTool],
   ['search_sessions', searchSessionsTool],
   ['send_session', sendSessionTool],
@@ -771,7 +825,7 @@ function sessionAgentTool(
     execute: async (args, context) => executeSessionTool(name, args, {
       ctx: {
         agentProvider: context.provider,
-        cwd: context.cwd,
+        cwd: resolveHomePath(context.cwd),
         sessionId: context.sessionId(),
       },
     }),
@@ -780,9 +834,11 @@ function sessionAgentTool(
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
+export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
 export const readTaskSessionsAgentTool = sessionAgentTool('read_task_sessions', READ_TASK_SESSIONS_DESC, readTaskSessionsFields, false)
 export const startSessionAgentTool = sessionAgentTool('start_session', START_SESSION_DESC, startSessionFields, false)
+startSessionAgentTool.alwaysLoad = true
 export const sendSessionAgentTool = sessionAgentTool('send_session', SEND_SESSION_DESC, sendSessionFields, false)
 export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionFields, false)
 
@@ -790,6 +846,7 @@ export const sessionAgentTools: AgentTool[] = [
   listAgentTargetsAgentTool,
   searchSessionsAgentTool,
   readSessionAgentTool,
+  readSessionExchangeAgentTool,
   readTaskSessionsAgentTool,
   startSessionAgentTool,
   sendSessionAgentTool,

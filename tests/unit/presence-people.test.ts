@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostParticipant, SessionParticipant } from '@solus/contracts/presence'
-import { activeTurnAuthorOf, activityWords, composingLabel, followStep, newArrivals, peopleFocusedOn, peopleFrom, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
+import { activeTurnAuthorOf, activityWords, composingLabel, followStep, peopleFocusedOn, peopleFrom, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
 import { focusLabel, hostPeopleAcrossHosts, primaryPresence, rosterPeople, rosterWhere, sessionLabelIn, whereIs, type HostPerson } from '@solus/workspace-ui/components/presence/lib/host-people'
 import type { Session } from '@solus/contracts/types'
 import { parseUserKey } from '@solus/contracts/user'
@@ -167,22 +167,6 @@ describe('roster', () => {
     const [bob] = rosterPeople([row('cloud', 'bob'), row('mini', 'bob', { focus: { kind: 'session', sessionId: 's2' }, activity })])
     expect(bob?.activity).toBe(activity)
     expect(rosterWhere(bob!, names, true, () => 'Mini')).toBe('In Roadmap sync, waiting for input · Mini')
-  })
-})
-
-describe('arrivals', () => {
-  const snapshot = (...userIds: string[]) => ({ participants: userIds.map((id, index) => participant(`c-${id}-${index}`, id, { joinedAt: index })) })
-
-  test('only a person who was not there before is announced, never the reader on a second device', () => {
-    expect(newArrivals(snapshot('alice', 'bob'), snapshot('alice', 'bob', 'cara'), as('alice')).map((person) => person.userId)).toEqual(['cara'])
-    expect(newArrivals(snapshot('alice'), snapshot('alice', 'alice'), as('alice'))).toEqual([])
-    // A second device of someone already here is not an arrival either.
-    expect(newArrivals(snapshot('alice', 'bob'), snapshot('alice', 'bob', 'bob'), as('alice'))).toEqual([])
-  })
-
-  test('the first snapshot and an unknown self announce nobody', () => {
-    expect(newArrivals(undefined, snapshot('alice', 'bob'), as('alice'))).toEqual([])
-    expect(newArrivals(snapshot('alice'), snapshot('alice', 'bob'), nobody)).toEqual([])
   })
 })
 

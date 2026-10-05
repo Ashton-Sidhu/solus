@@ -44,7 +44,7 @@
         variant="outline"
         size={compact ? "xs" : "sm"}
         aria-label={ariaLabel}
-        class="{compact ? 'text-xs' : 'min-w-36 text-sm'} justify-between gap-1.5 border-input bg-background font-normal text-foreground shadow-xs/5 hover:bg-background hover:text-foreground aria-expanded:bg-background dark:bg-input/30 dark:hover:bg-input/30"
+        class="{compact ? 'text-xs' : 'min-w-36 text-sm'} justify-between gap-1.5 border-input bg-white font-normal text-foreground shadow-xs/5 hover:bg-white hover:text-foreground aria-expanded:bg-white dark:bg-input/30 dark:hover:bg-input/30 dark:aria-expanded:bg-input/30"
         {disabled}
       >
         <span class="truncate">{selectedLabel}</span>

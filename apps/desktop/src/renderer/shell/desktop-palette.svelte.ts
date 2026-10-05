@@ -1,3 +1,5 @@
+import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
+import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import { untrack } from "svelte";
@@ -6,6 +8,7 @@ import {
   GitCompareArrows as GitDiffIcon,
   GitFork as GitForkIcon,
   GitPullRequest as GitPullRequestIcon,
+  Bell as BellIcon,
   List as ListBulletsIcon,
   Folders as FoldersIcon,
   History as ClockCounterClockwiseIcon,
@@ -31,7 +34,7 @@ import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/o
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
 import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
-import { justChatCommand } from "@solus/workspace-ui/components/command-palette/lib/just-chat-command";
+import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
 import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
 import {
   activeSessionShareTarget,
@@ -286,7 +289,7 @@ export function createDesktopPalette(
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
-    justChatCommand(session),
+    newChatCommand(session),
     {
       id: "view-working-tree-diff",
       label: "View working tree diff",
@@ -544,6 +547,8 @@ export function createDesktopPalette(
     });
     // Start or stop recording the page the browser pane shows.
     commands.push(...browserRecordingCommands(() => focusLeadingComposer(session.router)));
+    commands.push(...deviceCommands(session));
+    commands.push(...settingsOwnerCommands(session));
 
     commands.push({
       id: "open-plan",
@@ -686,6 +691,16 @@ export function createDesktopPalette(
       icon: GitPullRequestIcon,
       keywords: ["pr", "pull request", "github", "review", "prs"],
       run: () => session.openPrs(null, "palette"),
+    });
+
+    commands.push({
+      id: "open-notifications",
+      label: "Open notifications",
+      group: "View",
+      icon: BellIcon,
+      hint: comboHint("global.toggle-notifications"),
+      keywords: ["inbox", "assigned", "review request", "mentions", "alerts"],
+      run: () => session.openNotifications("palette"),
     });
 
     const gitCtx = sessionEnvironmentStore.environmentFor(

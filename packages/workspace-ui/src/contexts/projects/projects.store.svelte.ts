@@ -350,7 +350,7 @@ export class ProjectsStore {
     const projectRoot = normalizeProjectRoot(path)
     if (!serverId || !isCatalogRoot(projectRoot)) return null
     const project = { serverId, projectRoot }
-    this.record(project, projectDirLabel(projectRoot, null))
+    this.record(project, projectDirLabel(projectRoot))
     void api.trackRecentProject(project.projectRoot)
       .catch(() => {})
       .then(() => this.invalidateRecentProjects(serverId))

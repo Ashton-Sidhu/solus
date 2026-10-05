@@ -61,6 +61,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'browser', params: {} },
   { name: 'browser', params: { browserPageId: 'browser_7' } },
   { name: 'browser', params: { browserPageId: 'browser_7', serverId: 'studio-host' } },
+  { name: 'devices', params: {} },
+  { name: 'devices', params: { sessionId: 'sess_a', serverId: 'studio-host' } },
 ]
 
 function locationOf(...refs: RouteRef[]): Location {

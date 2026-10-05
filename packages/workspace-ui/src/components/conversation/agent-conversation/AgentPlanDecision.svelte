@@ -2,6 +2,7 @@
   import { getWorkspaceContext } from "../../../contexts";
   import { Button } from "../../ui/button";
   import { Textarea } from "../../ui/textarea";
+  import { canDriveSession } from "../../../contexts/sharing/session-drive";
 
   /**
    * A person's decision on a plan another session wrote, taken from the
@@ -17,6 +18,9 @@
 
   const session = getWorkspaceContext();
   const api = $derived(session.apiFor(tabId));
+  const sess = $derived(session.sessionFor(tabId));
+  // The decision is an editor's; a member who may only read sees the plan alone.
+  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
 
   let revising = $state(false);
   let comment = $state("");
@@ -46,6 +50,8 @@
   <span class="text-muted-foreground" data-testid="agent-plan-decided">
     {outcome === "approved" ? "Plan approved" : "Changes requested"}
   </span>
+{:else if !canDrive}
+  <span class="text-muted-foreground">Waiting for an editor</span>
 {:else}
   <div class="flex flex-col gap-2" data-testid="agent-plan-decision">
     {#if revising}

@@ -14,9 +14,9 @@ const { registerFilesystemHandlers } = await import('@solus/server/transport/han
 
 /**
  * The picker lets a user browse anywhere, so the write behind it has to be able
- * to land anywhere — while an editor saving a file it opened from the project
- * tree must still be confined to that tree. Both behaviours ride the same RPC,
- * separated only by `destination`, which is exactly why they are pinned here.
+ * to land anywhere. An editor can open a file outside the project, so its save
+ * must land on that same file and not be refused. Both behaviours ride the same
+ * RPC, separated only by `destination`, which is why they are pinned here.
  */
 describe('writeFile destinations', () => {
   let sandbox = ''
@@ -50,14 +50,15 @@ describe('writeFile destinations', () => {
     if (sandbox) await rm(sandbox, { recursive: true, force: true })
   })
 
-  test('a project write still cannot escape the project root', async () => {
+  test('a project write saves a file outside the project where it is', async () => {
+    const target = join(outside, 'notes.md')
     const result = await writeFile([
       ctx,
-      { path: join(outside, 'leaked.md'), contents: 'nope', cwd: projectRoot },
+      { path: target, contents: 'edited', cwd: projectRoot },
     ])
 
-    expect(result.ok).toBe(false)
-    expect(result.ok === false && result.error).toContain('outside the project directory')
+    expect(result).toMatchObject({ ok: true, path: target, displayPath: target })
+    expect(await readFile(target, 'utf8')).toBe('edited')
   })
 
   test('a host write lands where the user pointed the picker', async () => {

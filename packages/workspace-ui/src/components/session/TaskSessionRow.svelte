@@ -268,7 +268,7 @@
             <TaskStatusGlyph
               status={mark.status}
               size={13}
-              label={attentionLabel(session.attention)}
+              label={attentionLabel(session.attention, session.limitResetsAt)}
             />
           {:else if mark?.kind === "unread"}
             <UnreadDot size={12} />
@@ -312,7 +312,7 @@
               class="flex shrink-0 items-center text-chart-5"
               role="img"
               onanimationstart={alignStatusAnimationPhase}
-              aria-label={attentionLabel(session.attention)}
+              aria-label={attentionLabel(session.attention, session.limitResetsAt)}
             >
               <SpinnerGapIcon size={13} class="animate-spin" />
             </span>
@@ -381,6 +381,7 @@
     provider={session.provider}
     modelId={session.modelId}
     attention={session.attention}
+    limitResetsAt={session.limitResetsAt}
     reviewGuideStatus={session.reviewGuideTooltipStatus}
   />
 </TooltipUI.Root>
