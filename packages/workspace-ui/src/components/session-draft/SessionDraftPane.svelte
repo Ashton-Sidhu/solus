@@ -147,6 +147,58 @@
   }
 </script>
 
+{#snippet headline()}
+  <!-- The headline is display type, not chrome, so it has no responsive rung.
+       The question shares the bar's measure, so it is never wider than the
+       composer under it on any display. -->
+  <h1
+    class={cn(
+      "text-pretty text-(--solus-text-primary)",
+      isPhone
+        ? "text-2xl leading-[1.3] font-medium tracking-[-0.018em]"
+        : "w-full text-center text-3xl leading-[1.25] font-normal tracking-tight",
+    )}
+  >
+    {#if hasProject}
+      What should we build in
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={projectPickerOpen}
+        aria-label="Change project — currently {projectName}"
+        onclick={(event) => {
+          projectPickerAnchor = event.currentTarget;
+          projectPickerOpen = true;
+        }}
+        title={projectName}
+        class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
+        ><ProjectFavicon
+          {projectRoot}
+          serverId={draft?.run.serverId}
+          class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
+        /><span
+          class={cn(
+            // A long name truncates rather than wrapping the headline into a
+            // paragraph. The clip is horizontal only, so the dotted rule
+            // below the baseline still paints.
+            "min-w-0 overflow-x-clip text-ellipsis",
+            "transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium)",
+            // A dotted rule under 23px type reads as a defect rather than an
+            // affordance, and a phone has no hover to reveal it anyway.
+            !isPhone &&
+              "underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]",
+          )}
+          >{projectName}</span
+        ></button
+      >?
+    {:else if inChat}
+      What can I help with?
+    {:else}
+      What should we build?
+    {/if}
+  </h1>
+{/snippet}
+
 {#snippet composer(current: SessionDraft)}
   <!-- One question, then the composer. Everything a new session needs — project,
        task, model — sits on the bar directly below, so this stays a headline. -->
@@ -159,57 +211,8 @@
         : "items-center justify-center px-6 py-3",
     )}
   >
-    <!-- The headline is display type, not chrome, so it has no responsive rung.
-         The question shares the bar's measure, so it is never wider than the
-         composer under it on any display. -->
-    <h1
-      class={cn(
-        "text-pretty text-2xl font-medium text-(--solus-text-primary)",
-        isPhone
-          ? "leading-[1.3] tracking-[-0.018em]"
-          : "w-full max-w-(--solus-reading-max) text-center leading-[1.25] lg:text-4xl",
-      )}
-    >
-      {#if hasProject}
-        What should we build in
-        <button
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={projectPickerOpen}
-          aria-label="Change project — currently {projectName}"
-          onclick={(event) => {
-            projectPickerAnchor = event.currentTarget;
-            projectPickerOpen = true;
-          }}
-          title={projectName}
-          class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
-          ><ProjectFavicon
-            {projectRoot}
-            serverId={draft?.run.serverId}
-            class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
-          /><span
-            class={cn(
-              // A long name truncates rather than wrapping the headline into a
-              // paragraph. The clip is horizontal only, so the dotted rule
-              // below the baseline still paints.
-              "min-w-0 overflow-x-clip text-ellipsis",
-              "transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium)",
-              // A dotted rule under 23px type reads as a defect rather than an
-              // affordance, and a phone has no hover to reveal it anyway.
-              !isPhone &&
-                "underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]",
-            )}
-            >{projectName}</span
-          ></button
-        >?
-      {:else if inChat}
-        What can I help with?
-      {:else}
-        What should we build?
-      {/if}
-    </h1>
-
     {#if isPhone}
+      {@render headline()}
       <!-- One surface for everything under the headline (ADR-0013). -->
       <div class="contents text-sm">
       <p class="-mt-3 leading-[1.6] text-(--solus-text-tertiary)">
@@ -246,7 +249,13 @@
       </div>
     {/if}
 
-    <div class={cn("w-full max-w-(--solus-reading-max)", isPhone && "mt-auto")}>
+    <!-- On a wide pane the composer is what sits centred; the question rests
+         on top of it rather than pushing it down, so the bar does not move as
+         the headline wraps. -->
+    <div class={cn("relative w-full max-w-(--solus-reading-max)", isPhone && "mt-auto")}>
+      {#if !isPhone}
+        <div class="absolute inset-x-0 bottom-full pb-4">{@render headline()}</div>
+      {/if}
       <DraftComposer
         bind:this={composerInput}
         draft={current}

@@ -411,6 +411,18 @@
   });
 </script>
 
+<!-- The agent's brand mark. The trigger and the model list heading both name
+     the agent this way, so the two read as one control. -->
+{#snippet agentMark(blossomFill = "black")}
+  {#if isClaude}
+    <ClaudeIcon size={16} />
+  {:else if isCodex}
+    <OpenAIBlossom size={16} fill={blossomFill} />
+  {:else}
+    <CodeIcon size={16} class="flex-shrink-0" />
+  {/if}
+{/snippet}
+
 <DropdownMenu.Root
   bind:open
   onOpenChange={(nextOpen) => {
@@ -450,16 +462,10 @@
         >
           {#if isAuto}
             <SparklesIcon size={16} />
-          {:else if isClaude}
-            <ClaudeIcon size={16} />
-          {:else if isCodex}
-            {#if fastMode}
-              <LightningIcon size={16} fill="currentColor" />
-            {:else}
-              <OpenAIBlossom size={16} />
-            {/if}
+          {:else if isCodex && fastMode}
+            <LightningIcon size={16} fill="currentColor" />
           {:else}
-            <CodeIcon size={16} class="flex-shrink-0" />
+            {@render agentMark()}
           {/if}
         </span>
         <!-- Composer ladder, rung 5: below 22rem the chip is the glyph alone.
@@ -479,7 +485,7 @@
         {:else}
           <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
                call site sets a width floor, keeping the caret on the edge. -->
-          <CaretDownIcon size={9} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
+          <CaretDownIcon size={12} strokeWidth={2.25} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
         {/if}
       </button>
           {/snippet}
@@ -515,15 +521,28 @@
       hoveredLevel = null;
     }}
   >
-    <div class="flex items-stretch">
-      <div class="min-w-0 flex-1 p-1.5">
+    <!-- The model list sits on a tinted well and the side column stays on the
+         menu surface, so the eye lands on the list first. `rounded-[inherit]`
+         keeps the well inside the menu's corners: the menu cannot clip
+         (see overflow-visible above). -->
+    <div class="flex items-stretch rounded-[inherit]">
+      <div class="min-w-0 flex-1 rounded-l-[inherit] bg-(--wash-2) px-2 py-1.5">
         <!-- The preview clears on the way out of the whole surface, never on a
              row: row-level leave/enter pairs flash the column back to the
              current model between every two rows you sweep across, and clearing
              at the column edge would drop the pending model on the walk to the
              level you're about to click. -->
         <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
-          <DropdownMenu.GroupHeading>Model</DropdownMenu.GroupHeading>
+          <!-- Names whose models these are, mark first, the way the agent
+               header in the reference picker does. -->
+          <DropdownMenu.GroupHeading class="flex items-center gap-1.5">
+            <!-- Codex takes the heading's ink: a white plate is heavier than
+                 the glyph at this size. -->
+            <span class="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5 {isCodex ? '' : 'text-(--solus-accent)'}" aria-hidden="true">
+              {@render agentMark("currentColor")}
+            </span>
+            <span class="min-w-0 truncate">{agentName}</span>
+          </DropdownMenu.GroupHeading>
           {#each modelSections.current as model (model.id)}
             <DropdownMenu.RadioItem
               value={model.id}

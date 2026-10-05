@@ -114,11 +114,12 @@
 
 <div
   class={cn(
-    "@container/composer overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3",
-    // Over a page the card lifts off it; on a pane it sits flat.
+    "@container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3",
+    // Over a page the card lifts off it; on a pane it rests with a soft drop
+    // in light mode and on its ring alone in dark.
     floating
       ? "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border),0_8px_32px_color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-      : "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
+      : "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border),0_12px_28px_-18px_rgb(0_0_0/40%)] dark:shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
   )}
 >
   <!-- No session and no tab: the bar composes for nothing that exists yet, so
