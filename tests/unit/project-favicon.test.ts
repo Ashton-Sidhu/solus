@@ -4,8 +4,8 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import type { IpcContext } from '@solus/contracts/types'
 import { createAssetUrl, findAssetUrl } from '@solus/server/data/assets/assets'
+import { faviconCandidatePaths } from '@solus/client-core/project-favicon-paths'
 import {
-  faviconCandidatePaths,
   ProjectFaviconResolver,
   type ProjectFaviconRequest,
 } from '@solus/workspace-ui/lib/project-favicon'

@@ -1,25 +1,8 @@
 import { hostKey } from '@solus/client-core/host-key'
+import { faviconCandidatePaths, normalizedProjectRoot } from '@solus/client-core/project-favicon-paths'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { IpcContext } from '@solus/contracts/types'
 import { assetUrlCache, type AssetUrlCache } from '../components/artifact/lib/asset-url'
-
-/** Filenames a project may keep its own mark under, in the order we prefer. */
-const FAVICON_FILENAMES = [
-  'favicon.ico',
-  'favicon.svg',
-  'favicon.png',
-  'favicon.webp',
-  'favicon.jpg',
-  'favicon.jpeg',
-]
-
-/** Common nested locations. Keep this list short: root-level files remain the
- * unambiguous project-owned convention. */
-const NESTED_FAVICON_PATHS = [
-  'public/favicon.ico',
-  'static/favicon.ico',
-  'apps/web/public/favicon.ico',
-]
 
 export const PROJECT_FAVICON_SELECTION_TTL_MS = 5 * 60_000
 const PROJECT_FAVICON_STORAGE_PREFIX = 'solus.project-favicon.v1:'
@@ -55,7 +38,7 @@ export class ProjectFaviconResolver {
   ) {}
 
   async resolve(request: ProjectFaviconRequest): Promise<string | null> {
-    const projectKey = hostKey(request.serverId, normalizedRoot(request.projectRoot))
+    const projectKey = hostKey(request.serverId, normalizedProjectRoot(request.projectRoot))
     const selectedPath = this.selectedPathByProject.get(projectKey)
     if (selectedPath === null) return null
     if (selectedPath) {
@@ -188,18 +171,6 @@ function browserSessionStorage(): FaviconStorage | undefined {
   } catch {
     return undefined
   }
-}
-
-export function faviconCandidatePaths(projectRoot: string): string[] {
-  const root = normalizedRoot(projectRoot)
-  return [
-    ...FAVICON_FILENAMES.map((name) => `${root}/${name}`),
-    ...NESTED_FAVICON_PATHS.map((path) => `${root}/${path}`),
-  ]
-}
-
-function normalizedRoot(projectRoot: string): string {
-  return projectRoot.length > 1 ? projectRoot.replace(/\/+$/, '') : projectRoot
 }
 
 export const projectFaviconResolver = new ProjectFaviconResolver()

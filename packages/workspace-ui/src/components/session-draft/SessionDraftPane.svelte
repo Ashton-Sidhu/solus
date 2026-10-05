@@ -205,7 +205,7 @@
   <div
     bind:clientWidth={paneWidth}
     class={cn(
-      "draft-column relative flex h-full min-h-0 w-full flex-col gap-5",
+      "relative flex h-full min-h-0 w-full flex-col gap-5",
       isPhone
         ? "items-stretch justify-start px-[1.125rem] pt-6 pb-[max(1.125rem,env(safe-area-inset-bottom,0px))]"
         : "items-center justify-center px-6 py-3",
@@ -251,7 +251,8 @@
 
     <!-- On a wide pane the composer is what sits centred; the question rests
          on top of it rather than pushing it down, so the bar does not move as
-         the headline wraps. -->
+         the headline wraps. It takes the conversation's measure, so a sent
+         draft keeps its width when it becomes the session's bar. -->
     <div class={cn("relative w-full max-w-(--solus-reading-max)", isPhone && "mt-auto")}>
       {#if !isPhone}
         <div class="absolute inset-x-0 bottom-full pb-4">{@render headline()}</div>
@@ -315,13 +316,3 @@
     {@render composer(draft)}
   {/if}
 {/if}
-
-<style>
-  /* A session draft is one compact prompt surface, whether it fills the
-     leading pane or sits beside a document. Keep one stable measure so opening
-     Ask Solus cannot resize the bar. max-width still lets it contract when the
-     pane itself is narrower than the measure. */
-  .draft-column {
-    --solus-reading-max: 56rem;
-  }
-</style>
