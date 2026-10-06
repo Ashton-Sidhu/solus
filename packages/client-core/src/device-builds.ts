@@ -28,11 +28,6 @@ export function isBuildOutput(entry: Pick<DirectoryEntry, 'name' | 'isDir'>): bo
   return entry.isDir ? entry.name.endsWith('.app') : entry.name.endsWith('.apk')
 }
 
-/** Builds an Android phone can download and install itself. */
-export function downloadableBuilds(state: DeviceState | undefined): DeviceBuild[] {
-  return (state?.builds ?? []).filter((build) => build.assetId !== null)
-}
-
 /** The file name to save a downloaded build as. */
 export function buildDownloadName(build: DeviceBuild): string {
   return build.name.endsWith('.apk') ? build.name : `${build.name}.apk`

@@ -917,7 +917,7 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Full IpcContext for the active tab — passed into every stateful IPC call. */
   get ctx(): IpcContext {
-    return this.ipcContextBuilder.forActive(this.activeTabId)
+    return this.ipcContextBuilder.forTab(this.activeTabId)
   }
 
   /** IpcContext for a specific tab (used when a non-active tab must drive a call). */
