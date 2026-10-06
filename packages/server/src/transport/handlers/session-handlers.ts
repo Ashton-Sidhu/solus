@@ -363,7 +363,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // step 7); a returning lease flushes whatever went stale in the dark.
     const hadLease = activityLeases.hasForegroundLease()
     activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
-    if (!hadLease && foreground === true) sessionRuntime.sessionCheckouts.flushDeferredGitRefreshes()
+    if (!hadLease && foreground === true) sessionRuntime.checkouts.flushDeferred()
     return { ok: true }
   })
 

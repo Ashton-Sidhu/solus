@@ -55,11 +55,6 @@ export class SessionCheckouts {
     await this.rt.checkouts.name(checkout.worktreePath, prompt, this.rt, (provider) => this.rt.seatForTurn(actor, provider), preferences)
   }
 
-  setSessionGitCheckout(sessionId: string, gitContext: GitCheckout | undefined): void {
-    const cwd = gitContext?.worktreePath ?? this.sessionCheckoutPaths.get(sessionId) ?? gitContext?.repoRoot ?? '~'
-    this.setSessionGitEnvironment(sessionId, cwd, gitContext ?? null)
-  }
-
   /** Register a worktree move so Stop can abort it. Call the returned
    *  function when the move ends. */
   trackWorktreeMove(sessionId: string, controller: AbortController): () => void {
@@ -117,10 +112,6 @@ export class SessionCheckouts {
       session.gitContext = checkout
       if (session.runInput) session.runInput.gitContext = checkout
     }
-  }
-
-  flushDeferredGitRefreshes(): void {
-    this.rt.checkouts.flushDeferred()
   }
 
   listGitContexts(): GitCheckout[] {

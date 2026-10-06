@@ -51,12 +51,6 @@ const log = createLogger('SessionRuntime', 'session-runtime.ts')
  *  bound keeps one runaway session from growing the process without limit. */
 const TURN_LOG_MAX_EVENTS = 2000
 
-interface AgentTransportInfo {
-  'claude-code'?: string
-  codex?: string
-  opencode?: string
-}
-
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
@@ -685,14 +679,6 @@ export class SessionRuntime extends EventEmitter {
     await Promise.all(
       [...this.backends.values()].map((backend) => backend.refreshSessionIndex?.()),
     )
-  }
-
-  getTransportInfo(): AgentTransportInfo {
-    const result: AgentTransportInfo = {}
-    for (const [id, backend] of this.backends) {
-      result[id] = backend.metadata.capabilities?.transport || (id === 'claude-code' ? 'claude-sdk/stream-json' : 'unknown')
-    }
-    return result
   }
 
   backendFor(id: AgentId): AgentBackend {

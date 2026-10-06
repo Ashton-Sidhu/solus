@@ -22,10 +22,6 @@ export interface IpcContextBuilderDeps {
 export class IpcContextBuilder {
   constructor(private deps: IpcContextBuilderDeps) {}
 
-  forActive(tabId: string): IpcContext {
-    return this.forTab(tabId)
-  }
-
   forTab(tabId: string): IpcContext {
     const session = this.sessionCtx(tabId)
     return {

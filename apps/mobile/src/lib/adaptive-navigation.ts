@@ -56,14 +56,3 @@ export function resolveThreadSelectionOverlayState(input: {
     ],
   };
 }
-
-/**
- * On regular-width layouts, the file browser and preview occupy one workspace
- * destination. Replacing the browser route keeps a single back step to chat.
- * Compact layouts retain the browser as the previous stack screen.
- */
-export function resolveFileSelectionNavigationAction(input: {
-  readonly hasPersistentFileInspector: boolean;
-}): AdaptiveNavigationAction {
-  return input.hasPersistentFileInspector ? "replace" : "push";
-}
