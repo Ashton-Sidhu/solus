@@ -276,15 +276,3 @@ export function deriveThreadFeedColumn(input: {
     contentWidth: Math.max(0, input.viewportWidth - contentHorizontalPadding * 2),
   };
 }
-
-/**
- * Room for the title view between the bar items: bar margins, the back button,
- * and the actions' one shared glass group (about 40 points an action), as
- * UIKit lays a title view out between the left and right items.
- */
-export function threadTitleMaxWidth(headerWidth: number, actionCount: number, hasBack: boolean): number {
-  const margins = 32;
-  const back = hasBack ? 52 : 0;
-  const group = actionCount > 0 ? 16 + 40 * actionCount : 0;
-  return Math.max(0, headerWidth - margins - back - group);
-}

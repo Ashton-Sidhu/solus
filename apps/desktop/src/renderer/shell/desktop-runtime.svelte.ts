@@ -30,7 +30,6 @@ import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
 import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
 import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
-import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
 import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
 import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 
@@ -313,8 +312,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
           }
         },
       );
-      // Watches wait on a host and change state with no client in the loop.
-      const unsubWatches = subscribeWatchChanges(session.watchesStore);
       // Review requests and decisions reach the reader on every client.
       const unsubWorkReviews = subscribeWorkReviewChanges(session.worksStore, (workId) => session.openWork(workId));
       // An agent left comment threads on a plan or a work. Re-read that target's
@@ -376,7 +373,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubSessionStatuses();
         unsubUsage();
         unsubAutomations();
-        unsubWatches();
         unsubWorkReviews();
         unsubAnnotations();
         browserStore.onSurfaceRequested = null;
@@ -404,9 +400,19 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // Keep main informed of whether the live text selection sits inside the
   // conversation view, so its native right-click menu can offer "Quote in
   // reply" only there. Pushed ahead of the click (on selectionchange) so main
-  // already has the answer when the context menu fires — no IPC race.
+  // already has the answer when the context menu fires — no IPC race. A
+  // right-click on a link needs no selection, so the contextmenu event pushes
+  // the conversation under the pointer before the native menu opens.
   $effect(() => {
     let lastSourceTabId: string | null = null;
+    const pushSourceTabId = (sourceTabId: string | null) => {
+      if (sourceTabId === lastSourceTabId) return;
+      lastSourceTabId = sourceTabId;
+      localApi.setQuoteContext(sourceTabId);
+    };
+    const conversationTabIdOf = (el: Element | null | undefined) =>
+      el?.closest<HTMLElement>(".conversation-selectable")?.dataset
+        .conversationTabId ?? null;
     const onSelectionChange = () => {
       const sel = window.getSelection();
       let sourceTabId: string | null = null;
@@ -419,20 +425,22 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         sel.toString().trim()
       ) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
-        const el = node instanceof Element ? node : node.parentElement;
-        const conversation = el?.closest<HTMLElement>(
-          ".conversation-selectable",
+        sourceTabId = conversationTabIdOf(
+          node instanceof Element ? node : node.parentElement,
         );
-        sourceTabId = conversation?.dataset.conversationTabId ?? null;
       }
-      if (sourceTabId !== lastSourceTabId) {
-        lastSourceTabId = sourceTabId;
-        localApi.setQuoteContext(sourceTabId);
-      }
+      pushSourceTabId(sourceTabId);
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      pushSourceTabId(
+        event.target instanceof Element ? conversationTabIdOf(event.target) : null,
+      );
     };
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("contextmenu", onContextMenu, true);
     return () => {
       document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("contextmenu", onContextMenu, true);
       localApi.setQuoteContext(null);
     };
   });

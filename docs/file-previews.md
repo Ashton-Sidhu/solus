@@ -8,6 +8,13 @@ web, and mobile. Files outside that directory and text previews truncated at
 
 For Markdown files, select Editor or Markdown in the outlined control in the
 pane header. Editor opens the rich-text editor; Markdown opens the source.
+
+A Markdown file can become a work. Select **Save as work** in the file pane
+header, in the file's header in the diff pane, or from the command palette while
+a files pane shows the file. Solus copies the text into a new doc work on the
+host that holds the file and opens it. The title is the file's first top-level
+heading, else its file name. The work is a copy, not a mirror: later edits to
+the file do not reach the work, and edits to the work do not reach the file.
 The selected view is remembered on each desktop, web, or mobile client.
 
 File view controls and Settings use the same shared segmented control: an

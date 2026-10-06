@@ -21,7 +21,6 @@ export type GroupedItem =
   | { kind: 'plan'; message: Message }
   | { kind: 'document'; messages: Message[] }
   | { kind: 'automation'; message: Message }
-  | { kind: 'watch'; message: Message }
   | { kind: 'task'; message: Message }
   | { kind: 'browser-snapshot'; messages: Message[] }
   | { kind: 'browser-recording'; message: Message }
@@ -106,7 +105,6 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       // rather than being printed as the turn's answer.
       else if (msg.role === 'assistant' && isNoReplyNotice(msg.content)) result.push({ kind: 'system', message: msg })
       else if (msg.automationRef) result.push({ kind: 'automation', message: msg })
-      else if (msg.watchRef) result.push({ kind: 'watch', message: msg })
       else if (msg.taskRef) result.push({ kind: 'task', message: msg })
       else if (msg.browserRecording) result.push({ kind: 'browser-recording', message: msg })
       else if (msg.artifact) result.push({ kind: 'artifact', message: msg })
@@ -124,7 +122,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
  *  first token, or one that only carried thoughts. */
 function isBlankAssistant(msg: Message): boolean {
   if (msg.role !== 'assistant' || msg.content.trim()) return false
-  return !(msg.automationRef || msg.watchRef || msg.taskRef || msg.browserRecording || msg.browserSnapshot
+  return !(msg.automationRef || msg.taskRef || msg.browserRecording || msg.browserSnapshot
     || msg.artifact || msg.workRef || msg.reviewGuideRef)
 }
 
@@ -283,8 +281,6 @@ const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'artifact',
   'automation',
-  // A watch card is how the person sees and stops the wait it started.
-  'watch',
   'document',
   'agent-conversation-group',
   // The visible /review turn only queues background authoring, then ends with
@@ -454,8 +450,33 @@ export function opensSegment(msg: Message): boolean {
   if (!opensTurn(msg) || msg.browserSnapshot || (msg.workRef && !msg.artifact)) return false
   if (msg.role === 'user') return true
   if (msg.role === 'assistant') return isNoReplyNotice(msg.content)
-  return !(msg.automationRef || msg.watchRef || msg.taskRef || msg.browserRecording || msg.artifact
+  return !(msg.automationRef || msg.taskRef || msg.browserRecording || msg.artifact
     || msg.reviewGuideRef || msg.role === 'plan')
+}
+
+/**
+ * The transcript without provider switches that went there and back with
+ * nothing between them: Claude → Codex → Claude shows no divider. A switch
+ * that a later switch cancels before any message tells the reader nothing.
+ * Returns `messages` itself when no switch cancels.
+ */
+export function withoutProviderRoundTrips(messages: Message[]): Message[] {
+  let cancelled: Set<Message> | null = null
+  const openSwitches: Message[] = []
+  for (const message of messages) {
+    const activity = message.activity
+    if (activity?.kind !== 'agent_switched') {
+      openSwitches.length = 0
+      continue
+    }
+    const previous = openSwitches.at(-1)
+    if (previous?.activity?.kind === 'agent_switched' && previous.activity.fromProvider === activity.provider) {
+      openSwitches.pop()
+      cancelled ??= new Set()
+      cancelled.add(previous).add(message)
+    } else openSwitches.push(message)
+  }
+  return cancelled ? messages.filter((message) => !cancelled.has(message)) : messages
 }
 
 /**

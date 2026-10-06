@@ -125,6 +125,7 @@ export const RPC_PLANES = {
   getThreadGoal: 'collaboration',
   setThreadGoal: 'collaboration',
   clearThreadGoal: 'collaboration',
+  compactSession: 'execution',
   loadPlanAnnotations: 'collaboration',
   savePlanAnnotations: 'collaboration',
   toggleBookmarkPlan: 'collaboration',
@@ -470,12 +471,6 @@ export const RPC_PLANES = {
   automationCancel: 'execution',
   automationListRuns: 'collaboration',
   automationReadRun: 'collaboration',
-
-  // Watches: the probe and the session it wakes are on one machine
-  watchList: 'execution',
-  watchPause: 'execution',
-  watchResume: 'execution',
-  watchCancel: 'execution',
 
   // PR checks
   prChecks: 'collaboration',

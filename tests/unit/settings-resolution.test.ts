@@ -9,6 +9,7 @@ import {
   PERSONAL_SETTING_KEYS,
   personalSettingsDocumentSchema,
   personalSettingsSchema,
+  personalSettingsWithDefaults,
 } from '@solus/contracts/settings'
 
 describe('ownership', () => {
@@ -22,6 +23,16 @@ describe('ownership', () => {
 
   test('the personal defaults are a valid profile', () => {
     expect(personalSettingsSchema.safeParse(DEFAULT_PERSONAL_SETTINGS).success).toBe(true)
+  })
+
+  test('a profile with no lens choice starts with Show me, but a saved choice is preserved', () => {
+    const lenses = personalSettingsWithDefaults({}).savedLenses
+    expect(lenses).toHaveLength(1)
+    expect(lenses[0].name).toBe('Show me')
+    expect(lenses[0].prompt).toContain('plugins/show-me/skills/show-me/SKILL.md')
+    expect(personalSettingsWithDefaults({ savedLenses: [] }).savedLenses).toEqual([])
+    const custom = [{ id: 'custom', name: 'My lens', prompt: 'Show the data flow.' }]
+    expect(personalSettingsWithDefaults({ savedLenses: custom }).savedLenses).toEqual(custom)
   })
 
   test('a host accepts no personal or device key', () => {

@@ -19,7 +19,6 @@ export function registerAutomationsHandlers(backend: DemoServer, store: DemoStor
   const broadcast = (event: AutomationsChangedEvent) => backend.broadcast('automation.changed', event)
   backend.register('automationList', () => store.listAutomations())
   // The demo has no host to probe, so no session has a watch.
-  backend.register('watchList', () => [])
   backend.register('automationRead', (args) => store.readAutomation(arg<string>(args, 0)))
   backend.register('automationListRuns', (args) => store.listAutomationRuns(arg<string>(args, 0)))
   backend.register('automationReadRun', (args) => store.readAutomationRun(arg<string>(args, 0), arg<string>(args, 1)))

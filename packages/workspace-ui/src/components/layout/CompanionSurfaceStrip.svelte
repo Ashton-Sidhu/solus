@@ -189,7 +189,7 @@
 </script>
 
 <div
-  class="no-drag flex h-10 shrink-0 items-center gap-1 pr-2.5 pl-[max(0.5rem,var(--solus-chrome-lead-inset,0px))] pointer-coarse:h-12 {activeIsPage
+  class="no-drag flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1 pr-2.5 pl-[max(0.5rem,var(--solus-chrome-lead-inset,0px))] pointer-coarse:h-12 {activeIsPage
     ? 'bg-background'
     : ''}"
 >

@@ -168,7 +168,7 @@ function AttachmentFileCard(props: {
         </Text>
       </View>
       {props.onPress ? (
-        <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" type="monochrome" />
+        <SymbolView name="chevron.right" size={12} tintColorClassName="accent-foreground-muted" type="monochrome" />
       ) : null}
     </Pressable>
   );

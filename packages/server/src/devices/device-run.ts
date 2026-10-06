@@ -11,6 +11,7 @@ import {
   type DeviceRun,
   type DeviceRunLog,
   type DeviceRunProfile,
+  type DeviceSummary,
 } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
@@ -25,7 +26,8 @@ const log = createLogger('devices', 'device-run.ts')
 /**
  * Build and run (plan 016, S02): build a project's saved run profile in the
  * conversation's checkout, find the app it made, record it as a build,
- * install it on the chosen device and open it. Solus starts the build
+ * install it on the chosen device and open it. Without a device, the run
+ * stops once the build is recorded: a new build under Builds. Solus starts the build
  * process, so Cancel stops exactly that process and its children, never
  * anything found by name.
  *
@@ -99,6 +101,13 @@ export async function findArtifact(base: string, pattern: string): Promise<strin
   return newest?.path ?? null
 }
 
+/** The device fields of a run: the device it installs on, or none for a build only added under Builds. */
+function runDevice(device: DeviceSummary | null) {
+  return device
+    ? { deviceHostId: device.deviceHostId, deviceId: device.deviceId, deviceName: device.name }
+    : { deviceHostId: null, deviceId: null, deviceName: null }
+}
+
 export class DeviceRuns {
   private readonly records: RunRecord[] = []
   private approvals: Set<string>
@@ -129,10 +138,8 @@ export class DeviceRuns {
     return { runId, text: record.log, truncated: record.truncated }
   }
 
-  async start(request: { checkoutPath: string; profileName: string; deviceHostId: string; deviceId: string; sessionId?: string | undefined; approve?: boolean | undefined }, holder: DeviceControlHolder & { kind: 'user' }): Promise<DeviceRun> {
-    if (request.deviceHostId !== LOCAL_DEVICE_HOST_ID) {
-      throw new DeviceDomainError('action_unsupported', 'Build and run works only with devices connected to the Solus host itself.')
-    }
+  async start(request: { checkoutPath: string; profileName: string; deviceHostId?: string | undefined; deviceId?: string | undefined; sessionId?: string | undefined; approve?: boolean | undefined }, holder: DeviceControlHolder & { kind: 'user' }): Promise<DeviceRun> {
+    const device = await this.installTarget(request)
     const checkoutPath = resolveHomePath(request.checkoutPath)
     if (!isAbsolute(checkoutPath) || !(await stat(checkoutPath).catch(() => null))?.isDirectory()) {
       throw new DeviceDomainError('invalid_request', 'The conversation\'s checkout is not on this host.')
@@ -144,8 +151,7 @@ export class DeviceRuns {
     const cwd = resolve(checkoutRoot, profile.cwd)
     const inside = relative(checkoutRoot, cwd)
     if (inside.startsWith('..') || isAbsolute(inside)) throw new DeviceDomainError('invalid_request', `The build folder ${profile.cwd} is outside the project.`)
-    const { device } = await this.deps.manager.resolveDevice(request.deviceHostId, request.deviceId)
-    if (device.platform !== profile.platform) throw new DeviceDomainError('invalid_request', `"${profile.name}" builds for ${profile.platform}, and ${device.name} is not.`)
+    if (device && device.platform !== profile.platform) throw new DeviceDomainError('invalid_request', `"${profile.name}" builds for ${profile.platform}, and ${device.name} is not.`)
 
     const approval = createHash('sha256').update(JSON.stringify([checkoutRoot, profile.cwd, profile.command])).digest('hex')
     if (!this.approvals.has(approval)) {
@@ -172,10 +178,9 @@ export class DeviceRuns {
         runId: `devrun_${randomUUID()}`,
         profileName: profile.name,
         checkout: basename(checkoutRoot),
+        checkoutPath,
         branch: branch.code === 0 ? branch.stdout.trim() || null : null,
-        deviceHostId: device.deviceHostId,
-        deviceId: device.deviceId,
-        deviceName: device.name,
+        ...runDevice(device),
         stage: 'building',
         lastLine: null,
         error: null,
@@ -189,6 +194,16 @@ export class DeviceRuns {
     this.deps.changed()
     void this.execute(record, profile, cwd, request.sessionId, holder)
     return { ...record.run }
+  }
+
+  /** The device a run installs on, or null when it only adds the build under Builds. */
+  private async installTarget(request: { deviceHostId?: string | undefined; deviceId?: string | undefined }): Promise<DeviceSummary | null> {
+    if (!request.deviceId) return null
+    const deviceHostId = request.deviceHostId ?? LOCAL_DEVICE_HOST_ID
+    if (deviceHostId !== LOCAL_DEVICE_HOST_ID) {
+      throw new DeviceDomainError('action_unsupported', 'Build and run works only with devices connected to the Solus host itself.')
+    }
+    return (await this.deps.manager.resolveDevice(deviceHostId, request.deviceId)).device
   }
 
   cancel(runId: string): void {
@@ -229,6 +244,7 @@ export class DeviceRuns {
       if (!artifact) return this.finish(record, 'failed', `The build finished, but nothing matches ${profile.artifact} in ${profile.cwd}. Check the profile's output path.`)
       const build = await manager.addBuild(artifact, sessionId ?? record.run.runId, profile.appId || undefined)
       record.run.buildId = build.buildId
+      if (!record.run.deviceHostId || !record.run.deviceId) return this.finish(record, 'done', null)
       record.run.stage = 'installing'
       this.deps.changed()
 

@@ -50,11 +50,6 @@ export const SOLUS_TOOL_GROUPS = [
     'list_automation_runs',
     'read_automation_run',
   ] },
-  { id: 'watches', label: 'Watches', tools: [
-    'watch',
-    'list_watches',
-    'cancel_watch',
-  ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
   ] },

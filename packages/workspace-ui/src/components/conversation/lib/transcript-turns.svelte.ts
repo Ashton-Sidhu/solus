@@ -6,6 +6,7 @@ import {
   opensSegment,
   reuseGroupedItems,
   runContinuesBefore,
+  withoutProviderRoundTrips,
   type GroupedItem,
   type Turn,
 } from './turns'
@@ -120,7 +121,9 @@ export class TranscriptTurns {
   }
 
   readonly segments: TranscriptSegment[] = $derived.by(() => {
-    const messages = this.rows(this.messages())
+    // Untracked like `startsSegment`: a switch's activity is set when the row is made.
+    const rows = this.rows(this.messages())
+    const messages = untrack(() => withoutProviderRoundTrips(rows))
     const previousByFirst = new Map<Message, TranscriptSegment>()
     for (const segment of this.previousSegments) previousByFirst.set(segment.messages[0], segment)
     const segments: TranscriptSegment[] = []

@@ -54,6 +54,12 @@ describe('saved server identity', () => {
     expect(installationIdDecision('reported', 'reported')).toBe('match')
     expect(installationIdDecision('saved', 'reported')).toBe('mismatch')
   })
+
+  test('a managed host is proven by its grant, not by the id its server made for itself', () => {
+    const managed = { hostId: 'bills', directoryUrl: 'https://app.solus.sh', kind: 'managed' as const, category: 'managed' as const, organizationIds: ['org'], managedState: 'ready' as const }
+    expect(installationIdDecision('managed:bills', 'a37b55ff', managed)).toBe('match')
+    expect(installationIdDecision('inst-a', 'someone-else', { ...managed, kind: 'personal', category: 'personal' })).toBe('mismatch')
+  })
 })
 
 describe('lazily created connections', () => {

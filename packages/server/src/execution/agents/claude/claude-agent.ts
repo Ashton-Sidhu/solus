@@ -6,9 +6,9 @@ import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { findOnPath, warmCliPath } from '../../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
-import { parseClaudeUsageReport } from './claude-usage'
+import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
 import { toContextBreakdown } from './claude-context-usage'
-import type { ClaudeUsageWindows } from './claude-usage'
+import type { ClaudeUsageReport, ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
 import type { ResultEvent } from '@solus/contracts/claude-types'
 import { z } from 'zod'
@@ -217,6 +217,19 @@ const autoAllow: CanUseTool = async (_toolName, input) => ({ behavior: 'allow', 
  * no permission UI. Usable for background tasks (title/summary generation)
  * and composed into `ClaudeBackend` for session-tied runs.
  */
+/** Quota is account-wide, so a usage read deliberately runs outside any
+ *  project: no settings, no session file, nothing to leak into a transcript. */
+function usageQueryOptions(executable: string, seat: ClaudeSeat | undefined, abortController: AbortController): Options {
+  return {
+    cwd: resolveHomePath(homedir()),
+    settingSources: [],
+    abortController,
+    pathToClaudeCodeExecutable: executable,
+    extraArgs: { 'no-session-persistence': null },
+    env: claudeEnv(seat),
+  }
+}
+
 export class ClaudeAgent {
   run(opts: ClaudeRunOptions): ClaudeRunExecution {
     const abortController = opts.abortController ?? new AbortController()
@@ -453,46 +466,82 @@ export class ClaudeAgent {
   }
 
   /**
-   * Read the subscription quota windows by running `/usage` headless. The slash
-   * command costs $0 and zero turns — it never reaches the model — so this is
-   * cheap enough to poll. Returns null when the report doesn't parse. Under a
-   * pasted setup-token the command degrades to a cost report with no windows
+   * Read the subscription quota windows and plan tier. Asks the SDK's
+   * structured usage API first, which gives exact reset times; falls back to
+   * the `/usage` text report when this SDK lacks the method or the call fails.
+   * Under a pasted setup-token the account has no plan limits to read
    * (proof of 2026-09-04), so a token seat is not probed at all.
    */
-  async readUsageReport(seat?: ClaudeSeat): Promise<ClaudeUsageWindows | null> {
+  async readUsageReport(seat?: ClaudeSeat): Promise<ClaudeUsageReport | null> {
     if (seat?.envToken) return null
-    const usageQuery = query({
-      prompt: '/usage',
-      options: {
-        // Quota is account-wide, so this deliberately runs outside any project:
-        // no project settings, no session file, nothing to leak into a transcript.
-        cwd: resolveHomePath(homedir()),
-        settingSources: [],
-        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
-        extraArgs: { 'no-session-persistence': null },
-        env: claudeEnv(seat),
-      },
-    })
-    for await (const message of usageQuery) {
-      if (message.type !== 'result') continue
-      if (message.subtype !== 'success') {
-        // Silent before: a meter that stays empty had nothing in the log to explain it.
-        log.warn('usage_report_failed', { subtype: message.subtype, seat: seat?.home ?? null })
-        return null
-      }
-      const windows = parseClaudeUsageReport(message.result)
-      // A half-read report is the signature of a wording change, and the
-      // missing window silently disappears from the panel. Keep the text that
-      // defeated the parser so the next occurrence is diagnosable.
-      if (!windows?.fiveHour || !windows?.weekly) {
-        log.warn('usage_report_partially_parsed', {
-          hasFiveHour: !!windows?.fiveHour,
-          hasWeekly: !!windows?.weekly,
-          report: message.result,
-        })
-      }
-      return windows
+    const executable = await resolveClaudeExecutable()
+    try {
+      return await this.readUsageFromApi(executable, seat)
+    } catch (error) {
+      log.warn('claude_usage_api_failed', { error: error instanceof Error ? error.message : String(error) })
     }
-    return null
+    const windows = await this.readUsageFromSlashCommand(executable, seat)
+    return windows && { ...windows, planType: null }
+  }
+
+  /** Throws when the method is missing or fails, so the caller falls back. */
+  private async readUsageFromApi(executable: string, seat?: ClaudeSeat): Promise<ClaudeUsageReport | null> {
+    const abortController = new AbortController()
+    // Streaming input with no turn, as in `supportedCommands`: control requests
+    // need an open process, and no prompt ever reaches the model.
+    async function* emptyInput(): AsyncGenerator<never> {
+      await new Promise<void>((resolve) =>
+        abortController.signal.addEventListener('abort', () => resolve(), { once: true }))
+      yield* []
+    }
+    const usageQuery = query({
+      prompt: emptyInput(),
+      options: usageQueryOptions(executable, seat, abortController),
+    })
+    const drain = (async () => { try { for await (const _ of usageQuery) { /* until aborted */ } } catch { /* aborted */ } })()
+    try {
+      if (typeof usageQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET !== 'function') {
+        throw new Error('usage API not available in this Claude Agent SDK')
+      }
+      // Only the rate limits are read: skip the scan of local transcripts that
+      // fills `behaviors`, which takes 5+ s on a large history.
+      const response = await usageQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+      return claudeUsageFromApi(response)
+    } finally {
+      abortController.abort()
+      await drain.catch(() => {})
+    }
+  }
+
+  /** Runs `/usage` headless and parses its text. The slash command costs $0
+   *  and zero turns — it never reaches the model. */
+  private async readUsageFromSlashCommand(executable: string, seat?: ClaudeSeat): Promise<ClaudeUsageWindows | null> {
+    const abortController = new AbortController()
+    const usageQuery = query({ prompt: '/usage', options: usageQueryOptions(executable, seat, abortController) })
+    try {
+      for await (const message of usageQuery) {
+        if (message.type !== 'result') continue
+        if (message.subtype !== 'success') {
+          // Silent before: a meter that stays empty had nothing in the log to explain it.
+          log.warn('usage_report_failed', { subtype: message.subtype, seat: seat?.home ?? null })
+          return null
+        }
+        const windows = parseClaudeUsageReport(message.result)
+        // A half-read report is the signature of a wording change, and the
+        // missing window silently disappears from the panel. Keep the text that
+        // defeated the parser so the next occurrence is diagnosable.
+        if (!windows?.fiveHour || !windows?.weekly) {
+          log.warn('usage_report_partially_parsed', {
+            hasFiveHour: !!windows?.fiveHour,
+            hasWeekly: !!windows?.weekly,
+            report: message.result,
+          })
+        }
+        return windows
+      }
+      return null
+    } finally {
+      abortController.abort()
+    }
   }
 }

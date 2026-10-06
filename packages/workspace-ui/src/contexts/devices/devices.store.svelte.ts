@@ -20,7 +20,8 @@ import type {
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
 import { DeviceStreamEnded } from '@solus/client-core/device-hub-stream'
-import { buildDownloadName, installDeviceBuild } from '@solus/client-core/device-builds'
+import { buildDownloadName, installDeviceBuild, startDeviceRun } from '@solus/client-core/device-builds'
+import { saveRunProfiles } from '@solus/client-core/device-run-profiles'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 
@@ -287,10 +288,7 @@ export class DevicesStore {
 
   /** Replace the checkout's build profiles. The rest of the project config is kept. */
   async saveRunProfiles(serverId: string, checkoutPath: string, profiles: DeviceRunProfile[]): Promise<void> {
-    const api = serverConnections.apiFor(serverId)
-    const config = (await api.projectConfigLoad(checkoutPath)) ?? { version: 1 as const }
-    const saved = await api.projectConfigSave(checkoutPath, { ...config, deviceRuns: profiles })
-    this.profiles.set(`${serverId}\u0000${checkoutPath}`, saved.deviceRuns ?? null)
+    this.profiles.set(`${serverId}\u0000${checkoutPath}`, await saveRunProfiles(serverConnections.apiFor(serverId), checkoutPath, profiles))
   }
 
   runs(serverId: string): DeviceRun[] {
@@ -298,19 +296,12 @@ export class DevicesStore {
   }
 
   /**
-   * Start a build and run. The host asks once per command, because profiles
-   * come from the repository; `confirm` shows that question to the person.
+   * Start a build, then install it on the device named, if any; without one
+   * it is only added under Builds. The host asks once per command, because
+   * profiles come from the repository; `confirm` shows that question.
    */
-  async startRun(serverId: string, request: { checkoutPath: string; profileName: string; deviceHostId: string; deviceId: string; sessionId?: string }, confirm: (question: string) => boolean): Promise<DeviceRun | null> {
-    const api = serverConnections.apiFor(serverId)
-    try {
-      return await api.deviceRunStart(request)
-    } catch (cause) {
-      const parsed = parseDeviceError(cause instanceof Error ? cause.message : String(cause))
-      if (parsed?.code !== 'confirmation_required') throw cause
-      if (!confirm(parsed.message)) return null
-      return api.deviceRunStart({ ...request, approve: true })
-    }
+  startRun(serverId: string, request: { checkoutPath: string; profileName: string; deviceHostId?: string; deviceId?: string; sessionId?: string }, confirm: (question: string) => boolean): Promise<DeviceRun | null> {
+    return startDeviceRun(serverConnections.apiFor(serverId), request, confirm)
   }
 
   cancelRun(serverId: string, runId: string): Promise<void> {

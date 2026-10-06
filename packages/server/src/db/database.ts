@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { SQLInputValue } from 'node:sqlite'
-import type { SQL } from 'drizzle-orm'
+import { DrizzleQueryError, type SQL } from 'drizzle-orm'
 import { drizzle as drizzlePostgres, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import { drizzle as drizzleSqliteProxy, type SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
@@ -81,6 +81,24 @@ async function withCommitCallbacks<T>(commit: () => Promise<T>): Promise<T> {
   return result
 }
 
+/**
+ * Report what the driver said, not what Drizzle wrapped it in.
+ *
+ * Drizzle raises `DrizzleQueryError`, whose message is the statement and every
+ * bound value. That message is what a failed turn shows a person: the reason —
+ * `no such column`, `database is locked` — is buried in its cause, and the
+ * payload of the write is printed in its place. The wrapper stays as the cause,
+ * so a log still has the statement.
+ */
+async function driverReason<T>(query: () => Promise<T>): Promise<T> {
+  try {
+    return await query()
+  } catch (error) {
+    if (!(error instanceof DrizzleQueryError) || !error.cause) throw error
+    throw new Error(error.cause.message, { cause: error })
+  }
+}
+
 /** postgres-js sends `undefined` as an error and SQLite refuses it; every absent value is NULL. */
 function nullForUndefined(params: unknown[]): SQLInputValue[] {
   // SAFETY: Drizzle binds the primitives a `sql` template carries; SQLite accepts each of them.
@@ -113,7 +131,7 @@ class SqliteDb implements RootDb {
   }
 
   all<T>(query: SQL): Promise<T[]> {
-    return activeTransaction.getStore()?.all<T>(query) ?? this.drizzle.all<T>(query)
+    return activeTransaction.getStore()?.all<T>(query) ?? driverReason(() => this.drizzle.all<T>(query))
   }
 
   async get<T>(query: SQL): Promise<T | undefined> {
@@ -123,7 +141,7 @@ class SqliteDb implements RootDb {
   async run(query: SQL): Promise<{ changes: number }> {
     const tx = activeTransaction.getStore()
     if (tx) return tx.run(query)
-    const result = await this.drizzle.run(query)
+    const result = await driverReason(() => this.drizzle.run(query))
     return { changes: Number(result.rows?.[0] ?? 0) }
   }
 
@@ -145,7 +163,7 @@ class SqliteTransaction implements Db {
   constructor(private readonly drizzle: SqliteRemoteDatabase) {}
 
   all<T>(query: SQL): Promise<T[]> {
-    return this.drizzle.all<T>(query)
+    return driverReason(() => this.drizzle.all<T>(query))
   }
 
   async get<T>(query: SQL): Promise<T | undefined> {
@@ -153,7 +171,7 @@ class SqliteTransaction implements Db {
   }
 
   async run(query: SQL): Promise<{ changes: number }> {
-    const result = await this.drizzle.run(query)
+    const result = await driverReason(() => this.drizzle.run(query))
     return { changes: Number(result.rows?.[0] ?? 0) }
   }
 
@@ -172,7 +190,7 @@ class PostgresTransaction implements Db {
   constructor(private readonly executor: PgExecutor) {}
 
   async all<T>(query: SQL): Promise<T[]> {
-    const result = await tallied(() => this.executor.execute(query))
+    const result = await tallied(() => driverReason(() => this.executor.execute(query)))
     // SAFETY: the caller's row schema validates the shape; the driver returns plain objects.
     return [...result] as T[]
   }
@@ -183,7 +201,7 @@ class PostgresTransaction implements Db {
   }
 
   async run(query: SQL): Promise<{ changes: number }> {
-    const result = await tallied(() => this.executor.execute(query))
+    const result = await tallied(() => driverReason(() => this.executor.execute(query)))
     return { changes: result.count }
   }
 

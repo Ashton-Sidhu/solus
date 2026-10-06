@@ -1,6 +1,7 @@
 import { createLogger, type Logger } from '../../logger'
 import { githubCredentialChain } from './credentials'
 import { clientFor, isGithubCredentialAccessFailure, type GitHubClient } from './octokit'
+import { githubRateLimitOf } from './rate-limit'
 
 const log = createLogger('main', 'github-provider')
 
@@ -13,8 +14,10 @@ export async function githubClients(host: string, credentialCwd?: string): Promi
  * Run one GitHub operation with the first credential GitHub accepts.
  *
  * A 401, 403, or repository-hiding 404 is about the credential, so the same
- * operation moves to the next account. Validation and domain failures remain
- * final. `gh auth` is the last credential in the chain, not a second transport.
+ * operation moves to the next account. A rate limit is final and thrown as
+ * `GitHubRateLimitedError`: the next credential is often the same account, and
+ * a second request would only spend more of its quota. Validation and domain
+ * failures remain final. `gh auth` is the last credential in the chain, not a second transport.
  */
 export async function runGithubRequest<Result>(
   operation: string,
@@ -47,6 +50,16 @@ export async function runGithubRequest<Result>(
       return await run(client)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      const rateLimited = githubRateLimitOf(error)
+      if (rateLimited) {
+        requestLogger.warn('github_request_rate_limited', {
+          operation,
+          host,
+          source: client.credential.source,
+          retryAt: rateLimited.retryAt === null ? null : new Date(rateLimited.retryAt).toISOString(),
+        })
+        throw rateLimited
+      }
       if (!isGithubCredentialAccessFailure(error)) {
         requestLogger.error('github_request_failed', {
           operation,

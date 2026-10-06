@@ -533,7 +533,7 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
 - `files/` — the file finder, previews, browsing, and project folder helpers.
 - `boot-core.ts` and `boot-server.ts` — process composition.
 - `git/`, `review/`, `plans/`, `skills/`, `project-config/`, `providers/`, `browser/`,
-  `sharing/`, `watches/`, `vault/`, and `google/` — focused domains.
+  `sharing/`, `vault/`, and `google/` — focused domains.
 - `platform/` — injected host paths, opener, secrets, and operating-system behavior.
 
 ### `packages/client-core/src/` — transport-neutral client core

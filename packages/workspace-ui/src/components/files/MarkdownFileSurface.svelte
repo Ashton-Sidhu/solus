@@ -134,6 +134,12 @@
     renderedContents = sourceEditorRef?.getCurrentContents() ?? renderedContents;
   }
 
+  /** The text as the reader sees it now, before any pending save. */
+  export function currentContents(): string {
+    if (mode === "rendered") return richEditorRef?.getCurrentMarkdown() ?? renderedContents;
+    return sourceEditorRef?.getCurrentContents() ?? renderedContents;
+  }
+
   export function focus() {
     if (mode === "rendered") richEditorRef?.focus();
     else sourceEditorRef?.focus();

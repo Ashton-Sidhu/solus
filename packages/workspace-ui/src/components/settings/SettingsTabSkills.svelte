@@ -13,6 +13,7 @@
   import type { RemoteSkill } from "@solus/contracts/types";
   import { supportsSettingsSurface } from "@solus/client-core/host-capabilities";
   import { skillsForHost, ListWindow, SkillSearch } from "./skills.store.svelte";
+  import { toasts } from "../../lib/toasts";
 
   interface Props { serverId: string; api: HostApi; hostLabel: string }
   let { serverId, api, hostLabel }: Props = $props();
@@ -92,13 +93,17 @@
 
   async function install(skill: RemoteSkill) {
     const targetServerId = serverId;
-    if (await inventory.install(api, skill, canManage)) refreshCommands(targetServerId);
+    if (await inventory.install(api, skill, canManage)) {
+      toasts.success(`${skill.name} installed globally`);
+      refreshCommands(targetServerId);
+    }
     if (targetServerId === serverId) searchEl?.focus();
   }
 
   async function remove(name: string) {
     const targetServerId = serverId;
     if (await inventory.remove(api, name)) {
+      toasts.success(`${name} removed globally`);
       refreshCommands(targetServerId);
       if (targetServerId === serverId) { confirmRemove = null; filterEl?.focus(); }
     }
@@ -121,7 +126,6 @@
 {:else if !isSupported}
   <SettingsHostUnsupported feature="Skills" {hostLabel} />
 {:else}
-  {#if inventory.message}<p class="px-0.5 text-workspace-chrome text-(--solus-accent)" role="status">{inventory.message}</p>{/if}
 
   {#if isAdding}
     <SettingsSection label="Add from skills.sh" description="Installs for {audience}.">

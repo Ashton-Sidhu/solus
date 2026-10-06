@@ -61,6 +61,7 @@ import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
+import { CompactionDivider } from "./thread-context-divider";
 
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
 // Let neighboring rows move out of the new rows' space before showing their text.
@@ -361,6 +362,10 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
 
   if (row.type === "notice") {
     return <NoticeRow store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
+  }
+
+  if (row.type === "compaction") {
+    return <CompactionDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
   }
 
   if (row.type === "plan") {

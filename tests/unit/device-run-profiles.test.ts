@@ -1,15 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceRun, DeviceSummary } from '@solus/contracts/device-types'
-import {
-  RUN_PROFILE_PRESETS,
-  joinCommand,
-  phoneTarget,
-  profileDraft,
-  profilesForDevice,
-  profilesFromDrafts,
-  shownRun,
-  splitCommand,
-} from '@solus/workspace-ui/components/devices/lib/run-profiles'
+import { phoneTarget, profilesForDevice, shownRun } from '@solus/workspace-ui/components/devices/lib/run-profiles'
+import { RUN_PROFILE_PRESETS, joinCommand, profileDraft, profilesFromDrafts, saveRunProfiles, splitCommand } from '@solus/client-core/device-run-profiles'
+import { newBuildsRunning, profileTargetLabel, shownNewBuild } from '@solus/client-core/device-builds'
 
 /**
  * The Build & run editor and toolbar (plan 016, S02). The command a person
@@ -60,11 +53,55 @@ describe('run profiles', () => {
   })
 
   test('the toolbar shows a build in progress, or the last one when it failed', () => {
-    const run = (stage: DeviceRun['stage']): DeviceRun => ({ runId: stage, profileName: 'iOS simulator', checkout: 'app', branch: 'main', deviceHostId: 'local', deviceId: 'SIM-1', deviceName: 'iPhone 17', stage, lastLine: null, error: null, buildId: null, startedAt: 1, endedAt: null })
+    const run = (stage: DeviceRun['stage']): DeviceRun => ({ runId: stage, profileName: 'iOS simulator', checkout: 'app', checkoutPath: '/code/app', branch: 'main', deviceHostId: 'local', deviceId: 'SIM-1', deviceName: 'iPhone 17', stage, lastLine: null, error: null, buildId: null, startedAt: 1, endedAt: null })
     expect(shownRun([run('building')], simulator)?.stage).toBe('building')
     expect(shownRun([run('failed')], simulator)?.stage).toBe('failed')
     // A finished run leaves the button free for the next one.
     expect(shownRun([run('done'), run('failed')], simulator)).toBeNull()
     expect(shownRun([run('building')], phone)).toBeNull()
+  })
+})
+
+describe('saving build profiles', () => {
+  test('saving replaces the profiles and keeps the rest of the project config', async () => {
+    // WHY: desktop and mobile both save here; the project's other settings must survive either.
+    let written: unknown = null
+    const api = {
+      projectConfigLoad: async () => ({ version: 1 as const, tasksAutoPushComments: true, deviceRuns: [] }),
+      projectConfigSave: async (_path: string, config: { deviceRuns?: unknown }) => { written = config; return config as never },
+    }
+    const profile = RUN_PROFILE_PRESETS[1]!.profile
+    expect(await saveRunProfiles(api as never, '/code/app', [profile])).toEqual([profile])
+    expect(written).toEqual({ version: 1, tasksAutoPushComments: true, deviceRuns: [profile] })
+  })
+})
+
+describe('new build on the Builds page', () => {
+  test('profiles name what they build for, so a phone build is not mistaken for a simulator one', () => {
+    // WHY: a simulator build cannot go on a phone; the menu must say which is which.
+    expect(profileTargetLabel({ platform: 'ios', target: 'device' })).toBe('iPhone or iPad')
+    expect(profileTargetLabel({ platform: 'ios', target: 'simulator' })).toBe('iOS Simulator')
+    expect(profileTargetLabel({ platform: 'android', target: 'any' })).toBe('Android')
+  })
+
+  test('the page shows only its own checkout\'s new build, while it runs or after it failed', () => {
+    const run = (fields: Partial<DeviceRun>): DeviceRun => ({ runId: 'r', profileName: 'iOS device', checkout: 'app', checkoutPath: '/code/app', branch: null, deviceHostId: null, deviceId: null, deviceName: null, stage: 'building', lastLine: null, error: null, buildId: null, startedAt: 1, endedAt: null, ...fields })
+    expect(shownNewBuild([run({})], '/code/app')?.runId).toBe('r')
+    expect(shownNewBuild([run({ stage: 'failed' })], '/code/app')?.stage).toBe('failed')
+    expect(shownNewBuild([run({ stage: 'done' })], '/code/app')).toBeNull()
+    // A Build & run on a device belongs to the device toolbar.
+    expect(shownNewBuild([run({ deviceHostId: 'local', deviceId: 'SIM-1', deviceName: 'iPhone 17' })], '/code/app')).toBeNull()
+  })
+
+  test('two checkouts with the same folder name never share a new build', () => {
+    // WHY: worktrees of different projects are often all called "app" or
+    // "main"; matching on the folder name showed one project's build, and
+    // blocked its profile, on the other's page.
+    const run = (fields: Partial<DeviceRun>): DeviceRun => ({ runId: 'r', profileName: 'iOS device', checkout: 'app', checkoutPath: '/code/one/app', branch: null, deviceHostId: null, deviceId: null, deviceName: null, stage: 'building', lastLine: null, error: null, buildId: null, startedAt: 1, endedAt: null, ...fields })
+    const other = run({ runId: 'other', checkoutPath: '/code/two/app' })
+    expect(shownNewBuild([other], '/code/one/app')).toBeNull()
+    expect(newBuildsRunning([other], '/code/one/app').size).toBe(0)
+    expect(shownNewBuild([other, run({})], '/code/one/app')?.runId).toBe('r')
+    expect([...newBuildsRunning([other, run({})], '/code/one/app')]).toEqual(['iOS device'])
   })
 })

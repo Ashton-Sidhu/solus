@@ -22,6 +22,7 @@ import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { projectSessionHistory, resolvePendingStarts, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
+import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
@@ -48,7 +49,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> =>
     isApiMode()
       ? readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
-      : resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
+      : resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(storePromptImages(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit))))
   /** A session's activity for a history read (plans/012 §5). */
   const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string) =>
     activityFor(recordScopeOf(handlerCtx.principal), sessionRuntime.sessionActivitySubject(sessionId))
@@ -134,7 +135,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const pageRequest = { ...request, before: cursor.before }
     const page: SessionHistoryPage = isApiMode()
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await sessionRuntime.history.loadSessionPage(pageRequest).then(async (loaded) => ({ messages: await resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(loaded.messages)), before: loaded.before }))
+      : await sessionRuntime.history.loadSessionPage(pageRequest).then(async (loaded) => ({ messages: await resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(storePromptImages(loaded.messages))), before: loaded.before }))
     const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId), cursor.at)
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {

@@ -8,6 +8,7 @@
     "userInterfaceStyle": "automatic",
     "icon": "../../resources/icon.png",
     "ios": {
+      "icon": "./assets/icon-ios.png",
       "bundleIdentifier": "sh.solus.mobile",
       "supportsTablet": true,
       "requireFullScreen": false,

@@ -6,6 +6,7 @@ import { Database } from 'bun:sqlite'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Provider } from '@solus/server/providers/types'
+import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
 
 /** The person every change in this file is made by. */
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
@@ -66,11 +67,14 @@ function codeHost(name: string) {
     numberReads: [] as number[][],
     branchReads: 0,
     fail: false,
+    /** The next recent-list read answers with this rate limit. */
+    limited: null as GitHubRateLimitedError | null,
   }
   providers.set(name, { review: {
     listRecentPullRequests: async (_repo: RepoRef, since: string | null) => {
       host.recentReads += 1
       if (host.fail) throw new Error('unreachable')
+      if (host.limited) throw host.limited
       return host.rows.filter((row) => since === null || row.updatedAt > since)
     },
     getPullRequests: async (_repo: RepoRef, numbers: number[]) => {
@@ -146,6 +150,37 @@ describe('cost', () => {
     now += 5 * 60_000 + 1
     await sync.tick()
     expect(host.recentReads).toBe(2)
+  })
+})
+
+describe('rate limits', () => {
+  test('a rate-limited repository, and every repository on its code host, waits until the reset time', async () => {
+    const first = codeHost('limited-a')
+    const second = codeHost('limited-b')
+    await taskLinking(first.scope, [1])
+    await taskLinking(second.scope, [1])
+    let now = Date.now()
+    const retryAt = now + 20 * 60_000
+    first.host.limited = new GitHubRateLimitedError(retryAt)
+    second.host.limited = new GitHubRateLimitedError(retryAt)
+    const sync = new PrSync({ publish: () => {}, now: () => now })
+
+    await sync.tick()
+    // One request found the spent quota; the other repository did not spend another.
+    expect(first.host.recentReads + second.host.recentReads).toBe(1)
+
+    // Past the fixed failure backoff, still before the reset GitHub gave.
+    now += 10 * 60_000
+    await sync.tick()
+    expect(first.host.recentReads + second.host.recentReads).toBe(1)
+
+    first.host.limited = null
+    second.host.limited = null
+    now = retryAt
+    await sync.tick()
+    // At the reset both are read: the limited one again, the skipped one for the first time.
+    expect(first.host.recentReads + second.host.recentReads).toBe(3)
+    expect(Math.min(first.host.recentReads, second.host.recentReads)).toBe(1)
   })
 })
 
@@ -449,6 +484,12 @@ describe('client interest', () => {
     expect(checkReads).toBe(2)
     // Unchanged check runs are not sent again.
     expect(checks).toEqual([5])
+    // A fast pass reads check runs only; the recent list keeps its minute.
+    expect(host.recentReads).toBe(1)
+    now += 45_000
+    await sync.tick()
+    expect(checkReads).toBe(3)
+    expect(host.recentReads).toBe(2)
   })
 })
 

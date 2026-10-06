@@ -135,6 +135,26 @@ describe('build and run', () => {
     expect(manager.control.state({ deviceHostId: 'local', deviceId: 'PHONE-1' }).lease).toBeNull()
   })
 
+  test('a new build without a device is added under Builds and installs nothing', async () => {
+    // WHY: New build on the Builds page makes a device build for a plugged-in
+    // phone without an open simulator; Run installs it later.
+    const { manager, runs, user, checkout, children, commands } = setup()
+    const started = await runs.start({ checkoutPath: checkout, profileName: 'iOS device', approve: true }, user)
+    expect([started.deviceHostId, started.deviceId, started.deviceName]).toEqual([null, null, null])
+    // The exact checkout, so a page matches its own build and not one in a folder of the same name.
+    expect(started.checkoutPath).toBe(checkout)
+    // A second click while it builds watches the same build.
+    expect((await runs.start({ checkoutPath: checkout, profileName: 'iOS device' }, user)).runId).toBe(started.runId)
+    mkdirSync(join(checkout, 'ios', 'build', 'Debug-iphoneos', 'Demo.app'), { recursive: true })
+    children[0]!.exit(0)
+    await settle()
+    const done = runs.list()[0]!
+    expect([done.stage, done.error]).toEqual(['done', null])
+    expect(manager.state().builds.map((build) => [build.buildId, build.runsOn])).toEqual([[done.buildId!, 'device']])
+    expect(commands.some((command) => command.includes('install'))).toBe(false)
+    expect(children).toHaveLength(1)
+  })
+
   test('a failed build says so and installs nothing', async () => {
     const { manager, runs, user, request, children, commands } = setup()
     await manager.list()

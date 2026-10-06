@@ -20,23 +20,21 @@
   } from "./lib/pr-primary-action";
 
   /**
-   * The pull request's number as its one action. The number leads, the move
-   * the readiness model chose follows, and the colour is the state the move
-   * changes: merge, update the branch, resolve conflicts, auto-merge, mark
-   * ready. With no move for this viewer it states where the pull request
-   * stands — merged, closed, auto-merge on, checks running — so the number
-   * always reads as the pull request's status.
+   * The pull request's one action in the status card: the move the readiness
+   * model chose, coloured by the state it changes — merge, update the branch,
+   * resolve conflicts, auto-merge, mark ready. With no move for this viewer it
+   * states where the pull request stands — merged, closed, auto-merge on,
+   * checks running.
    *
    * The caret beside it holds the other ways to land: the merge method, merge
-   * now in place of waiting, and auto-merge on or off. One control in the
-   * header and in the status card, so the two can never offer different moves.
+   * now in place of waiting, and auto-merge on or off.
    */
   let {
     number,
     pullRequest,
     readiness,
     onAgentAction,
-    layout = "header",
+    layout = "card",
   }: {
     number: number;
     /** The indexed pull request; null until the host has described it. */
@@ -44,8 +42,8 @@
     readiness: MergeReadiness | null;
     /** The moves that open a session rather than write to the host. */
     onAgentAction: (move: MergeAction) => Promise<void>;
-    /** The page band, the status card's full width, or its folded row. */
-    layout?: "header" | "card" | "row";
+    /** The status card's full width, or its folded row. */
+    layout?: "card" | "row";
   } = $props();
 
   let menuOpen = $state(false);
@@ -119,9 +117,7 @@
 <div
   bind:this={triggerEl}
   data-testid="pr-primary-action"
-  class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'header'
-    ? 'h-6.5 max-w-[20rem] shrink rounded-full pointer-coarse:h-10'
-    : layout === 'row'
+  class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'row'
       ? 'h-8 shrink-0 rounded-[10px]'
       : 'h-[34px] w-full rounded-[10px]'} {!action
     ? 'text-muted-foreground shadow-[shadow:var(--elev-ring)]'
@@ -140,9 +136,7 @@
   <Button
     type="button"
     variant="ghost"
-    class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent font-medium text-inherit shadow-none hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] hover:text-inherit disabled:opacity-100 aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)] {layout === 'header'
-      ? 'px-3 text-workspace-chrome pointer-coarse:px-3.5 @max-[40rem]/band:px-2.5'
-      : 'px-3.5'} {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
+    class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent font-medium text-inherit shadow-none hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] hover:text-inherit disabled:opacity-100 aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)] px-3.5 {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
     disabled={!!running || !action || (!action.move && !hasMenu)}
     aria-haspopup={!action?.move && hasMenu ? "menu" : undefined}
     aria-expanded={!action?.move && hasMenu ? menuOpen : undefined}
@@ -153,18 +147,8 @@
     {#if running}
       <CircleNotchIcon size={13} class="shrink-0 animate-spin [animation-duration:0.9s]" aria-hidden="true" />
     {/if}
-    <!-- The number leads in the header, where it names the pull request. The
-         status card sits under the title, so there the button is the move. -->
-    {#if layout === "header"}
-      <span class="shrink-0 font-mono tabular-nums {filled ? 'opacity-80' : ''}">#{number}</span>
-    {/if}
     {#if action}
-      <span
-        class="min-w-0 truncate {layout === 'header' ? '@max-[40rem]/band:hidden' : ''}"
-      >
-        {#if layout === "header"}<span class="opacity-45" aria-hidden="true">·</span>{/if}
-        {running ? runningLabel : action.label}
-      </span>
+      <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
     {/if}
   </Button>
   {#if hasMenu && action?.move}

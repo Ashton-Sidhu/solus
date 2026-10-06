@@ -82,9 +82,11 @@ export interface AgentBackend extends EventEmitter {
     options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
   ): Promise<RunHandle | null>
   cancelSession(sessionId: string): boolean
-  /** Stop one background task without ending the turn. Absent when the
-   *  provider has no background tasks (Codex). */
+  /** Stop one background task without ending the turn. */
   stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>
+  /** Whether work the agent left running outlives its turn's end. Absent when
+   *  a provider's background tasks end with its run (Claude). */
+  hasBackgroundTasks?(sessionId: string): boolean
   isSessionRunning(sessionId: string): boolean
   getSessionHandle(sessionId: string): RunHandle | undefined
   /** Runs that haven't received session_init yet (pre-session_init window). */

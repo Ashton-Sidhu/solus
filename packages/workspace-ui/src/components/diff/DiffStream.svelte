@@ -30,6 +30,7 @@
   import { getIcon, buildIcon, replaceIDs } from "@iconify/svelte";
   import { isCompactPane, isStackedPane } from "../../lib/pane-width";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
+  import { isMarkdownFile } from "../files/lib/markdown-file";
   import { ensureIconCollections } from "../diagram/iconify";
   import { CommentComposer } from "../ui/comment-composer";
   import { DiffAnnotations, type AnnotationMeta } from "./lib/diff-annotations.svelte";
@@ -102,6 +103,8 @@
     onDraftValueChange: (value: string) => void;
     canOpenInEditor: boolean;
     onOpenInEditor: (path: string) => void;
+    /** Promote a markdown file in the diff into a doc work. */
+    onSaveAsWork?: (path: string) => void;
     onLineRange: (
       filePath: string,
       start: number,
@@ -142,6 +145,7 @@
     onDraftValueChange,
     canOpenInEditor,
     onOpenInEditor,
+    onSaveAsWork,
     onLineRange,
     onLineSelect,
     onLineClearSelect,
@@ -382,7 +386,7 @@
     button.type = "button";
     // Labelled, not icon-only: this is the header's one escape hatch out of the
     // review pane, so it names itself rather than hiding behind a tooltip.
-    button.className = "open-editor-btn header-action-btn";
+    button.className = "labelled-action-btn header-action-btn";
     button.innerHTML =
       `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 256 256">` +
       `<path d="M224,104a8,8,0,0,1-16,0V59.32l-82.34,82.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"></path>` +
@@ -391,6 +395,20 @@
       e.preventDefault();
       e.stopPropagation();
       onOpenInEditor(filePath);
+    });
+    return button;
+  }
+
+  function buildSaveAsWorkButton(filePath: string): HTMLElement | null {
+    if (!onSaveAsWork || !isMarkdownFile(filePath)) return null;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "labelled-action-btn header-action-btn";
+    button.textContent = "Save as work";
+    button.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onSaveAsWork(filePath);
     });
     return button;
   }
@@ -453,6 +471,8 @@
       wrap.appendChild(label);
     }
     wrap.appendChild(buildCopyPathButton(filePath));
+    const saveAsWorkBtn = buildSaveAsWorkButton(filePath);
+    if (saveAsWorkBtn) wrap.appendChild(saveAsWorkBtn);
     const openBtn = buildOpenInEditorButton(filePath);
     if (openBtn) wrap.appendChild(openBtn);
     return wrap;
@@ -1026,7 +1046,7 @@
   /* The labelled variant: a text button rather than a 20px icon target, so it
      sizes off its content and hovers to plain foreground instead of accent —
      accent is reserved for the pane's unsent-work signals. */
-  :global(.open-editor-btn) {
+  :global(.labelled-action-btn) {
     width: auto;
     height: 1.625rem;
     gap: 0.375rem;
@@ -1037,7 +1057,7 @@
     opacity: 1;
   }
 
-  :global(.open-editor-btn:hover) {
+  :global(.labelled-action-btn:hover) {
     color: var(--solus-text-primary);
   }
 

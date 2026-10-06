@@ -12,6 +12,7 @@ import type {
   ModelListResponse,
   SkillsExtraRootsSetResponse,
   SkillsListResponse,
+  ThreadCompactStartResponse,
   ThreadForkParams,
   ThreadForkResponse,
   ThreadGoalClearResponse,
@@ -93,6 +94,7 @@ export type CodexThreadGoalSetParams = ThreadGoalSetParams
 export interface CodexResponseByMethod {
   initialize: InitializeResponse
   'skills/extraRoots/set': SkillsExtraRootsSetResponse
+  'thread/compact/start': ThreadCompactStartResponse
   'thread/start': CodexThreadStartResponse
   'thread/resume': CodexThreadResumeResponse
   'thread/fork': CodexThreadForkResponse

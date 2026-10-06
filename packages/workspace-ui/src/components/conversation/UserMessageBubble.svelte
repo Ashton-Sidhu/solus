@@ -17,7 +17,6 @@
     FileCode as FileCodeIcon,
     File as FileIcon,
     Zap as LightningIcon,
-    Eye as EyeIcon,
     SquareTerminal as TerminalIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
@@ -69,10 +68,10 @@
 
   const text = $derived(content ?? message?.content ?? "");
   const isPending = $derived(deliveryState !== 'sent');
-  // Sent by the host's own work, not a person: an automation, a watch wake, or
-  // a background command that finished after the agent's turn.
+  // Sent by the host's own work, not a person: an automation, or a background
+  // command that finished after the agent's turn.
   const isHostSent = $derived(
-    message?.via === "automation" || message?.via === "watch" || message?.via === "background-command",
+    message?.via === "automation" || message?.via === "background-command",
   );
   const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove || !!actions));
   const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
@@ -344,17 +343,12 @@
             {ordinal}
           </span>
         {/if}
-        {#if message?.via === "watch" || message?.via === "background-command"}
+        {#if message?.via === "background-command"}
           <!-- Required origin label, as for an automation below. What woke the
                agent is already in the transcript, so this is not a link. -->
           <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
-            {#if message.via === "watch"}
-              <EyeIcon size={9} />
-              <span>Watch</span>
-            {:else}
-              <TerminalIcon size={9} />
-              <span>Background command</span>
-            {/if}
+            <TerminalIcon size={9} />
+            <span>Background command</span>
           </span>
         {:else if isHostSent}
           <!-- Required origin label: the only thing separating an agent-sent

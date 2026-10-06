@@ -3,7 +3,7 @@
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { getSurfaceContext, hasSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
-  import { basename, leadingDirs, parentDir } from "./lib/code-span-path";
+  import { basename, codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
   import { boldTextInCodeSpan } from "@solus/document-model/markdown";
 
   interface Props {
@@ -23,16 +23,14 @@
   const copyText = $derived(text ?? raw.replace(/^`+|`+$/g, ""));
   const boldText = $derived(boldTextInCodeSpan(copyText));
 
-  const FILE_PATH_RE = /^(?!@)(?:\.{0,2}\/)?(?:[\w.@~-]+\/)+[\w.@~-]+(?::(\d+))?$/;
   // A bare abbreviated-or-full hex hash — an address rather than a literal you
   // would retype. Only surfaces that opt in style it (see .prose-pr-description).
   const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
-  const fileMatch = $derived(copyText.match(FILE_PATH_RE));
   const isSha = $derived(SHA_RE.test(copyText));
-  const isFilePath = $derived(!!fileMatch && !!workspace);
-  const filePath = $derived(isFilePath ? (fileMatch![1] ? copyText.replace(/:(\d+)$/, '') : copyText) : '');
-  const fileLine = $derived(fileMatch?.[1] ? Number(fileMatch[1]) : undefined);
+  const fileTarget = $derived(workspace ? codeSpanFileTarget(copyText) : null);
+  const filePath = $derived(fileTarget?.path ?? "");
+  const fileLine = $derived(fileTarget?.line);
 
   function handleFileClick() {
     requestFilePreview({
@@ -44,7 +42,7 @@
 
 </script>
 
-{#if isFilePath}
+{#if fileTarget}
   <button
     type="button"
     class={tokenClassName("file")}

@@ -367,7 +367,10 @@ async function openPlaywrightGuest(
   }
   report()
 
-  log.info('browser_playwright_opened', { url: request.url, partition: request.partition })
+  // A data: URL is the whole page, inlined images included; logging it would
+  // write megabytes per line.
+  const loggedUrl = request.url.startsWith('data:') ? `${request.url.slice(0, request.url.indexOf(',') + 1)}…` : request.url
+  log.info('browser_playwright_opened', { url: loggedUrl, partition: request.partition })
   return driver
 }
 

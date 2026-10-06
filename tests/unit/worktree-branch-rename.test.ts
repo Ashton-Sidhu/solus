@@ -93,3 +93,29 @@ test('a project template without an id gets a suffix when its name is taken', as
   const checkout = await createWorktree(directory, 'main')
   expect(checkout.branch).toBe('solus/work-2')
 })
+
+test('a branch named like the prefix does not block worktree creation', async () => {
+  // WHY: a ref is a file, so a local branch `solus` makes every `solus/<x>`
+  // impossible. Creation must fall back to a flat name, and the rename from
+  // the title must still treat that name as temporary.
+  const directory = repository()
+  git(['branch', 'solus'], directory)
+  const checkout = await createWorktree(directory, 'main')
+  expect(checkout.branch).toMatch(/^solus-[0-9a-f]{8}$/)
+  expect(isTemporaryWorktreeBranch(checkout.branch!)).toBe(true)
+  expect(await renameWorktreeBranch(checkout.worktreePath!, checkout.branch!, 'Stable Session Reconnect'))
+    .toBe('solus-stable-session-reconnect')
+})
+
+test('a name that is a directory of other branches gets a suffix', async () => {
+  // WHY: a branch `solus/work/old` makes `solus/work` a ref directory, and git
+  // cannot create a branch there.
+  const directory = repository()
+  mkdirSync(join(directory, '.solus'))
+  writeFileSync(join(directory, '.solus', 'config.json'), JSON.stringify({
+    worktreeBranchNaming: { mode: 'custom', prefix: 'solus', template: '{prefix}/work' },
+  }))
+  git(['branch', 'solus/work/old'], directory)
+  const checkout = await createWorktree(directory, 'main')
+  expect(checkout.branch).toBe('solus/work-2')
+})

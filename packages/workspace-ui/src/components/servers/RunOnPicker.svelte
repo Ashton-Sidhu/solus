@@ -299,6 +299,9 @@
 
   function handleCloseAutoFocus(event: Event) {
     event.preventDefault();
+    // bits-ui also fires this when the open list's focus scope mounts again;
+    // moving the caret then would close the list (see ProjectChip).
+    if (open) return;
     if (onDismiss) onDismiss();
     else requestInputFocus();
   }

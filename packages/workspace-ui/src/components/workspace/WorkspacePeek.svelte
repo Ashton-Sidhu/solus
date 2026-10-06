@@ -172,7 +172,7 @@
   {:else if body}
     <div class="peek-body leading-[1.6] text-muted-foreground text-pretty">
       {#each bodyRuns as run, i (i)}{#if run.hit}<mark
-            class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+            class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
             >{run.text}</mark
           >{:else}{run.text}{/if}{/each}
     </div>

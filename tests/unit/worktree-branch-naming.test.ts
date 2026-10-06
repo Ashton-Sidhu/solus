@@ -39,6 +39,15 @@ describe('generated mode', () => {
     expect(temporaryWorktreeBranchId(`solus/${ID}`, team)).toBeNull()
   })
 
+  test('the flat form of the temporary branch is still temporary', () => {
+    // WHY: a local branch `solus` blocks `solus/<id>`, so the server creates
+    // `solus-<id>`. The rename from the title must still run for it.
+    expect(temporaryWorktreeBranchId(`solus-${ID}`, namer({}))).toBe(ID)
+    expect(temporaryWorktreeBranchId(`solus-${ID}-2`, namer({}))).toBe(ID)
+    expect(temporaryWorktreeBranchId(`team-web-${ID}`, namer({ prefix: 'team/web' }))).toBe(ID)
+    expect(temporaryWorktreeBranchId('solus-fix-login', namer({}))).toBeNull()
+  })
+
   test('a title with no usable word keeps the temporary branch', () => {
     expect(generatedWorktreeBranchName('???', namer({}), ID)).toBeNull()
   })

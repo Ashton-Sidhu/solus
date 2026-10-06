@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deviceBuildFits, type DeviceBuild, type DeviceHostSummary, type DeviceState, type DeviceSummary } from '@solus/contracts/device-types'
-import { deviceBuildTargets, installDeviceBuild, isBuildOutput } from '@solus/client-core/device-builds'
+import { deviceBuildTargets, installDeviceBuild, isBuildOutput, startDeviceRun } from '@solus/client-core/device-builds'
 import { DeviceBuildStore, explainInstallFailure, installBuild, installCommands, type StoredDeviceBuild } from '@solus/server/devices/device-builds'
 import { DeviceDomainError } from '@solus/server/devices/device-errors'
 import { DeviceHubClient } from '@solus/server/devices/device-hub-client'
@@ -349,6 +349,27 @@ describe('choosing a build in a folder browser', () => {
     expect(isBuildOutput({ name: 'Demo.app', isDir: false })).toBe(false)
     expect(isBuildOutput({ name: 'outputs.apk', isDir: true })).toBe(false)
     expect(isBuildOutput({ name: 'Debug-iphonesimulator', isDir: true })).toBe(false)
+  })
+})
+
+describe('starting a build from a client', () => {
+  test('a repository command runs only after the person says yes, on desktop and on a phone alike', async () => {
+    // WHY: both clients share this; a phone answers through an alert, so the answer may come later.
+    const sent: { approve?: boolean }[] = []
+    const api = {
+      deviceRunStart: async (request: { approve?: boolean }) => {
+        sent.push(request)
+        if (!request.approve) throw new Error('device_error:confirmation_required: Run `xcodebuild` in ios?')
+        return { runId: 'r1' } as never
+      },
+    }
+    const request = { checkoutPath: '/code/app', profileName: 'iOS device' }
+    expect(await startDeviceRun(api, request, async () => false)).toBeNull()
+    expect(sent).toHaveLength(1)
+    let asked = ''
+    expect(await startDeviceRun(api, request, async (question) => { asked = question; return true })).toEqual({ runId: 'r1' } as never)
+    expect(asked).toContain('xcodebuild')
+    expect(sent.at(-1)).toMatchObject({ approve: true, checkoutPath: '/code/app' })
   })
 })
 

@@ -24,7 +24,6 @@ export function isSearchableConversationMessage(message: Message): boolean {
     message.workRef ||
     message.artifact ||
     message.automationRef ||
-    message.watchRef ||
     message.taskRef ||
     message.agentConversationRef
   );

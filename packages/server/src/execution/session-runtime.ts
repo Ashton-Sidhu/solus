@@ -480,7 +480,7 @@ export class SessionRuntime extends EventEmitter {
     // Existing automation runs, watch wakes, and agent follow-ups drain with
     // their parent work. User submissions, new automation triggers, and new
     // watch probes are gated separately.
-    if (request.options.promptSource !== 'automation' && request.options.promptSource !== 'watch' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
+    if (request.options.promptSource !== 'automation' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
     this.sessionPermissionModes.set(request.sessionId, request.input.permissionMode)
     await recordSessionExecutionPreferences(request.sessionId, request.input.executionPreferences)
     // New work wins over any continuation not yet delivered.

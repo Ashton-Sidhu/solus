@@ -27,7 +27,7 @@
         type="button"
         variant="ghost"
         size="xs"
-        class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-2"
+        class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:h-10 pointer-coarse:px-3.5 @max-[40rem]/band:px-[5.5px] @max-[40rem]/band:pointer-coarse:px-[12.5px]"
         aria-label={draftCount > 0 ? `Review, ${draftCount} pending comments` : "Review"}
         title={hint ? `Submit a review (${hint} to approve)` : "Submit a review"}
       >

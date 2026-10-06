@@ -42,7 +42,7 @@ describe('Codex goals', () => {
   test('manually exposes /goal only where provider discovery cannot supply it', () => {
     // WHY: app-server skills discovery omits Codex TUI built-ins. Claude reports
     // its command itself, so manually adding it there would duplicate the row.
-    expect(codexSlashCommands('codex', true).map((command) => command.command)).toEqual(['/goal'])
+    expect(codexSlashCommands('codex', true).map((command) => command.command)).toEqual(['/compact', '/goal'])
     expect(codexSlashCommands('claude-code', true)).toEqual([])
     expect(codexSlashCommands('codex', false)).toEqual([])
   })

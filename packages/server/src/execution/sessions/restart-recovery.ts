@@ -1,5 +1,5 @@
 import { RunLedger, type ActiveRuns, type RestartRun } from '../../data/sessions/run-ledger'
-import { RESTART_CONTINUATION_PROMPT, restartAuthority, restartContinuationError, restartRecoveryEnabled } from './restart-continuation'
+import { restartAuthority, restartContinuationPrompt, restartContinuationError, restartRecoveryEnabled } from './restart-continuation'
 import { hostUser } from '../../host/host-user'
 import { type QueuedRequest } from './session-request-queue'
 import { createLogger } from '../../logger'
@@ -28,7 +28,7 @@ export class RestartRecovery {
   saveRestartRun(request: SessionRunRequest, organizationId: string | undefined): void {
     if (!this.restartRuns || this.rt.isShuttingDown || !restartRecoveryEnabled()
       || (organizationId !== undefined && organizationId !== LOCAL_ORGANIZATION_ID)
-      || request.delegation || request.options.automationId || request.options.watchId) return
+      || request.delegation || request.options.automationId) return
     const authority = restartAuthority(request.actor)
     if (request.input.agentSessionId && getIndexedSession(request.input.agentSessionId)?.delegation) return
     if (!authority) return
@@ -85,7 +85,7 @@ export class RestartRecovery {
   private queueRestartContinuation(saved: RestartRun, error?: string): void {
     // A delivering receipt without a queue entry is uncertain, never resent
     // automatically. The queue itself has its own durable start receipt.
-    const prompt = RESTART_CONTINUATION_PROMPT
+    const prompt = restartContinuationPrompt(saved)
     const actor: Actor = saved.author === null ? HOST_ACTOR : {
       principal: { kind: 'local-owner', deviceId: null, deviceLabel: 'Host restart recovery' }, user: saved.author,
     }

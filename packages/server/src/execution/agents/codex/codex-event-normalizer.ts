@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { codexSubagentTurnResult } from './codex-subagent-history'
 import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData, UsageWindowUpdate } from '@solus/contracts/types'
 import { normalizeResetNumber } from '../../rate-limits'
+import { storeToolResultImages, withoutImageBytes } from '../../../data/assets/transcript-images'
 import {
   codexImageArtifactPath,
   codexReasoningText,
@@ -819,13 +820,19 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolInput: JSON.stringify({ changes: item.changes }),
     })
   } else if (!isSubagent) {
-    const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null)
-    if (payload) {
-      updates.push({
-        type: 'tool_call_update',
-        toolId: item.id,
-        content: parsedString(payload) ?? JSON.stringify(payload),
-      })
+    // An MCP result keeps its images in `result.content`; a Solus dynamic tool
+    // in `contentItems`. The pictures go to the asset store, and the text
+    // output keeps only their type.
+    const toolImages = storeToolResultImages(item.result?.content ?? item.contentItems)
+    const result = toolImages && Array.isArray(item.result?.content)
+      ? { ...item.result, content: withoutImageBytes(item.result.content) }
+      : item.result
+    const payload = item.aggregatedOutput || result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null)
+    if (payload || toolImages) {
+      const update: Extract<NormalizedEvent, { type: 'tool_call_update' }> = { type: 'tool_call_update', toolId: item.id }
+      if (payload) update.content = parsedString(payload) ?? JSON.stringify(payload)
+      if (toolImages) update.toolImages = toolImages
+      updates.push(update)
     }
   }
   const outcome = codexToolOutcome(item)

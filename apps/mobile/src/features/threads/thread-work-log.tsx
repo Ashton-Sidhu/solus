@@ -28,6 +28,7 @@ import Animated, {
 } from "react-native-reanimated";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
+import { ToolResultImages } from "./ToolResultImages";
 import {
   summarizeToolGroup,
   toolActivitySummary,
@@ -428,7 +429,8 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const row: ToolTranscriptItem = item;
   const { expanded } = props;
   const fullDetail = toolFullDetail(row);
-  const canExpand = fullDetail !== null;
+  const images = row.images ?? [];
+  const canExpand = fullDetail !== null || images.length > 0;
   const displayText = toolRowLabel(row, expanded);
   const failed = row.status === "error";
   const live = row.status === "running";
@@ -514,6 +516,10 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
           </View>
         </View>
       </WorkLogPressable>
+
+      {expanded && images.length > 0 ? (
+        <ToolResultImages images={images} label={`Image from ${toolRowLabel(row, true)}`} store={props.store} />
+      ) : null}
 
       {expanded && fullDetail ? (
         <Animated.View

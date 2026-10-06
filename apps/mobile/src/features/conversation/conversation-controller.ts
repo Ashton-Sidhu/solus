@@ -301,6 +301,7 @@ export class ConversationController {
    *  A sign-in command never reaches the agent: it runs here. */
   async send(text: string, options: { permissionMode?: PermissionMode; delivery?: 'queue' | 'steer' } = {}): Promise<void> {
     const prompt = text.trim()
+    if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return this.compact(prompt)
     const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
     if (authCommand) return this.auth.run(authCommand, this.run.workingDirectory)
     const attachments = this.attachments
@@ -328,6 +329,18 @@ export class ConversationController {
       },
     })
     await this.drainOutbox(true)
+  }
+
+  /** Runs the host command and leaves refused requests visible in the transcript. */
+  private async compact(prompt: string): Promise<void> {
+    try {
+      if (prompt !== '/compact') this.model.addNotice('Use /compact without arguments.', 'info')
+      else if (!this.run.agentSessionId) this.model.addNotice('Send a first message before you compact this session.', 'info')
+      else await this.deps.connection.api.compactSession(this.context())
+    } catch (error) {
+      this.model.addNotice(`Could not compact this session: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    }
+    this.flush()
   }
 
   /** Uploads picked files to the host now, so the prompt can name them. */
@@ -457,6 +470,17 @@ export class ConversationController {
       this.model.addNotice(`Could not stop: ${(error instanceof Error ? error.message : String(error))}`, 'error')
       this.flush()
     }
+  }
+
+  /** Ends only what the agent left running; its finished turn is untouched. */
+  async stopBackgroundWork(): Promise<void> {
+    try {
+      if (await this.deps.connection.api.stopBackgroundTasks(this.run.sessionId)) return
+      this.model.addNotice('The background task could not be stopped', 'error')
+    } catch (error) {
+      this.model.addNotice(`Could not stop: ${(error instanceof Error ? error.message : String(error))}`, 'error')
+    }
+    this.flush()
   }
 
   async answerPermission(questionId: string, optionId: string): Promise<boolean> {

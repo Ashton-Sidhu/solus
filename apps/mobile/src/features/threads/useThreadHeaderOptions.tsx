@@ -2,14 +2,12 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo } from "react";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 
 import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
 import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
 import type { RootStackParamList } from "../../navigation/routes";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
-import { ThreadHeaderTitle } from "./ThreadHeaderTitle";
-import { threadTitleMaxWidth } from "../../lib/layout";
 
 /**
  * The thread header: title and subtitle, the native back button (a cold
@@ -25,10 +23,8 @@ export function useThreadHeaderOptions(props: {
   readonly hostId: string;
   /** The project folder, or null for a chat, which has no files to browse. */
   readonly projectPath: string | null;
-  /** The project root whose favicon stands before the project name; null for a chat. */
+  /** The project root whose favicon the header shows; null for a chat. */
   readonly faviconRoot: string | null;
-  /** Width of the pane the header spans. */
-  readonly headerWidth: number;
 }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { hostId, projectPath } = props;
@@ -59,15 +55,11 @@ export function useThreadHeaderOptions(props: {
   // native back button does not render; Home is the way out.
   const canGoBack = navigation.canGoBack();
   const { faviconRoot } = props;
-  const mark = faviconRoot ? (
-    <ProjectFavicon
-      environmentId={hostId}
-      size={13}
-      projectTitle={faviconRoot.split(/[\\/]/).at(-1) || faviconRoot}
-      workspaceRoot={faviconRoot}
-    />
-  ) : null;
-  const titleMaxWidth = threadTitleMaxWidth(props.headerWidth, actions.length, canGoBack);
+  const projectTitle = faviconRoot ? faviconRoot.split(/[\\/]/).at(-1) || faviconRoot : "";
+  const favicon = (size: number) =>
+    faviconRoot ? (
+      <ProjectFavicon environmentId={hostId} size={size} projectTitle={projectTitle} workspaceRoot={faviconRoot} />
+    ) : null;
   const subtitle = props.usesNativeHeaderGlass ? props.subtitle : undefined;
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
@@ -80,29 +72,37 @@ export function useThreadHeaderOptions(props: {
       : undefined,
     title: props.title,
     headerBackVisible: canGoBack,
+    // Title and subtitle stay UIKit's own strings, as T3's header: the bar
+    // lays them out between its items and truncates them before the action
+    // group on any width. A custom title view keeps its own size and is
+    // centred over the items instead.
     unstable_headerSubtitle: subtitle,
     contentStyle: undefined,
-    // UIKit's title and subtitle are strings only; the favicon needs a title view.
-    ...(mark && Platform.OS === "ios"
+    // The favicon is a left bar item beside Back, without a glass background.
+    // With Back visible, UIKit keeps both (`leftItemsSupplementBackButton`).
+    ...(faviconRoot && Platform.OS === "ios"
       ? {
-          headerTitle: () => (
-            <ThreadHeaderTitle
-              title={props.title}
-              subtitle={subtitle}
-              mark={mark}
-              maxWidth={titleMaxWidth}
-              heavy={props.usesNativeHeaderGlass}
-            />
-          ),
-          unstable_headerSubtitle: undefined,
+          unstable_headerLeftItems: () => [
+            {
+              type: "custom" as const,
+              identifier: "thread-project-favicon",
+              hidesSharedBackground: true,
+              element: (
+                // Decorative: the subtitle names the project.
+                <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                  {favicon(20)}
+                </View>
+              ),
+            },
+          ],
         }
       : undefined),
   };
   return {
     options,
-    // A title view is a function whose source never changes: re-apply it when what it shows does.
-    optionsVersion: [props.title, subtitle, faviconRoot, titleMaxWidth],
-    subtitleLeading: mark,
+    // The left item is a function whose source never changes: re-apply it when the project does.
+    optionsVersion: [props.title, subtitle, faviconRoot],
+    subtitleLeading: favicon(13),
     actions,
     onBack: () => {
       // Read the history at press time: it changes without re-rendering this screen.

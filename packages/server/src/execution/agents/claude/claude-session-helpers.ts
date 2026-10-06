@@ -7,6 +7,7 @@ import type { ContextCompaction } from '@solus/contracts/types'
 import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
+import { storeToolResultImages } from '../../../data/assets/transcript-images'
 
 const HEAD_BYTES = 4096
 export const MAX_SESSION_HEAD_BYTES = 4 * 1024 * 1024
@@ -61,7 +62,8 @@ const claudeToolResultBlockSchema = z.object({
   is_error: z.boolean().optional(),
   content: z.union([
     z.string(),
-    z.array(z.object({ text: z.string().optional() })),
+    // `passthrough` keeps an image block's source for the asset store.
+    z.array(z.object({ text: z.string().optional() }).passthrough()),
   ]).optional(),
 })
 const claudeToolUseBlockSchema = z.object({
@@ -226,6 +228,7 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
           content: claudeToolResultText(result.content),
           toolResultForId: result.tool_use_id,
           toolResultIsError: result.is_error,
+          toolImages: storeToolResultImages(result.content),
           parentToolUseId,
           timestamp: new Date(obj.timestamp).getTime(),
         }

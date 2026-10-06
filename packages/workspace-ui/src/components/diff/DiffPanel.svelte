@@ -613,6 +613,11 @@
     });
   });
 
+  function saveFileAsWork(path: string) {
+    const fileRoot = worktreePath ?? projectPath;
+    void session.saveFileAsWork({ serverId: editorServerId, cwd: fileRoot, path });
+  }
+
   function openFileInEditor(path: string) {
     const fileRoot = worktreePath ?? projectPath;
     const api = getApi?.() ?? session.apiFor(tabId);
@@ -1311,6 +1316,7 @@
           }}
           {canOpenInEditor}
           onOpenInEditor={openFileInEditor}
+          onSaveAsWork={saveFileAsWork}
           onLineRange={handleStreamLineRange}
           onLineSelect={handleStreamLineRange}
           onLineClearSelect={handleLineClearSelect}

@@ -6,6 +6,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { z } from 'zod'
 import type { SessionRuntime } from '../../execution/session-runtime'
+import { compactSession } from '../../execution/sessions/session-compaction'
 import type { SessionOrchestrator } from '../../execution/orchestration/session-orchestrator'
 import { activityLeases } from '../../execution/activity-leases'
 import type { AgentId, AgentMetadata, IpcContext } from '@solus/contracts/types'
@@ -425,6 +426,11 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('getPluginCommands', (args) => {
     const [workingDirectory, ctx] = args
     return sessionRuntime.history.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
+  })
+
+  server.register('compactSession', async ([ctx], handlerCtx) => {
+    await admitTurn(ctx, handlerCtx.actor)
+    return compactSession(sessionRuntime, ctx, handlerCtx.actor)
   })
 
   server.register('getThreadGoal', (args) => {

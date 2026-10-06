@@ -108,6 +108,7 @@ import {
 } from './codex-utils'
 import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
 import { z } from 'zod'
+import type { ThreadCompactStartParams } from './generated/v2/ThreadCompactStartParams'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
 
@@ -173,6 +174,18 @@ const STATIC_CODEX_METADATA: Omit<AgentMetadata, 'models' | 'defaultModel'> = {
   },
 }
 
+/** A command item on a root thread that has not completed yet. */
+interface RunningCommand {
+  threadId: string
+  /** Codex's handle to the command's terminal; null until Codex names it. */
+  processId: string | null
+  client: CodexAppServerClient
+  /** It outlived the turn that started it. */
+  isBackground: boolean
+  /** A person stopped it, so its completion wakes nobody. */
+  isStopping?: boolean
+}
+
 type CodexRunHandle = RunHandle & {
   /** The app-server this run lives on: the host's, or the member's seat's. */
   client: CodexAppServerClient
@@ -192,6 +205,7 @@ type CodexRunHandle = RunHandle & {
   trackedFiles: Set<string>
   toolDispatcher: CodexToolDispatcher
   persistent: boolean
+  isCompaction: boolean
 }
 
 interface CodexSkillsListResponse {
@@ -239,9 +253,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private sessionByTurn = new Map<string, string>()
   private sessionByItem = new Map<string, string>()
   /** Command items still running on a root thread, by item id. A command that
-   *  outlives its turn completes after the run's routing is gone; this is how
-   *  its completion still finds the session to wake. */
-  private readonly runningCommandThreads = new Map<string, string>()
+   *  outlives its turn is background work: its completion arrives after the
+   *  run's routing is gone, and this is how it still finds the session. */
+  private readonly runningCommands = new Map<string, RunningCommand>()
   private sessionByChildThread = new Map<string, string>()
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
@@ -286,6 +300,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     })
     client.on('exit', () => {
+      // The app-server's terminals die with it.
+      for (const [itemId, command] of this.runningCommands) {
+        if (command.client === client) this.settleBackgroundCommand(itemId, command, 'killed')
+      }
       const exitErr = new Error('Codex app-server exited')
       for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, exitErr)
       for (const handle of this.pendingRuns) {
@@ -370,6 +388,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const conversation = request.conversation ?? { kind: 'start' }
+    if (request.operation === 'compact') {
+      if (conversation.kind !== 'resume' || !conversation.threadId) {
+        throw new Error('Send a first message before you compact this session.')
+      }
+      if (this.isSessionRunning(conversation.threadId) || this.pendingRuns.some((run) => run.threadId === conversation.threadId)) {
+        throw new Error('Wait for the current turn to finish before you compact this session.')
+      }
+    }
     const abortController = new AbortController()
     const workTree = request.cwd
     const client = this.clientFor(request.seat)
@@ -415,6 +441,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       trackedFiles: new Set(sessionState?.changedFiles ?? []),
       toolDispatcher,
       persistent: request.persistence === 'session',
+      isCompaction: request.operation === 'compact',
     }
 
     this.pendingRuns.push(handle)
@@ -493,7 +520,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }
         threadId = response.thread.id
       } else {
-        response = await handle.client.request<CodexThreadStartResponse>('thread/resume', {
+        response = await handle.client.request<CodexThreadStartResponse>('thread/resume', handle.isCompaction ? { threadId } : {
           threadId,
           ...toolsConfig,
         })
@@ -505,7 +532,21 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.promoteToActive(handle, threadId)
 
       this.permissionResponder().setCurrentSessionId(threadId)
-      this.emitThreadSessionInit(threadId, threadId, model, response)
+      if (!handle.isCompaction || !handle.abortController.signal.aborted) {
+        this.emitThreadSessionInit(threadId, threadId, model, response)
+      }
+
+      if (handle.isCompaction) {
+        if (handle.abortController.signal.aborted) {
+          this.finishRun(handle)
+          handle._resolveRun()
+          this.emit('exit', threadId, null, 'SIGINT')
+          return
+        }
+        const params: ThreadCompactStartParams = { threadId }
+        await handle.client.request('thread/compact/start', params)
+        return
+      }
 
       if (request.persistence === 'session') await this.initSnapshots(handle, threadId)
 
@@ -550,6 +591,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const failure = err instanceof Error ? err : new Error(String(err))
       this.emit('error', sessionId, failure)
       this.finishRun(handle)
+      // A resumed compact run already has a thread id while thread/resume is
+      // pending. A startup failure must also release that pending handle.
+      if (handle.isCompaction) {
+        const pendingIndex = this.pendingRuns.indexOf(handle)
+        if (pendingIndex !== -1) this.pendingRuns.splice(pendingIndex, 1)
+      }
       handle._rejectRun(failure)
     }
   }
@@ -569,8 +616,16 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   override cancelSession(sessionId: string): boolean {
+    // Stop ends the work the agent started, as cancelling Claude's query does.
+    // After the turn ended, that work is all there is to cancel.
+    let isStoppingCommands = false
+    for (const [itemId, command] of this.runningCommands) {
+      if (command.threadId !== sessionId) continue
+      void this.stopCommand(itemId, command)
+      isStoppingCommands = true
+    }
     const handle = this.activeRuns.get(sessionId)
-    if (!handle) return false
+    if (!handle) return isStoppingCommands
     handle.abortController.abort()
     handle.interrupted = true
     handle.normalizer.interrupt()
@@ -586,7 +641,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
   ): Promise<RunHandle | null> {
     const handle = this.activeRuns.get(sessionId)
-    if (!handle?.threadId || !handle.turnId) return null
+    if (!handle?.threadId || !handle.turnId || handle.isCompaction) return null
 
     const expectedTurnId = handle.turnId
     // SAFETY: buildTurnInput emits only text, image, and skill items accepted by turn/steer.
@@ -980,8 +1035,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle = this.activeRuns.get(sessionId)
     this.rememberSessionRouting(params, sessionId)
+    // compact/start returns no turn id. Capture it from the provider event so
+    // Stop can interrupt the compaction, including Stop before turn/started.
+    if (handle?.isCompaction && !handle.turnId && msg.method === 'turn/started' && msg.params.threadId === handle.threadId) {
+      handle.turnId = msg.params.turn.id
+      if (handle.interrupted) this.cancelSession(sessionId)
+    }
     if (msg.method === 'item/started' && params?.item?.type === 'commandExecution' && optionalString(params?.threadId) === sessionId) {
-      this.runningCommandThreads.set(params.item.id, sessionId)
+      this.runningCommands.set(params.item.id, {
+        threadId: sessionId,
+        processId: optionalString(params.item.processId) ?? null,
+        client,
+        isBackground: false,
+      })
     }
 
     if (msg.method === 'thread/started') return
@@ -1267,7 +1333,16 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     turnId: T,
   ): Promise<void> {
     const sessionId = handle.agentSessionId
-    const changedFiles = handle.persistent
+    // A command still running when the turn ends is background work. Announced
+    // before the turn's result, so the session settles into 'background'.
+    if (!partial) {
+      for (const [itemId, command] of this.runningCommands) {
+        if (command.threadId !== sessionId || command.isBackground) continue
+        command.isBackground = true
+        this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId } satisfies NormalizedEvent)
+      }
+    }
+    const changedFiles = handle.persistent && !handle.isCompaction
       ? await this.snapshotOnTurnComplete(handle, partial)
       : null
     if (changedFiles) {
@@ -1285,16 +1360,64 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /**
    * A command the agent started in the background can finish after its turn
    * has ended. Codex reports it on the settled turn, which no run owns any
-   * more; wake the session with the result instead of dropping it
-   * (docs/plans/watches.md §7). A command that finishes during a turn goes
-   * through the normal path.
+   * more; wake the session with the result instead of dropping it. A command
+   * that finishes during a turn goes through the normal path.
    */
   private completesBackgroundCommand(method: string, params: any): boolean {
     if (method !== 'item/completed' || params?.item?.type !== 'commandExecution') return false
-    const threadId = this.runningCommandThreads.get(params.item.id)
-    this.runningCommandThreads.delete(params.item.id)
-    if (!threadId || this.activeRuns.has(threadId)) return false
-    this.emit('background-command-completed', threadId, codexBackgroundCommandWake(params.item))
+    const itemId: string = params.item.id
+    const command = this.runningCommands.get(itemId)
+    if (!command) return false
+    this.settleBackgroundCommand(itemId, command, command.isStopping ? 'stopped' : params.item.exitCode === 0 ? 'completed' : 'failed')
+    if (this.activeRuns.has(command.threadId)) return false
+    if (command.isStopping) return true
+    this.emit('background-command-completed', command.threadId, codexBackgroundCommandWake(params.item))
+    return true
+  }
+
+  /** Forget a command, and end the background task it was. */
+  private settleBackgroundCommand(itemId: string, command: RunningCommand, status: 'completed' | 'failed' | 'stopped' | 'killed'): void {
+    this.runningCommands.delete(itemId)
+    if (!command.isBackground) return
+    this.emit('normalized', command.threadId, { type: 'background_task_settled', taskId: itemId, toolUseId: itemId, status } satisfies NormalizedEvent)
+  }
+
+  hasBackgroundTasks(sessionId: string): boolean {
+    for (const command of this.runningCommands.values()) {
+      if (command.threadId === sessionId && command.isBackground) return true
+    }
+    return false
+  }
+
+  /** Stop one command the agent left running, without a turn. */
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+    const command = this.runningCommands.get(taskId)
+    if (!command || command.threadId !== sessionId) return false
+    return this.stopCommand(taskId, command)
+  }
+
+  /** Terminate a command's terminal. It ends with no wake: the person stopped
+   *  it, so its result is not news for the agent. */
+  private async stopCommand(itemId: string, command: RunningCommand): Promise<boolean> {
+    command.isStopping = true
+    if (command.processId) {
+      try {
+        const result = await command.client.request<{ terminated: boolean }, { threadId: string; processId: string }>(
+          'thread/backgroundTerminals/terminate',
+          { threadId: command.threadId, processId: command.processId },
+          10_000,
+        )
+        if (!result?.terminated) return false
+      } catch (error) {
+        // An unloaded thread has no terminals left: Codex killed them on unload.
+        if (!(error instanceof CodexRpcError && error.message.startsWith('thread not found'))) {
+          log.warn('codex_background_terminate_failed', { sessionId: command.threadId, itemId, error: error instanceof Error ? error.message : String(error) })
+          return false
+        }
+      }
+    }
+    // Still tracked: Codex did not report the command complete while the request ran.
+    if (this.runningCommands.get(itemId) === command) this.settleBackgroundCommand(itemId, command, 'stopped')
     return true
   }
 

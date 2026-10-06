@@ -17,6 +17,7 @@
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
+import type { SavedLens } from './review'
 import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from './model-routing'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -211,6 +212,13 @@ export const PERSONAL_SETTING_KEYS = Object.keys(PERSONAL_SETTING_SCHEMAS) as re
 export const personalSettingsDocumentSchema = personalSettingsSchema.partial().strict()
 export type PersonalSettingsDocument = z.output<typeof personalSettingsDocumentSchema>
 
+/** Also offered as a template so a deleted default lens can be added again. */
+export const SHOW_ME_LENS: SavedLens = {
+  id: 'show-me',
+  name: 'Show me',
+  prompt: 'Read the show-me skill at https://raw.githubusercontent.com/humanlayer/skills/refs/heads/main/plugins/show-me/skills/show-me/SKILL.md and follow it to help me understand this change visually. Put every view in this lens: draw Mermaid-style diagrams as inline SVG, and do not open a file.',
+}
+
 /** The defaults a client shows before the person chooses. */
 export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   themeMode: 'system',
@@ -225,7 +233,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   reviewModel: DEFAULT_REVIEW_MODEL,
   reviewReasoning: DEFAULT_REVIEW_REASONING,
   reviewGuideInstructions: '',
-  savedLenses: [],
+  savedLenses: [SHOW_ME_LENS],
   generatePrGuidesOnOpen: false,
   responseStreamingMode: 'paragraph',
   rateLimitBehavior: 'ask',

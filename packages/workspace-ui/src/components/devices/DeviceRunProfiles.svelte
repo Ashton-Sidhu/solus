@@ -7,7 +7,7 @@
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Input } from "../ui/input";
-  import { RUN_PROFILE_PRESETS, profileDraft, profilesFromDrafts, type RunProfileDraft } from "./lib/run-profiles";
+  import { RUN_PROFILE_PRESETS, profileDraft, profilesFromDrafts, type RunProfileDraft } from "@solus/client-core/device-run-profiles";
 
   /**
    * How this project builds its app, for Build & run (plan 016, S02). The

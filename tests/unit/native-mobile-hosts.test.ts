@@ -108,6 +108,20 @@ describe('native host connections', () => {
     expect(connection?.state.blockedReason).toBe('identity-mismatch')
   })
 
+  test('a managed host is accepted although its server reports its own installation id', async () => {
+    const url = 'https://bills.solus.sh'
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ [url]: 'a37b55ff' }) })
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+      installationId: 'managed:bills', kind: 'managed', category: 'managed', managedState: 'ready',
+      routes: [{ kind: 'tunnel', url }],
+    })])
+    const connection = connections.connection('managed:bills')
+    await transports[0]?.accept()
+    expect(connection?.state.blockedReason).toBeNull()
+    expect(connection?.state.phase).not.toBe('blocked')
+  })
+
   test('a matching host is accepted and its reported name fills an unnamed label', async () => {
     const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()

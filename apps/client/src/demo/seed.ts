@@ -12,7 +12,7 @@ import { DEMO_INSTALLATION_ID, type DemoFixtures } from './fixtures/types'
 const DEMO_PERSONAL_SETTINGS = { themeMode: 'light' }
 const DEMO_DEVICE_LAYOUT = {
   onboardingCompleted: true,
-  projectPanelCollapsed: { environment: false, git: false, goal: false, linked: false, watches: false },
+  projectPanelCollapsed: { environment: false, git: false, goal: false, linked: false },
 }
 
 export function seedDemoStorage(fixtures: DemoFixtures): void {

@@ -46,9 +46,6 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
-  import PrPrimaryAction from "./PrPrimaryAction.svelte";
-  import { mergeReadiness, type MergeAction } from "./lib/merge-readiness";
-  import { isFailing, orderedChecks } from "../prs/lib/checks";
   import PageComposer from "../page-composer/PageComposer.svelte";
   import LensSurface from "../review/LensSurface.svelte";
   import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
@@ -640,31 +637,6 @@
     await openFixDraft(buildPrChecksFixPrompt(target, checks));
   }
 
-  // The pull request's one move, read from the same table as the status card
-  // on Activity so the header and the card never disagree. The checks and the
-  // threads are the ones this pane already keeps fresh.
-  const prChecks = $derived(pullRequests.checks.summaryFor(serverId, projectCtx(), target.number));
-  const readiness = $derived(
-    reviewDetail
-      ? mergeReadiness({
-          detail: reviewDetail,
-          checks: prChecks,
-          checksLoadFailed: pullRequests.checks.loadFailedFor(serverId, projectCtx()),
-          unresolvedCount: review.unresolvedCount,
-          approvedReviewCount: (reviewDetail.reviewers ?? []).filter((reviewer) => reviewer.state === "APPROVED").length,
-        })
-      : null,
-  );
-
-  async function runAgentAction(move: MergeAction) {
-    if (move.kind === "resolve-conflicts")
-      await session.prReview.startConflictResolverSession(
-        { number: target.number, title: reviewDetail?.title ?? target.title },
-        { ctx: prCtx() },
-      );
-    else if (move.kind === "fix-checks") await openFixChecks(orderedChecks(prChecks).filter(isFailing));
-  }
-
   function exit() {
     if (onExit) onExit();
     else session.prReview.exitPrReview();
@@ -763,15 +735,6 @@
   />
 {/snippet}
 
-{#snippet primaryAction()}
-  <PrPrimaryAction
-    number={target.number}
-    pullRequest={reviewDetail}
-    {readiness}
-    onAgentAction={runAgentAction}
-  />
-{/snippet}
-
 {#snippet checkoutButton()}
   <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
 {/snippet}
@@ -831,9 +794,6 @@
            gives the pull request a worktree and a session composer. Refresh
            and the external host page live in the overflow, and the check
            state is read on Activity. -->
-      {#snippet numberAction()}
-        {@render primaryAction()}
-      {/snippet}
       {#snippet actions()}
         {@render reviewButton()}
         {@render checkoutButton()}
@@ -852,7 +812,6 @@
       {maximized}
     >
       {#snippet actions()}
-        {@render primaryAction()}
         {@render reviewButton()}
         {@render checkoutButton()}
         <!-- The same overflow the panel band carries, so refresh, external
@@ -1018,6 +977,8 @@
         {/key}
       </div>
     {/if}
+    <!-- The glyph centres on Activity's comment bar: a 50px pill with 22px
+         under it (CommentPostingBar), so its middle is 47px up. -->
     {#if pr && !headless}
       <PageComposer
         paneId={paneId ?? session.router.focusedPaneId}
@@ -1029,6 +990,7 @@
         {onScreenshot}
         {onDesignMode}
         label="Work with this pull request"
+        class="bottom-[max(27px,env(safe-area-inset-bottom,0px))] pointer-coarse:bottom-[max(23px,env(safe-area-inset-bottom,0px))]"
       />
     {/if}
   </div>

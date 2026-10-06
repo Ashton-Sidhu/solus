@@ -31,6 +31,8 @@ import { CloneProjectScreen } from '../features/projects/CloneProjectScreen'
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen'
 import { BuildsScreen } from '../features/devices/BuildsScreen'
 import { BuildFolderScreen } from '../features/devices/BuildFolderScreen'
+import { NewBuildScreen } from '../features/devices/NewBuildScreen'
+import { BuildProfilesScreen } from '../features/devices/BuildProfilesScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { PersonalSettingsScreen } from '../features/settings/PersonalSettingsScreen'
@@ -199,6 +201,8 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
         <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
         <Stack.Screen name="Builds" component={BuildsScreen} options={{ title: 'App builds' }} />
         <Stack.Screen name="BuildFolder" component={BuildFolderScreen} options={{ title: 'Add a build' }} />
+        <Stack.Screen name="NewBuild" component={NewBuildScreen} options={{ title: 'New build' }} />
+        <Stack.Screen name="BuildProfiles" component={BuildProfilesScreen} options={{ title: 'Build profiles' }} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
         <Stack.Screen name="PersonalSettings" component={PersonalSettingsScreen} options={{ title: 'Personal' }} />

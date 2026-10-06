@@ -6,7 +6,7 @@ import { buildTurns, groupMessages, itemKey, type GroupedItem, type TurnEnd } fr
  * share-link guest reads nothing but the session (sharing/share-manager.ts
  * `roleFor`): no work, no task, no host file. So it draws what the transcript
  * itself carries, and the cards whose subject lives elsewhere — review guides,
- * tasks, watches, automations, browser captures, agent conversations — keep
+ * tasks, automations, browser captures, agent conversations — keep
  * their tool rows and nothing more.
  */
 export const RECORD_ITEM_KINDS: ReadonlySet<GroupedItem['kind']> = new Set<GroupedItem['kind']>([

@@ -16,7 +16,6 @@ import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { type PlanStore } from '../plans/plan.store.svelte'
 import { WorksStore, type WorkListing } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
-import { WatchesStore } from '../watches/watches.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { UNTITLED_TASK_TITLE } from '../tasks/task.svelte'
@@ -82,6 +81,8 @@ import { hostKey } from '@solus/client-core/host-key'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
+import { workTitleForMarkdownFile } from '../../components/files/lib/markdown-file'
+import type { WorkspaceFileRef } from '../../components/files/lib/save-file-as-work'
 import {
   reviewGuideStore,
   sessionGuideIdentity,
@@ -198,7 +199,6 @@ export class WorkspaceContext implements SurfaceContext {
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
-  watchesStore = new WatchesStore()
   tasksStore = new TasksStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
@@ -1612,6 +1612,32 @@ export class WorkspaceContext implements SurfaceContext {
     const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, run.workingDirectory)
     this.worksStore.acceptCreated(work, serverId)
     this.openWork(work.id)
+  }
+
+  /** Promote a markdown file into a `doc` work on the host that holds the file:
+   *  a copy, not a mirror. The work keeps the file's project as its `cwd`; the
+   *  file itself stays git's. `content` is the editor's current text when the
+   *  caller has it; otherwise the file is read from disk. Opens the new work. */
+  async saveFileAsWork(file: WorkspaceFileRef, content?: string): Promise<void> {
+    const serverId = serverConnections.resolveId(file.serverId)
+    const api = serverConnections.apiFor(serverId)
+    try {
+      let body = content
+      if (body === undefined) {
+        const result = await api.readProjectFile(this.ctxForEnvironment(file.cwd, null), { path: file.path, cwd: file.cwd })
+        if (!result.ok) throw new Error(result.error)
+        if (result.kind !== 'text') throw new Error('This file is not text.')
+        if (result.truncated) throw new Error('This file is too large to save as a work.')
+        body = result.contents
+      }
+      const title = workTitleForMarkdownFile(file.path, body)
+      const work = await api.createWork(title, 'doc', body, workPreview('doc', body), undefined, 'claude-code', file.cwd)
+      this.worksStore.acceptCreated(work, serverId)
+      this.openWork(work.id)
+      toasts.success('Saved as work', { description: title })
+    } catch (err) {
+      toasts.error(err instanceof Error ? err.message : 'Could not save this file as a work.')
+    }
   }
 
   /** Promote an HTML block the reader liked into an `artifact` work: a durable

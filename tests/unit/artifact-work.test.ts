@@ -313,3 +313,109 @@ describe('an artifact on a ticket', () => {
     await expect(taskArtifacts.attachArtifactToTask('local', record.id, 'missing-work')).rejects.toThrow(/no longer exists/)
   })
 })
+
+describe('render_artifact checks a page before and after it is shown', () => {
+  const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+  const SCREENSHOT = `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`
+  type Preview = Awaited<ReturnType<typeof import('@solus/server/data/works/artifact-preview')['previewArtifactHtml']>>
+  const ctx = () => ({ sessionId: SESSION_ID, agentProvider: 'claude-code' as const, cwd: dataDir })
+  const fakePreview = (result: Partial<Preview>, seen: Array<{ html: string; width?: number; appearance?: 'light' | 'dark' }> = []) =>
+    async (input: { html: string; width?: number; appearance?: 'light' | 'dark' }): Promise<Preview> => {
+      seen.push(input)
+      return { screenshot: SCREENSHOT, width: input.width ?? 760, appearance: input.appearance ?? 'light', contentHeight: 412, console: [], missingImages: [], ...result }
+    }
+
+  test('a preview saves nothing and shows nothing, and reports what the page did', async () => {
+    // WHY: the agent checks a page it may never keep. A preview that wrote a
+    // work or rendered a card would put drafts in front of the user.
+    const emitted: unknown[] = []
+    const seen: Array<{ html: string; width?: number; appearance?: 'light' | 'dark' }> = []
+    const result = await artifactTools.executeArtifactTool(
+      { html: HTML, preview: true, preview_width: 390, preview_appearance: 'dark' },
+      {
+        ctx: ctx(),
+        onArtifact: (artifact) => emitted.push(artifact),
+        preview: fakePreview({
+          console: [{ at: 1, level: 'error', text: 'Uncaught ReferenceError: chart is not defined (line 4)' }],
+          missingImages: ['/tmp/missing-shot.png'],
+        }, seen),
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(emitted).toHaveLength(0)
+    expect(await works.listWorks('local')).toHaveLength(0)
+    expect(seen).toEqual([{ html: HTML, width: 390, appearance: 'dark' }])
+    expect(result.text).toContain('the page is 412px tall')
+    expect(result.text).toContain('[error] Uncaught ReferenceError: chart is not defined (line 4)')
+    expect(result.text).toContain('/tmp/missing-shot.png')
+    // The screenshot is a file the agent can read, on this host.
+    const screenshotPath = /screenshot: (\S+)/.exec(result.text)![1]
+    expect(await Bun.file(screenshotPath).exists()).toBe(true)
+  })
+
+  test('a saved page that raises errors says so instead of failing silently', async () => {
+    const result = await artifactTools.executeArtifactTool(
+      { html: HTML },
+      { ctx: ctx(), preview: fakePreview({ console: [{ at: 1, level: 'error', text: 'Failed to load https://cdn.example/chart.js' }, { at: 2, level: 'log', text: 'drawn' }] }) },
+    )
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('The page raised errors when rendered')
+    expect(result.text).toContain('Failed to load https://cdn.example/chart.js')
+    // Ordinary logs are the agent's own checks, not problems with the save.
+    expect(result.text).not.toContain('drawn')
+  })
+
+  test('a saved artifact carries its local images, so any client can show them', async () => {
+    // WHY: a saved work opens on another device and in a shared link, where a
+    // path on this host means nothing.
+    const imagePath = join(dataDir, 'shot.png')
+    writeFileSync(imagePath, ONE_PIXEL_PNG)
+    const emitted: Array<{ html: string }> = []
+    await artifactTools.executeArtifactTool(
+      { html: `<style>p{}</style><img src="${imagePath}">` },
+      { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact), preview: fakePreview({}) },
+    )
+    expect(emitted[0].html).toContain('src="data:image/png;base64,')
+    expect(emitted[0].html).not.toContain(imagePath)
+  })
+
+  test('the server preview renders the page in the Solus theme, at the size it needs', async () => {
+    // WHY: an agent fixes what the preview shows. A preview in other colours,
+    // or cut to one screen, would have it fix a page the reader never sees.
+    const { setBrowserHeadlessHost } = await import('@solus/server/browser/surface-driver')
+    const { previewArtifactHtml } = await import('@solus/server/data/works/artifact-preview')
+    const opened: string[] = []
+    const viewports: Array<{ width: number; height: number }> = []
+    let disposed = false
+    const driver = {
+      evaluate: async (expression: string) => (expression.includes('getBoundingClientRect') ? '1234' : '"ok"'),
+      applyEmulation: async (emulation: { viewport: { width: number; height: number } }) => { viewports.push(emulation.viewport) },
+      captureScreenshot: async () => SCREENSHOT,
+      consoleEntries: () => [{ at: 1, level: 'error' as const, text: 'Uncaught TypeError: x is null (line 9)' }],
+      dispose: async () => { disposed = true },
+    }
+    setBrowserHeadlessHost({
+      open: async (request) => {
+        opened.push(Buffer.from(request.url.split(',')[1], 'base64').toString('utf8'))
+        return driver as unknown as Awaited<ReturnType<NonNullable<ReturnType<typeof import('@solus/server/browser/surface-driver')['browserHeadlessHost']>>['open']>>
+      },
+    })
+    try {
+      const imagePath = join(dataDir, 'preview-shot.png')
+      writeFileSync(imagePath, ONE_PIXEL_PNG)
+      const preview = await previewArtifactHtml({ html: `<img src="${imagePath}"><img src="/no/such.png">`, appearance: 'dark' })
+      const page = opened[0]
+      expect(page).toContain('color-scheme:dark')
+      expect(page).toContain('--background:#262522fa')
+      expect(page).toContain('src="data:image/png;base64,')
+      expect(preview.missingImages).toEqual(['/no/such.png'])
+      // The capture grows to the page rather than stopping at one screen.
+      expect(viewports.at(-1)).toMatchObject({ width: 760, height: 1234 })
+      expect(preview.contentHeight).toBe(1234)
+      expect(preview.console[0].text).toContain('TypeError')
+      expect(disposed).toBe(true)
+    } finally {
+      setBrowserHeadlessHost(null)
+    }
+  })
+})

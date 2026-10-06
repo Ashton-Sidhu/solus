@@ -173,6 +173,49 @@ describe('native conversation: history and live events', () => {
 })
 
 describe('native conversation: sending', () => {
+  test('Codex /compact calls the host command without a prompt bubble or an outbox entry', async () => {
+    // WHY: Native and desktop must invoke the same command instead of sending text to Codex.
+    const api = baseApi().on('compactSession', () => undefined)
+    const { controller, outbox } = await open({ api, target: { hostId: 'inst-a', record: record('codex') } })
+    await controller.load()
+    const before = texts(controller)
+    await controller.send('/compact')
+    expect(api.callsOf('compactSession')).toHaveLength(1)
+    expect(api.callsOf('compactSession')[0]?.[0]).toMatchObject({ session: { sessionId: 'thread-1', agentSessionId: 'thread-1', provider: 'codex' } })
+    expect(api.callsOf('prompt')).toHaveLength(0)
+    expect(outbox.entriesFor(controller.outboxKey)).toEqual([])
+    expect(texts(controller)).toEqual(before)
+    controller.close()
+  })
+
+  test('Codex /compact shows draft and busy refusal messages without a false busy state', async () => {
+    const api = baseApi().on('compactSession', () => { throw new Error('Wait for the current turn to finish.') })
+    const { controller } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'draft-1', provider: 'codex', workingDirectory: '/work/app' } } })
+    await controller.load()
+    await controller.send('/compact')
+    expect(api.callsOf('compactSession')).toHaveLength(0)
+    expect(texts(controller).some((text) => text?.includes('Send a first message'))).toBe(true)
+    expect(controller.model.status).toBe('idle')
+    controller.run.agentSessionId = 'codex-thread'
+    controller.model.setStatus('running')
+    await controller.send('/compact')
+    expect(texts(controller).some((text) => text?.includes('Wait for the current turn'))).toBe(true)
+    expect(controller.model.status).toBe('running')
+    expect(api.callsOf('prompt')).toHaveLength(0)
+    controller.close()
+  })
+
+  test('Claude /compact keeps the provider command path', async () => {
+    const api = baseApi()
+    const { controller } = await open({ api })
+    await controller.load()
+    await controller.send('/compact')
+    expect(api.callsOf('compactSession')).toHaveLength(0)
+    expect(api.callsOf('prompt')).toHaveLength(1)
+    expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ prompt: '/compact' })
+    controller.close()
+  })
+
   test('a new session watches, then prompts with no provider thread, and learns it from session_init', async () => {
     const api = new FakeApi()
       .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId! }))

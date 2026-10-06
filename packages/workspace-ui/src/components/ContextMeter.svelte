@@ -27,10 +27,6 @@
   const remaining = $derived(Math.max(0, limit - used));
   // Past 80% the session is close to compacting — warn.
   const warn = $derived(usedFraction >= 0.8);
-  // Always a figure, never a placeholder: a tab that hasn't run a turn reads 0%
-  // and fills in from there. The popover carries the caveat that nothing has
-  // been reported yet.
-  const label = $derived(`${usedPct}%`);
   // Only a compaction threshold is worth naming; a raw window is just the limit.
   const compactAt = $derived(context?.compactAtTokens ?? null);
 
@@ -116,13 +112,35 @@
               ? `${usedPct}% of context used`
               : "Context usage not reported yet"}
             data-testid="context-meter-trigger"
-            class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
           >
-      {@render meter("h-[0.1875rem] w-[2.625rem] shrink-0")}
-      <span
-        class="tabular-nums {context ? ' opacity-65' : 'opacity-55'}"
-        data-testid="context-meter-label">{label}</span
-      >
+      <!-- A ring, not a bar, so the input bar spends one icon's width on it.
+           The figure is in the tooltip, the label, and the popover. An
+           unreported window is the bare track. -->
+      <svg viewBox="0 0 20 20" class="size-3.5 -rotate-90" aria-hidden="true">
+        <circle
+          cx="10"
+          cy="10"
+          r="8"
+          fill="none"
+          stroke-width="2.5"
+          stroke="color-mix(in oklch, var(--solus-text-primary) 12%, transparent)"
+        />
+        {#if context}
+          <circle
+            cx="10"
+            cy="10"
+            r="8"
+            fill="none"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            pathLength="100"
+            stroke-dasharray="{Math.max(usedPct, 2)} 100"
+            style="stroke:{fillColor}"
+            class="transition-[stroke-dasharray] duration-300 ease-out motion-reduce:transition-none"
+          />
+        {/if}
+      </svg>
           </button>
               {/snippet}
             </TooltipUI.Trigger>

@@ -3,6 +3,7 @@ import {
   isMarkdownFile,
   initialMarkdownFileViewMode,
   markdownFileDirectory,
+  workTitleForMarkdownFile,
 } from "@solus/workspace-ui/components/files/lib/markdown-file";
 
 describe("Markdown file rendering", () => {
@@ -21,5 +22,11 @@ describe("Markdown file rendering", () => {
   test("uses the document directory for relative image assets", () => {
     expect(markdownFileDirectory("docs/guide.md", "/repo")).toBe("/repo/docs");
     expect(markdownFileDirectory("/tmp/guide.md", "/repo")).toBe("/tmp");
+  });
+
+  test("names a saved work after the document, not the file, when it has a heading", () => {
+    expect(workTitleForMarkdownFile("docs/plan.md", "Intro\n\n# Launch plan #\n\n## Goals")).toBe("Launch plan");
+    expect(workTitleForMarkdownFile("docs/plan.md", "## Only a subheading")).toBe("plan");
+    expect(workTitleForMarkdownFile("/tmp/NOTES.markdown#top", "")).toBe("NOTES");
   });
 });

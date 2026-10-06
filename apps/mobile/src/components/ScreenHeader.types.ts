@@ -70,8 +70,8 @@ export interface ScreenHeaderProps {
   /** iOS: the actions share one glass group, as T3 Code's thread header
    *  (`sharesBackground`), instead of a circle each. */
   readonly groupActions?: boolean;
-  /** Android: a small mark before the subtitle. iOS screens that need one set a
-   *  custom `headerTitle` in `options` (`ThreadHeaderTitle`). */
+  /** Android: a small mark before the subtitle. On iOS the title and subtitle
+   *  are UIKit strings; a screen puts its mark in a left bar item instead. */
   readonly subtitleLeading?: ReactNode;
   readonly trailing?: ReactNode;
   /** Search scenes use sheet colors on iOS and header colors on Android. */

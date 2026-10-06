@@ -520,7 +520,7 @@ export class UnifiedAutocompleteController {
     if (!trigger) return;
 
     // A Solus built-in is a whole intent, not a reference: the host runs it.
-    if (item.command && SLASH_COMMANDS.includes(item.command)) {
+    if (item.command?.run) {
       this.clearCompletions();
       this.deps.onSolusCommand()?.(item.command);
       return;

@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import type { Logger } from '@solus/server/logger'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { runGithubRequest } from '@solus/server/providers/github/request'
+import { GitHubRateLimitedError, githubRateLimitOf } from '@solus/server/providers/github/rate-limit'
+import { isGithubCredentialAccessFailure } from '@solus/server/providers/github/octokit'
 
 interface RecordedEntry {
   level: 'debug' | 'info' | 'warn' | 'error'
@@ -108,5 +110,53 @@ describe('GitHub request logging', () => {
       'github_request_attempt_started',
       'github_request_failed',
     ])
+  })
+
+  test('a rate-limited 403 is final: no fallback to the same account, and it carries the reset time', async () => {
+    const logger = new RecordingLogger()
+    const reset = Math.floor(Date.now() / 1000) + 600
+    const limited = Object.assign(new Error('API rate limit exceeded'), {
+      status: 403,
+      response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) } },
+    })
+    const sources: string[] = []
+
+    const failure = await runGithubRequest(
+      'list_recent_pull_requests',
+      'github.com',
+      [client('host'), client('gh-cli')],
+      async ({ credential }) => { sources.push(credential.source); throw limited },
+      logger,
+    ).catch((error) => error)
+
+    expect(isGithubCredentialAccessFailure(limited)).toBe(false)
+    expect(failure).toBeInstanceOf(GitHubRateLimitedError)
+    expect(failure.retryAt).toBe(reset * 1000)
+    expect(sources).toEqual(['host'])
+    expect(logger.entries.map(({ message }) => message)).toEqual([
+      'github_request_attempt_started',
+      'github_request_rate_limited',
+    ])
+  })
+
+  test('a 403 without spent quota is still a credential failure', () => {
+    const forbidden = Object.assign(new Error('Forbidden'), {
+      status: 403,
+      response: { headers: { 'x-ratelimit-remaining': '4000' } },
+    })
+    expect(githubRateLimitOf(forbidden)).toBeNull()
+    expect(isGithubCredentialAccessFailure(forbidden)).toBe(true)
+  })
+
+  test('retry-after and GraphQL RATE_LIMITED are rate limits too', () => {
+    const now = 1_000_000
+    const secondary = Object.assign(new Error('secondary rate limit'), { status: 429, response: { headers: { 'retry-after': '60' } } })
+    expect(githubRateLimitOf(secondary, now)?.retryAt).toBe(now + 60_000)
+    const graphql = Object.assign(new Error('rate limited'), {
+      errors: [{ type: 'RATE_LIMITED' }],
+      headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000' },
+    })
+    expect(githubRateLimitOf(graphql, now)?.retryAt).toBe(2_000_000)
+    expect(githubRateLimitOf(Object.assign(new Error('x'), { errors: [{ type: 'RATE_LIMITED' }] }), now)?.retryAt).toBeNull()
   })
 })

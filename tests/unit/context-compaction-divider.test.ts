@@ -5,7 +5,7 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
-import { compactionDividerText } from '@solus/workspace-ui/components/conversation/lib/compaction-divider'
+import { compactionDividerText } from '@solus/contracts/context-compaction'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
@@ -70,7 +70,7 @@ describe('context compaction divider after a reload', () => {
 async function createReducer() {
   Object.defineProperty(globalThis, '$state', { value: <T>(value: T) => value, configurable: true, writable: true })
   const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
-  const session = { status: 'running', messages: [{ id: 'prompt', role: 'user', content: 'Keep going', timestamp: 1 }] } as unknown as Session
+  const session = { status: 'running', messages: [{ id: 'prompt', role: 'user', content: 'Keep going', timestamp: 1 }], permissionQueue: [], questionQueue: [] } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
   const reducer = new SessionEventReducer({
     sessions: { byId: { 'session-1': session } },
@@ -105,6 +105,32 @@ describe('context compaction divider while the turn streams', () => {
 
     expect(session.messages.filter((message) => message.compaction).map((message) => message.compaction))
       .toEqual([{ trigger: 'manual', preTokens: 180_000 }])
+  })
+
+  // WHY: a compaction can run for minutes with no output. The divider shows
+  // at its start, so the reader sees where it happens, and the same row then
+  // states the result.
+  test('a started compaction draws a running divider that its stop settles in place', async () => {
+    const { session, reducer } = await createReducer()
+    reducer.apply('session-1', { type: 'context_compaction', state: 'start', trigger: 'manual' })
+
+    const running = session.messages.filter((message) => message.compaction)
+    expect(running).toHaveLength(1)
+    expect(compactionDividerText(running[0].compaction!)).toEqual({ label: 'Compacting context', detail: null })
+
+    reducer.apply('session-1', { type: 'context_compaction', state: 'stop', trigger: 'manual', preTokens: 180_000, postTokens: 12_000 })
+    const settled = session.messages.filter((message) => message.compaction)
+    expect(settled.map((message) => message.id)).toEqual([running[0].id])
+    expect(settled[0].compaction).toEqual({ trigger: 'manual', preTokens: 180_000, postTokens: 12_000 })
+  })
+
+  // WHY: a running divider after the work stopped is a lying spinner.
+  test('a turn that ends before the compaction stops removes the running divider', async () => {
+    const { session, reducer } = await createReducer()
+    reducer.apply('session-1', { type: 'context_compaction', state: 'start' })
+    reducer.apply('session-1', { type: 'task_complete', usage: {} } as any)
+
+    expect(session.messages.some((message) => message.compaction)).toBe(false)
   })
 
   test('a failed compaction draws no divider', async () => {

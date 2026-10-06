@@ -8,9 +8,9 @@
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
   // The PR's action cluster, Linear-style: it lives inside the status card in
-  // the right rail. The pull request's one move (PrPrimaryAction) leads it —
-  // the same control the header carries, so the card says what it will do
-  // right under the state it changes. Under it, one quiet full-width row. The
+  // the right rail. The pull request's one move (PrPrimaryAction) leads it, so
+  // the card says what it will do right under the state it changes. Under it,
+  // one quiet full-width row. The
   // rarely-used actions are in the ⋯ beside the card's headline (see
   // PrOverflowMenu).
   //

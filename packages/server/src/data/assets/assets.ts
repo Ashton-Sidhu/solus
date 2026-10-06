@@ -35,7 +35,7 @@ const IMAGE_EXTENSION = new Map<string, string>([
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
 /** The raster image type that a file's first bytes name, or null. */
-function rasterImageMimeOf(bytes: Buffer): string | null {
+export function rasterImageMimeOf(bytes: Buffer): string | null {
   if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return 'image/png'
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
   const gif = bytes.subarray(0, 6).toString('ascii')

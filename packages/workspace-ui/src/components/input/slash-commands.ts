@@ -53,6 +53,22 @@ export interface CategorizedSlashCommands {
  * was discovered from the provider. */
 export const CODEX_SLASH_COMMANDS: SlashCommand[] = [
   {
+    command: '/compact',
+    description: 'Compact the context of this session',
+    providers: ['codex'],
+    run: async ({ api, ipcContext, sessionId, argument, addSystemMessage, requestInputFocus }) => {
+      try {
+        if (argument.trim()) addSystemMessage('Use /compact without arguments.');
+        else if (!sessionId) addSystemMessage('Send a first message before you compact this session.');
+        else await api.compactSession(ipcContext);
+      } catch (error) {
+        addSystemMessage(`Could not compact this session: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        requestInputFocus();
+      }
+    },
+  },
+  {
     command: "/goal",
     description: "Set or view the persistent goal for this session",
   },

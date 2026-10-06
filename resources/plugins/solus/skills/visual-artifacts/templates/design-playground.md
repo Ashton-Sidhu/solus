@@ -63,7 +63,7 @@ If the user is working in Tailwind, suggest Tailwind v4 utilities; if raw CSS, u
 ## Solus styling notes
 
 - Use the Solus theme tokens for controls and general previews. For a real product mockup, read and reproduce that product's tokens and surface treatment; scope them to the preview. Solus surfaces: `--card`, `--muted`. Hairlines: `--border`, `--input`. Text: `--foreground/secondary/tertiary`. Accent: `--primary`.
-- A single-series preview uses one colour (the accent). Only reach for the data palette (`--chart-1 … --chart-3`) when swatches genuinely encode different categories.
+- A single-series preview uses one colour (the accent). Only reach for the data palette (`--chart-5 … --chart-6`) when swatches genuinely encode different categories.
 - No raw grey, no gradients or glow, thin 1px borders, sentence case, two font weights, nothing below 11px.
 - Use finite transitions when they clarify control changes; respect reduced motion. Do not restart entrance effects on each update.
 

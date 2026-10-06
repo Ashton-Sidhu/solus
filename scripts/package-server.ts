@@ -34,7 +34,6 @@ async function main(): Promise<void> {
   try {
     await installNodeRuntime(target, staging)
     await buildServerBundle(staging)
-    cpSync(join(repoRoot, 'packages', 'server', 'drizzle'), join(staging, 'libexec', 'server', 'drizzle'), { recursive: true })
     await buildCliBundle(staging)
     copyClient(staging)
     copyBundledPlugins(staging)
@@ -125,10 +124,19 @@ async function installNodeRuntime(target: Target, staging: string): Promise<void
   chmodSync(join(binDir, 'node'), 0o755)
 }
 
+/**
+ * The server bundle and the migrations it reads beside itself
+ * (packages/server/src/db/migration-files.ts) are one unit: a bundle laid over an
+ * older release with that release's `drizzle` folder runs its new queries against
+ * the old schema, and the column a migration adds never exists.
+ */
 export async function buildServerBundle(staging: string): Promise<void> {
   const outdir = join(staging, 'libexec', 'server')
   mkdirSync(outdir, { recursive: true })
   await bundleServerEntry(join(repoRoot, 'apps', 'standalone-server', 'src', 'index.ts'), join(outdir, 'standalone.js'))
+  const drizzle = join(outdir, 'drizzle')
+  rmSync(drizzle, { recursive: true, force: true })
+  cpSync(join(repoRoot, 'packages', 'server', 'drizzle'), drizzle, { recursive: true })
 }
 
 /** One self-contained CommonJS file for Node; the cloud application bundles the record service the same way (scripts/build-record-service.ts). */

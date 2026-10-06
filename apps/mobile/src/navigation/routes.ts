@@ -24,6 +24,8 @@ export type RootStackParamList = {
   Notifications: undefined
   Builds: { hostId: string }
   BuildFolder: { hostId: string; path?: string }
+  NewBuild: { hostId: string; projectPath?: string }
+  BuildProfiles: { hostId: string; projectPath: string }
   Settings: undefined
   /** The person's own settings and their sync (plans/018); no host needed. */
   PersonalSettings: undefined

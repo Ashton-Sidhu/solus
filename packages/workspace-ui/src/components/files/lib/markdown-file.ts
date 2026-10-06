@@ -48,3 +48,17 @@ export function markdownFileDirectory(filePath: string, cwd: string): string {
   if (cleanPath.startsWith("/")) return directory || "/";
   return directory ? `${cwd.replace(/\/+$/, "")}/${directory}` : cwd;
 }
+
+/**
+ * The title a markdown file gets when it is saved as a work: its first
+ * top-level heading, else its file name without the extension. The heading is
+ * what a reader calls the document; the file name is the fallback a draft
+ * without one still deserves.
+ */
+export function workTitleForMarkdownFile(filePath: string, content: string): string {
+  const heading = content.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]?.trim();
+  if (heading) return heading;
+  const cleanPath = pathWithoutQueryOrHash(filePath);
+  const fileName = cleanPath.slice(cleanPath.lastIndexOf("/") + 1);
+  return fileName.replace(/\.(md|markdown)$/i, "") || "Untitled document";
+}

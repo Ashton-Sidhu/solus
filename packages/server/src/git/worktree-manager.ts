@@ -345,12 +345,21 @@ export async function createWorktree(
   }
 }
 
-/** The first of `branch`, `branch-2`, `branch-3`… that no local branch holds. */
+/**
+ * The first of `branch`, `branch-2`, `branch-3`… that git can create. A ref is
+ * a file, so a branch also blocks every name below it: with a branch `solus`,
+ * no `solus/<x>` can exist. Then the name is flattened to `solus-<x>`.
+ */
 async function availableBranchName(cwd: string, branch: string): Promise<string> {
+  // Full refnames: `:short` turns ambiguous names into `heads/<name>`.
+  const branches = (await runAsync('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/'], cwd))
+    .split('\n').filter(Boolean).map((ref) => ref.slice('refs/heads/'.length))
+  const blocks = (existing: string, candidate: string) =>
+    existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`)
+  const base = branches.some((existing) => branch.startsWith(`${existing}/`)) ? branch.replace(/\//g, '-') : branch
   for (let suffix = 1; suffix <= 100; suffix++) {
-    const candidate = suffix === 1 ? branch : `${branch}-${suffix}`
-    const taken = await runAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`], cwd).then(() => true, () => false)
-    if (!taken) return candidate
+    const candidate = suffix === 1 ? base : `${base}-${suffix}`
+    if (!branches.some((existing) => blocks(existing, candidate))) return candidate
   }
   throw new Error(`No free branch name for ${branch}`)
 }

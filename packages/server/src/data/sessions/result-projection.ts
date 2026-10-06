@@ -35,6 +35,7 @@ export function projectSessionEvent(event: NormalizedEvent): WireNormalizedEvent
     }
     if (event.parentToolUseId) projected.parentToolUseId = event.parentToolUseId
     if (event.isError) projected.errorHead = utf8Head(event.content)
+    if (event.toolImages) projected.toolImages = event.toolImages
     return projected
   }
 

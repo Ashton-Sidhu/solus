@@ -180,6 +180,7 @@ export const RPC_INVOKE_METHODS = [
   'getThreadGoal',
   'setThreadGoal',
   'clearThreadGoal',
+  'compactSession',
   'loadPlanAnnotations',
   'savePlanAnnotations',
   'toggleBookmarkPlan',
@@ -525,12 +526,6 @@ export const RPC_INVOKE_METHODS = [
   'automationCancel',
   'automationListRuns',
   'automationReadRun',
-
-  // Watches (docs/plans/watches.md): list one session's watches and control them
-  'watchList',
-  'watchPause',
-  'watchResume',
-  'watchCancel',
 
 
   // PR checks cache + renderer activity hint

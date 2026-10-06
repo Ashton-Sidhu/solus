@@ -1,7 +1,7 @@
 import { getWorkspaceContext, getSettingsContext, getClientShellContext } from '../../../contexts';
 import type { Prompt, PromptDelivery, RunConfig, PluginCommandsResult } from '@solus/contracts/types';
 import type PromptEditor from '../../ui/PromptEditor.svelte';
-import { SLASH_COMMANDS, slashCommandAppliesTo, type SlashCommand } from '../slash-commands';
+import { CODEX_SLASH_COMMANDS, SLASH_COMMANDS, slashCommandAppliesTo, type SlashCommand } from '../slash-commands';
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth';
 import { createGoalCommand } from './goal-command';
 import { loadPromptHistory, savePromptToHistory } from './prompt-history';
@@ -77,11 +77,11 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     value: string,
   ): { cmd: SlashCommand; argument: string } | null {
     const provider = getOptions().run?.provider;
-    for (const cmd of SLASH_COMMANDS) {
+    for (const cmd of [...SLASH_COMMANDS, ...CODEX_SLASH_COMMANDS]) {
       if (!slashCommandAppliesTo(cmd, provider)) continue;
       if (!value.startsWith(cmd.command)) continue;
       // A sign-in command takes the shared parser's word, so every client agrees on what reaches the agent.
-      if (cmd.providers && !parseAgentAuthCommand(value, provider)) continue;
+      if (SLASH_COMMANDS.includes(cmd) && cmd.providers && !parseAgentAuthCommand(value, provider)) continue;
       const rest = value.slice(cmd.command.length);
       if (rest && !/^[ \t\n]/.test(rest)) continue;
       return { cmd, argument: rest ? rest.slice(1) : "" };
@@ -112,6 +112,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       },
       addSystemMessage: (message) => {
         if (targetTabId) session.addSystemMessage(message, targetTabId);
+        else toasts.info(message);
       },
       appendGlobalInstructions: (text) => {
         const existing = theme.extraInstructions.trim();
@@ -284,7 +285,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       }
     }
 
-    const solusCommand = solusCommandFromInput(inputText);
+    const solusCommand = solusCommandFromInput(text);
     if (solusCommand) {
       prompt.text = "";
       composerEl?.clearEditor();

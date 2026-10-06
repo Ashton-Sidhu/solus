@@ -1,8 +1,39 @@
+import type { SDKControlGetUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentUsageLimits, UsageWindow } from '@solus/contracts/types'
 
 /** The two windows the `/usage` report exposes, before they're wrapped in a
  *  provider envelope. */
 export type ClaudeUsageWindows = Pick<AgentUsageLimits, 'fiveHour' | 'weekly'>
+
+/** The windows plus the plan tier, which only the structured usage API names. */
+export type ClaudeUsageReport = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'planType'>
+
+type ApiUsageWindow = { utilization: number | null; resets_at: string | null } | null | undefined
+
+/**
+ * Maps the SDK's structured usage answer. `utilization` is already a percent
+ * (0-100), and `resets_at` is ISO 8601. Returns null when plan limits do not
+ * apply (API key, Bedrock, Vertex) or the answer carries no window, so the
+ * meter reads "unknown" rather than 0%. Per-model weekly windows are not kept:
+ * the usage shape has no place for them.
+ */
+export function claudeUsageFromApi(response: SDKControlGetUsageResponse): ClaudeUsageReport | null {
+  if (!response.rate_limits_available || !response.rate_limits) return null
+  const fiveHour = apiUsageWindow(response.rate_limits.five_hour)
+  const weekly = apiUsageWindow(response.rate_limits.seven_day)
+  if (!fiveHour && !weekly) return null
+  return { fiveHour, weekly, planType: response.subscription_type ?? null }
+}
+
+function apiUsageWindow(window: ApiUsageWindow): UsageWindow | null {
+  if (!window || typeof window.utilization !== 'number') return null
+  const resetsAt = window.resets_at ? Date.parse(window.resets_at) : NaN
+  return {
+    usedPercent: window.utilization,
+    resetsAt: Number.isFinite(resetsAt) ? resetsAt : null,
+    resetsLabel: null,
+  }
+}
 
 // Anchored on the line prefixes, not line position: the report also carries
 // per-model week lines ("Current week (Fable)") and a usage breakdown whose

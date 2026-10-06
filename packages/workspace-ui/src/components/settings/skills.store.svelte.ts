@@ -11,7 +11,6 @@ export class SkillsStore {
   loading = $state(false)
   loaded = $state(false)
   error = $state('')
-  message = $state('')
   busy = $state<string | null>(null)
   readonly errors = new SvelteMap<string, string>()
   private readonly installedIds = new SvelteMap<string, string>()
@@ -50,7 +49,6 @@ export class SkillsStore {
     if (this.busy) return false
     this.busy = skill.id
     this.errors.delete(skill.id)
-    this.message = ''
     try {
       const result = await api.skillsInstall(skill.id)
       if (!result.ok) {
@@ -58,7 +56,6 @@ export class SkillsStore {
         return false
       }
       this.installedIds.set(skill.id, skill.name)
-      this.message = `${skill.name} installed globally.`
       if (canManage) await this.load(api)
       return true
     } catch {
@@ -73,7 +70,6 @@ export class SkillsStore {
     if (this.busy) return false
     this.busy = name
     this.errors.delete(name)
-    this.message = ''
     try {
       const result = await api.skillsRemove(name)
       if (!result.ok) {
@@ -84,7 +80,6 @@ export class SkillsStore {
       for (const [id, installedName] of this.installedIds) {
         if (installedName === name) this.installedIds.delete(id)
       }
-      this.message = `${name} removed globally.`
       await this.load(api)
       return true
     } catch {

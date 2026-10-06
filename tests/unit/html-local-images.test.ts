@@ -3,7 +3,7 @@ import {
   inlineLocalImages,
   localImagePath,
   localImageReferences,
-} from '../../packages/workspace-ui/src/components/conversation/lib/html-local-images'
+} from '../../packages/contracts/src/html-local-images'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw=='
@@ -41,7 +41,7 @@ describe('writing local images into the page', () => {
   test('each local image becomes a data: URL typed by its extension', async () => {
     const html = '<img src="/tmp/shot.png"><i style="background:url(/tmp/shot.png)"></i>'
     const inlined = await inlineLocalImages(html, async () => new Blob([PNG], { type: 'application/octet-stream' }))
-    expect(inlined).toBe(`<img src="${PNG_DATA_URL}"><i style="background:url(${PNG_DATA_URL})"></i>`)
+    expect(inlined).toEqual({ html: `<img src="${PNG_DATA_URL}"><i style="background:url(${PNG_DATA_URL})"></i>`, missing: [] })
   })
 
   test('an image the host cannot serve stays as written and the rest still load', async () => {
@@ -51,13 +51,14 @@ describe('writing local images into the page', () => {
       if (path === '/gone.png') throw new Error('not found')
       return new Blob([PNG])
     })
-    expect(inlined).toBe(`<img src="/gone.png"><img src="${PNG_DATA_URL}">`)
+    // The preview names it, so the agent can fix the path.
+    expect(inlined).toEqual({ html: `<img src="/gone.png"><img src="${PNG_DATA_URL}">`, missing: ['/gone.png'] })
   })
 
   test('markup with no local image is returned untouched without reading anything', async () => {
     let reads = 0
     const html = '<img src="https://example.com/a.png">'
-    expect(await inlineLocalImages(html, async () => { reads++; return null })).toBe(html)
+    expect(await inlineLocalImages(html, async () => { reads++; return null })).toEqual({ html, missing: [] })
     expect(reads).toBe(0)
   })
 })

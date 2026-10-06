@@ -240,13 +240,15 @@
     <div class="no-scrollbar no-drag flex min-w-0 flex-1 items-center gap-2 overflow-x-auto" role="tablist" aria-label="Devices in this session">
       {#each previewGroups(deviceState, previews) as group (group.deviceHostId)}
         {@const holdsActive = group.previews.some((target) => target.devicePreviewId === preview?.devicePreviewId)}
-        <div class="no-drag flex shrink-0 items-center gap-0.5 rounded-full py-0.5 pr-0.5 pl-2.5 {holdsActive && !showBuilds ? 'bg-[var(--wash-1)] shadow-[shadow:0_0_0_0.5px_var(--hairline)]' : ''}">
+        <!-- The chips keep their look on the Builds page: the pressed Builds pill says which view is open. -->
+        <div class="no-drag flex shrink-0 items-center gap-0.5 rounded-full py-0.5 pr-0.5 pl-2.5 {holdsActive ? 'bg-[var(--wash-1)] shadow-[shadow:0_0_0_0.5px_var(--hairline)]' : ''}">
           <Monitor class="size-3 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
           <span class="text-workspace-chrome mr-1 ml-1.5 max-w-32 shrink-0 truncate text-(--solus-text-tertiary)" title={group.label}>{group.label}</span>
           {#each group.previews as target (target.devicePreviewId)}
-            {@const selected = target.devicePreviewId === preview?.devicePreviewId && !showBuilds && !adding}
+            {@const chosen = target.devicePreviewId === preview?.devicePreviewId}
+            {@const selected = chosen && !showBuilds && !adding}
             {@const status = tabStatus(target)}
-            <div class="group/page flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-full py-1 pr-1 pl-2.5 transition-colors {selected ? 'bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)]' : 'hover:bg-[var(--wash-2)]'}">
+            <div class="group/page flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-full py-1 pr-1 pl-2.5 transition-colors {chosen ? 'bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)]' : 'hover:bg-[var(--wash-2)]'}">
               {#if status !== "live"}
                 <span class="size-1.5 shrink-0 rounded-full {status === 'booting' ? 'bg-[var(--warning)]' : 'bg-[var(--failure)]'}" title={liveStateLabel(status)}></span>
               {/if}
@@ -257,7 +259,7 @@
                   onblur={(event) => commitRename(target, event.currentTarget.value)} />
               {:else}
                 <button type="button" role="tab" aria-selected={selected}
-                  class="text-workspace-chrome min-w-0 max-w-40 truncate font-medium {selected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}"
+                  class="text-workspace-chrome min-w-0 max-w-40 truncate font-medium {chosen ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}"
                   onclick={() => selectPreview(target)}
                   ondblclick={() => (renaming = target.devicePreviewId)}
                   onkeydown={(event) => { if (event.key === "F2") renaming = target.devicePreviewId; }}
@@ -268,7 +270,7 @@
               <!-- The close holds its slot at zero opacity, so hovering a chip
                    never shifts the label under the pointer. -->
               <button type="button"
-                class="flex size-4 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-opacity group-hover/page:opacity-100 hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100 {selected ? 'opacity-50' : 'opacity-0'}"
+                class="flex size-4 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-opacity group-hover/page:opacity-100 hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100 {chosen ? 'opacity-50' : 'opacity-0'}"
                 aria-label="Close {tabLabel(target)}" onclick={() => closePreview(target)}>
                 <X class="size-2.5" />
               </button>
@@ -322,7 +324,6 @@
   {:else if showBuilds}
     <div class="text-workspace-chrome flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-8">
       <div class="w-full max-w-md">
-        <h2 class="mb-2 text-(--solus-text-primary)">Builds</h2>
         <DeviceBuilds {serverId} {sessionId} {deviceState} onInstalled={refocusComposer} />
       </div>
     </div>

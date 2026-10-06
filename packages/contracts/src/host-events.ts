@@ -32,7 +32,6 @@ import type { AgentAuthFinishedEvent } from './agent-auth'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus, Publication } from './organization-scope'
 import type { UplinkStatus } from './uplink'
-import type { WatchChangedEvent } from './watch-types'
 import type { WorkReviewsChanged } from './work-review'
 import type { NotificationsChanged } from './notification-hub'
 import type { WorkLiveAwarenessEvent, WorkLiveStateEvent, WorkLiveUpdateEvent } from './work-live'
@@ -66,7 +65,6 @@ export interface HostEventMap {
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
   'automation.changed': AutomationsChangedEvent
-  'watch.changed': WatchChangedEvent
   'provider.deviceCodeReceived': DeviceCodePrompt
   'git.actionProgressed': GitActionProgressEvent
   'review.progressChanged': ReviewProgressEvent
@@ -205,7 +203,6 @@ export const HOST_EVENT_DEFINITIONS = {
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },
   'automation.changed': { owner: 'automations', category: 'delta', recovery: 'reload', description: 'A durable automation or its run state changed.' },
-  'watch.changed': { owner: 'watches', category: 'delta', recovery: 'reload', description: 'A watch changed state: saved, woke its session, or ended.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },

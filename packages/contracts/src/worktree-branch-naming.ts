@@ -187,17 +187,23 @@ function escapeRegExp(text: string): string {
 /**
  * The id of a branch that is still the temporary name of this naming, with
  * or without a collision suffix, or null for any other branch. Only a
- * temporary branch is renamed: a name a person or agent chose stays.
+ * temporary branch is renamed: a name a person or agent chose stays. The
+ * flat form (`solus-<id>`) counts too: the server uses it when a branch named
+ * like a parent segment (`solus`) blocks the namespace.
  */
 export function temporaryWorktreeBranchId(branch: string, namer: WorktreeBranchNamer): string | null {
   const naming = effectiveWorktreeBranchNaming(namer.naming)
   if (!namesFromTitle(naming)) return null
   const sample = render(naming, { id: ID_SENTINEL, slug: null }, namer.user)
   if (!sample) return null
-  const [first, ...rest] = escapeRegExp(sample).split(ID_SENTINEL)
-  // The first id captures; a repeat (`{id}` and `{slug}`) must be the same id.
-  const pattern = first + rest.map((part, index) => (index === 0 ? `(${SHORT_ID_PATTERN})` : '\\1') + part).join('')
-  return new RegExp(`^${pattern}(?:-\\d+)?$`).exec(branch)?.[1] ?? null
+  for (const form of new Set([sample, sample.replace(/\//g, '-')])) {
+    const [first, ...rest] = escapeRegExp(form).split(ID_SENTINEL)
+    // The first id captures; a repeat (`{id}` and `{slug}`) must be the same id.
+    const pattern = first + rest.map((part, index) => (index === 0 ? `(${SHORT_ID_PATTERN})` : '\\1') + part).join('')
+    const id = new RegExp(`^${pattern}(?:-\\d+)?$`).exec(branch)?.[1]
+    if (id) return id
+  }
+  return null
 }
 
 /** An example of the final name, for the Settings preview. */
